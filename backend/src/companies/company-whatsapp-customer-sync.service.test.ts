@@ -29,14 +29,21 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.webwhatsBridge || {}),
   } as any;
 
+  const publishedEvents: Array<Record<string, unknown>> = [];
+  const inboxRealtime = {
+    publish: (event: Record<string, unknown>) => { publishedEvents.push(event); },
+    ...(overrides?.inboxRealtime || {}),
+  } as any;
+
   const service = new CompanyWhatsAppCustomerSyncService(
     prisma,
     cadastrosService,
     operationalStatus,
     webwhatsBridge,
+    inboxRealtime,
   );
 
-  return { service, prisma, cadastrosService, operationalStatus, webwhatsBridge };
+  return { service, prisma, cadastrosService, operationalStatus, webwhatsBridge, inboxRealtime, publishedEvents };
 }
 
 test('syncCompanyCustomers usa Meta e cadastra contatos sem nome com o telefone', async () => {
@@ -294,4 +301,37 @@ test('bootstrapAfterWhatsappConnect conclui quando WebWhats esta ativo mesmo sem
   assert.equal(result.engine, 'webwhats');
   assert.equal(result.syncedContacts, 0);
   assert.equal(result.syncedConversations, 0);
+});
+
+test('bootstrapAfterWhatsappConnect cutuca a inbox via SSE pra recarregar sem hard refresh', async () => {
+  const { service, publishedEvents } = createService({
+    operationalStatus: {
+      getOperationalStatusForCompany: async () => ({ metaActive: false, webWhatsActive: true }),
+    },
+    webwhatsBridge: {
+      syncRecentChats: async () => 3,
+      listContacts: async () => [],
+    },
+  });
+
+  const result = await service.bootstrapAfterWhatsappConnect(9);
+
+  assert.equal(result.bootstrapOk, true);
+  // Publica ao menos um event:inbox imediato — o front faz bump()→loadConvs() em cima dele,
+  // então a lista atualiza sozinha mesmo que o onConnected tenha disparado antes do sync.
+  const refreshEvents = publishedEvents.filter((e) => e.companyId === 9 && e.kind === 'conversation');
+  assert.equal(refreshEvents.length >= 1, true);
+});
+
+test('bootstrapAfterWhatsappConnect nao publica quando WebWhats nao esta conectado', async () => {
+  const { service, publishedEvents } = createService({
+    operationalStatus: {
+      getOperationalStatusForCompany: async () => ({ metaActive: false, webWhatsActive: false }),
+    },
+  });
+
+  const result = await service.bootstrapAfterWhatsappConnect(9);
+
+  assert.equal(result.bootstrapOk, false);
+  assert.equal(publishedEvents.length, 0);
 });

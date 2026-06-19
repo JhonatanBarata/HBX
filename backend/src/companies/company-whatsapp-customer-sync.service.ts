@@ -3,6 +3,7 @@ import { CadastrosService } from '../cadastros/cadastros.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeWhatsAppDigits, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { CompanyOperationalStatusService } from './company-operational-status.service';
 
 export type SyncEngine = 'meta' | 'webwhats';
@@ -35,12 +36,74 @@ export type WhatsAppConnectBootstrapResult = {
 export class CompanyWhatsAppCustomerSyncService {
   private readonly logger = new Logger(CompanyWhatsAppCustomerSyncService.name);
 
+  // Re-sync deferido por empresa: o connect dispara o motor (Baileys), mas ele só
+  // termina de puxar contatos/histórico do servidor do WhatsApp DEPOIS — então o
+  // bootstrap one-shot nasce parcial (lista incompleta, fotos faltando). Estes timers
+  // re-sincronizam quando o motor esquentou e publicam SSE pra inbox recarregar sozinha
+  // (sem hard refresh). Guarda 1 conjunto por empresa: religar limpa o anterior.
+  private readonly deferredResyncTimers = new Map<number, NodeJS.Timeout[]>();
+  private static readonly DEFERRED_RESYNC_DELAYS_MS = [6000, 16000];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cadastrosService: CadastrosService,
     private readonly operationalStatus: CompanyOperationalStatusService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
+    private readonly inboxRealtime: InboxRealtimeService,
   ) {}
+
+  // Cutuca o stream SSE da empresa (GET /inbox/events) — o front faz bump()→loadConvs()
+  // em qualquer event:inbox, então um 'conversation' sem id basta pra "a lista mudou".
+  private publishInboxRefresh(companyId: number) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) return;
+    this.inboxRealtime.publish({
+      companyId: normalizedCompanyId,
+      kind: 'conversation',
+      at: new Date().toISOString(),
+    });
+  }
+
+  private clearDeferredResync(companyId: number) {
+    const timers = this.deferredResyncTimers.get(companyId);
+    if (!timers) return;
+    for (const timer of timers) clearTimeout(timer);
+    this.deferredResyncTimers.delete(companyId);
+  }
+
+  // Agenda 1–2 re-syncs após o connect (motor esquentando). Cada passo re-puxa chats/
+  // contatos e publica SSE; backfilla as fotos que ainda não vieram. Falha (ex.: caiu a
+  // sessão) só loga — nunca derruba o processo.
+  private scheduleDeferredResync(companyId: number) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) return;
+    this.clearDeferredResync(normalizedCompanyId);
+
+    const timers = CompanyWhatsAppCustomerSyncService.DEFERRED_RESYNC_DELAYS_MS.map((delay) => {
+      const timer = setTimeout(() => {
+        void (async () => {
+          try {
+            const result = await this.syncCompanyCustomers(normalizedCompanyId, {
+              requiredEngine: 'webwhats',
+              failOnEmptySource: false,
+            });
+            this.logger.log(
+              `Re-sync deferido (${delay}ms) company ${normalizedCompanyId}: chats=${result.syncedConversations}, contatos=${result.syncedContacts}.`,
+            );
+            this.publishInboxRefresh(normalizedCompanyId);
+          } catch (error: any) {
+            this.logger.warn(
+              `Re-sync deferido (${delay}ms) falhou company ${normalizedCompanyId}: ${String(error?.message || error)}`,
+            );
+          }
+        })();
+      }, delay);
+      timer.unref?.();
+      return timer;
+    });
+
+    this.deferredResyncTimers.set(normalizedCompanyId, timers);
+  }
 
   private resolveActiveEngine(
     status: { metaActive?: boolean; webWhatsActive?: boolean } | null,
@@ -496,6 +559,11 @@ export class CompanyWhatsAppCustomerSyncService {
       this.logger.log(
         `Bootstrap WhatsApp concluido para company ${normalizedCompanyId}: contacts=${payload.syncedContacts}, chats=${payload.syncedConversations}.`,
       );
+      // Cutuca a inbox agora (caso o onConnected do front tenha disparado loadConvs antes
+      // deste sync terminar) e agenda re-syncs deferidos pro motor terminar de esquentar —
+      // mata o "precisa hard refresh" e backfilla as fotos que ainda não vieram.
+      this.publishInboxRefresh(normalizedCompanyId);
+      this.scheduleDeferredResync(normalizedCompanyId);
       return payload;
     } catch (error: any) {
       const message = String(error?.message || 'Falha ao executar bootstrap local do WhatsApp.');

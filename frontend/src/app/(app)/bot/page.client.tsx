@@ -19,6 +19,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 type BotButton = { buttonId: string; actionId: string; title: string; nextNodeId?: string };
 
@@ -131,6 +132,7 @@ const NODE_CONFIG_FIELD: Record<string, keyof BotConfig> = {
 };
 
 export function BotClient() {
+  const isMobile = useIsMobile();
   const [selNode, setSelNode] = useState("cond");
   const [chat, setChat] = useState(CHAT0);
   const [draft, setDraft] = useState("");
@@ -356,6 +358,66 @@ export function BotClient() {
     ? config.setup?.completed ? "✓ Configurado" : "Configuração pendente"
     : "✓ Salvo";
   const botAtivo = Boolean(config?.routingRules?.globalBotEnabled);
+
+  // --- Render alternativo mobile: mesma rota /bot, sem canvas ---
+  if (isMobile) {
+    return (
+      <React.Fragment>
+        <div className="bot-head">
+          <h1>Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
+          <span className={"saved" + (config && !config.setup?.completed ? " bot-badge--warn" : "")}>{setupBadge}</span>
+          {cfgMsg && (
+            <span className={"bot-mobile-msg" + (cfgMsg.startsWith("✓") ? " bot-mobile-msg--ok" : " bot-mobile-msg--err")}>{cfgMsg}</span>
+          )}
+        </div>
+
+        <div className="bot-mobile-view">
+          {/* Aviso */}
+          <div className="bot-mobile-notice">
+            <I d={ICONS.scrape} size={15} />
+            Edição do desenho é no computador. Aqui você vê o fluxo e controla o bot.
+          </div>
+
+          {/* Lista dos blocos do fluxo em leitura */}
+          <div className="bot-block-list">
+            {NODES.map(n => (
+              <div className="bot-block-item" key={n.id}>
+                {/* usa CSS custom property --bot-nc (layout + cor via var, não visual prop) */}
+                <span className="bicon bot-block-icon" style={{ "--bot-nc": n.c, width: 34, height: 34, flexShrink: 0 } as React.CSSProperties}>
+                  <I d={ICONS[n.ic]} size={16} />
+                </span>
+                <div className="bot-block-body">
+                  <div className="bot-block-title">{n.t}</div>
+                  <div className="bot-block-text">{nodeBody(n)}</div>
+                  {n.f && <div className="bot-block-text" style={{ marginTop: 3 }}>{n.f}</div>}
+                  {n.yn && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                      <span className="tag teal">Sim</span>
+                      <span className="tag">Não</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Ações principais */}
+          <div className="bot-mobile-actions">
+            <button className="btn-ghost" onClick={() => setTab(0)}>
+              <I d={ICONS.send} size={14} /> Testar bot
+            </button>
+            <button
+              className={"btn-teal"}
+              onClick={publicar}
+              disabled={cfgBusy}
+            >
+              {cfgBusy ? "Aguarde…" : botAtivo ? "Desativar bot" : "Ativar bot"}
+            </button>
+          </div>
+        </div>
+      </React.Fragment>
+    );
+  }
 
   return (
     <React.Fragment>

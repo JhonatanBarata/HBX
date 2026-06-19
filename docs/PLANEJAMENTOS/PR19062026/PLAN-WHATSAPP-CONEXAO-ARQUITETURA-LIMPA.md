@@ -61,6 +61,83 @@ herdar `wipedAt` de outro contexto/número — senão o bootstrap do connect nas
 a proteção de wipe do MESMO número via supressão por-contato (já number-aware, agente 2).
 Falta também verificar Bug 1 (disconnect/logout do aparelho) ao vivo.
 
+## 0.3) TESTE DE CAMPO NA VPS 19/06 — 3 sintomas, 3 veredictos (o dono testando ao vivo)
+
+> O dono está **no VPS** testando com chips reais. Pediu: "não pule pro diagnóstico, o chip ainda
+> está sufocado, vamos testando" e "vai salvando no planejamento". Esta seção é o registro das
+> decisões. NÃO há ação live executada por mim (guardrail): só leitura de código + diagnóstico.
+> Disparo real / deploy / DB de prod = só o dono.
+
+### Sintoma 1 — "mensagem não SAI mas RECEBE" no `5519920121720` (chip novo)
+- **Recebe** = motor `open`, webhook fluindo, ingest acha a sessão. **Não sai** = OUTBOUND vira FAILED.
+- O outro número (`019997024884`) enviou **perfeito**. Dono: "é o chip."
+- **VEREDICTO: não existe trava DAQUI nesse número.** Provas no código:
+  1. **Sem supressão/floor/merge** — removidos no commit *store-on-arrival*
+     ([inbox.service.ts:5968](../../../backend/src/inbox/inbox.service.ts) — funções viraram comentário).
+     Nada bloqueia contato/numero na nossa camada.
+  2. **Sem normalização que estrague o número** — `resolveSendTarget`
+     ([webwhats-bridge.service.ts:4438](../../../backend/src/messaging/webwhats-bridge.service.ts))
+     **reusa o `whatsappRemoteJid` do inbound**: manda exatamente o JID que o motor já reconheceu
+     ao receber. Não há armadilha de 9º dígito no envio.
+  3. **Número não é special-case** — `5519920121720` no backend só aparece em **testes**
+     (`*.test.ts`). O único número hard-coded é OUTRO: `5519997024884` = `ADMIN_SUPPORT_PHONE`
+     ([companies.service.ts:69](../../../backend/src/companies/companies.service.ts)), usado pra
+     alerta/suporte — não bloqueia envio.
+  4. **O FAILED nasce no MOTOR** — `deliveryStatus:'failed'` + `status:'FAILED'` + `lastError` vêm
+     do **webhook de entrega** ([messaging.service.ts:5351](../../../backend/src/messaging/messaging.service.ts)),
+     payload do próprio WhatsApp. É o que alimenta o banner `.throttle-warn` (≥3 FAILED).
+- **Conclusão:** sintoma 100% compatível com **estrangulamento/ban do chip novo** pelo WhatsApp
+  (número fresco mandando ativo → flag de spam). Confirma o dono. **Não queimar tempo de código aqui.**
+- **Resíduo a vigiar (única hipótese interna restante):** se o *selector* do envio resolvesse um
+  `tenantKey`/sessão DIFERENTE da instância `open` no motor → POST cairia em instância morta → FAILED.
+  Mas como o inbound DESSE número funciona, a sessão existe e resolve — risco baixo. Vale um log do
+  `tenantKey` usado no `sendText` quando der FAILED, pra exonerar de vez (barato, não-destrutivo).
+
+### Sintoma 2 — fotos de perfil não sincronizam direito
+- **Onde:** `fetchProfilePicture` ([webwhats-bridge.service.ts:2890](../../../backend/src/messaging/webwhats-bridge.service.ts))
+  faz `POST /chat/fetchProfilePictureUrl/{tenantKey}` com `treatNotFoundAsNull:true` → foto ausente
+  vira **null em silêncio**.
+- **Quando:** a foto só é buscada **no sync**, e só quando `metadata.whatsappAvatarUrl` ainda está
+  vazio ([:462-464](../../../backend/src/messaging/webwhats-bridge.service.ts)) — busca **só do
+  `syncableRemoteJids[0]`**.
+- **Causa-raiz:** no instante do connect o motor (Baileys) **ainda não terminou de puxar contatos**
+  do servidor do WhatsApp → `fetchProfilePictureUrl` volta null → conversa nasce sem avatar. Como
+  só re-busca em outro sync (e o connect é one-shot), a foto fica faltando até um **hard refresh /
+  abrir a thread / reconectar**. Não é cache podre (o `...(avatarUrl?...)` só grava quando há foto,
+  então re-tenta) — é **falta de gatilho de re-sync depois que o motor esquenta**.
+
+### Sintoma 3 — ao conectar, conversas/contatos NÃO aparecem sozinhas (precisa hard refresh)
+- **O front JÁ tem tempo real:** SSE `GET /inbox/events` → `event: inbox` → `bump()` (debounce 600ms)
+  → `loadConvs()` ([atendimento/page.client.tsx:530-563](../../../frontend/src/app/(app)/atendimento/page.client.tsx)).
+  E `onConnected` chama `loadConvs()` **uma vez** ([:421-424](../../../frontend/src/app/(app)/atendimento/page.client.tsx)).
+- **CAUSA-RAIZ PROVADA:** o **bootstrap sync do connect (em `webwhats-bridge.service.ts`) NÃO publica
+  `inboxRealtime.publish`** — todos os publishers de SSE estão em `messaging.service.ts` (webhook
+  inbound), `inbox.service.ts:400` e `vendas-automation`; **nenhum no bridge**. Logo: o connect dispara
+  `loadConvs()` **antes** do motor terminar de puxar o histórico, e quando o bootstrap finalmente enche
+  o banco **ninguém cutuca o front** → lista parada até o hard refresh (que re-busca tudo já populado).
+- Por isso a mensagem que CHEGA depois (inbound ao vivo) **aparece** — essa passa por
+  `messaging.service` que publica SSE. Só o **histórico do connect** fica órfão de evento.
+
+### Direções de conserto (DECIDIR antes de executar — não fiz código)
+Os 3 sintomas internos (2 e 3) têm **uma raiz comum**: o sync é disparado no connect, one-shot, e o
+motor esquenta DEPOIS, sem ninguém re-sincronizar nem avisar o front.
+- **Conserto unificador (recomendado) — [APLICADO 19/06, dono escolheu]:** após o bootstrap do
+  connect, rodar um **re-sync deferido (passos 6s e 16s, `.unref()`)** + **`inboxRealtime.publish`**
+  imediato e a cada passo. Mata #3 (lista atualiza sozinha) e #2 (avatares chegam no re-sync) de uma
+  vez. Implementado em
+  [company-whatsapp-customer-sync.service.ts](../../../backend/src/companies/company-whatsapp-customer-sync.service.ts):
+  `publishInboxRefresh` (event `kind:'conversation'` → front `bump()`→`loadConvs()`),
+  `scheduleDeferredResync` (1 conjunto de timers por empresa; religar limpa o anterior) e disparo no
+  fim de `bootstrapAfterWhatsappConnect`. Checks: `npm run build` verde + 9/9 em
+  `company-whatsapp-customer-sync.service.test.ts` (2 testes novos cobrem publish-sim/publish-não).
+  **Falta o teste de campo na VPS** (chip real conectando → lista/foto aparecem sem hard refresh).
+- **Alternativa barata p/ #3 (só front, sem backend):** depois do `onConnected`, re-rodar
+  `loadConvs()` em backoff (ex.: 2s/5s/12s) pra pegar o bootstrap pousando. Paliativo honesto.
+- **Reativo (10/10):** reagir aos webhooks `contacts.update` / `chats.upsert` do motor → backfill de
+  avatar/nome + push SSE. Some o hard refresh de vez e mantém foto fresca.
+- **Sintoma 1:** nada a consertar no código (é chip). Único item: log do `tenantKey` no FAILED do
+  `sendText` pra exonerar a hipótese de split-brain no envio.
+
 ## 1) Os 4 problemas-raiz (não são bugs — é arquitetura)
 
 1. **Dois nomes de instância convivem.** `company-{id}` (legado por-empresa) e

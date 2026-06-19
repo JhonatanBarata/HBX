@@ -1,0 +1,831 @@
+/* ============================================================
+   HBX — MOBILE (camada mobile de 1ª classe, 19/06/2026)
+   Substitui responsive.css. ENTRA POR ÚLTIMO no globals.css.
+
+   REGRA DE OURO: TODA regra que muda layout mora DENTRO de @media
+   (max-width). O desktop NÃO lê nada disto — fica idêntico, byte a
+   byte. As 5 Leis seguem: só ESTRUTURA aqui (grid/posição/tamanho),
+   nenhuma cor/sombra/fonte literal — pintura vem de token.
+
+   MODELO: o shell continua TRAVADO na altura (.app = 100dvh, overflow
+   hidden) e quem rola é o conteúdo POR DENTRO (.work, panes do chat)
+   — igual ao desktop. No celular: (1) sidebar vira gaveta, (2) colunas
+   empilham, (3) nav principal = barra de abas inferior, (4) telas
+   difíceis ganham tratamento próprio. NÃO viramos "página inteira rola"
+   — isso quebraria o composer do chat e a altura do bot.
+
+   Breakpoints:
+   - ≤ 860px → "app de celular": gaveta + barra de abas + empilha grids.
+   - ≤ 640px → telefone: colapsa TODO grid inline (style=) pra 1 coluna.
+
+   Marcadores de seção — cada parte preenche a sua:
+   SEÇÕES: SHELL+ABAS (Parte 1) · LOGIN (Parte 1) ·
+   INÍCIO/ATENDIMENTO/VENDAS (Parte 2) · RADAR/BOT/RELATÓRIOS/CONFIG (Parte 3).
+   ============================================================ */
+
+/* Elementos do mobile que existem no DOM mas NUNCA aparecem no desktop. */
+.mobile-nav-veil  { display: none; }
+.chat-back        { display: none; }
+/* Barra de abas inferior: escondida no desktop, aparece só no @media. */
+.mobile-tab-bar   { display: none; }
+
+/* ============================================================
+   === SHELL + ABAS ===
+   ≤ 860px — shell vira app de celular com barra de abas inferior
+   ============================================================ */
+@media (max-width: 860px) {
+
+  /* --- Grid do shell: 1 coluna (sidebar sai do fluxo) --- */
+  .app { grid-template-columns: 1fr; }
+
+  /* --- Sidebar = GAVETA deslizante --- */
+  .side {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 60;
+    width: min(82vw, 300px);
+    transform: translateX(-100%);
+    transition: transform var(--motion-base, 0.24s) var(--ease-out-quint, ease);
+    box-shadow: var(--shadow-lg);
+    will-change: transform;
+  }
+  .app[data-mobile-nav="open"] .side { transform: none; }
+
+  /* --- Véu atrás da gaveta --- */
+  .mobile-nav-veil {
+    display: block;
+    position: fixed; inset: 0;
+    z-index: 55;
+    border: none; padding: 0; margin: 0;
+    cursor: pointer;
+    background: color-mix(in srgb, #000 46%, transparent);
+    animation: hbx-bv-fade var(--motion-fast, 0.18s) var(--ease-out-quint, ease);
+  }
+
+  /* --- Topbar mobile: hambúrguer some (abas são a nav principal);
+         título trunca + sino + avatar. Busca grande some. --- */
+  .topbar { gap: 8px; padding: 9px 12px; }
+  .search { display: none; }
+  /* Hambúrguer oculto no mobile: navegação principal é a barra de abas */
+  .burger { display: none; }
+  .top-actions { gap: 4px; margin-left: auto; }
+  .round-btn { width: 32px; height: 32px; }
+  .page-id { min-width: 0; }
+  .page-id h1 {
+    font-size: 1.02rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .crumbs { display: none; }
+
+  /* --- PeleSwitch: esconde no mobile (disponível na folha "Mais") --- */
+  .topbar .btn-ghost[aria-label="Escolher pele"] { display: none; }
+
+  /* --- Reserva espaço da barra de abas no conteúdo --- */
+  .app-page { padding-bottom: 64px; }
+
+  /* --- Barra de abas inferior --- */
+  .mobile-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 50;
+    height: 60px;
+    align-items: stretch;
+    border-top: 1px solid var(--border-hairline);
+    background: var(--hbx-nav-surface);
+    /* Garante que a barra fique sobre o conteúdo */
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Cada aba da barra */
+  .mobile-tab-bar__item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 0.6rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 6px 4px;
+    text-decoration: none;
+    transition: color var(--motion-fast);
+  }
+  .mobile-tab-bar__item:hover { color: var(--text-body); }
+  .mobile-tab-bar__item.active { color: var(--hbx-brand-strong); }
+
+  /* --- Folha "Mais" (bottom sheet via .hbx-veil.to-bottom / .hbx-drawer-bottom) --- */
+  /* Variante de véu para bottom sheet: encosta ao fundo, largura cheia */
+  .hbx-veil.to-bottom {
+    place-items: end stretch;
+    padding: 0;
+  }
+  .hbx-drawer-bottom {
+    border-top: 1px solid var(--border-hairline);
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    background: var(--hbx-surface);
+    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding: 16px 0 env(safe-area-inset-bottom, 8px);
+    animation: hbx-sheet-up var(--motion-base, 0.24s) var(--ease-out-quint, ease);
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  @keyframes hbx-sheet-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  /* Handle da folha */
+  .hbx-drawer-bottom__handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border-strong);
+    margin: 0 auto 12px;
+  }
+  /* Itens da folha "Mais" */
+  .more-sheet__item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 13px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-body);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+    text-decoration: none;
+  }
+  .more-sheet__item:hover { background: var(--hbx-surface-raised); }
+  .more-sheet__item.danger { color: var(--hbx-danger); }
+  .more-sheet__item .more-sheet__icon { flex: 0 0 auto; }
+
+  /* Separador dentro da folha */
+  .more-sheet__sep {
+    height: 1px;
+    background: var(--border-hairline);
+    margin: 6px 0;
+  }
+
+  /* Linha de controles inline (tema + pele) dentro da folha */
+  .more-sheet__controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    flex-wrap: wrap;
+  }
+  .more-sheet__controls .btn-ghost {
+    flex: 1;
+    min-height: 38px;
+    justify-content: center;
+  }
+
+  /* --- Grids de CLASSE empilham (.work continua rolando por dentro) --- */
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .inbox { grid-template-columns: 1fr; }
+  .builder { grid-template-columns: 1fr; }
+  .frow, .tp-grid2, .tp-groups { grid-template-columns: 1fr; }
+  .tp-lim { grid-template-columns: 1fr; gap: 6px; }
+  .stats-strip { grid-template-columns: 1fr 1fr; }
+  .stats-strip .cell {
+    border-left: none;
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  /* --- Telas com painel de contexto (.content = .work + .ctx) --- */
+  .content { display: block; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .content .work { overflow: visible; }
+  .content .ctx {
+    overflow: visible;
+    border-left: none;
+    border-top: 1px solid var(--border-hairline);
+  }
+
+  /* --- ATENDIMENTO: chat é REI no celular (mestre-detalhe) --- */
+  .a-content { grid-template-columns: 1fr; }
+  .a-content .ctx { display: none; }
+  .a-left { padding: 12px 12px 0; }
+  .a-left .kpis { display: none; }
+  .a-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    border-right: 1px solid var(--border-hairline);
+    border-bottom: 1px solid var(--border-hairline);
+    border-radius: var(--panel-radius);
+  }
+  .a-shell .thread { display: none; }
+  .a-shell.mobile-thread-open .convs { display: none; }
+  .a-shell.mobile-thread-open .thread { display: flex; }
+  .chat-back {
+    display: inline-grid;
+    place-items: center;
+    width: 34px; height: 34px;
+    border: none;
+    background: transparent;
+    color: var(--text-body);
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  /* --- VENDAS (kanban .board): swipe horizontal, 1 coluna por vez --- */
+  .board {
+    grid-auto-columns: 85vw;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 16px;
+  }
+  .board > * { scroll-snap-align: start; }
+
+  /* --- Abas/navegações horizontais: rolam de lado em vez de quebrar --- */
+  .tabs, .bot-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .tab, .bot-tab { flex: 0 0 auto; white-space: nowrap; }
+  .set-nav { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; }
+  .set-link { white-space: nowrap; }
+}
+
+/* ============================================================
+   === LOGIN ===
+   ≤ 860px — robô vira faixa fixa no topo (~30vh), card desce
+   ============================================================ */
+@media (max-width: 860px) {
+
+  /* Container: coluna única, sem min-height fixo (o card rola) */
+  .login-console,
+  .login-console.is-plain {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    min-height: 100vh;
+    padding: 0 20px calc(env(safe-area-inset-bottom, 0px) + 24px);
+    /* Faixa do robô no topo ocupa ~30vh; card começa abaixo dela */
+    padding-top: calc(30vh + 16px);
+    gap: 0;
+    align-items: start;
+  }
+
+  /* Painéis laterais: fora no mobile */
+  .login-side { display: none; }
+
+  /* Texto introdutório: centralizado abaixo do robô */
+  .login-shell {
+    justify-items: center;
+    text-align: center;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  /* Robô: faixa fixa no topo (~30vh) */
+  .login-art {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    bottom: auto;
+    height: 30vh;
+    /* Enquadra o robô sem cortar a cabeça */
+    background-position: center top !important;
+    background-size: cover !important;
+    /* Cancela o z-index alto que sobreporia o card */
+    z-index: 1;
+    /* Sem animação/cross-fade no mobile: performance */
+    opacity: 1;
+  }
+
+  /* Frames do robô: estático (só o primeiro frame visível no mobile) */
+  .login-art__frame {
+    animation: none;
+    opacity: 0;
+  }
+  .login-art__frame:nth-child(1) { opacity: 1; }
+
+  /* Cross-fade modo claro: desativa no mobile */
+  .login-art__frame::after { opacity: 0 !important; }
+
+  /* Gradiente de saída lateral: não faz sentido em coluna */
+  .login-art::after { display: none; }
+
+  /* Névoa: esconde no mobile (já não há necessidade de separar esquerda/direita) */
+  .login-fog { display: none; }
+
+  /* Card: z-index acima da faixa */
+  .login-console .login-shell,
+  .login-console .card {
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Toggle visual: ajuste de posição */
+  .login-visual-toggle { right: 58px; padding: 5px 10px; }
+
+  /* Modo .is-plain no mobile: card centralizado + sem robô
+     (mantém a lógica do toggle Visual) */
+  .login-console.is-plain {
+    padding-top: 24px;
+    align-items: center;
+    min-height: 100vh;
+  }
+  .login-console.is-plain .login-art,
+  .login-console.is-plain .login-fog { opacity: 0; pointer-events: none; }
+}
+
+/* ============================================================
+   ≤ 640px — telefone: colapsa TODO grid inline pra 1 coluna
+   (estilo inline vence media query por especificidade — só um
+   seletor de atributo + !important alcança os grids style={{}}).
+   Estrutura pura: não fere as 5 Leis, não toca nenhuma tela.)
+   ============================================================ */
+@media (max-width: 640px) {
+  [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+
+  .kpis { grid-template-columns: 1fr; }
+  .stats-strip { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   === INÍCIO (dashboard) ===
+   ≤ 860px — painéis do dashboard empilham em 1 coluna; KPIs 2×2.
+   ≤ 640px — KPIs em 1 coluna (já coberto pela regra global de 640px).
+   ============================================================ */
+@media (max-width: 860px) {
+  /* KPIs: 2 colunas no mobile (≤640 colapsa para 1 via regra global) */
+  /* Já definido na seção SHELL+ABAS: .kpis { grid-template-columns: 1fr 1fr; } */
+
+  /* Painéis do dashboard (grids inline "1.6fr 1fr" etc.) já colapsam
+     via regra global [style*="grid-template-columns"] em ≤640px.
+     Em 860px (tablet/phone grande) também queremos 1 coluna: */
+  .work > div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Gráfico de barras (.bars): rola horizontalmente em vez de cortar */
+  .bars {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+  }
+
+  /* Atividade recente: lista sem corte */
+  .activity .it { min-height: 44px; }
+
+  /* Tarefa: linha de toque confortável */
+  .task { min-height: 44px; align-items: center; }
+
+  /* Padding-bottom da última seção: garante que não fique sob a barra de abas.
+     O .app-page já tem padding-bottom: 64px (seção SHELL+ABAS), portanto o
+     conteúdo do dashboard (.work) herda — sem duplicar aqui. */
+}
+
+/* ============================================================
+   === ATENDIMENTO (chat) — CHAT É REI ===
+   ≤ 860px — mestre-detalhe completo: lista cheia → toca → thread
+   cheia com "voltar". Compositor FIXO no rodapé da thread, nunca
+   coberto pela barra de abas. Bolhas sem corte horizontal.
+   ============================================================ */
+@media (max-width: 860px) {
+  /* --- Shell de chat: ocupa toda a viewport disponível --- */
+  /* .a-shell já tem grid-template-columns: 1fr (herdado da seção SHELL) */
+
+  /* .a-left: sem padding lateral excessivo no mobile */
+  .a-left {
+    padding: 8px 0 0;
+    gap: 8px;
+    /* KPIs do atendimento: ocultos no mobile (espaço para o chat) */
+  }
+  .a-left .kpis { display: none; }
+
+  /* --- Thread: layout flex-column preenche todo espaço disponível --- */
+  .a-shell.mobile-thread-open .thread {
+    display: flex;
+    flex-direction: column;
+    /* A thread ocupa o espaço restante do a-left */
+    flex: 1;
+    min-height: 0;
+    /* Garante que a thread alcance até o rodapé; o compositor fica sticky */
+    position: relative;
+  }
+
+  /* --- Msgs: rola por dentro, sem tocar o compositor --- */
+  .msgs {
+    /* overflow-y já definido no kit; garantir que não haja overflow horizontal */
+    overflow-x: hidden;
+    /* Sem padding-bottom extra — o compositor é sticky no rodapé */
+  }
+
+  /* Bolhas sem corte horizontal */
+  .bubble {
+    max-width: min(85vw, 420px);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  /* Imagens e vídeos das bolhas: não excedem a largura disponível */
+  .media-img, .media-video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* --- Compositor: SEMPRE fixo no rodapé da thread --- */
+  /* No mobile, o .thread é position:relative (acima) e o compositor
+     fica sticky no fundo. Usar position sticky (melhor que fixed pois
+     está dentro do scroll container correto). */
+  .thread .composer {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    /* Barra de abas tem 60px — o sticky já está dentro do thread que
+       não ultrapassa a barra; o padding-bottom do .app-page (64px)
+       garante o espaço. Sem padding-bottom extra aqui. */
+    flex: 0 0 auto;
+  }
+
+  /* Popover do composer: abre ACIMA para não sair da viewport */
+  .chat-pop {
+    bottom: calc(100% + 6px);
+    top: auto !important;
+  }
+
+  /* Barra de abas: fica visível com a thread aberta; o composer sticky
+     fica acima dela via padding-bottom do .app-page (64px já definido). */
+
+  /* Aviso de throttle: não sobrepõe o compositor */
+  .throttle-warn {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* --- Convs (lista): linha de contato confortável ao toque --- */
+  .conv { min-height: 56px; }
+}
+
+/* ============================================================
+   === VENDAS (kanban) ===
+   ≤ 860px — 1 coluna por tela (scroll-snap horizontal já definido
+   na seção SHELL). Dots de navegação + botão "mover para" por toque.
+   Cards confortáveis, sem corte de valor/nome.
+   ============================================================ */
+@media (max-width: 860px) {
+  /* --- Board: snap já definido na seção SHELL+ABAS (.board):
+       grid-auto-columns: 85vw; scroll-snap-type: x mandatory.
+       Aqui refinamos o conteúdo dos cards. --- */
+
+  /* Card: sem corte de nome/valor */
+  .deal { word-break: break-word; overflow-wrap: anywhere; }
+  .deal strong { white-space: normal; }
+  .deal .val { white-space: nowrap; }
+
+  /* Linha de toque confortável */
+  .deal { min-height: 80px; padding: 14px 12px; }
+
+  /* Botão "Mover para" embutido no card mobile: aparece só no celular.
+     No desktop o .deal-move-btn é display:none (abaixo, fora de @media). */
+  .deal-move-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--hbx-surface);
+    color: var(--text-body);
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 4px;
+    min-height: 36px;
+  }
+  .deal-move-btn:hover { background: var(--hbx-surface-raised); }
+
+  /* Menu "Mover para" (dropdown do botão) */
+  .deal-move-menu {
+    display: grid;
+    gap: 2px;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-hairline);
+    background: var(--hbx-surface);
+    box-shadow: var(--shadow-lg);
+    margin-top: 4px;
+  }
+  .deal-move-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-body);
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 36px;
+  }
+  .deal-move-menu button:hover { background: var(--hbx-surface-raised); }
+
+  /* --- Dots de navegação do kanban --- */
+  .board-dots {
+    display: flex;
+    justify-content: center;
+    gap: 7px;
+    padding: 10px 0 8px;
+    flex: 0 0 auto;
+  }
+  .board-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border-strong);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: background var(--motion-fast), transform var(--motion-fast);
+  }
+  .board-dot.active {
+    background: var(--hbx-brand-strong);
+    transform: scale(1.25);
+  }
+
+  /* Col-cards: sem overflow horizontal */
+  .col-cards { overflow: hidden; }
+}
+
+/* Desktop: esconde os elementos exclusivos do mobile kanban */
+.deal-move-btn { display: none; }
+.deal-move-menu { display: none; }
+.board-dots { display: none; }
+
+/* ============================================================
+   === RADAR / LEADS ===
+   ≤ 860px — 1 coluna, filtros em bottom sheet, tabela rola só
+   no seu container, stats-strip 2 cols (640→1 via regra global).
+   ============================================================ */
+@media (max-width: 860px) {
+  /* Shell radar: empilha rail de filtros + main em 1 coluna */
+  .radar2-shell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Rail de filtros: hidden por default; exibido via .radar2-rail--open */
+  .radar2-rail {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 14px env(safe-area-inset-bottom, 8px);
+  }
+  .radar2-rail--open { display: flex; }
+
+  /* Botão para abrir/fechar o rail de filtros — só aparece no mobile */
+  .radar2-filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--hbx-surface);
+    color: var(--text-body);
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 7px 12px;
+    cursor: pointer;
+    min-height: 36px;
+    margin: 10px 14px 4px;
+  }
+  .radar2-filter-toggle:hover { background: var(--hbx-surface-raised); }
+
+  /* Tabela: rola lateral SOMENTE no wrapper, não a página */
+  .radar2-main .tbl-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .radar2-main .tbl { min-width: 560px; }
+
+  /* KPIs do topo: 2 colunas (já coberto por .kpis mas radar usa classe própria) */
+  .radar2-kpis { grid-template-columns: 1fr 1fr; }
+
+  /* Seleção em lote: stack em coluna */
+  .radar2-meter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .radar2-meter-card { width: 100%; }
+}
+
+/* Oculta toggle de filtro no desktop */
+.radar2-filter-toggle { display: none; }
+
+/* ============================================================
+   === BOT ===
+   ≤ 860px — canvas NÃO editável no dedo; render alternativo:
+   lista dos blocos em leitura + ações Testar e Ativar/Desativar
+   + aviso "Edição do desenho é no computador".
+   O canal useIsMobile() na tela decide o render — o CSS aqui
+   garante que o canvas não vaze no viewport mobile caso apareça.
+   ============================================================ */
+@media (max-width: 860px) {
+  /* Canvas: proibir overflow horizontal caso renderize */
+  .canvas {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  /* Builder em 1 coluna (o aside blocks e o test panel empilham) */
+  /* .builder já tem grid-template-columns:1fr na seção SHELL+ABAS */
+
+  /* Vista mobile do bot (lista de blocos) */
+  .bot-mobile-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Cabeçalho bot: empilha ações */
+  .bot-head {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .bot-head h1 { font-size: 0.9rem; }
+
+  /* Abas do bot: rolam de lado (já herdado de .bot-tabs em SHELL+ABAS) */
+
+  /* Aviso "edite no PC" */
+  .bot-mobile-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-hairline);
+    background: var(--hbx-surface-raised);
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  /* Lista de blocos do fluxo em leitura */
+  .bot-block-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 10px 14px;
+  }
+  .bot-block-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .bot-block-item:last-child { border-bottom: none; }
+  .bot-block-body { flex: 1; min-width: 0; }
+  .bot-block-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-bottom: 3px;
+  }
+  .bot-block-text {
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  /* Ações mobile do bot */
+  .bot-mobile-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border-top: 1px solid var(--border-hairline);
+    flex: 0 0 auto;
+  }
+}
+
+/* Oculta elementos exclusivos do mobile no desktop */
+.bot-mobile-view  { display: none; }
+.bot-mobile-notice { display: none; }
+.bot-block-list   { display: none; }
+.bot-mobile-actions { display: none; }
+
+/* Classes utilitárias do render mobile do bot (sem visual inline em TSX) */
+.bot-badge--warn { color: var(--hbx-warning); }
+.bot-mobile-msg  { align-self: center; font-size: 0.7rem; font-weight: 700; }
+.bot-mobile-msg--ok  { color: var(--hbx-brand-strong); }
+.bot-mobile-msg--err { color: var(--hbx-danger); }
+/* Ícone de bloco do bot: cor via CSS custom property --bot-nc */
+.bot-block-icon { background: var(--bot-nc, var(--hbx-brand)); }
+
+/* ============================================================
+   === RELATÓRIOS ===
+   ≤ 860px — gráficos full-width empilhados; tabelões rolam
+   lateralmente só no wrapper.
+   ============================================================ */
+@media (max-width: 860px) {
+  /* Barra de período + botões: wrap */
+  .work > div[style*="justify-content"],
+  .work > div[style*="align-items"] {
+    flex-wrap: wrap;
+  }
+
+  /* Tabelão: rola lateral somente no container */
+  .work .tbl-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .work .tbl { min-width: 480px; }
+
+  /* Gráfico de barras (relatórios): full-width e rola de lado */
+  .bars {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 8px;
+    width: 100%;
+  }
+
+  /* Gráfico horizontal .hbar: full-width */
+  .hbar { width: 100%; }
+  .hbar .r { flex-wrap: nowrap; }
+  .hbar .lab { min-width: 80px; flex: 0 0 80px; }
+  .hbar .track { flex: 1; }
+
+  /* Funil: barra full-width */
+  .fleg .row { flex-wrap: wrap; }
+}
+
+/* ============================================================
+   === CONFIGURAÇÕES ===
+   ≤ 860px — .set-nav vira acordeão/lista vertical;
+   formulários em 1 coluna com campos confortáveis ao toque.
+   ============================================================ */
+@media (max-width: 860px) {
+  /* Layout: sidebar de nav vira bloco acima do conteúdo */
+  .work[style*="grid-template-columns"] {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* Nav de seções: lista vertical (acordeão) */
+  .set-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    grid-auto-flow: unset;
+    grid-auto-columns: unset;
+    overflow-x: unset;
+    width: 100%;
+    border-bottom: 1px solid var(--border-hairline);
+    padding: 4px 0;
+  }
+  .set-link {
+    white-space: normal;
+    min-height: 44px;
+    padding: 10px 16px;
+    border-radius: 0;
+    justify-content: flex-start;
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .set-link:last-child { border-bottom: none; }
+
+  /* Campos de formulário: 1 coluna, toque confortável */
+  .frow { gap: 12px; }
+  .frow .f input,
+  .frow .f select,
+  .frow .f textarea {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  /* Tabela de equipe: rola lateral */
+  .set-nav ~ div .tbl-wrap,
+  section .tbl-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Grid de planos: 1 coluna */
+  .plan-grid { grid-template-columns: 1fr; }
+
+  /* ExtraSeatsCard: 1 coluna */
+  .extra-seats-card { flex-direction: column; }
+}

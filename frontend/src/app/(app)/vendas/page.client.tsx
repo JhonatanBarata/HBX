@@ -9,12 +9,13 @@
 // visuais como no template — registrado no doc do PR.
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 type VendasLead = {
   id: string;
@@ -527,6 +528,43 @@ export function VendasClient() {
     };
   }, []);
 
+  // Mobile kanban: dots de navegação + menu "mover para" por toque
+  const isMobile = useIsMobile();
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const [activeDot, setActiveDot] = useState(0);
+  const [cardMoveOpen, setCardMoveOpen] = useState<string | null>(null); // card.id com menu aberto
+
+  // Atualiza o dot ativo conforme o scroll horizontal do board
+  function onBoardScroll() {
+    const el = boardRef.current;
+    if (!el) return;
+    const colW = el.scrollWidth / BLOCK_ORDER.length;
+    const dot = Math.round(el.scrollLeft / colW);
+    setActiveDot(Math.min(Math.max(0, dot), BLOCK_ORDER.length - 1));
+  }
+
+  // Mover card via toque: ação inline p/ não depender do estado async de moverStatus
+  async function moverCardPorToque(card: VendasLead, status: string) {
+    if (acaoBusy) return;
+    setCardMoveOpen(null);
+    setSel(card);
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(card.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      setAcaoMsg("✓ Etapa atualizada.");
+      setMoverStatus("");
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
   // Prospecção automática (GET /vendas/automation/live-status + controles;
   // exige entitlement Bot IA — sem plano, mostra o aviso do backend)
   const [prospOpen, setProspOpen] = useState(false);
@@ -715,7 +753,8 @@ export function VendasClient() {
 
               {/* QUADRO (kanban) — opcional, para arrastar entre etapas. */}
               {view === "board" && (
-              <div className="board">
+              <>
+              <div className="board" ref={boardRef} onScroll={isMobile ? onBoardScroll : undefined}>
                 {BLOCK_ORDER.map(({ key, label }) => {
                   const cards = board?.blocks?.[key] || [];
                   const sumCents = cards.reduce((acc, c) => acc + (c.saleValue || 0), 0);
@@ -725,7 +764,7 @@ export function VendasClient() {
                       <div className="col-count">{cards.length} {cards.length === 1 ? "lead" : "leads"}</div>
                       <div className="col-cards">
                         {cards.map(card => (
-                          <article key={card.id} className={"deal" + (sel?.id === card.id ? " sel" : "")} onClick={() => setSel(card)}>
+                          <article key={card.id} className={"deal" + (sel?.id === card.id ? " sel" : "")} onClick={() => { setSel(card); if (cardMoveOpen === card.id) setCardMoveOpen(null); }}>
                             <strong>{card.name || "—"}</strong>
                             <span className="who">{card.segment || card.city || card.phone || "—"}</span>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -738,6 +777,36 @@ export function VendasClient() {
                               {card.owner?.name ? <React.Fragment><Av name={card.owner.name} size={18} />{card.owner.name}</React.Fragment> : <span>—</span>}
                               <span className="when">{fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt)}</span>
                             </div>
+                            {/* Botão "Mover para" — visível só no mobile via CSS (.deal-move-btn) */}
+                            <button
+                              className="deal-move-btn"
+                              type="button"
+                              aria-label="Mover para outra etapa"
+                              disabled={acaoBusy || card.block === "closed"}
+                              onClick={e => { e.stopPropagation(); setCardMoveOpen(cardMoveOpen === card.id ? null : card.id); }}
+                            >
+                              <I d={ICONS.arrow} size={13} /> Mover para…
+                            </button>
+                            {cardMoveOpen === card.id && (
+                              <div className="deal-move-menu" onClick={e => e.stopPropagation()}>
+                                {[
+                                  { value: "novo", label: "Novo" },
+                                  { value: "contato", label: "Contato" },
+                                  { value: "retorno", label: "Retorno" },
+                                  { value: "qualificado", label: "Qualificado" },
+                                  { value: "encerrado", label: "Encerrado" },
+                                ].map(opt => (
+                                  <button
+                                    key={opt.value}
+                                    type="button"
+                                    disabled={acaoBusy}
+                                    onClick={() => moverCardPorToque(card, opt.value)}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </article>
                         ))}
                       </div>
@@ -745,6 +814,25 @@ export function VendasClient() {
                   );
                 })}
               </div>
+              {/* Dots de navegação — visíveis só no mobile via CSS (.board-dots) */}
+              <div className="board-dots" aria-hidden="true">
+                {BLOCK_ORDER.map((_, i) => (
+                  <button
+                    key={i}
+                    className={"board-dot" + (activeDot === i ? " active" : "")}
+                    type="button"
+                    aria-label={`Coluna ${i + 1}`}
+                    onClick={() => {
+                      const el = boardRef.current;
+                      if (!el) return;
+                      const colW = el.scrollWidth / BLOCK_ORDER.length;
+                      el.scrollTo({ left: i * colW, behavior: "smooth" });
+                      setActiveDot(i);
+                    }}
+                  />
+                ))}
+              </div>
+              </>
               )}
             </section>
           </div>

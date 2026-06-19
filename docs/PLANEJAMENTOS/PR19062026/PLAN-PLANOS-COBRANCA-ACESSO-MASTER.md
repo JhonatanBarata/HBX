@@ -2,6 +2,11 @@
 
 > Origem: ordem do dono 18/06 (organograma "planos"). **Um assunto, várias frentes**
 > na ordem travada. Não confundir com `PLAN-WHATSAPP-PER-USER.md` (outro assunto).
+>
+> **Fronteira (19/06):** a EXPERIÊNCIA do funil público (cadastro → confirmação → pagamento,
+> continuidade, visual, "Lista Fria", mock card, confirmação por WhatsApp) saiu pra
+> `PLAN-ONBOARDING-SELF-CHECKOUT-FUNIL.md`. Aqui mora o **backend comercial** (catálogo do
+> master F2, estados, gate do **logado** F8); lá mora o **anônimo no funil**. Sem duplicar regra.
 
 ## Regra de ouro (organograma único)
 

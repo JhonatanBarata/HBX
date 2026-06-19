@@ -112,12 +112,12 @@ export function whatsappModalStatusLabel(value?: string | null) {
 // Rótulo curto para o pill do inbox:
 //   Conectado → sessão viva
 //   Reconectando → motor indisponível mas sessão era ativa (grace)
-//   Caiu (reescaneie) → sessão encerrada / erro / não iniciado
+//   Caiu (Desconectado) → sessão encerrada / erro / não iniciado
 export function whatsappPillLabel(status?: string | null): string {
   const s = String(status || "").trim().toLowerCase();
   if (s === "connected") return "Conectado";
   if (s === "reconnecting") return "Reconectando";
-  if (s === "disconnected" || s === "error" || s === "offline") return "Caiu (reescaneie)";
+  if (s === "disconnected" || s === "error" || s === "offline") return "Desconectado";
   if (s === "starting" || s === "waiting_qr") return "Iniciando";
   return "Verificar";
 }

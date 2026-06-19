@@ -10,6 +10,7 @@
 import { usePathname } from "next/navigation";
 import React from "react";
 
+import { MobileTabBar } from "@/components/hbx/mobile-tab-bar";
 import { Sidebar, Topbar } from "@/components/hbx/shell";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
@@ -60,6 +61,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Topbar title={meta.title} crumbs={meta.crumbs} onMenu={() => setNavOpen(o => !o)} />
         <div className="app-page" key={pathname}>{children}</div>
       </div>
+      {/* Barra de abas inferior — renderizada apenas em mobile (useIsMobile() interno).
+          /master passa direto acima (sem shell), então aqui sempre é app normal. */}
+      <MobileTabBar />
       {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
           módulos; portala pro <body> e só aparece quando a store está ligada. */}
       <TutorialCoachHost />

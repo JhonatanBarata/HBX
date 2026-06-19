@@ -706,6 +706,7 @@ export function AtendimentoClient() {
       setSendError(err instanceof Error ? err.message : "Não foi possível enviar a mensagem.");
     } finally {
       setSendBusy(false);
+      requestAnimationFrame(() => draftRef.current?.focus());
     }
   }
 

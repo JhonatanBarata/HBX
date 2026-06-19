@@ -25,6 +25,6 @@
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
 
-/* Camada RESPONSIVA (mobile) — SEMPRE por último: tudo dentro de @media,
-   o desktop não lê nada disto e fica idêntico. Ver responsive.css. */
-@import "./hbx-theme/responsive.css";
+/* Camada MOBILE de 1ª classe — SEMPRE por último: tudo dentro de @media,
+   o desktop não lê nada disto e fica idêntico. Ver mobile.css. */
+@import "./hbx-theme/mobile.css";

@@ -18,6 +18,7 @@ import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 type FilterOption = { value: string; label: string; count?: number };
 
@@ -131,6 +132,8 @@ type StandingOrder = {
 
 export function LeadsClient() {
   const router = useRouter();
+  const isMobile = useIsMobile();
+  const [filterOpen, setFilterOpen] = useState(false);
 
   // filtros (lago → prateleira)
   const [uf, setUf] = useState("");
@@ -459,7 +462,17 @@ export function LeadsClient() {
         <section className="panel" style={{ padding: 0 }}>
           <div className="radar2-shell">
             {/* rail de filtros */}
-            <div className="radar2-rail">
+            {isMobile && (
+              <button
+                className="radar2-filter-toggle"
+                onClick={() => setFilterOpen(o => !o)}
+                aria-expanded={filterOpen}
+              >
+                <I d={ICONS.filter} size={14} />
+                {filterOpen ? "Ocultar filtros" : "Filtros e busca"}
+              </button>
+            )}
+            <div className={"radar2-rail" + (isMobile ? (filterOpen ? " radar2-rail--open" : "") : "")}>
               <div className="f">
                 <label htmlFor="radar2-uf">Estado</label>
                 <select id="radar2-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
