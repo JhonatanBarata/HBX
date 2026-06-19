@@ -15,7 +15,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, useCurrentUser, useEntitlements } from "@/components/hbx/shell";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
 type Ranking = { label: string; count: number };
@@ -91,9 +91,22 @@ function fmtWhen(iso?: string | null) {
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+// Planos com tier 'list' (hbx_lite) não têm exportação de PDF (canExportConversionPdf=false
+// no catálogo de planos). Todos os outros tiers têm. Quando o plano ainda não carregou
+// (loaded=false) escondemos o botão para evitar flash de recurso proibido (fail-closed).
+function canExportPdf(planKey: string | null, loaded: boolean): boolean {
+  if (!loaded) return false;
+  // null = sem plano definido → projeta Lead Plus → pode exportar
+  if (planKey === null) return true;
+  return planKey !== "hbx_lite";
+}
+
 export function RelatoriosClient() {
   const user = useCurrentUser();
+  const ent = useEntitlements();
   const isMaster = Boolean((user as { isSystemMaster?: boolean } | null)?.isSystemMaster);
+  // master bypass: sempre pode exportar (backend bypassa entitlements para isSystemMaster)
+  const podeExportarPdf = isMaster || canExportPdf(ent.planKey, ent.loaded);
   const [per, setPer] = useState("7d");
   const [report, setReport] = useState<ReportResponse>(null);
   const [audit, setAudit] = useState<SellerAuditResponse>(null);
@@ -131,7 +144,12 @@ export function RelatoriosClient() {
       const res = await fetch(`${getApiBase()}/vendas/report/export.pdf?period=${encodeURIComponent(per)}`, {
         headers: { Authorization: `Bearer ${getToken() || ""}` },
       });
-      if (!res.ok) throw new Error(`Não foi possível exportar (HTTP ${res.status}).`);
+      if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error("Exportar PDF faz parte do HBX Lead Plus ou superior.");
+        }
+        throw new Error("Não foi possível gerar o PDF. Tente novamente em instantes.");
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -140,7 +158,7 @@ export function RelatoriosClient() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setPdfError(err instanceof Error ? err.message : "Falha ao exportar o PDF.");
+      setPdfError(err instanceof Error ? err.message : "Não foi possível gerar o PDF. Tente novamente em instantes.");
     } finally {
       setPdfBusy(false);
     }
@@ -222,7 +240,9 @@ export function RelatoriosClient() {
             ))}
             {pdfError && <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{pdfError}</span>}
             <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
-              <button className="btn-ghost" onClick={exportarPdf} disabled={pdfBusy}><I d={ICONS.doc} size={13} /> {pdfBusy ? "Exportando…" : "Exportar PDF"}</button>
+              {podeExportarPdf && (
+                <button className="btn-ghost" onClick={exportarPdf} disabled={pdfBusy}><I d={ICONS.doc} size={13} /> {pdfBusy ? "Exportando…" : "Exportar PDF"}</button>
+              )}
               <button className="btn-teal" onClick={exportarCsv} disabled={!report?.metrics}><I d={ICONS.doc} size={13} /> Exportar CSV</button>
             </div>
           </div>

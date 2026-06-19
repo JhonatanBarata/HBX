@@ -185,9 +185,17 @@ Algoritmo do wipe (por empresa, e variante global pra dev):
 > Claude até o dono ligar a flag.
 
 ### Trilha 1 — Fundação de confiança (FAZER PRIMEIRO)
-- **[FEITO 19/06] Status honesto, fonte única:** `getCompanyStatus` com `userId` não consulta
-  motor quando sessão é `disconnected`/`offline` — a sessão DB é a fonte de verdade. Pill:
-  Conectado / Reconectando / Caiu (reescaneie). Testes: 3 novos em `whatsapp-modal.service.test.ts`.
+- **[FEITO 19/06] Status honesto, fonte única — desenho FINAL:** `getCompanyStatus` com `userId`
+  é leitura pura do banco (`WhatsAppConnectionSession`). **Nunca toca o motor** — sem sondagem de
+  `connectionState`, sem "Iniciando" fantasma, sem promoção de zumbi. A pill da tela de Atendimento
+  (poll 20s, modal fechado) reflete o que está gravado: Conectado / Reconectando / Desconectado.
+  Testes: `whatsapp-modal.service.test.ts` (31 passam; 3 deles cobrem getCompanyStatus honesto).
+  - **[FEITO 19/06] Persistência do QR = responsabilidade do MODAL:** quando o vendedor clica em
+    "Conectar" e entra no fluxo de pareamento (`status = waiting_qr` ou `starting`), o poll do modal
+    (4s) vai direto no endpoint `/qr` (`fetchWhatsAppModalQr`) em vez do `/status`. Isso mantém o
+    QR vivo no front sem precisar que o backend sonde o motor nos polls de status. O motor só é
+    acionado dentro do modal e apenas após o clique em "Conectar". `statusRef` no modal espelha o
+    status exibido e decide qual endpoint usar em cada tick de poll.
 - **[FEITO 19/06] Ticks reais + reenviar:** `Checks` já renderiza ✓ SENT → ✓✓ DELIVERED → ✓✓
   azul READ; `retry` button aparece no FAILED e chama `POST /inbox/conversations/:id/messages/:mid/retry`.
   SSE publica `kind:'status'` → `bump()` recarrega a thread. 7 testes novos em

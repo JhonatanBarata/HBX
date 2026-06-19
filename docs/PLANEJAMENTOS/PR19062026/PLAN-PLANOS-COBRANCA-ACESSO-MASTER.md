@@ -25,6 +25,9 @@
    (cortesia libera acesso — não serve). Acesso = **read-only** (passeio), e a **tela de
    espera/showcase o DONO desenha** (fora deste plano). Backend só crava o **modo read-only**
    (o que é visível × bloqueado) pra não vazar feature/dado pago.
+   > ⚠ **REVISTA em 19/06 (ver F8):** o dono cravou **"sem cartão, sem app"** — curioso
+   > sem cartão **não passeia**. F8 assume que 19/06 SUPERSEDE este read-only/passeio.
+   > **Confirmar com o dono antes de buildar** (decisão de regra, não de código).
 2. **Plano é dono do preço**; empresa só aponta; override por empresa = exceção rara e
    marcada; mata `Plan` legado.
 3. **Cobrança MP:** assinatura recorrente = `plano + assentos`; ao mudar, recalcula e
@@ -156,8 +159,123 @@
 > - Teste novo (anual fonte única) + corrigido teste stale de título (`module-access-policy`:
 >   'HBX Full — Bot e IA' → 'Implantação'). 40 testes verdes; back+front build; catraca 510/516.
 
-### F7 — Faxina / sem legado
-- Varredura de vestígios; o kill do `Plan` legado já cai em F2. Passo final + contínuo.
+### F7 — Faxina / sem legado (inventário 19/06 — confirmado lendo o código)
+
+> Ordem do dono 19/06: "limpe a sujeira que achar no caminho — sem legado". Varredura
+> feita junto do mapeamento do onboarding. **Aliases redirect-only NÃO são sujeira**
+> (`/register`, `/planos`, `/workspace`, `/dashboard/master` → padrão sancionado de alias).
+> O kill do `Plan` legado já caiu em F2.
+
+**Sujeira CONFIRMADA (morta) — sai junto de F8:**
+- `hbx:need-checkout` (`frontend/.../bloqueio-gate.tsx:42`): tem **listener, zero
+  dispatcher** no projeto inteiro. Código morto — o checkout inline nunca abre sozinho.
+- Exceção "pending_checkout não bloqueia / vitrine read-only" ("B2 de 040",
+  `bloqueio-gate.tsx:83-95`): contradiz a regra única (F8). Sai em F8.
+- `/pre-checkout` + `/precheckout` (`app/(app)/pre-checkout/page.tsx`,
+  `.../precheckout/page.tsx`): redirecionam pro `/dashboard`; o motivo declarado ("a tela
+  de checkout ainda não existe no front novo") está **FALSO** — o checkout vive na casca
+  `/?ver=planos`. **Load-bearing:** o backend ainda emite `next:'/pre-checkout?reason=...'`
+  (`auth.service.ts:414` + 4 testes). **F8 repõe o destino** → só então as rotas saem.
+
+**Doc desatualizada (corrigir):**
+- `docs/Rules/PAGAMENTOS.md` (Catálogo comercial) ainda diz que `structural-defaults.json`
+  "semeia Plan legado (prata/ouro/diamante)" — **já morto** (migration
+  `20260613_remove_legacy_plan_feature`, confirmado em F2.1). Apagar a nota.
+
+**A VERIFICAR (não cortar sem confirmar a canônica — regra "tela do menu"):**
+- `/tutorial` (página real, `TutorialClient`) + `/boasvindas` (alias → `/tutorial`) vs. o
+  **coach interativo** disparado por `BoasVindasGate` + `TutorialCoachHost` (vive no
+  app-shell). O backend manda recém-confirmado pra `/boasvindas`→`/tutorial`, mas o gate
+  também resolve `tutorialPending` com o coach. Confirmar se há **dois tutoriais** e qual
+  é o canônico antes de mexer.
+
+**Resultado da varredura (workers Sonnet, 19/06):**
+- ✅ Nota stale do `PAGAMENTOS.md` corrigida (Plan legado morto; seed só tem `systemModules`).
+- ✅ 403 cru no export de relatórios corrigido (`relatorios/page.client.tsx`): 403 vira
+  upsell ("Exportar PDF faz parte do HBX Lead Plus ou superior"), outros erros = mensagem
+  amigável sem HTTP; botão "Exportar PDF" escondido pra `hbx_lite` via `useEntitlements`
+  (fail-closed). lint+build verdes.
+- `/boasvindas`: **alias morto confirmado** — backend NÃO manda mais ninguém pra lá
+  (`auth.service.ts:1772-1774`; comentário do `page.tsx` é histórico), nenhum link interno
+  aponta. **Remover na limpeza de aliases** — atualizar junto `docs/Rules/FRONTEND.md:117`
+  (ainda lista `/boasvindas` e `/pre-checkout` como aliases ativos).
+- `/tutorial`: **NÃO é vestígio** — botão "Tutorial" no menu avatar (`shell.tsx:831`) re-roda
+  o tour; manter. Inconsistência menor: `/tutorial` não chama `POST /profile/tutorial-done`
+  (só o gate chama) → re-assistir não remarca. Alinhar quando mexer.
+
+### F8 — Onboarding & Acesso unificado: regra única "sem cartão, sem app"  ✅ FEITO 19/06 (worker Sonnet + revisão Opus)
+
+> **Entregue:** `bloqueio-gate` agora BARRA `pending_checkout` (removidas a exceção
+> read-only B2 e o listener morto `hbx:need-checkout`; vendedor segue NEUTRO);
+> `signupWithGoogle` default → **Lead Plus**; `preCheckoutNextPath` → `/dashboard` (rota
+> morta `/pre-checkout` saiu); 3 rotas mortas deletadas (`/pre-checkout`, `/precheckout`,
+> `/boasvindas`) + `FRONTEND.md` (lista de aliases) atualizado; 4 asserts de
+> `auth.service.test.ts` ajustados. Checks verdes no worktree (16/16 testes, back+front
+> build, check-pele 510/510); runtime confirmado (`accessPaused = !canUse` ⇒ pending
+> bloqueia). **Aberto:** copy do `SubscribeCardModal` ciente de trial (polish, item 6);
+> build integrado final no main pendente (há WIP do dono em `whatsapp-connect-modal.tsx`).
+
+> Ordem do dono 19/06. **Não é regra nova em cima de regra** — é a regra ÚNICA, e o
+> trabalho é APAGAR as exceções que a furam (ver F7). Dono: "a ideia sempre foi forçar o
+> cartão, espanta curioso que cadastra e sai; liberar pelo Google quebra a regra."
+
+**Regra única:** ninguém entra no app sem cartão na ficha. O trial de 14d **também exige
+cartão** (não cobra, mas exige). Vale **idêntico** pro cadastro por e-mail e pro Google.
+
+**✅ Conflito RESOLVIDO (confirmado pelo dono 19/06):** a regra de 19/06 **supersede a
+Decisão 1** — o passeio read-only IN-APP morre (sem cartão = barrado). O "encher o olho"
+(teaser de empresas borradas) sobrevive **só no funil público pré-cartão**, nunca dentro do app.
+
+**O furo hoje (por que o Google entra de graça):**
+- Google usuário novo (`auth.service.googleLoginOrSignup` → `signupWithGoogle`) cria
+  empresa em **`hbx_lite`/`pending_checkout`** e **entra no app**, sem cartão
+  (`auth.service.ts:322,1383`).
+- `pending_checkout` não bloqueia + `hbx:need-checkout` nunca dispara (F7) → navega de
+  graça, sem lugar pra pagar.
+- Login gate manda `next:'/pre-checkout'` (rota morta, F7).
+
+**Decisão FINAL (confirmada 19/06) — como o mercado faz:** separar por estado de login.
+- **Anônimo** (sem conta) → casca `/?ver=planos` (cadastro+pagamento por e-mail). **Inalterada.**
+- **Logado e sem cartão** (Google novo, login pending/overdue/trial-expirado) → **ativação
+  IN-APP**: entra logado mas **barrado**, na tela que JÁ existe (`bloqueio-gate` "Ative seu
+  plano HBX" + `Configurações → Plano e cobrança`), com **Lead Plus pré-selecionado** (trial
+  14d), podendo trocar, cartão ali. Refina o "(b)": o equivalente do funil pro logado é a
+  tela de billing interna — a casca de marketing **NÃO** vira auth-aware.
+- Fundamento: padrão dos SaaS (Notion/Linear/Slack/Vercel) — funil = aquisição (anônimo);
+  depois de logar, cobrança mora dentro do produto. Reusa o que já existe, respeita fonte única.
+
+**Contrato (execução via worker Sonnet + revisão do Opus — financeiro sensível):**
+1. **Frontend `bloqueio-gate.tsx` (NÚCLEO):** remover a exceção "pending_checkout não
+   bloqueia / vitrine read-only" (~linhas 83-95) → `pending_checkout` passa a **barrar** e
+   mostrar o card de ativação que JÁ existe ("Ativar agora" → `SubscribeCardModal`; "Ver
+   planos" → Configurações). Remover o listener morto `hbx:need-checkout`. Preservar o
+   bloqueio NEUTRO do vendedor (USER nunca vê preço/cobrança).
+2. **Backend `signupWithGoogle`:** default deixa de ser `hbx_lite` → **`hbx_padrao` (Lead
+   Plus)**, só no caminho do Google. NÃO mexer em preço/entitlement/quota nem no fallback geral.
+3. **Backend `preCheckoutNextPath` (`auth.service.ts:413`):** parar de apontar `/pre-checkout`
+   (rota morta) → `/dashboard` (entrada do app, onde o `bloqueio-gate` captura). O destino
+   final já é `/dashboard` hoje (via redirect da rota morta) → preserva comportamento, tira o
+   hop morto. **Tracear os 3 callers** e garantir que o e-mail (CheckoutPanel na casca) NÃO
+   quebra. Atualizar os **4 testes** de `auth.service.test.ts`.
+4. **Faxina acoplada (F7):** remover rotas mortas `/pre-checkout` + `/precheckout` + alias
+   morto `/boasvindas`; atualizar `docs/Rules/FRONTEND.md:117` (lista de aliases).
+5. **GUARD-RAILS (inegociável):** backend é fonte de verdade; **nada de afrouxar paywall**;
+   não tocar em preço/plano/entitlement/quota/webhook; trial = cartão exigido, sem cobrança.
+   Build + testes verdes; **sem push/deploy**.
+6. Polish (não-bloqueante): copy do `SubscribeCardModal` ciente de trial pro Lead Plus
+   (reusar "não cobramos por X dias" do `CheckoutPanel`). Bug do 403 no export **já corrigido**.
+
+**Bugs ao vivo (documentados a pedido do dono 19/06 — corrigir junto de F8):**
+- 403 cru na cara do cliente: `app/(app)/relatorios/page.client.tsx:134`
+  (`Não foi possível exportar (HTTP ${res.status})`). Nunca vazar status HTTP; botão
+  "Exportar PDF" não deve aparecer pra quem não tem `canExportConversionPdf` (List).
+- Copy "Upgrade/Downgrade sem perder o pago" pra quem nunca pagou: revisar a narrativa de
+  pagante na vitrine/resumo quando a empresa está sem assinatura ativa. (O
+  `trocar-plano-modal` já trata o caso, mas a moldura externa vende crédito/proporcional.)
+
+**Checks:** `cd backend && npm run prisma:validate && npm run build` + `auth.service.test.ts`;
+`cd frontend && npm run lint && npm run build`. Caminho de acesso/checkout = **teste
+obrigatório** (nada de paywall afrouxado no front).
 
 ## Decisões fechadas (18/06 — 2º bloco)
 
@@ -174,7 +292,9 @@
 
 - Workers **Sonnet** (subagente, worktree próprio) fazem: **F1, F3, F4, F5**.
 - **Opus (orquestrador) faz direto: F2 e F6** (preço/cobrança — sensível).
-- Ordem real (dependência): **F1 → F2 → F3 → F4/F5 → F6 → F7**.
+- Ordem real (dependência): **F1 → F2 → F3 → F4/F5 → F6 → F7 → F8**.
+- **F8 (acesso/checkout)** é trilha financeira sensível → **Opus direto** (como F2/F6);
+  depende de F7 (limpeza das exceções que furam a regra).
 - Worker volta com dúvida → orquestrador tria → pergunta ao dono → injeta SÓ o decidido → segue.
 - Push / abrir PR / deploy = passo **explícito** do dono, nunca automático.
 

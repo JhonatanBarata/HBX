@@ -114,9 +114,9 @@ altura da viewport com `@media (max-height: …)` + `clamp(vh, vh, px)`:
 ## Rotas
 
 - Uma rota canônica por funcionalidade; alias só redireciona.
-- Aliases ativos: `/boasvindas`, `/dashboard/master`, `/pre-checkout`,
-  `/precheckout` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
+- Aliases ativos: `/dashboard/master` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
   friendly morto na unificação); `/webscraping` → `/leads` (Radar unificada).
+  (`/boasvindas`, `/pre-checkout`, `/precheckout` removidos em F8/19/06 — rotas mortas deletadas.)
 - **Sem legado (regra dura, dono 17/06).** Merge/substituição de tela apaga a velha NO
   MESMO passo — ela vira alias `redirect()` (ex.: `/workspace`→`/dashboard`,
   `/webscraping`→`/leads`) ou é deletada; e saem JUNTOS os botões/links que apontavam pra

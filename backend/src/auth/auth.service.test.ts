@@ -304,7 +304,7 @@ test('gate de login: trial vigente entra direto no dashboard', async () => {
   assert.equal(result.requiresCheckout, false);
 });
 
-test('gate de login: trial vencido cai no pre-checkout com motivo trial_expired', async () => {
+test('gate de login: trial vencido cai no dashboard (bloqueio-gate captura)', async () => {
   const { service } = buildAuthServiceForLogin({
     companyKind: 'tenant',
     status: 'trial',
@@ -312,18 +312,20 @@ test('gate de login: trial vencido cai no pre-checkout com motivo trial_expired'
     trialEndsAt: inDays(-1),
   });
   const result = await loginAsAdmin(service);
-  assert.equal(result.next, '/pre-checkout?reason=trial_expired');
+  // F8 (19/06): preCheckoutNextPath aponta /dashboard; bloqueio-gate intercepta.
+  assert.equal(result.next, '/dashboard');
   assert.equal(result.requiresCheckout, true);
 });
 
-test('gate de login: pending_checkout cai no pre-checkout com motivo pending_checkout', async () => {
+test('gate de login: pending_checkout cai no dashboard (bloqueio-gate captura)', async () => {
   const { service } = buildAuthServiceForLogin({
     companyKind: 'tenant',
     status: 'pending_checkout',
     isActive: false,
   });
   const result = await loginAsAdmin(service);
-  assert.equal(result.next, '/pre-checkout?reason=pending_checkout');
+  // F8 (19/06): preCheckoutNextPath aponta /dashboard; bloqueio-gate intercepta.
+  assert.equal(result.next, '/dashboard');
   assert.equal(result.requiresCheckout, true);
 });
 
@@ -339,7 +341,7 @@ test('gate de login: overdue dentro da graca mantem acesso', async () => {
   assert.equal(result.requiresCheckout, false);
 });
 
-test('gate de login: overdue sem graca e suspended caem em payment_failed', async () => {
+test('gate de login: overdue sem graca e suspended caem no dashboard (bloqueio-gate captura)', async () => {
   for (const status of ['overdue', 'suspended']) {
     const { service } = buildAuthServiceForLogin({
       companyKind: 'tenant',
@@ -347,7 +349,8 @@ test('gate de login: overdue sem graca e suspended caem em payment_failed', asyn
       isActive: false,
     });
     const result = await loginAsAdmin(service);
-    assert.equal(result.next, '/pre-checkout?reason=payment_failed');
+    // F8 (19/06): preCheckoutNextPath aponta /dashboard; bloqueio-gate intercepta.
+    assert.equal(result.next, '/dashboard');
     assert.equal(result.requiresCheckout, true);
   }
 });

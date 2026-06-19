@@ -39,6 +39,12 @@ se versiona/reverte é REGRA. Antes de editar uma tela, confirme que é a CANÔN
 - Backend: `cd backend && npm run prisma:validate` → `npm run build`
 - E2E (`npm run test:e2e` na raiz) só quando um caminho end-to-end mudou e o ambiente está pronto.
 
+## Orquestrador × subagentes (papéis)
+
+O **planejador (Opus)** planeja e orquestra — **não edita código**. Quem edita são os
+**subagentes (workers Sonnet- inteligencia maxima)-dividir em blocos/ pedidos diferentes, agente tem 200k de memória**, spawnados ao "aplique com o orquestrador". **Só abra exceção se o dono pedir.** se o worker quebrar analise, e devolva o motivo. Se for simples termine, se não for imprima o erro para seguir
+Excessao:Orquestrador noturno: se pedir para fazer sem perguntar, é porque o dono está longe, terminar da forma que está escrita e informar sua decisão no final, se não der pra continuar sem perguntar pule para o próximo.md q estiver em planejamentos/PR (regra abaixo)
+
 ## Planejamentos (PR)
 
 Planos (PR) vivem em `docs/PLANEJAMENTOS/`. Sempre existe **UMA** pasta de dia ativa.

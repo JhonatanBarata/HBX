@@ -41,9 +41,10 @@
   (`COMMERCIAL_PLAN_KEYS`: List / Lead Plus / Full).
 - O frontend consome via API (`workspace.plansCatalog`). **Nunca copiar preço, plano,
   entitlement ou módulo para constante de frontend.**
-- Dívida conhecida: `backend/src/bootstrap/structural-defaults.json` ainda semeia a
-  tabela `Plan` legada (`prata`/`ouro`/`diamante`...). Unificação pendente — não criar
-  nada novo em cima da taxonomia legada.
+- A tabela `Plan` legada (`prata`/`ouro`/`diamante`...) foi DROPADA na migration
+  `20260613_remove_legacy_plan_feature` (junto com `Feature` e `_PlanFeatures`).
+  `backend/src/bootstrap/structural-defaults.json` não semeia Plan legado — apenas
+  `systemModules`. **Nunca recriar essa taxonomia.**
 
 ## Permissão por usuário
 

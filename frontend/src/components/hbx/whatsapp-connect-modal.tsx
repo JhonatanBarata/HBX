@@ -72,19 +72,28 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   const [phone, setPhone] = useState("");
   const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
   const bootstrappedKey = useRef<string | null>(null);
+  const statusRef = useRef<string | null>(null);
 
   // DEBUG — confirmação antes de limpar tudo
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [wipeBusy, setWipeBusy] = useState(false);
   const [wipeMsg, setWipeMsg] = useState<string | null>(null);
 
+  // Enquanto o vendedor pareia (waiting_qr/starting após clicar Conectar), o poll vai no /qr
+  // (getCompanyQrCode) — mantém o QR vivo e detecta a conexão — em vez do /status (leitura pura
+  // do banco, que diria "desconectado" e apagaria o QR). O motor só é tocado AQUI, no pareamento
+  // ativo dentro do modal; a pill da tela continua lendo só o banco. statusRef espelha o status
+  // exibido para escolher o endpoint.
   const refresh = useCallback(() => {
-    return fetchWhatsAppModalStatus()
+    const pollingQr = method === "qr" && (statusRef.current === "waiting_qr" || statusRef.current === "starting");
+    const primary = pollingQr ? fetchWhatsAppModalQr() : fetchWhatsAppModalStatus();
+    return primary
       .then(async res => {
         let next = res;
-        if (method === "qr" && res?.status === "waiting_qr" && !res?.data?.qrCodeDataUrl) {
+        if (!pollingQr && method === "qr" && res?.status === "waiting_qr" && !res?.data?.qrCodeDataUrl) {
           next = await fetchWhatsAppModalQr().catch(() => res);
         }
+        statusRef.current = next?.status ?? null;
         setPayload(next);
         setError(null);
         return next;
@@ -99,6 +108,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    statusRef.current = null; // reabrir/trocar método não herda waiting_qr antigo
     refresh();
     const timer = setInterval(async () => {
       if (!alive) return;
@@ -141,6 +151,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
     setBootstrapMsg(null);
     try {
       const res = await action();
+      statusRef.current = res?.status ?? null; // clicar Conectar marca waiting_qr → próximo poll vai no /qr
       setPayload(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operação falhou.");
@@ -156,6 +167,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
     setBootstrapMsg(null);
     try {
       const res = await disconnectWhatsAppModalSession();
+      statusRef.current = res?.status ?? null; // desconectar volta o poll pro /status
       setPayload(res);
       bootstrappedKey.current = null;
       onDisconnected?.();

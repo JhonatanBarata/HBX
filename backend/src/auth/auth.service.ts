@@ -410,8 +410,11 @@ export class AuthService implements OnModuleInit {
     return crypto.randomBytes(32).toString('base64url');
   }
 
-  private preCheckoutNextPath(reason: 'pending_checkout' | 'trial_expired' | 'payment_failed' = 'pending_checkout') {
-    return `/pre-checkout?reason=${reason}`;
+  private preCheckoutNextPath(_reason: 'pending_checkout' | 'trial_expired' | 'payment_failed' = 'pending_checkout') {
+    // F8 (19/06): rota /pre-checkout era alias redirect-only para /dashboard.
+    // Aponta direto: o bloqueio-gate captura o pending_checkout em /dashboard.
+    // O parâmetro _reason foi preservado na assinatura para não quebrar os callers.
+    return `/dashboard`;
   }
 
   private pendingCheckoutNextPath() {
@@ -1356,7 +1359,12 @@ export class AuthService implements OnModuleInit {
     const normalizedCompanyName = String(data.companyName || '').trim();
     const displayName = this.companyDisplayName(normalizedCompanyName || name, username);
     const slug = `co_${crypto.randomBytes(9).toString('hex')}`;
-    const selectedPlanKey = this.normalizePublicSelectedPlanKey(data.selectedPlanKey);
+    // F8 (19/06): Google signup default é hbx_padrao (Lead Plus).
+    // normalizePublicSelectedPlanKey cai em LITE quando não informado — sobrescreve
+    // só neste caminho; e-mail usa normalizePublicSelectedPlanKey sem alteração.
+    const selectedPlanKey = data.selectedPlanKey
+      ? this.normalizePublicSelectedPlanKey(data.selectedPlanKey)
+      : COMMERCIAL_PLAN_KEYS.PADRAO;
     const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
       ? this.resolveTrialModuleForPlan(selectedPlanKey)
       : null;
