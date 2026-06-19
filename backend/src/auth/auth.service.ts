@@ -1761,6 +1761,23 @@ export class AuthService implements OnModuleInit {
       });
     }
 
+    return this.finalizeConfirmedIdentity(user, {
+      userAgent: opts?.userAgent,
+      ip: opts?.ip,
+      source: 'auth_email_confirmed',
+      identityLabel: 'E-mail',
+    });
+  }
+
+  // Completa a confirmação de identidade — DEPOIS de o canal já ter sido provado
+  // (link de e-mail OU código de WhatsApp/F6). Fonte única: confirma o usuário,
+  // mantém a empresa em pending_checkout (trial só nasce no checkout, regra do
+  // dono 16/06), sincroniza comissão e devolve o destino do papel. companyData
+  // permite gravar dado do canal (ex.: telefone do WhatsApp) no mesmo passo.
+  private async finalizeConfirmedIdentity(
+    user: { id: number; email: string | null; companyId: number | null; role?: string | null; isSystemMaster?: boolean | null; company?: { companyKind?: string | null } | null },
+    opts?: { userAgent?: string; ip?: string; source?: string; identityLabel?: string; companyData?: Record<string, unknown> },
+  ) {
     const confirmedAt = new Date();
     let trialEndsAt: Date | null = null;
     const platformInfraCompany = isPlatformInfraCompany(user.company);
@@ -1770,6 +1787,7 @@ export class AuthService implements OnModuleInit {
         message: 'Empresa de infraestrutura nao possui fluxo comercial de confirmação.',
       });
     }
+    const identityLabel = opts?.identityLabel || 'E-mail';
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -1783,19 +1801,21 @@ export class AuthService implements OnModuleInit {
       });
 
       if (user.companyId && !platformInfraCompany) {
-        // Confirmacao de e-mail NAO ativa trial (regra travada do dono 16/06:
-        // trial exige cartao). So confirma o e-mail e deixa a empresa em
-        // pending_checkout; o trial nasce no checkout (financeiro). trialEndsAt
-        // permanece null aqui de proposito.
+        if (opts?.companyData && Object.keys(opts.companyData).length > 0) {
+          await tx.company.update({ where: { id: Number(user.companyId) }, data: opts.companyData });
+        }
+        // Confirmar identidade NÃO ativa trial (regra travada do dono 16/06:
+        // trial exige cartao). So confirma e deixa a empresa em pending_checkout;
+        // o trial nasce no checkout (financeiro). trialEndsAt fica null aqui.
         trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
       }
     });
 
     if (user.companyId) {
       await this.hbxCommissionSync.syncActivatedCompany(Number(user.companyId), {
-        source: 'auth_email_confirmed',
+        source: opts?.source || 'auth_email_confirmed',
       }).catch((error: any) => {
-        this.logger.warn(`commission_sync_confirm_email_failed company=${user.companyId} error=${String(error?.message || error)}`);
+        this.logger.warn(`commission_sync_confirm_failed company=${user.companyId} error=${String(error?.message || error)}`);
       });
     }
 
@@ -1811,9 +1831,6 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    // Boas-vindas/tutorial NÃO se amarra mais ao trial (List/Full nem têm trial) —
-    // virou portão por PRIMEIRO LOGIN (flag tutorialPending no AuthGate). Aqui o
-    // pós-confirmação só segue o destino normal do papel.
     const next = loginPayload?.next || this.pendingCheckoutNextPath();
 
     return {
@@ -1822,9 +1839,9 @@ export class AuthService implements OnModuleInit {
       email: user.email || null,
       message: user.companyId
         ? trialEndsAt
-          ? `E-mail confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
-          : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
-        : 'E-mail confirmado com sucesso.',
+          ? `${identityLabel} confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
+          : `${identityLabel} confirmado. Finalize o pagamento no Financeiro para liberar o plano.`
+        : `${identityLabel} confirmado com sucesso.`,
       trialStartsAt: trialEndsAt ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
       access_token: loginPayload?.access_token || null,
@@ -1834,6 +1851,118 @@ export class AuthService implements OnModuleInit {
         : `/login?next=${encodeURIComponent(next)}`,
       requiresCheckout: Boolean(loginPayload?.requiresCheckout),
     };
+  }
+
+  // ── F6 (19/06): confirmação de identidade por WhatsApp (do Master) ──────────
+  // Outro jeito de satisfazer "awaiting_email": em vez do link de e-mail, um
+  // código de 6 dígitos pelo WhatsApp do Master. Desenho SEM coluna nova: o
+  // desafio vive num JWT efêmero (carrega só o HASH do código, nunca o código).
+  // GUARDRAIL: disparar WhatsApp real é ação LIVE — mock-first (dev: código no
+  // log/preview), envio live GATED (LIVE_WHATSAPP_CONFIRM_TODO). Não disparo só.
+  private buildWhatsappConfirmChallengeToken(input: { userId: number; phone: string; codeHash: string }) {
+    return this.jwtService.sign(
+      { sub: Number(input.userId), phone: input.phone, ch: input.codeHash, purpose: 'whatsapp_confirm' },
+      { expiresIn: '10m' },
+    );
+  }
+
+  private verifyWhatsappConfirmChallengeToken(token: string): { userId: number; phone: string; codeHash: string } {
+    const raw = String(token || '').trim();
+    if (!raw) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Desafio de confirmação inválido.' });
+    }
+    try {
+      const payload = this.jwtService.verify(raw) as { sub?: unknown; phone?: unknown; ch?: unknown; purpose?: unknown };
+      const userId = Number(payload?.sub);
+      if (payload?.purpose !== 'whatsapp_confirm' || !Number.isInteger(userId) || userId <= 0 || !payload?.ch || !payload?.phone) {
+        throw new Error('invalid whatsapp challenge');
+      }
+      return { userId, phone: String(payload.phone), codeHash: String(payload.ch) };
+    } catch {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_EXPIRED', message: 'Código expirado. Peça um novo código.' });
+    }
+  }
+
+  // Envio GATED do código. Dev/mock → log + preview (igual previewUrl do e-mail).
+  // Live → NÃO dispara; devolve TODO. Pendurar no Webwhats do Master
+  // (instância de automação company-{master}) é passo do dono na VPS.
+  private async dispatchWhatsappConfirmationCode(input: { phone: string; code: string }): Promise<{ delivered: 'mock' | 'todo'; previewCode: string | null }> {
+    if (!this.isProduction()) {
+      this.logger.log(`[whatsapp-confirm][mock] phone=${input.phone} code=${input.code}`);
+      return { delivered: 'mock', previewCode: input.code };
+    }
+    // TODO(F6 live / VPS): enviar pela mensageria do Master (Outbox/Webwhats,
+    // instância de automação). NÃO disparar daqui sem ordem do dono (guardrail).
+    this.logger.warn(`[whatsapp-confirm][LIVE_WHATSAPP_CONFIRM_TODO] envio real gated phone=${input.phone}`);
+    return { delivered: 'todo', previewCode: null };
+  }
+
+  async startWhatsappConfirmation(pollToken: string, rawPhone: string) {
+    const userId = this.verifyEmailConfirmationPollToken(pollToken);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, emailConfirmedAt: true, companyId: true },
+    });
+    if (!user) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Cadastro não encontrado.' });
+    }
+    if (user.emailConfirmedAt) {
+      return { ok: true, alreadyConfirmed: true, message: 'Identidade já confirmada — entre para continuar.' };
+    }
+    const phone = this.normalizeBrazilPhone(rawPhone);
+    if (!phone) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_PHONE_INVALID', message: 'Informe um número de WhatsApp válido (DDD + número).' });
+    }
+    // Anti-abuso (mesma regra do checkout): telefone que já usou trial em OUTRA
+    // empresa viva bloqueia cedo. Não reserva aqui — só checa (trial nasce no checkout).
+    if (user.companyId) {
+      await TrialUsage.ensureTrialPhoneAvailableTx(this.prisma, Number(user.companyId), phone, 'reserve');
+    }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const challengeToken = this.buildWhatsappConfirmChallengeToken({ userId, phone, codeHash: this.sha256(code) });
+    const dispatch = await this.dispatchWhatsappConfirmationCode({ phone, code });
+    return {
+      ok: true,
+      challengeToken,
+      phone,
+      sentVia: dispatch.delivered === 'mock' ? 'mock' : 'whatsapp',
+      liveDispatch: dispatch.delivered === 'todo' ? 'LIVE_WHATSAPP_CONFIRM_TODO' : null,
+      // previewCode só existe em dev/mock (nunca em produção).
+      previewCode: dispatch.previewCode,
+      message: dispatch.delivered === 'mock'
+        ? 'Código gerado (ambiente de teste). Use o código exibido para confirmar.'
+        : 'Enviamos um código pelo WhatsApp. Digite-o aqui para confirmar.',
+    };
+  }
+
+  async confirmWhatsappCode(challengeToken: string, rawCode: string, opts?: { userAgent?: string; ip?: string }) {
+    const { userId, phone, codeHash } = this.verifyWhatsappConfirmChallengeToken(challengeToken);
+    const code = String(rawCode || '').replace(/\D/g, '').slice(0, 6);
+    if (!code || this.sha256(code) !== codeHash) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_CODE_INVALID', message: 'Código incorreto. Confira e tente novamente.' });
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        emailConfirmedAt: true,
+        companyId: true,
+        role: true,
+        isSystemMaster: true,
+        company: { select: { companyKind: true, selectedPlanKey: true } },
+      },
+    });
+    if (!user) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Cadastro não encontrado.' });
+    }
+    return this.finalizeConfirmedIdentity(user, {
+      userAgent: opts?.userAgent,
+      ip: opts?.ip,
+      source: 'auth_whatsapp_confirmed',
+      identityLabel: 'Número',
+      companyData: { contactPhone: phone },
+    });
   }
 
   async emailConfirmationStatus(pollToken: string) {

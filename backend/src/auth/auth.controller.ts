@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ConfirmEmailDto, EmailConfirmationStatusDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
+import { ConfirmEmailDto, EmailConfirmationStatusDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -44,6 +44,23 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60 } })
   resumeOnboarding(@Body() dto: OnboardingResumeDto) {
     return this.authService.resolveOnboardingResume(dto.pollToken);
+  }
+
+  // F6 (19/06): confirmação de identidade por WhatsApp (mock-first; envio live
+  // gated). start gera/dispara o código; confirm valida e confirma a identidade.
+  @Post('onboarding/whatsapp/start')
+  @Throttle({ default: { limit: 3, ttl: 60 } })
+  startWhatsappConfirmation(@Body() dto: WhatsappConfirmStartDto) {
+    return this.authService.startWhatsappConfirmation(dto.pollToken, dto.phone);
+  }
+
+  @Post('onboarding/whatsapp/confirm')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  confirmWhatsappCode(@Body() dto: WhatsappConfirmCodeDto, @Req() req: any) {
+    return this.authService.confirmWhatsappCode(dto.challengeToken, dto.code, {
+      userAgent: req?.headers?.['user-agent'],
+      ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
+    });
   }
 
   @Post('login')

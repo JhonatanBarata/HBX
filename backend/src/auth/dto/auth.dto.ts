@@ -101,6 +101,24 @@ export class OnboardingResumeDto {
   pollToken: string;
 }
 
+// F6 (19/06): confirmação por WhatsApp do Master. start gera o código (envio
+// gated/mock-first); confirm valida pelo challengeToken (carrega só o hash).
+export class WhatsappConfirmStartDto {
+  @IsNotEmpty()
+  pollToken: string;
+
+  @IsNotEmpty()
+  phone: string;
+}
+
+export class WhatsappConfirmCodeDto {
+  @IsNotEmpty()
+  challengeToken: string;
+
+  @IsNotEmpty()
+  code: string;
+}
+
 export class ResendConfirmationDto {
   @IsEmail()
   email: string;
