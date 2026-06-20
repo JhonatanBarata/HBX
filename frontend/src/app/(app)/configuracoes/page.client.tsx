@@ -307,7 +307,7 @@ export function ConfiguracoesClient() {
 
   return (
     <React.Fragment>
-        <div className="work" style={{ flex: 1, gridTemplateColumns: "210px 1fr", display: "grid", alignItems: "start" }}>
+        <div className="work cfg-page" style={{ flex: 1, gridTemplateColumns: "210px 1fr", display: "grid", alignItems: "start" }}>
           <nav className="set-nav panel" style={{ padding: 10 }}>
             {sections.map(s => (
               <button key={s} className={"set-link" + (sec === s ? " on" : "")} onClick={() => setSec(s)}>
@@ -316,41 +316,45 @@ export function ConfiguracoesClient() {
             ))}
           </nav>
 
-          <div style={{ display: "grid", gap: 14 }}>
+          <div className="cfg-body" style={{ display: "grid", gap: 14 }}>
             {sec === "Perfil" && (
-              <section className="panel">
+              <section className="panel cfg-section">
                 <div className="panel-head">
                   <h2>Perfil</h2>
                   <div className="meta">
                     {saveMsg && <span style={{ fontWeight: 700, color: saveMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{saveMsg}</span>}
-                    <button className="btn-teal" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
+                    <button className="btn-teal cfg-save-desktop" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
                   </div>
                 </div>
-                <div style={{ padding: 18, display: "grid", gap: 16 }}>
-                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                <div className="cfg-panel-body" style={{ padding: 18, display: "grid", gap: 16 }}>
+                  <div className="cfg-avatar-hero" style={{ display: "flex", gap: 14, alignItems: "center" }}>
                     <Av name={displayName} size={56} />
                     <div style={{ display: "grid", gap: 6 }}>
-                      <strong>Foto do perfil</strong>
+                      <strong>{displayName}</strong>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem" }}>Alterar</button>
-                        <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>Remover</button>
+                        <button className="btn-ghost cfg-danger-btn" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>Remover</button>
                       </div>
                     </div>
                   </div>
-                  <div className="frow">
+                  <div className="frow cfg-fields">
                     <div className="f"><label>Nome completo</label><input className="field-dark" value={nome} onChange={e => setNome(e.target.value)} /></div>
                     <div className="f"><label>Perfil de acesso</label><input className="field-dark" value={user ? roleLabel(user.role) : ""} readOnly /></div>
                     <div className="f"><label>E-mail</label><input className="field-dark" value={user?.email || ""} readOnly /></div>
                     <div className="f"><label>Telefone</label><input className="field-dark" defaultValue="" placeholder="—" readOnly /></div>
+                  </div>
+                  <div className="cfg-save-mobile">
+                    {saveMsg && <span className={"cfg-save-msg" + (saveMsg.startsWith("✓") ? " ok" : " err")}>{saveMsg}</span>}
+                    <button className="btn-teal" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
                   </div>
                 </div>
               </section>
             )}
 
             {sec === "Empresa" && (
-              <section className="panel">
+              <section className="panel cfg-section">
                 <div className="panel-head"><h2>Empresa</h2></div>
-                <div style={{ padding: 18 }}>
+                <div className="cfg-sec-body" style={{ padding: 18 }}>
                   <div className="frow">
                     <div className="f"><label>Razão social</label><input className="field-dark" value={user?.company?.name || ""} readOnly placeholder="—" /></div>
                     <div className="f"><label>CNPJ</label><input className="field-dark" value="" readOnly placeholder="—" /></div>
@@ -399,7 +403,7 @@ export function ConfiguracoesClient() {
 
             {sec === "Equipe" && (
               <React.Fragment>
-              <section className="panel">
+              <section className="panel cfg-section">
                 <div className="panel-head">
                   <h2>Equipe</h2>
                   <div className="meta">
@@ -453,9 +457,9 @@ export function ConfiguracoesClient() {
             {sec === "E-mail" && isAdminUser && <CompanyEmailSection />}
 
             {sec === "Notificações" && (
-              <section className="panel">
+              <section className="panel cfg-section">
                 <div className="panel-head"><h2>Notificações</h2></div>
-                <div style={{ padding: "6px 18px 14px" }}>
+                <div className="cfg-notif-body" style={{ padding: "6px 18px 14px" }}>
                   <div className="setting"><div style={{ flex: 1 }}><strong>Novo lead na esteira</strong><small>Receba um aviso quando um lead novo for captado.</small></div><Toggle on={n1} set={setN1} /></div>
                   <div className="setting"><div style={{ flex: 1 }}><strong>Mensagens não respondidas</strong><small>Alerta quando uma conversa ficar sem resposta por mais de 30 min.</small></div><Toggle on={n2} set={setN2} /></div>
                   <div className="setting"><div style={{ flex: 1 }}><strong>Resumo diário por e-mail</strong><small>Um resumo da operação às 8h, todos os dias úteis.</small></div><Toggle on={n3} set={setN3} /></div>

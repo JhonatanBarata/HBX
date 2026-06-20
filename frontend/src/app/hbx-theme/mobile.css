@@ -830,61 +830,294 @@
 }
 
 /* ============================================================
-   === CONFIGURAÇÕES ===
-   ≤ 860px — .set-nav vira acordeão/lista vertical;
-   formulários em 1 coluna com campos confortáveis ao toque.
+   === CONFIGURAÇÕES — PREMIUM MOBILE ===
+   ≤ 860px — abas segmentadas (pills) roláveis + cartões
+   agrupados estilo iOS. Desktop 100% INTOCADO.
    ============================================================ */
+
+/* Desktop-only: oculta o botão salvar duplicado (mobile-only) */
+.cfg-save-mobile { display: none; }
+
 @media (max-width: 860px) {
-  /* Layout: sidebar de nav vira bloco acima do conteúdo */
-  .work[style*="grid-template-columns"] {
+  /* ── Layout geral: coluna única, preenche altura do shell ── */
+  .cfg-page.work[style*="grid-template-columns"] {
     display: flex !important;
     flex-direction: column !important;
+    overflow: hidden;
+    height: 100%;
   }
 
-  /* Nav de seções: lista vertical (acordeão) */
-  .set-nav {
+  /* ── Cabeçalho da página: "Configurações" já vem do topbar ──
+     A nav abaixo é a primeira coisa visível. */
+
+  /* ── NAV = abas segmentadas (pills) roláveis ── */
+  .cfg-page .set-nav {
     display: flex;
-    flex-direction: column;
-    gap: 0;
+    flex-direction: row;
+    gap: 6px;
     grid-auto-flow: unset;
     grid-auto-columns: unset;
-    overflow-x: unset;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     width: 100%;
+    padding: 10px 14px 8px;
     border-bottom: 1px solid var(--border-hairline);
-    padding: 4px 0;
-  }
-  .set-link {
-    white-space: normal;
-    min-height: 44px;
-    padding: 10px 16px;
     border-radius: 0;
-    justify-content: flex-start;
-    font-size: 0.85rem;
+    background: var(--hbx-surface);
+    box-shadow: none;
+    border: none;
+    flex: 0 0 auto;
+  }
+  .cfg-page .set-nav::-webkit-scrollbar { display: none; }
+
+  /* Pill individual */
+  .cfg-page .set-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 34px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border-hairline);
+    background: var(--hbx-surface-soft);
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+  }
+  .cfg-page .set-link:hover {
+    background: var(--hbx-surface-raised);
+    color: var(--text-body);
+  }
+  /* Pill ativa: fundo brand suave + texto forte */
+  .cfg-page .set-link.on {
+    background: var(--hbx-brand-soft);
+    color: var(--hbx-brand-strong);
+    border-color: color-mix(in srgb, var(--hbx-brand) 35%, transparent);
+  }
+  /* Ícone da pill: tamanho proporcional */
+  .cfg-page .set-link svg { flex: 0 0 auto; }
+
+  /* ── Área de conteúdo: rola por dentro ── */
+  .cfg-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 14px calc(72px + env(safe-area-inset-bottom, 0px));
+    gap: 12px !important;
+    display: flex !important;
+    flex-direction: column;
+  }
+
+  /* ── Seção premium: sem borda de cartão desktop (já tem o panel)
+     Mas no mobile reestilizamos pra iOS grouped list ── */
+  .cfg-section {
+    border-radius: var(--radius-lg) !important;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ── Avatar hero: centralizado, avatar maior ── */
+  .cfg-avatar-hero {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 10px !important;
+    padding: 20px 16px 10px;
+    text-align: center;
+  }
+  .cfg-avatar-hero .avatar { width: 72px !important; height: 72px !important; font-size: 1.5rem !important; }
+  .cfg-avatar-hero strong { font-size: clamp(1rem, 4vw, 1.15rem); font-weight: 800; color: var(--text-strong); display: block; }
+  .cfg-avatar-hero > div { align-items: center !important; }
+
+  /* ── Campos do perfil: 1 coluna, iOS grouped list ── */
+  .cfg-fields {
+    grid-template-columns: 1fr !important;
+    gap: 0 !important;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-hairline);
+    background: var(--hbx-surface-soft);
+    overflow: hidden;
+    padding: 0 !important;
+  }
+  .cfg-fields .f {
+    display: flex !important;
+    flex-direction: row;
+    align-items: center;
+    padding: 13px 14px;
+    gap: 10px;
     border-bottom: 1px solid var(--border-hairline);
+    min-height: 52px;
+    background: var(--hbx-surface);
   }
-  .set-link:last-child { border-bottom: none; }
+  .cfg-fields .f:last-child { border-bottom: none; }
+  .cfg-fields .f label {
+    flex: 0 0 110px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .cfg-fields .f .field-dark {
+    flex: 1;
+    min-height: 0 !important;
+    height: auto;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    font-size: clamp(0.85rem, 3.5vw, 0.9rem);
+    color: var(--text-strong);
+    font-weight: 500;
+    text-align: right;
+    width: 100%;
+  }
+  .cfg-fields .f .field-dark:focus { outline: none; }
 
-  /* Campos de formulário: 1 coluna, toque confortável */
-  .frow { gap: 12px; }
-  .frow .f input,
-  .frow .f select,
-  .frow .f textarea {
-    min-height: 44px;
-    font-size: 1rem;
+  /* ── Botão salvar — versão desktop (panel-head): oculta no mobile ── */
+  .cfg-save-desktop { display: none !important; }
+
+  /* ── Botão salvar — versão mobile: sticky no rodapé do form ── */
+  .cfg-save-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 0 4px;
+  }
+  .cfg-save-mobile .btn-teal {
+    width: 100%;
+    min-height: 48px;
+    font-size: 0.92rem;
+    border-radius: var(--control-radius);
+  }
+  .cfg-save-msg { font-size: 0.74rem; font-weight: 700; }
+  .cfg-save-msg.ok { color: var(--hbx-brand-strong); }
+  .cfg-save-msg.err { color: var(--hbx-danger); }
+
+  /* ── Corpo do panel: sem padding extra (ios-style herda do flex) ── */
+  .cfg-panel-body {
+    padding: 0 !important;
+    gap: 0 !important;
+    display: flex !important;
+    flex-direction: column;
   }
 
-  /* Tabela de equipe: rola lateral */
-  .set-nav ~ div .tbl-wrap,
-  section .tbl-wrap {
+  /* ── Notificações: settings estilo iOS ── */
+  .cfg-notif-body {
+    padding: 0 !important;
+  }
+  .cfg-notif-body .setting {
+    padding: 16px 18px;
+    border-top: 1px solid var(--border-hairline);
+    gap: 14px;
+    min-height: 56px;
+    align-items: center;
+  }
+  .cfg-notif-body .setting:first-of-type { border-top: none; }
+  .cfg-notif-body .setting strong {
+    font-size: clamp(0.84rem, 3.5vw, 0.88rem);
+  }
+  .cfg-notif-body .setting small {
+    font-size: clamp(0.7rem, 2.8vw, 0.74rem);
+    line-height: 1.4;
+  }
+
+  /* ── Frow nas seções Empresa (mantém 1 coluna, iOS grouped) ── */
+  .cfg-section .frow {
+    grid-template-columns: 1fr !important;
+    gap: 0 !important;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-hairline);
+    background: var(--hbx-surface-soft);
+    overflow: hidden;
+    padding: 0 !important;
+  }
+  .cfg-section .frow .f {
+    display: flex !important;
+    flex-direction: row;
+    align-items: center;
+    padding: 13px 14px;
+    gap: 10px;
+    border-bottom: 1px solid var(--border-hairline);
+    min-height: 52px;
+    background: var(--hbx-surface);
+  }
+  .cfg-section .frow .f:last-child { border-bottom: none; }
+  .cfg-section .frow .f label {
+    flex: 0 0 110px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .cfg-section .frow .f .field-dark {
+    flex: 1;
+    min-height: 0 !important;
+    height: auto;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    font-size: clamp(0.85rem, 3.5vw, 0.9rem);
+    color: var(--text-strong);
+    font-weight: 500;
+    text-align: right;
+  }
+  .cfg-section .frow .f .field-dark:focus { outline: none; }
+
+  /* ── Wrapper do corpo da seção: sem padding extra no mobile ── */
+  .cfg-sec-body {
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column;
+  }
+
+  /* ── cfg-nicho: integra no estilo do painel ── */
+  .cfg-section .cfg-nicho {
+    margin: 0 !important;
+    border-top: 1px solid var(--border-hairline);
+    padding: 14px 16px !important;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .cfg-section .cfg-nicho .row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .cfg-section .cfg-nicho .row .field-dark { min-height: 44px; }
+  .cfg-section .cfg-nicho .row .btn-teal { min-height: 44px; width: 100%; justify-content: center; }
+
+  /* ── Equipe: membros em lista compacta ── */
+  .cfg-section .tbl-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
+  /* Tabela de membros: colunas E-mail e Status ficam ocultas no mobile */
+  .cfg-section .tbl thead th:nth-child(2),
+  .cfg-section .tbl tbody td:nth-child(2) { display: none; }
 
-  /* Grid de planos: 1 coluna */
+  /* ── Grid de planos: 1 coluna ── */
   .plan-grid { grid-template-columns: 1fr; }
 
-  /* ExtraSeatsCard: 1 coluna */
+  /* ── ExtraSeatsCard: 1 coluna ── */
   .extra-seats-card { flex-direction: column; }
+
+  /* ── Panel-head no mobile: compacto ── */
+  .cfg-section .panel-head {
+    padding: 14px 16px 12px;
+  }
+  .cfg-section .panel-head h2 {
+    font-size: clamp(1rem, 4vw, 1.05rem);
+  }
 }
 
 /* ============================================================
