@@ -6636,7 +6636,8 @@ export class InboxService {
 
   async refreshConversationAvatar(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const remoteJid =
       this.normalizeMessageMetadataText(metadata?.whatsappRemoteJid) ||
@@ -6669,7 +6670,8 @@ export class InboxService {
     reactionRaw: string,
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const message = await this.ensureConversationMessage(companyId, conversation.id, messageId);
     const rawPayload = this.parseConversationMetadata(message.rawPayload);
     const reaction = this.requireTrimmed(String(reactionRaw || ''), 'reaction');
@@ -6703,7 +6705,8 @@ export class InboxService {
     messageId: number,
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const message = await this.prisma.companyMessage.findFirst({
       where: { id: messageId, companyId, conversationId: conversation.id },
       select: {
