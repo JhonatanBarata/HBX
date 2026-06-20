@@ -598,6 +598,17 @@
   /* Aside .ctx: escondido no mobile (detalhe vira overlay central) */
   .leads-page .ctx { display: none; }
 
+  /* Painel da prateleira PREENCHE a altura → a lista usa a tela toda
+     (sem isto, o painel encolhe ao conteúdo e sobra vazão embaixo) */
+  .leads-page .leads-shelf {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Nota de admin: fora no mobile (não rouba a tela) */
+  .leads-page .radar2-cap { display: none; }
+
   /* Shell radar: empilha rail de filtros + main em 1 coluna */
   .radar2-shell {
     display: flex;
@@ -625,22 +636,24 @@
   .radar2-rail--open { display: flex; }
 
   /* Botão para abrir/fechar o rail de filtros — só aparece no mobile */
+  /* Barra de busca/filtro: PROMINENTE (parece um campo de busca, full-width) */
   .radar2-filter-toggle {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    background: var(--hbx-surface);
-    color: var(--text-body);
+    border-radius: var(--radius-md);
+    background: var(--hbx-surface-soft);
+    color: var(--text-muted);
     font-family: var(--font-body);
-    font-size: 0.78rem;
-    font-weight: 700;
-    padding: 7px 12px;
+    font-size: clamp(0.84rem, 2.5vw, 0.94rem);
+    font-weight: 600;
+    padding: 12px 14px;
     cursor: pointer;
-    min-height: 36px;
-    margin: 10px 14px 4px;
+    min-height: 46px;
+    margin: 12px 12px 8px;
   }
+  .radar2-filter-toggle > span { flex: 1; text-align: left; }
   .radar2-filter-toggle:hover { background: var(--hbx-surface-raised); }
 
   /* Lista: cresce pra preencher o radar2-main disponível */

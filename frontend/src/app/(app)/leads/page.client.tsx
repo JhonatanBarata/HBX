@@ -613,6 +613,7 @@ export function LeadsClient() {
   // Vista mobile: lista vertical
   function renderListMobile() {
     return (
+      <>
       <div className="lead-list">
         {/* Empty state */}
         {items.length === 0 && (
@@ -659,9 +660,10 @@ export function LeadsClient() {
             <span className="lead-list-row__chev" aria-hidden>›</span>
           </button>
         ))}
+      </div>
 
-        {/* Barra de cota compacta */}
-        {tab === "shelf" && (
+      {/* Barra de cota compacta — fixa no rodapé (fora do scroll da lista) */}
+      {tab === "shelf" && (
           <div className={"lead-list__meter" + (meterBlocked ? " blocked" : "")}>
             <div className="lead-list__meter-row">
               <span className="lead-list__meter-lbl">
@@ -676,7 +678,7 @@ export function LeadsClient() {
         )}
 
         {pullMsg && <p className="radar2-pull-msg" style={{ padding: "0 14px" }}>{pullMsg}</p>}
-      </div>
+      </>
     );
   }
 
@@ -845,7 +847,7 @@ export function LeadsClient() {
         </section>
 
         {/* PRATELEIRA + CARTEIRA */}
-        <section className="panel" style={{ padding: 0 }}>
+        <section className="panel leads-shelf" style={{ padding: 0 }}>
           <div className="radar2-shell">
             {/* rail de filtros */}
             {isMobile && (
@@ -854,8 +856,9 @@ export function LeadsClient() {
                 onClick={() => setFilterOpen(o => !o)}
                 aria-expanded={filterOpen}
               >
+                <I d={ICONS.search} size={16} />
+                <span>{filterOpen ? "Ocultar filtros" : "Buscar leads — cidade, segmento…"}</span>
                 <I d={ICONS.filter} size={14} />
-                {filterOpen ? "Ocultar filtros" : "Filtros e busca"}
               </button>
             )}
             <div className={"radar2-rail" + (isMobile ? (filterOpen ? " radar2-rail--open" : "") : "")}>
