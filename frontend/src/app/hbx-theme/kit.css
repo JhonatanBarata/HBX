@@ -212,11 +212,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .conv-seller { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--radius-xs); font-size: 0.56rem; font-weight: 700; white-space: nowrap; color: var(--text-muted); background: var(--hbx-surface-raised); border: 1px solid var(--border-hairline); }
 /* Aviso de supervisão (somente leitura) no composer. */
 .composer-readonly { font-size: 0.74rem; color: var(--text-muted); }
-/* Filtro por número (chips horizontais acima da lista de conversas). */
-.num-filter-row { display: flex; gap: 6px; padding: 0 14px 8px; flex-wrap: wrap; }
-.num-chip { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 0.64rem; font-weight: 700; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); color: var(--text-body); cursor: pointer; font-family: var(--font-body); transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
-.num-chip:hover { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 30%, transparent); }
-.num-chip.num-chip-active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 35%, transparent); }
 .field-dark { width: 100%; min-height: 38px; border-radius: var(--control-radius); border: 1px solid var(--border-hairline); padding: 0 12px; font-family: var(--font-body); font-size: 0.8rem; color: var(--text-strong); background: var(--hbx-field-surface); outline: none; }
 .field-dark:focus { border-color: var(--hbx-brand); box-shadow: 0 0 0 3px var(--ring-brand); }
 

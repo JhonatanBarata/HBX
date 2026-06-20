@@ -391,6 +391,8 @@ export function AtendimentoClient() {
   const [fila, setFila] = useState("");
   const [filaOpen, setFilaOpen] = useState(false);
   const filaRef = useRef("");
+  // filtro por vendedor (admin/visão-empresa): popover do dropdown "Vendedor: Todos ▾"
+  const [vendOpen, setVendOpen] = useState(false);
 
   // menu de ações da conversa (cabeçalho da thread)
   const [acoesOpen, setAcoesOpen] = useState(false);
@@ -1203,14 +1205,6 @@ export function AtendimentoClient() {
     : undefined;
   const supervisorName = supervisorInfo ? sellerFull(supervisorInfo) : undefined;
 
-  // Qual VENDEDOR é dono da linha desta conversa (pra eu, admin, saber de quem é o chat que estou
-  // vendo). Só no modo por-vendedor com visão de empresa (admin/gerente). Nome quando tem; senão o
-  // número cheio (não truncado).
-  const lineSellerInfo = convo?.whatsappConnectionSessionId
-    ? sessionMap.get(String(convo.whatsappConnectionSessionId))
-    : undefined;
-  const showLineSeller = waMode === "company" && convoMode !== "shared" && Boolean(lineSellerInfo);
-
   // No modo shared: nome do atendente atual (assignedToName) para exibição
   const assignedName = convo?.assignedToName || null;
 
@@ -1324,9 +1318,14 @@ export function AtendimentoClient() {
                 <div className="convs-head">
                   <div className="row">
                     <h2>Conversas</h2>
-                    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      <button className={"icon-ghost" + (filaOpen ? " on" : "")} onClick={() => setFilaOpen(o => !o)} title="Filtrar por fila" aria-label="Filtrar"><I d={ICONS.filter} size={15} /></button>
-                      <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => setFilaOpen(o => !o)} aria-expanded={filaOpen}>
+                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
+                      <I d={ICONS.plus} size={13} /> Nova
+                    </button>
+                  </div>
+                  {/* Filtros irmãos: Fila + Vendedor (um controle por função — sem o ícone-funil que duplicava). */}
+                  <div className="row" style={{ gap: 8 }}>
+                    <span style={{ position: "relative", display: "inline-flex" }}>
+                      <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setFilaOpen(o => !o); setVendOpen(false); }} aria-expanded={filaOpen}>
                         {FILAS.find(f => f.key === fila)?.label || "Todas as filas"} ▾
                       </button>
                       {filaOpen && (
@@ -1339,9 +1338,23 @@ export function AtendimentoClient() {
                         </div>
                       )}
                     </span>
-                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
-                      <I d={ICONS.plus} size={13} /> Nova
-                    </button>
+                    {showNumberFilter && (
+                      <span style={{ position: "relative", display: "inline-flex" }}>
+                        <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setVendOpen(o => !o); setFilaOpen(false); }} aria-expanded={vendOpen}>
+                          Vendedor: {numberFilter ? sellerFull(sessionMap.get(numberFilter)) : "Todos"} ▾
+                        </button>
+                        {vendOpen && (
+                          <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 184, padding: 6, display: "grid", gap: 2 }}>
+                            <button className={"nav-item" + (!numberFilter ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(""); setVendOpen(false); }}>Todos os vendedores</button>
+                            {sessionList.map(s => (
+                              <button key={s.id} className={"nav-item" + (numberFilter === s.id ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(s.id); setVendOpen(false); }}>
+                                {s.sellerName || s.phone || s.id}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <div className="row">
                     <button className={"tag" + whatsappPillVariant(waStatus)}
@@ -1382,21 +1395,6 @@ export function AtendimentoClient() {
                 <div style={{ padding: "10px 14px" }}>
                   <input className="field-dark" placeholder="Buscar conversas..." value={busca} onChange={e => setBusca(e.target.value)} />
                 </div>
-                {showNumberFilter && (
-                  <div className="num-filter-row">
-                    <button
-                      className={"num-chip" + (!numberFilter ? " num-chip-active" : "")}
-                      onClick={() => setNumberFilter("")}
-                    >Todos</button>
-                    {sessionList.map(s => (
-                      <button
-                        key={s.id}
-                        className={"num-chip" + (numberFilter === s.id ? " num-chip-active" : "")}
-                        onClick={() => setNumberFilter(prev => prev === s.id ? "" : s.id)}
-                      >{s.sellerName || s.phone || s.id}</button>
-                    ))}
-                  </div>
-                )}
                 <div className="conv-list">
                   {filtered.length === 0 && (
                     <div style={{ padding: "18px 14px", display: "grid", gap: 10, justifyItems: "start" }}>
@@ -1423,7 +1421,7 @@ export function AtendimentoClient() {
                           <span className="pv">
                             <small>{lastMsg?.content || "—"}</small>
                             <span className="chan wa">WhatsApp</span>
-                            {showNumberFilter && c.whatsappConnectionSessionId && sessionMap.has(String(c.whatsappConnectionSessionId)) && (
+                            {showNumberFilter && !numberFilter && c.whatsappConnectionSessionId && sessionMap.has(String(c.whatsappConnectionSessionId)) && (
                               <span className="conv-seller">{sessionLabel(sessionMap.get(String(c.whatsappConnectionSessionId)))}</span>
                             )}
                             {un > 0 && <span className="unread">{un}</span>}
@@ -1455,12 +1453,9 @@ export function AtendimentoClient() {
                     <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
                   </span>
                   <div style={{ display: "grid", gap: 2 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <strong>{convo ? convName(convo) : "Selecione uma conversa"}</strong>
                       {convo?.botActive && <span className="on"><i></i>Bot ativo</span>}
-                      {convo && showLineSeller && (
-                        <span className="tag" style={{ fontSize: "0.62rem" }}>Vendedor: {sellerFull(lineSellerInfo)}</span>
-                      )}
                     </span>
                     {convo ? presenceNode() : <small>—</small>}
                   </div>
