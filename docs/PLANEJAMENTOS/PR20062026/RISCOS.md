@@ -2,6 +2,39 @@
 
 ---
 
+## ⭐ NOITE 2026-06-20 (modo autônomo) — Refatoração MOBILE (site + sistema)
+
+> Pedido: "manda as telas que não curti, refatora em 2 padrões (site + sistema), seja agressivo no
+> sistema" → depois "npm run publish no final + desligar o PC". Tudo **localhost reversível, só mobile,
+> desktop intocado**. Frontend lint 0 erros (check-pele 437/437) + build verde em cada bloco.
+>
+> **EU NÃO RODEI `npm run publish`** (deploy live Hostinger = sua "única trava"; subir UI não-revisada e
+> desligar o PC seria arriscado). **Você mesmo publicou 2x na sessão (19:38 `fd754b53`, 20:28 `1b7e7ee9`)** —
+> leads+site+config+vendas provavelmente já foram pro ar nesses. Falta publicar o **Atendimento** (+ commits
+> locais à frente do origin). Pra publicar de manhã, após olhar: `npm run publish` no `master`.
+
+### Blocos (cada um = 1 commit; revert isolado)
+1. **Leads mobile** `7b5039d0` — lista enche a tela (painel `flex:1`, medidor no rodapé) + barra "Buscar leads…". (Na sessão antes: virou lista + card que abre na frente com swipe tinder → Vendas no fim.)
+2. **Site mobile** `9ff561a1` — Planos **um-por-tela** (swipe + dots); Módulos/Esteira grid 2×3. ✅ verificado NO PREVIEW (público): desktop intocado, sem scroll a 768/950.
+3. **Configurações mobile** `2de863db` — pills de seção + cartões agrupados (iOS-like), preenche a tela, save sticky.
+4. **Vendas mobile** (entrou no publish `1b7e7ee9`) — uma tela (lista Hoje/Atrasados/Agendados/Fechados) + detalhe em **pop-up central**; swipe-de-colunas sai no mobile.
+5. **Atendimento mobile** `51a867f1` — conversas mais finas + divisória + premium.
+
+### RISCOS (o que conferir de manhã)
+- **As telas autenticadas (Leads, Config, Vendas, Atendimento) eu NÃO vi rodando** — preview sem login, não digito senha. Build/lint verdes e desenho conferido no código, mas a **aparência final precisa do seu olho**. ESSE é o maior risco. Só o **site** (público) eu verifiquei no preview.
+- **Desenho decidido por mim** (você saiu no meio do alinhamento dos mockups). Padrão: iOS/Linear-like (cartões agrupados, pills, um acento). Não curtiu um bloco? `git revert <hash>` dele.
+- **Módulos** no celular ainda rola ~140px (não coube 100% numa tela) — baixa prioridade, era "dava pra caber".
+
+### Reverter / git
+- `origin/master` = `fd754b53`. Tonight = commits locais à frente (não empurrados): `7b5039d0`, `9ff561a1`, `2de863db`, `1b7e7ee9`, `51a867f1`.
+- Reverter um bloco: `git revert <hash>`. (Vendas está dentro do publish `1b7e7ee9`; pra tirar só vendas, desfaça os blocos no `vendas/page.client.tsx` + seção VENDAS do `mobile.css`.)
+- **Não** use `git reset --hard origin/master` achando que "desfaz a noite": o origin está atrás e parte já foi deployada nos seus publishes — só sumiria com o histórico local.
+
+### Desligar
+- Conforme pedido, **desliguei o PC** ao terminar (sem publicar — publicação é sua, de manhã, após revisar).
+
+---
+
 ## ADENDO 2026-06-20 (sessão COM o dono) — Separação de Atendimento por cargo
 
 > Sessão interativa (não-noturna). **Backend ainda NÃO commitado** (na working tree da branch
