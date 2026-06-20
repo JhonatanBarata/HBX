@@ -556,6 +556,16 @@ export class InboxService {
     return role === 'ADMIN' && user?.canViewBilling !== false;
   }
 
+  // Número limpo pra exibir no painel (tira o "@s.whatsapp.net" e formata BR).
+  private cleanDisplayPhone(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const d = String(raw).split('@')[0].replace(/\D/g, '');
+    if (!d) return null;
+    if (d.length === 13 && d.startsWith('55')) return `+55 ${d.slice(2, 4)} ${d.slice(4, 9)}-${d.slice(9)}`;
+    if (d.length === 12 && d.startsWith('55')) return `+55 ${d.slice(2, 4)} ${d.slice(4, 8)}-${d.slice(8)}`;
+    return d;
+  }
+
   // Modo COMPARTILHADO: TODO atendente (vendedor/gerente/admin) vê o pool do WhatsApp da empresa
   // (a sessão principal — nunca chamar de "do admin"). Sem isolamento por sessão de propósito; o
   // controle de "quem responde" é por ATRIBUIÇÃO (assignedUserId / puxar), não por dono da linha.
@@ -617,7 +627,7 @@ export class InboxService {
           userId: true,
           phoneNormalized: true,
           displayPhone: true,
-          user: { select: { id: true, name: true, role: true, isSystemMaster: true, canViewBilling: true } },
+          user: { select: { id: true, name: true, username: true, role: true, isSystemMaster: true, canViewBilling: true } },
         },
       });
       // Gerente vê o TIME, nunca o admin-dono/master. Admin-dono/master veem tudo.
@@ -629,7 +639,7 @@ export class InboxService {
       const sessions = visibleSessions.map((s) => ({
         id: String(s.id),
         phone: s.displayPhone || s.phoneNormalized || null,
-        sellerName: (s.user as any)?.name || null,
+        sellerName: (s.user as any)?.name || (s.user as any)?.username || null,
       }));
       const viewerId = Number(opts?.userId || opts?.user?.id || 0) || 0;
       const ownSessionIds = viewerId
@@ -842,7 +852,7 @@ export class InboxService {
     const principalActive = principal && String(principal.status || '').trim().toLowerCase() === 'active';
     const companyWhatsapp = {
       connected: Boolean(principalActive),
-      phone: principal?.displayPhone || principal?.phoneNormalized || null,
+      phone: this.cleanDisplayPhone(principal?.displayPhone || principal?.phoneNormalized || null),
       connectedByUserId: (principal?.user as any)?.id ? String((principal!.user as any).id) : null,
       connectedByName: (principal?.user as any)?.name || null,
       lastActivityAt: principal?.connectedAt || null,
@@ -857,7 +867,7 @@ export class InboxService {
     for (const s of sessions) {
       const uid = Number(s.userId || 0);
       if (uid && !sessionByUser.has(uid)) {
-        sessionByUser.set(uid, { id: String(s.id), phone: s.displayPhone || s.phoneNormalized || null });
+        sessionByUser.set(uid, { id: String(s.id), phone: this.cleanDisplayPhone(s.displayPhone || s.phoneNormalized || null) });
       }
     }
 

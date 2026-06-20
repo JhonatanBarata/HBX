@@ -211,6 +211,21 @@ export class WhatsAppModalService {
     return role === 'ADMIN' && user?.canViewBilling !== false;
   }
 
+  // Número limpo pra exibir (tira o "@s.whatsapp.net"/"@c.us" e formata BR). O motor às vezes guarda
+  // o JID inteiro no displayPhone; o dono não quer ver "5519...@s.whatsapp.net".
+  private cleanDisplayPhone(raw: string | null): string | null {
+    if (!raw) return null;
+    const digits = String(raw).split('@')[0].replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.length === 13 && digits.startsWith('55')) {
+      return `+55 ${digits.slice(2, 4)} ${digits.slice(4, 9)}-${digits.slice(9)}`;
+    }
+    if (digits.length === 12 && digits.startsWith('55')) {
+      return `+55 ${digits.slice(2, 4)} ${digits.slice(4, 8)}-${digits.slice(8)}`;
+    }
+    return digits;
+  }
+
   // Lançada logo no início de startCompanySession e getCompanyQrCode quando userId
   // está presente (ou seja, fluxo "me/whatsapp-modal/..." — o front de atendimento).
   // O fluxo :id/whatsapp-modal/... (admin panel direto) e master não passam userId
@@ -949,7 +964,7 @@ export class WhatsAppModalService {
           userId: true,
           displayPhone: true,
           phoneNormalized: true,
-          user: { select: { name: true, role: true, isSystemMaster: true, canViewBilling: true } },
+          user: { select: { name: true, username: true, role: true, isSystemMaster: true, canViewBilling: true } },
         },
       });
       affected = sessions
@@ -962,8 +977,8 @@ export class WhatsAppModalService {
         })
         .map((s) => ({
           userId: Number(s.userId),
-          name: (s.user as any)?.name || null,
-          phone: s.displayPhone || s.phoneNormalized || null,
+          name: (s.user as any)?.name || (s.user as any)?.username || null,
+          phone: this.cleanDisplayPhone(s.displayPhone || s.phoneNormalized || null),
         }));
     }
 

@@ -8,12 +8,6 @@
       "port": 3001,
       "autoPort": false,
       "cwd": "frontend"
-    },
-    {
-      "name": "alugueis",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5599", "--directory", "C:/Users/Jhonatan/Desktop/Alugueis"],
-      "port": 5599
     }
   ]
 }

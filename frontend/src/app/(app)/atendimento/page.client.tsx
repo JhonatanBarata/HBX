@@ -372,11 +372,20 @@ export function AtendimentoClient() {
     return info.sellerName || shortPhone(info.phone) || "?";
   }
 
-  // Identificação CHEIA do vendedor (nome quando tem; senão o número inteiro, não só os 4 dígitos) —
-  // usada no cabeçalho do chat e na barra de supervisão pra eu saber de quem é a linha.
+  // Número limpo (tira "@s.whatsapp.net"/"@c.us" e formata BR) — o motor às vezes manda o JID inteiro.
+  function fullPhone(phone: string | null): string | null {
+    if (!phone) return null;
+    const d = phone.split("@")[0].replace(/\D/g, "");
+    if (!d) return null;
+    if (d.length === 13 && d.startsWith("55")) return `+55 ${d.slice(2, 4)} ${d.slice(4, 9)}-${d.slice(9)}`;
+    if (d.length === 12 && d.startsWith("55")) return `+55 ${d.slice(2, 4)} ${d.slice(4, 8)}-${d.slice(8)}`;
+    return d;
+  }
+
+  // Identificação CHEIA do vendedor (nome quando tem; senão o número limpo) — barra de supervisão e dropdown.
   function sellerFull(info: SessionInfo | undefined): string {
     if (!info) return "?";
-    return info.sellerName || info.phone || "?";
+    return info.sellerName || fullPhone(info.phone) || "?";
   }
 
   // fidelidade: citação, lightbox, reação, popovers, presença, gravação
@@ -1208,8 +1217,8 @@ export function AtendimentoClient() {
   // No modo shared: nome do atendente atual (assignedToName) para exibição
   const assignedName = convo?.assignedToName || null;
 
-  // Exibe chips de número SOMENTE no modo empresa com múltiplas sessões visíveis.
-  const showNumberFilter = waMode === "company" && sessionList.length > 1;
+  // Dropdown de vendedor: visão de empresa (admin/gerente) com pelo menos 1 vendedor conectado.
+  const showNumberFilter = waMode === "company" && sessionList.length >= 1;
 
   // reações: agrupa as mensagens-reação pelo alvo e tira-as do fluxo principal
   const reactionsByKey = new Map<string, string[]>();
@@ -1348,7 +1357,7 @@ export function AtendimentoClient() {
                             <button className={"nav-item" + (!numberFilter ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(""); setVendOpen(false); }}>Todos os vendedores</button>
                             {sessionList.map(s => (
                               <button key={s.id} className={"nav-item" + (numberFilter === s.id ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(s.id); setVendOpen(false); }}>
-                                {s.sellerName || s.phone || s.id}
+                                {s.sellerName || fullPhone(s.phone) || s.id}
                               </button>
                             ))}
                           </div>
