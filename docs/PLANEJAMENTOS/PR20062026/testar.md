@@ -39,9 +39,21 @@ Se algo não acontecer como está escrito, me avisa.
 - No celular, toque em **Mais** (canto da barra de baixo). Abre a folha com Relatórios, Configurações, Tutorial e o seletor de **tema/cor**.
 - Toque no seletor de **cor** (ex.: "Ember"): a listinha tem que abrir **alinhada e inteira** (sem cortar, sem passar por cima do seu avatar).
 
+## Configurações no celular (novo)
+- Entre em **Configurações** pelo celular. Em cima, as seções (Perfil / Empresa / Equipe / Avisos) viram **botõezinhos lado a lado** — toque pra trocar.
+- Embaixo, os dados aparecem em **cartões limpos** ocupando a tela (sem buraco vazio embaixo). Nada pode estar **torto**. O botão **Salvar** fica fácil de achar.
+
+## Vendas no celular (novo)
+- Entre em **Vendas** pelo celular. Tudo cabe numa **tela só**: os negócios em lista, separados por **Hoje / Atrasados / Agendados / Fechados**.
+- **Toque num negócio**: abre um **card na frente** com os detalhes e os botões de ação (mover etapa, agendar retorno, fechar venda...). O **✕** fecha.
+
+## Atendimento no celular (ajuste)
+- Entre em **Atendimento** pelo celular. A lista de conversas tem que estar **mais fininha** (cabe mais conversa na tela), com uma **linha** separando cada uma.
+
 ## Site (página inicial)
 - No **computador**: a home mostra o carrossel de **palavras** (Radar/Vendas/Atendimento/Recovery) como antes e **não rola** pra baixo — tudo cabe na tela.
 - No **celular**: na home aparece um **celularzinho** mostrando as telas do sistema (Radar/Vendas/Atendimento), trocando sozinho ou nas bolinhas.
+- No **celular**, em **Planos**: aparece **um plano por tela** — arraste pro lado pra ver os outros (tem bolinhas embaixo mostrando em qual você está).
 
 ## Entrar e pagar (cadastro/planos)
 - Na escolha de planos: escolha um plano → preencha o cadastro → envie → cai na tela **Aguardando confirmação**. Aperte **F5 (recarregar)**: tem que **voltar pra tela de espera**, não pro formulário em branco.
