@@ -145,6 +145,10 @@ export function MarketingClient() {
   // Mantém o ref sincronizado sem violação de hooks (não atualizar no render)
   useEffect(() => { carouselIdxRef.current = carouselIdx; }, [carouselIdx]);
 
+  // Dot ativo do carrossel de planos (mobile scroll-snap)
+  const [activePlanDot, setActivePlanDot] = useState(0);
+  const plansTrackRef = useRef<HTMLDivElement>(null);
+
   const advance = useCallback(() => {
     const cur = carouselIdxRef.current;
     const next = (cur + 1) % CAROUSEL_ITEMS.length;
@@ -167,6 +171,27 @@ export function MarketingClient() {
   }, [advance]);
 
   useEffect(() => { fetchPublicPlans().then(setLivePlans); }, []);
+
+  // IntersectionObserver: detecta qual card de plano está centrado no scroll-snap mobile
+  useEffect(() => {
+    const track = plansTrackRef.current;
+    if (!track) return;
+    const cards = Array.from(track.querySelectorAll<HTMLElement>(".site-plan2"));
+    if (cards.length === 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const idx = cards.indexOf(entry.target as HTMLElement);
+            if (idx >= 0) setActivePlanDot(idx);
+          }
+        });
+      },
+      { root: track, threshold: 0.5 },
+    );
+    cards.forEach((c) => io.observe(c));
+    return () => io.disconnect();
+  }, [view, planMode]); // re-observa ao entrar na view de planos
 
   function getLivePlan(key: string): PublicPlan {
     return livePlans.find((p) => p.key === key) ?? getPlanFallback(key);
@@ -637,7 +662,7 @@ export function MarketingClient() {
             <span className="site-eyebrow">Planos HBX</span>
             <h2 className="site-esteira-title">O plano certo para <span className="site-accent">o seu momento</span>.</h2>
             <p className="site-sub">Do frio ao automatizado: escolha como a HBX entra na sua operação.</p>
-            <div className={"site-plans" + (planMode !== "list" ? " is-choosing is-" + planMode : "")}>
+            <div ref={plansTrackRef} className={"site-plans" + (planMode !== "list" ? " is-choosing is-" + planMode : "")}>
                 {PLAN_ORDER.map((key) => {
                   const s = PLAN_STATIC[key];
                   const lp = getLivePlan(key);
@@ -658,6 +683,25 @@ export function MarketingClient() {
                   );
                 })}
             </div>
+            {/* Dots de paginação do carrossel de planos — visíveis apenas no mobile via CSS */}
+            {planMode === "list" && (
+              <div className="site-plans-dots" aria-hidden>
+                {PLAN_ORDER.map((key, i) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={"site-plans-dot" + (i === activePlanDot ? " is-active" : "")}
+                    onClick={() => {
+                      const track = plansTrackRef.current;
+                      if (!track) return;
+                      const cards = track.querySelectorAll<HTMLElement>(".site-plan2");
+                      cards[i]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+                    }}
+                    aria-label={PLAN_STATIC[key]?.accent ?? key}
+                  />
+                ))}
+              </div>
+            )}
             {selectedPlan && (planMode === "register" || planMode === "detailReturning" || planMode === "detail2Returning" || planMode === "returning") && (
               <div className="site-plan-register">
                 <button type="button" className="scene-next scene-next--back" onClick={voltarPlanos} aria-label="Voltar">

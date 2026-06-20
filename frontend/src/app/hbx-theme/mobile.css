@@ -28,6 +28,8 @@
 .chat-back        { display: none; }
 /* Barra de abas inferior: escondida no desktop, aparece só no @media. */
 .mobile-tab-bar   { display: none; }
+/* Dots do carrossel de planos: ocultos no desktop, aparecem só no mobile. */
+.site-plans-dots  { display: none; }
 
 /* ============================================================
    === SHELL + ABAS ===
@@ -1016,6 +1018,158 @@
     grid-template-columns: 1fr !important;
   }
 
-  /* Planos em lista normal: 2 colunas a 860px (560px já vai pra 1 col via screens.css) */
-  .site-plans { grid-template-columns: 1fr 1fr; }
+  /* ================================================================
+     PLANOS — carrossel snap: UM plano por tela (premium mobile)
+     Substitui o grid esmagado; o usuário desliza entre os 4 planos.
+     ================================================================ */
+
+  /* Dots de paginação do carrossel de planos: VISÍVEIS no mobile */
+  .site-plans-dots { display: flex; }
+
+  /* Container do grid de planos vira track horizontal com scroll-snap */
+  .site-plans:not(.is-choosing) {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    gap: 0 !important;
+    width: 100% !important;
+    /* sem padding lateral: cada slide ocupa 100% */
+    padding-left: 0;
+    padding-right: 0;
+    /* esconde scrollbar mas mantém scrollável */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    /* alinha os cards pelo topo */
+    align-items: stretch;
+  }
+  .site-plans:not(.is-choosing)::-webkit-scrollbar { display: none; }
+
+  /* Cada card vira slide de 100% da largura do track */
+  .site-plans:not(.is-choosing) .site-plan2 {
+    flex: 0 0 min(88vw, 360px);
+    scroll-snap-align: center;
+    /* espaço visual entre slides — primeiro e último centrados */
+    margin: 0 6px;
+  }
+  /* centra o primeiro e o último */
+  .site-plans:not(.is-choosing) .site-plan2:first-child { margin-left: calc((100% - min(88vw, 360px)) / 2); }
+  .site-plans:not(.is-choosing) .site-plan2:last-child  { margin-right: calc((100% - min(88vw, 360px)) / 2); }
+
+  /* Dots de paginação do carrossel de planos — aparecem abaixo do track */
+  .site-plans-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 16px;
+    width: 100%;
+  }
+  .site-plans-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--border-strong);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: width 0.3s ease, background 0.3s ease;
+    flex: 0 0 auto;
+  }
+  .site-plans-dot.is-active {
+    width: 22px;
+    background: var(--login-accent, var(--hbx-brand));
+  }
+
+  /* No estado de registro: mantém coluna única (comportamento existente) */
+  .site-plans.is-choosing { grid-template-columns: 1fr; }
+
+  /* ================================================================
+     MÓDULOS — grid 2×3 compacto: cabe em uma tela sem rolão
+     ================================================================ */
+
+  /* Wrapper da seção de módulos: sem padding excessivo */
+  .scene-center.scene-esteira:has(.site-integra) {
+    padding-top: clamp(72px, 10vh, 100px);
+    padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px)));
+    gap: 10px;
+  }
+
+  /* Grade de integrações/módulos: 2 colunas compactas */
+  .site-integra {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    margin-top: 10px !important;
+  }
+
+  /* Cards de módulo: mais compactos para caber em tela */
+  .site-integra .site-station {
+    padding: 10px 10px 12px !important;
+    gap: 4px !important;
+  }
+  .site-integra .site-station__ic {
+    width: 36px !important;
+    height: 36px !important;
+  }
+  .site-integra .site-station__ic svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
+  .site-integra .site-station__t { font-size: 0.9rem !important; }
+  .site-integra .site-station__d { font-size: 0.72rem !important; line-height: 1.3 !important; }
+
+  /* Métricas dos módulos: compactar */
+  .scene-center.scene-esteira:has(.site-integra) .site-metrics {
+    padding: 10px 14px;
+    gap: 8px 16px;
+    margin-top: 10px;
+  }
+  .scene-center.scene-esteira:has(.site-integra) .site-metrics__lead {
+    font-size: 0.84rem;
+  }
+
+  /* ================================================================
+     ESTEIRA — grid 2×3 compacto + cards premium
+     ================================================================ */
+
+  /* Overrides de layout da esteira no mobile */
+  .scene-center.scene-esteira:has(.site-esteira):not(:has(.site-integra)) {
+    padding-top: clamp(72px, 10vh, 100px);
+    padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px)));
+    gap: 10px;
+  }
+
+  /* Grade da esteira: 2 colunas */
+  .site-esteira {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+    margin-top: 10px !important;
+  }
+  /* Remove a linha horizontal decorativa (não funciona em 2 cols) */
+  .site-esteira::before { display: none !important; }
+
+  /* Cards da esteira: compactos, preserva hierarquia visual */
+  .site-esteira .site-station {
+    padding: 14px 12px 16px !important;
+    gap: 6px !important;
+    border-radius: 16px;
+  }
+  .site-esteira .site-station__ic {
+    width: 46px !important;
+    height: 46px !important;
+  }
+  .site-esteira .site-station__ic svg {
+    width: 22px !important;
+    height: 22px !important;
+  }
+  .site-esteira .site-station__k { font-size: 0.78rem !important; }
+  .site-esteira .site-station__t { font-size: 1.1rem !important; }
+  .site-esteira .site-station__d { font-size: 0.76rem !important; line-height: 1.35 !important; }
+
+  /* Métricas da esteira: compactar */
+  .scene-center.scene-esteira:has(.site-esteira):not(:has(.site-integra)) .site-metrics {
+    padding: 10px 14px;
+    margin-top: 10px;
+  }
 }
