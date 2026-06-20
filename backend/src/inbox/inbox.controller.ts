@@ -77,6 +77,19 @@ export class InboxController {
     return this.inboxService.getWhatsappSessionDiagnostics(req.user);
   }
 
+  @Get('whatsapp/admin-panel')
+  getWhatsappAdminPanel(@Req() req: any) {
+    return this.inboxService.getWhatsappAdminPanel(req.user);
+  }
+
+  @Post('whatsapp/seller-connect-permission')
+  setSellerConnectPermission(
+    @Req() req: any,
+    @Body() dto: { userId?: number | string; allowed?: boolean },
+  ) {
+    return this.inboxService.setSellerConnectPermission(req.user, Number(dto?.userId || 0), Boolean(dto?.allowed));
+  }
+
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);
@@ -268,6 +281,26 @@ export class InboxController {
     @Param('messageId', ParseIntPipe) messageId: number,
   ) {
     return this.inboxService.retryConversationMessage(req.user, conversationId, messageId);
+  }
+
+  // Atendimento compartilhado: puxar / assumir-transferir / liberar.
+  @Post('conversations/:id/claim')
+  claimConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.claimConversation(req.user, id);
+  }
+
+  @Post('conversations/:id/transfer')
+  transferConversation(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { userId?: number | string },
+  ) {
+    return this.inboxService.transferConversation(req.user, id, Number(dto?.userId || 0));
+  }
+
+  @Post('conversations/:id/release')
+  releaseConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.releaseConversation(req.user, id);
   }
 
   // ---------------------------------------------------------------------------

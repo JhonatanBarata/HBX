@@ -1,5 +1,43 @@
 # RISCOS — trabalho noturno 19/06/2026
 
+---
+
+## ADENDO 2026-06-20 (sessão COM o dono) — Separação de Atendimento por cargo
+
+> Sessão interativa (não-noturna). **Backend ainda NÃO commitado** (na working tree da branch
+> `trabalho-noturno`); o **fix de leitura anterior o dono já publicou**. Nada live novo disparado.
+> Backend build verde; frontend lint (check-pele 437/437) + build verdes.
+
+**O que mudou (reversível):**
+- `backend/src/inbox/inbox.service.ts`:
+  - 3 níveis de visão: vendedor=`own`, **gerente** (`ADMIN` sem `canViewBilling`)=time **sem o admin**, admin-dono/master=empresa toda. Helpers `isGerenteUser`/`isAdminOwnerSessionUser`; `ownSessionIds`/`restricted` no scope.
+  - **Trava de envio** `assertCanSendInConversation`: só o **dono da linha** dispara (send/media/react/retry). Admin/gerente em conversa alheia = **só leitura**. (Resolve "admin manda pelo vendedor".)
+  - `ensureConversation`: mutação do gerente confinada ao time (não toca conversa do admin por id).
+- `frontend/.../atendimento/page.client.tsx` + `hbx-theme/kit.css`: chip do dono por conversa, filtro por número, compose read-only para não-dono.
+
+**Riscos:** mudou a semântica de `isAggregateUser` (gerente deixou de ver tudo) — conferir que nada fora do inbox dependia de "todo ADMIN vê tudo". Caminho Meta-only (sessão null) no envio não foi alterado de propósito.
+
+**Reverter:** `git revert` dos commits (quando commitados) ou desfazer os blocos em `inbox.service.ts` + os 2 arquivos de front. **Zero migration** → revert não toca dados.
+
+**Pendente (próximo bloco):** override por usuário + painel em Configurações → Equipe (`UserTeamPolicy.visibilityJson.inboxScope`); testes `node --test` dirigidos. Ver [PLAN-WHATSAPP-FASE-B-VISAO-EMPRESA.md](PLAN-WHATSAPP-FASE-B-VISAO-EMPRESA.md).
+
+### ADENDO 2 — Modelo Compartilhado × Individual (orquestrado: Opus + 2 workers Sonnet)
+
+> Backend build verde + **42/42** testes do inbox; frontend lint (check-pele 437/437) + build verdes.
+> **NÃO testado live, NÃO publicado.** 1 migration aditiva nullable.
+
+**O que mudou (reversível):**
+- `prisma/schema.prisma`: `Company.whatsappAttendanceMode String?` + migration `20260620_company_whatsapp_attendance_mode/migration.sql` (escrita à mão — `migrate dev` local quebra por shadow-DB legado **pré-existente**, sem relação com a mudança; aplica via `migrate deploy`).
+- `inbox.service.ts`/`inbox.controller.ts`: escopo + envio **modo-cientes**; `claim/transfer/release`; `GET /inbox/whatsapp/admin-panel`; `POST /inbox/whatsapp/seller-connect-permission`; `assignedUserId`/`assignedToName` no resumo.
+- `companies/whatsapp-modal.service.ts` + controller: **gate de conexão** (shared só admin; individual vendedor só se liberado) e **troca de modo** `POST /companies/me/whatsapp-modal/attendance-mode` (confirm + desconexão LIMPA reusando `disconnectCompanySession`).
+- Frontend: `modelo-atendimento-panel.tsx` (painel admin), thread compartilhada (Atendimento com X / Puxar / Assumir / Liberar), banner, compose modo-ciente.
+
+**Riscos:** não rodou multi-user real; a troca de modo derruba conexões (testar que NÃO entra em loop — reusa o disconnect limpo); tutorial ficou como TODO. Default `null`→individual = comportamento atual preservado até um admin escolher 'shared'.
+
+**Reverter:** `git revert` dos commits OU desfazer os blocos; a migration é aditiva (coluna nullable) — dropar a coluna se quiser zerar 100%.
+
+---
+
 Branch isolada: **`trabalho-noturno`** (revisar de manhã; gostou segue, não gostou `git revert <hash>`).
 Assunto único da noite: **fechar o Slice 3 do Onboarding/Self-Checkout** — as frentes financeiras/auth
 (Opus direto, exceção do dono) + a parte de pele via worker Sonnet.

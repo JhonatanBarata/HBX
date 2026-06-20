@@ -26,8 +26,9 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
+import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
@@ -72,6 +73,10 @@ type InboxConversation = {
   lastMessageAt: string | null;
   botActive: boolean | null;
   humanAssigned: boolean | null;
+  whatsappConnectionSessionId?: string | null;
+  attendanceMode?: "shared" | "individual" | null;
+  assignedUserId?: number | null;
+  assignedToName?: string | null;
   metadata?: Record<string, unknown> | null;
   customer?: {
     name: string | null;
@@ -329,6 +334,44 @@ export function AtendimentoClient() {
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waModalOpen, setWaModalOpen] = useState(false);
 
+  // sessões WhatsApp: modo (company/current/meta/none), lista de sessões visíveis,
+  // e ids das sessões deste usuário (para controle de supervisão/read-only).
+  type SessionInfo = { sellerName: string | null; phone: string | null };
+  const [waMode, setWaMode] = useState<string>("");
+  const [sessionList, setSessionList] = useState<Array<{ id: string; phone: string | null; sellerName: string | null }>>([]);
+  const [ownSessionIds, setOwnSessionIds] = useState<string[]>([]);
+  const [sessionMap, setSessionMap] = useState<Map<string, SessionInfo>>(new Map());
+  const [numberFilter, setNumberFilter] = useState<string>("");
+  // attendanceMode global (shared/individual/null) — vem do /inbox/whatsapp-session
+  const [waAttendanceMode, setWaAttendanceMode] = useState<"shared" | "individual" | null>(null);
+
+  // Identidade do usuário logado (via useCurrentUser do shell — GET /profile/current-user)
+  const me = useCurrentUser();
+  const meuUserId = me ? String((me as { id?: number | string | null }).id ?? "") : "";
+  const souAdmin = String(me?.role || "").toUpperCase() === "ADMIN" || Boolean(me?.isSystemMaster);
+
+  // Painel "Modelo de atendimento" (admin only)
+  const [atPanelOpen, setAtPanelOpen] = useState(false);
+
+  // Estado de atribuição da conversa aberta (shared mode): nome do atendente atual
+  // e popover de transferência
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferList, setTransferList] = useState<Array<{ userId: number; name: string | null }>>([]);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+
+  // Último 4 dígitos do telefone para exibição compacta (ex.: …1720)
+  function shortPhone(phone: string | null): string | null {
+    if (!phone) return null;
+    const digits = phone.replace(/\D/g, "");
+    return digits.length >= 4 ? `…${digits.slice(-4)}` : phone;
+  }
+
+  function sessionLabel(info: SessionInfo | undefined): string {
+    if (!info) return "?";
+    return info.sellerName || shortPhone(info.phone) || "?";
+  }
+
   // fidelidade: citação, lightbox, reação, popovers, presença, gravação
   const [replyTo, setReplyTo] = useState<InboxMessage | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -364,15 +407,47 @@ export function AtendimentoClient() {
       .catch(() => setWaStatus(null));
   }, []);
 
+  const refreshWaSession = useCallback(() => {
+    return apiFetch<{
+      providerWarning?: string | null;
+      whatsappSession: {
+        accessible: boolean;
+        mode: string;
+        attendanceMode?: "shared" | "individual" | null;
+        sessions?: Array<{ id: string; phone: string | null; sellerName: string | null }>;
+        ownSessionIds?: string[];
+      };
+    }>("/inbox/whatsapp-session")
+      .then(res => {
+        const ws = res?.whatsappSession;
+        if (!ws) return;
+        const mode = ws.mode || "";
+        const sessions = ws.sessions ?? [];
+        const ownIds = ws.ownSessionIds ?? [];
+        setWaMode(mode);
+        setSessionList(sessions);
+        setOwnSessionIds(ownIds);
+        setWaAttendanceMode(ws.attendanceMode ?? null);
+        const map = new Map<string, SessionInfo>();
+        for (const s of sessions) {
+          map.set(s.id, { sellerName: s.sellerName, phone: s.phone });
+        }
+        setSessionMap(map);
+      })
+      .catch(() => { /* endpoint pode não estar disponível ainda */ });
+  }, []);
+
   // Estado de conexão VIVO no selo do inbox (PR17062026047 Bloco C): o status era
   // buscado só no mount, então se o número caísse com o vendedor na tela o selo seguia
   // mentindo "Conectado" até recarregar. Poll leve (independe de conversa aberta) mantém
   // o selo verdadeiro; o clique já abre o modal que faz poll de 4s e oferece reconectar.
+  // Também carrega as sessões WhatsApp (mapa de número→vendedor) para o chip de supervisor.
   useEffect(() => {
     refreshWaStatus();
-    const t = setInterval(refreshWaStatus, 20000);
+    refreshWaSession();
+    const t = setInterval(() => { refreshWaStatus(); refreshWaSession(); }, 20000);
     return () => clearInterval(t);
-  }, [refreshWaStatus]);
+  }, [refreshWaStatus, refreshWaSession]);
 
   const [hasMore, setHasMore] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
@@ -402,6 +477,14 @@ export function AtendimentoClient() {
   const recTimerRef = useRef<number>(0);
   const recCancelRef = useRef(false);
 
+  // Fecha o popover de transferência ao clicar fora
+  useEffect(() => {
+    if (!transferOpen) return;
+    const handler = () => setTransferOpen(false);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [transferOpen]);
+
   const loadConvs = useCallback(() => {
     const q = filaRef.current ? `&queue=${encodeURIComponent(filaRef.current)}` : "";
     return apiFetch<InboxConversation[]>(`/inbox/conversations?take=50${q}`)
@@ -423,8 +506,9 @@ export function AtendimentoClient() {
   // (modal inline + popup nesta tela = duas coisas vivas para a mesma função).
   const handleWhatsAppConnected = useCallback(() => {
     refreshWaStatus();
+    refreshWaSession();
     loadConvs();
-  }, [refreshWaStatus, loadConvs]);
+  }, [refreshWaStatus, refreshWaSession, loadConvs]);
 
   // Desconectou: limpa a lista na hora — o chat do número que saiu não fica
   // pendurado por trás do modal.
@@ -1003,6 +1087,67 @@ export function AtendimentoClient() {
     }
   }
 
+  // ---- Ações de atribuição (shared mode) ----------------------------------
+
+  async function claimConversa() {
+    if (!selId || transferBusy) return;
+    setTransferBusy(true);
+    setAssignMsg(null);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/claim`, { method: "POST", body: JSON.stringify({}) });
+      await loadConvs();
+      if (selId) await loadThread(selId);
+    } catch (err) {
+      setAssignMsg(err instanceof Error ? err.message : "Não foi possível puxar o atendimento.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
+  async function transferirConversa(userId: number) {
+    if (!selId || transferBusy) return;
+    setTransferBusy(true);
+    setAssignMsg(null);
+    setTransferOpen(false);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/transfer`, {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      });
+      await loadConvs();
+      if (selId) await loadThread(selId);
+    } catch (err) {
+      setAssignMsg(err instanceof Error ? err.message : "Não foi possível transferir o atendimento.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
+  async function liberarConversa() {
+    if (!selId || transferBusy) return;
+    setTransferBusy(true);
+    setAssignMsg(null);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/release`, { method: "POST", body: JSON.stringify({}) });
+      await loadConvs();
+      if (selId) await loadThread(selId);
+    } catch (err) {
+      setAssignMsg(err instanceof Error ? err.message : "Não foi possível liberar o atendimento.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
+  // Carrega lista da equipe para popover de transferência (best-effort via admin-panel)
+  async function abrirTransferPopover() {
+    setTransferOpen(true);
+    if (transferList.length > 0) return;
+    try {
+      const res = await apiFetch<{ team?: Array<{ userId: number; name: string | null }> }>("/inbox/whatsapp/admin-panel");
+      setTransferList((res?.team || []).map(m => ({ userId: m.userId, name: m.name })));
+    } catch { /* segue com lista vazia */ }
+  }
+
   // Enviar proposta: leva o contato para o Vendas (Radar → Vendas → WhatsApp)
   function enviarProposta() {
     try {
@@ -1027,7 +1172,35 @@ export function AtendimentoClient() {
       const q = busca.trim().toLowerCase();
       if (!q) return true;
       return convName(c).toLowerCase().includes(q) || String(c.contact || "").includes(q);
-    });
+    })
+    .filter(c => !numberFilter || String(c.whatsappConnectionSessionId || "") === numberFilter);
+
+  // canSend modo-ciente:
+  //   - shared  → pode enviar se não há dono OU se sou o dono OU se sou admin
+  //   - individual → regra antiga (dono da linha via ownSessionIds)
+  //   - sem modo/null → aplica regra individual (legado)
+  const convoMode = convo?.attendanceMode ?? waAttendanceMode;
+  let canSend: boolean;
+  if (convoMode === "shared") {
+    const assignedId = convo?.assignedUserId;
+    canSend = !assignedId || String(assignedId) === meuUserId || souAdmin;
+  } else {
+    // individual ou sem informação de modo
+    canSend = !convo?.whatsappConnectionSessionId
+      || ownSessionIds.includes(String(convo.whatsappConnectionSessionId));
+  }
+
+  // Supervisor info: no modo individual, mostra quem é o dono da linha (chip)
+  const supervisorInfo = convoMode !== "shared" && !canSend && convo?.whatsappConnectionSessionId
+    ? sessionMap.get(String(convo.whatsappConnectionSessionId))
+    : undefined;
+  const supervisorName = supervisorInfo ? sessionLabel(supervisorInfo) : undefined;
+
+  // No modo shared: nome do atendente atual (assignedToName) para exibição
+  const assignedName = convo?.assignedToName || null;
+
+  // Exibe chips de número SOMENTE no modo empresa com múltiplas sessões visíveis.
+  const showNumberFilter = waMode === "company" && sessionList.length > 1;
 
   // reações: agrupa as mensagens-reação pelo alvo e tira-as do fluxo principal
   const reactionsByKey = new Map<string, string[]>();
@@ -1161,7 +1334,28 @@ export function AtendimentoClient() {
                       onClick={() => setWaModalOpen(true)} title="Conexão WhatsApp">
                       ● WhatsApp: {whatsappPillLabel(waStatus)}
                     </button>
+                    {souAdmin && (
+                      <button
+                        className="btn-ghost btn-xs"
+                        style={{ marginLeft: "auto" }}
+                        onClick={() => setAtPanelOpen(true)}
+                        title="Modelo de atendimento"
+                      >
+                        <I d={ICONS.users} size={12} /> Modelo
+                      </button>
+                    )}
                   </div>
+                  {/* Banner: admin + sem modelo escolhido ainda */}
+                  {souAdmin && waAttendanceMode === null && (
+                    <div className="at-mode-banner">
+                      <span style={{ flex: 1 }}>
+                        Escolha o <strong>modelo de atendimento</strong>: Compartilhado ou Individual.
+                      </span>
+                      <button className="btn-ghost btn-xs" onClick={() => setAtPanelOpen(true)}>
+                        Configurar ▸
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="tabs">
                   {["Todas", "Não lidas", "Minhas"].map((t, i) => (
@@ -1173,6 +1367,21 @@ export function AtendimentoClient() {
                 <div style={{ padding: "10px 14px" }}>
                   <input className="field-dark" placeholder="Buscar conversas..." value={busca} onChange={e => setBusca(e.target.value)} />
                 </div>
+                {showNumberFilter && (
+                  <div className="num-filter-row">
+                    <button
+                      className={"num-chip" + (!numberFilter ? " num-chip-active" : "")}
+                      onClick={() => setNumberFilter("")}
+                    >Todos</button>
+                    {sessionList.map(s => (
+                      <button
+                        key={s.id}
+                        className={"num-chip" + (numberFilter === s.id ? " num-chip-active" : "")}
+                        onClick={() => setNumberFilter(prev => prev === s.id ? "" : s.id)}
+                      >{s.sellerName || shortPhone(s.phone) || s.id}</button>
+                    ))}
+                  </div>
+                )}
                 <div className="conv-list">
                   {filtered.length === 0 && (
                     <div style={{ padding: "18px 14px", display: "grid", gap: 10, justifyItems: "start" }}>
@@ -1199,6 +1408,9 @@ export function AtendimentoClient() {
                           <span className="pv">
                             <small>{lastMsg?.content || "—"}</small>
                             <span className="chan wa">WhatsApp</span>
+                            {showNumberFilter && c.whatsappConnectionSessionId && sessionMap.has(String(c.whatsappConnectionSessionId)) && (
+                              <span className="conv-seller">{sessionLabel(sessionMap.get(String(c.whatsappConnectionSessionId)))}</span>
+                            )}
                             {un > 0 && <span className="unread">{un}</span>}
                           </span>
                         </span>
@@ -1235,6 +1447,41 @@ export function AtendimentoClient() {
                     {convo ? presenceNode() : <small>—</small>}
                   </div>
                   <div style={{ marginLeft: "auto", display: "grid", gap: 6, justifyItems: "end" }}>
+                    {/* Shared mode: info + ações de atribuição no cabeçalho */}
+                    {convo && convoMode === "shared" && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {assignedName
+                          ? <span className="tag teal" style={{ fontSize: "0.62rem" }}>Atendimento com: {assignedName}</span>
+                          : <span className="tag warn" style={{ fontSize: "0.62rem" }}>Sem atendente</span>}
+                        {(souAdmin || String(convo.assignedUserId || "") === meuUserId) && (
+                          <span style={{ position: "relative", display: "inline-flex" }}>
+                            <button
+                              className="btn-ghost btn-xs"
+                              disabled={transferBusy}
+                              onClick={abrirTransferPopover}
+                            >
+                              Transferir ▾
+                            </button>
+                            {transferOpen && (
+                              <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 180, padding: 6, display: "grid", gap: 2 }}>
+                                {transferList.length === 0 && <span className="at-pop-empty">Carregando…</span>}
+                                {transferList.map(t => (
+                                  <button key={t.userId} className="nav-item" style={{ minHeight: 32 }} onClick={() => transferirConversa(t.userId)}>
+                                    {t.name || `Usuário ${t.userId}`}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </span>
+                        )}
+                        {(souAdmin || String(convo.assignedUserId || "") === meuUserId) && convo.assignedUserId && (
+                          <button className="btn-ghost btn-xs" disabled={transferBusy} onClick={liberarConversa}>
+                            Liberar
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {assignMsg && <span className="tag red">{assignMsg}</span>}
                     <span style={{ position: "relative", display: "inline-flex" }}>
                       <button className={"btn-ghost" + (acoesOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "0.7rem" }}
                         disabled={!convo} onClick={() => { setAcoesOpen(o => !o); setAcaoMsg(null); }} aria-expanded={acoesOpen}>Ações ▾</button>
@@ -1316,7 +1563,39 @@ export function AtendimentoClient() {
                     </div>
                   )}
 
-                  {recording ? (
+                  {/* Shared mode sem dono: botão "Puxar atendimento" acima do compose */}
+                  {convo && canSend && convoMode === "shared" && !convo.assignedUserId && (
+                    <div className="at-claim-bar">
+                      <span className="at-claim-txt">
+                        Conversa sem atendente — puxe para você ou envie direto (o sistema atribui automaticamente).
+                      </span>
+                      <button className="btn-ghost btn-xs" disabled={transferBusy} onClick={claimConversa}>
+                        <I d={ICONS.arrow} size={13} /> Puxar para mim
+                      </button>
+                    </div>
+                  )}
+
+                  {convo && !canSend ? (
+                    convoMode === "shared" ? (
+                      /* Shared + atribuída a outra pessoa → botão Assumir */
+                      <div className="at-claim-bar">
+                        <span style={{ flex: 1, fontSize: "0.73rem" }}>
+                          Atendimento com <strong>{assignedName || "outro atendente"}</strong>.
+                        </span>
+                        <button className="btn-ghost btn-xs" disabled={transferBusy} onClick={() => transferirConversa(Number(meuUserId))}>
+                          <I d={ICONS.arrow} size={13} /> Assumir
+                        </button>
+                      </div>
+                    ) : (
+                      /* Individual / legado: somente leitura (supervisão) */
+                      <div className="row composer-readonly" style={{ gap: 8 }}>
+                        <I d={ICONS.mic} size={15} />
+                        <span style={{ flex: 1 }}>
+                          Somente leitura — quem responde é <strong>{supervisorName}</strong> (supervisão).
+                        </span>
+                      </div>
+                    )
+                  ) : recording ? (
                     <div className="rec-bar">
                       <span className="rec-dot" />
                       <span>Gravando nota de voz… {fmtDur(recSecs)}</span>
@@ -1334,12 +1613,14 @@ export function AtendimentoClient() {
                     </div>
                   )}
 
-                  <div>
-                    <button className={"btn-ghost" + (quickOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "0.7rem" }}
-                      onClick={() => { const next = !quickOpen; setQuickOpen(next); setEmojiOpen(false); if (next) loadQuick(); }} disabled={!convo}>
-                      <I d={ICONS.bolt} size={13} /> Inserir mensagem rápida
-                    </button>
-                  </div>
+                  {(!convo || canSend) && (
+                    <div>
+                      <button className={"btn-ghost" + (quickOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "0.7rem" }}
+                        onClick={() => { const next = !quickOpen; setQuickOpen(next); setEmojiOpen(false); if (next) loadQuick(); }} disabled={!convo}>
+                        <I d={ICONS.bolt} size={13} /> Inserir mensagem rápida
+                      </button>
+                    </div>
+                  )}
 
                   {emojiOpen && (
                     <div className="hbx-pop chat-pop" style={{ left: 12 }}>
@@ -1501,6 +1782,13 @@ export function AtendimentoClient() {
         onConnected={handleWhatsAppConnected}
         onDisconnected={handleWhatsAppDisconnected}
       />
+
+      {atPanelOpen && (
+        <ModeloAtendimentoPanel
+          onClose={() => { setAtPanelOpen(false); refreshWaSession(); }}
+          onConnectWhatsApp={() => { setAtPanelOpen(false); setWaModalOpen(true); }}
+        />
+      )}
 
       {lightbox && (
         <div className="hbx-veil" onClick={() => setLightbox(null)}>

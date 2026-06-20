@@ -16,6 +16,10 @@
 - **PENDENTE:** (a) trash de radar-cards no :3107 (endpoint exclusões ainda é `/modules/master/exclusoes` —
   não renomeado; decidir se renomeia ou consome como está). (b) **F5/5b** aguarda os 2 knobs (rotação fixa
   cidades/segmentos + cota por plano). **Nada live foi tocado.**
+- **20/06 (Opus — auditoria de código):** estado real do 5b verificado e CORRIGIDO (ver Frente 5b reescrita).
+  A distribuição já é por-vendedor (território/cota/limite/modos/worker pump); os gaps reais são mais
+  estreitos que o diagnóstico de 19/06: (a) enriquecimento cego e (b) segmento global na distribuição.
+  Push on-match e on-demand ainda a traçar. Nada live.
 
 ## Princípio da faxina
 - **Master (`:3001/master`)** = só problema de cliente HBX / admin SaaS.
@@ -103,20 +107,46 @@ igual ao resto do Owner.
 - **localhost**: tudo manual pelo :3107; **VPS**: policy roda sozinha, sem edição.
 
 ### 5b — Fiação da corrente autônoma (AUDITAR + SOLDAR — pré-requisito do 24/7)
-> Achado em 19/06: a corrente "preferência → enriquecimento → push → distribuição"
-> NÃO está soldada. O dono precisa disso redondo ANTES de confiar no 24/7 com clientes.
-- **Enriquecimento cego → preference-aware.** `pickLeadsForEnrichment`
-  ([night-factory.service.ts:821](../../backend/src/night-factory/night-factory.service.ts))
-  hoje pega menor `opportunityScore`, ignora preferência. Fechar: enriquecer primeiro o
-  que casa com preferência de vendedor ativo + demanda (estoque/encomenda).
-- **Auto-distribution grosseira → por-vendedor.** Hoje exige UM state/city/segment global
-  ([radar-core-distribution.mixin.ts:564](../../backend/src/webscraping/radar/05-delivery/radar-core-distribution.mixin.ts)).
-  Fechar: distribuir por preferência de cada vendedor, respeitando cota do plano.
-- **Push on-match.** Traçar e garantir o gatilho: card novo que casa com preferência →
-  push pro vendedor (respeitando `brainPushMuted`).
-- **On-demand nunca esquece.** Solicitação do cliente SEMPRE ativa o motor (prioridade 1).
-- **Guarantee gate:** o 24/7 só é "garantido" quando 5b passa num teste E2E:
-  preferência setada → VPS raspa/enriquece o segmento certo → push chega → card distribuído.
+> Achado 19/06: a corrente "preferência → enriquecimento → push → distribuição" não está soldada.
+> **Auditoria de código 20/06 (Opus) corrigiu o diagnóstico:** a distribuição está MUITO mais pronta
+> do que o 19/06 dizia. Estado real (file:line) abaixo — o gap verdadeiro é mais estreito.
+
+**ESTADO ATUAL VERIFICADO (20/06):**
+- **Enriquecimento — CEGO, confirmado.** `pickLeadsForEnrichment`
+  (`backend/src/night-factory/night-factory.service.ts:821`) ordena `opportunityScore: 'asc'` (+ lastSeenAt /
+  createdAt) e pega `batchSize`. ZERO filtro de preferência de vendedor ou de demanda (estoque/encomenda):
+  enriquece o PIOR lead primeiro. → **gap real, aberto.**
+- **Distribuição — JÁ por-vendedor** (bem mais que "regra global única" do 19/06). `radar-core-distribution.mixin.ts`:
+  modelo `RadarAutoDistributionRule` (scopes `company` e `tenant_distribution`), worker pump a cada ~2min
+  (`processActiveRadarAutoDistributions`:1009), **território por-vendedor** (cidades, `parseRadarTerritories`),
+  **modos do vendedor** (priority/normal/learning :231), **limite diário por-vendedor** (`RadarDistributionDailyUsage`),
+  **cota de cards ativos do plano** (`commercialUsageLimits.getSellerActiveCardQuotaSnapshot`), estoque-alvo por
+  vendedor. Vendedor já carrega `preferredSegmentsJson` (fonte única: `users/preferred-segments.util.ts`).
+- **MAS o segmento ainda é GLOBAL.** A regra exige UM `preferredState`+`preferredCity`+`segment` por empresa
+  pra ativar (`:564`) e roteia por território (cidade), não pelo segmento preferido de cada vendedor. O
+  `preferredSegmentsJson` é lido/exibido no painel tenant (`:1652`, `segmentMode:'free'`) mas NÃO escolhe o
+  segmento que cada vendedor recebe. → **gap real: roteamento por-segmento-do-vendedor.**
+- **Push on-match — a CONFIRMAR.** Existe HBX Pulse (`backend/src/pulse/hbx-pulse.service.ts`): motor de nudge
+  preference-aware (cards parados, retornos vencidos, sem 1º contato) com cadência (WARMUP/MIN_GAP/DAILY_CAP/quiet).
+  É digest do pipeline do vendedor — NÃO confirmei gatilho "card novo casa preferência → push imediato". Traçar.
+- **On-demand (cliente solicitou = prioridade 1) — a CONFIRMAR.** Não auditado nesta passada; traçar se a
+  solicitação do cliente sempre dispara o motor na frente da fila.
+
+**SOLDAR (ordem de dependência):**
+1. **Enriquecimento preference-aware** (`night-factory.service.ts:821`): antes do `opportunityScore asc`,
+   priorizar leads que casam com `preferredSegmentsJson` de vendedor ATIVO + demanda (estoque baixo/encomenda);
+   manter o `asc` só como desempate do ócio.
+2. **Distribuição por-segmento-do-vendedor**: a regra passa a aceitar segmento por-vendedor (do
+   `preferredSegmentsJson`), não só o global de `:564`. Reusar território/cota/limite que já existem.
+3. **Push on-match**: confirmar/instrumentar o gatilho card-novo-casa-preferência → Pulse/push, respeitando
+   o mute do Pulse (confirmar campo `brainPushMuted`) e a cadência existente.
+4. **On-demand nunca esquece**: garantir que a solicitação do cliente fura a fila (prioridade 1) e ativa o motor.
+5. **Guarantee gate (E2E):** preferência setada → VPS raspa/enriquece o segmento certo → push chega → card
+   distribuído ao vendedor certo. **24/7 só é "garantido" quando esse teste passa.**
+
+**Não-óbvio:** o diagnóstico de 19/06 ("auto-distribution é regra global única, não por-vendedor") estava
+DESATUALIZADO — o grosso do por-vendedor já existe. O trabalho real é só (a) enriquecimento cego e (b) segmento
+global → por-vendedor, mais traçar push/on-demand. Escopo menor do que parecia.
 
 ---
 
@@ -125,6 +155,8 @@ igual ao resto do Owner.
 - **B2 (backend):** Frente 2 — rename master→owner + cortar superfície de Custo + testes.
 - **B3 (owner panel):** Frentes 3+4 — portar Motor Radar + Night Factory pro :3107. Depende de B2 (paths novos).
 - **B4 (arquitetura):** Frente 5 — policy VPS fixo + elastic. Depende da negociação dos knobs.
+- **B5 (corrente autônoma):** Frente 5b — (1) enriquecimento preference-aware + (2) distribuição
+  por-segmento-do-vendedor + (3/4) traçar push on-match e on-demand + (5) E2E. Backend; NADA live.
 
 ## Riscos / reverter
 - Rename de endpoint quebra consumidor esquecido → grep `modules/master/webscraping`

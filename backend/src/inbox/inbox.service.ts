@@ -12,6 +12,7 @@ import {
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
@@ -111,6 +112,15 @@ type InboxWhatsappSessionScope = {
   // company mode only
   sessionIds?: string[];
   sessions?: Array<{ id: string; phone: string | null; sellerName: string | null }>;
+  // Sessões do PRÓPRIO viewer (qualquer modo). O front libera o compose só nas conversas
+  // dessas sessões — quem não é dono da linha vê em modo leitura (ordem do dono: admin = só leitura).
+  ownSessionIds?: string[];
+  // company mode peneirado (GERENTE): vê/atua só no TIME (sessionIds), nunca no admin-dono/master.
+  // Admin-dono/master = company sem restrição (restricted=false).
+  restricted?: boolean;
+  // Modelo de atendimento efetivo. 'shared' = TODOS veem o pool do número da empresa e o envio é
+  // por ATRIBUIÇÃO (puxar); 'individual' = isolamento por sessão + envio só do dono da linha.
+  attendanceMode?: 'shared' | 'individual';
   metaActive?: boolean;
   providerHealth?: WhatsAppProviderHealth | null;
 };
@@ -189,6 +199,26 @@ export class InboxService {
   private isAggregateUser(user: any): boolean {
     const role = String(user?.role || '').trim().toUpperCase();
     return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+  }
+
+  // GERENTE = ADMIN sem acesso ao financeiro (canViewBilling === false). Mesmo padrão do
+  // team-policy.service (isGerente). Vê o TIME de vendedores, mas NUNCA o admin-dono/master
+  // (ordem do dono: "admin nunca vaza pra nenhum user — nem gerente, nem vendedor").
+  private isGerenteUser(user: any): boolean {
+    const role = String(user?.role || '').trim().toUpperCase();
+    return !user?.isSystemMaster && role === 'ADMIN' && user?.canViewBilling === false;
+  }
+
+  // Dona "admin" de uma sessão = master OU ADMIN-dono (com billing). A sessão dessa gente é
+  // o que fica de fora da visão do gerente/vendedor. Gerente (ADMIN sem billing) NÃO é dono →
+  // a linha dele entra no time.
+  private isAdminOwnerSessionUser(
+    sessionUser: { role?: string | null; isSystemMaster?: boolean | null; canViewBilling?: boolean | null } | null | undefined,
+  ): boolean {
+    if (!sessionUser) return false;
+    if (sessionUser.isSystemMaster) return true;
+    const role = String(sessionUser.role || '').trim().toUpperCase();
+    return role === 'ADMIN' && sessionUser.canViewBilling !== false;
   }
 
   private normalizeVendasPhone(value: unknown) {
@@ -512,12 +542,67 @@ export class InboxService {
     });
   }
 
+  private async resolveCompanyAttendanceMode(companyId: number): Promise<'shared' | 'individual'> {
+    const c = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { whatsappAttendanceMode: true },
+    });
+    return String(c?.whatsappAttendanceMode || '').trim().toLowerCase() === 'shared' ? 'shared' : 'individual';
+  }
+
+  private isCompanyAdminOwner(user: any): boolean {
+    if (user?.isSystemMaster) return true;
+    const role = String(user?.role || '').trim().toUpperCase();
+    return role === 'ADMIN' && user?.canViewBilling !== false;
+  }
+
+  // Modo COMPARTILHADO: TODO atendente (vendedor/gerente/admin) vê o pool do WhatsApp da empresa
+  // (a sessão principal — nunca chamar de "do admin"). Sem isolamento por sessão de propósito; o
+  // controle de "quem responde" é por ATRIBUIÇÃO (assignedUserId / puxar), não por dono da linha.
+  private async resolveSharedInboxScope(companyId: number): Promise<InboxWhatsappSessionScope> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        whatsappModalStatus: true,
+        whatsappStatus: true,
+        currentWhatsappConnectionSessionId: true,
+        currentWhatsappConnectionSession: true,
+      },
+    });
+    const metaActive = isMetaConnected(company?.whatsappStatus);
+    const principal = company ? await this.ensureWebwhatsSessionFromCompany(company, undefined) : null;
+    const sessionIds = principal?.id ? [String(principal.id)] : [];
+    const sessions = principal?.id
+      ? [{ id: String(principal.id), phone: principal.displayPhone || principal.phoneNormalized || null, sellerName: 'WhatsApp da empresa' }]
+      : [];
+    const accessible = sessionIds.length > 0 || metaActive;
+    return {
+      accessible,
+      reason: sessionIds.length > 0 ? 'webwhats_active' : (metaActive ? 'meta_active' : 'no_whatsapp'),
+      currentSessionId: null,
+      currentSession: null,
+      mode: 'company',
+      sessionIds,
+      sessions,
+      ownSessionIds: [],
+      restricted: false,
+      attendanceMode: 'shared',
+      metaActive,
+    };
+  }
+
   private async resolveInboxWhatsappSessionScope(
     companyId: number,
-    opts?: { userId?: number; aggregate?: boolean },
+    opts?: { userId?: number; aggregate?: boolean; user?: any },
   ): Promise<InboxWhatsappSessionScope> {
-    // ADMIN/master → visão agregada: todas as sessões webwhats ativas da empresa.
-    // Gate de role aqui: aggregate só chega como true quando o caller verificou a role.
+    // Modo COMPARTILHADO sobrepõe o role: todos veem o pool do número da empresa (vendedor incluso).
+    if ((await this.resolveCompanyAttendanceMode(companyId)) === 'shared') {
+      return this.resolveSharedInboxScope(companyId);
+    }
+    // ADMIN/master/gerente → visão agregada. Gate de role aqui: aggregate só chega true quando o
+    // caller verificou a role (ADMIN || master). O GERENTE (ADMIN sem billing) também é aggregate,
+    // mas a lista dele é PENEIRADA: exclui as sessões do admin-dono/master (não vaza pro user).
     if (opts?.aggregate) {
       const company = await this.prisma.company.findUnique({
         where: { id: companyId },
@@ -529,17 +614,27 @@ export class InboxService {
         orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
         select: {
           id: true,
+          userId: true,
           phoneNormalized: true,
           displayPhone: true,
-          user: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true, role: true, isSystemMaster: true, canViewBilling: true } },
         },
       });
-      const sessionIds = activeSessions.map((s) => String(s.id));
-      const sessions = activeSessions.map((s) => ({
+      // Gerente vê o TIME, nunca o admin-dono/master. Admin-dono/master veem tudo.
+      const gerente = this.isGerenteUser(opts?.user);
+      const visibleSessions = gerente
+        ? activeSessions.filter((s) => !this.isAdminOwnerSessionUser(s.user as any))
+        : activeSessions;
+      const sessionIds = visibleSessions.map((s) => String(s.id));
+      const sessions = visibleSessions.map((s) => ({
         id: String(s.id),
         phone: s.displayPhone || s.phoneNormalized || null,
         sellerName: (s.user as any)?.name || null,
       }));
+      const viewerId = Number(opts?.userId || opts?.user?.id || 0) || 0;
+      const ownSessionIds = viewerId
+        ? activeSessions.filter((s) => Number((s as any).userId || 0) === viewerId).map((s) => String(s.id))
+        : [];
       const accessible = sessionIds.length > 0 || metaActive;
       return {
         accessible,
@@ -549,12 +644,15 @@ export class InboxService {
         mode: 'company',
         sessionIds,
         sessions,
+        ownSessionIds,
+        restricted: gerente,
+        attendanceMode: 'individual',
         metaActive,
       };
     }
 
     // USER/default: escopo da sessão do usuário (ou empresa se sem userId).
-    const userId = opts?.userId;
+    const userId = opts?.userId ?? (Number(opts?.user?.id || 0) || undefined);
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -595,12 +693,58 @@ export class InboxService {
       // webwhats atual = 'current' (só ela); só Meta = 'meta' (conversas sem sessão);
       // nada conectado = 'none' (inbox vazio, jamais "mostra tudo").
       mode: currentSession?.id ? 'current' : (metaActive ? 'meta' : 'none'),
+      ownSessionIds: currentSession?.id ? [String(currentSession.id)] : [],
+      attendanceMode: 'individual',
     };
   }
 
   private assertInboxWhatsappAccessible(scope: InboxWhatsappSessionScope) {
     if (scope.accessible) return;
     throw new ServiceUnavailableException('Atendimento indisponível sem WhatsApp/celular vinculado.');
+  }
+
+  // Identidade no envio, MODO-CIENTE (ordem do dono). Retorna o modo efetivo p/ o caller (ex.:
+  // auto-puxar no shared). Vale só pro envio MANUAL do Atendimento; automação (bot/recovery/vendas)
+  // usa outra porta e não passa aqui.
+  //  - INDIVIDUAL: só o DONO da linha responde; admin/gerente em conversa alheia = leitura.
+  //  - SHARED: pool da empresa; responde quem PUXOU (assignedUserId). Sem dono → livre (auto-puxa).
+  //    Atribuída a outro → bloqueia. Admin-dono/master sempre pode (transferir/liberar).
+  // Conversa sem sessão webwhats (Meta/legado) no individual mantém o comportamento atual.
+  private async assertCanSendInConversation(
+    user: any,
+    conversation:
+      | { companyId?: number | null; whatsappConnectionSessionId?: string | null; assignedUserId?: number | null }
+      | null
+      | undefined,
+  ): Promise<'shared' | 'individual'> {
+    const viewerId = Number(user?.id || 0) || 0;
+    const companyId = Number(conversation?.companyId || 0) || undefined;
+    const attendanceMode = companyId ? await this.resolveCompanyAttendanceMode(companyId) : 'individual';
+    if (!viewerId) return attendanceMode;
+
+    if (attendanceMode === 'shared') {
+      if (this.isCompanyAdminOwner(user)) return attendanceMode;
+      const assignedUserId = Number(conversation?.assignedUserId || 0) || 0;
+      if (!assignedUserId || assignedUserId === viewerId) return attendanceMode;
+      const owner = await this.prisma.user.findUnique({ where: { id: assignedUserId }, select: { name: true } });
+      const who = owner?.name ? ` com ${owner.name}` : ' com outro atendente';
+      throw new ForbiddenException(`Atendimento já está${who}. Assuma o atendimento para responder.`);
+    }
+
+    // INDIVIDUAL: dono da linha.
+    const sessionId = conversation?.whatsappConnectionSessionId
+      ? String(conversation.whatsappConnectionSessionId)
+      : null;
+    if (!sessionId) return attendanceMode;
+    const session = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { id: sessionId, ...(companyId ? { companyId } : {}) },
+      select: { userId: true, user: { select: { name: true } } },
+    });
+    if (session && Number(session.userId || 0) === viewerId) return attendanceMode;
+    const owner = (session?.user as any)?.name ? ` (${(session?.user as any).name})` : '';
+    throw new ForbiddenException(
+      `Só o dono da linha${owner} responde por aqui. Você está visualizando como supervisão.`,
+    );
   }
 
   private isRowVisibleForWhatsappSessionScope(row: any, scope: InboxWhatsappSessionScope) {
@@ -636,12 +780,18 @@ export class InboxService {
         : null,
       // company mode: lista de sessões ativas para o front rotular de quem é cada conversa.
       sessions: scope.mode === 'company' ? (scope.sessions ?? []) : undefined,
+      // Sessões do próprio viewer (qualquer modo): o front libera o compose só nas conversas
+      // dessas sessões; nas demais, modo leitura (admin/gerente = supervisão).
+      ownSessionIds: scope.ownSessionIds ?? [],
+      // Modelo efetivo: o front decide se libera o compose por DONO-DA-LINHA (individual) ou por
+      // ATRIBUIÇÃO/puxar (shared).
+      attendanceMode: scope.attendanceMode ?? 'individual',
     };
   }
 
   async getWhatsappSessionDiagnostics(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user), user });
     sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     const providerWarning = sessionScope.accessible
       ? null
@@ -653,6 +803,144 @@ export class InboxService {
       providerWarning,
       whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
     };
+  }
+
+  // Painel "Modelo de atendimento" = só o ADMIN-DONO/master (gerente NÃO: ele não conecta nem
+  // escolhe o modo — spec do dono). Linguagem: "WhatsApp da empresa", nunca "do admin".
+  private assertCompanyAdminOwner(user: any) {
+    if (this.isCompanyAdminOwner(user)) return;
+    throw new ForbiddenException('Apenas o admin da empresa acessa o Modelo de atendimento.');
+  }
+
+  // Etapa 1 (read-only): alimenta o painel admin de uma vez (sem gambiarra no front).
+  async getWhatsappAdminPanel(user: any) {
+    this.assertCompanyAdminOwner(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        whatsappAttendanceMode: true,
+        currentWhatsappConnectionSession: {
+          select: {
+            id: true,
+            displayPhone: true,
+            phoneNormalized: true,
+            status: true,
+            connectedAt: true,
+            user: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    const rawMode = String(company?.whatsappAttendanceMode || '').trim().toLowerCase();
+    const mode = rawMode === 'shared' || rawMode === 'individual' ? rawMode : null;
+    const effectiveMode = mode ?? 'individual';
+
+    const principal = company?.currentWhatsappConnectionSession || null;
+    const principalActive = principal && String(principal.status || '').trim().toLowerCase() === 'active';
+    const companyWhatsapp = {
+      connected: Boolean(principalActive),
+      phone: principal?.displayPhone || principal?.phoneNormalized || null,
+      connectedByUserId: (principal?.user as any)?.id ? String((principal!.user as any).id) : null,
+      connectedByName: (principal?.user as any)?.name || null,
+      lastActivityAt: principal?.connectedAt || null,
+      sessionId: principal?.id ? String(principal.id) : null,
+    };
+
+    const sessions = await this.prisma.whatsAppConnectionSession.findMany({
+      where: { companyId, provider: 'webwhats', status: 'active' },
+      select: { id: true, userId: true, displayPhone: true, phoneNormalized: true },
+    });
+    const sessionByUser = new Map<number, { id: string; phone: string | null }>();
+    for (const s of sessions) {
+      const uid = Number(s.userId || 0);
+      if (uid && !sessionByUser.has(uid)) {
+        sessionByUser.set(uid, { id: String(s.id), phone: s.displayPhone || s.phoneNormalized || null });
+      }
+    }
+
+    const convBySession = await this.prisma.companyConversation.groupBy({
+      by: ['whatsappConnectionSessionId'],
+      where: { companyId, channel: 'whatsapp' },
+      _count: { _all: true },
+    });
+    const openBySessionId = new Map<string, number>();
+    for (const row of convBySession) {
+      if (row.whatsappConnectionSessionId) openBySessionId.set(String(row.whatsappConnectionSessionId), row._count._all);
+    }
+
+    const assignedByUser = await this.prisma.companyConversation.groupBy({
+      by: ['assignedUserId'],
+      where: { companyId, channel: 'whatsapp', humanAssigned: true },
+      _count: { _all: true },
+    });
+    const assignedCountByUser = new Map<number, number>();
+    for (const row of assignedByUser) {
+      if (row.assignedUserId) assignedCountByUser.set(Number(row.assignedUserId), row._count._all);
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { companyId, isActive: true, role: { in: ['USER', 'ADMIN'] } },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        role: true,
+        isSystemMaster: true,
+        canViewBilling: true,
+        teamPolicy: { select: { visibilityJson: true } },
+      },
+    });
+
+    const team = users.map((u) => {
+      const roleUp = String(u.role || '').trim().toUpperCase();
+      const isAdminOwner = Boolean(u.isSystemMaster) || (roleUp === 'ADMIN' && u.canViewBilling !== false);
+      const isGerente = roleUp === 'ADMIN' && u.canViewBilling === false && !u.isSystemMaster;
+      const roleLabel = isAdminOwner ? 'admin' : isGerente ? 'gerente' : 'vendedor';
+      const sess = sessionByUser.get(Number(u.id)) || null;
+      const vis = this.parseConversationMetadata(u.teamPolicy?.visibilityJson);
+      const canConnectWhatsapp = isAdminOwner ? true : Boolean(vis?.canConnectWhatsapp);
+      return {
+        userId: String(u.id),
+        name: u.name || u.username || `#${u.id}`,
+        role: roleLabel,
+        canAttendSharedInbox: true,
+        canConnectWhatsapp,
+        whatsappConnected: Boolean(sess?.id),
+        whatsappPhone: sess?.phone || null,
+        openConversations: sess?.id ? openBySessionId.get(sess.id) || 0 : 0,
+        currentAssignedConversations: assignedCountByUser.get(Number(u.id)) || 0,
+      };
+    });
+
+    return { mode, effectiveMode, companyWhatsapp, team };
+  }
+
+  // Admin libera/bloqueia um vendedor a conectar o próprio chip (modo individual). Grava em
+  // UserTeamPolicy.visibilityJson.canConnectWhatsapp — a MESMA chave que o gate de conexão lê.
+  async setSellerConnectPermission(user: any, targetUserId: number, allowed: boolean) {
+    this.assertCompanyAdminOwner(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const target = await this.prisma.user.findFirst({
+      where: { id: Number(targetUserId) || 0, companyId },
+      select: { id: true },
+    });
+    if (!target) throw new BadRequestException('Atendente inválido.');
+    await ensureUserTeamPolicyForUser(this.prisma, target.id, { source: 'inbox_connect_permission' });
+    const policy = await this.prisma.userTeamPolicy.findUnique({
+      where: { userId: target.id },
+      select: { visibilityJson: true },
+    });
+    const vis = this.parseConversationMetadata(policy?.visibilityJson);
+    vis.canConnectWhatsapp = Boolean(allowed);
+    await this.prisma.userTeamPolicy.update({
+      where: { userId: target.id },
+      data: { visibilityJson: JSON.stringify(vis) },
+    });
+    return { ok: true, userId: String(target.id), canConnectWhatsapp: Boolean(allowed) };
   }
 
   private buildWhatsappSessionConversationAliases(conversation: any) {
@@ -2434,11 +2722,23 @@ export class InboxService {
       this.normalizeDisplayNameCandidate(identityRow?.name || null, conversation.contact) ||
       this.normalizeDisplayNameCandidate(profile?.name || null, conversation.contact) ||
       null;
+    // Nome do atendente atribuído: vem batched (__assignedToName) na lista; no caminho de UMA
+    // conversa (detalhe) resolve aqui (1 lookup, sem N+1 na lista).
+    const assignedUserIdNum = conversation.assignedUserId ? Number(conversation.assignedUserId) : null;
+    let assignedToName = (conversation as any).__assignedToName as string | null | undefined;
+    if (assignedToName === undefined) {
+      assignedToName = assignedUserIdNum
+        ? (await this.prisma.user.findUnique({ where: { id: assignedUserIdNum }, select: { name: true } }))?.name ?? null
+        : null;
+    }
     return {
       id: String(conversation.id),
       contact: String(conversation.contact || '').trim() || null,
       status: this.toInboxStatus(conversation),
       assignedTo: conversation.humanAssigned ? 'humano' : null,
+      // Atendimento compartilhado: quem PUXOU (pra UI mostrar "Atendimento com: X" + travar o compose).
+      assignedUserId: assignedUserIdNum,
+      assignedToName: assignedToName ?? null,
       botActive:
         conversation?.botActive === undefined || conversation?.botActive === null
           ? null
@@ -2889,7 +3189,16 @@ export class InboxService {
     const sessionWhere =
       scope && scope.mode === 'current'
         ? { whatsappConnectionSessionId: scope.currentSessionId }
-        : {};
+        : scope && scope.mode === 'company' && scope.restricted
+          // GERENTE: mutação confinada ao TIME (mesmo conjunto que ele VÊ) — nunca a conversa do
+          // admin-dono/master adivinhando o id. Inclui só-Meta (sessão null) quando Meta ativo.
+          ? {
+              OR: [
+                { whatsappConnectionSessionId: { in: scope.sessionIds ?? [] } },
+                ...(scope.metaActive ? [{ whatsappConnectionSessionId: null }] : []),
+              ],
+            }
+          : {};
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id, companyId, channel: 'whatsapp', ...sessionWhere },
     });
@@ -2902,7 +3211,7 @@ export class InboxService {
     // como 'company' (visão da empresa). Usado pelas mutações de conversa do Atendimento.
     return this.resolveInboxWhatsappSessionScope(companyId, {
       userId: Number(user?.id || 0) || undefined,
-      aggregate: this.isAggregateUser(user),
+      aggregate: this.isAggregateUser(user), user,
     });
   }
 
@@ -3051,6 +3360,17 @@ export class InboxService {
     return summaries;
   }
 
+  private async resolveAssigneeNames(
+    rows: Array<{ assignedUserId?: number | null }>,
+  ): Promise<Map<number, string>> {
+    const ids = Array.from(new Set(rows.map((r) => Number(r?.assignedUserId || 0)).filter((n) => n > 0)));
+    const map = new Map<number, string>();
+    if (!ids.length) return map;
+    const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+    for (const u of users) if (u.name) map.set(Number(u.id), u.name);
+    return map;
+  }
+
   private async mapPersistedConversationRowsForCompany(
     companyId: number,
     rows: any[],
@@ -3095,6 +3415,9 @@ export class InboxService {
       return Number(right.id || 0) - Number(left.id || 0);
     });
 
+    // Resolve os nomes dos atendentes (assignedUserId) de uma vez (batch) — sem N+1 por conversa.
+    const assigneeNameById = await this.resolveAssigneeNames(sortedRows);
+
     const summaries: any[] = [];
     for (const row of sortedRows) {
       const metadata = this.parseConversationMetadata(row.metadata);
@@ -3105,6 +3428,7 @@ export class InboxService {
         ...row,
         lastRealMessageAt: activityAt || null,
         lastMessageAt: activityAt || null,
+        __assignedToName: row.assignedUserId ? assigneeNameById.get(Number(row.assignedUserId)) ?? null : null,
         messages: [...(row.messages || [])].reverse(),
       };
       const phoneNormalized = this.resolveConversationIdentityPhone(conversation);
@@ -3507,7 +3831,7 @@ export class InboxService {
     const requestedTake = this.normalizeConversationTakeLimit(take, 200) || 200;
     const bootstrapMode = lightMode ? 'light' : 'full';
     const userId = Number(user?.id || 0) || undefined;
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId, aggregate: this.isAggregateUser(user) });
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId, aggregate: this.isAggregateUser(user), user });
     sessionScope.providerHealth = await this.getWhatsAppProviderHealth(companyId);
     if (!sessionScope.accessible) {
       return {
@@ -3859,7 +4183,7 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const userId = Number(user?.id || 0) || undefined;
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId, aggregate: this.isAggregateUser(user) });
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId, aggregate: this.isAggregateUser(user), user });
     // Sem WhatsApp vinculado: Atendimento vazio (200), NAO 503. O front mostra o
     // estado "conecte o WhatsApp" + o modal de conexao; nada de erro gritando no
     // console a cada load do Dashboard/Topbar/Atendimento (ordem do dono 14/06/2026).
@@ -4006,7 +4330,7 @@ export class InboxService {
 
     const sessionScope = await this.resolveInboxWhatsappSessionScope(
       companyId,
-      { userId: Number(user?.id || 0) || undefined, aggregate: this.isAggregateUser(user) },
+      { userId: Number(user?.id || 0) || undefined, aggregate: this.isAggregateUser(user), user },
     );
     if (!sessionScope.accessible || sessionScope.mode !== 'current') {
       return this.buildUnknownConversationPresence(remoteJid);
@@ -4044,7 +4368,7 @@ export class InboxService {
     // dava "Conversation not found" ao abrir (sessão da conversa ≠ sessão da empresa).
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
       userId: Number(user?.id || 0) || undefined,
-      aggregate: this.isAggregateUser(user),
+      aggregate: this.isAggregateUser(user), user,
     });
     this.assertInboxWhatsappAccessible(sessionScope);
     if (sessionScope.mode === 'current') {
@@ -4067,7 +4391,7 @@ export class InboxService {
     // de Atendimento "só recebe, não abre/envia".
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
       userId: Number(user?.id || 0) || undefined,
-      aggregate: this.isAggregateUser(user),
+      aggregate: this.isAggregateUser(user), user,
     });
     // Sem WhatsApp vinculado: devolve VAZIO (200), nao 503 (ordem do dono "503->manso").
     // Mata o loop de erro do front ao pollar uma conversa morta da sessao antiga (#3).
@@ -6672,6 +6996,7 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxMutationSessionScope(user, companyId);
     const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    await this.assertCanSendInConversation(user, conversation);
     const message = await this.ensureConversationMessage(companyId, conversation.id, messageId);
     const rawPayload = this.parseConversationMetadata(message.rawPayload);
     const reaction = this.requireTrimmed(String(reactionRaw || ''), 'reaction');
@@ -6707,6 +7032,7 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxMutationSessionScope(user, companyId);
     const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    await this.assertCanSendInConversation(user, conversation);
     const message = await this.prisma.companyMessage.findFirst({
       where: { id: messageId, companyId, conversationId: conversation.id },
       select: {
@@ -6797,6 +7123,82 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
+  // --- Atendimento compartilhado: puxar / assumir-transferir / liberar (Etapa 3) ---
+  // Só fazem sentido no modo SHARED (no individual o dono é a própria linha). Gerenciam
+  // assignedUserId, que o assertCanSendInConversation usa como trava de "quem responde".
+
+  async claimConversation(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    if ((await this.resolveCompanyAttendanceMode(companyId)) !== 'shared') {
+      throw new BadRequestException('Puxar atendimento só existe no modo compartilhado.');
+    }
+    const viewerId = Number(user?.id || 0) || 0;
+    const assigned = Number(conversation.assignedUserId || 0) || 0;
+    if (assigned && assigned !== viewerId && !this.isCompanyAdminOwner(user)) {
+      const owner = await this.prisma.user.findUnique({ where: { id: assigned }, select: { name: true } });
+      throw new ForbiddenException(`Atendimento já está com ${owner?.name || 'outro atendente'}. Use "Assumir".`);
+    }
+    await this.prisma.companyConversation.update({
+      where: { id: conversation.id },
+      data: { assignedUserId: viewerId, humanAssigned: true },
+    });
+    await this.logInboxEvent({
+      companyId, event: 'atendimento_claimed', result: 'assigned', conversationId: conversation.id,
+      message: `Atendimento puxado por userId=${viewerId}`,
+    });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
+  async transferConversation(user: any, conversationId: number, targetUserId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    const viewerId = Number(user?.id || 0) || 0;
+    const assigned = Number(conversation.assignedUserId || 0) || 0;
+    const target = Number(targetUserId || 0) || 0;
+    if (!target) throw new BadRequestException('Informe o atendente.');
+    const targetUser = await this.prisma.user.findFirst({
+      where: { id: target, companyId, isActive: true },
+      select: { id: true, name: true },
+    });
+    if (!targetUser) throw new BadRequestException('Atendente inválido.');
+    // Admin transfere pra qualquer um; o atendente atual transfere; qualquer atendente pode ASSUMIR
+    // pra si (takeover explícito e logado).
+    const allowed = this.isCompanyAdminOwner(user) || (assigned && assigned === viewerId) || target === viewerId;
+    if (!allowed) throw new ForbiddenException('Sem permissão para transferir este atendimento.');
+    await this.prisma.companyConversation.update({
+      where: { id: conversation.id },
+      data: { assignedUserId: target, humanAssigned: true },
+    });
+    await this.logInboxEvent({
+      companyId, event: 'atendimento_transferred', result: 'assigned', conversationId: conversation.id,
+      message: `Atendimento transferido para userId=${target} por userId=${viewerId}`,
+    });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
+  async releaseConversation(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    const viewerId = Number(user?.id || 0) || 0;
+    const assigned = Number(conversation.assignedUserId || 0) || 0;
+    if (assigned && assigned !== viewerId && !this.isCompanyAdminOwner(user)) {
+      throw new ForbiddenException('Só o atendente atual ou o admin pode liberar.');
+    }
+    await this.prisma.companyConversation.update({
+      where: { id: conversation.id },
+      data: { assignedUserId: null },
+    });
+    await this.logInboxEvent({
+      companyId, event: 'atendimento_released', result: 'released', conversationId: conversation.id,
+      message: `Atendimento liberado por userId=${viewerId}`,
+    });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
   async sendMessage(
     user: any,
     conversationId: number,
@@ -6820,8 +7222,19 @@ export class InboxService {
       where: { id: conversationId, companyId },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
+    const attendanceMode = await this.assertCanSendInConversation(user, conversation);
     if (this.getAtendimentoBlockedState(conversation.metadata).isBlocked) {
       throw new BadRequestException('Conversa bloqueada. Desbloqueie antes de responder.');
+    }
+
+    // SHARED: responder uma conversa sem dono = PUXAR pra si (evita dois atendentes no mesmo cliente).
+    const viewerId = Number(user?.id || 0) || 0;
+    if (attendanceMode === 'shared' && viewerId && !Number(conversation.assignedUserId || 0)) {
+      await this.prisma.companyConversation.update({
+        where: { id: conversation.id },
+        data: { assignedUserId: viewerId, humanAssigned: true },
+      });
+      (conversation as any).assignedUserId = viewerId;
     }
 
     const normalizedContent = this.requireTrimmed(content, 'content');
@@ -6944,6 +7357,7 @@ export class InboxService {
       where: { id: conversationId, companyId },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
+    await this.assertCanSendInConversation(user, conversation);
     if (!file || !file.buffer) throw new BadRequestException('Arquivo obrigatorio.');
 
     const allowedMimes = [

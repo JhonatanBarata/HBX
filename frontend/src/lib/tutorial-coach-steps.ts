@@ -111,6 +111,12 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
       body: "Lê e responde as conversas, manda áudio, anexa, marca etapa e cria tarefas — sem sair do sistema.",
       gate: "next",
     });
+    // TODO (modelo de atendimento): quando o plano "lead+" tiver um step de onboarding
+    // definido, adicionar aqui um card explicando os 2 modelos (Compartilhado e Individual)
+    // e como chegar no painel: /atendimento → botão "Modelo" no cabeçalho da lista.
+    // Exemplo de step: { id: "atendimento-modelo", title: "Compartilhado ou Individual?",
+    //   body: "...", gate: "next", route: "/atendimento" }
+    // Aguardando definição do fluxo de onboarding do plano "lead+" para plugar aqui.
   } else {
     steps.push({
       id: "atendimento-off",

@@ -868,7 +868,7 @@ export class CompaniesController {
   @ModuleAccess('atendimento')
   async startMyWhatsAppModalSession(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
-    return this.whatsappModalService.startCompanySession(companyId, this.resolveRequestUserId(req));
+    return this.whatsappModalService.startCompanySession(companyId, this.resolveRequestUserId(req), req.user);
   }
 
   @Get('me/whatsapp-modal/qr')
@@ -876,7 +876,7 @@ export class CompaniesController {
   @ModuleAccess('atendimento')
   async getMyWhatsAppModalQrCode(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
-    return this.whatsappModalService.getCompanyQrCode(companyId, this.resolveRequestUserId(req));
+    return this.whatsappModalService.getCompanyQrCode(companyId, this.resolveRequestUserId(req), req.user);
   }
 
   @Post('me/whatsapp-modal/disconnect')
@@ -884,6 +884,18 @@ export class CompaniesController {
   async disconnectMyWhatsAppModalSession(@Req() req: any) {
     const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
     return this.whatsappModalService.disconnectCompanySession(companyId, this.resolveRequestUserId(req));
+  }
+
+  // Troca do modelo de atendimento (compartilhado × individual). Só admin-dono/master.
+  @Post('me/whatsapp-modal/attendance-mode')
+  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
+  @ModuleAccess('atendimento')
+  async setMyWhatsAppAttendanceMode(
+    @Req() req: any,
+    @Body() dto: { mode?: string; confirm?: boolean },
+  ) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdForAnyUserOrThrow(req);
+    return this.whatsappModalService.setAttendanceMode(companyId, req.user, String(dto?.mode || ''), Boolean(dto?.confirm));
   }
 
   @Post('me/whatsapp-modal/restart')

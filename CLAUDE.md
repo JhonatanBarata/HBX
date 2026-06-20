@@ -56,8 +56,9 @@ versiona/reverte é REGRA.)
 ## Orquestrador × subagentes (papéis)
 O **planejador (Opus)** planeja e orquestra; quem **edita** são os **workers (Sonnet, inteligência
 máxima)**, spawnados ao "aplique com o orquestrador" — divididos em blocos/pedidos separados
-(cada worker tem ~200k de contexto). Exceção já dada pelo dono: frentes **financeiras** o Opus
-edita direto. Worker quebrou? Projeto simples: resolve e segue. Pagamento/regra/arquitetura:
+(cada worker tem ~200k de contexto). Exceção: frentes **financeiras** (preço/cobrança/checkout/paywall) o
+Opus edita **direto** — máxima precisão na lógica de dinheiro —, sempre com **revisão obrigatória do diff
+antes do merge** (e confirmação em runtime, não só build). Worker quebrou? Projeto simples: resolve e segue. Pagamento/regra/arquitetura:
 imprime o erro e escala pro dono.
 
 ## Planejamentos (PR)

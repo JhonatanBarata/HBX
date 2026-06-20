@@ -56,6 +56,11 @@ model Company {
   whatsappModalConnectedAt DateTime?
   whatsappModalLastError   String?
   whatsappModalUpdatedAt   DateTime?
+  // Modelo de atendimento (ordem do dono 20/06): null = admin ainda NÃO escolheu (mostra banner/
+  // tutorial); 'shared' = número único da empresa (caixa compartilhada, puxar atendimento);
+  // 'individual' = chip por vendedor. Runtime usa effectiveMode = whatsappAttendanceMode ?? 'individual'.
+  // NÃO confundir com whatsappConnectionMode (NONE|TEMPORARY|OFFICIAL = provider Meta×temporário).
+  whatsappAttendanceMode   String?
   currentWhatsappConnectionSessionId String?
   whatsappMigrationInterestStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
   whatsappMigrationInterestAt DateTime?

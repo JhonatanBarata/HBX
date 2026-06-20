@@ -1,5 +1,34 @@
 # PLAN — WhatsApp Fase B: visão de empresa (admin/master agrega as N sessões)
 
+> ## ESTADO 2026-06-20 (multi-user testado na VPS pelo dono)
+> **Backend FEITO** (Opus, `inbox.service.ts`):
+> - Bug de leitura corrigido e **publicado pelo dono**: `getConversationById`/`listConversationMessages` agora passam `userId` (vendedor abria e dava `Conversation not found`).
+> - **3 níveis**: vendedor=`own`; **gerente** (`ADMIN` sem `canViewBilling`, padrão `isGerente`)=`company` **peneirado** (exclui sessões do admin-dono/master via `isAdminOwnerSessionUser`); admin-dono/master=`company` cheio. **Sem role nova, sem migration, sem mexer em billing.**
+> - **Item 4 (admin manda pelo vendedor) resolvido**: `assertCanSendInConversation` → **só o dono da linha** envia (sendMessage/uploadMedia/react/retry). Admin/gerente vendo conversa de outro = **só leitura**.
+> - `ownSessionIds` + `restricted` no scope/metadata; mutação do gerente confinada ao time (`ensureConversation`).
+>
+> **Frontend FEITO** (worker Sonnet, `atendimento/page.client.tsx` + `kit.css`):
+> - Chip do dono por conversa (passo 5) + filtro "por número" + **compose read-only** quando não é a sua linha. Lint/build verdes.
+>
+> ### MODELO CORRIGIDO (dono 20/06) — o DEFAULT é COMPARTILHADO, não por-vendedor
+> O dono esclareceu o caso principal (ex.: pizzaria): **1 número da empresa (do admin), TODOS atendem nele**
+> — todos veem, mandam e recebem pelo MESMO número. Vendedor/gerente **não conectam WhatsApp** (só o admin).
+> Conversa pode ser **"puxada pra si"** (claim → "Fulano atendendo") pra não colidir → reusar `assignedUserId`
+> (já existe na conversa). **Exceção:** admin **concede um chip** a uma pessoa → vira **privado**: só ela + o
+> admin veem/usam; os outros não. Isso BATE com o mercado (shared inbox + assignment: Chatwoot Assignee/
+> Participants, Respond.io shared dashboard). O modelo "1 número = 1 vendedor" da ordem 18/06 vira a EXCEÇÃO.
+>
+> **Impacto no que já foi feito hoje:** o que entrou (scope own/team/company + trava "só o dono envia") serve
+> ao caso **privado** + ao invariante; o caso **compartilhado** (todos enviam no número do admin + claim) é
+> o BLOCO PRINCIPAL ainda a fazer. A trava de envio precisa virar **condicional ao modo do número**
+> (compartilhado=pool envia; privado=só o dono). Connect deve ser **só do admin** por padrão. Re-planejar.
+>
+> **PENDENTE (próximo bloco):**
+> - **Override por usuário + painel "sem confusão"** (Configurações → Equipe): admin "compartilhado on/off", vendedor "entra no pool". Storage decidido: `UserTeamPolicy.visibilityJson.inboxScope` (sem migration). Hoje rodando só nos **defaults por cargo**.
+> - **REGRA (dono 20/06) — forçar compartilhar chip derruba conexão ativa:** se o admin **forçar compartilhamento de um chip** e já houver vendedor/gerente **conectado** naquele número → **abrir confirm** mostrando **nome + número** de quem vai cair; só **desconecta de verdade** se confirmado. Disconnect **limpo** (logout+delete da instância), nunca soft-drop — senão duas pontas disputam o número e cai no **loop de remontagem (bug infinito)**. Reusar `whatsapp-modal.service` → `enforceNumberNotSharedAcrossCompaniesOrBlock` (hoje só bloqueia/409; aqui vira confirm→disconnect). Em aberto: "compartilhar chip" = pool de 1 número entre N pessoas (modelo número-único) **ou** só visibilidade? Confirmar com o dono ao construir. Ver [[chip-share-derruba-conexao-aviso]].
+> - Caminho **Meta-only** (conversa sessão=null) no envio do gerente; testes `node --test` dirigidos.
+> - **Admin conecta o próprio número**: confirmado que já funciona (user com `userId` → sessão `company-{id}-user-{adminId}`).
+
 > ⚠️ **DEPENDÊNCIA (18/06):** Fase A **NÃO está verde** — o motor está em split brain (instâncias
 > legadas `company-{id}` vivas, nome novo `company-{id}-user-{n}` no código; inbox de vendedor
 > vazio). Fase B só roda **depois** da fundação:

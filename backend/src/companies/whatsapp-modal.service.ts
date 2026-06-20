@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
@@ -189,6 +189,59 @@ export class WhatsAppModalService {
   );
 
   constructor(private readonly prisma: PrismaService) {}
+
+  // ---------------------------------------------------------------------------
+  // Gate de conexão (Etapa 4 — Modelo de atendimento)
+  // ---------------------------------------------------------------------------
+
+  private parseLooseJsonObject(raw: string | null | undefined): Record<string, any> {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed as Record<string, any>;
+    } catch {
+      return {};
+    }
+  }
+
+  private isModalAdminOwner(user: any): boolean {
+    if (user?.isSystemMaster) return true;
+    const role = String(user?.role || '').trim().toUpperCase();
+    return role === 'ADMIN' && user?.canViewBilling !== false;
+  }
+
+  // Lançada logo no início de startCompanySession e getCompanyQrCode quando userId
+  // está presente (ou seja, fluxo "me/whatsapp-modal/..." — o front de atendimento).
+  // O fluxo :id/whatsapp-modal/... (admin panel direto) e master não passam userId
+  // e, portanto, NÃO são bloqueados aqui — sem regressão de admin.
+  private async assertConnectionGate(companyId: number, user: any, userId: number): Promise<void> {
+    // master e admin-dono sempre passam
+    if (this.isModalAdminOwner(user)) return;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { whatsappAttendanceMode: true },
+    });
+    const rawMode = String(company?.whatsappAttendanceMode || '').trim().toLowerCase();
+    const effectiveMode: 'shared' | 'individual' = rawMode === 'shared' ? 'shared' : 'individual';
+
+    if (effectiveMode === 'shared') {
+      // Modo compartilhado: só o admin-dono/master conecta.
+      // Vendedor/gerente chega aqui → bloqueado.
+      throw new ForbiddenException('No modo compartilhado, só o admin conecta o WhatsApp da empresa.');
+    }
+
+    // Modo individual: role USER precisa ter canConnectWhatsapp === true na policy.
+    const policyRow = await this.prisma.userTeamPolicy.findUnique({
+      where: { userId },
+      select: { visibilityJson: true },
+    }).catch(() => null);
+    const vis = this.parseLooseJsonObject(policyRow?.visibilityJson);
+    if (!vis?.canConnectWhatsapp) {
+      throw new ForbiddenException('Conexão de WhatsApp não liberada para este acesso — peça ao admin.');
+    }
+  }
 
   getAvailability() {
     const config = this.readConfig();
@@ -581,7 +634,11 @@ export class WhatsAppModalService {
     }
   }
 
-  async startCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+  async startCompanySession(companyId: number, userId?: number, user?: any): Promise<WhatsAppModalResponse> {
+    // Gate de conexão (Etapa 4): aplica somente quando há userId (fluxo de vendedor/gerente).
+    if (userId && user !== undefined) {
+      await this.assertConnectionGate(companyId, user, userId);
+    }
     const baseCompany = await this.loadCompany(companyId);
     // 050-1: sobrepõe tenantKey para a chave por-vendedor quando userId presente.
     const userTenantKey = userId ? this.buildUserTenantKey(baseCompany, userId) : null;
@@ -678,7 +735,11 @@ export class WhatsAppModalService {
     }
   }
 
-  async getCompanyQrCode(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
+  async getCompanyQrCode(companyId: number, userId?: number, user?: any): Promise<WhatsAppModalResponse> {
+    // Gate de conexão (Etapa 4): aplica somente quando há userId (fluxo de vendedor/gerente).
+    if (userId && user !== undefined) {
+      await this.assertConnectionGate(companyId, user, userId);
+    }
     const baseCompany = await this.loadCompany(companyId);
     const company = userId ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId)) : baseCompany;
     const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
@@ -853,6 +914,79 @@ export class WhatsAppModalService {
       providerHealth: 'healthy',
       message: 'Sessão desconectada do Modal WhatsApp.',
     });
+  }
+
+  // Troca do MODELO de atendimento (Etapa 5). Só admin-dono/master. Ao ir para 'shared', as sessões
+  // ativas de NÃO-admin (vendedor/gerente) CONFLITAM (no shared só vale o número da empresa) e precisam
+  // cair. Sem confirm → devolve a lista (nome+número) pro front confirmar. Com confirm → DESCONEXÃO
+  // LIMPA reusando disconnectCompanySession (logout+delete do motor) — nunca soft-drop, pra não entrar
+  // no loop de remontagem. Depois grava o modo.
+  async setAttendanceMode(
+    companyId: number,
+    user: any,
+    mode: string,
+    confirm: boolean,
+  ): Promise<{
+    requiresConfirm?: boolean;
+    affected?: Array<{ userId: number; name: string | null; phone: string | null }>;
+    ok?: boolean;
+    mode?: string;
+    disconnected?: Array<{ userId: number; name: string | null; phone: string | null }>;
+  }> {
+    if (!this.isModalAdminOwner(user)) {
+      throw new ForbiddenException('Só o admin da empresa troca o modelo de atendimento.');
+    }
+    const normalized = String(mode || '').trim().toLowerCase();
+    if (normalized !== 'shared' && normalized !== 'individual') {
+      throw new BadRequestException('Modelo inválido. Use "shared" ou "individual".');
+    }
+
+    let affected: Array<{ userId: number; name: string | null; phone: string | null }> = [];
+    if (normalized === 'shared') {
+      const sessions = await this.prisma.whatsAppConnectionSession.findMany({
+        where: { companyId, provider: 'webwhats', status: 'active', userId: { not: null } },
+        select: {
+          userId: true,
+          displayPhone: true,
+          phoneNormalized: true,
+          user: { select: { name: true, role: true, isSystemMaster: true, canViewBilling: true } },
+        },
+      });
+      affected = sessions
+        .filter((s) => {
+          const u = s.user as any;
+          const isAdminOwner =
+            Boolean(u?.isSystemMaster) ||
+            (String(u?.role || '').trim().toUpperCase() === 'ADMIN' && u?.canViewBilling !== false);
+          return !isAdminOwner;
+        })
+        .map((s) => ({
+          userId: Number(s.userId),
+          name: (s.user as any)?.name || null,
+          phone: s.displayPhone || s.phoneNormalized || null,
+        }));
+    }
+
+    if (affected.length && !confirm) {
+      return { requiresConfirm: true, affected };
+    }
+
+    const disconnected: Array<{ userId: number; name: string | null; phone: string | null }> = [];
+    for (const a of affected) {
+      try {
+        await this.disconnectCompanySession(companyId, a.userId);
+        disconnected.push(a);
+      } catch (error) {
+        this.logger.warn(`Falha ao desconectar userId=${a.userId} na troca de modo: ${this.toProviderError(error).message}`);
+      }
+    }
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { whatsappAttendanceMode: normalized },
+    });
+
+    return { ok: true, mode: normalized, disconnected };
   }
 
   async restartCompanySession(companyId: number, userId?: number): Promise<WhatsAppModalResponse> {
