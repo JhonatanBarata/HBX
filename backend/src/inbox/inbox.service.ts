@@ -2876,12 +2876,34 @@ export class InboxService {
       : new BadRequestException(fallbackMessage);
   }
 
-  private async ensureConversation(companyId: number, id: number) {
+  private async ensureConversation(
+    companyId: number,
+    id: number,
+    scope?: InboxWhatsappSessionScope,
+  ) {
+    // POR USUÁRIO: mutação escopada igual à leitura (getConversationById/listConversationMessages).
+    // Vendedor (mode 'current') só atua na conversa da PRÓPRIA sessão webwhats — sem isso, ele
+    // bloqueava/mudava status de conversa de OUTRO vendedor da empresa adivinhando o id numérico.
+    // Admin/Master (mode 'company'), só-Meta (mode 'meta') e contexto de sistema (scope ausente,
+    // ex.: auto-delete por motivo) mantêm a visão da empresa (companyId apenas).
+    const sessionWhere =
+      scope && scope.mode === 'current'
+        ? { whatsappConnectionSessionId: scope.currentSessionId }
+        : {};
     const conversation = await this.prisma.companyConversation.findFirst({
-      where: { id, companyId, channel: 'whatsapp' },
+      where: { id, companyId, channel: 'whatsapp', ...sessionWhere },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
     return conversation;
+  }
+
+  private async resolveInboxMutationSessionScope(user: any, companyId: number) {
+    // Mesmo escopo que a leitura por usuário usa: sessão DESTE vendedor; admin/Master agrega
+    // como 'company' (visão da empresa). Usado pelas mutações de conversa do Atendimento.
+    return this.resolveInboxWhatsappSessionScope(companyId, {
+      userId: Number(user?.id || 0) || undefined,
+      aggregate: this.isAggregateUser(user),
+    });
   }
 
   private async ensureConversationMessage(companyId: number, conversationId: number, messageId: number) {
@@ -4017,7 +4039,13 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
+    // POR USUÁRIO: escopo da sessão DESTE vendedor (igual ao listConversations/presence).
+    // Sem o userId, caía no ponteiro da empresa → a conversa que o vendedor via na lista
+    // dava "Conversation not found" ao abrir (sessão da conversa ≠ sessão da empresa).
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
+      userId: Number(user?.id || 0) || undefined,
+      aggregate: this.isAggregateUser(user),
+    });
     this.assertInboxWhatsappAccessible(sessionScope);
     if (sessionScope.mode === 'current') {
       void this.syncLatestInboxConversationWindow(companyId, id);
@@ -4034,7 +4062,13 @@ export class InboxService {
     options?: { limit?: string | number | null; before?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { aggregate: this.isAggregateUser(user) });
+    // POR USUÁRIO: mesma sessão que a lista usa (com userId). Sem isso, abrir/pollar uma
+    // conversa do vendedor resolvia o ponteiro da empresa e devolvia 404, deixando a tela
+    // de Atendimento "só recebe, não abre/envia".
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
+      userId: Number(user?.id || 0) || undefined,
+      aggregate: this.isAggregateUser(user),
+    });
     // Sem WhatsApp vinculado: devolve VAZIO (200), nao 503 (ordem do dono "503->manso").
     // Mata o loop de erro do front ao pollar uma conversa morta da sessao antiga (#3).
     if (!sessionScope.accessible) {
@@ -4238,8 +4272,12 @@ export class InboxService {
     } as any;
   }
 
-  private async resolveStatusCardRecords(companyId: number, conversationId: number) {
-    const conversation = await this.ensureConversation(companyId, conversationId);
+  private async resolveStatusCardRecords(
+    companyId: number,
+    conversationId: number,
+    scope?: InboxWhatsappSessionScope,
+  ) {
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
     if (!phoneNormalized) {
       throw new BadRequestException('Conversa sem telefone valido para o card do cliente.');
@@ -4379,7 +4417,8 @@ export class InboxService {
 
   async getConversationStatusCard(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const records = await this.resolveStatusCardRecords(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const records = await this.resolveStatusCardRecords(companyId, conversationId, scope);
     return this.buildStatusCardPayload(records);
   }
 
@@ -4482,7 +4521,8 @@ export class InboxService {
     dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const records = await this.resolveStatusCardRecords(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const records = await this.resolveStatusCardRecords(companyId, conversationId, scope);
     const observations =
       dto.observations === undefined ? undefined : String(dto.observations || '').trim();
     const returnAt = dto.returnAt === undefined ? undefined : this.parseStatusCardDate(dto.returnAt);
@@ -4571,7 +4611,7 @@ export class InboxService {
       }
     }
 
-    const refreshed = await this.resolveStatusCardRecords(companyId, conversationId);
+    const refreshed = await this.resolveStatusCardRecords(companyId, conversationId, scope);
     const metadata = this.parseConversationMetadata(refreshed.conversation.metadata);
     const conversationStatePatch: any = {
       metadata: {
@@ -5043,7 +5083,8 @@ export class InboxService {
 
   async updateConversationStatus(user: any, id: number, status: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, id);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, id, scope);
     const normalized = String(status || '').trim().toLowerCase();
     const currentMetadata = this.parseConversationMetadata(conversation.metadata);
     const clearedMetadata = this.clearAtendimentoBlockedMetadata(currentMetadata);
@@ -5082,7 +5123,8 @@ export class InboxService {
 
   async updateConversationQueue(user: any, id: number, queueRaw?: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, id);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, id, scope);
     const queue = String(queueRaw || '').trim().toLowerCase();
     const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot']);
     if (!allowedQueues.has(queue)) {
@@ -5174,7 +5216,8 @@ export class InboxService {
 
   async blockConversation(user: any, conversationId: number, reasonRaw?: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const reason = String(reasonRaw || '').trim() || 'Bloqueado manualmente pelo operador.';
     try {
@@ -5255,7 +5298,8 @@ export class InboxService {
 
   async unblockConversation(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const metadata = this.clearAtendimentoBlockedMetadata(
       this.parseConversationMetadata(conversation.metadata),
     );

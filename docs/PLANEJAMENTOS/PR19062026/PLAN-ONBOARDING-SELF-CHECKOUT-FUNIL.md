@@ -131,7 +131,7 @@ cartão obrigatório é a trava primária na janela entre slices.
 ### F1 — Matar a escada de temperatura (copy) — **rápido, Opus direto**
 - `frontend/src/lib/plans.tsx`: `hbx_lite.temp` `"Lista Fria"` → **`"Lista Unitária"`**. Reescrever os
   outros `temp` pra não venderem "grau de calor" onde barato = frio (hoje: `"Lista Fria enriquecida"`,
-  `"Lista Morna"`, `"Lista Quente"`). Cada plano é um **momento da operação**, não um degrau de
+  `"Lista Completa!"`, `"Lista Quente"`). Cada plano é um **momento da operação**, não um degrau de
   desprezo. Manter o tom de cada `pitch`/`forWho` (já são bons), só trocar o rótulo `temp` que aparece
   no detalhe (`page.client.tsx:397` — `HBX {accent} · {temp}`).
 - **Sem mexer em preço/feature/quota** (vem do backend, `PAGAMENTOS.md`). Só rótulo narrativo.
