@@ -471,106 +471,231 @@
   .conv { min-height: 56px; }
 }
 
+/* Desktop: esconde elementos exclusivos do mobile kanban e da lista mobile.
+   Devem ficar ANTES do @media de mobile para que o @media possa sobrepor. */
+.deal-move-btn  { display: none; }
+.deal-move-menu { display: none; }
+.board-dots     { display: none; }
+.vnd-list       { display: none; }
+.vnd-detail     { display: none; }
+
 /* ============================================================
    === VENDAS (kanban) ===
-   ≤ 860px — 1 coluna por tela (scroll-snap horizontal já definido
-   na seção SHELL). Dots de navegação + botão "mover para" por toque.
-   Cards confortáveis, sem corte de valor/nome.
+   ≤ 860px — substituído por lista agrupada + pop-up de detalhe.
+   O swipe de colunas e os dots de navegação NÃO aparecem no mobile
+   (ocultados abaixo, fora do @media). Desktop: 100% intocado.
    ============================================================ */
 @media (max-width: 860px) {
-  /* --- Board: snap já definido na seção SHELL+ABAS (.board):
-       grid-auto-columns: 85vw; scroll-snap-type: x mandatory.
-       Aqui refinamos o conteúdo dos cards. --- */
+  /* Vendas mobile: página vira coluna flex de altura fixa (igual a leads) */
+  .vnd-page {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+  }
+  /* .work ocupa o espaço restante e rola por dentro */
+  .vnd-page .work {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+  }
+  /* aside .ctx: escondida no mobile (detalhe vira pop-up) */
+  .vnd-page .ctx { display: none; }
 
-  /* Card: sem corte de nome/valor */
-  .deal { word-break: break-word; overflow-wrap: anywhere; }
-  .deal strong { white-space: normal; }
-  .deal .val { white-space: nowrap; }
+  /* Painel principal da lista preenche a área */
+  .vnd-page .panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
 
-  /* Linha de toque confortável */
-  .deal { min-height: 80px; padding: 14px 12px; }
+  /* Tabela legada e kanban: ocultos no mobile (branch isMobile no TSX) */
+  .vnd-page .tbl-wrap { display: none; }
+  .vnd-page .board    { display: none; }
+  .vnd-page .board-dots { display: none; }
 
-  /* Botão "Mover para" embutido no card mobile: aparece só no celular.
-     No desktop o .deal-move-btn é display:none (abaixo, fora de @media). */
-  .deal-move-btn {
+  /* --- Lista agrupada mobile (.vnd-list) --- */
+  .vnd-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* Cabeçalho de grupo */
+  .vnd-group-head {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    width: 100%;
-    padding: 7px 10px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    background: var(--hbx-surface);
-    color: var(--text-body);
-    font-family: var(--font-body);
-    font-size: 0.7rem;
-    font-weight: 700;
-    cursor: pointer;
-    margin-top: 4px;
-    min-height: 36px;
+    justify-content: space-between;
+    gap: 8px;
+    padding: clamp(8px, 2vw, 12px) clamp(12px, 4vw, 16px) 6px;
+    font-family: var(--font-display);
+    font-size: clamp(0.72rem, 2.2vw, 0.82rem);
+    font-weight: 800;
+    color: var(--text-strong);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    border-top: 1px solid var(--border-hairline);
+    background: var(--hbx-background);
+    position: sticky;
+    top: 0;
+    z-index: 2;
   }
-  .deal-move-btn:hover { background: var(--hbx-surface-raised); }
-
-  /* Menu "Mover para" (dropdown do botão) */
-  .deal-move-menu {
-    display: grid;
-    gap: 2px;
-    padding: 6px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-hairline);
-    background: var(--hbx-surface);
-    box-shadow: var(--shadow-lg);
-    margin-top: 4px;
-  }
-  .deal-move-menu button {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 8px 10px;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-body);
-    font-family: var(--font-body);
-    font-size: 0.78rem;
+  .vnd-group-head:first-child { border-top: none; }
+  .vnd-group-badge {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
     font-weight: 600;
-    cursor: pointer;
-    min-height: 36px;
-  }
-  .deal-move-menu button:hover { background: var(--hbx-surface-raised); }
-
-  /* --- Dots de navegação do kanban --- */
-  .board-dots {
-    display: flex;
-    justify-content: center;
-    gap: 7px;
-    padding: 10px 0 8px;
-    flex: 0 0 auto;
-  }
-  .board-dot {
-    width: 8px;
-    height: 8px;
+    color: var(--text-muted);
+    background: var(--hbx-surface-soft);
+    border: 1px solid var(--border-hairline);
     border-radius: 999px;
-    background: var(--border-strong);
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    transition: background var(--motion-fast), transform var(--motion-fast);
-  }
-  .board-dot.active {
-    background: var(--hbx-brand-strong);
-    transform: scale(1.25);
+    padding: 1px 8px;
   }
 
-  /* Col-cards: sem overflow horizontal; vertical livre p/ dropdown de mover */
-  .col-cards { overflow-x: hidden; }
+  /* Linha de negócio (toque) */
+  .vnd-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: clamp(10px, 2.5vw, 14px) clamp(12px, 4vw, 16px);
+    border-bottom: 1px solid var(--border-hairline);
+    background: var(--hbx-surface);
+    cursor: pointer;
+    transition: background var(--motion-fast);
+    min-height: 54px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .vnd-row:active { background: var(--hbx-surface-raised); }
+  .vnd-row:last-child { border-bottom: none; }
+
+  /* Nome e sub-linha */
+  .vnd-row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .vnd-row-name {
+    font-family: var(--font-display);
+    font-size: clamp(0.82rem, 2.6vw, 0.92rem);
+    font-weight: 700;
+    color: var(--text-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vnd-row-sub {
+    font-size: clamp(0.66rem, 2vw, 0.72rem);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Coluna direita: valor + quando */
+  .vnd-row-end {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+  .vnd-row-val {
+    font-family: var(--font-mono);
+    font-size: clamp(0.76rem, 2.3vw, 0.84rem);
+    font-weight: 700;
+    color: var(--text-strong);
+    white-space: nowrap;
+  }
+  .vnd-row-when {
+    font-size: clamp(0.62rem, 1.9vw, 0.68rem);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .vnd-row-when--warn { color: var(--hbx-warning); font-weight: 700; }
+
+  /* Chevron de toque */
+  .vnd-row-arrow {
+    color: var(--border-strong);
+    font-size: 1rem;
+    flex-shrink: 0;
+    margin-left: 2px;
+  }
+
+  /* --- Pop-up de detalhe do negócio (.vnd-detail) --- */
+  /* Moldura: largura máxima, rola por dentro */
+  .vnd-detail {
+    width: min(460px, 100%);
+    max-height: 90dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-xl);
+    background: var(--hbx-surface);
+    border: 1px solid var(--border-hairline);
+    box-shadow: var(--shadow-lg);
+    display: grid;
+    gap: 0;
+  }
+
+  /* Cabeçalho fixo do pop-up */
+  .vnd-detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: clamp(14px, 3vw, 18px) clamp(14px, 4vw, 20px) 10px;
+    border-bottom: 1px solid var(--border-hairline);
+    position: sticky;
+    top: 0;
+    background: var(--hbx-surface);
+    z-index: 1;
+  }
+  .vnd-detail-title {
+    font-family: var(--font-display);
+    font-size: clamp(0.9rem, 3vw, 1.05rem);
+    font-weight: 800;
+    color: var(--text-strong);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vnd-detail-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 4px 6px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  /* Corpo do pop-up */
+  .vnd-detail-body {
+    display: grid;
+    gap: 14px;
+    padding: clamp(14px, 3vw, 18px) clamp(14px, 4vw, 20px) clamp(18px, 4vw, 24px);
+  }
+
+  /* Bloco de ações no pop-up */
+  .vnd-detail-actions {
+    display: grid;
+    gap: 8px;
+  }
 }
 
-/* Desktop: esconde os elementos exclusivos do mobile kanban */
-.deal-move-btn { display: none; }
-.deal-move-menu { display: none; }
-.board-dots { display: none; }
+/* (regras de display:none do mobile kanban e lista mobile movidas
+    para ANTES do bloco @media acima, para a cascata funcionar corretamente) */
 
 /* ============================================================
    === RADAR / LEADS ===

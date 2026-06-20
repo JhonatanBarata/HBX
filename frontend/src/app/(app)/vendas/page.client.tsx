@@ -528,8 +528,12 @@ export function VendasClient() {
     };
   }, []);
 
-  // Mobile kanban: dots de navegação + menu "mover para" por toque
+  // Mobile: lista agrupada + pop-up de detalhe (substitui kanban swipe)
   const isMobile = useIsMobile();
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+
+  // Mobile kanban legado: dots de navegação + menu "mover para" por toque
+  // (mantido para o quadro desktop e view=board; não usado na lista mobile)
   const boardRef = useRef<HTMLDivElement | null>(null);
   const [activeDot, setActiveDot] = useState(0);
   const [cardMoveOpen, setCardMoveOpen] = useState<string | null>(null); // card.id com menu aberto
@@ -563,6 +567,14 @@ export function VendasClient() {
     } finally {
       setAcaoBusy(false);
     }
+  }
+
+  // Abre o detalhe do negócio no mobile
+  function abrirDetalhe(card: VendasLead) {
+    setSel(card);
+    setAcaoMsg(null);
+    setFecharMsg(null);
+    setMobileDetailOpen(true);
   }
 
   // Prospecção automática (GET /vendas/automation/live-status + controles;
@@ -640,7 +652,7 @@ export function VendasClient() {
 
   return (
     <React.Fragment>
-        <div className="content">
+        <div className={"content" + (isMobile ? " vnd-page" : "")}>
           <div className="work">
             <KpiRow items={[
               { icon: "users", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
@@ -718,9 +730,55 @@ export function VendasClient() {
                   </div>
                 </div>
               )}
+              {/* MOBILE: lista agrupada — substitui tabela e kanban no mobile.
+                  Toque na linha abre pop-up de detalhe (.hbx-veil + .vnd-detail). */}
+              {isMobile && board && (summary?.total ?? 0) > 0 && (
+                <div className="vnd-list">
+                  {BLOCK_ORDER.map(({ key, label }) => {
+                    const cards = board?.blocks?.[key] || [];
+                    if (cards.length === 0) return null;
+                    return (
+                      <React.Fragment key={key}>
+                        <div className="vnd-group-head">
+                          {label}
+                          <span className="vnd-group-badge">{cards.length}</span>
+                        </div>
+                        {cards.map(card => {
+                          const when = fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt);
+                          const isWarn = key === "overdue";
+                          return (
+                            <div
+                              key={card.id}
+                              className="vnd-row"
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Abrir detalhes de ${card.name || "negócio"}`}
+                              onClick={() => abrirDetalhe(card)}
+                              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") abrirDetalhe(card); }}
+                            >
+                              <div className="vnd-row-main">
+                                <span className="vnd-row-name">{card.name || "—"}</span>
+                                <span className="vnd-row-sub">
+                                  {card.segment || card.city || card.statusLabel || "—"}
+                                </span>
+                              </div>
+                              <div className="vnd-row-end">
+                                <span className="vnd-row-val">{leadValueLabel(card)}</span>
+                                <span className={"vnd-row-when" + (isWarn ? " vnd-row-when--warn" : "")}>{when}</span>
+                              </div>
+                              <span className="vnd-row-arrow" aria-hidden="true">›</span>
+                            </div>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* LISTA DENSA (padrão): varredura rápida de todos os leads —
                   tabela central do kit, clique na linha abre o detalhe lateral. */}
-              {view === "list" && board && (summary?.total ?? 0) > 0 && (
+              {!isMobile && view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <div className="tbl-wrap">
                   <table className="tbl">
                     <thead>
@@ -751,8 +809,8 @@ export function VendasClient() {
                 </div>
               )}
 
-              {/* QUADRO (kanban) — opcional, para arrastar entre etapas. */}
-              {view === "board" && (
+              {/* QUADRO (kanban) — opcional, para arrastar entre etapas. Desktop only. */}
+              {!isMobile && view === "board" && (
               <>
               <div className="board" ref={boardRef} onScroll={isMobile ? onBoardScroll : undefined}>
                 {BLOCK_ORDER.map(({ key, label }) => {
@@ -1029,6 +1087,147 @@ export function VendasClient() {
             </div>{/* /ctx-body */}
           </aside>
         </div>
+
+      {/* MOBILE: pop-up de detalhe do negócio — abre ao tocar uma linha da lista */}
+      {isMobile && mobileDetailOpen && sel && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setMobileDetailOpen(false); }}>
+          <div className="vnd-detail" onClick={e => e.stopPropagation()}>
+            <div className="vnd-detail-head">
+              <span className="vnd-detail-title">{sel.name || "Negócio"}</span>
+              <button className="vnd-detail-close" onClick={() => setMobileDetailOpen(false)} aria-label="Fechar">✕</button>
+            </div>
+            <div className="vnd-detail-body">
+              {/* Hero: avatar + segmento + etapa */}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <Av name={sel.name || "—"} size={48} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span className="company" style={{ fontSize: "1rem" }}>{sel.name || "—"}</span>
+                  <div className="sub">{sel.segment || sel.city || "—"}</div>
+                  {sel.city && sel.segment && (
+                    <div className="sub" style={{ marginTop: 2, display: "inline-flex", gap: 4, alignItems: "center" }}>
+                      <I d={ICONS.mapin} size={11} /> {sel.city}{sel.state ? `, ${sel.state}` : ""}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 5 }}><span className="tag">{sel.statusLabel || "—"}</span></div>
+                </div>
+              </div>
+
+              {/* Canais de contato */}
+              {sel.phone ? (
+                <a href={`tel:${sel.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
+                  <CanalIcon canal="telefone" /> {sel.phone}
+                </a>
+              ) : null}
+              {sel.website && (
+                <a href={sel.website.startsWith("http") ? sel.website : `https://${sel.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone" style={{ marginTop: 4 }}>
+                  <CanalIcon canal="site" /> {sel.website}
+                </a>
+              )}
+
+              {/* KVs */}
+              <div className="kv">
+                <div className="row"><span className="k">Valor</span><span className="v vnd-val-mono">{leadValueLabel(sel)}</span></div>
+                <div className="row"><span className="k">Produto</span><span className="v">{sel.product?.name || "—"}</span></div>
+                <div className="row"><span className="k">Etapa atual</span><span className="v">{sel.statusLabel || "—"}</span></div>
+                <div className="row"><span className="k">Próximo retorno</span><span className="v">{fmtDate(sel.returnAt ?? null)}</span></div>
+                <div className="row"><span className="k">Próxima ação</span><span className="v">{sel.nextAction || "—"}</span></div>
+                <div className="row"><span className="k">Obs.</span><span className="v">{sel.shortNote || "—"}</span></div>
+                <div className="row"><span className="k">Último contato</span><span className="v">{fmtDate(sel.lastContactAt ?? null)}</span></div>
+                <div className="row"><span className="k">Tentativas</span><span className="v vnd-val-mono">{sel.attemptCount}</span></div>
+                <div className="row"><span className="k">Responsável</span><span className="v">{sel.owner?.name ? <React.Fragment><Av name={sel.owner.name} size={16} /> {sel.owner.name}</React.Fragment> : "—"}</span></div>
+                {sel.saleStatus && sel.saleStatus !== "none" && (
+                  <React.Fragment>
+                    <div className="row"><span className="k">Venda</span><span className="v"><span className={"tag" + (sel.saleStatus === "sale_confirmed" ? " teal" : sel.saleStatus === "canceled" ? " warn" : "")}>{sel.saleStatusLabel || sel.saleStatus}</span></span></div>
+                    <div className="row"><span className="k">Valor fechado</span><span className="v vnd-val-mono">{fmtMoney(sel.saleValue) || "—"}</span></div>
+                    <div className="row"><span className="k">Comissão</span><span className="v">{sel.commissionStatusLabel || "—"}{sel.commissionAmount != null ? <span className="vnd-commission">{fmtMoney(sel.commissionAmount)}</span> : null}</span></div>
+                  </React.Fragment>
+                )}
+              </div>
+
+              {/* Ações */}
+              <div className="vnd-detail-actions">
+                {fecharMsg && (
+                  <div className={fecharMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{fecharMsg}</div>
+                )}
+                <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
+                  <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
+                </button>
+                {acaoMsg && (
+                  <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
+                )}
+                {/* Resultado da ligação */}
+                <div className="vnd-ligacao-block">
+                  <label className="vnd-ligacao-lbl">
+                    <I d={ICONS.phone} size={13} /> Resultado da ligação
+                  </label>
+                  <div className="vnd-ligacao-opts">
+                    {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
+                      <button key={o} className="btn-ghost vnd-ligacao-btn"
+                        onClick={() => registrarResultado(o)} disabled={acaoBusy || sel.block === "closed"}>
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea className="field-dark vnd-obs-field" rows={2} maxLength={240}
+                    placeholder="Observação (opcional)"
+                    value={obs} onChange={e => setObs(e.target.value)} disabled={sel.block === "closed"} />
+                </div>
+                {/* Mover etapa */}
+                <div className="vnd-action-row">
+                  <select className="field-dark" value={moverStatus} disabled={sel.block === "closed"}
+                    onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
+                    <option value="">Mover etapa…</option>
+                    <option value="novo">Novo</option>
+                    <option value="contato">Contato</option>
+                    <option value="retorno">Retorno</option>
+                    <option value="qualificado">Qualificado</option>
+                    <option value="encerrado">Encerrado</option>
+                  </select>
+                  <button className="btn-ghost" onClick={moverEtapa} disabled={!moverStatus || acaoBusy}>Mover</button>
+                </div>
+                {/* Agendar retorno */}
+                <div className="vnd-action-row">
+                  <input className="field-dark" type="date" value={retornoData} disabled={sel.block === "closed"}
+                    onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
+                  <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
+                </div>
+                {/* Negativar */}
+                <div className="vendas-neg">
+                  <label>Negativar lead (sai da carteira)</label>
+                  <div className="neg-row">
+                    <select className="field-dark" value={negMotivo} disabled={acaoBusy || sel.block === "closed"}
+                      onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
+                      <option value="">Motivo…</option>
+                      <option value="negative">Sem interesse</option>
+                      <option value="no_answer">Não atende / não existe</option>
+                      <option value="no_whatsapp">Sem WhatsApp</option>
+                      <option value="opt_out">Pediu pra não receber</option>
+                      <option value="complaint">Reclamou</option>
+                    </select>
+                    <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
+                      disabled={!negMotivo || acaoBusy}>
+                      {negArm ? "Confirmar" : "Negativar"}
+                    </button>
+                  </div>
+                </div>
+                {/* Cadastrar / ver cliente */}
+                {cadMsg && (
+                  <div className={cadMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{cadMsg}</div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                  <button className="btn-ghost" onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
+                    <I d={ICONS.users} size={13} /> Cadastrar cliente
+                  </button>
+                  <button className="icon-ghost" onClick={() => { setMobileDetailOpen(false); verCliente(); }} disabled={!sel.phone}
+                    title="Card do cliente" aria-label="Abrir card do cliente">
+                    <I d={ICONS.doc} size={15} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {novoOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}>

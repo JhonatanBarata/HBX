@@ -573,6 +573,24 @@ html, body { height: 100%; }
 .bot-warn .warn-lbl { color: var(--hbx-warning); font-weight: 600; }
 .bot-warn .btn-ghost { font-size: 0.68rem; padding: 2px 8px; }
 
+/* Vendas — mensagens de feedback (ok/erro) usadas no ctx e no pop-up mobile.
+   Classes centrais para evitar inline color. */
+.vnd-msg-ok  { font-size: 0.72rem; font-weight: 700; color: var(--hbx-brand-strong); }
+.vnd-msg-err { font-size: 0.72rem; font-weight: 700; color: var(--hbx-danger); }
+/* Span de valor monetário em linha KV (mono) */
+.vnd-val-mono { font-family: var(--font-mono); }
+/* Etapa de comissão dentro de kv row */
+.vnd-commission { font-family: var(--font-mono); margin-left: 6px; }
+/* Bloco de registro de ligação no pop-up mobile */
+.vnd-ligacao-block { display: grid; gap: 6px; }
+.vnd-ligacao-lbl   { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+.vnd-ligacao-opts  { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.vnd-ligacao-btn   { min-height: 34px; font-size: 0.72rem; }
+.vnd-obs-field     { resize: vertical; font-family: var(--font-body); }
+/* Linha de ação (select + botão lado a lado) no pop-up mobile */
+.vnd-action-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.vnd-action-row .field-dark { min-height: 36px; }
+
 /* provisioning wizard (multi-step) */
 .prov-step { font-size: 0.64rem; font-weight: 400; color: var(--text-muted); }
 .prov-step.is-active { font-weight: 800; color: var(--hbx-brand-strong); }
