@@ -29,6 +29,27 @@
 > - Caminho **Meta-only** (conversa sessão=null) no envio do gerente; testes `node --test` dirigidos.
 > - **Admin conecta o próprio número**: confirmado que já funciona (user com `userId` → sessão `company-{id}-user-{adminId}`).
 
+---
+
+## ▶ PRÓXIMO PASSO (handoff — continuar em outro chat; 20/06 já PUBLICADO commit `f8185101`)
+
+**Contexto:** o modelo Compartilhado×Individual está no ar (default `null`→individual, inerte até o admin escolher). `verify:prod` verde. Falta TESTAR a troca de modo live e fechar 1 buraco.
+
+### 1. BURACO a fechar antes do teste (prioridade)
+`backend/src/companies/whatsapp-modal.service.ts` → `setAttendanceMode`: a varredura de quem derrubar usa **`status: 'active'`**. Um vendedor **no meio do QR** (status `connecting`/pendente, ainda não `active`) **NÃO** entra na lista → pode ficar com **QR pendurado / instância órfã** depois de trocar pra `shared`.
+- Fix: incluir também as sessões webwhats **não-`active`** de não-admin na varredura (status connecting/initializing), OU, defensivamente, chamar `deleteProviderInstance` no `tenantKey` (`company-{id}-user-{uid}`) desses usuários mesmo sem sessão `active`. Reusar o disconnect limpo que já existe (`disconnectCompanySession` / `logoutProviderSession` + `deleteProviderInstance`). NUNCA soft-drop.
+- O gate (`assertConnectionGate`) já bloqueia reconexão de não-admin no shared — confirmar que um connect em andamento é rejeitado e não recria a instância.
+
+### 2. TESTE LIVE (o dono vai rodar)
+- 2 contas com chip próprio conectado (individual). Admin → Atendimento → **Modelo ▾ → Usar número compartilhado** → confirm deve listar os 2 (nome+número) → confirmar.
+- Esperado: os 2 caem **limpos** (sem QR travado, sem o backend "reanimando" o número antigo), e passam a atender o número da empresa. Conferir no motor que **não** sobrou instância órfã (`company-{id}-user-{uid}`).
+- Puxar/Assumir/Liberar no pool; outro vendedor vê "Atendimento com X" + leitura até assumir.
+- Voltar pra **Individual** → vendedores reconectam o próprio chip (admin libera via toggle "Pode conectar chip?").
+
+### 3. Follow-ups menores
+- **Tutorial** do modelo (plano lead+): TODO em `frontend/src/lib/tutorial-coach-steps.ts` — achar o ponto do onboarding.
+- **Bloquear atendente** no shared (`canAttendSharedInbox`): hoje read-only no painel; cabear a ação se o dono quiser.
+
 > ⚠️ **DEPENDÊNCIA (18/06):** Fase A **NÃO está verde** — o motor está em split brain (instâncias
 > legadas `company-{id}` vivas, nome novo `company-{id}-user-{n}` no código; inbox de vendedor
 > vazio). Fase B só roda **depois** da fundação:

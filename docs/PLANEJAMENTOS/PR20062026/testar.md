@@ -1,28 +1,36 @@
-# Testes manuais obrigatórios antes de subir qualquer branch
+# O que testar antes de subir
 
-- Atendimento → Conexão WhatsApp → Conectar/gerar QR: o QR deve PERSISTIR durante o poll (4s) e ser escaneável; após escanear, pill vira Conectado.
-- Pill de Atendimento com modal FECHADO (poll 20s): com WhatsApp desconectado, a pill fica "Desconectado" parada — sem chamar o motor, sem piscar "Iniciando" ou "Reconectando" de forma fantasma.
-- Modal aberto → clicar "Conectar / gerar QR" → QR aparece → aguardar 2 ciclos de poll (8s) → QR PERSISTE (não some); escanear com o celular → pill vira "Conectado" sem recarregar a página.
+Cada teste é assim: **entre em tal lugar → faça tal coisa → tem que acontecer isso.**
+Se algo não acontecer como está escrito, me avisa.
 
-## WhatsApp — confiança pós-connect (teste de campo VPS 19/06)
-- Conectar um número NOVO → a lista de conversas/contatos deve aparecer **sozinha** em poucos segundos, SEM hard refresh (hoje exige refresh — bug #3, falta SSE/re-sync no bootstrap do connect).
-- Fotos de perfil dos contatos devem aparecer após o connect sem refresh; sem foto = avatar de inicial (fallback), nunca quebrado (bug #2 — foto só busca no sync e o motor esquenta depois).
-- Envio: se um chip recebe mas NÃO envia (OUTBOUND vira FAILED) e outro chip envia normal → é estrangulamento/ban do chip (motor), NÃO trava nossa. Critério: o `lastError` do FAILED vem do webhook de entrega, não de regra interna.
+## Conectar o WhatsApp
+- Entre no **Atendimento** → clique em **Conectar WhatsApp**. O QR Code tem que **aparecer e ficar na tela** (não some sozinho). Escaneie com o celular → o selo tem que virar **Conectado**, sem você atualizar a página.
+- Com o WhatsApp **desconectado**, deixe a tela do Atendimento aberta um tempo. O selo tem que ficar parado em **Desconectado** — não pode ficar piscando "Iniciando" / "Reconectando" sozinho.
 
-## Atendimento — reação + foto on-demand (19/06)
-- Reagir a uma mensagem (clicar no emoji rápido) **não dá 404**; a reação registra e aparece. Mensagem sem chave válida → erro claro (BadRequest "sem chave válida pra reagir"), nunca 404. (Raiz: a reação resolvia por ID sintético do motor; agora resolve pelo ID do banco igual ao retry.)
-- Abrir um chat cujo contato veio sem foto (ex.: "Abner primo") → a foto carrega **sozinha**, in-place, **sem recarregar a página e sem piscar** a tela. Clicar na foto do cabeçalho força nova busca. Motor sem foto = iniciais (fallback), nunca quebrado. (Endpoint `POST /inbox/conversations/:id/avatar/refresh → { avatarUrl }`; front faz patch só daquela conversa, sem `loadConvs()`.)
-- A LISTA de conversas deve **ir reordenando conforme a última mensagem** (a conversa com msg nova sobe pro topo e o preview/hora atualizam) sem travar em mensagens antigas — mesmo em produção atrás do proxy onde o SSE pode morrer calado. Critério: receber/enviar uma msg → em até ~10s a conversa sobe e o preview muda, sem hard refresh. Enviar do próprio atendente atualiza na hora. (Fix: poll de fallback de `loadConvs` 10s + `loadConvs` após enviar; backend já ordena por `MAX(timestamp)`.)
+## Depois de conectar um número novo
+- Conecte um número novo. As **conversas e os contatos** têm que aparecer **sozinhos** em poucos segundos, sem você atualizar a página.
+- As **fotos** dos contatos têm que aparecer também. Quem não tem foto fica com a **bolinha de inicial** — nunca uma foto quebrada.
+- Se um número **recebe mas não consegue enviar** (a mensagem fica com errinho) e outro número envia normal: o problema é o **chip daquele número** (bloqueio do WhatsApp), não o sistema.
 
-## Mobile (refatoração 19/06)
-- `npx playwright test --project=mobile-chromium mobile-no-overflow` PASSA: nenhuma rota principal tem corte horizontal em 397px (`/login`, `/dashboard`, `/leads`, `/vendas`, `/atendimento`, `/bot`, `/relatorios`, `/configuracoes`).
-- Desktop INTOCADO: `npm run build` verde e nenhuma regra de layout fora de `@media` (mobile.css não pode mudar 1px do desktop).
-- Em celular real: barra de abas (Início/Radar/Vendas/Chat/Mais) navega; folha "Mais" abre/fecha; login com robô em faixa no topo; Atendimento com compositor fixo (testar com teclado aberto); Vendas desliza entre colunas; Bot mostra leitura + "edite no PC" (sem canvas no dedo).
+## Conversa: reagir e foto
+- **Reaja** a uma mensagem (clique no emoji). A reação tem que aparecer, **sem dar erro**.
+- Abra uma conversa de um contato **sem foto**. A foto tem que **carregar sozinha**, sem piscar e sem recarregar a página. Clicar na foto lá em cima força buscar de novo.
+- A lista de conversas tem que **se reorganizar sozinha**: quem manda mensagem nova **sobe pro topo** e o textinho/horário atualizam, em uns 10 segundos, sem você atualizar a página.
 
-## Onboarding / Self-Checkout — continuidade do funil (Slice 3, 19/06)
-- **Resume não perde o lugar:** no funil (`/?ver=planos`), escolher um plano → preencher cadastro → enviar → tela "Aguardando confirmação" → **recarregar a página (F5)** → tem que voltar NA tela de espera (não no form zerado). Critério: o `?resume=1` + a dica em sessionStorage reidratam o passo via `POST /auth/onboarding/resume`.
-- **Login não é beco:** logar com e-mail NÃO confirmado + **senha certa** → vira "continue seu cadastro" (reenviar + "Continuar cadastro"); clicar "Continuar cadastro" → cai no funil no passo exato (`/?ver=planos&resume=1`). Com **senha errada** → mensagem genérica, sem revelar plano nem dar token (anti-enumeração).
-- **Re-cadastro do mesmo e-mail** (ainda não confirmado, senha certa) → NÃO dá "e-mail já cadastrado" seco: renova o link e volta pra tela de espera.
-- **Confirmar pelo WhatsApp (F6, dev/mock):** na tela de espera → "Confirmar pelo WhatsApp" → digitar telefone → "Enviar código" → o **código de 6 dígitos aparece na própria tela** (preview de ambiente de teste) → digitar → "Confirmar código" → confirma a identidade (entra ou cai em aguardando pagamento). Em produção o código NÃO aparece (envio real é gated `LIVE_WHATSAPP_CONFIRM_TODO` até ligar o chip do Master na VPS).
-- **Anti-abuso de trial no checkout:** duas empresas diferentes usando o MESMO CPF/telefone no checkout de um plano com trial → a 2ª recebe erro (`TRIAL_PHONE/TAX_DOCUMENT_ALREADY_USED`). Mesma empresa refazendo o checkout → passa (idempotente).
-- **Cartão só depois de confirmar:** signup não devolve mais `checkout_token`; o CheckoutPanel só abre com sessão plena (e-mail/identidade confirmada). Pré-confirmação = sempre a tela de espera.
+## Modo de atendimento: Compartilhado x Individual (novo)
+- Entre no **Atendimento**. Tem que **abrir normal** (a lista e abrir uma conversa). Se aparecer tela de erro, me avisa.
+- Como **admin**, clique em **Modelo** (em cima) → escolha **Usar número compartilhado**. Se tiver vendedores conectados, aparece um **aviso com os nomes e números** de quem vai cair → confirme. Eles têm que **desconectar limpo** (sem ficar com QR travado).
+- No **compartilhado**: todos veem as conversas do **número da empresa**. Numa conversa, clique em **Puxar atendimento pra mim** → seu nome aparece como responsável; o outro vendedor vê **"Atendimento com você"** e **não consegue responder** até clicar em **Assumir**.
+- Volte pra **Chips individuais**: cada vendedor conecta o **próprio número** de novo (você libera no painel, na opção **Pode conectar chip?**).
+
+## No celular
+- Abra no celular as telas principais (Início, Radar, Vendas, Atendimento, Bot, Relatórios, Configurações). Nenhuma pode ter **corte ou rolagem pro lado**.
+- A barra de baixo (Início/Radar/Vendas/Chat/Mais) **navega**; o **Mais** abre e fecha. No Atendimento, a caixinha de escrever fica **fixa** (teste com o teclado aberto).
+
+## Entrar e pagar (cadastro/planos)
+- Na escolha de planos: escolha um plano → preencha o cadastro → envie → cai na tela **Aguardando confirmação**. Aperte **F5 (recarregar)**: tem que **voltar pra tela de espera**, não pro formulário em branco.
+- Tente **entrar** com um e-mail ainda **não confirmado** e a **senha certa**: tem que oferecer **Continuar cadastro** e te levar de volta de onde parou. Com **senha errada**: mensagem genérica, sem dizer mais nada.
+- **Cadastrar de novo** o mesmo e-mail (ainda não confirmado): **não** pode dar "e-mail já cadastrado" seco — reenvia o link e volta pra espera.
+- Na tela de espera, **Confirmar pelo WhatsApp** (no ambiente de teste): digite o telefone → **Enviar código** → o código de 6 números **aparece na própria tela** → digite → **confirma**. (Na versão de verdade o código **não** aparece na tela, chega no WhatsApp.)
+- **Cartão** só abre **depois de confirmar o e-mail**. Antes disso, sempre a tela de espera.
+- **Anti-abuso:** duas empresas diferentes tentando usar o **mesmo CPF/telefone** num plano com teste grátis → a segunda recebe **erro**. A mesma empresa refazendo → **passa** normal.

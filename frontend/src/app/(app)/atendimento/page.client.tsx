@@ -372,6 +372,13 @@ export function AtendimentoClient() {
     return info.sellerName || shortPhone(info.phone) || "?";
   }
 
+  // Identificação CHEIA do vendedor (nome quando tem; senão o número inteiro, não só os 4 dígitos) —
+  // usada no cabeçalho do chat e na barra de supervisão pra eu saber de quem é a linha.
+  function sellerFull(info: SessionInfo | undefined): string {
+    if (!info) return "?";
+    return info.sellerName || info.phone || "?";
+  }
+
   // fidelidade: citação, lightbox, reação, popovers, presença, gravação
   const [replyTo, setReplyTo] = useState<InboxMessage | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -1194,7 +1201,15 @@ export function AtendimentoClient() {
   const supervisorInfo = convoMode !== "shared" && !canSend && convo?.whatsappConnectionSessionId
     ? sessionMap.get(String(convo.whatsappConnectionSessionId))
     : undefined;
-  const supervisorName = supervisorInfo ? sessionLabel(supervisorInfo) : undefined;
+  const supervisorName = supervisorInfo ? sellerFull(supervisorInfo) : undefined;
+
+  // Qual VENDEDOR é dono da linha desta conversa (pra eu, admin, saber de quem é o chat que estou
+  // vendo). Só no modo por-vendedor com visão de empresa (admin/gerente). Nome quando tem; senão o
+  // número cheio (não truncado).
+  const lineSellerInfo = convo?.whatsappConnectionSessionId
+    ? sessionMap.get(String(convo.whatsappConnectionSessionId))
+    : undefined;
+  const showLineSeller = waMode === "company" && convoMode !== "shared" && Boolean(lineSellerInfo);
 
   // No modo shared: nome do atendente atual (assignedToName) para exibição
   const assignedName = convo?.assignedToName || null;
@@ -1378,7 +1393,7 @@ export function AtendimentoClient() {
                         key={s.id}
                         className={"num-chip" + (numberFilter === s.id ? " num-chip-active" : "")}
                         onClick={() => setNumberFilter(prev => prev === s.id ? "" : s.id)}
-                      >{s.sellerName || shortPhone(s.phone) || s.id}</button>
+                      >{s.sellerName || s.phone || s.id}</button>
                     ))}
                   </div>
                 )}
@@ -1440,9 +1455,12 @@ export function AtendimentoClient() {
                     <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
                   </span>
                   <div style={{ display: "grid", gap: 2 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <strong>{convo ? convName(convo) : "Selecione uma conversa"}</strong>
                       {convo?.botActive && <span className="on"><i></i>Bot ativo</span>}
+                      {convo && showLineSeller && (
+                        <span className="tag" style={{ fontSize: "0.62rem" }}>Vendedor: {sellerFull(lineSellerInfo)}</span>
+                      )}
                     </span>
                     {convo ? presenceNode() : <small>—</small>}
                   </div>
@@ -1591,7 +1609,7 @@ export function AtendimentoClient() {
                       <div className="row composer-readonly" style={{ gap: 8 }}>
                         <I d={ICONS.mic} size={15} />
                         <span style={{ flex: 1 }}>
-                          Somente leitura — quem responde é <strong>{supervisorName}</strong> (supervisão).
+                          Somente leitura — esta conversa é do vendedor <strong>{supervisorName}</strong>; só ele responde (você está em supervisão).
                         </span>
                       </div>
                     )

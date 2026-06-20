@@ -67,6 +67,7 @@ Planos vivem em `docs/PLANEJAMENTOS/`, sempre com **UMA** pasta de dia ativa (`P
 - Lê a pasta toda; deleta o que já estiver concluído.
 - Nunca cria `.md` de assunto que já existe — injeta no plano existente. Um plano por assunto, não por edição.
 Depois de limpar, sobra só **`testar.md`** (testes que têm que passar antes de subir qualquer branch). Nunca deletar esse arquivo.
+- **`testar.md` é PRA O DONO testar, não pra mim.** Escreve pra leigo: **zero termo técnico** (nada de endpoint, status, código, nome de arquivo/campo/comando, sigla). Bem curto. Formato sempre **"Entre em X → faça Y → tem que ver Z"** (entre aqui, clique ali, veja isso). Se não dá pra explicar sem jargão, simplifica até dar — ou deixa o detalhe técnico no plano, não aqui. Todo teste novo entra nesse formato; ao tocar no `testar.md`, mantém tudo nesse padrão.
 
 ## Projetos noturnos (modo autônomo) — "flui sem mim"
 Gatilhos: "faça sem perguntar", "iniciar projeto noturno", "refatoração noturna", "não vou estar no pc".
