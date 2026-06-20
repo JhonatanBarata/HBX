@@ -193,6 +193,15 @@
     min-height: 38px;
     justify-content: center;
   }
+  /* Seletor de pele dentro da folha: dropdown abre pra CIMA (sem vazar abaixo do drawer) */
+  .more-sheet__controls .hbx-pop {
+    top: auto !important;
+    bottom: calc(100% + 8px) !important;
+    right: 0 !important;
+    left: 0 !important;
+    min-width: unset !important;
+    width: 100%;
+  }
 
   /* --- Grids de CLASSE empilham (.work continua rolando por dentro) --- */
   .kpis { grid-template-columns: 1fr 1fr; }
@@ -563,14 +572,47 @@
 
 /* ============================================================
    === RADAR / LEADS ===
-   ≤ 860px — 1 coluna, filtros em bottom sheet, tabela rola só
-   no seu container, stats-strip 2 cols (640→1 via regra global).
+   ≤ 860px — lista vertical v2 (PR20062026): lista rolável como main,
+   detalhe abre em overlay central (card-overlay com swipe Tinder).
+   Tabela legada removida no mobile — só a lista é renderizada (branch
+   isMobile no TSX). Desktop NÃO lê nada disto.
    ============================================================ */
 @media (max-width: 860px) {
+  /* Leads: .leads-page vira coluna flex que preenche a altura travada
+     do shell; .work ocupa o espaço restante. */
+  .leads-page {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+  }
+  .leads-page .work {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Aside .ctx: escondido no mobile (detalhe vira overlay central) */
+  .leads-page .ctx { display: none; }
+
   /* Shell radar: empilha rail de filtros + main em 1 coluna */
   .radar2-shell {
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* radar2-main: cresce pra preencher o espaço + contém a lista */
+  .radar2-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 0;
   }
 
   /* Rail de filtros: hidden por default; exibido via .radar2-rail--open */
@@ -601,22 +643,28 @@
   }
   .radar2-filter-toggle:hover { background: var(--hbx-surface-raised); }
 
-  /* Tabela: rola lateral SOMENTE no wrapper, não a página */
-  .radar2-main .tbl-wrap {
-    overflow-x: auto;
+  /* Lista: cresce pra preencher o radar2-main disponível */
+  .lead-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .radar2-main .tbl { min-width: 560px; }
 
-  /* KPIs do topo: 2 colunas (já coberto por .kpis mas radar usa classe própria) */
-  .radar2-kpis { grid-template-columns: 1fr 1fr; }
-
-  /* Seleção em lote: stack em coluna */
-  .radar2-meter {
-    flex-direction: column;
-    align-items: stretch;
+  /* Card dentro do overlay: posição absoluta (preenche o modal-body) */
+  .lead-card-modal__body .lead-card {
+    position: absolute;
+    inset: 0;
   }
-  .radar2-meter-card { width: 100%; }
+
+  /* Body do card no overlay: rola por dentro */
+  .lead-card__body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* KPIs no mobile: strip compacta */
+  .radar2-kpis { grid-template-columns: 1fr 1fr; }
 }
 
 /* Oculta toggle de filtro no desktop */

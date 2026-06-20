@@ -62,13 +62,17 @@ const STATIONS = [
 ];
 const METRICS = ["Mais conversas", "Menos trabalho manual", "Mais recebimentos"];
 
-// ── carrossel do hero (substitui o eyebrow estático) ──────────────────────────
+// ── carrossel do hero (desktop: palavras; mobile: phone-frames) ───────────────
+// Desktop: 4 palavras com ícones (Radar/Vendas/Atendimento/Recovery) — original.
+// Mobile: 3 molduras de celular (Radar/Vendas/Atendimento) via CSS display.
 const CAROUSEL_ITEMS = [
   { label: "Radar", ic: ["M12 16v5", "M9 21h6", "M12 12h.01", "M8.5 12a3.5 3.5 0 0 1 7 0", "M5 12a7 7 0 0 1 14 0", "M2 12a10 10 0 0 1 20 0"] },
   { label: "Vendas", ic: ["M13 2 3 14h9l-1 8 10-12h-9l1-8Z"] },
   { label: "Atendimento", ic: ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01"] },
   { label: "Recovery", ic: ["M12 3 19 6v5c0 4.6-3 7.7-7 9-4-1.3-7-4.4-7-9V6l7-3Z", "M9.3 12l1.9 1.9 3.6-3.7"] },
 ] as const;
+// Apenas os 3 primeiros itens têm phone-frame (mobile)
+const CAROUSEL_PHONE_COUNT = 3;
 
 // ── dados de módulos ───────────────────────────────────────────────────────────
 const INTEGRATIONS = [
@@ -138,7 +142,8 @@ export function MarketingClient() {
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [prevCarouselIdx, setPrevCarouselIdx] = useState<number | null>(null);
   const carouselIdxRef = useRef(carouselIdx);
-  carouselIdxRef.current = carouselIdx;
+  // Mantém o ref sincronizado sem violação de hooks (não atualizar no render)
+  useEffect(() => { carouselIdxRef.current = carouselIdx; }, [carouselIdx]);
 
   const advance = useCallback(() => {
     const cur = carouselIdxRef.current;
@@ -330,7 +335,8 @@ export function MarketingClient() {
         {/* ── INÍCIO ──────────────────────────────────────────────────────── */}
         {view === "inicio" && (
           <div className="scene-hero">
-            <div className="site-carousel" role="region" aria-label="Módulos HBX" onClick={advance}>
+            {/* Carrossel desktop: palavras (Radar/Vendas/Atendimento/Recovery) — original */}
+            <div className="site-carousel site-carousel--words" role="region" aria-label="Módulos HBX" onClick={advance}>
               <div className="site-carousel__track">
                 {CAROUSEL_ITEMS.map((item, i) => (
                   <span
@@ -353,6 +359,196 @@ export function MarketingClient() {
                     aria-selected={i === carouselIdx}
                     aria-label={item.label}
                     className={"site-carousel__dot" + (i === carouselIdx ? " is-active" : "")}
+                    onClick={() => goCarousel(i)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Carrossel mobile: phone-frames (Radar/Vendas/Atendimento) — oculto no desktop via CSS */}
+            <div className="site-carousel site-carousel--phones" role="region" aria-label="Módulos HBX" onClick={advance}>
+              <div className="site-carousel__track">
+
+                {/* ── SLIDE 0: Radar / Leads ───────────────────────────────── */}
+                <div
+                  className="site-carousel__slide"
+                  data-state={0 === (carouselIdx % CAROUSEL_PHONE_COUNT) ? "active" : 0 === (prevCarouselIdx !== null ? prevCarouselIdx % CAROUSEL_PHONE_COUNT : -1) ? "exit" : "idle"}
+                  aria-hidden={0 !== (carouselIdx % CAROUSEL_PHONE_COUNT)}
+                  role="group"
+                  aria-label="Módulo Radar"
+                >
+                  <span className="site-carousel__ic" aria-hidden><Ic paths={["M12 16v5", "M9 21h6", "M12 12h.01", "M8.5 12a3.5 3.5 0 0 1 7 0", "M5 12a7 7 0 0 1 14 0", "M2 12a10 10 0 0 1 20 0"]} /></span>
+                  <span className="site-carousel__mobile-tx">Radar</span>
+                  <div className="site-phone" aria-label="Tela Radar — exemplo de uso">
+                    <div className="site-phone__status">
+                      <span>09:41</span>
+                      <span>■■■ 100%</span>
+                    </div>
+                    <div className="site-phone__screen">
+                      <div className="lead-card" style={{ position: "relative", inset: "auto", borderRadius: 0, border: "none", boxShadow: "none", display: "flex", flexDirection: "column" }}>
+                        <div className="lead-card__hero" style={{ padding: "10px 12px 8px", gap: 10, display: "flex", alignItems: "flex-start", borderBottom: "1px solid var(--border-hairline)", flexShrink: 0 }}>
+                          <span className="avatar" style={{ width: 36, height: 36, fontSize: 14, borderRadius: "50%" }}>
+                            <span className="avatar-ini">DP</span>
+                          </span>
+                          <div className="lead-card__hero-body">
+                            <span className="lead-card__name">Darling Paws Pet Shop</span>
+                            <span className="lead-card__sub">Pet Shop · Florianópolis, SC</span>
+                            <div className="lead-card__badges">
+                              <span className="radar2-fit radar2-fit--hi">FIT 94</span>
+                              <span className="radar2-sig radar2-sig--hot">🆕 Abriu recente</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="lead-card__body" style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 7 }}>
+                          <div className="lead-card__reason">
+                            Pet shop recém-inaugurado, sem presença digital — momento ideal para entrar.
+                          </div>
+                          <div className="radar2-signals">
+                            <span className="radar2-sig radar2-sig--warn">🌐 Sem site</span>
+                            <span className="radar2-sig radar2-sig--warn">📵 Instagram parado</span>
+                          </div>
+                          <div className="lead-card__contact">
+                            <span className="chan-ico chan-ico--whatsapp chan-ico--sm" role="img" aria-label="WhatsApp" />
+                            <span className="lead-card__contact-label">(48) ●●●●●-●●●●</span>
+                          </div>
+                        </div>
+                        <div className="lead-card__foot" style={{ padding: "7px 12px 10px", display: "flex", gap: 8, borderTop: "1px solid var(--border-hairline)", flexShrink: 0 }}>
+                          <button type="button" className="btn btn--solid btn--sm" style={{ flex: 1, pointerEvents: "none" }}>Puxar</button>
+                        </div>
+                      </div>
+                      <div className="lead-deck__nav" style={{ padding: "4px 10px 6px", display: "flex", alignItems: "center", gap: 6, justifyContent: "center", flexShrink: 0 }}>
+                        <button type="button" className="lead-deck__arrow" style={{ pointerEvents: "none" }}>‹</button>
+                        <div className="lead-deck__dots">
+                          <span className="lead-deck__dot lead-deck__dot--active" />
+                          <span className="lead-deck__dot" />
+                          <span className="lead-deck__dot" />
+                        </div>
+                        <span className="lead-deck__progress">1 / 12</span>
+                        <button type="button" className="lead-deck__arrow" style={{ pointerEvents: "none" }}>›</button>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="site-carousel__caption">Radar</span>
+                </div>
+
+                {/* ── SLIDE 1: Vendas ──────────────────────────────────────── */}
+                <div
+                  className="site-carousel__slide"
+                  data-state={1 === (carouselIdx % CAROUSEL_PHONE_COUNT) ? "active" : 1 === (prevCarouselIdx !== null ? prevCarouselIdx % CAROUSEL_PHONE_COUNT : -1) ? "exit" : "idle"}
+                  aria-hidden={1 !== (carouselIdx % CAROUSEL_PHONE_COUNT)}
+                  role="group"
+                  aria-label="Módulo Vendas"
+                >
+                  <span className="site-carousel__ic" aria-hidden><Ic paths={["M13 2 3 14h9l-1 8 10-12h-9l1-8Z"]} /></span>
+                  <span className="site-carousel__mobile-tx">Vendas</span>
+                  <div className="site-phone" aria-label="Tela Vendas — exemplo de uso">
+                    <div className="site-phone__status">
+                      <span>09:41</span>
+                      <span>■■■ 100%</span>
+                    </div>
+                    <div className="site-phone__screen">
+                      <div className="site-phone-board">
+                        <div className="site-phone-col-head">
+                          <span className="site-phone-col-label">Hoje</span>
+                          <span className="site-phone-col-count">3</span>
+                        </div>
+                        <div className="deal">
+                          <strong>Espaço Cross Box</strong>
+                          <span className="who">Academia · São Paulo, SP</span>
+                          <span className="val">R$ 1.490 / mês</span>
+                          <div className="foot">
+                            <span className="badge-win">Quente</span>
+                            <span className="when">Retornar hoje</span>
+                          </div>
+                        </div>
+                        <div className="deal">
+                          <strong>Studio Ânima Dança</strong>
+                          <span className="who">Escola de Dança · Curitiba, PR</span>
+                          <span className="val">R$ 890 / mês</span>
+                          <div className="foot">
+                            <span className="when">10:30 · 2ª tentativa</span>
+                          </div>
+                        </div>
+                        <div className="site-phone-col-head" style={{ marginTop: 4 }}>
+                          <span className="site-phone-col-label">Agendados</span>
+                          <span className="site-phone-col-count">5</span>
+                        </div>
+                        <div className="deal">
+                          <strong>Clínica Bem Estar</strong>
+                          <span className="who">Saúde · Porto Alegre, RS</span>
+                          <span className="val">R$ 2.200 / mês</span>
+                          <div className="foot">
+                            <span className="when">amanhã 14h</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="site-carousel__caption">Vendas</span>
+                </div>
+
+                {/* ── SLIDE 2: Atendimento ─────────────────────────────────── */}
+                <div
+                  className="site-carousel__slide"
+                  data-state={2 === (carouselIdx % CAROUSEL_PHONE_COUNT) ? "active" : 2 === (prevCarouselIdx !== null ? prevCarouselIdx % CAROUSEL_PHONE_COUNT : -1) ? "exit" : "idle"}
+                  aria-hidden={2 !== (carouselIdx % CAROUSEL_PHONE_COUNT)}
+                  role="group"
+                  aria-label="Módulo Atendimento"
+                >
+                  <span className="site-carousel__ic" aria-hidden><Ic paths={["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01"]} /></span>
+                  <span className="site-carousel__mobile-tx">Atendimento</span>
+                  <div className="site-phone" aria-label="Tela Atendimento — exemplo de uso">
+                    <div className="site-phone__status">
+                      <span>09:41</span>
+                      <span>■■■ 100%</span>
+                    </div>
+                    <div className="site-phone__screen">
+                      <div className="site-phone-chat-head">
+                        <span className="avatar" style={{ width: 28, height: 28, fontSize: 11, borderRadius: "50%" }}>
+                          <span className="avatar-ini">CB</span>
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="site-phone-chat-name">Carla Beatriz</div>
+                          <div className="site-phone-chat-sub">Online agora</div>
+                        </div>
+                        <span className="chan-ico chan-ico--whatsapp chan-ico--sm" role="img" aria-label="WhatsApp" />
+                      </div>
+                      <div className="site-phone-thread">
+                        <div className="msg in">
+                          <div className="bubble">
+                            Oi! Vi o anúncio e quero saber mais sobre os planos 😊
+                            <div className="tm"><span>09:38</span></div>
+                          </div>
+                        </div>
+                        <div className="msg out">
+                          <div className="bubble">
+                            Olá, Carla! Tudo bem? Aqui é o assistente HBX 🤖 Me conta — você busca automatizar o quê?
+                            <div className="tm"><span>09:38</span><span className="ck read">✓✓</span></div>
+                          </div>
+                        </div>
+                        <div className="msg in">
+                          <div className="bubble">
+                            Quero prospectar mais clientes sem precisar ligar um por um!
+                            <div className="tm"><span>09:40</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="site-carousel__caption">Atendimento</span>
+                </div>
+
+              </div>
+              {/* Dots de navegação (3 itens — só mobile) */}
+              <div className="site-carousel__dots" role="tablist" onClick={e => e.stopPropagation()}>
+                {Array.from({ length: CAROUSEL_PHONE_COUNT }, (_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    role="tab"
+                    aria-selected={i === (carouselIdx % CAROUSEL_PHONE_COUNT)}
+                    aria-label={CAROUSEL_ITEMS[i].label}
+                    className={"site-carousel__dot" + (i === (carouselIdx % CAROUSEL_PHONE_COUNT) ? " is-active" : "")}
                     onClick={() => goCarousel(i)}
                   />
                 ))}

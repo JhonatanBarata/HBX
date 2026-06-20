@@ -8,6 +8,13 @@
       "port": 3001,
       "autoPort": false,
       "cwd": "frontend"
+    },
+    {
+      "name": "frontend-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:preview"],
+      "autoPort": true,
+      "cwd": "frontend"
     }
   ]
 }

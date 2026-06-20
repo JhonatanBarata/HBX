@@ -24,8 +24,24 @@ Se algo não acontecer como está escrito, me avisa.
 - Volte pra **Chips individuais**: cada vendedor conecta o **próprio número** de novo (você libera no painel, na opção **Pode conectar chip?**).
 
 ## No celular
-- Abra no celular as telas principais (Início, Radar, Vendas, Atendimento, Bot, Relatórios, Configurações). Nenhuma pode ter **corte ou rolagem pro lado**.
+- Abra no celular as telas principais (Início, Vendas, Atendimento, Bot, Relatórios, Configurações). Nenhuma pode ter **corte ou pedaço escondido pro lado** sem querer.
 - A barra de baixo (Início/Radar/Vendas/Chat/Mais) **navega**; o **Mais** abre e fecha. No Atendimento, a caixinha de escrever fica **fixa** (teste com o teclado aberto).
+
+## Radar (Leads) no celular — lista + card que abre na frente (novo)
+- Entre no **Radar** pelo celular. Aparece uma **lista de clientes** (você rola a lista de cima pra baixo com o dedo).
+- **Toque num cliente** da lista: abre um **card na frente** (no meio da tela) com os detalhes do negócio.
+- Dentro desse card, **arraste pro lado** (estilo tinder) — ou use as **setinhas**: troca de cliente, um a um.
+- Chegue no **último** e **arraste mais uma vez**: tem que **abrir a tela de Vendas**.
+- O **✕** fecha o card e volta pra lista. O botão **Puxar** continua funcionando (manda pra sua carteira).
+- As letras têm que estar **legíveis** (nem minúsculas nem gigantes) e tudo **proporcional** à tela.
+
+## "Mais" (menu de baixo) no celular
+- No celular, toque em **Mais** (canto da barra de baixo). Abre a folha com Relatórios, Configurações, Tutorial e o seletor de **tema/cor**.
+- Toque no seletor de **cor** (ex.: "Ember"): a listinha tem que abrir **alinhada e inteira** (sem cortar, sem passar por cima do seu avatar).
+
+## Site (página inicial)
+- No **computador**: a home mostra o carrossel de **palavras** (Radar/Vendas/Atendimento/Recovery) como antes e **não rola** pra baixo — tudo cabe na tela.
+- No **celular**: na home aparece um **celularzinho** mostrando as telas do sistema (Radar/Vendas/Atendimento), trocando sozinho ou nas bolinhas.
 
 ## Entrar e pagar (cadastro/planos)
 - Na escolha de planos: escolha um plano → preencha o cadastro → envie → cai na tela **Aguardando confirmação**. Aperte **F5 (recarregar)**: tem que **voltar pra tela de espera**, não pro formulário em branco.

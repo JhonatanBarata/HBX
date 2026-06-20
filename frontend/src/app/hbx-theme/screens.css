@@ -1157,6 +1157,8 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning, .is-restoring) {
     row-gap: 0;
   }
+  /* hero (desktop, palavras): compacta padding pra caber em 768-900px sem rolar */
+  .scene-hero { padding-top: clamp(10px, 2vh, 22px); padding-bottom: clamp(10px, 2vh, 22px); }
 }
 
 /* ============================================================
@@ -1243,7 +1245,441 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .cfg-nicho .msg { font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; }
 .radar2-pull-msg { font-size: 0.66rem; color: var(--text-muted); margin: 0 16px 10px; }
 
-/* ── Carrossel do hero (substitui eyebrow estático) ──────────────────────────── */
+/* ============================================================
+   Leads/Radar — Lista mobile v2 + card-overlay com swipe (PR20062026)
+   Lista vertical rolável como main; detalhe abre em overlay central.
+   Estrutura definida aqui (screens.css = por-tela),
+   pintura 100% via tokens. Layout mobile em mobile.css.
+   ============================================================ */
+
+/* ── Lista vertical de leads ──────────────────────────────────────────────── */
+/* Wrapper da lista: rolável por dentro, ocupa o espaço disponível */
+.lead-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Estado vazio */
+.lead-list__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(24px, 8vh, 48px) 20px;
+  text-align: center;
+}
+
+/* Linha de lead: botão full-width, layout horizontal */
+.lead-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: clamp(10px, 2.5vh, 16px) 16px;
+  border: none;
+  border-bottom: 1px solid var(--border-hairline);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--motion-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.lead-list-row:active { background: var(--hbx-surface-raised); }
+.lead-list-row:last-of-type { border-bottom: none; }
+
+/* Área central da linha: nome + sub + pills */
+.lead-list-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Nome da empresa */
+.lead-list-row__name {
+  font-family: var(--font-display);
+  font-size: clamp(0.88rem, 2.4vw, 1.0rem);
+  font-weight: 700;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+/* Segmento · cidade */
+.lead-list-row__sub {
+  font-size: clamp(0.68rem, 1.8vw, 0.78rem);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Pills de sinal + Fit */
+.lead-list-row__pills {
+  display: flex;
+  gap: 5px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  margin-top: 3px;
+}
+
+/* Chevron da linha */
+.lead-list-row__chev {
+  flex: 0 0 auto;
+  font-size: clamp(1.0rem, 3vw, 1.3rem);
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+/* Barra de cota compacta no rodapé da lista */
+.lead-list__meter {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 6px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.lead-list__meter.blocked {
+  background: var(--hbx-danger-soft, var(--hbx-surface-raised));
+}
+.lead-list__meter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lead-list__meter-lbl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: clamp(0.58rem, 1.5vw, 0.66rem);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.lead-list__meter-val {
+  font-family: var(--font-display);
+  font-size: clamp(0.82rem, 2.2vw, 0.96rem);
+  font-weight: 800;
+  color: var(--text-strong);
+}
+.lead-list__meter.blocked .lead-list__meter-val {
+  color: var(--hbx-danger);
+}
+
+/* ── KPIs compactos no mobile ─────────────────────────────────────────────── */
+/* KPIs compactos no mobile */
+.lead-kpis-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.lead-kpis-strip .radar2-kpi {
+  padding: 7px 8px;
+}
+.lead-kpis-strip .radar2-kpi .lbl {
+  font-size: clamp(0.54rem, 1.4vw, 0.62rem);
+}
+.lead-kpis-strip .radar2-kpi .num {
+  font-size: clamp(0.88rem, 2.4vw, 1.05rem);
+  font-weight: 800;
+}
+
+/* ── Card overlay (modal central com swipe Tinder) ───────────────────────── */
+/* Moldura do modal: dimensiona dentro do .hbx-veil (que já centraliza) */
+.lead-card-modal {
+  width: min(94vw, 480px);
+  max-height: min(92vh, 760px);
+  border-radius: var(--radius-xl, var(--radius-md));
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: hbx-modal-in 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Barra de navegação no topo do modal */
+.lead-card-modal__nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+
+/* Setas ‹ › */
+.lead-card-modal__arrow {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  color: var(--text-body);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.lead-card-modal__arrow:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.lead-card-modal__arrow:not(:disabled):hover {
+  background: var(--hbx-surface-raised);
+  color: var(--text-strong);
+}
+
+/* Dots */
+.lead-card-modal__dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  max-width: 120px;
+  flex: 1;
+  justify-content: center;
+}
+.lead-card-modal__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  flex: 0 0 auto;
+  transition: width var(--motion-fast), background var(--motion-fast);
+}
+.lead-card-modal__dot--active {
+  background: var(--hbx-brand-strong);
+  width: 16px;
+}
+
+/* Progresso n/total */
+.lead-card-modal__progress {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+/* Botão X fechar */
+.lead-card-modal__close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.lead-card-modal__close:hover {
+  background: var(--hbx-surface-raised);
+  color: var(--text-strong);
+}
+
+/* Área do card deslizável: cresce e contém o .lead-card */
+.lead-card-modal__body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+/* Dica de swipe */
+.lead-card-modal__hint {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* ── Card individual (reutilizado pela lista-site e pelo overlay) ─────────── */
+/* Card individual: ocupa o modal-body inteiramente (swipe Tinder) */
+.lead-card {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-xl, var(--radius-md));
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  will-change: transform, opacity;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+
+/* Card de peek (próximo, atrás) — menor e levemente recuado */
+.lead-card--peek {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Card de handoff (fim do deck → Vendas) */
+.lead-card--handoff {
+  background: var(--hbx-brand-soft);
+  border-color: color-mix(in srgb, var(--hbx-brand) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  padding: 32px 24px;
+  cursor: pointer;
+}
+.lead-card--handoff .lead-handoff__icon {
+  font-size: 2.8rem;
+  line-height: 1;
+}
+.lead-card--handoff .lead-handoff__title {
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.lead-card--handoff .lead-handoff__sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+/* Topo do card: hero com avatar + nome + score */
+.lead-card__hero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex: 0 0 auto;
+}
+.lead-card__hero-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lead-card__name {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lead-card__sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lead-card__loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+.lead-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+/* Corpo scrollável do card */
+.lead-card__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Razão / insight dentro do card */
+.lead-card__reason {
+  font-size: 0.71rem;
+  color: var(--text-body);
+  line-height: 1.5;
+  font-style: italic;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-raised);
+  border-left: 2px solid var(--hbx-brand-soft);
+}
+
+/* Contato mascarado dentro do card */
+.lead-card__contact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+  border: 1px solid var(--border-hairline);
+}
+.lead-card__contact-label {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+/* Rodapé fixo do card: ação primária */
+.lead-card__foot {
+  flex: 0 0 auto;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Detalhe na folha inferior (bottom sheet — mantido por compatibilidade) */
+.lead-sheet__body {
+  display: grid;
+  gap: 14px;
+  padding: 12px 20px env(safe-area-inset-bottom, 16px);
+}
+
+/* ── Carrossel do hero — desktop: palavras; mobile: phone-frames ─────────────── */
+/* .site-carousel--words: palavras (Radar/Vendas/etc.) — desktop only          */
+/* .site-carousel--phones: phone-frames (Radar/Vendas/Atend) — mobile only     */
 .site-carousel {
   display: flex;
   flex-direction: column;
@@ -1253,12 +1689,60 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   -webkit-user-select: none;
   margin-bottom: 4px;
 }
+/* No desktop: words visível, phones oculto */
+.site-carousel--phones { display: none; }
+/* Track no desktop (words carousel): altura fixa para as palavras absolutas */
 .site-carousel__track {
   position: relative;
-  height: 28px;
   width: 100%;
+  height: 28px;
   overflow: hidden;
 }
+/* Track do phone carousel (mobile): altura automática — molduras determinam altura */
+.site-carousel--phones .site-carousel__track {
+  height: auto;
+  overflow: visible;
+}
+/* Slot de slide: cada phone ocupa o mesmo espaço, transicao fade+slide */
+.site-carousel__slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.site-carousel__slide[data-state="idle"] {
+  opacity: 0;
+  transform: translateX(32px);
+  transition: none;
+}
+.site-carousel__slide[data-state="active"] {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+  pointer-events: auto;
+}
+.site-carousel__slide[data-state="exit"] {
+  opacity: 0;
+  transform: translateX(-32px);
+  transition: opacity 0.3s ease, transform 0.32s ease;
+}
+/* Legenda embaixo do phone */
+.site-carousel__caption {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--login-accent, var(--hbx-brand));
+}
+/* Texto de módulo e ícone visíveis APENAS no mobile (desktop: ocultos, phone já identifica) */
+.site-carousel__mobile-tx { display: none; }
+/* No desktop o ícone do slide também fica oculto — a moldura identifica o módulo */
+.site-carousel__slide .site-carousel__ic { display: none; }
+/* legado: .site-carousel__word continua em uso no mobile (< 640px) */
 .site-carousel__word {
   position: absolute;
   inset: 0;
@@ -1310,6 +1794,180 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   background: var(--login-accent, var(--hbx-brand));
 }
 
+/* ── Moldura de celular: layout e adaptacoes (tokens puros) ─────────────────── */
+/* Visual da moldura (.site-phone) vive em marketing.css (mundo-site, isento). */
+/* Aqui ficam apenas layout e overrides sem cor literal. */
+/* Conteudo scrollavel da tela (altura definida aqui; markup não rola — visual só) */
+.site-phone__screen {
+  overflow: hidden;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Classes de nav do deck (reutilizadas pela landing/site-phone) ───────────── */
+/* Usadas no carrossel de phone-frames da landing (page.client.tsx).
+   Definições base; o .site-phone sobrescreve tamanhos abaixo. */
+.lead-deck__nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 4px 0 2px;
+  flex: 0 0 auto;
+}
+.lead-deck__arrow {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  color: var(--text-body);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  flex: 0 0 auto;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.lead-deck__dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  max-width: 140px;
+}
+.lead-deck__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background var(--motion-fast), width var(--motion-fast);
+  flex: 0 0 auto;
+}
+.lead-deck__dot--active {
+  background: var(--hbx-brand-strong);
+  width: 18px;
+}
+.lead-deck__progress {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* ── Adaptacoes dos cards do app DENTRO da moldura ───────────────────────────── */
+/* lead-card dentro do phone: posicao relativa (nao absolute), tamanho contido */
+.site-phone .lead-card {
+  position: relative;
+  inset: auto;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  box-shadow: none;
+  flex: 1;
+  min-height: 0;
+}
+.site-phone .lead-card__hero { padding: 10px 12px 8px; gap: 10px; }
+.site-phone .lead-card__name { font-size: 0.88rem; }
+.site-phone .lead-card__sub  { font-size: 0.62rem; }
+.site-phone .lead-card__body { padding: 8px 12px; gap: 7px; }
+.site-phone .lead-card__foot { padding: 7px 12px 10px; }
+.site-phone .lead-card__reason { font-size: 0.64rem; padding: 6px 8px; }
+.site-phone .lead-card__contact { padding: 6px 8px; }
+.site-phone .lead-card__contact-label { font-size: 0.6rem; }
+.site-phone .radar2-signals { margin-top: 2px; }
+.site-phone .radar2-sig { font-size: 0.52rem; padding: 1px 5px; }
+/* Deck nav compacto */
+.site-phone .lead-deck__nav { padding: 4px 10px 6px; gap: 6px; }
+.site-phone .lead-deck__arrow { width: 26px; height: 26px; font-size: 0.9rem; }
+.site-phone .lead-deck__dot { width: 4px; height: 4px; }
+.site-phone .lead-deck__dot--active { width: 12px; }
+.site-phone .lead-deck__progress { font-size: 0.52rem; }
+/* Deals (Vendas) dentro do phone */
+.site-phone-board { display: flex; flex-direction: column; gap: 0; }
+.site-phone-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.site-phone-col-label {
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.site-phone-col-count {
+  font-size: 0.52rem;
+  color: var(--text-muted);
+  background: var(--hbx-surface-raised);
+  border-radius: 99px;
+  padding: 1px 5px;
+}
+.site-phone .deal { padding: 8px 12px; border-radius: 0; border-left: none; border-right: none; border-top: none; }
+.site-phone .deal + .deal { border-top: 1px solid var(--border-hairline); }
+.site-phone .deal strong { font-size: 0.74rem; }
+.site-phone .deal .who  { font-size: 0.6rem; }
+.site-phone .deal .val  { font-size: 0.72rem; }
+/* Barra topo do contato (Atendimento) */
+.site-phone-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  flex: 0 0 auto;
+}
+.site-phone-chat-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.site-phone-chat-sub {
+  font-size: 0.58rem;
+  color: var(--text-muted);
+}
+/* Thread de mensagens dentro do phone */
+.site-phone-thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  overflow: hidden;
+  background: var(--hbx-surface-soft);
+}
+.site-phone .msg { max-width: 82%; }
+.site-phone .bubble { font-size: 0.72rem; padding: 7px 9px 5px; }
+.site-phone .bubble .tm { font-size: 0.5rem; }
+/* Compact-height: phone no hero nao estoura viewport (768-900px de altura) */
+@media (max-height: 900px) {
+  .site-phone { width: 192px; }
+  .site-phone__screen { max-height: 196px; }
+  .site-phone__status { padding: 18px 14px 2px; font-size: 0.52rem; }
+  .site-phone .lead-card__hero { padding: 7px 10px 6px; }
+  .site-phone .lead-card__body { padding: 5px 10px; }
+  .site-phone .lead-card__foot { padding: 5px 10px 7px; }
+  .site-phone .deal { padding: 5px 10px; }
+  .site-phone-thread { padding: 6px 8px 5px; gap: 4px; }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
    MOBILE DA CENA (≤ 640 px) — layout completo refeito
    Problemas resolvidos:
@@ -1353,14 +2011,34 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
     gap: 0;
   }
 
-  /* ── Carrossel: texto e dots centralizados no mobile ── */
-  .scene-hero .site-carousel { margin-bottom: 0; }
-  .scene-hero .site-carousel__track { height: 26px; }
-  .scene-hero .site-carousel__word {
-    font-size: 0.7rem;
-    letter-spacing: 0.18em;
+  /* ── Carrossel mobile: oculta palavras, mostra phone-frames ── */
+  /* No mobile: oculta words, exibe phones */
+  .scene-hero .site-carousel--words { display: none; }
+  .scene-hero .site-carousel--phones { display: flex; margin-bottom: 0; }
+  /* Track vira wrapper de altura fixa (texto inline) */
+  .scene-hero .site-carousel--phones .site-carousel__track { height: 26px; overflow: hidden; }
+  /* Slide no mobile = linha de texto horizontal (ícone + texto) */
+  .scene-hero .site-carousel__slide {
+    position: absolute;
+    inset: 0;
+    flex-direction: row;
+    align-items: center;
     justify-content: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--login-accent, var(--hbx-brand));
+    white-space: nowrap;
   }
+  /* Oculta a moldura e a legenda no mobile (mostra só texto inline) */
+  .scene-hero .site-phone,
+  .scene-hero .site-carousel__caption { display: none; }
+  /* Mostra texto e ícone inline do módulo no mobile */
+  .scene-hero .site-carousel__mobile-tx { display: inline; }
+  .scene-hero .site-carousel__slide .site-carousel__ic { display: inline-flex; }
   .scene-hero .site-carousel__dots { justify-content: center; }
 
   /* ── Título ── */
@@ -1436,19 +2114,4 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
     border-radius: var(--radius-sm);
   }
 
-  /* ── Leads / Radar: escopado ao radar2-main para não afetar outras tabelas ── */
-  .radar2-main { overflow: clip; }
-  .tbl-col-city, .tbl-col-contact { display: none; }
-  .radar2-main .tbl td:last-child, .radar2-main .tbl th:last-child { display: none; }
-  .radar2-main .tbl { width: 100%; }
-  .radar2-main .tbl td, .radar2-main .tbl th { white-space: normal; }
-  .radar2-main .tbl .co { min-width: 0; word-break: break-word; }
-  .radar2-reason {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    white-space: normal;
-  }
-  .radar2-signals { gap: 3px; }
 }

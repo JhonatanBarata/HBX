@@ -173,6 +173,14 @@ export function LeadsClient() {
   const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
 
+  // Mobile v2: lista + card-overlay com swipe
+  const [cardIdx, setCardIdx] = useState(0);
+  const [cardOpen, setCardOpen] = useState(false);
+  // Swipe state (usado no card-overlay)
+  const dragRef = useRef<{ startX: number; dx: number; active: boolean }>({ startX: 0, dx: 0, active: false });
+  const [dragDx, setDragDx] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
   const loadBank = useCallback(() => {
     apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
   }, []);
@@ -266,6 +274,8 @@ export function LeadsClient() {
     setSelected(new Set());
     setPullMsg(null);
     setSelLead(null);
+    setCardIdx(0);
+    setCardOpen(false);
     loadList(next, { page: 1 });
   }
 
@@ -430,32 +440,408 @@ export function LeadsClient() {
     );
   }
 
+  // ── Detalhe do lead (reutilizável: desktop aside + mobile sheet) ──────────
+  function renderLeadDetail(lead: RadarLead) {
+    return (
+      <div key={lead.id} className="ctx-body">
+        {/* Hero */}
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+          <Av name={lead.name || "—"} size={56} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span className="company">{lead.name || "—"}</span>
+            <div className="sub">{lead.segment || lead.businessCategory || "—"}</div>
+            {lead.city && (
+              <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
+                <I d={ICONS.mapin} size={11} /> {lead.city}{lead.state ? `, ${lead.state}` : ""}
+              </div>
+            )}
+            {lead.fitScore != null && lead.fitScore > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <span className={`radar2-fit${lead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {lead.fitScore}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Canais disponíveis */}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "12px 0 4px", alignItems: "center" }}>
+          {lead.hasWhatsapp && (
+            tab === "carteira" && lead.phone
+              ? <a href={`https://wa.me/55${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="xl" /></a>
+              : <CanalIcon canal="whatsapp" size="xl" />
+          )}
+          {lead.hasPhone && !lead.hasWhatsapp && (
+            tab === "carteira" && lead.phone
+              ? <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="xl" /></a>
+              : <CanalIcon canal="telefone" size="xl" />
+          )}
+          {lead.hasEmail && <CanalIcon canal="email" size="xl" />}
+          {lead.instagramUrl && (
+            <a href={lead.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+              <CanalIcon canal="instagram" size="xl" />
+            </a>
+          )}
+          {lead.facebookUrl && (
+            <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+              <CanalIcon canal="facebook" size="xl" />
+            </a>
+          )}
+          {lead.website && (
+            <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site">
+              <CanalIcon canal="site" size="xl" />
+            </a>
+          )}
+        </div>
+
+        {/* Contato principal */}
+        {tab === "carteira" && lead.phone ? (
+          <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
+            <CanalIcon canal={lead.hasWhatsapp ? "whatsapp" : "telefone"} /> {lead.phone}
+          </a>
+        ) : tab === "shelf" ? (
+          <div className="sub">Contato revelado ao puxar este lead.</div>
+        ) : null}
+
+        <div className="kv">
+          {lead.segment && <div className="row"><span className="k">Segmento</span><span className="v">{lead.segment}</span></div>}
+          {lead.city && <div className="row"><span className="k">Cidade</span><span className="v">{lead.city}{lead.state ? `/${lead.state}` : ""}</span></div>}
+          {lead.opportunityScore > 0 && (
+            <div className="row"><span className="k">Score</span><span className="v hbx-mono">{lead.opportunityScore}</span></div>
+          )}
+        </div>
+
+        {lead.opportunityReason && (
+          <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5 }}>
+            {lead.opportunityReason}
+          </p>
+        )}
+
+        {lead.opportunitySignals && lead.opportunitySignals.length > 0 && (
+          <div className="radar2-signals" style={{ marginTop: 10 }}>
+            {lead.opportunitySignals.slice(0, 6).map(sig => {
+              const m = SIGNAL_META[sig];
+              if (!m) return null;
+              return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+            })}
+          </div>
+        )}
+
+        <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+          {tab === "shelf" && (
+            <button className="btn-teal"
+              onClick={() => puxar(lead.id)}
+              disabled={pullBusyId === lead.id || bulkBusy || meterBlocked}>
+              {pullBusyId === lead.id ? "Puxando…" : "Puxar lead →"}
+            </button>
+          )}
+          {tab === "carteira" && (
+            <button className="btn-ghost" onClick={() => router.push("/vendas")}>
+              Ver em Vendas →
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Swipe handlers (usados no card-overlay)
+  function onPointerDown(e: React.PointerEvent) {
+    dragRef.current = { startX: e.clientX, dx: 0, active: true };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setIsDragging(true);
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    dragRef.current.dx = dx;
+    setDragDx(dx);
+  }
+
+  function onPointerUp() {
+    if (!dragRef.current.active) return;
+    dragRef.current.active = false;
+    setIsDragging(false);
+    const dx = dragRef.current.dx;
+    setDragDx(0);
+    if (Math.abs(dx) > 80) {
+      if (dx < 0) {
+        // swipe esquerda = próximo
+        cardGo(1);
+      } else {
+        // swipe direita = anterior
+        cardGo(-1);
+      }
+    }
+  }
+
+  // Mete %
+  const meterPct = Math.min(100, Math.round(
+    isSeller
+      ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100
+      : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
+  ));
+
+  // ── Card overlay: estado (cardIdx efetivo, aberto/fechado) ────────────────
+  const isCardHandoff = cardIdx >= items.length;
+  const activeCard = !isCardHandoff ? items[cardIdx] : null;
+
+  function cardGo(dir: 1 | -1) {
+    setCardIdx(prev => {
+      const next = prev + dir;
+      if (next < 0) return 0;
+      if (next >= items.length) {
+        // passou do último → vai pra vendas
+        router.push("/vendas");
+        return items.length;
+      }
+      return next;
+    });
+  }
+
+  function openCard(idx: number) {
+    setCardIdx(idx);
+    setCardOpen(true);
+    setDragDx(0);
+    dragRef.current = { startX: 0, dx: 0, active: false };
+  }
+
+  function closeCard() {
+    setCardOpen(false);
+  }
+
+  // Vista mobile: lista vertical
+  function renderListMobile() {
+    return (
+      <div className="lead-list">
+        {/* Empty state */}
+        {items.length === 0 && (
+          <div className="lead-list__empty">
+            <div className="radar2-empty">{emptyMsg}</div>
+          </div>
+        )}
+
+        {/* Linhas */}
+        {items.map((row, i) => (
+          <button
+            key={row.id}
+            className="lead-list-row"
+            onClick={() => openCard(i)}
+            aria-label={`Abrir detalhes de ${row.name || "lead"}`}
+          >
+            {/* Avatar */}
+            <Av name={row.name || "—"} size={42} />
+
+            {/* Info central */}
+            <div className="lead-list-row__body">
+              <span className="lead-list-row__name">{row.name || "—"}</span>
+              <span className="lead-list-row__sub">
+                {row.segment || row.businessCategory || "—"}
+                {row.city ? ` · ${row.city}${row.state ? `/${row.state}` : ""}` : ""}
+              </span>
+              {row.opportunitySignals && row.opportunitySignals.length > 0 && (
+                <div className="lead-list-row__pills">
+                  {row.opportunitySignals.slice(0, 2).map(sig => {
+                    const m = SIGNAL_META[sig];
+                    if (!m) return null;
+                    return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                  })}
+                  {row.fitScore != null && row.fitScore > 0 && (
+                    <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>
+                      Fit {row.fitScore}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Chevron */}
+            <span className="lead-list-row__chev" aria-hidden>›</span>
+          </button>
+        ))}
+
+        {/* Barra de cota compacta */}
+        {tab === "shelf" && (
+          <div className={"lead-list__meter" + (meterBlocked ? " blocked" : "")}>
+            <div className="lead-list__meter-row">
+              <span className="lead-list__meter-lbl">
+                <I d={ICONS.bolt} size={10} /> {meterLabel}
+              </span>
+              <span className="lead-list__meter-val">{meterValue}</span>
+            </div>
+            <div className="radar2-bar">
+              <div className="radar2-bar-fill" style={{ width: `${meterPct}%` }} />
+            </div>
+          </div>
+        )}
+
+        {pullMsg && <p className="radar2-pull-msg" style={{ padding: "0 14px" }}>{pullMsg}</p>}
+      </div>
+    );
+  }
+
+  // ── Card overlay (swipe Tinder) ───────────────────────────────────────────
+  function renderCardOverlay() {
+    if (!cardOpen) return null;
+    return (
+      <div className="hbx-veil" onClick={closeCard}>
+        <div
+          className="lead-card-modal"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Topo do modal: nav + X */}
+          <div className="lead-card-modal__nav">
+            <button
+              className="lead-card-modal__arrow"
+              onClick={() => cardGo(-1)}
+              disabled={cardIdx === 0}
+              aria-label="Anterior"
+            >
+              ‹
+            </button>
+            <div className="lead-card-modal__dots">
+              {items.slice(0, Math.min(items.length, 10)).map((_, i) => (
+                <span
+                  key={i}
+                  className={"lead-card-modal__dot" + (i === cardIdx ? " lead-card-modal__dot--active" : "")}
+                />
+              ))}
+            </div>
+            <span className="lead-card-modal__progress">
+              {isCardHandoff ? `${items.length}/${items.length}` : `${cardIdx + 1}/${items.length}`}
+            </span>
+            <button
+              className="lead-card-modal__arrow"
+              onClick={() => {
+                if (isCardHandoff) { router.push("/vendas"); }
+                else { cardGo(1); }
+              }}
+              aria-label="Próximo"
+            >
+              ›
+            </button>
+            <button
+              className="lead-card-modal__close"
+              onClick={closeCard}
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Card deslizável (swipe Tinder) */}
+          <div className="lead-card-modal__body">
+            {isCardHandoff ? (
+              /* Slide de handoff */
+              <div className="lead-card lead-card--handoff" onClick={() => router.push("/vendas")}>
+                <div className="lead-handoff__icon">🏆</div>
+                <div className="lead-handoff__title">Acabou a prateleira</div>
+                <div className="lead-handoff__sub">Seus leads viram negócios — toque pra abrir o Vendas</div>
+                <button className="btn-teal" onClick={() => router.push("/vendas")}>
+                  Abrir Vendas →
+                </button>
+              </div>
+            ) : activeCard && (
+              <div
+                className="lead-card"
+                style={{
+                  transform: isDragging
+                    ? `translateX(${dragDx}px) rotate(${dragDx * 0.03}deg)`
+                    : "translateX(0) rotate(0deg)",
+                  opacity: isDragging ? Math.max(0.75, 1 - Math.abs(dragDx) / 500) : 1,
+                  transition: isDragging ? "none" : "transform 0.22s ease, opacity 0.22s ease",
+                }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+              >
+                {/* Hero */}
+                <div className="lead-card__hero">
+                  <Av name={activeCard.name || "—"} size={48} />
+                  <div className="lead-card__hero-body">
+                    <span className="lead-card__name">{activeCard.name || "—"}</span>
+                    <span className="lead-card__sub">{activeCard.segment || activeCard.businessCategory || "—"}</span>
+                    {activeCard.city && (
+                      <span className="lead-card__loc">
+                        <I d={ICONS.mapin} size={11} />
+                        {activeCard.city}{activeCard.state ? `/${activeCard.state}` : ""}
+                      </span>
+                    )}
+                    <div className="lead-card__badges">
+                      {activeCard.fitScore != null && activeCard.fitScore > 0 && (
+                        <span className={`radar2-fit${activeCard.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>
+                          Fit {activeCard.fitScore}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Body: detalhe completo */}
+                <div className="lead-card__body">
+                  {renderLeadDetail(activeCard)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Dica de swipe */}
+          <p className="lead-card-modal__hint">
+            ← Arraste o card para navegar →
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="content">
+    <div className="content leads-page">
       <div className="work">
         {/* 4 KPIs do topo */}
         <section className="panel" style={{ padding: "14px 16px" }}>
-          <div className="radar2-kpis">
-            <div className="radar2-kpi">
-              <span className="lbl">Total no Brasil</span>
-              <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
-              {bank && Number(bank.deltaToday || 0) > 0 && <span className="delta">+{fmtInt(bank.deltaToday)} hoje</span>}
+          {isMobile ? (
+            <div className="lead-kpis-strip">
+              <div className="radar2-kpi">
+                <span className="lbl">Brasil</span>
+                <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
+              </div>
+              <div className="radar2-kpi">
+                <span className="lbl">Filtrados</span>
+                <span className="num">{data?.meta?.filteredOut != null ? fmtInt(data.meta.filteredOut) : "—"}</span>
+              </div>
+              <div className="radar2-kpi">
+                <span className="lbl">WhatsApp</span>
+                <span className="num">{data?.meta?.whatsappVerified != null ? fmtInt(data.meta.whatsappVerified) : "—"}</span>
+              </div>
+              <div className="radar2-kpi">
+                <span className="lbl">Carteira</span>
+                <span className="num">{usage?.sellerActiveQuota?.activeCount != null ? fmtInt(usage.sellerActiveQuota.activeCount) : "—"}</span>
+              </div>
             </div>
-            <div className="radar2-kpi">
-              <span className="lbl">Filtrados (removidos)</span>
-              <span className="num">{data?.meta?.filteredOut != null ? fmtInt(data.meta.filteredOut) : "—"}</span>
-              {data?.meta?.filteredOut == null && <span className="sub2">ligando o motor…</span>}
+          ) : (
+            <div className="radar2-kpis">
+              <div className="radar2-kpi">
+                <span className="lbl">Total no Brasil</span>
+                <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
+                {bank && Number(bank.deltaToday || 0) > 0 && <span className="delta">+{fmtInt(bank.deltaToday)} hoje</span>}
+              </div>
+              <div className="radar2-kpi">
+                <span className="lbl">Filtrados (removidos)</span>
+                <span className="num">{data?.meta?.filteredOut != null ? fmtInt(data.meta.filteredOut) : "—"}</span>
+                {data?.meta?.filteredOut == null && <span className="sub2">ligando o motor…</span>}
+              </div>
+              <div className="radar2-kpi">
+                <span className="lbl">Com WhatsApp</span>
+                <span className="num">{data?.meta?.whatsappVerified != null ? fmtInt(data.meta.whatsappVerified) : "—"}</span>
+                {data?.meta?.whatsappVerified == null && <span className="sub2">ligando o motor…</span>}
+              </div>
+              <div className="radar2-kpi">
+                <span className="lbl">Em atendimento</span>
+                <span className="num">{usage?.sellerActiveQuota?.activeCount != null ? fmtInt(usage.sellerActiveQuota.activeCount) : "—"}</span>
+              </div>
             </div>
-            <div className="radar2-kpi">
-              <span className="lbl">Com WhatsApp</span>
-              <span className="num">{data?.meta?.whatsappVerified != null ? fmtInt(data.meta.whatsappVerified) : "—"}</span>
-              {data?.meta?.whatsappVerified == null && <span className="sub2">ligando o motor…</span>}
-            </div>
-            <div className="radar2-kpi">
-              <span className="lbl">Em atendimento</span>
-              <span className="num">{usage?.sellerActiveQuota?.activeCount != null ? fmtInt(usage.sellerActiveQuota.activeCount) : "—"}</span>
-            </div>
-          </div>
+          )}
         </section>
 
         {/* PRATELEIRA + CARTEIRA */}
@@ -553,127 +939,134 @@ export function LeadsClient() {
                 );
               })()}
 
-              <div className="tbl-wrap">
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      {tab === "shelf" && <th style={{ width: 34 }} aria-label="Selecionar" />}
-                      <th>Empresa</th>
-                      <th className="tbl-col-city">Cidade</th>
-                      <th className="tbl-col-contact">Contato</th>
-                      <th style={{ width: 96 }} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.length === 0 && (
-                      <tr><td colSpan={tab === "shelf" ? 5 : 4}><div className="radar2-empty">{emptyMsg}</div></td></tr>
-                    )}
-                    {items.map(row => (
-                      <tr
-                        key={row.id}
-                        className={selLead?.id === row.id ? "sel" : ""}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => setSelLead(selLead?.id === row.id ? null : row)}
-                      >
-                        {tab === "shelf" && (
-                          <td onClick={e => e.stopPropagation()}>
-                            <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSel(row.id)} aria-label={`Selecionar ${row.name || "lead"}`} />
-                          </td>
-                        )}
-                        <td>
-                          <div className="co">
-                            <strong>
-                              {row.name || "—"}
-                              {row.fitScore != null && row.fitScore > 0 && (
-                                <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {row.fitScore}</span>
-                              )}
-                            </strong>
-                            <span className="sub2">{row.segment || row.businessCategory || "—"}</span>
-                            {row.opportunitySignals && row.opportunitySignals.length > 0 && (
-                              <div className="radar2-signals">
-                                {row.opportunitySignals.slice(0, 4).map(sig => {
-                                  const m = SIGNAL_META[sig];
-                                  if (!m) return null;
-                                  return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
-                                })}
-                              </div>
-                            )}
-                            {row.opportunityReason && (
-                              <span className="radar2-reason">{row.opportunityReason}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="tbl-col-city">{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
-                        <td className="tbl-col-contact">
-                          {tab === "shelf"
-                            ? contatoMascarado(row)
-                            : <span>{row.phone || row.email || "—"}</span>}
-                        </td>
-                        <td onClick={e => e.stopPropagation()}>
-                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                            {tab === "shelf"
-                              ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
-                              : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {tab === "shelf" && (
+              {/* Branch mobile/desktop */}
+              {isMobile ? (
+                renderListMobile()
+              ) : (
                 <>
-                  <div className="radar2-sel-all">
-                    <button
-                      className="btn-ghost btn-xs"
-                      onClick={() => {
-                        if (selected.size === items.length && items.length > 0) {
-                          setSelected(new Set());
-                        } else {
-                          setSelected(new Set(items.map(r => r.id)));
-                        }
-                      }}
-                    >
-                      {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
-                    </button>
+                  <div className="tbl-wrap">
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          {tab === "shelf" && <th style={{ width: 34 }} aria-label="Selecionar" />}
+                          <th>Empresa</th>
+                          <th className="tbl-col-city">Cidade</th>
+                          <th className="tbl-col-contact">Contato</th>
+                          <th style={{ width: 96 }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.length === 0 && (
+                          <tr><td colSpan={tab === "shelf" ? 5 : 4}><div className="radar2-empty">{emptyMsg}</div></td></tr>
+                        )}
+                        {items.map(row => (
+                          <tr
+                            key={row.id}
+                            className={selLead?.id === row.id ? "sel" : ""}
+                            style={{ cursor: "pointer" }}
+                            onClick={() => setSelLead(selLead?.id === row.id ? null : row)}
+                          >
+                            {tab === "shelf" && (
+                              <td onClick={e => e.stopPropagation()}>
+                                <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSel(row.id)} aria-label={`Selecionar ${row.name || "lead"}`} />
+                              </td>
+                            )}
+                            <td>
+                              <div className="co">
+                                <strong>
+                                  {row.name || "—"}
+                                  {row.fitScore != null && row.fitScore > 0 && (
+                                    <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {row.fitScore}</span>
+                                  )}
+                                </strong>
+                                <span className="sub2">{row.segment || row.businessCategory || "—"}</span>
+                                {row.opportunitySignals && row.opportunitySignals.length > 0 && (
+                                  <div className="radar2-signals">
+                                    {row.opportunitySignals.slice(0, 4).map(sig => {
+                                      const m = SIGNAL_META[sig];
+                                      if (!m) return null;
+                                      return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                                    })}
+                                  </div>
+                                )}
+                                {row.opportunityReason && (
+                                  <span className="radar2-reason">{row.opportunityReason}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="tbl-col-city">{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
+                            <td className="tbl-col-contact">
+                              {tab === "shelf"
+                                ? contatoMascarado(row)
+                                : <span>{row.phone || row.email || "—"}</span>}
+                            </td>
+                            <td onClick={e => e.stopPropagation()}>
+                              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                                {tab === "shelf"
+                                  ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
+                                  : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
-                    <div className="radar2-meter-card">
-                      <span className="radar2-meter-lbl">
-                        <I d={ICONS.bolt} size={11} /> {meterLabel}
-                      </span>
-                      <span className="radar2-meter-val">{meterValue}</span>
-                      <div className="radar2-bar">
-                        <div className="radar2-bar-fill" style={{ width: `${Math.min(100, Math.round(isSeller ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100 : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100))}%` }} />
+
+                  {tab === "shelf" && (
+                    <>
+                      <div className="radar2-sel-all">
+                        <button
+                          className="btn-ghost btn-xs"
+                          onClick={() => {
+                            if (selected.size === items.length && items.length > 0) {
+                              setSelected(new Set());
+                            } else {
+                              setSelected(new Set(items.map(r => r.id)));
+                            }
+                          }}
+                        >
+                          {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
+                        </button>
                       </div>
-                      {isSeller && <span className="radar2-quota-note">os 20 são compartilhados com o Vendas</span>}
-                    </div>
-                    <button className="btn-teal" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
-                      <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
-                    </button>
+                      <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
+                        <div className="radar2-meter-card">
+                          <span className="radar2-meter-lbl">
+                            <I d={ICONS.bolt} size={11} /> {meterLabel}
+                          </span>
+                          <span className="radar2-meter-val">{meterValue}</span>
+                          <div className="radar2-bar">
+                            <div className="radar2-bar-fill" style={{ width: `${meterPct}%` }} />
+                          </div>
+                          {isSeller && <span className="radar2-quota-note">os 20 são compartilhados com o Vendas</span>}
+                        </div>
+                        <button className="btn-teal" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                          <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {meterBlocked && isSeller && (
+                    <p className="radar2-cap--danger">
+                      Carteira cheia — feche ou agende um retorno pra liberar vaga.
+                    </p>
+                  )}
+                  {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
+
+                  <div className="pager">
+                    <span style={{ marginLeft: "auto" }}>
+                      {pageTotal > 0
+                        ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`
+                        : "0 de 0"}
+                    </span>
+                    <button className="pg" onClick={() => irParaPagina(page - 1)} disabled={page <= 1}>‹</button>
+                    {[page - 1, page, page + 1].filter(p => p >= 1 && p <= lastPage).map(p => (
+                      <button key={p} className={"pg" + (p === page ? " on" : "")} onClick={() => irParaPagina(p)}>{p}</button>
+                    ))}
+                    <button className="pg" onClick={() => irParaPagina(page + 1)} disabled={page >= lastPage}>›</button>
                   </div>
                 </>
               )}
-              {meterBlocked && isSeller && (
-                <p className="radar2-cap--danger">
-                  Carteira cheia — feche ou agende um retorno pra liberar vaga.
-                </p>
-              )}
-              {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
-
-              <div className="pager">
-                <span style={{ marginLeft: "auto" }}>
-                  {pageTotal > 0
-                    ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`
-                    : "0 de 0"}
-                </span>
-                <button className="pg" onClick={() => irParaPagina(page - 1)} disabled={page <= 1}>‹</button>
-                {[page - 1, page, page + 1].filter(p => p >= 1 && p <= lastPage).map(p => (
-                  <button key={p} className={"pg" + (p === page ? " on" : "")} onClick={() => irParaPagina(p)}>{p}</button>
-                ))}
-                <button className="pg" onClick={() => irParaPagina(page + 1)} disabled={page >= lastPage}>›</button>
-              </div>
             </div>
           </div>
         </section>
@@ -685,116 +1078,25 @@ export function LeadsClient() {
         )}
       </div>
 
-      <aside className="ctx">
-        {!selLead ? (
-          <div className="ctx-empty">
-            <span className="ctx-empty__icon">←</span>
-            <span className="ctx-empty__hint">Clique em um lead para ver os detalhes do negócio</span>
-          </div>
-        ) : (
-          <>
-          <h3>Detalhes do lead <span className="x" onClick={() => setSelLead(null)}>✕</span></h3>
-          <div key={selLead.id} className="ctx-body">
-            {/* Hero */}
-            <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-              <Av name={selLead.name || "—"} size={56} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span className="company">{selLead.name || "—"}</span>
-                <div className="sub">{selLead.segment || selLead.businessCategory || "—"}</div>
-                {selLead.city && (
-                  <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
-                    <I d={ICONS.mapin} size={11} /> {selLead.city}{selLead.state ? `, ${selLead.state}` : ""}
-                  </div>
-                )}
-                {selLead.fitScore != null && selLead.fitScore > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    <span className={`radar2-fit${selLead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {selLead.fitScore}</span>
-                  </div>
-                )}
-              </div>
+      {/* Desktop: aside lateral */}
+      {!isMobile && (
+        <aside className="ctx">
+          {!selLead ? (
+            <div className="ctx-empty">
+              <span className="ctx-empty__icon">←</span>
+              <span className="ctx-empty__hint">Clique em um lead para ver os detalhes do negócio</span>
             </div>
+          ) : (
+            <>
+              <h3>Detalhes do lead <span className="x" onClick={() => setSelLead(null)}>✕</span></h3>
+              {renderLeadDetail(selLead)}
+            </>
+          )}
+        </aside>
+      )}
 
-            {/* Canais disponíveis */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "12px 0 4px", alignItems: "center" }}>
-              {selLead.hasWhatsapp && (
-                tab === "carteira" && selLead.phone
-                  ? <a href={`https://wa.me/55${selLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="xl" /></a>
-                  : <CanalIcon canal="whatsapp" size="xl" />
-              )}
-              {selLead.hasPhone && !selLead.hasWhatsapp && (
-                tab === "carteira" && selLead.phone
-                  ? <a href={`tel:${selLead.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="xl" /></a>
-                  : <CanalIcon canal="telefone" size="xl" />
-              )}
-              {selLead.hasEmail && <CanalIcon canal="email" size="xl" />}
-              {selLead.instagramUrl && (
-                <a href={selLead.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-                  <CanalIcon canal="instagram" size="xl" />
-                </a>
-              )}
-              {selLead.facebookUrl && (
-                <a href={selLead.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
-                  <CanalIcon canal="facebook" size="xl" />
-                </a>
-              )}
-              {selLead.website && (
-                <a href={selLead.website.startsWith("http") ? selLead.website : `https://${selLead.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site">
-                  <CanalIcon canal="site" size="xl" />
-                </a>
-              )}
-            </div>
-
-            {/* Contato principal */}
-            {tab === "carteira" && selLead.phone ? (
-              <a href={`tel:${selLead.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-                <CanalIcon canal={selLead.hasWhatsapp ? "whatsapp" : "telefone"} /> {selLead.phone}
-              </a>
-            ) : tab === "shelf" ? (
-              <div className="sub">Contato revelado ao puxar este lead.</div>
-            ) : null}
-
-            <div className="kv">
-              {selLead.segment && <div className="row"><span className="k">Segmento</span><span className="v">{selLead.segment}</span></div>}
-              {selLead.city && <div className="row"><span className="k">Cidade</span><span className="v">{selLead.city}{selLead.state ? `/${selLead.state}` : ""}</span></div>}
-              {selLead.opportunityScore > 0 && (
-                <div className="row"><span className="k">Score</span><span className="v hbx-mono">{selLead.opportunityScore}</span></div>
-              )}
-            </div>
-
-            {selLead.opportunityReason && (
-              <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5 }}>
-                {selLead.opportunityReason}
-              </p>
-            )}
-
-            {selLead.opportunitySignals && selLead.opportunitySignals.length > 0 && (
-              <div className="radar2-signals" style={{ marginTop: 10 }}>
-                {selLead.opportunitySignals.slice(0, 6).map(sig => {
-                  const m = SIGNAL_META[sig];
-                  if (!m) return null;
-                  return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
-                })}
-              </div>
-            )}
-
-            <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-              {tab === "shelf" && (
-                <button className="btn-teal"
-                  onClick={() => puxar(selLead.id)}
-                  disabled={pullBusyId === selLead.id || bulkBusy || meterBlocked}>
-                  {pullBusyId === selLead.id ? "Puxando…" : "Puxar lead →"}
-                </button>
-              )}
-              {tab === "carteira" && (
-                <button className="btn-ghost" onClick={() => router.push("/vendas")}>
-                  Ver em Vendas →
-                </button>
-              )}
-            </div>
-          </div>
-          </>
-        )}
-      </aside>
+      {/* Mobile: card-overlay central com swipe tinder */}
+      {isMobile && renderCardOverlay()}
     </div>
   );
 }
