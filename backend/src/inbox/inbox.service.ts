@@ -6560,7 +6560,8 @@ export class InboxService {
 
   async markConversationAsRead(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const recentInboundMessages = await this.prisma.companyMessage.findMany({
       where: {
