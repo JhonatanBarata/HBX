@@ -685,8 +685,14 @@ export function LeadsClient() {
         )}
       </div>
 
-      {selLead && (
-        <aside className="ctx">
+      <aside className="ctx">
+        {!selLead ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10, color: "var(--text-muted)", textAlign: "center", padding: "0 16px" }}>
+            <span style={{ fontSize: "1.6rem", opacity: 0.4 }}>←</span>
+            <span style={{ fontSize: "0.75rem", lineHeight: 1.5 }}>Clique em um lead para ver os detalhes do negócio</span>
+          </div>
+        ) : (
+          <>
           <h3>Detalhes do lead <span className="x" onClick={() => setSelLead(null)}>✕</span></h3>
           <div key={selLead.id} className="ctx-body">
             {/* Hero */}
@@ -786,8 +792,9 @@ export function LeadsClient() {
               )}
             </div>
           </div>
-        </aside>
-      )}
+          </>
+        )}
+      </aside>
     </div>
   );
 }
