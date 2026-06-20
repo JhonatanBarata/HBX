@@ -924,6 +924,39 @@ export class WhatsAppModalService {
     };
     await this.persistSnapshot(company, optimisticSnapshot, 'disconnect', userId);
 
+    // TRAVA 2: Ao desconectar, consolida lápides duplicadas do mesmo (tenantKey, número)
+    // para não acumular múltiplos registros disconnected do mesmo dono no banco.
+    // A faxina principal de fantasmas de outro dono acontece na trava 1 (connect).
+    // Aqui preservamos apenas o mais recente dentre os duplicados.
+    try {
+      const phoneAtDisconnect = this.normalizeTrialPhone(storedSnapshot.phone);
+      if (phoneAtDisconnect) {
+        const disconnectedSessions = await this.prisma.whatsAppConnectionSession.findMany({
+          where: {
+            companyId: Number(company.id),
+            provider: 'webwhats',
+            tenantKey,
+            phoneNormalized: phoneAtDisconnect,
+            status: 'disconnected',
+          },
+          orderBy: [{ disconnectedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true },
+        });
+        if (disconnectedSessions.length > 1) {
+          const keepId = disconnectedSessions[0].id;
+          const removeIds = disconnectedSessions.slice(1).map((s) => s.id);
+          this.logger.warn(
+            `[disconnect-consolidate] Consolidando ${removeIds.length} lápide(s) redundante(s) para tenantKey=${tenantKey} phone=${phoneAtDisconnect}. Mantendo ${keepId}.`,
+          );
+          await this.prisma.companyMessage.deleteMany({ where: { whatsappConnectionSessionId: { in: removeIds } } });
+          await this.prisma.companyConversation.deleteMany({ where: { whatsappConnectionSessionId: { in: removeIds } } });
+          await this.prisma.whatsAppConnectionSession.deleteMany({ where: { id: { in: removeIds } } });
+        }
+      }
+    } catch (consolidateErr) {
+      this.logger.warn(`[disconnect-consolidate] Erro não-fatal ao consolidar lápides: ${String(consolidateErr)}`);
+    }
+
     return this.buildResponse(baseCompany, optimisticSnapshot, {
       success: true,
       providerHealth: 'healthy',
@@ -1357,6 +1390,13 @@ export class WhatsAppModalService {
         }
       }
 
+      // TRAVA 1: 1 número = 1 sessão. Apaga fantasmas do MESMO número em outro tenantKey
+      // (ex.: chip reconectado por outro usuário). Não toca na sessão viva atual nem em
+      // sessões de outros números. Só executa quando o número é conhecido.
+      if (phoneNormalized) {
+        await this.purgeForeignNumberGhosts(Number(company.id), phoneNormalized, tenantKey);
+      }
+
       // 050-1: Uma sessão ativa por TENANTKEY (= por usuário quando userId presente).
       // Não fecha sessões de OUTROS usuários — cada um mantém a sua.
       await this.prisma.whatsAppConnectionSession.updateMany({
@@ -1398,6 +1438,75 @@ export class WhatsAppModalService {
     }
 
     return company.currentWhatsappConnectionSessionId || null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // TRAVA 1 — purga fantasmas de OUTRO tenantKey com o mesmo número
+  // ---------------------------------------------------------------------------
+  // Chamado no connect (reconcileWebwhatsConnectionSession) sempre que phoneNormalized
+  // é conhecido. Apaga TODAS as sessões da mesma empresa com o mesmo número mas tenantKey
+  // diferente do atual (são chips migrados entre usuários), junto com mensagens e conversas
+  // ligadas a elas. NÃO toca na sessão atual nem em sessões de outros números.
+  private async purgeForeignNumberGhosts(companyId: number, phoneNormalized: string, keepTenantKey: string): Promise<void> {
+    const ghosts = await this.prisma.whatsAppConnectionSession.findMany({
+      where: {
+        companyId,
+        phoneNormalized,
+        NOT: { tenantKey: keepTenantKey },
+      },
+      select: { id: true, tenantKey: true, status: true },
+    });
+
+    if (!ghosts.length) return;
+
+    const ghostIds = ghosts.map((g) => g.id);
+    this.logger.warn(
+      `[purge-ghosts] Removendo ${ghostIds.length} sessão(ões) fantasma(s) do número ${phoneNormalized} na empresa ${companyId} ` +
+      `(tenantKeys: ${ghosts.map((g) => g.tenantKey).join(', ')}) para preservar tenantKey=${keepTenantKey}.`,
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyMessage.deleteMany({ where: { whatsappConnectionSessionId: { in: ghostIds } } });
+      await tx.companyConversation.deleteMany({ where: { whatsappConnectionSessionId: { in: ghostIds } } });
+      await tx.whatsAppConnectionSession.deleteMany({ where: { id: { in: ghostIds } } });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // TRAVA 3 — helper público: limpa TODA a pegada de um número na empresa
+  // ---------------------------------------------------------------------------
+  // Apaga todas as sessões, conversas e mensagens do número na empresa.
+  // Usado por ação futura "limpar número" / manutenção master. Sem rota por agora.
+  async purgeNumberFootprint(companyId: number, phoneNormalized: string): Promise<{ sessionsRemoved: number; conversationsRemoved: number; messagesRemoved: number }> {
+    const sessions = await this.prisma.whatsAppConnectionSession.findMany({
+      where: { companyId, phoneNormalized },
+      select: { id: true },
+    });
+
+    const sessionIds = sessions.map((s) => s.id);
+    if (!sessionIds.length) {
+      this.logger.log(`[purge-footprint] Nenhuma sessão encontrada para phone=${phoneNormalized} empresa=${companyId}.`);
+      return { sessionsRemoved: 0, conversationsRemoved: 0, messagesRemoved: 0 };
+    }
+
+    let messagesRemoved = 0;
+    let conversationsRemoved = 0;
+    let sessionsRemoved = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      const delMsgs = await tx.companyMessage.deleteMany({ where: { whatsappConnectionSessionId: { in: sessionIds } } });
+      messagesRemoved = delMsgs.count;
+      const delConvs = await tx.companyConversation.deleteMany({ where: { whatsappConnectionSessionId: { in: sessionIds } } });
+      conversationsRemoved = delConvs.count;
+      const delSessions = await tx.whatsAppConnectionSession.deleteMany({ where: { id: { in: sessionIds } } });
+      sessionsRemoved = delSessions.count;
+    });
+
+    this.logger.warn(
+      `[purge-footprint] Pegada do número ${phoneNormalized} removida da empresa ${companyId}: ` +
+      `${sessionsRemoved} sessão(ões), ${conversationsRemoved} conversa(s), ${messagesRemoved} mensagem(s).`,
+    );
+    return { sessionsRemoved, conversationsRemoved, messagesRemoved };
   }
 
   private sleep(delayMs: number) {

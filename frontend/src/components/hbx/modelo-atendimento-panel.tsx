@@ -74,6 +74,9 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
   const [confirmData, setConfirmData] = useState<ConfirmPayload | null>(null);
   const pendingModeRef = useRef<"shared" | "individual" | null>(null);
 
+  // confirmação de revogação de permissão de chip (vai desconectar o vendedor)
+  const [revokeTarget, setRevokeTarget] = useState<TeamMember | null>(null);
+
   const load = useCallback(() => {
     setLoading(true);
     apiFetch<AdminPanel>("/inbox/whatsapp/admin-panel")
@@ -135,6 +138,21 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
     }
   }
 
+  function requestRevoke(member: TeamMember) {
+    if (member.whatsappConnected) {
+      setRevokeTarget(member);
+    } else {
+      togglePermission(member.userId, false);
+    }
+  }
+
+  async function confirmRevoke() {
+    if (!revokeTarget) return;
+    const target = revokeTarget;
+    setRevokeTarget(null);
+    await togglePermission(target.userId, false);
+  }
+
   const isShared = panel?.mode === "shared";
   const isIndividual = panel?.mode === "individual";
   const isNull = panel?.mode == null;
@@ -166,6 +184,36 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
             <button className="btn-ghost" onClick={() => setConfirmData(null)} disabled={modeBusy}>Cancelar</button>
             <button className="btn-teal" onClick={confirmMode} disabled={modeBusy}>
               {modeBusy ? "Trocando…" : "Confirmar e trocar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- render revoke confirm overlay ------------------------------------
+  if (revokeTarget) {
+    return (
+      <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setRevokeTarget(null); }}>
+        <div className="hbx-modal at-confirm-modal">
+          <h3>
+            Revogar permissão de chip
+            <span className="hbx-x" onClick={() => setRevokeTarget(null)}>✕</span>
+          </h3>
+          <p className="at-confirm-body">
+            Revogar a permissão vai <strong>desconectar</strong> o WhatsApp do atendente abaixo. Ele precisará reconectar quando a permissão for restaurada.
+          </p>
+          <div className="at-confirm-list">
+            <div className="at-confirm-row">
+              <strong>{revokeTarget.name || "—"}</strong>
+              {revokeTarget.whatsappPhone && <span className="tag">{revokeTarget.whatsappPhone}</span>}
+            </div>
+          </div>
+          {msg && <span className="tag red">{msg}</span>}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button className="btn-ghost" onClick={() => setRevokeTarget(null)} disabled={permBusy === revokeTarget.userId}>Cancelar</button>
+            <button className="btn-teal" onClick={confirmRevoke} disabled={permBusy === revokeTarget.userId}>
+              {permBusy === revokeTarget.userId ? "Revogando…" : "Confirmar e revogar"}
             </button>
           </div>
         </div>
@@ -297,7 +345,7 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                               <button
                                 className={"seg-toggle at-perm-toggle" + (m.canConnectWhatsapp ? " at-perm-on" : "")}
                                 disabled={permBusy === m.userId}
-                                onClick={() => togglePermission(m.userId, !m.canConnectWhatsapp)}
+                                onClick={() => m.canConnectWhatsapp ? requestRevoke(m) : togglePermission(m.userId, true)}
                                 title={m.canConnectWhatsapp ? "Revogar permissão" : "Conceder permissão"}
                               >
                                 <span className={"seg" + (m.canConnectWhatsapp ? " on" : "")}>

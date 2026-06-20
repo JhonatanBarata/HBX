@@ -306,6 +306,25 @@ function AudioBubble({ src, seconds }: { src: string; seconds?: number | null })
   );
 }
 
+// Fecha um popover quando o clique cai FORA do seu wrapper. Diferente de um listener
+// global solto, ignora cliques dentro do próprio wrapper — então o botão-gatilho segue
+// abrindo/fechando normal (sem reabrir no toggle) e clicar num item do popover não
+// fecha antes da ação. Retorna o ref pra pendurar no <span> que envolve gatilho+popover.
+function useClickOutside<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T | null>(null);
+  const cbRef = useRef(onClose);
+  useEffect(() => { cbRef.current = onClose; });
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) cbRef.current();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  return ref;
+}
+
 export function AtendimentoClient() {
   const [convs, setConvs] = useState<InboxConversation[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -325,6 +344,10 @@ export function AtendimentoClient() {
   const draftRef = useRef<HTMLInputElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const atBottomRef = useRef(true);
+  // Abrir conversa = SEMPRE colar no fim (mesmo que o usuário tivesse rolado pra cima
+  // na conversa anterior). Mídia do WhatsApp cresce a altura depois do render, então
+  // re-colamos algumas vezes enquanto este flag estiver ligado.
+  const forceBottomRef = useRef(false);
   // Anti-spam do refresh de foto on-demand: ids já tentados nesta sessão (não
   // re-busca no motor a cada clique; force=true ignora este guard).
   const avatarTriedRef = useRef<Set<string>>(new Set());
@@ -342,6 +365,10 @@ export function AtendimentoClient() {
   const [ownSessionIds, setOwnSessionIds] = useState<string[]>([]);
   const [sessionMap, setSessionMap] = useState<Map<string, SessionInfo>>(new Map());
   const [numberFilter, setNumberFilter] = useState<string>("");
+  // Roster COMPLETO da empresa (todos os usuários, com ou sem chip conectado) — vem do
+  // /inbox/whatsapp/admin-panel (só admin-dono). Usado no seletor "Chat" pra listar
+  // também quem ainda não conectou o WhatsApp.
+  const [teamUsers, setTeamUsers] = useState<Array<{ userId: string; name: string; connected: boolean; phone: string | null }>>([]);
   // attendanceMode global (shared/individual/null) — vem do /inbox/whatsapp-session
   const [waAttendanceMode, setWaAttendanceMode] = useState<"shared" | "individual" | null>(null);
 
@@ -419,11 +446,28 @@ export function AtendimentoClient() {
   const [tarefaOpen, setTarefaOpen] = useState(false);
   const [tarefaData, setTarefaData] = useState("");
 
+  // Click-outside dos dropdowns (fila/vendedor/ações/mover/tarefa): pendura o ref
+  // no <span> que envolve gatilho+popover. Antes ficavam abertos teimando na tela.
+  const filaWrapRef = useClickOutside<HTMLSpanElement>(filaOpen, () => setFilaOpen(false));
+  const vendWrapRef = useClickOutside<HTMLSpanElement>(vendOpen, () => setVendOpen(false));
+  const acoesWrapRef = useClickOutside<HTMLSpanElement>(acoesOpen, () => setAcoesOpen(false));
+  const moverWrapRef = useClickOutside<HTMLSpanElement>(moverOpen, () => setMoverOpen(false));
+  const tarefaWrapRef = useClickOutside<HTMLSpanElement>(tarefaOpen, () => setTarefaOpen(false));
+
   const refreshWaStatus = useCallback(() => {
     return fetchWhatsAppModalStatus()
       .then(res => setWaStatus(res?.status || null))
       .catch(() => setWaStatus(null));
   }, []);
+
+  // Assinatura da sessão ativa (modo + sessões próprias). A lista de conversas é
+  // POR-SESSÃO; ao trocar o número ativo a lista antiga fica defasada (ids de outro
+  // vendedor). Guardamos a assinatura pra detectar a troca e revalidar a lista —
+  // sem isso o front dispara /read e /message contra conversa de fora (404 ruidoso).
+  const sessionSigRef = useRef<string | null>(null);
+  // loadConvs é declarado mais abaixo (TDZ); chamamos via ref pra revalidar a lista
+  // na troca de sessão sem criar dependência circular entre os useCallback.
+  const loadConvsRef = useRef<(() => void) | null>(null);
 
   const refreshWaSession = useCallback(() => {
     return apiFetch<{
@@ -451,8 +495,32 @@ export function AtendimentoClient() {
           map.set(s.id, { sellerName: s.sellerName, phone: s.phone });
         }
         setSessionMap(map);
+        // Trocou a sessão ativa (número recém-conectado assumiu o inbox)? Recarrega a
+        // lista — loadConvs reconcilia o selId (line do setSelId) e larga o id velho.
+        const sig = `${mode}|${[...ownIds].sort().join(",")}`;
+        if (sessionSigRef.current !== null && sessionSigRef.current !== sig) {
+          loadConvsRef.current?.();
+        }
+        sessionSigRef.current = sig;
       })
       .catch(() => { /* endpoint pode não estar disponível ainda */ });
+  }, []);
+
+  // Roster completo da empresa para o seletor "Chat" — inclui quem NÃO tem chip
+  // conectado. /inbox/whatsapp/admin-panel é só admin-dono; gerente/erro cai no catch
+  // (fica só com as sessões conectadas, sem quebrar nada).
+  const loadTeam = useCallback(() => {
+    return apiFetch<{ team?: Array<{ userId: string; name: string | null; whatsappConnected?: boolean; whatsappPhone?: string | null }> }>("/inbox/whatsapp/admin-panel")
+      .then(res => {
+        const team = Array.isArray(res?.team) ? res.team : [];
+        setTeamUsers(team.map(m => ({
+          userId: String(m.userId),
+          name: m.name || `#${m.userId}`,
+          connected: Boolean(m.whatsappConnected),
+          phone: m.whatsappPhone ?? null,
+        })));
+      })
+      .catch(() => { setTeamUsers([]); });
   }, []);
 
   // Estado de conexão VIVO no selo do inbox (PR17062026047 Bloco C): o status era
@@ -466,6 +534,12 @@ export function AtendimentoClient() {
     const t = setInterval(() => { refreshWaStatus(); refreshWaSession(); }, 20000);
     return () => clearInterval(t);
   }, [refreshWaStatus, refreshWaSession]);
+
+  // Carrega o roster da empresa quando é admin em visão-empresa (o seletor "Chat" só
+  // aparece nesse caso). Reage à mudança de modo/identidade.
+  useEffect(() => {
+    if (souAdmin && waMode === "company") loadTeam();
+  }, [souAdmin, waMode, loadTeam]);
 
   const [hasMore, setHasMore] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
@@ -503,6 +577,16 @@ export function AtendimentoClient() {
     return () => document.removeEventListener("mousedown", handler);
   }, [transferOpen]);
 
+  // Zera o aviso de não-lidas (X) desta conversa na lista NA HORA (otimista), sem
+  // esperar o /read + próximo loadConvs. O backend persiste com whatsappMarkedReadAt,
+  // então o próximo refresh já volta com 0 (não pisca de volta).
+  const markConvReadLocal = useCallback((id: string) => {
+    setConvs(prev => prev.map(c =>
+      c.id === id
+        ? { ...c, metadata: { ...(c.metadata ?? {}), whatsappUnreadCount: 0 } }
+        : c));
+  }, []);
+
   const loadConvs = useCallback(() => {
     const q = filaRef.current ? `&queue=${encodeURIComponent(filaRef.current)}` : "";
     return apiFetch<InboxConversation[]>(`/inbox/conversations?take=50${q}`)
@@ -518,6 +602,16 @@ export function AtendimentoClient() {
         setConvs([]);
       });
   }, []);
+
+  // Ponte p/ a revalidação na troca de sessão (refreshWaSession chama via ref, evitando
+  // TDZ/dependência circular). loadConvs é estável (deps []), então roda só uma vez.
+  useEffect(() => { loadConvsRef.current = loadConvs; }, [loadConvs]);
+
+  // Conjunto de ids da lista ESCOPADA atual (por sessão). O /read e o /message só podem
+  // mirar uma conversa que existe nesta lista — assim um selId herdado de outra sessão
+  // (lista defasada na troca de número) não dispara request fantasma que volta 404.
+  const convIdSetRef = useRef<Set<string>>(new Set());
+  useEffect(() => { convIdSetRef.current = new Set(convs.map(c => c.id)); }, [convs]);
 
   // Conectou: atualiza chip e recarrega lista. O prompt de histórico de outro número
   // (BUG 2 FIX) está centralizado no WhatsAppConnectModal — era duplicado aqui
@@ -690,11 +784,19 @@ export function AtendimentoClient() {
     if (!selId) return;
     let alive = true;
     atBottomRef.current = true;
+    forceBottomRef.current = true;
     loadCard(selId);
-    loadThread(selId).then(() => {
-      if (!alive) return;
+    loadThread(selId);
+    // Marca lida no servidor JÁ — não espera a thread carregar. (O backend lê as
+    // últimas inbound do banco, então não depende do fetch da thread.) Assim o
+    // próximo loadConvs/SSE já volta com unread=0 e o aviso não reaparece.
+    // (O zerar otimista da lista acontece no openConv — setState não pode rodar
+    // síncrono dentro de efeito.)
+    // Só marca lido se a conversa pertence à lista escopada atual: um selId herdado de
+    // outra sessão (lista defasada durante a troca de número) NÃO dispara /read fantasma.
+    if (convIdSetRef.current.has(selId)) {
       apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/read`, { method: "PATCH", body: JSON.stringify({}) }).catch(() => { /* segue */ });
-    });
+    }
     if (sseOn) return () => { alive = false; };
     const timer = setInterval(() => { if (alive) loadThread(selId); }, 8000);
     return () => { alive = false; clearInterval(timer); };
@@ -732,13 +834,30 @@ export function AtendimentoClient() {
       .catch(() => { /* endpoint pode subir no próximo deploy do backend */ });
   }, []);
 
-  // auto-scroll só quando o usuário já está no fim (não atrapalha paginar p/ cima)
+  // Cola no fim da thread. Em rAF + re-cola por timeout porque a altura cresce DEPOIS
+  // do render (dia separador, balões de mídia). Usado também no onLoad de cada mídia.
+  const scrollMsgsToEnd = useCallback(() => {
+    const el = endRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Mídia (imagem/vídeo) terminou de carregar: se o usuário ainda está no fim, re-cola
+  // (a imagem empurrou o conteúdo pra baixo). Não rouba o scroll de quem rolou pra cima.
+  const pinIfAtBottom = useCallback(() => {
+    if (atBottomRef.current || forceBottomRef.current) requestAnimationFrame(scrollMsgsToEnd);
+  }, [scrollMsgsToEnd]);
+
+  // Auto-scroll: ao ABRIR uma conversa (forceBottom) sempre cola no fim; em mensagem
+  // nova, só se o usuário já estava no fim (não atrapalha paginar pra cima). Re-cola
+  // algumas vezes porque a mídia do WhatsApp cresce a altura depois do primeiro paint.
   useEffect(() => {
-    if (atBottomRef.current && endRef.current) {
-      const el = endRef.current;
-      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-    }
-  }, [thread]);
+    if (!endRef.current) return;
+    if (!atBottomRef.current && !forceBottomRef.current) return;
+    requestAnimationFrame(scrollMsgsToEnd);
+    const t1 = window.setTimeout(scrollMsgsToEnd, 90);
+    const t2 = window.setTimeout(() => { scrollMsgsToEnd(); forceBottomRef.current = false; }, 340);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [thread, scrollMsgsToEnd]);
 
   function onMsgsScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
@@ -773,6 +892,7 @@ export function AtendimentoClient() {
   // troca de conversa (handler de clique — reset de UI fica fora de efeito)
   function openConv(id: string) {
     setMobileThread(true); // celular: tocar numa conversa abre a thread (mesmo a já selecionada)
+    markConvReadLocal(id); // zera o (X) na lista na hora; o efeito do selId manda o /read
     if (id !== selId) {
       setSelId(id);
       setReplyTo(null);
@@ -814,6 +934,13 @@ export function AtendimentoClient() {
   async function send() {
     const content = draft.trim();
     if (!content || !selId || sendBusy) return;
+    // selId fora da lista escopada (herdado de outra sessão na troca de número): não
+    // dispara /message fantasma (voltaria 404). Revalida e avisa em vez de errar feio.
+    if (!convs.some(c => c.id === selId)) {
+      setSendError("Conversa indisponível na sessão atual. Atualizando a lista…");
+      void loadConvs();
+      return;
+    }
     setSendBusy(true);
     setSendError(null);
     try {
@@ -837,6 +964,12 @@ export function AtendimentoClient() {
   // anexo: sobe o arquivo (POST /media) e envia a mensagem com o anexo
   async function sendAttachment(file: File, kind: string, extra?: { durationSeconds?: number }) {
     if (!selId) return;
+    // Mesma guarda do send(): não sobe anexo/mensagem pra conversa fora da sessão atual.
+    if (!convs.some(c => c.id === selId)) {
+      setSendError("Conversa indisponível na sessão atual. Atualizando a lista…");
+      void loadConvs();
+      return;
+    }
     setSendBusy(true);
     setSendError(null);
     try {
@@ -1183,15 +1316,28 @@ export function AtendimentoClient() {
 
   const convo = convs.find(c => c.id === selId) || null;
   const blocked = Boolean((convo?.metadata as Record<string, unknown> | null | undefined)?.["atendimentoBlockedAt"]);
-  const naoLidas = convs.filter(c => convUnread(c) > 0);
+  // A conversa ABERTA conta como lida na hora (igual ao WhatsApp Web): o aviso (X)
+  // some imediatamente, sem esperar o servidor. Vale pro selo, pra aba "Não lidas" e
+  // pra contagem do KPI — tudo deriva daqui.
+  const unreadOf = (c: InboxConversation) => (c.id === selId ? 0 : convUnread(c));
+  const naoLidas = convs.filter(c => unreadOf(c) > 0);
   const filtered = convs
-    .filter(c => tab === 0 ? true : tab === 1 ? convUnread(c) > 0 : c.humanAssigned === true)
+    // Aba "Não lidas": só o que falta verificar. A conversa aberta fica visível mesmo
+    // já lida (não some debaixo do dedo), mas sem o (X).
+    .filter(c => tab === 0 ? true : tab === 1 ? (unreadOf(c) > 0 || c.id === selId) : c.humanAssigned === true)
     .filter(c => {
       const q = busca.trim().toLowerCase();
       if (!q) return true;
       return convName(c).toLowerCase().includes(q) || String(c.contact || "").includes(q);
     })
-    .filter(c => !numberFilter || String(c.whatsappConnectionSessionId || "") === numberFilter);
+    // Filtro do seletor "Chat": chave de sessão casa pelo chip; chave "u:<id>" (usuário
+    // sem chip) casa pela atribuição (assignedUserId) — sem chip nem atribuição = lista
+    // vazia, que é o certo (esse usuário ainda não tem conversas).
+    .filter(c => {
+      if (!numberFilter) return true;
+      if (numberFilter.startsWith("u:")) return String(c.assignedUserId ?? "") === numberFilter.slice(2);
+      return String(c.whatsappConnectionSessionId || "") === numberFilter;
+    });
 
   // canSend modo-ciente:
   //   - shared  → pode enviar se não há dono OU se sou o dono OU se sou admin
@@ -1217,8 +1363,26 @@ export function AtendimentoClient() {
   // No modo shared: nome do atendente atual (assignedToName) para exibição
   const assignedName = convo?.assignedToName || null;
 
-  // Dropdown de vendedor: visão de empresa (admin/gerente) com pelo menos 1 vendedor conectado.
-  const showNumberFilter = waMode === "company" && sessionList.length >= 1;
+  // Seletor "Chat": visão de empresa (admin/gerente). Aparece se há QUALQUER chat pra
+  // filtrar — sessão conectada OU usuário no roster (mesmo sem chip).
+  const showNumberFilter = waMode === "company" && (sessionList.length >= 1 || teamUsers.length >= 1);
+
+  // Usuários da empresa que NÃO têm chip conectado (não aparecem nas sessões). Casa o
+  // roster com as sessões pelo nome (mesma origem no backend: user.name/username).
+  const sessionNames = new Set(
+    sessionList.map(s => String(s.sellerName || "").trim().toLowerCase()).filter(Boolean),
+  );
+  const chiplessUsers = teamUsers.filter(u => !sessionNames.has(u.name.trim().toLowerCase()));
+
+  // Rótulo do botão "Chat: …": resolve tanto chave de sessão quanto "u:<id>" (sem chip).
+  const chatFilterLabel = (() => {
+    if (!numberFilter) return "Todos";
+    if (numberFilter.startsWith("u:")) {
+      const u = teamUsers.find(t => `u:${t.userId}` === numberFilter);
+      return u ? u.name : "?";
+    }
+    return sellerFull(sessionMap.get(numberFilter));
+  })();
 
   // reações: agrupa as mensagens-reação pelo alvo e tira-as do fluxo principal
   const reactionsByKey = new Map<string, string[]>();
@@ -1275,7 +1439,7 @@ export function AtendimentoClient() {
         <>
           {url
             // eslint-disable-next-line @next/next/no-img-element -- mídia do WhatsApp (URL externa/dinâmica); next/image não se aplica
-            ? <img className={"media-img" + (type === "sticker" ? " sticker" : "")} src={url} alt={meta.fileName || "imagem"} onClick={() => setLightbox(url)} />
+            ? <img className={"media-img" + (type === "sticker" ? " sticker" : "")} src={url} alt={meta.fileName || "imagem"} onLoad={pinIfAtBottom} onClick={() => setLightbox(url)} />
             : <div className="cap">📷 Imagem</div>}
           {caption && <div className="cap">{caption}</div>}
         </>
@@ -1284,7 +1448,7 @@ export function AtendimentoClient() {
     if (type === "video") {
       return (
         <>
-          {url ? <video className="media-video" src={url} controls /> : <div className="cap">🎥 Vídeo</div>}
+          {url ? <video className="media-video" src={url} controls onLoadedData={pinIfAtBottom} /> : <div className="cap">🎥 Vídeo</div>}
           {caption && <div className="cap">{caption}</div>}
         </>
       );
@@ -1331,9 +1495,9 @@ export function AtendimentoClient() {
                       <I d={ICONS.plus} size={13} /> Nova
                     </button>
                   </div>
-                  {/* Filtros irmãos: Fila + Vendedor (um controle por função — sem o ícone-funil que duplicava). */}
+                  {/* Filtros irmãos: Fila + Chat (um controle por função — sem o ícone-funil que duplicava). */}
                   <div className="row" style={{ gap: 8 }}>
-                    <span style={{ position: "relative", display: "inline-flex" }}>
+                    <span ref={filaWrapRef} style={{ position: "relative", display: "inline-flex" }}>
                       <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setFilaOpen(o => !o); setVendOpen(false); }} aria-expanded={filaOpen}>
                         {FILAS.find(f => f.key === fila)?.label || "Todas as filas"} ▾
                       </button>
@@ -1348,16 +1512,24 @@ export function AtendimentoClient() {
                       )}
                     </span>
                     {showNumberFilter && (
-                      <span style={{ position: "relative", display: "inline-flex" }}>
+                      <span ref={vendWrapRef} style={{ position: "relative", display: "inline-flex" }}>
                         <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setVendOpen(o => !o); setFilaOpen(false); }} aria-expanded={vendOpen}>
-                          Vendedor: {numberFilter ? sellerFull(sessionMap.get(numberFilter)) : "Todos"} ▾
+                          Chat: {chatFilterLabel} ▾
                         </button>
                         {vendOpen && (
                           <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 184, padding: 6, display: "grid", gap: 2 }}>
-                            <button className={"nav-item" + (!numberFilter ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(""); setVendOpen(false); }}>Todos os vendedores</button>
+                            <button className={"nav-item" + (!numberFilter ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(""); setVendOpen(false); }}>Todos os chats</button>
                             {sessionList.map(s => (
                               <button key={s.id} className={"nav-item" + (numberFilter === s.id ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(s.id); setVendOpen(false); }}>
                                 {s.sellerName || fullPhone(s.phone) || s.id}
+                              </button>
+                            ))}
+                            {/* Usuários da empresa ainda sem chip conectado — entram aqui pra
+                                a lista mostrar TODO o time, não só quem já conectou. */}
+                            {chiplessUsers.map(u => (
+                              <button key={"u:" + u.userId} className={"nav-item" + (numberFilter === ("u:" + u.userId) ? " active" : "")} style={{ minHeight: 32, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }} onClick={() => { setNumberFilter("u:" + u.userId); setVendOpen(false); }}>
+                                <span>{u.name}</span>
+                                <span className="conv-seller">sem chip</span>
                               </button>
                             ))}
                           </div>
@@ -1420,7 +1592,7 @@ export function AtendimentoClient() {
                     </div>
                   )}
                   {filtered.map(c => {
-                    const un = convUnread(c);
+                    const un = unreadOf(c);
                     const lastMsg = (c.messages || [])[(c.messages || []).length - 1] || null;
                     return (
                       <button key={c.id} className={"conv" + (selId === c.id ? " sel" : "")} onClick={() => openConv(c.id)}>
@@ -1459,7 +1631,7 @@ export function AtendimentoClient() {
                     title={convo ? "Atualizar foto" : undefined}
                     style={{ display: "inline-flex", cursor: convo ? "pointer" : "default" }}
                   >
-                    <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
+                    <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
                   </span>
                   <div style={{ display: "grid", gap: 2 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1504,7 +1676,7 @@ export function AtendimentoClient() {
                       </div>
                     )}
                     {assignMsg && <span className="tag red">{assignMsg}</span>}
-                    <span style={{ position: "relative", display: "inline-flex" }}>
+                    <span ref={acoesWrapRef} style={{ position: "relative", display: "inline-flex" }}>
                       <button className={"btn-ghost" + (acoesOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "0.7rem" }}
                         disabled={!convo} onClick={() => { setAcoesOpen(o => !o); setAcaoMsg(null); }} aria-expanded={acoesOpen}>Ações ▾</button>
                       {acoesOpen && convo && (
@@ -1686,7 +1858,7 @@ export function AtendimentoClient() {
             </div>
 
             <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
-              <Av name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={44} />
+              <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={44} />
               <div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span className="company">{convo ? convName(convo) : "—"}</span>
@@ -1747,7 +1919,7 @@ export function AtendimentoClient() {
                 <div style={{ display: "grid", gap: 8 }}>
                   <h3>Ações rápidas</h3>
                   {acaoMsg && <span className="tag red">{acaoMsg}</span>}
-                  <span style={{ position: "relative", display: "grid" }}>
+                  <span ref={moverWrapRef} style={{ position: "relative", display: "grid" }}>
                     <button className="btn-teal" disabled={!convo || acaoBusy} onClick={() => { setMoverOpen(o => !o); setTarefaOpen(false); setAcaoMsg(null); }}><I d={ICONS.arrow} size={14} /> Mover etapa</button>
                     {moverOpen && convo && (
                       <div className="hbx-pop" style={{ position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 30, padding: 6, display: "grid", gap: 2 }}>
@@ -1758,7 +1930,7 @@ export function AtendimentoClient() {
                     )}
                   </span>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <span style={{ position: "relative", display: "grid" }}>
+                    <span ref={tarefaWrapRef} style={{ position: "relative", display: "grid" }}>
                       <button className="btn-ghost" disabled={!convo} onClick={() => { setTarefaOpen(o => !o); setMoverOpen(false); setAcaoMsg(null); }}><I d={ICONS.check} size={13} /> Criar tarefa</button>
                       {tarefaOpen && convo && (
                         <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>

@@ -220,6 +220,8 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.commercialPlansService || {}),
   } as any;
 
+  const whatsappModal = {} as any;
+
   const service = new InboxService(
     prisma,
     conversations,
@@ -229,6 +231,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     webwhatsBridge,
     inboxRealtime,
     commercialPlansService,
+    whatsappModal,
   );
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }

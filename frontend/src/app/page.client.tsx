@@ -7,7 +7,7 @@
 // re-monta — o robô e a cor continuam sem interrupção ao navegar entre as 5 views.
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { HbxScene, type SceneNav } from "@/components/hbx/hbx-scene";
 import { subscribeToThemeMode } from "@/components/hbx/shell";
@@ -61,6 +61,14 @@ const STATIONS = [
   ]},
 ];
 const METRICS = ["Mais conversas", "Menos trabalho manual", "Mais recebimentos"];
+
+// ── carrossel do hero (substitui o eyebrow estático) ──────────────────────────
+const CAROUSEL_ITEMS = [
+  { label: "Radar", ic: ["M12 16v5", "M9 21h6", "M12 12h.01", "M8.5 12a3.5 3.5 0 0 1 7 0", "M5 12a7 7 0 0 1 14 0", "M2 12a10 10 0 0 1 20 0"] },
+  { label: "Vendas", ic: ["M13 2 3 14h9l-1 8 10-12h-9l1-8Z"] },
+  { label: "Atendimento", ic: ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.5 11h.01", "M12 11h.01", "M15.5 11h.01"] },
+  { label: "Recovery", ic: ["M12 3 19 6v5c0 4.6-3 7.7-7 9-4-1.3-7-4.4-7-9V6l7-3Z", "M9.3 12l1.9 1.9 3.6-3.7"] },
+] as const;
 
 // ── dados de módulos ───────────────────────────────────────────────────────────
 const INTEGRATIONS = [
@@ -127,6 +135,31 @@ export function MarketingClient() {
   // Documento legal aberto como pop-up central (Lei 2). Plugado nas rotas
   // /politicas e /termos (redirect → ?ver=) e nos links do rodapé da home.
   const [legal, setLegal] = useState<LegalKind | null>(null);
+  const [carouselIdx, setCarouselIdx] = useState(0);
+  const [prevCarouselIdx, setPrevCarouselIdx] = useState<number | null>(null);
+  const carouselIdxRef = useRef(carouselIdx);
+  carouselIdxRef.current = carouselIdx;
+
+  const advance = useCallback(() => {
+    const cur = carouselIdxRef.current;
+    const next = (cur + 1) % CAROUSEL_ITEMS.length;
+    setPrevCarouselIdx(cur);
+    setCarouselIdx(next);
+    setTimeout(() => setPrevCarouselIdx(null), 480);
+  }, []);
+
+  const goCarousel = useCallback((idx: number) => {
+    const cur = carouselIdxRef.current;
+    if (idx === cur) return;
+    setPrevCarouselIdx(cur);
+    setCarouselIdx(idx);
+    setTimeout(() => setPrevCarouselIdx(null), 480);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(advance, 2800);
+    return () => clearInterval(timer);
+  }, [advance]);
 
   useEffect(() => { fetchPublicPlans().then(setLivePlans); }, []);
 
@@ -297,7 +330,34 @@ export function MarketingClient() {
         {/* ── INÍCIO ──────────────────────────────────────────────────────── */}
         {view === "inicio" && (
           <div className="scene-hero">
-            <span className="site-eyebrow">Radar · Vendas · Atendimento · Recovery</span>
+            <div className="site-carousel" role="region" aria-label="Módulos HBX" onClick={advance}>
+              <div className="site-carousel__track">
+                {CAROUSEL_ITEMS.map((item, i) => (
+                  <span
+                    key={item.label}
+                    className="site-carousel__word"
+                    data-state={i === carouselIdx ? "active" : i === prevCarouselIdx ? "exit" : "idle"}
+                    aria-hidden={i !== carouselIdx}
+                  >
+                    <span className="site-carousel__ic"><Ic paths={[...item.ic]} /></span>
+                    {item.label}
+                  </span>
+                ))}
+              </div>
+              <div className="site-carousel__dots" role="tablist" onClick={e => e.stopPropagation()}>
+                {CAROUSEL_ITEMS.map((item, i) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    role="tab"
+                    aria-selected={i === carouselIdx}
+                    aria-label={item.label}
+                    className={"site-carousel__dot" + (i === carouselIdx ? " is-active" : "")}
+                    onClick={() => goCarousel(i)}
+                  />
+                ))}
+              </div>
+            </div>
             <h1 className="site-title">Do anúncio<br />à <span className="site-accent">cobrança</span>.</h1>
             <p className="site-sub">Tudo num fluxo só. Nós achamos o cliente, atendemos no automático e cobramos quem some. Você fecha.</p>
             <div className="site-cta">

@@ -112,15 +112,56 @@ export function Spark({ tone = "var(--hbx-brand-strong)", down = false }: { tone
 // Avatar: foto real do WhatsApp quando houver (src), com queda pras iniciais
 // se a URL falhar/expirar (CDN pps.whatsapp.net expira). Ponto verde "online"
 // opcional. Visual (círculo/cor/ponto) vem do kit (.avatar / .avatar-*); aqui só
-// layout (tamanho). onError esconde a <img> via DOM → as iniciais por baixo aparecem.
+// layout (tamanho).
+//
+// À PROVA DE PISCADA: a lista de Atendimento recarrega sozinha (poll 10s + SSE) e a
+// foto do WhatsApp (pps.whatsapp.net) volta RE-ASSINADA a cada sync — mesma foto,
+// querystring diferente. Antes o <img> trocava de src toda hora, ficava em branco
+// rebaixando e deixava as iniciais aparecerem por baixo: "pisca, some, volta".
+// Regras: (1) mesma foto (mesmo caminho, ignorando a query) = ignora a troca de
+// assinatura, não rebaixa; (2) src vazio transitório = mantém a última foto boa, não
+// volta pras iniciais; (3) foto realmente nova substituindo outra = pré-carrega e troca
+// atômica (sem branco); (4) erro = cai nas iniciais por ESTADO (recupera quando vier
+// URL boa, sem mutar o DOM). AVATAR que troca de pessoa (cabeçalho/painel): o chamador
+// passa key={id} → a key remonta limpo. Item de lista já é isolado pela key do <button>.
+function avatarIdentity(src?: string | null): string {
+  const s = String(src || "").trim();
+  if (!s) return "";
+  const q = s.indexOf("?");
+  return q >= 0 ? s.slice(0, q) : s;
+}
+
 export function Av({ name, size = 20, src, online }: { name?: string; size?: number; src?: string | null; online?: boolean }) {
   const ini = String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("") || "?";
+  const [shown, setShown] = useState<string>(() => String(src || "").trim());
+  const [failed, setFailed] = useState(false);
+  const failedSrcRef = useRef<string>("");
+
+  useEffect(() => {
+    const next = String(src || "").trim();
+    if (!next) return;                                                   // (2) vazio transitório → mantém a foto atual
+    const haveGood = Boolean(shown) && !failed;
+    if (haveGood && avatarIdentity(next) === avatarIdentity(shown)) return; // (1) mesma foto, assinatura nova → ignora
+    if (!haveGood) {                                                     // 1ª foto ou pós-erro: adota e deixa o <img> tentar (mantém loading=lazy)
+      if (next === failedSrcRef.current) return;                        // exatamente a URL que falhou → não re-tenta (evita laço)
+      setFailed(false);
+      setShown(next);
+      return;
+    }
+    let alive = true;                                                   // (3) trocar foto existente por outra → pré-carrega e troca sem branco
+    const img = new Image();
+    img.onload = () => { if (alive) { failedSrcRef.current = ""; setFailed(false); setShown(next); } };
+    img.onerror = () => { if (alive) failedSrcRef.current = next; };    // mantém a foto atual; não pisca
+    img.src = next;
+    return () => { alive = false; };
+  }, [src, failed, shown]);
+
   return (
     <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
       <span className="avatar-ini">{ini}</span>
-      {src
+      {shown && !failed
         // eslint-disable-next-line @next/next/no-img-element -- foto de perfil do WhatsApp (URL externa/dinâmica do CDN)
-        ? <img className="avatar-img" src={src} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = "none"; }} />
+        ? <img className="avatar-img" src={shown} alt="" loading="lazy" onError={() => { failedSrcRef.current = shown; setFailed(true); }} />
         : null}
       {online ? <i className="avatar-dot" aria-hidden="true" /> : null}
     </span>

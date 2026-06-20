@@ -215,14 +215,6 @@ export function LoginClient() {
   return (
     <>
       <AuthThemeControls />
-      <div className="login-visual-toggle">
-        <span>Visual</span>
-        <button type="button" className={"sw" + (!plain ? " on" : "")} role="switch" aria-checked={!plain}
-          aria-label="Ligar ou desligar os efeitos visuais do login" title="Liga/desliga os efeitos do login" onClick={toggleVisual}>
-          <i />
-        </button>
-      </div>
-
       <SceneMenu active="entrar" mode="world" />
 
       <div className={"hbx-scene login-console" + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>

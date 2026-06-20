@@ -217,7 +217,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
 
   return (
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24 }}>
+      <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24, position: "relative", overflow: "hidden" }}>
         <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           Conexão WhatsApp
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={onClose}>✕</span>
@@ -289,6 +289,9 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
 
         {connected && (
           <>
+            <span className="hbx-approve-wash is-on ok" aria-hidden="true" />
+            <span className="hbx-approve-pulse" aria-hidden="true" />
+            <span className="hbx-approve-pulse d2" aria-hidden="true" />
             <span className="badge-win">✓ WhatsApp conectado — pronto para receber e responder aqui</span>
             <div className="kv">
               <div className="row"><span className="k">Conectado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.connectedAt)}</span></div>

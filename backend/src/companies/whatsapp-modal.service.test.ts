@@ -89,6 +89,8 @@ function createPrisma(
         if (where?.phoneNormalized !== undefined && session.phoneNormalized !== where.phoneNormalized) return false;
         return true;
       }) || null,
+      findMany: async () => [],
+      deleteMany: async () => ({ count: 0 }),
       create: async ({ data }: any) => {
         const session = { id: `session-${sessions.length + 1}`, ...data };
         sessions.push(session);
@@ -101,6 +103,12 @@ function createPrisma(
         return session;
       },
     },
+    companyConversation: { deleteMany: async () => ({ count: 0 }) },
+    $transaction: async (fn: (tx: any) => Promise<void>) => fn({
+      companyMessage: { deleteMany: async () => ({ count: 0 }) },
+      companyConversation: { deleteMany: async () => ({ count: 0 }) },
+      whatsAppConnectionSession: { deleteMany: async () => ({ count: 0 }) },
+    }),
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
   } as any;
@@ -129,6 +137,18 @@ function createService(company = createCompany(), providerResponse: any = { pair
   return service as WhatsAppModalService;
 }
 
+function sessionMatchesWhere(session: any, where: any): boolean {
+  if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
+  if (where?.provider !== undefined && session.provider !== where.provider) return false;
+  if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
+  if (where?.status !== undefined && session.status !== where.status) return false;
+  if (where?.phoneNormalized !== undefined && session.phoneNormalized !== where.phoneNormalized) return false;
+  if (where?.NOT?.tenantKey !== undefined && session.tenantKey === where.NOT.tenantKey) return false;
+  if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) return false;
+  if (where?.id?.in !== undefined && !where.id.in.includes(String(session.id))) return false;
+  return true;
+}
+
 function createSessionPrisma(company = createCompany(), initialSessions: any[] = []) {
   const sessions = initialSessions.map((session) => ({ ...session }));
   const companyUpdates: any[] = [];
@@ -138,14 +158,15 @@ function createSessionPrisma(company = createCompany(), initialSessions: any[] =
     Object.assign(company, data);
     return { ...company };
   };
-  prisma.whatsAppConnectionSession.findFirst = async ({ where }: any) => sessions.find((session) => {
-    if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) return false;
-    if (where?.provider !== undefined && session.provider !== where.provider) return false;
-    if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) return false;
-    if (where?.status !== undefined && session.status !== where.status) return false;
-    if (where?.phoneNormalized !== undefined && session.phoneNormalized !== where.phoneNormalized) return false;
-    return true;
-  }) || null;
+  prisma.whatsAppConnectionSession.findFirst = async ({ where }: any) =>
+    sessions.find((s) => sessionMatchesWhere(s, where)) || null;
+  prisma.whatsAppConnectionSession.findMany = async ({ where }: any) =>
+    sessions.filter((s) => sessionMatchesWhere(s, where));
+  prisma.whatsAppConnectionSession.deleteMany = async ({ where }: any) => {
+    const toRemove = sessions.filter((s) => sessionMatchesWhere(s, where));
+    for (const s of toRemove) sessions.splice(sessions.indexOf(s), 1);
+    return { count: toRemove.length };
+  };
   prisma.whatsAppConnectionSession.create = async ({ data }: any) => {
     const session = { id: `session-${sessions.length + 1}`, ...data };
     sessions.push(session);
@@ -160,16 +181,17 @@ function createSessionPrisma(company = createCompany(), initialSessions: any[] =
   prisma.whatsAppConnectionSession.updateMany = async ({ where, data }: any) => {
     let count = 0;
     for (const session of sessions) {
-      if (where?.companyId !== undefined && Number(session.companyId) !== Number(where.companyId)) continue;
-      if (where?.provider !== undefined && session.provider !== where.provider) continue;
-      if (where?.tenantKey !== undefined && session.tenantKey !== where.tenantKey) continue;
-      if (where?.status !== undefined && session.status !== where.status) continue;
-      if (where?.NOT?.id !== undefined && String(session.id) === String(where.NOT.id)) continue;
+      if (!sessionMatchesWhere(session, where)) continue;
       Object.assign(session, data);
       count += 1;
     }
     return { count };
   };
+  // companyConversation/companyMessage stubs (needed by purgeForeignNumberGhosts)
+  (prisma as any).companyConversation = { deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).companyMessage = { ...(prisma as any).companyMessage, deleteMany: async () => ({ count: 0 }) };
+  // $transaction: executa o callback passando o mesmo prisma como tx (testes locais)
+  (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
   return { prisma, sessions, companyUpdates, company };
 }
 
@@ -1124,4 +1146,188 @@ test('reconcile connected limpa wipedAt de placeholder sem numero (write-once co
   assert.equal(sessions[0].phoneNormalized, '5519920121720');
   assert.equal(sessions[0].wipedAt, null);
   assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, 'session-placeholder');
+});
+
+// ---------------------------------------------------------------------------
+// TRAVA 1: purgeForeignNumberGhosts
+// ---------------------------------------------------------------------------
+
+test('trava1: conectar número N no tenant T apaga sessão-fantasma de N em outro tenant + suas conversas e mensagens', async () => {
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions, companyUpdates } = createSessionPrisma(company, [
+    // Sessão fantasma: mesmo número (5519920121720) mas tenantKey de OUTRO usuário
+    {
+      id: 'session-ghost',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7-user-22',
+      phoneNormalized: '5519920121720',
+      displayPhone: '+5519920121720',
+      status: 'disconnected',
+      connectedAt: new Date('2026-06-01T10:00:00.000Z'),
+      createdAt: new Date('2026-06-01T10:00:00.000Z'),
+    },
+  ]);
+
+  // Rastreia o que foi deletado
+  const deletedMessageWhere: any[] = [];
+  const deletedConversationWhere: any[] = [];
+  const deletedSessionWhere: any[] = [];
+
+  // Adiciona findMany e deleteMany ao whatsAppConnectionSession
+  (prisma as any).whatsAppConnectionSession.findMany = async ({ where }: any) => {
+    return sessions.filter((s) => {
+      if (where?.companyId !== undefined && Number(s.companyId) !== Number(where.companyId)) return false;
+      if (where?.phoneNormalized !== undefined && s.phoneNormalized !== where.phoneNormalized) return false;
+      if (where?.NOT?.tenantKey !== undefined && s.tenantKey === where.NOT.tenantKey) return false;
+      return true;
+    });
+  };
+  (prisma as any).whatsAppConnectionSession.deleteMany = async ({ where }: any) => {
+    deletedSessionWhere.push(where);
+    const ids: string[] = where?.id?.in ?? [];
+    const removed = sessions.filter((s) => ids.includes(s.id));
+    for (const s of removed) sessions.splice(sessions.indexOf(s), 1);
+    return { count: removed.length };
+  };
+
+  // companyConversation stub
+  (prisma as any).companyConversation = {
+    deleteMany: async ({ where }: any) => {
+      deletedConversationWhere.push(where);
+      return { count: 0 };
+    },
+  };
+
+  // companyMessage stub
+  (prisma as any).companyMessage = {
+    ...(prisma as any).companyMessage,
+    deleteMany: async ({ where }: any) => {
+      deletedMessageWhere.push(where);
+      return { count: 0 };
+    },
+  };
+
+  // $transaction: executa o callback passando o mesmo prisma como tx
+  (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
+
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(
+    company,
+    createSnapshot({ phone: '+5519920121720' }),
+    'test_trava1_purge_ghost',
+  );
+
+  // A sessão fantasma (tenantKey diferente, mesmo número) deve ter sido apagada
+  assert.equal(sessions.some((s) => s.id === 'session-ghost'), false, 'sessão-fantasma deve ser removida');
+
+  // deleteMany foi chamado com o id da sessão fantasma
+  const allDeletedSessionIds = deletedSessionWhere.flatMap((w) => w?.id?.in ?? []);
+  assert.ok(allDeletedSessionIds.includes('session-ghost'), 'deleteMany de sessão deve incluir session-ghost');
+
+  // deleteMany de mensagens e conversas foi chamado com o id da sessão fantasma
+  const allDeletedMsgIds = deletedMessageWhere.flatMap((w) => w?.whatsappConnectionSessionId?.in ?? []);
+  const allDeletedConvIds = deletedConversationWhere.flatMap((w) => w?.whatsappConnectionSessionId?.in ?? []);
+  assert.ok(allDeletedMsgIds.includes('session-ghost'), 'deleteMany de mensagens deve incluir session-ghost');
+  assert.ok(allDeletedConvIds.includes('session-ghost'), 'deleteMany de conversas deve incluir session-ghost');
+
+  // Uma sessão NOVA foi criada para o tenant atual (company-7)
+  const liveSession = sessions.find((s) => s.tenantKey === 'company-7');
+  assert.ok(liveSession, 'sessão viva do tenant atual deve existir');
+  assert.equal(liveSession.phoneNormalized, '5519920121720');
+  assert.equal(liveSession.status, 'active');
+  assert.equal(companyUpdates.at(-1).currentWhatsappConnectionSessionId, liveSession.id);
+});
+
+test('trava1: NÃO apaga sessão do mesmo tenantKey (mesmo número reconectando = reuso)', async () => {
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions } = createSessionPrisma(company, [
+    {
+      id: 'session-own',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'disconnected',
+      connectedAt: new Date('2026-06-01T10:00:00.000Z'),
+      createdAt: new Date('2026-06-01T10:00:00.000Z'),
+    },
+  ]);
+
+  const deletedSessionWhere: any[] = [];
+
+  (prisma as any).whatsAppConnectionSession.findMany = async ({ where }: any) => {
+    return sessions.filter((s) => {
+      if (where?.companyId !== undefined && Number(s.companyId) !== Number(where.companyId)) return false;
+      if (where?.phoneNormalized !== undefined && s.phoneNormalized !== where.phoneNormalized) return false;
+      if (where?.NOT?.tenantKey !== undefined && s.tenantKey === where.NOT.tenantKey) return false;
+      return true;
+    });
+  };
+  (prisma as any).whatsAppConnectionSession.deleteMany = async ({ where }: any) => {
+    deletedSessionWhere.push(where);
+    return { count: 0 };
+  };
+  (prisma as any).companyConversation = { deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).companyMessage = { ...(prisma as any).companyMessage, deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
+
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot(), 'test_trava1_no_purge_same_tenant');
+
+  // deleteMany de sessão NÃO deve ter sido chamado (sem fantasmas)
+  assert.equal(deletedSessionWhere.length, 0, 'não deve apagar sessão do mesmo tenantKey');
+  // A sessão própria foi reativada
+  assert.equal(sessions[0].id, 'session-own');
+  assert.equal(sessions[0].status, 'active');
+});
+
+test('trava1: NÃO apaga sessão de OUTRO número (número diferente, mesmo tenant)', async () => {
+  const company = createCompany({ whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions } = createSessionPrisma(company, [
+    // Sessão de outro número, mesmo tenantKey
+    {
+      id: 'session-other-number',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7-user-5',
+      phoneNormalized: '5519888888888',
+      displayPhone: '+5519888888888',
+      status: 'active',
+      connectedAt: new Date('2026-06-01T10:00:00.000Z'),
+      createdAt: new Date('2026-06-01T10:00:00.000Z'),
+    },
+  ]);
+
+  const deletedSessionWhere: any[] = [];
+
+  (prisma as any).whatsAppConnectionSession.findMany = async ({ where }: any) => {
+    return sessions.filter((s) => {
+      if (where?.companyId !== undefined && Number(s.companyId) !== Number(where.companyId)) return false;
+      if (where?.phoneNormalized !== undefined && s.phoneNormalized !== where.phoneNormalized) return false;
+      if (where?.NOT?.tenantKey !== undefined && s.tenantKey === where.NOT.tenantKey) return false;
+      return true;
+    });
+  };
+  (prisma as any).whatsAppConnectionSession.deleteMany = async ({ where }: any) => {
+    deletedSessionWhere.push(where);
+    return { count: 0 };
+  };
+  (prisma as any).companyConversation = { deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).companyMessage = { ...(prisma as any).companyMessage, deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
+
+  const service = new WhatsAppModalService(prisma) as any;
+
+  // Conecta com número DIFERENTE (5519999999999 != 5519888888888)
+  await service.persistSnapshot(company, createSnapshot({ phone: '+5519999999999' }), 'test_trava1_no_purge_other_number');
+
+  // A sessão do outro número (5519888888888) não deve ter sido apagada
+  assert.ok(sessions.some((s) => s.id === 'session-other-number'), 'sessão de outro número deve permanecer');
+  // deleteMany não foi chamado com session-other-number
+  const allDeletedIds = deletedSessionWhere.flatMap((w) => w?.id?.in ?? []);
+  assert.equal(allDeletedIds.includes('session-other-number'), false, 'não deve apagar sessão de outro número');
 });

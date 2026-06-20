@@ -59,6 +59,7 @@ import {
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveBackendPublicAssetPath } from '../public-assets';
 import { isBotArmedForCompany } from '../modules/bot-activation-state';
+import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import type { Request, Response } from 'express';
 
 type TrashPurgeDetectedReason =
@@ -148,6 +149,7 @@ export class InboxService {
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
+    private readonly whatsappModal: WhatsAppModalService,
   ) {}
 
   private async logInboxEvent(input: {
@@ -950,6 +952,13 @@ export class InboxService {
       where: { userId: target.id },
       data: { visibilityJson: JSON.stringify(vis) },
     });
+    if (!allowed) {
+      try {
+        await this.whatsappModal.disconnectCompanySession(companyId, target.id);
+      } catch (err) {
+        this.logger.warn(`setSellerConnectPermission: falha ao desconectar chip do userId=${target.id}: ${String((err as any)?.message || err)}`);
+      }
+    }
     return { ok: true, userId: String(target.id), canConnectWhatsapp: Boolean(allowed) };
   }
 
@@ -6895,7 +6904,23 @@ export class InboxService {
   async markConversationAsRead(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxMutationSessionScope(user, companyId);
-    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    // "Marcar como lido" é best-effort e IDEMPOTENTE: quando a conversa está fora do
+    // escopo da sessão ativa (lista do front defasada durante a troca de número — o
+    // vendedor recém-conectado ainda enxerga ids de outro vendedor) NÃO é erro. Vira
+    // no-op silencioso (200) em vez de 404 ruidoso no console. O caller no front ignora
+    // o retorno; outros erros (ex.: companyId ausente) continuam subindo.
+    const conversation = await this.ensureConversation(companyId, conversationId, scope).catch(
+      (error) => {
+        if (error instanceof NotFoundException) return null;
+        throw error;
+      },
+    );
+    if (!conversation) {
+      this.logger.debug(
+        `markConversationAsRead no-op: conversa ${conversationId} fora do escopo (company=${companyId}).`,
+      );
+      return { id: conversationId, skipped: true as const };
+    }
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const recentInboundMessages = await this.prisma.companyMessage.findMany({
       where: {
@@ -6985,6 +7010,7 @@ export class InboxService {
       const nextMetadata = {
         ...metadata,
         whatsappAvatarUrl: avatarUrl,
+        whatsappAvatarCheckedAt: Date.now(),
       };
       await this.prisma.companyConversation.update({
         where: { id: conversation.id },

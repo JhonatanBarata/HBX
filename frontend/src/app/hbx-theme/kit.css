@@ -161,6 +161,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 /* Phone hero — número grande e clicável (leads + vendas) */
 .ctx-phone { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand); background: color-mix(in srgb, var(--hbx-brand) 6%, var(--hbx-surface-soft)); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; text-decoration: none; width: 100%; box-sizing: border-box; }
 .ctx-phone:hover { background: color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-surface-soft)); }
+/* Empty state — painel de contexto sem seleção */
+.ctx-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; color: var(--text-muted); text-align: center; padding: 0 16px; }
+.ctx-empty__icon { font-size: 1.6rem; opacity: 0.4; }
+.ctx-empty__hint { font-size: 0.75rem; line-height: 1.5; }
 /* "ficha" limpa (15/06): linhas com divisória fina, rótulo discreto, valor firme */
 .kv { display: grid; gap: 0; }
 .kv .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 0.76rem; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); }
@@ -205,8 +209,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .conv .nm time { flex: 0 0 auto; }
 .conv .nm strong { font-size: 0.8rem; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .conv .nm time { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); }
-.conv .pv { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
-.conv .pv small { flex: 1; font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv .pv { display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; }
+.conv .pv small { flex: 1; min-width: 0; font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv .unread { min-width: 17px; height: 17px; border-radius: 999px; display: grid; place-items: center; font-size: 0.6rem; font-weight: 800; color: var(--hbx-action-ink); background: var(--hbx-brand-strong); }
 /* Chip de vendedor/sessão dentro da linha de conversa (modo empresa). */
 .conv-seller { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--radius-xs); font-size: 0.56rem; font-weight: 700; white-space: nowrap; color: var(--text-muted); background: var(--hbx-surface-raised); border: 1px solid var(--border-hairline); }

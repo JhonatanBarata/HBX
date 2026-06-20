@@ -559,8 +559,8 @@ export function LeadsClient() {
                     <tr>
                       {tab === "shelf" && <th style={{ width: 34 }} aria-label="Selecionar" />}
                       <th>Empresa</th>
-                      <th>Cidade</th>
-                      <th>Contato</th>
+                      <th className="tbl-col-city">Cidade</th>
+                      <th className="tbl-col-contact">Contato</th>
                       <th style={{ width: 96 }} />
                     </tr>
                   </thead>
@@ -603,8 +603,8 @@ export function LeadsClient() {
                             )}
                           </div>
                         </td>
-                        <td>{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
-                        <td>
+                        <td className="tbl-col-city">{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
+                        <td className="tbl-col-contact">
                           {tab === "shelf"
                             ? contatoMascarado(row)
                             : <span>{row.phone || row.email || "—"}</span>}
@@ -687,9 +687,9 @@ export function LeadsClient() {
 
       <aside className="ctx">
         {!selLead ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10, color: "var(--text-muted)", textAlign: "center", padding: "0 16px" }}>
-            <span style={{ fontSize: "1.6rem", opacity: 0.4 }}>←</span>
-            <span style={{ fontSize: "0.75rem", lineHeight: 1.5 }}>Clique em um lead para ver os detalhes do negócio</span>
+          <div className="ctx-empty">
+            <span className="ctx-empty__icon">←</span>
+            <span className="ctx-empty__hint">Clique em um lead para ver os detalhes do negócio</span>
           </div>
         ) : (
           <>

@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosError, Method } from 'axios';
+import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { getBackendPublicUploadDir } from '../public-assets';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
 import { isModalSendReady } from './whatsapp-connection-state';
 
@@ -443,6 +445,11 @@ export class WebwhatsBridgeService {
     }
 
     try {
+      // Foto: re-checa no máximo 1x por janela (TTL) — respeita o rate-limit do WhatsApp e
+      // ainda pega troca de foto. Sem checkedAt (conversa antiga/migração) = re-checa já.
+      const avatarTtlMs = 12 * 60 * 60 * 1000;
+      const avatarCheckedAt = Number(metadata.whatsappAvatarCheckedAt || 0);
+      const avatarFresh = avatarCheckedAt > 0 && Date.now() - avatarCheckedAt < avatarTtlMs;
       const [messageGroups, profilePicture] = await Promise.all([
         Promise.all(
           [
@@ -459,7 +466,7 @@ export class WebwhatsBridgeService {
             }, session.tenantKey),
           ),
         ),
-        metadata.whatsappAvatarUrl
+        avatarFresh
           ? Promise.resolve(null)
           : this.fetchProfilePicture(companyId, syncableRemoteJids[0], session.tenantKey),
       ]);
@@ -498,7 +505,11 @@ export class WebwhatsBridgeService {
         remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
       );
       const latestDisplayName = latestDisplayNames.displayName || this.getPersistedDisplayName(metadata);
-      const avatarUrl = this.normalizeOptionalString(profilePicture?.profilePictureUrl);
+      const rawAvatarUrl = this.normalizeOptionalString(profilePicture?.profilePictureUrl);
+      // Baixa 1x e serve local/estável (anti-piscada + anti-expiração); cai na crua se falhar.
+      const avatarUrl = rawAvatarUrl
+        ? (await this.cacheProfilePictureLocally(rawAvatarUrl)) ?? rawAvatarUrl
+        : null;
       const mediaMessages = orderedMessages.reduce((count, message) => {
         return ['image', 'video', 'document', 'audio'].includes(this.normalizeMessageType(message))
           ? count + 1
@@ -510,6 +521,7 @@ export class WebwhatsBridgeService {
           displayName: latestDisplayName,
         }),
         ...(avatarUrl ? { whatsappAvatarUrl: avatarUrl } : {}),
+        ...(avatarFresh ? {} : { whatsappAvatarCheckedAt: Date.now() }),
         whatsappRemoteJid: remoteJid,
         ...(remoteJidAlt ? { whatsappRemoteJidAlt: remoteJidAlt } : {}),
         ...(matchingChat
@@ -2727,6 +2739,49 @@ export class WebwhatsBridgeService {
     });
   }
 
+  // Cache de foto de perfil POR CONTEÚDO (à prova de piscada E de desatualização).
+  // A URL do WhatsApp (pps.whatsapp.net) é assinada e EXPIRA — repassá-la crua faz a
+  // foto sumir quando vence e trocar de assinatura a cada busca (pisca). Aqui baixamos
+  // os bytes UMA vez e servimos local/estável em /uploads/avatars. A chave é o CAMINHO
+  // da URL (sem a query que rota): mesmo path = mesma foto (não re-baixa); o cliente
+  // trocou a foto → o WhatsApp devolve um path novo → chave nova → baixa a nova (NÃO
+  // fica desatualizado: a identidade do arquivo é o conteúdo). Falha (URL vencida/rede)
+  // → null, e o chamador cai na URL crua (nunca pior que hoje).
+  private async cacheProfilePictureLocally(cdnUrl: string | null | undefined): Promise<string | null> {
+    const url = this.normalizeOptionalString(cdnUrl);
+    if (!url || !/^https?:\/\//i.test(url)) return null;
+    let pathname: string;
+    try {
+      pathname = new URL(url).pathname;
+    } catch {
+      return null;
+    }
+    const rawExt = extname(pathname).toLowerCase().replace(/[^.a-z0-9]/g, '');
+    const ext = /^\.(jpe?g|png|webp|gif)$/.test(rawExt) ? rawExt : '.jpg';
+    const filename = `${createHash('sha1').update(pathname).digest('hex')}${ext}`;
+    const dir = getBackendPublicUploadDir('avatars');
+    const filePath = join(dir, filename);
+    const publicUrl = `/uploads/avatars/${filename}`;
+    if (existsSync(filePath)) return publicUrl; // mesma foto já em disco → não re-baixa
+    try {
+      const res = await axios.get<ArrayBuffer>(url, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        maxContentLength: 8 * 1024 * 1024,
+        validateStatus: (status) => status >= 200 && status < 300,
+      });
+      const contentType = String(res.headers?.['content-type'] || '').toLowerCase();
+      if (contentType && !contentType.startsWith('image/')) return null;
+      const buffer = Buffer.from(res.data as ArrayBuffer);
+      if (!buffer.length) return null;
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(filePath, buffer);
+      return publicUrl;
+    } catch {
+      return null;
+    }
+  }
+
   async refreshConversationProfilePicture(
     companyId: number,
     remoteJid: string,
@@ -2736,7 +2791,10 @@ export class WebwhatsBridgeService {
     if (!normalizedRemoteJid) return null;
     try {
       const result = await this.fetchProfilePicture(companyId, normalizedRemoteJid, tenantKeyHint);
-      return this.normalizeOptionalString(result?.profilePictureUrl) || null;
+      const url = this.normalizeOptionalString(result?.profilePictureUrl) || null;
+      if (!url) return null;
+      // Serve local/estável: mesmo conteúdo = mesmo arquivo; foto trocada = arquivo novo.
+      return (await this.cacheProfilePictureLocally(url)) ?? url;
     } catch {
       return null;
     }

@@ -36,6 +36,6 @@ import { ModulesAccessModule } from '../modules/modules.module';
     CompanyWhatsAppCustomerSyncService,
   ],
   controllers: [CompaniesController, WhatsAppPairingController],
-  exports: [CompaniesService, CompanyOperationalStatusService],
+  exports: [CompaniesService, CompanyOperationalStatusService, WhatsAppModalService],
 })
 export class CompaniesModule {}
