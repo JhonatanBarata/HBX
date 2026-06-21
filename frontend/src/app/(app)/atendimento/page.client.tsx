@@ -2002,12 +2002,12 @@ export function AtendimentoClient() {
             {novaMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
-              <input className="field-dark" required maxLength={20} placeholder="11999990000" value={novaForm.phone}
+              <input className="field-dark" type="tel" required autoFocus maxLength={20} placeholder="11999990000" value={novaForm.phone}
                 onChange={e => setNovaForm(f => ({ ...f, phone: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>
-              <input className="field-dark" maxLength={120} value={novaForm.name}
+              <input className="field-dark" type="text" maxLength={120} value={novaForm.name}
                 onChange={e => setNovaForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <button className="btn-teal" type="submit" disabled={novaBusy} style={{ minHeight: 42 }}>

@@ -387,9 +387,9 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .tbl tbody tr { cursor: pointer; }
 .tbl tbody tr:hover td { background: var(--hbx-surface-raised); }
 .tbl tbody tr.sel td { background: var(--hbx-brand-soft); }
-.tbl .co { display: grid; gap: 3px; }
-.tbl .co strong { font-size: 0.78rem; }
-.tbl .sub2 { font-size: 0.64rem; color: var(--text-muted); }
+.tbl .co { display: grid; gap: 3px; max-width: 180px; }
+.tbl .co strong { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl .sub2 { font-size: 0.64rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tbl a { color: var(--hbx-info); text-decoration: none; font-weight: 600; }
 .score-ring { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 999px; border: 2px solid; font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; }
 .score-ring.hi { border-color: var(--hbx-brand-strong); color: var(--hbx-brand-strong); }

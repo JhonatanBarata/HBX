@@ -3757,15 +3757,21 @@ export class InboxService {
   private async getPersistedConversationByIdForCompany(
     companyId: number,
     id: number,
-    options?: { messagesLimit?: number; sessionScope?: InboxWhatsappSessionScope },
+    options?: { messagesLimit?: number; sessionScope?: InboxWhatsappSessionScope; companyWide?: boolean },
   ) {
     const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 20);
-    const sessionScope = options?.sessionScope || await this.resolveInboxWhatsappSessionScope(companyId);
-    this.assertInboxWhatsappAccessible(sessionScope);
-    const sessionWhere =
-      sessionScope.mode === 'current'
-        ? { whatsappConnectionSessionId: sessionScope.currentSessionId }
-        : {};
+    // companyWide: echo pós-mutação já autorizada — sem filtro de sessão e sem gate de WhatsApp
+    // (a mutação já validou a conversa). Evita o 404 do ponteiro da empresa (conversa de sessão ≠
+    // ponteiro) e o 503 de mutação só-de-banco quando o WhatsApp está fora.
+    let sessionWhere: { whatsappConnectionSessionId?: string | null } = {};
+    if (!options?.companyWide) {
+      const sessionScope = options?.sessionScope || await this.resolveInboxWhatsappSessionScope(companyId);
+      this.assertInboxWhatsappAccessible(sessionScope);
+      sessionWhere =
+        sessionScope.mode === 'current'
+          ? { whatsappConnectionSessionId: sessionScope.currentSessionId }
+          : {};
+    }
     const loadRow = () => this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp', ...sessionWhere },
       select: {
@@ -4325,8 +4331,15 @@ export class InboxService {
     });
   }
 
+  // Echo pós-mutação (enviar, marcar lida, status, fila, bloquear, claim/transfer, avatar...): a
+  // conversa JÁ foi autorizada DENTRO da mutação (ensureConversation/findFirst com o scope do
+  // usuário). Aqui só devolvemos o estado ATUAL, company-wide. NÃO re-resolver o ponteiro da
+  // empresa: conversa de uma sessão ≠ ponteiro (admin/dono operando entre vários chips) caía em
+  // NotFound → 404 na RESPOSTA mesmo com a ação já feita; o front tratava como falha e "a mensagem
+  // sumia"/"marcar lida dava erro no console". Company-wide também evita 503 em mutação só-de-banco
+  // quando o WhatsApp está fora.
   private async getConversationByIdForCompany(companyId: number, id: number) {
-    return this.getPersistedConversationByIdForCompany(companyId, id);
+    return this.getPersistedConversationByIdForCompany(companyId, id, { companyWide: true });
   }
 
   async getConversationPresence(user: any, id: number) {
