@@ -1,8 +1,9 @@
 "use client";
 
 // Janela Sistema — fase 3 do /master (ordem do dono 12/06/2026: "ligue tudo").
+// Catálogo de módulos saiu daqui (21/06): a fonte única de módulo por plano é a
+// janela Self-Checkout (PlanModuleConfig). Subabas: Credenciais/Exclusões/Reclamações.
 // Contratos ligados (ModulesController, todos JWT+MasterGuard):
-//   GET/PUT modules/master/system-modules[/:key]   → catálogo de módulos
 //   GET     modules/master/global-integrations     → política + bibliotecas
 //   PUT     modules/master/billing-policy          → desconto anual/assento extra/indicação
 //   PUT     modules/master/global-integrations     → bibliotecas de credenciais
@@ -26,18 +27,7 @@ import { fmtDataHora } from "./page.client";
 
 // "Planos" e "Política comercial" saíram daqui (18-19/06): viraram a janela
 // Self-Checkout (sem duplicar editor de plano/preço/desconto).
-const SUBTABS = ["Módulos", "Credenciais", "Exclusões", "Reclamações", "WhatsApp (Meta)"];
-
-type SystemModule = {
-  id: number;
-  key: string;
-  name: string;
-  description?: string | null;
-  monthlyPrice?: number;
-  defaultEnabled?: boolean;
-  companyAssignable?: boolean;
-  serviceUrl?: string | null;
-};
+const SUBTABS = ["Credenciais", "Exclusões", "Reclamações"];
 
 type CredWa = { key?: string; label?: string; phoneNumberId?: string; wabaId?: string; displayNumber?: string; accessTokenPreview?: string | null; configured?: boolean; accessToken?: string };
 type CredMp = { key?: string; label?: string; accessTokenPreview?: string | null; configured?: boolean; accessToken?: string };
@@ -108,12 +98,6 @@ const COMPLAINT_STATUS = [
 export function JanelaSistema() {
   const [sub, setSub] = useTabIndex("sistema", 0);
 
-  // módulos
-  const [modulos, setModulos] = useState<SystemModule[] | null>(null);
-  const [modEdit, setModEdit] = useState<Record<string, { name: string; monthlyPrice: string; description: string }>>({});
-  const [modBusy, setModBusy] = useState<string | null>(null);
-  const [modMsg, setModMsg] = useState<string | null>(null);
-
   // política + credenciais
   const [integ, setInteg] = useState<GlobalIntegrations>(null);
   const [waLib, setWaLib] = useState<CredWa[] | null>(null);
@@ -132,12 +116,6 @@ export function JanelaSistema() {
   const [complaints, setComplaints] = useState<Complaint[] | null>(null);
   const [compMsg, setCompMsg] = useState<string | null>(null);
   const [compBusy, setCompBusy] = useState<string | null>(null);
-
-  const carregarModulos = useCallback(() => {
-    return apiFetch<SystemModule[]>("/modules/master/system-modules")
-      .then(res => setModulos(Array.isArray(res) ? res : []))
-      .catch(() => setModulos([]));
-  }, []);
 
   const carregarInteg = useCallback(() => {
     return apiFetch<GlobalIntegrations>("/modules/master/global-integrations")
@@ -167,58 +145,9 @@ export function JanelaSistema() {
       .catch(() => setComplaints([]));
   }, []);
 
-  useEffect(() => { carregarModulos(); carregarInteg(); }, [carregarModulos, carregarInteg]);
-  useEffect(() => { if (sub === 2 && excl === null) carregarExclusoes(); }, [sub, excl, carregarExclusoes]);
-  useEffect(() => { if (sub === 3 && complaints === null) carregarComplaints(compStatus); }, [sub, complaints, compStatus, carregarComplaints]);
-
-  function modValor(m: SystemModule) {
-    return modEdit[m.key] ?? {
-      name: m.name,
-      monthlyPrice: m.monthlyPrice != null ? String(m.monthlyPrice) : "",
-      description: m.description || "",
-    };
-  }
-
-  async function salvarModulo(m: SystemModule) {
-    if (modBusy) return;
-    const v = modValor(m);
-    setModBusy(m.key);
-    setModMsg(null);
-    try {
-      await apiFetch(`/modules/master/system-modules/${encodeURIComponent(m.key)}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: v.name,
-          description: v.description,
-          ...(v.monthlyPrice !== "" ? { monthlyPrice: Number(String(v.monthlyPrice).replace(",", ".")) || 0 } : {}),
-        }),
-      });
-      setModMsg(`✓ Módulo ${m.key} atualizado.`);
-      setModEdit(prev => { const next = { ...prev }; delete next[m.key]; return next; });
-      await carregarModulos();
-    } catch (err) {
-      setModMsg(err instanceof Error ? err.message : "Falha ao salvar o módulo.");
-    } finally {
-      setModBusy(null);
-    }
-  }
-
-  async function alternarDefault(m: SystemModule) {
-    if (modBusy) return;
-    setModBusy(m.key);
-    setModMsg(null);
-    try {
-      await apiFetch(`/modules/master/system-modules/${encodeURIComponent(m.key)}`, {
-        method: "PUT",
-        body: JSON.stringify({ defaultEnabled: !m.defaultEnabled }),
-      });
-      await carregarModulos();
-    } catch (err) {
-      setModMsg(err instanceof Error ? err.message : "Falha ao alternar o padrão.");
-    } finally {
-      setModBusy(null);
-    }
-  }
+  useEffect(() => { carregarInteg(); }, [carregarInteg]);
+  useEffect(() => { if (sub === 1 && excl === null) carregarExclusoes(); }, [sub, excl, carregarExclusoes]);
+  useEffect(() => { if (sub === 2 && complaints === null) carregarComplaints(compStatus); }, [sub, complaints, compStatus, carregarComplaints]);
 
   async function salvarCredenciais() {
     if (credBusy) return;
@@ -321,55 +250,6 @@ export function JanelaSistema() {
       </div>
 
       {sub === 0 && (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Catálogo de módulos do sistema</h2>
-            {modMsg && <div className="meta" style={{ fontWeight: 700, color: modMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{modMsg}</div>}
-          </div>
-          <div className="tbl-wrap">
-            <table className="tbl">
-              <thead>
-                <tr><th>Módulo</th><th>Nome</th><th>Preço mensal</th><th>Padrão ON</th><th>Atribuível</th><th></th></tr>
-              </thead>
-              <tbody>
-                {modulos === null && <tr><td colSpan={6} style={{ color: "var(--text-muted)" }}>Carregando…</td></tr>}
-                {(modulos || []).map(m => {
-                  const v = modValor(m);
-                  return (
-                    <tr key={m.key} style={{ cursor: "default" }}>
-                      <td><span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem" }}>{m.key}</span></td>
-                      <td>
-                        <input className="field-dark" style={{ minHeight: 30, fontSize: "0.7rem", width: 170 }} value={v.name}
-                          onChange={e => setModEdit(prev => ({ ...prev, [m.key]: { ...v, name: e.target.value } }))} />
-                      </td>
-                      <td>
-                        <input className="field-dark" style={{ minHeight: 30, fontSize: "0.7rem", width: 90 }} inputMode="decimal" value={v.monthlyPrice}
-                          onChange={e => setModEdit(prev => ({ ...prev, [m.key]: { ...v, monthlyPrice: e.target.value } }))} />
-                      </td>
-                      <td>
-                        <button className="btn-ghost" disabled={modBusy != null}
-                          style={{ minHeight: 26, fontSize: "0.62rem", ...(m.defaultEnabled ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
-                          onClick={() => alternarDefault(m)}>
-                          {modBusy === m.key ? "…" : m.defaultEnabled ? "ON" : "OFF"}
-                        </button>
-                      </td>
-                      <td>{m.companyAssignable ? "sim" : "não"}</td>
-                      <td>
-                        <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem" }} disabled={modBusy != null || !modEdit[m.key]}
-                          onClick={() => salvarModulo(m)}>
-                          {modBusy === m.key ? "…" : "Salvar"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {sub === 1 && (
         <React.Fragment>
         <section className="panel">
           <div className="panel-head">
@@ -434,11 +314,13 @@ export function JanelaSistema() {
             </div>
           </div>
         </section>
+        <MetaWhatsAppEditor />
+        <MetaTemplatesEditor />
         <MasterWhatsappChip />
         </React.Fragment>
       )}
 
-      {sub === 2 && (
+      {sub === 1 && (
         <React.Fragment>
           {exclMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: exclMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{exclMsg}</div>}
           <section className="panel">
@@ -512,7 +394,7 @@ export function JanelaSistema() {
         </React.Fragment>
       )}
 
-      {sub === 3 && (
+      {sub === 2 && (
         <section className="panel">
           <div className="panel-head">
             <h2>Reclamações de cards (Vendas)</h2>
@@ -580,8 +462,6 @@ export function JanelaSistema() {
           </div>
         </section>
       )}
-
-      {sub === 4 && (<><MetaWhatsAppEditor /><MetaTemplatesEditor /></>)}
 
     </React.Fragment>
   );

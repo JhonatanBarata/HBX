@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Av, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
+import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
@@ -245,13 +246,6 @@ function fmtResp(secs?: number | null) {
   return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
-// Data/hora completa para a timeline do histórico do lead.
-function fmtHistTime(iso: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
 
 // /uploads/inbox/x.jpg → URL servível (proxy /hbx/api em dev). Absoluto passa direto.
 function resolveMediaUrl(u?: string | null) {
@@ -442,9 +436,8 @@ export function AtendimentoClient() {
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
 
-  // painel direito: card de situação + abas (0 = contexto, 1 = histórico)
+  // painel direito: card de situação + observações
   const [card, setCard] = useState<StatusCard | null>(null);
-  const [ctxTab, setCtxTab] = useState(0);
   const [obsDraft, setObsDraft] = useState("");
   const [obsBusy, setObsBusy] = useState(false);
 
@@ -712,13 +705,20 @@ export function AtendimentoClient() {
   }
 
   useEffect(() => {
-    // handoff do Leads: abre direto a conversa recém-criada
+    // handoff: abre direto a conversa indicada, vinda de:
+    //   1) sessionStorage "hbx:abrir-conversa" — gravado por Vendas (e Leads) antes de navegar
+    //   2) query param ?conversation=<id> — deep-link de URL (ex.: /atendimento?conversation=42)
     let alive = true;
     let pendingId: string | null = null;
     try {
       pendingId = sessionStorage.getItem("hbx:abrir-conversa");
       if (pendingId) sessionStorage.removeItem("hbx:abrir-conversa");
     } catch { /* sem storage */ }
+    if (!pendingId && typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const qp = params.get("conversation");
+      if (qp) pendingId = qp;
+    }
     loadConvs().then(() => { if (alive && pendingId) setSelId(pendingId); });
     loadMetrics();
     return () => { alive = false; };
@@ -915,7 +915,6 @@ export function AtendimentoClient() {
       setEmojiOpen(false);
       setQuickOpen(false);
       setCard(null);
-      setCtxTab(0);
       setAcoesOpen(false);
       setMoverOpen(false);
       setTarefaOpen(false);
@@ -1700,7 +1699,6 @@ export function AtendimentoClient() {
                           {blocked
                             ? <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => acaoBloqueio(false)}>Desbloquear contato</button>
                             : <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => acaoBloqueio(true)}>Bloquear contato</button>}
-                          <button className="nav-item" style={{ minHeight: 32 }} onClick={() => { setAcoesOpen(false); enviarProposta(); }}>Abrir no Vendas</button>
                         </div>
                       )}
                     </span>
@@ -1874,76 +1872,65 @@ export function AtendimentoClient() {
           </div>
 
           <aside className="ctx">
-            <div className="seg-toggle" style={{ width: "100%" }}>
-              <button className={"seg" + (ctxTab === 0 ? " on" : "")} style={{ flex: 1 }} onClick={() => setCtxTab(0)}>Contexto do lead</button>
-              <button className={"seg" + (ctxTab === 1 ? " on" : "")} style={{ flex: 1 }} onClick={() => setCtxTab(1)}>Histórico</button>
-            </div>
-
-            <div style={{ display: "flex", gap: 11, alignItems: "center" }}>
-              <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={44} />
-              <div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span className="company">{convo ? convName(convo) : "—"}</span>
-                  {card?.customer?.doNotCall
-                    ? <span className="tag red">Não ligar</span>
-                    : <span className="tag teal">{card?.lead?.statusLabel || "Lead"}</span>}
+            <DetalhesNegocio
+              detail={convo ? ({
+                id: convo.id,
+                name: convName(convo),
+                avatarUrl: convAvatar(convo) || null,
+                online: Boolean(presence?.online),
+                phone: phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || null,
+                email: convo.customer?.email ?? null,
+                statusLabel: card?.lead?.statusLabel ?? null,
+                doNotCall: card?.customer?.doNotCall ?? false,
+                channel: "WhatsApp",
+                nextAction: card?.lead?.nextAction ?? null,
+                returnAt: card?.lead?.returnAt ?? undefined,
+                lastContactAt: card?.lead?.lastContactAt ?? undefined,
+                lastMessageAt: convo.lastMessageAt ?? undefined,
+                attemptCount: card?.lead?.attemptCount ?? null,
+                timesSeen: card?.lead?.timesSeen ?? null,
+                shortNote: card?.lead?.shortNote ?? null,
+                botActive: convo.botActive,
+                humanAssigned: convo.humanAssigned,
+                observations: card?.customer?.observations ?? null,
+                history: card?.history?.map(h => ({
+                  id: h.id,
+                  title: h.title,
+                  description: h.description,
+                  resultLabel: h.resultLabel,
+                  returnAt: h.returnAt,
+                  createdAt: h.createdAt,
+                })) ?? null,
+              } satisfies NegocioDetail) : null}
+              obsDraft={obsDraft}
+              onObsChange={convo ? setObsDraft : undefined}
+              onObsSave={convo ? salvarObs : undefined}
+              obsBusy={obsBusy}
+              onToggleDoNotCall={convo ? () => alternarNaoLigar(!card?.customer?.doNotCall) : undefined}
+              historyLabel="Histórico do lead"
+              title="Detalhes do lead"
+              kvExtra={convo && visibleThread.length > 0 ? (
+                <div className="kv" style={{ marginTop: 4 }}>
+                  {visibleThread.slice(-3).reverse().map(m => (
+                    <div className="row" key={m.id}>
+                      <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                        <I d={ICONS.msg} size={13} />
+                        {m.direction === "outbound" ? "Enviada" : "Recebida"}
+                      </span>
+                      <span className="v">{fmtConvTime(m.createdAt)}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="sub">{phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—"}</div>
-              </div>
-            </div>
-
-            {ctxTab === 0 ? (
-              <>
-                <div className="kv">
-                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.mail} size={13} /> E-mail</span><span className="v">{convo?.customer?.email || "—"}</span></div>
-                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.phone} size={13} /> Telefone</span><span className="v">{phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—"}</span></div>
-                  <div className="row"><span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}><I d={ICONS.msg} size={13} /> Canal</span><span className="v"><span className="chan wa">WhatsApp</span></span></div>
-                </div>
-                <div className="sep"></div>
-                <div className="kv">
-                  <div className="row"><span className="k">Etapa do lead</span><span className="v">{card?.lead ? <span className="tag teal">{card.lead.statusLabel}</span> : "—"}</span></div>
-                  <div className="row"><span className="k">Próxima ação</span><span className="v">{card?.lead?.nextAction || "—"}</span></div>
-                  <div className="row"><span className="k">Retorno</span><span className="v">{card?.lead?.returnAt ? fmtHistTime(card.lead.returnAt) : "—"}</span></div>
-                  <div className="row"><span className="k">Última mensagem</span><span className="v">{convo ? fmtConvTime(convo.lastMessageAt) : "—"}</span></div>
-                  <div className="row"><span className="k">Bot</span><span className="v">{convo ? (convo.botActive ? "Ativo" : "Inativo") : "—"}</span></div>
-                  <div className="row"><span className="k">Atendimento humano</span><span className="v">{convo ? (convo.humanAssigned ? "Sim" : "Não") : "—"}</span></div>
-                </div>
-                <div className="sep"></div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <h3>Observações</h3>
-                  <textarea className="field-dark" rows={3} maxLength={500} placeholder="Anotações deste contato…"
-                    value={obsDraft} onChange={e => setObsDraft(e.target.value)} disabled={!convo}
-                    style={{ resize: "vertical", paddingTop: 8, paddingBottom: 8 }} />
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                    <button className="btn-ghost" disabled={!convo || acaoBusy} onClick={() => alternarNaoLigar(!card?.customer?.doNotCall)}>
-                      {card?.customer?.doNotCall ? "Liberar contato" : "Não ligar mais"}
-                    </button>
-                    <button className="btn-teal" style={{ minHeight: 36 }} disabled={!convo || obsBusy} onClick={salvarObs}>{obsBusy ? "Salvando…" : "Salvar"}</button>
-                  </div>
-                </div>
-                <div className="sep"></div>
-                <div>
-                  <h3 style={{ marginBottom: 4 }}>Últimas interações <span className="link" style={{ fontWeight: 700 }} onClick={() => setCtxTab(1)}>Ver todas</span></h3>
-                  <div className="kv" style={{ marginTop: 8 }}>
-                    {visibleThread.slice(-3).reverse().map(m => (
-                      <div className="row" key={m.id}>
-                        <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                          <I d={ICONS.msg} size={13} />
-                          {m.direction === "outbound" ? "Enviada" : "Recebida"}
-                        </span>
-                        <span className="v">{fmtConvTime(m.createdAt)}</span>
-                      </div>
-                    ))}
-                    {visibleThread.length === 0 && <div className="row"><span className="k">—</span><span className="v">—</span></div>}
-                  </div>
-                </div>
-                <div className="sep"></div>
+              ) : undefined}
+              actions={convo ? (
                 <div style={{ display: "grid", gap: 8 }}>
                   <h3>Ações rápidas</h3>
                   {acaoMsg && <span className="tag red">{acaoMsg}</span>}
                   <span ref={moverWrapRef} style={{ position: "relative", display: "grid" }}>
-                    <button className="btn-teal" disabled={!convo || acaoBusy} onClick={() => { setMoverOpen(o => !o); setTarefaOpen(false); setAcaoMsg(null); }}><I d={ICONS.arrow} size={14} /> Mover etapa</button>
-                    {moverOpen && convo && (
+                    <button className="btn-teal" disabled={acaoBusy} onClick={() => { setMoverOpen(o => !o); setTarefaOpen(false); setAcaoMsg(null); }}>
+                      <I d={ICONS.arrow} size={14} /> Mover etapa
+                    </button>
+                    {moverOpen && (
                       <div className="hbx-pop" style={{ position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 30, padding: 6, display: "grid", gap: 2 }}>
                         <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => moverEtapa("new")}>Novo · bot assume</button>
                         <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => moverEtapa("open")}>Em atendimento humano</button>
@@ -1953,42 +1940,24 @@ export function AtendimentoClient() {
                   </span>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <span ref={tarefaWrapRef} style={{ position: "relative", display: "grid" }}>
-                      <button className="btn-ghost" disabled={!convo} onClick={() => { setTarefaOpen(o => !o); setMoverOpen(false); setAcaoMsg(null); }}><I d={ICONS.check} size={13} /> Criar tarefa</button>
-                      {tarefaOpen && convo && (
+                      <button className="btn-ghost" onClick={() => { setTarefaOpen(o => !o); setMoverOpen(false); setAcaoMsg(null); }}>
+                        <I d={ICONS.check} size={13} /> Criar tarefa
+                      </button>
+                      {tarefaOpen && (
                         <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
                           <label className="sub" style={{ marginTop: 0 }}>Agendar retorno</label>
                           <input className="field-dark" type="date" value={tarefaData} onChange={e => setTarefaData(e.target.value)} />
-                          <button className="btn-teal" style={{ minHeight: 34 }} disabled={!tarefaData || acaoBusy} onClick={agendarRetorno}>{acaoBusy ? "Agendando…" : "Agendar retorno"}</button>
+                          <button className="btn-teal" style={{ minHeight: 34 }} disabled={!tarefaData || acaoBusy} onClick={agendarRetorno}>
+                            {acaoBusy ? "Agendando…" : "Agendar retorno"}
+                          </button>
                         </div>
                       )}
                     </span>
-                    <button className="btn-ghost" disabled={!convo} onClick={enviarProposta}><I d={ICONS.doc} size={13} /> Enviar proposta</button>
+                    <button className="btn-ghost" onClick={enviarProposta}><I d={ICONS.doc} size={13} /> Enviar proposta</button>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div style={{ display: "grid", gap: 12 }}>
-                <h3>Histórico do lead</h3>
-                {(!card || card.history.length === 0) && (
-                  <span className="sub" style={{ marginTop: 0 }}>{convo ? "Sem histórico registrado para este contato ainda." : "Selecione uma conversa."}</span>
-                )}
-                {card?.history.map(h => (
-                  <div key={h.id} style={{ display: "grid", gap: 3 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                      <strong style={{ fontSize: "0.76rem" }}>{h.title}</strong>
-                      <small className="sub" style={{ marginTop: 0, whiteSpace: "nowrap" }}>{fmtHistTime(h.createdAt)}</small>
-                    </div>
-                    {h.description && <span className="sub" style={{ marginTop: 0 }}>{h.description}</span>}
-                    {(h.resultLabel || h.returnAt) && (
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {h.resultLabel && <span className="tag teal">{h.resultLabel}</span>}
-                        {h.returnAt && <span className="tag warn">Retorno {fmtHistTime(h.returnAt)}</span>}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+              ) : undefined}
+            />
           </aside>
         </div>
 

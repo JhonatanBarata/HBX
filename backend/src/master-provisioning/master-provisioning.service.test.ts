@@ -65,7 +65,10 @@ test('buildProvisioningPlan defaults modules from selected plan and validates ad
 
   assert.equal(plan.tenant.companyKind, 'tenant');
   assert.equal(plan.commercial.entitlementStatus, 'pending_configuration');
-  assert.ok(plan.modules.some((moduleItem) => moduleItem.key === 'gerencial'));
+  // Plano semeia módulos do catálogo comercial; gerencial NÃO entra mais (21/06):
+  // virou admin-tier (acesso por role), fora de COMMERCIAL_PLAN_MODULE_KEYS.
+  assert.ok(plan.modules.some((moduleItem) => moduleItem.key === 'vendas'));
+  assert.equal(plan.modules.some((moduleItem) => moduleItem.key === 'gerencial'), false);
   assert.equal(plan.admin, null);
   assert.equal(plan.products[0].key, 'oferta-principal');
   assert.equal(plan.products[0].kind, 'tenant_product');

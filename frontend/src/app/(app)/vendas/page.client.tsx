@@ -5,14 +5,17 @@
 // closed }, usage }. O modelo real é agenda de retorno (4 blocos), não funil
 // de 5 etapas — as colunas do kanban renderizam os blocos reais com a mesma
 // estrutura visual do template. Sem dado para um campo → "—".
-// Seções sem endpoint (Próximas tarefas, Funil de conversão) permanecem
-// visuais como no template — registrado no doc do PR.
+// Detalhe do negócio liga os campos reais do card (score de oportunidade,
+// temperatura, avaliação, observação, histórico/timeline). As seções fake do
+// template (Próximas tarefas, Funil) foram removidas — só dado real (21/06).
 
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
+import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -28,6 +31,11 @@ type VendasLead = {
   city: string | null;
   state: string | null;
   segment: string | null;
+  rating?: number | null;
+  reviews?: number | null;
+  opportunityScore?: number | null;       // 0–100, herdado do Radar
+  leadTemperature?: string | null;         // frio | morno | quente
+  timesSeen?: number | null;
   status: string;
   statusLabel: string;
   nextAction: string | null;
@@ -35,7 +43,17 @@ type VendasLead = {
   shortNote: string | null;
   lastContactAt: string | null;
   attemptCount: number;
+  lastResult?: string | null;
   closedAt: string | null;
+  timeline?: Array<{
+    id: string;
+    eventType?: string | null;
+    title: string | null;
+    description: string | null;
+    resultLabel?: string | null;
+    returnAt?: string | null;
+    createdAt?: string | null;
+  }> | null;
   saleConfirmedAt: string | null;
   saleStatus?: string | null;
   saleStatusLabel: string | null;
@@ -166,12 +184,19 @@ export function VendasClient() {
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
-  const [tasks, setTasks] = useState([true, false, false]);
   // agenda embutida (ordem do dono): painel lateral com os retornos reais
   // do board + sincronização da agenda de hoje no WhatsApp
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  // WhatsApp action button: sessão QR acessível + acesso ao módulo Atendimento.
+  // Carregado uma vez ao montar; não precisa de poll (mesmo critério do Atendimento).
+  const [waQrActive, setWaQrActive] = useState(false);
+  const [canAtendimento, setCanAtendimento] = useState(false);
+  // Estado do "WhatsApp Interno": POST /inbox/conversations/start + navegação
+  const [waStartBusy, setWaStartBusy] = useState(false);
+  const [waStartError, setWaStartError] = useState<string | null>(null);
 
   async function sincronizarHoje() {
     if (syncBusy) return;
@@ -217,6 +242,20 @@ export function VendasClient() {
     apiFetch<BotStatus>("/vendas/bot-status")
       .then(res => setBotStatus(res))
       .catch(() => setBotStatus({ botModuleEnabled: false, botArmed: false }));
+    // QR ativo: whatsappSession.accessible = sessão do vendedor (própria ou compartilhada)
+    apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
+      .then(res => setWaQrActive(res?.whatsappSession?.accessible === true))
+      .catch(() => setWaQrActive(false));
+    // Acesso ao Atendimento: /modules/me devolve a mesma lista que o app-shell usa
+    // para mostrar (ou não) o item do menu — se accessible:true, o vendedor atende.
+    // No modo COMPARTILHADO com retenção (admin não repassa inbox), accessible é false
+    // para o subordinado, então o Interno fica desabilitado — o mesmo que o start faria.
+    apiFetch<Array<{ key: string; accessible?: boolean }>>("/modules/me")
+      .then(list => {
+        const mod = Array.isArray(list) ? list.find(m => String(m.key || "").trim().toLowerCase() === "atendimento") : null;
+        setCanAtendimento(mod?.accessible === true);
+      })
+      .catch(() => setCanAtendimento(false));
   }, []);
 
   // Fechamento de venda com produto (trilha Produtos & Comissão, item 1):
@@ -470,6 +509,42 @@ export function VendasClient() {
     window.open(`https://wa.me/${target}?text=${encodeURIComponent(linkInfo.message)}`, "_blank", "noopener");
   }
 
+  // Abre no WhatsApp Externo (wa.me) direto do ícone de ação — sem link pré-digitado
+  // (o link pré-digitado só existe depois de gerar o link de contratação no fecharOpen).
+  function abrirWhatsAppExterno(phone: string | null | undefined) {
+    if (!phone) return;
+    const digits = phone.replace(/\D/g, "");
+    const target = digits.length >= 12 ? digits : `55${digits}`;
+    window.open(`https://wa.me/${target}`, "_blank", "noopener");
+  }
+
+  // Abre o WhatsApp Interno: POST /inbox/conversations/start → navega pro /atendimento
+  // usando sessionStorage (mecanismo já existente no atendimento — hbx:abrir-conversa).
+  // O backend já valida QR e acesso internamente; trate o erro com mensagem amigável.
+  async function abrirWhatsAppInterno(lead: { phone: string | null; name: string | null }) {
+    if (!lead.phone || waStartBusy) return;
+    setWaStartBusy(true);
+    setWaStartError(null);
+    try {
+      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: lead.phone.trim(),
+          ...(lead.name ? { name: lead.name.trim() } : {}),
+        }),
+      });
+      if (res?.id != null) {
+        // Handoff via sessionStorage — o atendimento lê ao montar e seleciona a conversa.
+        try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
+        router.push("/atendimento");
+      }
+    } catch (err) {
+      setWaStartError(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
+    } finally {
+      setWaStartBusy(false);
+    }
+  }
+
   // Cliente no fechamento (raciocínio do dono, 12/06/2026): o vendedor pode
   // CADASTRAR o cliente direto do card (dados puxados de lá) e tem o atalho
   // da "carta" para abrir o card do cliente quando ele existe. O perfil tem
@@ -668,6 +743,56 @@ export function VendasClient() {
     } finally {
       setNovoBusy(false);
     }
+  }
+
+  // Mapeia VendasLead → NegocioDetail (shape normalizado)
+  function toNegocioDetail(d: VendasLead): NegocioDetail {
+    return {
+      id: d.id,
+      name: d.name,
+      phone: d.phone,
+      email: d.email,
+      website: d.website,
+      city: d.city,
+      state: d.state,
+      segment: d.segment,
+      statusLabel: d.statusLabel,
+      leadTemperature: d.leadTemperature,
+      opportunityScore: d.opportunityScore,
+      rating: d.rating,
+      reviews: d.reviews,
+      valueLabel: leadValueLabel(d),
+      productName: d.product?.name ?? null,
+      returnAt: d.returnAt,
+      lastContactAt: d.lastContactAt,
+      attemptCount: d.attemptCount,
+      nextAction: d.nextAction,
+      shortNote: d.shortNote,
+      lastResult: d.lastResult,
+      timesSeen: d.timesSeen,
+      owner: d.owner ? { name: d.owner.name } : null,
+      leadIntelligence: d.leadIntelligence ?? null,
+      sale: d.saleStatus && d.saleStatus !== "none"
+        ? {
+            status: d.saleStatus,
+            statusLabel: d.saleStatusLabel,
+            valueLabel: fmtMoney(d.saleValue),
+            commissionLabel: d.commissionStatusLabel ?? null,
+            commissionValueLabel: d.commissionAmount != null ? fmtMoney(d.commissionAmount) : null,
+            setupLabel: d.setupValue != null && d.setupValue > 0
+              ? `${fmtMoney(d.setupValue)}${d.setupCommissionAmount != null ? ` · comissão: ${fmtMoney(d.setupCommissionAmount)}` : ""}`
+              : null,
+          }
+        : null,
+      history: d.timeline?.map(ev => ({
+        id: ev.id,
+        title: ev.title ?? "Atualização",
+        description: ev.description,
+        resultLabel: ev.resultLabel,
+        returnAt: ev.returnAt,
+        createdAt: ev.createdAt,
+      })) ?? null,
+    };
   }
 
   const summary = board?.summary;
@@ -919,219 +1044,124 @@ export function VendasClient() {
           </div>
 
           <aside className="ctx">
-            <h3>Detalhes do negócio <span className="x" onClick={() => setSel(null)}>✕</span></h3>
-
             <div key={deal?.id ?? "empty"} className="ctx-body">
-            {/* Hero: avatar + nome + segmento + etapa */}
-            <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-              <Av name={deal?.name || "—"} size={56} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span className="company">{deal?.name || "Selecione um card"}</span>
-                <div className="sub">{deal?.segment || deal?.city || "—"}</div>
-                {deal?.city && deal?.segment && (
-                  <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
-                    <I d={ICONS.mapin} size={11} /> {deal.city}{deal.state ? `, ${deal.state}` : ""}
-                  </div>
-                )}
-                <div style={{ marginTop: 6 }}><span className="tag">{deal?.statusLabel || "—"}</span></div>
-              </div>
-            </div>
-
-            {/* Canais de contato */}
-            {deal?.phone ? (
-              <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-                <CanalIcon canal="telefone" /> {deal.phone}
-              </a>
-            ) : deal ? (
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
-            ) : null}
-            {/* 6 selos de canal (padrão central CanalIcon) — WhatsApp verificado vem
-                de leadIntelligence.whatsappStatus === 'confirmed' (motor confirmou o número). */}
-            {deal && (
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "8px 0 2px", alignItems: "center" }}>
-                {deal.leadIntelligence?.whatsappStatus === "confirmed" && deal.phone ? (
-                  <a href={`https://wa.me/55${deal.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="xl" /></a>
-                ) : deal.phone ? (
-                  <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="xl" /></a>
-                ) : null}
-                {(deal.email || deal.leadIntelligence?.emailStatus === "confirmed" || deal.leadIntelligence?.emailStatus === "probable") && (
-                  deal.email
-                    ? <a href={`mailto:${deal.email}`} aria-label="E-mail"><CanalIcon canal="email" size="xl" /></a>
-                    : <CanalIcon canal="email" size="xl" />
-                )}
-                {deal.leadIntelligence?.instagramUrl && (
-                  <a href={deal.leadIntelligence.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram"><CanalIcon canal="instagram" size="xl" /></a>
-                )}
-                {deal.leadIntelligence?.facebookUrl && (
-                  <a href={deal.leadIntelligence.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook"><CanalIcon canal="facebook" size="xl" /></a>
-                )}
-                {deal.website && (
-                  <a href={deal.website.startsWith("http") ? deal.website : `https://${deal.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site"><CanalIcon canal="site" size="xl" /></a>
-                )}
-              </div>
-            )}
-            {deal?.website && (
-              <a href={deal.website.startsWith("http") ? deal.website : `https://${deal.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone ctx-phone--site" style={{ marginTop: 4 }}>
-                <CanalIcon canal="site" /> {deal.website}
-              </a>
-            )}
-
-            <div className="kv">
-              <div className="row"><span className="k">Valor</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{deal ? leadValueLabel(deal) : "—"}</span></div>
-              <div className="row"><span className="k">Produto</span><span className="v">{deal?.product?.name || "—"}</span></div>
-              <div className="row"><span className="k">Etapa atual</span><span className="v">{deal?.statusLabel || "—"}</span></div>
-              <div className="row"><span className="k">Próximo retorno</span><span className="v">{fmtDate(deal?.returnAt ?? null)}</span></div>
-              <div className="row"><span className="k">Último contato</span><span className="v">{fmtDate(deal?.lastContactAt ?? null)}</span></div>
-              <div className="row"><span className="k">Tentativas</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{deal ? deal.attemptCount : "—"}</span></div>
-              <div className="row"><span className="k">Responsável</span><span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>{deal?.owner?.name ? <React.Fragment><Av name={deal.owner.name} size={18} />{deal.owner.name}</React.Fragment> : "—"}</span></div>
-              {deal?.saleStatus && deal.saleStatus !== "none" && (
-                <React.Fragment>
-                  <div className="row"><span className="k">Venda</span><span className="v"><span className={"tag" + (deal.saleStatus === "sale_confirmed" ? " teal" : deal.saleStatus === "canceled" ? " warn" : "")}>{deal.saleStatusLabel || deal.saleStatus}</span></span></div>
-                  <div className="row"><span className="k">Valor fechado</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{fmtMoney(deal.saleValue) || "—"}</span></div>
-                  <div className="row"><span className="k">Comissão</span><span className="v">{deal.commissionStatusLabel || "—"}{deal.commissionAmount != null ? <span style={{ fontFamily: "var(--font-mono)", marginLeft: 6 }}>{fmtMoney(deal.commissionAmount)}</span> : null}</span></div>
-                  {deal.setupValue ? (
-                    <React.Fragment>
-                      <div className="row"><span className="k">Implantação</span><span className="v">{fmtMoney(deal.setupValue) || "—"}</span></div>
-                      <div className="row"><span className="k">Comissão implantação</span><span className="v">{deal.setupCommissionStatusLabel || "—"}{deal.setupCommissionAmount != null ? ` · ${fmtMoney(deal.setupCommissionAmount)}` : ""}</span></div>
-                    </React.Fragment>
-                  ) : null}
-                </React.Fragment>
-              )}
-            </div>
-            <div style={{ display: "grid", gap: 8 }}>
-              {fecharMsg && (
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: fecharMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{fecharMsg}</div>
-              )}
-              <button className="btn-teal" onClick={abrirFechar} disabled={!deal || deal.block === "closed"}>
-                <I d={ICONS.check} size={14} /> {deal?.block === "closed" ? "Card já fechado" : "Fechar venda"}
-              </button>
-              {acaoMsg && (
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: acaoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{acaoMsg}</div>
-              )}
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>
-                  <I d={ICONS.phone} size={13} /> Resultado da ligação
-                </label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
-                    <button key={o} className="btn-ghost" style={{ minHeight: 34, fontSize: "0.72rem" }}
-                      onClick={() => registrarResultado(o)} disabled={!deal || acaoBusy || deal.block === "closed"}>
-                      {o}
+              <DetalhesNegocio
+                detail={deal ? toNegocioDetail(deal) : null}
+                onClose={() => setSel(null)}
+                heroAction={deal ? (
+                  <WhatsAppActionButton
+                    phone={deal.phone}
+                    name={deal.name}
+                    qrActive={waQrActive}
+                    canInternal={canAtendimento}
+                    onOpenExternal={() => abrirWhatsAppExterno(deal.phone)}
+                    onOpenInternal={() => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name })}
+                    startBusy={waStartBusy}
+                    startError={waStartError}
+                  />
+                ) : undefined}
+                actions={deal ? (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {fecharMsg && (
+                      <div className={"ctx-msg " + (fecharMsg.startsWith("✓") ? "ok" : "err")}>{fecharMsg}</div>
+                    )}
+                    <button className="btn-teal" onClick={abrirFechar} disabled={deal.block === "closed"}>
+                      <I d={ICONS.check} size={14} /> {deal.block === "closed" ? "Card já fechado" : "Fechar venda"}
                     </button>
-                  ))}
-                </div>
-                <textarea className="field-dark" rows={2} maxLength={240}
-                  placeholder="Observação da ligação (opcional) — vai pro card"
-                  value={obs} onChange={e => setObs(e.target.value)} disabled={!deal || deal.block === "closed"}
-                  style={{ resize: "vertical", fontFamily: "var(--font-body)" }} />
-              </div>
-              <div className="vendas-neg">
-                <label>Negativar lead (sai da carteira)</label>
-                <div className="neg-row">
-                  <select className="field-dark" value={negMotivo} disabled={!deal || acaoBusy || deal.block === "closed"}
-                    onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
-                    <option value="">Motivo…</option>
-                    <option value="negative">Sem interesse</option>
-                    <option value="no_answer">Não atende / não existe</option>
-                    <option value="no_whatsapp">Sem WhatsApp</option>
-                    <option value="opt_out">Pediu pra não receber</option>
-                    <option value="complaint">Reclamou</option>
-                  </select>
-                  <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
-                    disabled={!deal || !negMotivo || acaoBusy}>
-                    {negArm ? "Confirmar" : "Negativar"}
-                  </button>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                <select className="field-dark" style={{ minHeight: 36 }} value={moverStatus} disabled={!deal || deal.block === "closed"}
-                  onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
-                  <option value="">Mover etapa…</option>
-                  <option value="novo">Novo</option>
-                  <option value="contato">Contato</option>
-                  <option value="retorno">Retorno</option>
-                  <option value="qualificado">Qualificado</option>
-                  <option value="encerrado">Encerrado</option>
-                </select>
-                <button className="btn-ghost" onClick={moverEtapa} disabled={!deal || !moverStatus || acaoBusy}>Mover</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={!deal || deal.block === "closed"}
-                  onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
-                <button className="btn-ghost" onClick={agendarRetorno} disabled={!deal || !retornoData || acaoBusy}>Agendar</button>
-              </div>
-              {retornoData && deal && deal.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
-                <div className="retorno-mode">
-                  <span className="lbl">Tipo de retorno</span>
-                  <div className="radios">
-                    {(["manual", ...(deal.email ? ["auto_email"] : []), ...(deal.phone ? ["auto_whatsapp"] : []), ...(deal.email && deal.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
-                      const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
-                      return (
-                        <label key={mode} className="radio-lbl">
-                          <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
-                          {labels[mode]}
-                        </label>
-                      );
-                    })}
+                    {acaoMsg && (
+                      <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
+                    )}
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <label className="ctx-field-lbl">
+                        <I d={ICONS.phone} size={13} /> Resultado da ligação
+                      </label>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
+                          <button key={o} className="btn-ghost" style={{ minHeight: 34, fontSize: "0.72rem" }}
+                            onClick={() => registrarResultado(o)} disabled={acaoBusy || deal.block === "closed"}>
+                            {o}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea className="field-dark ctx-obs" rows={2} maxLength={240}
+                        placeholder="Observação da ligação (opcional) — vai pro card"
+                        value={obs} onChange={e => setObs(e.target.value)} disabled={deal.block === "closed"} />
+                    </div>
+                    <div className="vendas-neg">
+                      <label>Negativar lead (sai da carteira)</label>
+                      <div className="neg-row">
+                        <select className="field-dark" value={negMotivo} disabled={acaoBusy || deal.block === "closed"}
+                          onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
+                          <option value="">Motivo…</option>
+                          <option value="negative">Sem interesse</option>
+                          <option value="no_answer">Não atende / não existe</option>
+                          <option value="no_whatsapp">Sem WhatsApp</option>
+                          <option value="opt_out">Pediu pra não receber</option>
+                          <option value="complaint">Reclamou</option>
+                        </select>
+                        <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
+                          disabled={!negMotivo || acaoBusy}>
+                          {negArm ? "Confirmar" : "Negativar"}
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                      <select className="field-dark" style={{ minHeight: 36 }} value={moverStatus} disabled={deal.block === "closed"}
+                        onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
+                        <option value="">Mover etapa…</option>
+                        <option value="novo">Novo</option>
+                        <option value="contato">Contato</option>
+                        <option value="retorno">Retorno</option>
+                        <option value="qualificado">Qualificado</option>
+                        <option value="encerrado">Encerrado</option>
+                      </select>
+                      <button className="btn-ghost" onClick={moverEtapa} disabled={!moverStatus || acaoBusy}>Mover</button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                      <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={deal.block === "closed"}
+                        onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
+                      <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
+                    </div>
+                    {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
+                      <div className="retorno-mode">
+                        <span className="lbl">Tipo de retorno</span>
+                        <div className="radios">
+                          {(["manual", ...(deal.email ? ["auto_email"] : []), ...(deal.phone ? ["auto_whatsapp"] : []), ...(deal.email && deal.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
+                            const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
+                            return (
+                              <label key={mode} className="radio-lbl">
+                                <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
+                                {labels[mode]}
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
+                      </div>
+                    )}
+                    {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
+                      <div className="bot-warn">
+                        <span className="warn-lbl">Bot sem configuração.</span>
+                        <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
+                          {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                        </button>
+                      </div>
+                    )}
+                    {cadMsg && (
+                      <div className={"ctx-msg " + (cadMsg.startsWith("✓") ? "ok" : "err")}>{cadMsg}</div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                      <button className="btn-ghost" onClick={abrirCadastrarCliente}>
+                        <I d={ICONS.users} size={13} /> Cadastrar cliente
+                      </button>
+                      <button className="icon-ghost" onClick={verCliente} disabled={!deal.phone}
+                        title="Card do cliente 🃏" aria-label="Abrir card do cliente">
+                        <I d={ICONS.doc} size={15} />
+                      </button>
+                    </div>
                   </div>
-                  {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
-                </div>
-              )}
-              {retornoData && deal && deal.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
-                <div className="bot-warn">
-                  <span className="warn-lbl">Bot sem configuração.</span>
-                  <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
-                    {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
-                  </button>
-                </div>
-              )}
-              {cadMsg && (
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: cadMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{cadMsg}</div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                <button className="btn-ghost" onClick={abrirCadastrarCliente} disabled={!deal}>
-                  <I d={ICONS.users} size={13} /> Cadastrar cliente
-                </button>
-                <button className="icon-ghost" onClick={verCliente} disabled={!deal?.phone}
-                  title="Card do cliente 🃏" aria-label="Abrir card do cliente">
-                  <I d={ICONS.doc} size={15} />
-                </button>
-              </div>
-            </div>
-            <div className="sep"></div>
-            <div>
-              <h3 style={{ marginBottom: 6 }}>Próximas tarefas</h3>
-              {[
-                { t: "Aguardar retorno da proposta", d: "22/06/2026", r: "Juliana Costa" },
-                { t: "Reunião técnica com o cliente", d: "23/06/2026", r: "Rafael Martins" },
-                { t: "Enviar proposta ajustada", d: "26/06/2026", r: "Juliana Costa" },
-              ].map((t, i) => (
-                <label className="task" key={t.t}>
-                  <input type="checkbox" checked={tasks[i]} onChange={() => setTasks(ts => ts.map((v, j) => j === i ? !v : v))} />
-                  <span>
-                    <span className="t" style={{ textDecoration: tasks[i] ? "line-through" : "none", opacity: tasks[i] ? 0.6 : 1 }}>{t.t}</span>
-                    <span className="d">{t.d} · {t.r}</span>
-                  </span>
-                </label>
-              ))}
-              <span className="link">Ver todas as tarefas</span>
-            </div>
-            <div className="sep"></div>
-            <div>
-              <h3 style={{ marginBottom: 10 }}>Funil de conversão (mês)</h3>
-              <div style={{ display: "grid", gap: 4, justifyItems: "center", padding: "6px 0 2px" }}>
-                {([["var(--hbx-info)", 170], ["var(--hbx-brand)", 130], ["var(--hbx-brand-strong)", 92], ["var(--hbx-warning)", 56]] as [string, number][]).map(([c, w], i) => (
-                  <div key={i} style={{ width: w, height: 22, background: c, borderRadius: 4, opacity: 0.92 }}></div>
-                ))}
-              </div>
-              <div className="fleg" style={{ marginTop: 8 }}>
-                {([["var(--hbx-info)", "Leads captados", "1.248 (100%)"], ["var(--hbx-brand)", "Propostas", "342 (27,4%)"], ["var(--hbx-brand-strong)", "Negociação", "78 (6,3%)"], ["var(--hbx-warning)", "Fechados", "36 (2,9%)"]] as [string, string, string][]).map(([c, l, v]) => (
-                  <div className="row" key={l}><span className="swatch" style={{ background: c }}></span>{l}<span style={{ marginLeft: "auto", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.64rem" }}>{v}</span></div>
-                ))}
-              </div>
-              <div style={{ marginTop: 10 }}><span className="link">Ver relatório completo</span></div>
-            </div>
-
+                ) : undefined}
+              />
             </div>{/* /ctx-body */}
           </aside>
         </div>

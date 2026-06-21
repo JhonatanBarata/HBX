@@ -219,6 +219,22 @@ export class RadarCorePresentationMixin {
     if (!assignedToUser) throw new NotFoundException('Card do Radar nao encontrado.');
   }
 
+  /**
+   * Checagem de "pode puxar" (vitrine → Vendas).
+   * Admin passa direto.
+   * Vendedor passa se o card esta LIVRE (assignedUserId nulo) OU ja e dele.
+   * Lanca NotFound apenas se o card pertence a OUTRO vendedor.
+   * Mantém assertRadarLeadVisibleForUser intacto para o detalhe do card.
+   */
+  private assertRadarLeadClaimableForUser(user: any, context: SearchExecutionContext, row: any) {
+    if (!this.isCompanySellerUser(user)) return;
+    const companyStates = Array.isArray(row?.companyStates) ? row.companyStates : [];
+    const state = companyStates[0];
+    const assignedTo = state?.assignedUserId ? Number(state.assignedUserId) : null;
+    const isOwnedByOther = assignedTo !== null && assignedTo !== context.userId;
+    if (isOwnedByOther) throw new NotFoundException('Card do Radar nao encontrado.');
+  }
+
   private canSeeDiagnostics(user: any) {
     return this.canUseWebscrapingRole(user);
   }

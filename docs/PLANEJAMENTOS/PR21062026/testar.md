@@ -50,6 +50,12 @@ Se algo não acontecer como está escrito, me avisa.
 ## Atendimento no celular (ajuste)
 - Entre em **Atendimento** pelo celular. A lista de conversas tem que estar **mais fininha** (cabe mais conversa na tela), com uma **linha** separando cada uma.
 
+## Painel master: Sistema e Gerencial (novo)
+- Entre no **painel master** → abra **Sistema** (no menu da esquerda). Em cima, só podem aparecer **Credenciais**, **Exclusões** e **Reclamações** — a aba **Módulos** (a tabelona de ligar/desligar módulo) tem que ter **sumido**. Quem manda nos módulos de cada plano agora é só o **Self-Checkout**.
+- Entre como **dono** de uma empresa **em qualquer plano, até o mais simples (List)**: o menu **Gerencial** tem que **aparecer** do mesmo jeito. Trocar de plano **não** pode fazer o Gerencial sumir pro dono.
+- Entre como **vendedor**: o **Gerencial não pode aparecer** pra ele (continua só do dono/gerente).
+- Cadastre uma **empresa nova** e entre como dono dela: ela tem que abrir **só os módulos do plano dela** (a do plano simples não pode vir com tudo ligado).
+
 ## Site (página inicial)
 - No **computador**: a home mostra o carrossel de **palavras** (Radar/Vendas/Atendimento/Recovery) como antes e **não rola** pra baixo — tudo cabe na tela.
 - No **celular**: na home aparece um **celularzinho** mostrando as telas do sistema (Radar/Vendas/Atendimento), trocando sozinho ou nas bolinhas.

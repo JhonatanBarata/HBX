@@ -308,3 +308,67 @@ obrigatório** (nada de paywall afrouxado no front).
 - Backend: `cd backend && npm run prisma:validate && npm run build` + testes direcionados.
 - Frontend: `cd frontend && npm run lint && npm run build`.
 - F2/F6 (sensíveis): teste obrigatório do caminho de preço/cobrança; nada de paywall afrouxado no front.
+
+### F9 — Catálogo de módulos morre; Self-Checkout vira fonte única + Gerencial → admin (ordem do dono 21/06)
+
+> Ordem do dono 21/06: "remover esse Módulos sem ferir o Self-Checkout (já tem as regras de
+> criações futuras); o Self-Checkout é a fonte; Gerencial não é módulo, vai pros admin;
+> corrigir de vez sem afetar a árvore." **Frente financeira/acesso → Opus direto + diff revisado.**
+
+**Verdade apurada (contra "a regra já está desativada" — ela NÃO está):** o catálogo antigo
+(`Sistema → Módulos`, edita `SystemModule.defaultEnabled`) está VIVO em 3 lugares:
+1. Gatilho `trg_company_insert_modules` (`modules.service.ensureDatabaseAutomation`) — empresa
+   nova nasce com `CompanyModule` por módulo = `defaultEnabled`.
+2. Gatilho `trg_system_module_insert_companies` — módulo novo retroalimenta todas as empresas.
+3. `syncCompanyModulesForAllCompanies` — roda no boot **e** a cada load do `/master`
+   (`getMasterWorkspace`/`listMasterOverview`): `INSERT … SELECT defaultEnabled … ON CONFLICT
+   DO NOTHING` pra toda empresa × módulo.
+- **Efeito colateral (o bug):** como o sync cria post-it (`CompanyModule`) pra TODO mundo, o
+  `override` em `canUserAccessModule:2171` e `listMyModules:2321` é **sempre não-nulo** → a régua
+  do plano (`getPlanModuleDefaults` = Self-Checkout) **fica sombreada**. O Self-Checkout só "pega"
+  quando a empresa NÃO tem post-it — e hoje sempre tem.
+- `financeiro` já é **role-gated** (admin-only, `canUserAccessModule:2118-2124`), curto-circuita
+  antes do plano. `gerencial` é "muro Dono/Gerente" (`SELLER_CARGO_WALL_MODULES`,
+  `EMPLOYEE_BLOCKED_MODULE_KEYS`) MAS ainda depende do catálogo/plano marcar ON.
+
+**Decisões (dono 21/06):**
+- **UI:** Self-Checkout continua janela própria; apaga só a aba **Módulos** legada do `Sistema`.
+- **Gerencial:** vira capacidade de **admin sempre-ligada** (mesmo molde do `financeiro`); sai de
+  `COMMERCIAL_PLAN_MODULE_KEYS` e deixa de ser módulo vendável.
+- **Profundidade:** ir à raiz — aposentar sync + 2 gatilhos pro Self-Checkout virar fonte única,
+  **sem mass-delete de linhas existentes** (não afeta a árvore das empresas atuais).
+
+**Bloco A — Front (seguro, reversível):**
+- `frontend/.../master/janela-sistema.tsx`: remover a subaba "Módulos" (`SUBTABS[0]` + bloco
+  `sub === 0`, o catálogo `/modules/master/system-modules`); renumerar as subabas restantes
+  (Credenciais/Exclusões/Reclamações) e o default do `useTabIndex("sistema")`.
+
+**Bloco B — Gerencial → admin (espelha `financeiro`):**
+- `backend/.../modules.service.ts` `canUserAccessModule`: adicionar branch `gerencial` junto do
+  `financeiro` (early return `canUseAdminOnlyModule`, independente de plano/catálogo); incluir no
+  ramo de empresa inativa só se for a regra desejada (default: gerencial NÃO escapa suspensão —
+  só `financeiro` é rota-de-pagamento).
+- `backend/.../commercial-plan-catalog.ts` `COMMERCIAL_PLAN_MODULE_KEYS`: remover `'gerencial'`
+  de PADRAO/PRO/MELHOR.
+- `listMyModules`: gerencial passa a resolver por role (visível p/ admin/master, fora do molho de
+  vendedor — já é muro). Manter `companyAssignable:true` no catálogo (igual `financeiro`).
+- Frontend `shell.tsx` (`isModuleVisible`): garantir que o item Gerencial aparece p/ admin via
+  `/modules/me` (sem depender do plano).
+
+**Bloco C — Aposentar o catálogo como fonte (raiz):**
+- `ensureDatabaseAutomation`: **DROP** dos 2 gatilhos (`trg_company_insert_modules`,
+  `trg_system_module_insert_companies`) em vez de recriar; manter a limpeza `platform_infra`.
+- `syncCompanyModulesForAllCompanies`: remover o `INSERT … SELECT defaultEnabled` (semeadura do
+  catálogo); manter só o `DELETE … platform_infra`.
+- Empresa nova segue o **plano** (provisioning já cria `CompanyModule` de `plan.modules`).
+- **Não mexer nas linhas das empresas existentes** (congela o estado atual = não afeta a árvore).
+
+**Risco/rollback:** tudo em localhost, `git revert` por bloco. Risco real = acesso a módulo (B/C).
+Confirmar em runtime (não só build): admin vê Gerencial em qualquer plano; vendedor não; empresa
+nova segue plano; empresa existente inalterada. **Caveat documentado:** empresas ANTIGAS mantêm os
+post-it eco-do-catálogo (não realinham ao plano sozinhas — realinhar exigiria delete deliberado,
+fora de escopo por "não afetar a árvore").
+
+**Checks:** `cd backend && npm run prisma:validate && npm run build` + testes de
+`modules`/`master-provisioning`/`team-policy`; `cd frontend && npm run lint && npm run build`.
+**Sem push/deploy.**

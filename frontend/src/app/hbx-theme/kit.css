@@ -148,15 +148,26 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .work { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
 .ctx { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); padding: 20px 20px 0; display: grid; gap: 16px; align-content: start; min-height: 0; overflow-y: auto; }
 .ctx h3 { margin: 0; font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
-.ctx h3 .x { color: var(--text-muted); cursor: pointer; font-weight: 400; }
-.ctx .company { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
+.ctx h3 .x { display: grid; place-items: center; width: 30px; height: 30px; margin: -4px -6px -4px 0; border-radius: 999px; color: var(--text-muted); cursor: pointer; font-weight: 400; transition: background var(--motion-fast, 0.16s), color var(--motion-fast, 0.16s), transform var(--motion-fast, 0.16s); }
+.ctx h3 .x:hover { background: var(--hbx-surface-raised); color: var(--text-strong); transform: rotate(90deg); }
+.ctx .company { font-family: var(--font-display); font-size: 1.18rem; font-weight: 800; line-height: 1.18; letter-spacing: -0.02em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ctx .sub { font-size: 0.7rem; color: var(--text-muted); margin-top: 3px; }
+/* Hero do detalhe (identidade do negócio) — só layout; visual é token/pele */
+.ctx-hero { display: flex; gap: 14px; align-items: flex-start; }
+.ctx-hero .ident { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ctx-hero .ident-top { display: flex; align-items: center; gap: 6px; }
+.ctx .sub--seg { font-size: 0.74rem; font-weight: 700; color: var(--text-body); text-transform: capitalize; letter-spacing: 0.01em; margin-top: 4px; }
+.ctx .sub--loc { display: inline-flex; gap: 4px; align-items: center; }
+/* Faixa de canais disponíveis (selos CanalIcon agrupados) */
+.ctx-channels { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 2px 0; }
+.ctx-channels > a { border-radius: var(--radius-sm); transition: transform var(--motion-fast, 0.16s); }
+.ctx-channels > a:hover { transform: translateY(-2px); }
 /* Animated body — trocou de lead/deal: entra com fade+slide */
 @keyframes ctx-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 .ctx-body { display: grid; gap: 16px; align-content: start; padding-bottom: 20px; animation: ctx-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
 /* Score bar — visual no painel de contexto */
 .ctx-score-track { height: 5px; border-radius: 999px; background: var(--border-hairline); overflow: hidden; margin-top: 5px; }
-.ctx-score-fill { height: 100%; border-radius: 999px; transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+.ctx-score-fill { height: 100%; border-radius: 999px; background: var(--hbx-brand); transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
 .ctx-score-label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .ctx-score-num { font-family: var(--font-mono); font-weight: 800; font-size: 0.88rem; }
 /* Phone hero — número grande e clicável (leads + vendas) */
@@ -174,8 +185,41 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .kv .row:last-child { border-bottom: none; padding-bottom: 0; }
 .kv .k { color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
 .kv .v { font-weight: 700; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* valor ausente recua (declutter — "muita informação" some sem sumir a linha) */
+.kv .v.is-empty { font-weight: 500; color: var(--text-muted); opacity: 0.6; }
+/* valor-âncora (ex.: Valor) — foco visual do bloco */
+.kv .v.is-strong { font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: var(--hbx-brand-strong); }
+.kv .v.mono { font-family: var(--font-mono); }
+/* tags do hero (etapa + temperatura do lead) */
+.ctx-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+/* score de oportunidade (barra herdada do Radar) */
+.ctx-score { display: grid; gap: 5px; }
+.ctx-score-head { display: flex; align-items: baseline; justify-content: space-between; }
+.ctx-score-num small { font-size: 0.62rem; font-weight: 600; color: var(--text-muted); margin-left: 1px; }
+/* observação livre do card (shortNote) */
+.ctx-note { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); border-left: 3px solid var(--hbx-brand); background: var(--hbx-surface-soft); }
+.ctx-note-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.ctx-note-txt { margin: 0; font-size: 0.78rem; line-height: 1.5; color: var(--text-body); white-space: pre-wrap; }
+/* seção do painel com título (histórico etc.) */
+.ctx-sec { display: grid; gap: 10px; }
+/* histórico / timeline do negócio (dado real, não fake) */
+.ctx-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 13px; }
+.ctx-tl-item { display: flex; gap: 10px; }
+.ctx-tl-dot { flex: 0 0 auto; width: 9px; height: 9px; margin-top: 4px; border-radius: 999px; background: var(--hbx-brand); box-shadow: 0 0 0 3px var(--hbx-brand-soft); }
+.ctx-tl-body { display: grid; gap: 2px; min-width: 0; }
+.ctx-tl-title { font-size: 0.76rem; font-weight: 700; color: var(--text-strong); }
+.ctx-tl-desc { font-size: 0.72rem; color: var(--text-body); line-height: 1.45; }
+.ctx-tl-when { font-size: 0.64rem; font-family: var(--font-mono); color: var(--text-muted); }
 /* nota discreta de estado vazio (substitui style inline repetido — 5 Leis, 15/06) */
 .muted-note { margin: 12px 0; font-size: 0.74rem; color: var(--text-muted); }
+/* feedback inline (✓ sucesso / erro) do painel e modais — substitui color inline */
+.ctx-msg { font-size: 0.72rem; font-weight: 700; }
+.ctx-msg.ok { color: var(--hbx-brand-strong); }
+.ctx-msg.err { color: var(--hbx-danger); }
+/* rótulo de campo no painel (ícone + texto discreto) */
+.ctx-field-lbl { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+/* textarea de observação no painel */
+.ctx-obs { resize: vertical; font-family: var(--font-body); }
 .task { display: flex; gap: 9px; align-items: flex-start; padding: 7px 0; }
 .task input { margin-top: 2px; accent-color: var(--hbx-brand); }
 .task .t { font-size: 0.76rem; font-weight: 600; }
@@ -410,6 +454,20 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .filters .f { display: grid; gap: 5px; }
 .filters label { font-size: 0.66rem; font-weight: 700; color: var(--text-muted); }
 .select-dark { min-width: 150px; min-height: 38px; border-radius: var(--control-radius); border: 1px solid var(--border-hairline); padding: 0 12px; font-family: var(--font-body); font-size: 0.78rem; color: var(--text-body); background: var(--hbx-field-surface); display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; }
+
+/* ---------- WhatsApp Action Button (wa-action-*) — Vendas + Radar ---------- */
+.wa-action-wrap { position: relative; display: inline-block; }
+.wa-action-btn--active { color: var(--hbx-brand-strong) !important; }
+.wa-action-btn--active:hover { background: var(--hbx-brand-soft) !important; }
+.wa-action-btn:disabled { opacity: 0.38; }
+.wa-action-pop { min-width: 210px; padding: 10px 0; }
+.wa-action-pop-title { padding: 4px 14px 8px; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.wa-action-pop-err { padding: 4px 14px 6px; font-size: 0.68rem; font-weight: 700; color: var(--hbx-danger); line-height: 1.4; }
+.wa-action-pop-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: transparent; border: none; color: var(--text-body); font-family: var(--font-body); font-size: 0.78rem; text-align: left; cursor: pointer; }
+.wa-action-pop-item:hover { background: var(--hbx-surface-raised); }
+.wa-action-pop-item--disabled { opacity: 0.45; cursor: not-allowed; }
+.wa-action-pop-item--disabled:hover { background: transparent; }
+.wa-action-pop-hint { margin-left: auto; font-size: 0.62rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
 
 /* ---------- Radar VIVO — animações + faixas vivas (PR17062026042) ---------- */
 

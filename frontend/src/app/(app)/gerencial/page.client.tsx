@@ -5,13 +5,17 @@
 // ou descrição; o backend já barra via team policy, aqui a tela espelha).
 // Criar envia priceCents (contorna o bug E3 da fila); editar/arquivar
 // esbarram no E4 (PATCH 500 no versionamento) — erro tratado com aviso
-// honesto até o lote ser aplicado. Demais abas chegam na sequência.
+// honesto até o lote ser aplicado.
+// Equipe: régua do cargo Vendedor (CargoAcessosEditor) + lista de membros +
+// Novo acesso (NovoAcessoModal). Acesso por CARGO, não por pessoa.
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
+import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
+import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
-import { useTabIndex } from "@/lib/use-tab-param";
+import { useTabIndex, useTabParam } from "@/lib/use-tab-param";
 
 type Produto = {
   id: number;
@@ -58,19 +62,14 @@ type ComissaoCliente = {
   commissionPaidAt?: string | null;
 };
 
-type CompanyAccessUser = {
+type TeamMember = {
   id: number;
+  name?: string | null;
   username?: string | null;
   email?: string | null;
   role?: string | null;
-  modules: { key: string; allowed: boolean }[];
+  isActive?: boolean;
 };
-
-type CompanyAccess = {
-  companyId: number;
-  modules: { key: string; name: string; companyEnabled: boolean }[];
-  users: CompanyAccessUser[];
-} | null;
 
 type ComissaoSummary = {
   ok?: boolean;
@@ -300,36 +299,35 @@ export function GerencialClient() {
     }
   }
 
-  // aba Equipe: acesso de módulo por usuário
-  const [companyAccess, setCompanyAccess] = useState<CompanyAccess>(null);
-  const [acessoMsg, setAcessoMsg] = useState<string | null>(null);
-  const [acessoBusy, setAcessoBusy] = useState(false);
+  // aba Equipe: lista de membros + novo-acesso modal (acesso por CARGO via CargoAcessosEditor)
+  const [team, setTeam] = useState<TeamMember[] | null>(null);
+  const [teamDenied, setTeamDenied] = useState(false);
+  const [teamMsg, setTeamMsg] = useState<string | null>(null);
+  const [novoParam, setNovoParam] = useTabParam<string>("novo", "");
+  const [membroParam, setMembroParam] = useTabParam<string>("membro", "");
+  const novoAcessoOpen = novoParam === "1";
+  const gerirMembro = (team || []).find(m => String(m.id) === membroParam) || null;
+
+  function abrirNovoAcesso() {
+    try { localStorage.removeItem("hbx:novo-acesso-draft"); } catch { /* sem storage */ }
+    setMembroParam("");
+    setNovoParam("1");
+  }
+  function abrirGerir(m: TeamMember) {
+    setNovoParam("");
+    setMembroParam(String(m.id));
+  }
+  function recarregarEquipe() {
+    return apiFetch<TeamMember[]>("/users/company")
+      .then(res => setTeam(Array.isArray(res) ? res : []))
+      .catch(() => setTeamDenied(true));
+  }
 
   useEffect(() => {
-    if (aba !== 4 || companyAccess) return;
-    let alive = true;
-    apiFetch<Exclude<CompanyAccess, null>>("/modules/company/access")
-      .then(res => { if (alive) setCompanyAccess(res); })
-      .catch(() => { if (alive) setCompanyAccess({ companyId: 0, modules: [], users: [] }); });
-    return () => { alive = false; };
-  }, [aba, companyAccess]);
-
-  async function toggleModuleAccess(userId: number, moduleKey: string, allowed: boolean) {
-    if (acessoBusy) return;
-    setAcessoBusy(true);
-    setAcessoMsg(null);
-    try {
-      await apiFetch(`/modules/company/user/${userId}/access`, {
-        method: "PUT",
-        body: JSON.stringify({ modules: [{ key: moduleKey, allowed }] }),
-      });
-      setCompanyAccess(null);
-    } catch (err) {
-      setAcessoMsg(err instanceof Error ? err.message : "Não foi possível atualizar o acesso.");
-    } finally {
-      setAcessoBusy(false);
-    }
-  }
+    if (aba !== 4 || team !== null) return;
+    recarregarEquipe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aba, team]);
 
   const carregar = useCallback(() => {
     return apiFetch<Produto[] | { items?: Produto[] }>("/products")
@@ -710,94 +708,93 @@ export function GerencialClient() {
                 </section>
               )}
 
-              {aba === 4 && (() => {
-                const visibleModules = (companyAccess?.modules || []).filter(m => m.companyEnabled);
-                const teamUsers = (companyAccess?.users || []);
-                return (
+              {aba === 4 && (
+                <React.Fragment>
                   <section className="panel">
                     <div className="panel-head">
-                      <h2>Acesso de módulos — equipe</h2>
+                      <h2>Equipe</h2>
                       <div className="meta">
-                        {acessoMsg && (
-                          <span className={acessoMsg.startsWith("✓") ? "tag teal" : "tag warn"} style={{ fontWeight: 700 }}>
-                            {acessoMsg}
-                          </span>
+                        {teamMsg && (
+                          <span style={{ fontWeight: 700, color: teamMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{teamMsg}</span>
                         )}
-                        <button className="btn-ghost"
-                          onClick={() => { setCompanyAccess(null); setAcessoMsg(null); }}
-                          disabled={acessoBusy}>
-                          Recarregar
+                        <button className="btn-teal" onClick={abrirNovoAcesso} disabled={teamDenied}>
+                          <I d={ICONS.plus} size={13} /> Novo acesso
                         </button>
                       </div>
                     </div>
-                    {companyAccess === null && (
-                      <div style={{ padding: 20, textAlign: "center" }} className="sub2">Carregando…</div>
-                    )}
-                    {companyAccess !== null && visibleModules.length === 0 && (
-                      <div style={{ padding: 20, textAlign: "center" }} className="sub2">
-                        Nenhum módulo habilitado para a empresa.
-                      </div>
-                    )}
-                    {companyAccess !== null && visibleModules.length > 0 && (
-                      <div className="tbl-wrap">
-                        <table className="tbl">
-                          <thead>
-                            <tr>
-                              <th>Usuário</th>
-                              {visibleModules.map(m => (
-                                <th key={m.key} style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                                  {m.name || m.key}
-                                </th>
-                              ))}
+                    <div className="tbl-wrap">
+                      <table className="tbl">
+                        <thead><tr><th>Membro</th><th>E-mail</th><th>Perfil de acesso</th><th></th></tr></thead>
+                        <tbody>
+                          {teamDenied && (
+                            <tr style={{ cursor: "default" }}>
+                              <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "22px 12px" }}>
+                                Lista de equipe visível apenas para Administrador.
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {teamUsers.map(u => {
-                              const modMap = new Map((u.modules || []).map(m => [m.key, m.allowed]));
-                              const isSellerRow = String(u.role || "").toUpperCase() === "USER";
-                              return (
-                                <tr key={u.id} style={{ cursor: "default" }}>
-                                  <td>
-                                    <div className="co">
-                                      <strong>{u.username || u.email || `ID ${u.id}`}</strong>
-                                      <span className="sub2">{isSellerRow ? "Vendedor" : "Admin"}</span>
+                          )}
+                          {!teamDenied && team === null && (
+                            <tr style={{ cursor: "default" }}>
+                              <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "22px 12px" }}>Carregando…</td>
+                            </tr>
+                          )}
+                          {!teamDenied && team !== null && team.length === 0 && (
+                            <tr style={{ cursor: "default" }}>
+                              <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "22px 12px" }}>
+                                Nenhum membro na equipe.
+                              </td>
+                            </tr>
+                          )}
+                          {(team || []).map(m => {
+                            const nomeMembro = m.name || m.username || m.email || `Usuário ${m.id}`;
+                            const ehAdmin = String(m.role || "").toUpperCase() === "ADMIN";
+                            return (
+                              <tr key={m.id} style={{ cursor: "default" }}>
+                                <td>
+                                  <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                                    <Av name={nomeMembro} size={28} />
+                                    <div>
+                                      <strong>{nomeMembro}</strong>
+                                      <div style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{m.isActive === false ? "Inativo" : "Ativo"}</div>
                                     </div>
-                                  </td>
-                                  {visibleModules.map(m => {
-                                    const allowed = Boolean(modMap.get(m.key));
-                                    return (
-                                      <td key={m.key} style={{ textAlign: "center" }}>
-                                        <button
-                                          className={"sw" + (allowed ? " on" : "")}
-                                          role="switch"
-                                          aria-checked={allowed}
-                                          disabled={acessoBusy}
-                                          title={allowed ? `Revogar ${m.name || m.key}` : `Liberar ${m.name || m.key}`}
-                                          onClick={() => toggleModuleAccess(u.id, m.key, !allowed)}
-                                        ><i></i></button>
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              );
-                            })}
-                            {teamUsers.length === 0 && (
-                              <tr style={{ cursor: "default" }}>
-                                <td colSpan={visibleModules.length + 1} style={{ textAlign: "center", padding: 18 }} className="sub2">
-                                  Nenhum usuário na equipe.
+                                  </div>
+                                </td>
+                                <td>{m.email || "—"}</td>
+                                <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{ehAdmin ? "Administrador" : "Vendas"}</span></td>
+                                <td>
+                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
+                                    onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
                                 </td>
                               </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </section>
-                );
-              })()}
+                  {!teamDenied && <CargoAcessosEditor />}
+                </React.Fragment>
+              )}
             </React.Fragment>
           )}
         </div>
+
+      {novoAcessoOpen && (
+        <NovoAcessoModal
+          onClose={() => setNovoParam("")}
+          onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
+          team={team || []}
+        />
+      )}
+
+      {gerirMembro && (
+        <NovoAcessoModal
+          member={gerirMembro}
+          team={team || []}
+          onClose={() => setMembroParam("")}
+          onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
+        />
+      )}
 
       {payoutOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setPayoutOpen(false); }}>

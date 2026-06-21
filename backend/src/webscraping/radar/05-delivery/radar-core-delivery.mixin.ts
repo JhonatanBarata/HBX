@@ -3279,12 +3279,18 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    this.assertRadarLeadVisibleForUser(user, context, row);
+    this.assertRadarLeadClaimableForUser(user, context, row);
     let leadRow = row;
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
-    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
+    // Quando o vendedor puxa um card livre para si (sem assignedUserId explícito),
+    // o card passa a ser dele: usa context.userId como assignedUserId.
+    // Callers de distribuição sempre passam assignedUserId explícito, não são afetados.
+    const explicitAssignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
+    const assignedUserId = explicitAssignedUserId !== null
+      ? explicitAssignedUserId
+      : (this.isCompanySellerUser(user) ? context.userId : null);
     const assignedByUserId = assignedUserId
       ? Math.trunc(Number(options.assignedByUserId || context.userId || 0)) || null
       : null;

@@ -1739,55 +1739,17 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureDatabaseAutomation() {
-    await this.prisma.$executeRawUnsafe(`
-      CREATE OR REPLACE FUNCTION public.ensure_company_modules_from_company()
-      RETURNS trigger AS $$
-      BEGIN
-        IF NEW."companyKind" <> 'tenant' THEN
-          RETURN NEW;
-        END IF;
-
-        INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
-        SELECT NEW.id, sm.id, sm."defaultEnabled", NOW(), NOW()
-        FROM "SystemModule" sm
-        WHERE sm."companyAssignable" = true
-        ON CONFLICT ("companyId", "moduleId") DO NOTHING;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-    `);
-
+    // Catálogo aposentado como fonte (ordem do dono 21/06): os 2 gatilhos que
+    // semeavam CompanyModule a partir de SystemModule.defaultEnabled foram
+    // DESLIGADOS. A fonte única de módulo por plano é o Self-Checkout
+    // (getPlanModuleDefaults = COMMERCIAL_PLAN_MODULE_KEYS + PlanModuleConfig);
+    // empresa nova segue o plano (provisioning cria as linhas de plan.modules).
+    // DROP idempotente: somem do banco no próximo boot, sem recriar. Linhas de
+    // CompanyModule já existentes NÃO são tocadas (não afeta a árvore atual).
     await this.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS trg_company_insert_modules ON "Company";');
-    await this.prisma.$executeRawUnsafe(`
-      CREATE TRIGGER trg_company_insert_modules
-      AFTER INSERT ON "Company"
-      FOR EACH ROW
-      EXECUTE FUNCTION public.ensure_company_modules_from_company();
-    `);
-
-    await this.prisma.$executeRawUnsafe(`
-      CREATE OR REPLACE FUNCTION public.ensure_company_modules_from_system_module()
-      RETURNS trigger AS $$
-      BEGIN
-        IF NEW."companyAssignable" = true THEN
-          INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
-          SELECT c.id, NEW.id, NEW."defaultEnabled", NOW(), NOW()
-          FROM "Company" c
-          WHERE c."companyKind" = 'tenant'
-          ON CONFLICT ("companyId", "moduleId") DO NOTHING;
-        END IF;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-    `);
-
+    await this.prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS public.ensure_company_modules_from_company();');
     await this.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS trg_system_module_insert_companies ON "SystemModule";');
-    await this.prisma.$executeRawUnsafe(`
-      CREATE TRIGGER trg_system_module_insert_companies
-      AFTER INSERT ON "SystemModule"
-      FOR EACH ROW
-      EXECUTE FUNCTION public.ensure_company_modules_from_system_module();
-    `);
+    await this.prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS public.ensure_company_modules_from_system_module();');
 
     await this.prisma.$executeRawUnsafe(`
       DELETE FROM "CompanyModule" cm
@@ -1849,21 +1811,15 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async syncCompanyModulesForAllCompanies() {
+    // Catálogo aposentado como fonte (21/06): a semeadura de CompanyModule a partir
+    // de SystemModule.defaultEnabled foi removida — era o que sombreava a régua do
+    // plano (post-it pra todo mundo). Sobra só a limpeza das empresas de infra.
+    // Empresas sem post-it agora seguem o plano (getPlanModuleDefaults).
     await this.prisma.$executeRawUnsafe(`
       DELETE FROM "CompanyModule" cm
       USING "Company" c
       WHERE cm."companyId" = c."id"
         AND c."companyKind" = 'platform_infra';
-    `);
-
-    await this.prisma.$executeRawUnsafe(`
-      INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
-      SELECT c.id, sm.id, sm."defaultEnabled", NOW(), NOW()
-      FROM "Company" c
-      CROSS JOIN "SystemModule" sm
-      WHERE sm."companyAssignable" = true
-        AND c."companyKind" = 'tenant'
-      ON CONFLICT ("companyId", "moduleId") DO NOTHING;
     `);
   }
 
@@ -2033,6 +1989,14 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
 
+  // Gerencial = capacidade do eixo Dono/Gerente (admin-tier), NÃO módulo vendável
+  // por plano (ordem do dono 21/06). Espelha o financeiro: acesso por ROLE, fora
+  // do catálogo/plano. Diferença do financeiro: gerencial NÃO escapa a suspensão
+  // (financeiro é a rota de pagamento; gerencial exige acesso liberado).
+  private isGerencialModuleKey(moduleKey: string) {
+    return this.normalizeRequestedModuleKey(moduleKey) === 'gerencial';
+  }
+
   private canUseAdminOnlyModule(user: any, moduleKey: string, _context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
@@ -2121,6 +2085,18 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         select: { companyKind: true },
       });
       if (isPlatformInfraCompany(financeCompany)) return false;
+      return this.canUseAdminOnlyModule(user, key, context);
+    }
+    if (this.isGerencialModuleKey(key)) {
+      // Admin-tier (21/06): acesso por role, independente de plano/catálogo. Ao
+      // contrário do financeiro, exige empresa com acesso liberado (não escapa suspensão).
+      const gerencialCompany = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { companyKind: true },
+      });
+      if (isPlatformInfraCompany(gerencialCompany)) return false;
+      const gerencialStatus = await this.evaluateCompanyStatus(companyId);
+      if (!gerencialStatus.active) return false;
       return this.canUseAdminOnlyModule(user, key, context);
     }
     if (this.isTrialBundledModuleKey(key)) {
@@ -2316,16 +2292,19 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           criticalEngine: null,
         };
         const financeModule = this.isFinanceModuleKey(normalizedKey);
+        const gerencialModule = this.isGerencialModuleKey(normalizedKey);
+        // Admin-tier (21/06): financeiro + gerencial = capacidade do eixo Dono/
+        // Gerente, fora do plano/catálogo. Sempre "company-enabled"; o acesso é por role.
+        const adminTierModule = financeModule || gerencialModule;
         // Post-it (PB2): post-it da empresa manda; senão, a caixa do plano (viva).
-        // Financeiro é a rota-escape do contratante (tratado abaixo).
         const companyHasModule = row ? Boolean(row.enabled) : (planDefaults.get(normalizedKey) === true);
-        const effectiveCompanyEnabled = financeModule ? true : companyHasModule;
+        const effectiveCompanyEnabled = adminTierModule ? true : companyHasModule;
         // Acesso por CARGO (P2): USER resolve do molho do cargo Vendedor; ADMIN/
         // master = tudo. financeiro/gerencial = muro do eixo Dono/Gerente.
         const userAllowed = this.resolveCargoModuleAllowed(user, moduleItem.key, sellerCargoAccess);
         // Ordem do dono: SEM ACESSO = NAO APARECE.
         const visible =
-          Boolean(financeModule && userAllowed) ||
+          Boolean(adminTierModule && userAllowed) ||
           Boolean(companyHasModule && userAllowed);
         let blockedReason: string | null = null;
         let blockedCode: string | null = null;
@@ -2347,7 +2326,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         const accessible = Boolean(
           visible &&
           !blockedReason &&
-          (financeModule || (accessPolicy.active && companyHasModule)),
+          (financeModule || gerencialModule || (accessPolicy.active && companyHasModule)),
         );
 
         const blockPresentation = presentModuleBlockForRole((user as any)?.role, {

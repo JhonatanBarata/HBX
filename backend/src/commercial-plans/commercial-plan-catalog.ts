@@ -224,11 +224,13 @@ export function getCommercialPlanExtraUserMonthlyPrice(planKey: unknown) {
   return COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[normalized] ?? 0;
 }
 
+// Gerencial saiu daqui (21/06): não é módulo vendável por plano — virou capacidade
+// admin-tier (acesso por role, igual financeiro). Ver modules.service.isGerencialModuleKey.
 export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
-  [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
-  [COMMERCIAL_PLAN_KEYS.PRO]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'cadastro', 'gerencial'],
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro'],
+  [COMMERCIAL_PLAN_KEYS.PRO]: ['atendimento', 'vendas', 'webscraping', 'cadastro'],
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'cadastro'],
 };
 
 export const COMMERCIAL_PLAN_ENTITLEMENT_KEYS: Record<ActiveCommercialPlanKey, CommercialEntitlementKey[]> = {

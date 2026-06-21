@@ -2,6 +2,43 @@
 
 ---
 
+## ADENDO 2026-06-21 (sessão COM o dono) — Catálogo de módulos morre; Self-Checkout = fonte única; Gerencial → admin
+
+> Pedido: "remover esse Módulos sem ferir o Self-Checkout; Gerencial vai pros admin; corrigir de vez
+> sem afetar a árvore." Decisões: UI = apagar só a aba legada; Gerencial = admin sempre-ligado;
+> profundidade = ir à raiz (aposentar gatilhos/sync). **Frente financeira/acesso → Opus direto.**
+> **Não commitado, sem push.** Plano completo em `PLAN-PLANOS-COBRANCA-ACESSO-MASTER.md` (F9).
+
+### O que mudei (3 blocos, revert isolado)
+- **A — Front:** `master/janela-sistema.tsx` perdeu a aba **Módulos** (catálogo `defaultEnabled`);
+  sobram Credenciais/Exclusões/Reclamações. Catraca de pele caiu **442→422** (tirei 20 inline styles).
+- **B — Gerencial → admin:** `modules.service.ts` (branch novo igual `financeiro` em
+  `canUserAccessModule` + admin-tier em `listMyModules`); `commercial-plan-catalog.ts`
+  (`gerencial` saiu de `COMMERCIAL_PLAN_MODULE_KEYS`). 2 testes atualizados ao modelo novo.
+- **C — Raiz:** `modules.service.ts` — `ensureDatabaseAutomation` faz **DROP** dos 2 gatilhos
+  (`trg_company_insert_modules`, `trg_system_module_insert_companies`) em vez de criar;
+  `syncCompanyModulesForAllCompanies` perdeu a semeadura `defaultEnabled` (só limpa `platform_infra`).
+
+### RISCOS (o que conferir de manhã — é ACESSO, sensível)
+- **Não vi rodando autenticado** (preview sem login de master). Backend: prisma:validate + build +
+  **36 testes verdes**. Mas o **veredito de acesso real precisa do seu olho**: admin vê Gerencial em
+  qualquer plano; vendedor não; empresa NOVA abre só os módulos do plano; empresa ANTIGA inalterada.
+- **Caveat (de propósito, pra não afetar a árvore):** empresas **antigas** mantêm os módulos que já
+  tinham (post-it eco-do-catálogo) — NÃO realinham sozinhas ao plano. Realinhar exigiria apagar linhas
+  (muda acesso) → fora de escopo. Só **empresas novas** (e quem não tem post-it) seguem o plano puro.
+- **Build do FRONT está vermelho — mas NÃO é meu:** `atendimento/page.client.tsx` (seu refactor do
+  card `DetalhesNegocio`, em andamento) não tipa. Não toquei nele. Meu `janela-sistema.tsx` passou no
+  lint e está íntegro. Quando você fechar o atendimento, o build fecha junto.
+- **Endpoint órfão:** `GET/PUT /modules/master/system-modules` continua no backend, agora sem UI.
+  Deixei vivo (removê-lo é faxina separada, risco de quebrar consumidor/teste).
+
+### Reverter
+- Por bloco: `git revert`/`git checkout` dos arquivos. A = `janela-sistema.tsx`; B = `modules.service.ts`
+  + `commercial-plan-catalog.ts` (+ 2 testes); C = `modules.service.ts`. Os DROP de gatilho são
+  idempotentes — pra ressuscitar, é só voltar o `ensureDatabaseAutomation` antigo e rebootar.
+
+---
+
 ## ⭐ NOITE 2026-06-20 (modo autônomo) — Refatoração MOBILE (site + sistema)
 
 > Pedido: "manda as telas que não curti, refatora em 2 padrões (site + sistema), seja agressivo no

@@ -36,7 +36,8 @@ test('active_trial/TRIAL/trialing releases padrao commercial modules', () => {
   assert.equal(policy.moduleKeys.has('vendas'), true);
   assert.equal(policy.moduleKeys.has('atendimento'), true);
   assert.equal(policy.moduleKeys.has('webscraping'), true);
-  assert.equal(policy.moduleKeys.has('gerencial'), true);
+  // gerencial saiu do plano (21/06): virou admin-tier (acesso por role, igual financeiro).
+  assert.equal(policy.moduleKeys.has('gerencial'), false);
 });
 
 test('active/PAID releases modules by selected plan', () => {
@@ -57,7 +58,7 @@ test('active/PAID releases modules by selected plan', () => {
   assert.equal(melhor.moduleKeys.has('atendimento'), true);
   assert.equal(melhor.moduleKeys.has('vendas'), true);
   assert.equal(melhor.moduleKeys.has('webscraping'), true);
-  assert.equal(melhor.moduleKeys.has('gerencial'), true);
+  assert.equal(melhor.moduleKeys.has('gerencial'), false); // admin-tier, fora do plano (21/06)
   assert.equal(melhor.moduleKeys.has('cadastro'), true);
   assert.equal(melhor.moduleKeys.has('bot_ia'), false);
 });
@@ -95,7 +96,7 @@ test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus'
   assert.equal(fallback.moduleKeys.has('atendimento'), true);
   assert.equal(fallback.moduleKeys.has('vendas'), true);
   assert.equal(fallback.moduleKeys.has('webscraping'), true);
-  assert.equal(fallback.moduleKeys.has('gerencial'), true);
+  assert.equal(fallback.moduleKeys.has('gerencial'), false); // admin-tier, fora do plano (21/06)
 });
 
 test('platform_infra company does not receive commercial modules', () => {

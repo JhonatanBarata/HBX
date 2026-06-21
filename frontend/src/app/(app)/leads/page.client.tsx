@@ -16,6 +16,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
+import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -173,6 +175,12 @@ export function LeadsClient() {
   const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
 
+  // WhatsApp action (resolve TODO do aside): sessão QR + acesso ao Atendimento
+  const [waQrActive, setWaQrActive] = useState(false);
+  const [canAtendimento, setCanAtendimento] = useState(false);
+  const [waStartBusy, setWaStartBusy] = useState(false);
+  const [waStartError, setWaStartError] = useState<string | null>(null);
+
   // Mobile v2: lista + card-overlay com swipe
   const [cardIdx, setCardIdx] = useState(0);
   const [cardOpen, setCardOpen] = useState(false);
@@ -228,6 +236,16 @@ export function LeadsClient() {
     apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order")
       .then(res => { if (res?.standingOrder) setStandingOrder(res.standingOrder); })
       .catch(() => null);
+    // WhatsApp: mesma lógica do Vendas (qrActive + canAtendimento para o botão de ação)
+    apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
+      .then(res => setWaQrActive(res?.whatsappSession?.accessible === true))
+      .catch(() => setWaQrActive(false));
+    apiFetch<Array<{ key: string; accessible?: boolean }>>("/modules/me")
+      .then(list => {
+        const mod = Array.isArray(list) ? list.find(m => String(m.key || "").trim().toLowerCase() === "atendimento") : null;
+        setCanAtendimento(mod?.accessible === true);
+      })
+      .catch(() => setCanAtendimento(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -440,107 +458,125 @@ export function LeadsClient() {
     );
   }
 
+  // WhatsApp Externo: wa.me direto
+  function abrirWhatsAppExterno(phone: string | null | undefined) {
+    if (!phone) return;
+    const digits = phone.replace(/\D/g, "");
+    const target = digits.length >= 12 ? digits : `55${digits}`;
+    window.open(`https://wa.me/${target}`, "_blank", "noopener");
+  }
+
+  // WhatsApp Interno: POST /inbox/conversations/start → navega pro /atendimento
+  async function abrirWhatsAppInterno(lead: { phone: string | null; name: string | null }) {
+    if (!lead.phone || waStartBusy) return;
+    setWaStartBusy(true);
+    setWaStartError(null);
+    try {
+      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: lead.phone.trim(),
+          ...(lead.name ? { name: lead.name.trim() } : {}),
+        }),
+      });
+      if (res?.id != null) {
+        try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
+        router.push("/atendimento");
+      }
+    } catch (err) {
+      setWaStartError(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
+    } finally {
+      setWaStartBusy(false);
+    }
+  }
+
   // ── Detalhe do lead (reutilizável: desktop aside + mobile sheet) ──────────
-  function renderLeadDetail(lead: RadarLead) {
+  function buildNegocioDetail(lead: RadarLead): NegocioDetail {
+    const revealed = tab === "carteira" && Boolean(lead.phone);
+    return {
+      id: lead.id,
+      name: lead.name,
+      city: lead.city,
+      state: lead.state,
+      segment: lead.segment || lead.businessCategory || null,
+      opportunityScore: lead.opportunityScore > 0 ? lead.opportunityScore : null,
+      // contato: só revelado na carteira
+      phone: revealed ? lead.phone : null,
+      email: revealed ? (lead.email ?? null) : null,
+      website: revealed ? (lead.website ?? null) : null,
+      leadIntelligence: {
+        whatsappStatus: lead.hasWhatsapp ? "confirmed" : null,
+        emailStatus: lead.hasEmail ? "confirmed" : null,
+        instagramUrl: revealed ? (lead.instagramUrl ?? null) : null,
+        facebookUrl: revealed ? (lead.facebookUrl ?? null) : null,
+      },
+    };
+  }
+
+  function renderLeadDetail(lead: RadarLead, opts?: { title?: string; onClose?: () => void }) {
+    const detail = buildNegocioDetail(lead);
+    const revealed = tab === "carteira" && Boolean(lead.phone);
     return (
-      <div key={lead.id} className="ctx-body">
-        {/* Hero */}
-        <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-          <Av name={lead.name || "—"} size={56} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <span className="company">{lead.name || "—"}</span>
-            <div className="sub">{lead.segment || lead.businessCategory || "—"}</div>
-            {lead.city && (
-              <div className="sub" style={{ marginTop: 3, display: "inline-flex", gap: 4, alignItems: "center" }}>
-                <I d={ICONS.mapin} size={11} /> {lead.city}{lead.state ? `, ${lead.state}` : ""}
+      <DetalhesNegocio
+        key={lead.id}
+        detail={detail}
+        title={opts?.title ?? "Detalhes do lead"}
+        onClose={opts?.onClose}
+        heroAction={revealed ? (
+          <WhatsAppActionButton
+            phone={lead.phone}
+            name={lead.name}
+            qrActive={waQrActive}
+            canInternal={canAtendimento}
+            onOpenExternal={() => abrirWhatsAppExterno(lead.phone)}
+            onOpenInternal={() => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name })}
+            startBusy={waStartBusy}
+            startError={waStartError}
+          />
+        ) : null}
+        kvExtra={
+          <>
+            {!revealed && tab === "shelf" && (
+              <div className="sub" style={{ marginTop: 4 }}>Contato revelado ao puxar este lead.</div>
+            )}
+            {lead.opportunityReason && (
+              <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5 }}>
+                {lead.opportunityReason}
+              </p>
+            )}
+            {lead.opportunitySignals && lead.opportunitySignals.length > 0 && (
+              <div className="radar2-signals" style={{ marginTop: 10 }}>
+                {lead.opportunitySignals.slice(0, 6).map(sig => {
+                  const m = SIGNAL_META[sig];
+                  if (!m) return null;
+                  return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                })}
               </div>
             )}
             {lead.fitScore != null && lead.fitScore > 0 && (
-              <div style={{ marginTop: 6 }}>
+              <div style={{ marginTop: 8 }}>
                 <span className={`radar2-fit${lead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {lead.fitScore}</span>
               </div>
             )}
+          </>
+        }
+        actions={
+          <div style={{ display: "grid", gap: 8 }}>
+            {tab === "shelf" && (
+              <button className="btn-teal"
+                onClick={() => puxar(lead.id)}
+                disabled={pullBusyId === lead.id || bulkBusy || meterBlocked}>
+                {pullBusyId === lead.id ? "Puxando…" : "Puxar lead →"}
+              </button>
+            )}
+            {tab === "carteira" && (
+              <button className="btn-ghost" onClick={() => router.push("/vendas")}>
+                Ver em Vendas →
+              </button>
+            )}
           </div>
-        </div>
-
-        {/* Canais disponíveis */}
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "12px 0 4px", alignItems: "center" }}>
-          {lead.hasWhatsapp && (
-            tab === "carteira" && lead.phone
-              ? <a href={`https://wa.me/55${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="xl" /></a>
-              : <CanalIcon canal="whatsapp" size="xl" />
-          )}
-          {lead.hasPhone && !lead.hasWhatsapp && (
-            tab === "carteira" && lead.phone
-              ? <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="xl" /></a>
-              : <CanalIcon canal="telefone" size="xl" />
-          )}
-          {lead.hasEmail && <CanalIcon canal="email" size="xl" />}
-          {lead.instagramUrl && (
-            <a href={lead.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-              <CanalIcon canal="instagram" size="xl" />
-            </a>
-          )}
-          {lead.facebookUrl && (
-            <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook">
-              <CanalIcon canal="facebook" size="xl" />
-            </a>
-          )}
-          {lead.website && (
-            <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site">
-              <CanalIcon canal="site" size="xl" />
-            </a>
-          )}
-        </div>
-
-        {/* Contato principal */}
-        {tab === "carteira" && lead.phone ? (
-          <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-            <CanalIcon canal={lead.hasWhatsapp ? "whatsapp" : "telefone"} /> {lead.phone}
-          </a>
-        ) : tab === "shelf" ? (
-          <div className="sub">Contato revelado ao puxar este lead.</div>
-        ) : null}
-
-        <div className="kv">
-          {lead.segment && <div className="row"><span className="k">Segmento</span><span className="v">{lead.segment}</span></div>}
-          {lead.city && <div className="row"><span className="k">Cidade</span><span className="v">{lead.city}{lead.state ? `/${lead.state}` : ""}</span></div>}
-          {lead.opportunityScore > 0 && (
-            <div className="row"><span className="k">Score</span><span className="v hbx-mono">{lead.opportunityScore}</span></div>
-          )}
-        </div>
-
-        {lead.opportunityReason && (
-          <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5 }}>
-            {lead.opportunityReason}
-          </p>
-        )}
-
-        {lead.opportunitySignals && lead.opportunitySignals.length > 0 && (
-          <div className="radar2-signals" style={{ marginTop: 10 }}>
-            {lead.opportunitySignals.slice(0, 6).map(sig => {
-              const m = SIGNAL_META[sig];
-              if (!m) return null;
-              return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
-            })}
-          </div>
-        )}
-
-        <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-          {tab === "shelf" && (
-            <button className="btn-teal"
-              onClick={() => puxar(lead.id)}
-              disabled={pullBusyId === lead.id || bulkBusy || meterBlocked}>
-              {pullBusyId === lead.id ? "Puxando…" : "Puxar lead →"}
-            </button>
-          )}
-          {tab === "carteira" && (
-            <button className="btn-ghost" onClick={() => router.push("/vendas")}>
-              Ver em Vendas →
-            </button>
-          )}
-        </div>
-      </div>
+        }
+      />
     );
   }
 
@@ -1085,15 +1121,12 @@ export function LeadsClient() {
       {!isMobile && (
         <aside className="ctx">
           {!selLead ? (
-            <div className="ctx-empty">
-              <span className="ctx-empty__icon">←</span>
-              <span className="ctx-empty__hint">Clique em um lead para ver os detalhes do negócio</span>
-            </div>
+            <DetalhesNegocio
+              detail={null}
+              emptyHint="Clique em um lead para ver os detalhes do negócio"
+            />
           ) : (
-            <>
-              <h3>Detalhes do lead <span className="x" onClick={() => setSelLead(null)}>✕</span></h3>
-              {renderLeadDetail(selLead)}
-            </>
+            renderLeadDetail(selLead, { title: "Detalhes do lead", onClose: () => setSelLead(null) })
           )}
         </aside>
       )}

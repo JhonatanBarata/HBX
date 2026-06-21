@@ -23,11 +23,10 @@
 // (CNPJ, segmento, cidade, telefone do perfil) mostram vazio/“—”.
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
-import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
-import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
 import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
 import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
@@ -38,14 +37,9 @@ import { PLAN_ORDER, FALLBACK_PLANS, fetchPublicPlans, type PublicPlan } from "@
 import { classifyPlanChange } from "@/lib/plan-rank";
 import { useTabParam } from "@/lib/use-tab-param";
 
-const SECTIONS = ["Perfil", "Empresa", "Equipe", "E-mail", "Notificações", "Plano e cobrança"];
-const SEC_IC: Record<string, string> = { "Perfil": "users", "Empresa": "cnpj", "Equipe": "users", "E-mail": "mail", "Notificações": "bell", "Plano e cobrança": "money" };
-
-const ROLE_LABEL: Record<string, string> = {
-  ADMIN: "Administrador",
-  USER: "Vendas",
-  MASTER: "Master",
-};
+// Equipe saiu de Configurações → vive agora em Gerencial → aba Equipe.
+const SECTIONS = ["Perfil & Empresa", "E-mail", "Notificações", "Plano e cobrança"];
+const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Notificações": "bell", "Plano e cobrança": "money" };
 
 type CurrentUser = {
   name?: string | null;
@@ -58,6 +52,12 @@ type CurrentUser = {
 } | null;
 
 type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
+
+const ROLE_LABEL: Record<string, string> = {
+  ADMIN: "Administrador",
+  USER: "Vendas",
+  MASTER: "Master",
+};
 
 type CatalogPlan = {
   key: string;
@@ -114,21 +114,35 @@ function roleLabel(role?: string | null) {
 }
 
 export function ConfiguracoesClient() {
-  const [sec, setSec] = useTabParam<string>("sec", "Perfil", SECTIONS);
+  const router = useRouter();
+  const [sec, setSec] = useTabParam<string>("sec", "Perfil & Empresa", SECTIONS);
 
-  // aviso do sino → abre direto na seção (mesmo padrão do "+" → Novo lead)
+  // aviso do sino → abre direto na seção (mesmo padrão do "+" → Novo lead).
+  // "Equipe" saiu daqui — redireciona para /gerencial?aba=4 (aba Equipe lá).
   useEffect(() => {
     const t = setTimeout(() => {
       try {
         const dica = sessionStorage.getItem("hbx:config-sec");
-        if (dica && SECTIONS.includes(dica)) {
+        if (dica) {
           sessionStorage.removeItem("hbx:config-sec");
-          setSec(dica);
+          if (dica === "Equipe") {
+            // Equipe migrou para Gerencial → aba 4
+            const email = sessionStorage.getItem("hbx:config-membro-email");
+            try { sessionStorage.removeItem("hbx:config-membro-email"); } catch { /* sem storage */ }
+            if (email) {
+              try { sessionStorage.setItem("hbx:gerencial-membro-email", email); } catch { /* sem storage */ }
+            }
+            router.replace("/gerencial?aba=4");
+            return;
+          }
+          if (SECTIONS.includes(dica)) {
+            setSec(dica);
+          }
         }
       } catch { /* sem storage */ }
     }, 0);
     return () => clearTimeout(t);
-  }, [setSec]);
+  }, [setSec, router]);
   const [n1, setN1] = useState(true);
   const [n2, setN2] = useState(true);
   const [n3, setN3] = useState(false);
@@ -141,8 +155,9 @@ export function ConfiguracoesClient() {
   const [nichoMsg, setNichoMsg] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  // team só é usado em Plano e cobrança (contagem de usuários) — mantido, mas
+  // Equipe como seção foi movida para Gerencial.
   const [team, setTeam] = useState<CompanyUser[]>([]);
-  const [teamDenied, setTeamDenied] = useState(false);
   const [plansMe, setPlansMe] = useState<CommercialPlansMe>(null);
   // Números (preço/trial/volume) da MESMA fonte da casca (/commercial-plans/public-catalog).
   // Copy/ícone vêm de lib/plans (PLAN_STATIC) via <PlanCard> — nada duplicado em tela.
@@ -157,55 +172,8 @@ export function ConfiguracoesClient() {
   const [implantacaoOpen, setImplantacaoOpen] = useState(false);
   const [trocarPlano, setTrocarPlano] = useState<PublicPlan | null>(null);
 
-  // Novo acesso (cadastro completo, PR12062026005) + gestão de membro.
-  // Gerenciar abre a tela do vendedor (gerenciar-vendedor-modal) com os
-  // documentos recebidos — ordem do dono 12/06: liberar é passo explícito.
-  //
-  // Ordem do dono 14/06: qual JANELA está aberta é estado de NAVEGAÇÃO, igual o
-  // `sec` — então vive na URL (mesma regra do use-tab-param). Assim o F5 reabre a
-  // janela que estava aberta, não só a aba. `?novo=1` = Novo acesso; `?membro=<id>`
-  // = Gerenciar daquele vendedor. (O "sem perder" do Novo acesso é o rascunho em
-  // localStorage dentro do próprio modal.)
-  const [novoParam, setNovoParam] = useTabParam<string>("novo", "");
-  const [membroParam, setMembroParam] = useTabParam<string>("membro", "");
-  const novoAcessoOpen = novoParam === "1";
-  const gerirMembro = team.find(m => String(m.id) === membroParam) || null;
-  const [gerirBusy, setGerirBusy] = useState(false);
-
-  function abrirNovoAcesso() {
-    // abertura por clique = começa limpa (não ressuscita rascunho de outra vez)
-    try { localStorage.removeItem("hbx:novo-acesso-draft"); } catch { /* sem storage */ }
-    setMembroParam("");
-    setNovoParam("1");
-  }
-  function abrirGerir(m: CompanyUser) {
-    setNovoParam("");
-    setMembroParam(String(m.id));
-  }
-  const [teamMsg, setTeamMsg] = useState<string | null>(null);
-  const [confirmExcluir, setConfirmExcluir] = useState<CompanyUser | null>(null);
-
-  function recarregarEquipe() {
-    return apiFetch<CompanyUser[]>("/users/company")
-      .then(res => setTeam(Array.isArray(res) ? res : []))
-      .catch(() => setTeamDenied(true));
-  }
-
-  async function excluirMembro(m: CompanyUser) {
-    if (gerirBusy) return;
-    setGerirBusy(true);
-    setTeamMsg(null);
-    try {
-      await apiFetch(`/users/${m.id}/delete`, { method: "DELETE" });
-      setTeamMsg("✓ Usuário excluído.");
-      setMembroParam("");
-      await recarregarEquipe();
-    } catch (err) {
-      setTeamMsg(err instanceof Error ? err.message : "Não foi possível excluir.");
-    } finally {
-      setGerirBusy(false);
-    }
-  }
+  // Equipe saiu desta tela — sem novoAcesso/gerirMembro/excluirMembro aqui.
+  // Gestão de membros vive em Gerencial → aba Equipe.
 
   useEffect(() => {
     let alive = true;
@@ -219,7 +187,7 @@ export function ConfiguracoesClient() {
       .catch(() => { /* sem sessão — AuthGate cuida */ });
     apiFetch<CompanyUser[]>("/users/company")
       .then(res => { if (alive) setTeam(Array.isArray(res) ? res : []); })
-      .catch(() => { if (alive) setTeamDenied(true); });
+      .catch(() => { /* equipe indisponível — só afeta contagem de usuários em Plano */ });
     apiFetch<CommercialPlansMe>("/commercial-plans/me")
       .then(res => { if (alive) setPlansMe(res); })
       .catch(() => { /* sem acesso comercial — seção fica oculta/limitada */ });
@@ -228,20 +196,6 @@ export function ConfiguracoesClient() {
       .catch(() => { /* mantém FALLBACK_PLANS */ });
     return () => { alive = false; };
   }, []);
-
-  // aviso "documentos confirmados" → abre DIRETO a ficha do vendedor, não só a aba
-  // (ordem do dono 14/06). O sino mandou o e-mail do vendedor em sessionStorage;
-  // quando a equipe carrega, casamos o e-mail com o membro e abrimos o Gerenciar.
-  useEffect(() => {
-    if (team.length === 0) return;
-    let alvo: string | null = null;
-    try { alvo = sessionStorage.getItem("hbx:config-membro-email"); } catch { /* sem storage */ }
-    if (!alvo) return;
-    try { sessionStorage.removeItem("hbx:config-membro-email"); } catch { /* sem storage */ }
-    const email = alvo.trim().toLowerCase();
-    const m = team.find(x => (x.email || "").trim().toLowerCase() === email);
-    if (m) setMembroParam(String(m.id));
-  }, [team, setMembroParam]);
 
   async function salvarPerfil() {
     if (saveBusy) return;
@@ -317,140 +271,89 @@ export function ConfiguracoesClient() {
           </nav>
 
           <div className="cfg-body" style={{ display: "grid", gap: 14 }}>
-            {sec === "Perfil" && (
-              <section className="panel cfg-section">
-                <div className="panel-head">
-                  <h2>Perfil</h2>
-                  <div className="meta">
-                    {saveMsg && <span style={{ fontWeight: 700, color: saveMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{saveMsg}</span>}
-                    <button className="btn-teal cfg-save-desktop" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
-                  </div>
-                </div>
-                <div className="cfg-panel-body" style={{ padding: 18, display: "grid", gap: 16 }}>
-                  <div className="cfg-avatar-hero" style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                    <Av name={displayName} size={56} />
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <strong>{displayName}</strong>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem" }}>Alterar</button>
-                        <button className="btn-ghost cfg-danger-btn" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>Remover</button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="frow cfg-fields">
-                    <div className="f"><label>Nome completo</label><input className="field-dark" value={nome} onChange={e => setNome(e.target.value)} /></div>
-                    <div className="f"><label>Perfil de acesso</label><input className="field-dark" value={user ? roleLabel(user.role) : ""} readOnly /></div>
-                    <div className="f"><label>E-mail</label><input className="field-dark" value={user?.email || ""} readOnly /></div>
-                    <div className="f"><label>Telefone</label><input className="field-dark" defaultValue="" placeholder="—" readOnly /></div>
-                  </div>
-                  <div className="cfg-save-mobile">
-                    {saveMsg && <span className={"cfg-save-msg" + (saveMsg.startsWith("✓") ? " ok" : " err")}>{saveMsg}</span>}
-                    <button className="btn-teal" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {sec === "Empresa" && (
-              <section className="panel cfg-section">
-                <div className="panel-head"><h2>Empresa</h2></div>
-                <div className="cfg-sec-body" style={{ padding: 18 }}>
-                  <div className="frow">
-                    <div className="f"><label>Razão social</label><input className="field-dark" value={user?.company?.name || ""} readOnly placeholder="—" /></div>
-                    <div className="f"><label>CNPJ</label><input className="field-dark" value="" readOnly placeholder="—" /></div>
-                    <div className="f"><label>Telefone de contato</label><input className="field-dark" value={user?.company?.contactPhone || ""} readOnly placeholder="—" /></div>
-                  </div>
-                  {(user?.role === "ADMIN" || user?.userKind === "owner") && (
-                    <div className="cfg-nicho">
-                      <p className="ttl">Nicho da empresa (alimenta o Radar e os sinais de oportunidade)</p>
-                      <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula. Ex.: Odontologia, Estética, Advocacia.</p>
-                      <div className="row">
-                        <input
-                          className="field-dark"
-                          value={nichoInput}
-                          placeholder="Odontologia, Estética…"
-                          onChange={e => setNichoInput(e.target.value)}
-                        />
-                        <button
-                          className="btn-teal"
-                          disabled={nichoBusy || !nichoInput.trim()}
-                          onClick={async () => {
-                            setNichoBusy(true);
-                            setNichoMsg(null);
-                            try {
-                              const segments = nichoInput.split(",").map(s => s.trim()).filter(Boolean);
-                              await apiFetch("/profile/prospecting-segments", {
-                                method: "POST",
-                                body: JSON.stringify({ segments }),
-                              });
-                              setNichoMsg("✓ Nicho salvo.");
-                            } catch (err) {
-                              setNichoMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
-                            } finally {
-                              setNichoBusy(false);
-                            }
-                          }}
-                        >
-                          {nichoBusy ? "Salvando…" : "Salvar nicho"}
-                        </button>
-                      </div>
-                      {nichoMsg && <p className="msg">{nichoMsg}</p>}
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {sec === "Equipe" && (
+            {sec === "Perfil & Empresa" && (
               <React.Fragment>
-              <section className="panel cfg-section">
-                <div className="panel-head">
-                  <h2>Equipe</h2>
-                  <div className="meta">
-                    <button className="btn-teal" onClick={abrirNovoAcesso} disabled={teamDenied}><I d={ICONS.plus} size={13} /> Novo acesso</button>
+                {/* Seção Perfil */}
+                <section className="panel cfg-section">
+                  <div className="panel-head">
+                    <h2>Perfil</h2>
+                    <div className="meta">
+                      {saveMsg && <span style={{ fontWeight: 700, color: saveMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{saveMsg}</span>}
+                      <button className="btn-teal cfg-save-desktop" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
+                    </div>
                   </div>
-                </div>
-                {teamMsg && (
-                  <div style={{ padding: "10px 16px 0", fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: teamMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{teamMsg}</div>
-                )}
-                <div className="tbl-wrap">
-                  <table className="tbl">
-                    <thead><tr><th>Membro</th><th>E-mail</th><th>Perfil de acesso</th><th></th></tr></thead>
-                    <tbody>
-                      {teamDenied && (
-                        <tr style={{ cursor: "default" }}>
-                          <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "22px 12px" }}>
-                            Lista de equipe visível apenas para Administrador.
-                          </td>
-                        </tr>
-                      )}
-                      {!teamDenied && team.length === 0 && (
-                        <tr style={{ cursor: "default" }}>
-                          <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "22px 12px" }}>
-                            Nenhum membro carregado.
-                          </td>
-                        </tr>
-                      )}
-                      {team.map(m => {
-                        const nomeMembro = m.name || m.username || m.email || `Usuário ${m.id}`;
-                        const ehAdmin = String(m.role || "").toUpperCase() === "ADMIN";
-                        return (
-                          <tr key={m.id} style={{ cursor: "default" }}>
-                            <td><div style={{ display: "flex", gap: 9, alignItems: "center" }}><Av name={nomeMembro} size={28} /><div><strong>{nomeMembro}</strong><div style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{m.isActive === false ? "Inativo" : "Ativo"}</div></div></div></td>
-                            <td>{m.email || "—"}</td>
-                            <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{roleLabel(m.role)}</span></td>
-                            <td>
-                              <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
-                                onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-              {!teamDenied && <CargoAcessosEditor />}
+                  <div className="cfg-panel-body" style={{ padding: 18, display: "grid", gap: 16 }}>
+                    <div className="cfg-avatar-hero" style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                      <Av name={displayName} size={56} />
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <strong>{displayName}</strong>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem" }}>Alterar</button>
+                          <button className="btn-ghost cfg-danger-btn" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>Remover</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="frow cfg-fields">
+                      <div className="f"><label>Nome completo</label><input className="field-dark" value={nome} onChange={e => setNome(e.target.value)} /></div>
+                      <div className="f"><label>Perfil de acesso</label><input className="field-dark" value={user ? roleLabel(user.role) : ""} readOnly /></div>
+                      <div className="f"><label>E-mail</label><input className="field-dark" value={user?.email || ""} readOnly /></div>
+                      <div className="f"><label>Telefone</label><input className="field-dark" defaultValue="" placeholder="—" readOnly /></div>
+                    </div>
+                    <div className="cfg-save-mobile">
+                      {saveMsg && <span className={"cfg-save-msg" + (saveMsg.startsWith("✓") ? " ok" : " err")}>{saveMsg}</span>}
+                      <button className="btn-teal" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Seção Empresa (empilhada abaixo do Perfil) */}
+                <section className="panel cfg-section">
+                  <div className="panel-head"><h2>Empresa</h2></div>
+                  <div className="cfg-sec-body" style={{ padding: 18 }}>
+                    <div className="frow">
+                      <div className="f"><label>Razão social</label><input className="field-dark" value={user?.company?.name || ""} readOnly placeholder="—" /></div>
+                      <div className="f"><label>CNPJ</label><input className="field-dark" value="" readOnly placeholder="—" /></div>
+                      <div className="f"><label>Telefone de contato</label><input className="field-dark" value={user?.company?.contactPhone || ""} readOnly placeholder="—" /></div>
+                    </div>
+                    {(user?.role === "ADMIN" || user?.userKind === "owner") && (
+                      <div className="cfg-nicho">
+                        <p className="ttl">Nicho da empresa (alimenta o Radar e os sinais de oportunidade)</p>
+                        <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula. Ex.: Odontologia, Estética, Advocacia.</p>
+                        <div className="row">
+                          <input
+                            className="field-dark"
+                            value={nichoInput}
+                            placeholder="Odontologia, Estética…"
+                            onChange={e => setNichoInput(e.target.value)}
+                          />
+                          <button
+                            className="btn-teal"
+                            disabled={nichoBusy || !nichoInput.trim()}
+                            onClick={async () => {
+                              setNichoBusy(true);
+                              setNichoMsg(null);
+                              try {
+                                const segments = nichoInput.split(",").map(s => s.trim()).filter(Boolean);
+                                await apiFetch("/profile/prospecting-segments", {
+                                  method: "POST",
+                                  body: JSON.stringify({ segments }),
+                                });
+                                setNichoMsg("✓ Nicho salvo.");
+                              } catch (err) {
+                                setNichoMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
+                              } finally {
+                                setNichoBusy(false);
+                              }
+                            }}
+                          >
+                            {nichoBusy ? "Salvando…" : "Salvar nicho"}
+                          </button>
+                        </div>
+                        {nichoMsg && <p className="msg">{nichoMsg}</p>}
+                      </div>
+                    )}
+                  </div>
+                </section>
               </React.Fragment>
             )}
 
@@ -581,36 +484,6 @@ export function ConfiguracoesClient() {
             )}
           </div>
         </div>
-
-      {novoAcessoOpen && (
-        <NovoAcessoModal
-          onClose={() => setNovoParam("")}
-          onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
-          team={team}
-        />
-      )}
-
-      {gerirMembro && (
-        <NovoAcessoModal
-          member={gerirMembro}
-          team={team}
-          isSelf={Boolean(user?.email && gerirMembro.email && user.email === gerirMembro.email)}
-          onClose={() => setMembroParam("")}
-          onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
-          onRequestExcluir={m => setConfirmExcluir(m)}
-        />
-      )}
-
-      <ConfirmDialog
-        open={!!confirmExcluir}
-        title="Excluir membro"
-        message={<>Excluir <strong>{confirmExcluir?.name || confirmExcluir?.email || "este usuário"}</strong> em definitivo? Esta ação não tem volta.</>}
-        confirmLabel="Excluir"
-        danger
-        busy={gerirBusy}
-        onConfirm={async () => { const m = confirmExcluir; setConfirmExcluir(null); if (m) await excluirMembro(m); }}
-        onCancel={() => setConfirmExcluir(null)}
-      />
 
       {subscribePlan && (
         <SubscribeCardModal

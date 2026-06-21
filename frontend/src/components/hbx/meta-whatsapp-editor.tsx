@@ -1,6 +1,6 @@
 "use client";
 
-// /master → Sistema → "WhatsApp (Meta)" — conexão da Cloud API oficial.
+// /master → Sistema → "Credenciais" — conexão WhatsApp (Meta) da Cloud API oficial.
 // Backend (master, empresa em contexto — whatsapp.controller.ts):
 //   GET   /whatsapp/config         → status + número + phoneNumberId + token(preview)
 //   PATCH /whatsapp/config         → grava número/phoneNumberId/accessToken

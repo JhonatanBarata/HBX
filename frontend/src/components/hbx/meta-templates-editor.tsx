@@ -1,6 +1,6 @@
 "use client";
 
-// /master → Sistema → WhatsApp (Meta) → Templates (Cloud API).
+// /master → Sistema → Credenciais → WhatsApp (Meta) Templates (Cloud API).
 // Backend (hbx-recovery.controller.ts):
 //   GET    /hbx-recovery/meta-templates[?refresh=true] → { templates, counters, lastSyncAt, syncError }
 //   POST   /hbx-recovery/meta-templates/sync           → puxa da Meta

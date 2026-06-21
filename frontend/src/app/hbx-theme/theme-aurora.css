@@ -68,6 +68,36 @@
     linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 98%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 90%, var(--hbx-background)));
   box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
+/* Detalhe do negócio (aside .ctx) — vidro líquido + profundidade.
+   Compartilhado: vale Vendas, Atendimento e Leads ao mesmo tempo. */
+[data-theme="aurora"] .ctx {
+  background:
+    radial-gradient(130% 55% at 100% 0%, color-mix(in srgb, var(--hbx-brand) 11%, transparent), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 96%, var(--hbx-background)), color-mix(in srgb, var(--hbx-surface-soft) 92%, var(--hbx-background)));
+  box-shadow: var(--shadow-inset);
+}
+[data-theme="aurora"] .ctx-hero .avatar {
+  box-shadow: 0 0 0 3px var(--hbx-surface), 0 0 0 4px var(--soft-ring), var(--shadow-xs);
+}
+[data-theme="aurora"] .ctx-phone {
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-inset), 0 14px 28px -20px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+  transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
+}
+[data-theme="aurora"] .ctx-phone:hover { transform: translateY(-1px); }
+[data-theme="aurora"] .ctx-channels > a,
+[data-theme="aurora"] .ctx-channels > .chan-ico {
+  filter: drop-shadow(0 8px 14px color-mix(in srgb, var(--hbx-shadow) 16%, transparent));
+}
+[data-theme="aurora"] .ctx-score-fill {
+  background: linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong));
+  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--hbx-brand) 60%, transparent);
+}
+[data-theme="aurora"] .ctx-note {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-brand) 7%, var(--hbx-surface)), var(--hbx-surface-soft));
+  box-shadow: var(--shadow-inset);
+}
+[data-theme="aurora"] .ctx-tl-dot { box-shadow: 0 0 0 3px var(--hbx-brand-soft), 0 0 8px -1px color-mix(in srgb, var(--hbx-brand) 70%, transparent); }
 [data-theme="aurora"] .nav-item { border-radius: var(--radius-pill); }
 [data-theme="aurora"] .nav-item.active {
   background: color-mix(in srgb, var(--hbx-brand) 14%, var(--hbx-surface));
