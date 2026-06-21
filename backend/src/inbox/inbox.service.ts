@@ -2676,9 +2676,9 @@ export class InboxService {
       routeReason = 'Conversa neutra definida por ação manual/card.';
     }
 
-    this.logger.log(`[inbox-classifier] conversationId=${conversation?.id || '-'} queue=${routeTarget}`);
-    this.logger.log(`[inbox-classifier] reason=${routeReason}`);
-
+    // Sem log por-conversa aqui (hot path): inundava ~120 conversas × 2 linhas a cada poll,
+    // com ids repetidos no mesmo segundo (duas listas chamam isto por ciclo). O resumo agregado
+    // por ciclo vive em logInboxClassifierCycle; routeReason continua no payload pra debug.
     return {
       routeTarget,
       routeReason,
@@ -3341,6 +3341,22 @@ export class InboxService {
     });
   }
 
+  // Resumo agregado da classificação por CICLO de lista (1 linha) em vez de 2 logs por conversa.
+  // Ex.: "[inbox-classifier] company=7 classified=120 conversas=110 atendimento=5 recovery=3 groups=2".
+  private logInboxClassifierCycle(companyId: number, summaries: any[]) {
+    if (!summaries?.length) return;
+    const counts = new Map<string, number>();
+    for (const summary of summaries) {
+      const queue = String(summary?.routeTarget || '-');
+      counts.set(queue, (counts.get(queue) || 0) + 1);
+    }
+    const distribution = Array.from(counts.entries())
+      .sort((left, right) => right[1] - left[1])
+      .map(([queue, count]) => `${queue}=${count}`)
+      .join(' ');
+    this.logger.log(`[inbox-classifier] company=${companyId} classified=${summaries.length} ${distribution}`);
+  }
+
   private async listConversationSummariesForCompany(
     companyId: number,
     options?: { take?: string | number | null },
@@ -3376,6 +3392,7 @@ export class InboxService {
         sharedProfile,
       ));
     }
+    this.logInboxClassifierCycle(companyId, summaries);
     return summaries;
   }
 
@@ -3463,6 +3480,7 @@ export class InboxService {
         sharedProfile,
       ));
     }
+    this.logInboxClassifierCycle(companyId, summaries);
     return summaries;
   }
 
