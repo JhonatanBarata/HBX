@@ -30,6 +30,8 @@ import { Av, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
+import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
@@ -358,6 +360,9 @@ export function AtendimentoClient() {
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waModalOpen, setWaModalOpen] = useState(false);
 
+  // Módulo bot acessível: /modules/me (key==="bot" && accessible===true) — hero do card
+  const [canBot, setCanBot] = useState(false);
+
   // sessões WhatsApp: modo (company/current/meta/none), lista de sessões visíveis,
   // e ids das sessões deste usuário (para controle de supervisão/read-only).
   type SessionInfo = { sellerName: string | null; phone: string | null };
@@ -534,6 +539,17 @@ export function AtendimentoClient() {
     const t = setInterval(() => { refreshWaStatus(); refreshWaSession(); }, 20000);
     return () => clearInterval(t);
   }, [refreshWaStatus, refreshWaSession]);
+
+  // Módulo bot: busca uma vez na montagem (mesma resposta /modules/me usada em Vendas/Leads)
+  useEffect(() => {
+    apiFetch<Array<{ key: string; accessible?: boolean }>>("/modules/me")
+      .then(list => {
+        const mods = Array.isArray(list) ? list : [];
+        const bot = mods.find(m => String(m.key || "").trim().toLowerCase() === "bot");
+        setCanBot(bot?.accessible === true);
+      })
+      .catch(() => setCanBot(false));
+  }, []);
 
   // Carrega o roster da empresa quando é admin em visão-empresa (o seletor "Chat" só
   // aparece nesse caso). Reage à mudança de modo/identidade.
@@ -1902,6 +1918,23 @@ export function AtendimentoClient() {
                   createdAt: h.createdAt,
                 })) ?? null,
               } satisfies NegocioDetail) : null}
+              heroAction={convo ? (() => {
+                const phone = phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || null;
+                const waActive = waStatus === "connected";
+                return (
+                  <>
+                    <BotStatusIcon accessible={canBot} />
+                    <WhatsAppActionButton
+                      phone={phone}
+                      name={convName(convo)}
+                      qrActive={waActive}
+                      canInternal={false}
+                      onOpenExternal={() => { if (phone) window.open(`https://wa.me/${phone.replace(/\D/g, "")}`, "_blank"); }}
+                      onOpenInternal={() => {}}
+                    />
+                  </>
+                );
+              })() : undefined}
               obsDraft={obsDraft}
               onObsChange={convo ? setObsDraft : undefined}
               onObsSave={convo ? salvarObs : undefined}

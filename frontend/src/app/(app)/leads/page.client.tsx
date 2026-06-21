@@ -18,6 +18,7 @@ import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
+import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -178,6 +179,7 @@ export function LeadsClient() {
   // WhatsApp action (resolve TODO do aside): sessão QR + acesso ao Atendimento
   const [waQrActive, setWaQrActive] = useState(false);
   const [canAtendimento, setCanAtendimento] = useState(false);
+  const [canBot, setCanBot] = useState(false);
   const [waStartBusy, setWaStartBusy] = useState(false);
   const [waStartError, setWaStartError] = useState<string | null>(null);
 
@@ -242,10 +244,13 @@ export function LeadsClient() {
       .catch(() => setWaQrActive(false));
     apiFetch<Array<{ key: string; accessible?: boolean }>>("/modules/me")
       .then(list => {
-        const mod = Array.isArray(list) ? list.find(m => String(m.key || "").trim().toLowerCase() === "atendimento") : null;
-        setCanAtendimento(mod?.accessible === true);
+        const mods = Array.isArray(list) ? list : [];
+        const atend = mods.find(m => String(m.key || "").trim().toLowerCase() === "atendimento");
+        const bot = mods.find(m => String(m.key || "").trim().toLowerCase() === "bot");
+        setCanAtendimento(atend?.accessible === true);
+        setCanBot(bot?.accessible === true);
       })
-      .catch(() => setCanAtendimento(false));
+      .catch(() => { setCanAtendimento(false); setCanBot(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -523,16 +528,19 @@ export function LeadsClient() {
         title={opts?.title ?? "Detalhes do lead"}
         onClose={opts?.onClose}
         heroAction={revealed ? (
-          <WhatsAppActionButton
-            phone={lead.phone}
-            name={lead.name}
-            qrActive={waQrActive}
-            canInternal={canAtendimento}
-            onOpenExternal={() => abrirWhatsAppExterno(lead.phone)}
-            onOpenInternal={() => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name })}
-            startBusy={waStartBusy}
-            startError={waStartError}
-          />
+          <>
+            <BotStatusIcon accessible={canBot} />
+            <WhatsAppActionButton
+              phone={lead.phone}
+              name={lead.name}
+              qrActive={waQrActive}
+              canInternal={canAtendimento}
+              onOpenExternal={() => abrirWhatsAppExterno(lead.phone)}
+              onOpenInternal={() => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name })}
+              startBusy={waStartBusy}
+              startError={waStartError}
+            />
+          </>
         ) : null}
         kvExtra={
           <>
