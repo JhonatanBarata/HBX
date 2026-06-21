@@ -18,9 +18,9 @@ import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
-import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { ModuleAccess } from '../modules/module-feature.decorator';
 import { CompanyEmailSettingsService } from './company-email-settings.service';
 import { CompanyEmailTemplateService } from './company-email-template.service';
 import { CompanyMailerService } from './company-mailer.service';
@@ -175,8 +175,8 @@ class SendCompanyEmailDto {
 }
 
 @Controller('company-email')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Admin()
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@ModuleAccess('email')
 export class CompanyEmailController {
   constructor(
     private readonly settingsService: CompanyEmailSettingsService,

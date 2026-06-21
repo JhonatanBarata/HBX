@@ -13,10 +13,8 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
-import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
-import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -29,6 +27,7 @@ type VendasLead = {
   email: string | null;
   address?: string | null;
   website?: string | null;
+  cnpj?: string | null;
   city: string | null;
   state: string | null;
   segment: string | null;
@@ -46,6 +45,13 @@ type VendasLead = {
   attemptCount: number;
   lastResult?: string | null;
   closedAt: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  // origem do lead
+  sourceType?: string | null;
+  primarySource?: string | null;
+  // presença no Atendimento
+  isInInbox?: boolean | null;
   timeline?: Array<{
     id: string;
     eventType?: string | null;
@@ -61,6 +67,9 @@ type VendasLead = {
   saleValue: number | null;
   commissionStatusLabel?: string | null;
   commissionAmount?: number | null;
+  commissionDueAt?: string | null;
+  commissionRecurring?: boolean | null;
+  commissionNote?: string | null;
   setupValue?: number | null;
   setupCommissionAmount?: number | null;
   setupCommissionStatusLabel?: string | null;
@@ -72,6 +81,15 @@ type VendasLead = {
     websiteStatus?: string | null;
     instagramUrl?: string | null;
     facebookUrl?: string | null;
+    // camada de inteligência (Lead Plus / enriquecimento)
+    opportunityReason?: string | null;
+    leadReasonTags?: string[] | null;
+    recommendedChannel?: string | null;
+    painType?: string | null;
+    painPitch?: string | null;
+    messageTemplate?: string | null;
+    contactQuality?: string | null;
+    enrichedAt?: string | null;       // ISO — presente quando o lead foi enriquecido
   } | null;
   owner: { name: string | null } | null;
   block: "today" | "overdue" | "scheduled" | "closed";
@@ -157,11 +175,6 @@ function fmtWhen(iso: string | null) {
   return d.toLocaleDateString("pt-BR");
 }
 
-function fmtDate(iso: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
-}
 
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
@@ -195,7 +208,6 @@ export function VendasClient() {
   // Carregado uma vez ao montar; não precisa de poll (mesmo critério do Atendimento).
   const [waQrActive, setWaQrActive] = useState(false);
   const [canAtendimento, setCanAtendimento] = useState(false);
-  const [canBot, setCanBot] = useState(false);
   // Estado do "WhatsApp Interno": POST /inbox/conversations/start + navegação
   const [waStartBusy, setWaStartBusy] = useState(false);
   const [waStartError, setWaStartError] = useState<string | null>(null);
@@ -256,11 +268,9 @@ export function VendasClient() {
       .then(list => {
         const mods = Array.isArray(list) ? list : [];
         const atend = mods.find(m => String(m.key || "").trim().toLowerCase() === "atendimento");
-        const bot = mods.find(m => String(m.key || "").trim().toLowerCase() === "bot");
         setCanAtendimento(atend?.accessible === true);
-        setCanBot(bot?.accessible === true);
       })
-      .catch(() => { setCanAtendimento(false); setCanBot(false); });
+      .catch(() => { setCanAtendimento(false); });
   }, []);
 
   // Fechamento de venda com produto (trilha Produtos & Comissão, item 1):
@@ -751,13 +761,18 @@ export function VendasClient() {
   }
 
   // Mapeia VendasLead → NegocioDetail (shape normalizado)
+  // Todos os campos disponíveis no payload do backend são mapeados aqui.
+  // Campos ausentes/null somem automaticamente no componente.
   function toNegocioDetail(d: VendasLead): NegocioDetail {
     return {
       id: d.id,
+      enriched: Boolean(d.leadIntelligence?.enrichedAt),
       name: d.name,
       phone: d.phone,
       email: d.email,
       website: d.website,
+      cnpj: d.cnpj ?? null,
+      address: d.address ?? null,
       city: d.city,
       state: d.state,
       segment: d.segment,
@@ -775,8 +790,28 @@ export function VendasClient() {
       shortNote: d.shortNote,
       lastResult: d.lastResult,
       timesSeen: d.timesSeen,
+      isInInbox: d.isInInbox ?? null,
+      createdAt: d.createdAt ?? null,
+      updatedAt: d.updatedAt ?? null,
+      sourceType: d.sourceType ?? null,
+      primarySource: d.primarySource ?? null,
       owner: d.owner ? { name: d.owner.name } : null,
-      leadIntelligence: d.leadIntelligence ?? null,
+      leadIntelligence: d.leadIntelligence
+        ? {
+            whatsappStatus: d.leadIntelligence.whatsappStatus ?? null,
+            emailStatus: d.leadIntelligence.emailStatus ?? null,
+            websiteStatus: d.leadIntelligence.websiteStatus ?? null,
+            instagramUrl: d.leadIntelligence.instagramUrl ?? null,
+            facebookUrl: d.leadIntelligence.facebookUrl ?? null,
+            opportunityReason: d.leadIntelligence.opportunityReason ?? null,
+            leadReasonTags: d.leadIntelligence.leadReasonTags ?? null,
+            recommendedChannel: d.leadIntelligence.recommendedChannel ?? null,
+            painType: d.leadIntelligence.painType ?? null,
+            painPitch: d.leadIntelligence.painPitch ?? null,
+            messageTemplate: d.leadIntelligence.messageTemplate ?? null,
+            contactQuality: d.leadIntelligence.contactQuality ?? null,
+          }
+        : null,
       sale: d.saleStatus && d.saleStatus !== "none"
         ? {
             status: d.saleStatus,
@@ -784,9 +819,15 @@ export function VendasClient() {
             valueLabel: fmtMoney(d.saleValue),
             commissionLabel: d.commissionStatusLabel ?? null,
             commissionValueLabel: d.commissionAmount != null ? fmtMoney(d.commissionAmount) : null,
+            commissionDueAt: d.commissionDueAt ?? null,
+            commissionRecurring: d.commissionRecurring ?? null,
+            commissionNote: d.commissionNote ?? null,
             setupLabel: d.setupValue != null && d.setupValue > 0
               ? `${fmtMoney(d.setupValue)}${d.setupCommissionAmount != null ? ` · comissão: ${fmtMoney(d.setupCommissionAmount)}` : ""}`
               : null,
+            setupValue: d.setupValue ?? null,
+            setupCommissionAmount: d.setupCommissionAmount ?? null,
+            setupCommissionStatusLabel: d.setupCommissionStatusLabel ?? null,
           }
         : null,
       history: d.timeline?.map(ev => ({
@@ -1053,20 +1094,17 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
-                heroAction={deal ? (
-                  <>
-                    <BotStatusIcon accessible={canBot} />
-                    <WhatsAppActionButton
-                      phone={deal.phone}
-                      name={deal.name}
-                      qrActive={waQrActive}
-                      canInternal={canAtendimento}
-                      onOpenExternal={() => abrirWhatsAppExterno(deal.phone)}
-                      onOpenInternal={() => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name })}
-                      startBusy={waStartBusy}
-                      startError={waStartError}
-                    />
-                  </>
+                heroAction={deal?.phone ? (
+                  <WhatsAppActionButton
+                    phone={deal.phone}
+                    name={deal.name}
+                    qrActive={waQrActive}
+                    canInternal={canAtendimento}
+                    onOpenExternal={() => abrirWhatsAppExterno(deal.phone)}
+                    onOpenInternal={() => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name })}
+                    startBusy={waStartBusy}
+                    startError={waStartError}
+                  />
                 ) : undefined}
                 actions={deal ? (
                   <div style={{ display: "grid", gap: 8 }}>
@@ -1178,139 +1216,99 @@ export function VendasClient() {
       {isMobile && mobileDetailOpen && sel && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setMobileDetailOpen(false); }}>
           <div className="vnd-detail" onClick={e => e.stopPropagation()}>
-            <div className="vnd-detail-head">
-              <span className="vnd-detail-title">{sel.name || "Negócio"}</span>
-              <button className="vnd-detail-close" onClick={() => setMobileDetailOpen(false)} aria-label="Fechar">✕</button>
-            </div>
-            <div className="vnd-detail-body">
-              {/* Hero: avatar + segmento + etapa */}
-              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <Av name={sel.name || "—"} size={48} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span className="company" style={{ fontSize: "1rem" }}>{sel.name || "—"}</span>
-                  <div className="sub">{sel.segment || sel.city || "—"}</div>
-                  {sel.city && sel.segment && (
-                    <div className="sub" style={{ marginTop: 2, display: "inline-flex", gap: 4, alignItems: "center" }}>
-                      <I d={ICONS.mapin} size={11} /> {sel.city}{sel.state ? `, ${sel.state}` : ""}
-                    </div>
+            <DetalhesNegocio
+              detail={toNegocioDetail(sel)}
+              title={sel.name || "Negócio"}
+              onClose={() => setMobileDetailOpen(false)}
+              heroAction={sel.phone ? (
+                <WhatsAppActionButton
+                  phone={sel.phone}
+                  name={sel.name}
+                  qrActive={waQrActive}
+                  canInternal={canAtendimento}
+                  onOpenExternal={() => abrirWhatsAppExterno(sel.phone)}
+                  onOpenInternal={() => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name })}
+                  startBusy={waStartBusy}
+                  startError={waStartError}
+                />
+              ) : undefined}
+              actions={
+                <div style={{ display: "grid", gap: 8 }}>
+                  {fecharMsg && (
+                    <div className={fecharMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{fecharMsg}</div>
                   )}
-                  <div style={{ marginTop: 5 }}><span className="tag">{sel.statusLabel || "—"}</span></div>
-                </div>
-              </div>
-
-              {/* Canais de contato */}
-              {sel.phone ? (
-                <a href={`tel:${sel.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-                  <CanalIcon canal="telefone" /> {sel.phone}
-                </a>
-              ) : null}
-              {sel.website && (
-                <a href={sel.website.startsWith("http") ? sel.website : `https://${sel.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone ctx-phone--site" style={{ marginTop: 4 }}>
-                  <CanalIcon canal="site" /> {sel.website}
-                </a>
-              )}
-
-              {/* KVs */}
-              <div className="kv">
-                <div className="row"><span className="k">Valor</span><span className="v vnd-val-mono">{leadValueLabel(sel)}</span></div>
-                <div className="row"><span className="k">Produto</span><span className="v">{sel.product?.name || "—"}</span></div>
-                <div className="row"><span className="k">Etapa atual</span><span className="v">{sel.statusLabel || "—"}</span></div>
-                <div className="row"><span className="k">Próximo retorno</span><span className="v">{fmtDate(sel.returnAt ?? null)}</span></div>
-                <div className="row"><span className="k">Próxima ação</span><span className="v">{sel.nextAction || "—"}</span></div>
-                <div className="row"><span className="k">Obs.</span><span className="v">{sel.shortNote || "—"}</span></div>
-                <div className="row"><span className="k">Último contato</span><span className="v">{fmtDate(sel.lastContactAt ?? null)}</span></div>
-                <div className="row"><span className="k">Tentativas</span><span className="v vnd-val-mono">{sel.attemptCount}</span></div>
-                <div className="row"><span className="k">Responsável</span><span className="v">{sel.owner?.name ? <React.Fragment><Av name={sel.owner.name} size={16} /> {sel.owner.name}</React.Fragment> : "—"}</span></div>
-                {sel.saleStatus && sel.saleStatus !== "none" && (
-                  <React.Fragment>
-                    <div className="row"><span className="k">Venda</span><span className="v"><span className={"tag" + (sel.saleStatus === "sale_confirmed" ? " teal" : sel.saleStatus === "canceled" ? " warn" : "")}>{sel.saleStatusLabel || sel.saleStatus}</span></span></div>
-                    <div className="row"><span className="k">Valor fechado</span><span className="v vnd-val-mono">{fmtMoney(sel.saleValue) || "—"}</span></div>
-                    <div className="row"><span className="k">Comissão</span><span className="v">{sel.commissionStatusLabel || "—"}{sel.commissionAmount != null ? <span className="vnd-commission">{fmtMoney(sel.commissionAmount)}</span> : null}</span></div>
-                  </React.Fragment>
-                )}
-              </div>
-
-              {/* Ações */}
-              <div className="vnd-detail-actions">
-                {fecharMsg && (
-                  <div className={fecharMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{fecharMsg}</div>
-                )}
-                <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
-                  <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
-                </button>
-                {acaoMsg && (
-                  <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
-                )}
-                {/* Resultado da ligação */}
-                <div className="vnd-ligacao-block">
-                  <label className="vnd-ligacao-lbl">
-                    <I d={ICONS.phone} size={13} /> Resultado da ligação
-                  </label>
-                  <div className="vnd-ligacao-opts">
-                    {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
-                      <button key={o} className="btn-ghost vnd-ligacao-btn"
-                        onClick={() => registrarResultado(o)} disabled={acaoBusy || sel.block === "closed"}>
-                        {o}
-                      </button>
-                    ))}
+                  <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
+                    <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
+                  </button>
+                  {acaoMsg && (
+                    <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
+                  )}
+                  <div className="vnd-ligacao-block">
+                    <label className="vnd-ligacao-lbl">
+                      <I d={ICONS.phone} size={13} /> Resultado da ligação
+                    </label>
+                    <div className="vnd-ligacao-opts">
+                      {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
+                        <button key={o} className="btn-ghost vnd-ligacao-btn"
+                          onClick={() => registrarResultado(o)} disabled={acaoBusy || sel.block === "closed"}>
+                          {o}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea className="field-dark vnd-obs-field" rows={2} maxLength={240}
+                      placeholder="Observação (opcional)"
+                      value={obs} onChange={e => setObs(e.target.value)} disabled={sel.block === "closed"} />
                   </div>
-                  <textarea className="field-dark vnd-obs-field" rows={2} maxLength={240}
-                    placeholder="Observação (opcional)"
-                    value={obs} onChange={e => setObs(e.target.value)} disabled={sel.block === "closed"} />
-                </div>
-                {/* Mover etapa */}
-                <div className="vnd-action-row">
-                  <select className="field-dark" value={moverStatus} disabled={sel.block === "closed"}
-                    onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
-                    <option value="">Mover etapa…</option>
-                    <option value="novo">Novo</option>
-                    <option value="contato">Contato</option>
-                    <option value="retorno">Retorno</option>
-                    <option value="qualificado">Qualificado</option>
-                    <option value="encerrado">Encerrado</option>
-                  </select>
-                  <button className="btn-ghost" onClick={moverEtapa} disabled={!moverStatus || acaoBusy}>Mover</button>
-                </div>
-                {/* Agendar retorno */}
-                <div className="vnd-action-row">
-                  <input className="field-dark" type="date" value={retornoData} disabled={sel.block === "closed"}
-                    onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
-                  <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
-                </div>
-                {/* Negativar */}
-                <div className="vendas-neg">
-                  <label>Negativar lead (sai da carteira)</label>
-                  <div className="neg-row">
-                    <select className="field-dark" value={negMotivo} disabled={acaoBusy || sel.block === "closed"}
-                      onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
-                      <option value="">Motivo…</option>
-                      <option value="negative">Sem interesse</option>
-                      <option value="no_answer">Não atende / não existe</option>
-                      <option value="no_whatsapp">Sem WhatsApp</option>
-                      <option value="opt_out">Pediu pra não receber</option>
-                      <option value="complaint">Reclamou</option>
+                  <div className="vnd-action-row">
+                    <select className="field-dark" value={moverStatus} disabled={sel.block === "closed"}
+                      onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
+                      <option value="">Mover etapa…</option>
+                      <option value="novo">Novo</option>
+                      <option value="contato">Contato</option>
+                      <option value="retorno">Retorno</option>
+                      <option value="qualificado">Qualificado</option>
+                      <option value="encerrado">Encerrado</option>
                     </select>
-                    <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
-                      disabled={!negMotivo || acaoBusy}>
-                      {negArm ? "Confirmar" : "Negativar"}
+                    <button className="btn-ghost" onClick={moverEtapa} disabled={!moverStatus || acaoBusy}>Mover</button>
+                  </div>
+                  <div className="vnd-action-row">
+                    <input className="field-dark" type="date" value={retornoData} disabled={sel.block === "closed"}
+                      onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
+                    <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
+                  </div>
+                  <div className="vendas-neg">
+                    <label>Negativar lead (sai da carteira)</label>
+                    <div className="neg-row">
+                      <select className="field-dark" value={negMotivo} disabled={acaoBusy || sel.block === "closed"}
+                        onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
+                        <option value="">Motivo…</option>
+                        <option value="negative">Sem interesse</option>
+                        <option value="no_answer">Não atende / não existe</option>
+                        <option value="no_whatsapp">Sem WhatsApp</option>
+                        <option value="opt_out">Pediu pra não receber</option>
+                        <option value="complaint">Reclamou</option>
+                      </select>
+                      <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
+                        disabled={!negMotivo || acaoBusy}>
+                        {negArm ? "Confirmar" : "Negativar"}
+                      </button>
+                    </div>
+                  </div>
+                  {cadMsg && (
+                    <div className={cadMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{cadMsg}</div>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                    <button className="btn-ghost" onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
+                      <I d={ICONS.users} size={13} /> Cadastrar cliente
+                    </button>
+                    <button className="icon-ghost" onClick={() => { setMobileDetailOpen(false); verCliente(); }} disabled={!sel.phone}
+                      title="Card do cliente" aria-label="Abrir card do cliente">
+                      <I d={ICONS.doc} size={15} />
                     </button>
                   </div>
                 </div>
-                {/* Cadastrar / ver cliente */}
-                {cadMsg && (
-                  <div className={cadMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{cadMsg}</div>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                  <button className="btn-ghost" onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
-                    <I d={ICONS.users} size={13} /> Cadastrar cliente
-                  </button>
-                  <button className="icon-ghost" onClick={() => { setMobileDetailOpen(false); verCliente(); }} disabled={!sel.phone}
-                    title="Card do cliente" aria-label="Abrir card do cliente">
-                    <I d={ICONS.doc} size={15} />
-                  </button>
-                </div>
-              </div>
-            </div>
+              }
+            />
           </div>
         </div>
       )}

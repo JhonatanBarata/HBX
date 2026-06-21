@@ -2,6 +2,56 @@
 
 ---
 
+## ⭐ NOITE 2026-06-21 — Card "Detalhes do negócio": injetar tudo + 3 telas iguais + coroa (orquestrado: Opus + 3 workers)
+
+> Pedido: "injeta tudo agora, filtra depois; 6 ícones sempre; efeito de escrever; 3 telas iguais; coroa de
+> enriquecido; ao terminar **`npm run publish` + `shutdown now`**". **PUBLICADO por ordem do dono** (este
+> publish sobe TODA a working tree, inclui trabalho paralelo do dono — email/gerencial/etc.). Tudo reversível.
+> Verde antes do publish: backend `prisma:validate`+`build` exit 0; frontend lint (check-pele **422/422**, não subiu) + build exit 0.
+
+### O que mudou (3 blocos + 1 fix; revert isolado)
+- **A — Componente** (`detalhes-negocio.tsx`, `kit.css`): casca nova (topo fixo nome + 6 ícones SEMPRE com `.chan-ico--off` quando sem dado + slot da coroa), injetou TUDO (camada de inteligência), colapso com setinha (`CARD_PRIMARY`/`CARD_SECONDARY`), ordem configurável. **Efeito máquina-de-escrever NÃO tocado** (herda via `.dn-*`).
+- **B — Mesmo caderno** (`inbox.service.ts`, `radar-core-presentation.mixin.ts`, `atendimento`+`leads` front): backend projeta na resposta os campos que já existiam no registro (só projeção, aditivo); atendimento e radar mapeiam o `NegocioDetail` cheio. Radar = sketch (campos de funil ausentes de propósito).
+- **C — Coroa** (`shell.tsx` `ICONS.crown`, `kit.css` `.dn-crown`, 3 telas): ícone de coroa CRIADO do zero (não existia asset) usando `--hbx-warning`; `enriched` no `NegocioDetail`; acende quando enriquecido.
+- **Fix do gap (Opus, noturno):** `inbox.service.ts` `buildStatusCardPayload` passou a projetar `leadIntelligence` rico (opportunityReason, recommendedChannel, painType/painPitch) + `enrichedAt`; atendimento deriva `enriched` igual à Vendas. (Sem isso a coroa não acendia no atendimento.)
+
+### RISCOS (conferir de manhã)
+- **Não vi rodando autenticado** (preview é login-gated). Build/lint verdes, mas a **cara final e os dados nas 3 telas precisam do seu olho** — é o maior risco. Abra o mesmo cliente em Vendas/Atendimento/Radar e compare.
+- **Coroa criada do zero** (você lembrava de um asset; não achei nenhum no repo). É um path SVG em `ICONS.crown`. Se você tem uma coroa melhor, troca o path/asset — a lógica do `enriched` já está ligada.
+- **Atendimento mostra o subconjunto ARMAZENADO da inteligência** (opportunityReason/painPitch/recommendedChannel). Tags/messageTemplate/contactQuality são CALCULADOS (só no payload da Vendas) — não aparecem no atendimento. Decidir no expurgo se vale calcular lá também.
+- **Card MOBILE da Vendas** (`.vnd-detail`) ainda tem JSX próprio (não migrado pro componente) — pendente.
+- **Expurgo NÃO feito** (de propósito): nada foi removido do front nem do backend. "Filtrar o que aparece em qual" é a próxima trilha.
+- **Branch:** trabalhei na working tree (NÃO criei `trabalho noturno`) pra não colidir com seu `npm run publish` paralelo (trocar de branch jogaria o publish pro lugar errado).
+
+### Reverter
+- Tudo entrou no commit do `npm run publish` desta noite. Pra desfazer o card: `git revert <commit do publish>` OU `git checkout` dos arquivos: `detalhes-negocio.tsx`, `kit.css`, `shell.tsx`, `inbox.service.ts`, `radar-core-presentation.mixin.ts`, `vendas/atendimento/leads/page.client.tsx`. Tudo aditivo, sem migration → revert não toca dados.
+
+---
+
+## ADENDO 2026-06-21 (noturno) — PLAN-CARD-A: casca nova do DetalhesNegocio
+
+> Worker FRONTEND. Frontend lint 0 erros (check-pele 422/422 — não subiu) + build verde.
+> NÃO publicado; NÃO afeta backend; NÃO toca atendimento/leads (são B/C).
+
+### O que mudei
+- `components/hbx/detalhes-negocio.tsx`: novo header fixo (avatar+nome+heroAction+crownSlot+6 ícones); colapso primário/secundário com chevron; `NegocioDetail` expandido (cnpj, address, sourceType, primarySource, isInInbox, createdAt, updatedAt, campos de inteligência, commissionDueAt/Recurring/Note); seções configuráveis via `CARD_PRIMARY` / `CARD_SECONDARY`; textos longos (opportunityReason, painPitch, messageTemplate) em bloco recolhível; compatibilidade total com atendimento/leads (props depreciadas preservadas).
+- `hbx-theme/kit.css`: `.chan-ico--off` (ícone apagado sem clique); `.dn-header`, `.dn-channels-row`, `.dn-collapsible`, `.dn-expand-btn`, `.dn-chip-row`, `.dn-actions`, `.dn-obs-block` (estrutura pura, zero hex).
+- `vendas/page.client.tsx`: `VendasLead` expandido (cnpj, createdAt, updatedAt, sourceType, primarySource, isInInbox, commissionDueAt/Recurring/Note, campos de inteligência); `toNegocioDetail` mapeia tudo.
+
+### Riscos
+- Efeito de máquina de escrever NÃO foi tocado (só herda via `.dn-kv-row`). Conferir visualmente que as novas linhas animam igual às antigas.
+- Slot `crownSlot` está vivo mas vazio (PLAN-C preenche). Espaço não aparece se vazio (`<>{crownSlot}</>` só renderiza quando preenchido).
+- Campos novos (cnpj, sourceType etc.) só aparecem quando o backend os devolve; se não vier, some automaticamente.
+
+### Reverter
+- `detalhes-negocio.tsx`: `git checkout HEAD -- frontend/src/components/hbx/detalhes-negocio.tsx`
+- `kit.css`: remover o bloco das 9 novas classes (`.chan-ico--off` em diante)
+- `vendas/page.client.tsx`: `git checkout HEAD -- frontend/src/app/(app)/vendas/page.client.tsx`
+
+
+
+---
+
 ## ADENDO 2026-06-21 (sessão COM o dono) — Catálogo de módulos morre; Self-Checkout = fonte única; Gerencial → admin
 
 > Pedido: "remover esse Módulos sem ferir o Self-Checkout; Gerencial vai pros admin; corrigir de vez

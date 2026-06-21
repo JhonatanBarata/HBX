@@ -60,6 +60,7 @@ import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveBackendPublicAssetPath } from '../public-assets';
 import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
+import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
 import type { Request, Response } from 'express';
 
 type TrashPurgeDetectedReason =
@@ -4352,6 +4353,64 @@ export class InboxService {
     });
   }
 
+  // "Limpar" do Atendimento: apaga as conversas que NUNCA tiveram mensagem (0 inbound /
+  // 0 outbound) — as "+nova" abertas e nunca enviadas. Como não há mensagem, o motor
+  // nunca recebeu nada (NADA é disparado pro WhatsApp aqui) e não há histórico a
+  // preservar: é só remover o placeholder do banco. Respeita o MESMO escopo de
+  // visibilidade da lista (por-vendedor / agregado-admin / só-Meta) — cada um só limpa
+  // o que enxerga.
+  async clearEmptyConversations(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const userId = Number(user?.id || 0) || undefined;
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
+      userId,
+      aggregate: this.isAggregateUser(user),
+      user,
+    });
+    if (!sessionScope.accessible) return { deleted: 0, ids: [] as string[] };
+
+    // Candidatas = conversas WhatsApp da empresa sem nenhuma mensagem (qualquer tipo).
+    const candidates = await this.prisma.companyConversation.findMany({
+      where: { companyId, channel: 'whatsapp', messages: { none: {} } },
+      select: { id: true, whatsappConnectionSessionId: true, metadata: true, contact: true },
+    });
+
+    // Peneira pelo escopo visível + ignora já-marcadas-deletadas e grupos (mesmas
+    // regras da listagem), pra "Limpar" agir só sobre o que o usuário vê na tela.
+    const ids: number[] = [];
+    for (const row of candidates) {
+      if (!this.isRowVisibleForWhatsappSessionScope(row, sessionScope)) continue;
+      const metadata = this.parseConversationMetadata(row.metadata);
+      if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) continue;
+      if (this.isConversationGroup(row, metadata)) continue;
+      ids.push(Number(row.id));
+    }
+    if (!ids.length) return { deleted: 0, ids: [] as string[] };
+
+    await this.prisma.$transaction(async (tx) => {
+      // FK nullable sem cascade — solta o vínculo antes de apagar (igual ao wipe-all).
+      await tx.atendimentoAppointment.updateMany({
+        where: { companyId, conversationId: { in: ids } },
+        data: { conversationId: null },
+      });
+      // Guarda dupla `messages: none`: se uma 1ª mensagem entrou entre a leitura e o
+      // delete (corrida), a conversa não é mais vazia e NÃO é apagada.
+      await tx.companyConversation.deleteMany({
+        where: { companyId, id: { in: ids }, channel: 'whatsapp', messages: { none: {} } },
+      });
+    });
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'empty_conversations_cleared',
+      message: `[LIMPAR] ${ids.length} conversa(s) vazia(s) removida(s) — sem mensagem, nada enviado ao WhatsApp.`,
+      result: 'cleared',
+      extra: { ids, whatsappCommandSent: false },
+    });
+
+    return { deleted: ids.length, ids: ids.map(String) };
+  }
+
   // Echo pós-mutação (enviar, marcar lida, status, fila, bloquear, claim/transfer, avatar...): a
   // conversa JÁ foi autorizada DENTRO da mutação (ensureConversation/findFirst com o scope do
   // usuário). Aqui só devolvemos o estado ATUAL, company-wide. NÃO re-resolver o ponteiro da
@@ -4577,6 +4636,32 @@ export class InboxService {
     return 'Novo lead';
   }
 
+  private formatSaleStatusLabel(statusRaw: unknown): string | null {
+    const s = String(statusRaw || '').trim().toLowerCase();
+    if (s === 'none' || !s) return null;
+    if (s === 'activation_pending') return 'Ativação pendente';
+    if (s === 'trial_started') return 'Trial ativo';
+    if (s === 'sale_confirmed') return 'Venda confirmada';
+    if (s === 'inactive') return 'Inativo';
+    if (s === 'canceled') return 'Cancelado';
+    return s;
+  }
+
+  private formatCommissionStatusLabel(statusRaw: unknown): string | null {
+    const s = String(statusRaw || '').trim().toLowerCase();
+    if (s === 'none' || !s) return null;
+    if (s === 'pending') return 'Comissão pendente';
+    if (s === 'payable') return 'Comissão a receber';
+    if (s === 'paid') return 'Comissão paga';
+    if (s === 'canceled') return 'Comissão cancelada';
+    return s;
+  }
+
+  private fmtMoneyBrl(value: number | null | undefined): string | null {
+    if (value == null || !Number.isFinite(value)) return null;
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
+
   private buildLeadClosureTimelineDescription(input: {
     conversationId?: number | string | null;
     inboundMessageId?: number | string | null;
@@ -4623,7 +4708,10 @@ export class InboxService {
       rating: true,
       reviews: true,
       city: true,
+      state: true,
       segment: true,
+      opportunityScore: true,
+      leadTemperature: true,
       status: true,
       nextAction: true,
       returnAt: true,
@@ -4633,9 +4721,60 @@ export class InboxService {
       lastResult: true,
       wasClosedBefore: true,
       closedAt: true,
+      saleStatus: true,
+      saleValue: true,
+      salePlanKey: true,
+      saleConfirmedAt: true,
+      saleCanceledAt: true,
+      commissionStatus: true,
+      commissionAmount: true,
+      commissionBaseAmount: true,
+      commissionDueAt: true,
+      commissionPaidAt: true,
+      commissionRecurring: true,
+      commissionNote: true,
+      setupValue: true,
+      setupCommissionAmount: true,
+      setupCommissionStatus: true,
+      productNameSnapshot: true,
+      productPriceCentsSnapshot: true,
+      productKindSnapshot: true,
+      productBillingCycleSnapshot: true,
+      productCommissionPercentSnapshot: true,
+      productPlanKeySnapshot: true,
+      assignedUserId: true,
+      assignedByUserId: true,
+      assignedAt: true,
       createdByUserId: true,
       createdAt: true,
       updatedAt: true,
+      radarCompanyStates: {
+        orderBy: [{ updatedAt: 'desc' }],
+        take: 1,
+        include: {
+          radarLead: {
+            select: {
+              emailStatus: true,
+              emailSource: true,
+              emailConfidence: true,
+              websiteStatus: true,
+              instagramUrl: true,
+              facebookUrl: true,
+              socialStatus: true,
+              socialConfidence: true,
+              recommendedChannel: true,
+              painType: true,
+              painLabel: true,
+              painPitch: true,
+              opportunityReason: true,
+              enrichmentJson: true,
+              enrichmentScore: true,
+              lastEnrichedAt: true,
+              enrichmentVersion: true,
+            },
+          },
+        },
+      },
     } as any;
   }
 
@@ -4772,6 +4911,20 @@ export class InboxService {
       lead: lead
         ? {
             id: String(lead.id),
+            // Identidade do negócio
+            name: lead.name || null,
+            email: lead.email || null,
+            city: lead.city || null,
+            state: lead.state || null,
+            segment: lead.segment || null,
+            address: lead.address || null,
+            website: lead.website || null,
+            // Score e inteligência
+            opportunityScore: lead.opportunityScore == null ? null : Math.max(0, Math.min(100, Number(lead.opportunityScore) || 0)),
+            leadTemperature: lead.leadTemperature ? String(lead.leadTemperature).trim().toLowerCase() : null,
+            rating: lead.rating == null ? null : Number(lead.rating),
+            reviews: Math.max(0, Math.trunc(Number(lead.reviews || 0) || 0)),
+            // Etapa / pipeline
             status: String(lead.status || 'novo'),
             statusLabel: this.formatInboxVendasStatusLabel(lead.status),
             nextAction: lead.nextAction || null,
@@ -4779,13 +4932,41 @@ export class InboxService {
             attemptCount: Number(lead.attemptCount || 0),
             timesSeen: Number(lead.timesSeen || 0),
             sourceType: lead.sourceType || null,
-            address: lead.address || null,
-            website: lead.website || null,
-            rating: lead.rating == null ? null : Number(lead.rating),
-            reviews: Math.max(0, Math.trunc(Number(lead.reviews || 0) || 0)),
             shortNote: lead.shortNote || null,
+            lastResult: lead.lastResult || null,
             lastContactAt: lead.lastContactAt instanceof Date ? lead.lastContactAt.toISOString() : null,
+            // Produto / valor
+            productName: lead.productNameSnapshot || null,
+            productValueLabel: lead.productPriceCentsSnapshot != null && Number.isFinite(Number(lead.productPriceCentsSnapshot))
+              ? this.fmtMoneyBrl(Number(lead.productPriceCentsSnapshot) / 100)
+              : null,
+            // Venda
+            saleStatus: String(lead.saleStatus || 'none'),
+            saleStatusLabel: this.formatSaleStatusLabel(lead.saleStatus),
+            saleValueLabel: lead.saleValue != null && Number(lead.saleValue) > 0 ? this.fmtMoneyBrl(Number(lead.saleValue)) : null,
+            // Comissão
+            commissionStatusLabel: this.formatCommissionStatusLabel(lead.commissionStatus),
+            commissionValueLabel: lead.commissionAmount != null && Number(lead.commissionAmount) > 0 ? this.fmtMoneyBrl(Number(lead.commissionAmount)) : null,
+            // Implantação
+            setupValueLabel: lead.setupValue != null && Number(lead.setupValue) > 0 ? this.fmtMoneyBrl(Number(lead.setupValue)) : null,
+            setupCommissionValueLabel: lead.setupCommissionAmount != null && Number(lead.setupCommissionAmount) > 0 ? this.fmtMoneyBrl(Number(lead.setupCommissionAmount)) : null,
             updatedAt: lead.updatedAt instanceof Date ? lead.updatedAt.toISOString() : null,
+            leadIntelligence: (() => {
+              const pool = input.lead?.radarCompanyStates?.[0]?.radarLead ?? null;
+              if (!pool) return null;
+              return {
+                whatsappStatus: null,
+                emailStatus: pool.emailStatus ?? null,
+                websiteStatus: pool.websiteStatus ?? null,
+                instagramUrl: pool.instagramUrl ?? null,
+                facebookUrl: pool.facebookUrl ?? null,
+                recommendedChannel: pool.recommendedChannel ?? null,
+                painType: pool.painType ?? null,
+                painPitch: pool.painPitch ?? null,
+                opportunityReason: pool.opportunityReason ?? null,
+                enrichedAt: pool.lastEnrichedAt instanceof Date ? pool.lastEnrichedAt.toISOString() : (pool.lastEnrichedAt ?? null),
+              };
+            })(),
           }
         : null,
       history,

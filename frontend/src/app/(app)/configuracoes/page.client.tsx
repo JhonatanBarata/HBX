@@ -31,7 +31,7 @@ import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/tr
 import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
 import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
 import { PlanCard } from "@/components/hbx/plan-card";
-import { Av, ConfirmDialog, I, ICONS } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS, useMyModules } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { PLAN_ORDER, FALLBACK_PLANS, fetchPublicPlans, type PublicPlan } from "@/lib/plans";
 import { classifyPlanChange } from "@/lib/plan-rank";
@@ -116,6 +116,7 @@ function roleLabel(role?: string | null) {
 export function ConfiguracoesClient() {
   const router = useRouter();
   const [sec, setSec] = useTabParam<string>("sec", "Perfil & Empresa", SECTIONS);
+  const mods = useMyModules();
 
   // aviso do sino → abre direto na seção (mesmo padrão do "+" → Novo lead).
   // "Equipe" saiu daqui — redireciona para /gerencial?aba=4 (aba Equipe lá).
@@ -247,11 +248,15 @@ export function ConfiguracoesClient() {
   // Régua única P3/P5: "gerente pra baixo ninguém vê o vínculo HBX×contratante".
   // Gerente = ADMIN com canViewBilling=false → esconde "Plano e cobrança" também.
   const canSeeBilling = user != null && !isSeller && user.canViewBilling !== false;
-  // E-mail é seção do ADMIN (módulo por empresa, PR12062026005)
-  const isAdminUser = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.userKind === "system_master"));
+  // E-mail: gate pelo módulo "email" de /modules/me (fail-closed até mods.loaded).
+  // Master sempre acessa (backend devolve accessible:true; userKind é o sinal já
+  // usado nesta tela). Enquanto mods não carregou, esconde (sem flicker).
+  const canSeeEmail = mods.loaded && Boolean(
+    user?.userKind === "system_master" || mods.byKey["email"]?.accessible === true
+  );
   const sections = SECTIONS
     .filter(s => s !== "Plano e cobrança" || canSeeBilling)
-    .filter(s => s !== "E-mail" || isAdminUser);
+    .filter(s => s !== "E-mail" || canSeeEmail);
   const current = plansMe?.current;
   // Catálogo visível = cards lindos (PLAN_ORDER) com número da API pública.
   // Estado do contratante (plano atual, acesso, permissão) vem do /me.
@@ -357,7 +362,7 @@ export function ConfiguracoesClient() {
               </React.Fragment>
             )}
 
-            {sec === "E-mail" && isAdminUser && <CompanyEmailSection />}
+            {sec === "E-mail" && canSeeEmail && <CompanyEmailSection />}
 
             {sec === "Notificações" && (
               <section className="panel cfg-section">

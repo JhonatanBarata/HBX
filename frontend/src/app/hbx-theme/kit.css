@@ -41,10 +41,12 @@ html, body { margin: 0; }
 .user-card small { font-size: 0.66rem; color: var(--text-muted); }
 .user-card .dots { margin-left: auto; color: var(--text-muted); cursor: pointer; }
 
-.avatar { position: relative; display: inline-grid; place-items: center; border-radius: 999px; color: var(--hbx-brand-contrast); font-weight: 700; background: linear-gradient(140deg, var(--hbx-avatar-from), var(--hbx-avatar-to)); flex: 0 0 auto; }
+.avatar { position: relative; display: inline-grid; place-items: center; border-radius: 999px; color: var(--hbx-brand-contrast); font-weight: 700; background: var(--hbx-avatar-from); flex: 0 0 auto; }
 .avatar .avatar-ini { grid-area: 1 / 1; line-height: 1; }
 .avatar .avatar-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 999px; display: block; }
 .avatar .avatar-dot { position: absolute; right: -1px; bottom: -1px; width: 30%; height: 30%; min-width: 8px; min-height: 8px; border-radius: 999px; background: var(--hbx-success); box-shadow: 0 0 0 2px var(--hbx-surface); }
+@keyframes hbx-avatar-pulse { 0%, 60%, 100% { box-shadow: 0 0 0 0 var(--hbx-avatar-from); } 30% { box-shadow: 0 0 0 7px var(--hbx-brand-soft); } }
+.avatar-btn-active { animation: hbx-avatar-pulse 4s ease-in-out infinite; border-radius: 999px; }
 
 /* ---------- Topbar ---------- */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
@@ -162,9 +164,57 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .ctx-channels { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 2px 0; }
 .ctx-channels > a { border-radius: var(--radius-sm); transition: transform var(--motion-fast, 0.16s); }
 .ctx-channels > a:hover { transform: translateY(-2px); }
+/* Ícone de canal SEM dado: apagado, sem interação (Lei 5 — só classe central) */
+.chan-ico--off { opacity: 0.28; filter: grayscale(1); pointer-events: none; cursor: default; }
+/* Header fixo do DetalhesNegocio com os 6 ícones de canal */
+.dn-header { display: grid; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border-hairline); }
+/* Ícone de coroa de lead enriquecido — acende em dourado via token */
+.dn-crown { display: inline-flex; align-items: center; color: var(--hbx-warning); flex-shrink: 0; }
+.dn-channels-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+.dn-channels-row > a, .dn-channels-row > span { border-radius: var(--radius-xs); transition: transform var(--motion-fast, 0.16s); }
+.dn-channels-row > a:hover { transform: translateY(-2px); }
+/* Bloco recolhível de texto longo (opportunityReason / painPitch / messageTemplate) */
+.dn-collapsible { display: grid; gap: 4px; }
+.dn-collapsible-toggle { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; color: var(--hbx-brand-strong); cursor: pointer; padding: 0; }
+.dn-collapsible-body { font-size: 0.76rem; line-height: 1.55; color: var(--text-body); white-space: pre-wrap; }
+/* Botão "ver tudo / ver menos" do colapso secundário */
+.dn-expand-btn { display: flex; align-items: center; gap: 5px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--hbx-brand-strong); cursor: pointer; padding: 6px 0; width: 100%; }
+.dn-expand-btn svg { transition: transform var(--motion-fast, 0.16s); }
+.dn-expand-btn.is-open svg { transform: rotate(180deg); }
+/* Chips de tags de inteligência */
+.dn-chip-row { display: flex; gap: 5px; flex-wrap: wrap; }
+/* Slot de ações do DetalhesNegocio */
+.dn-actions { display: grid; gap: 8px; }
+/* Bloco de observação */
+.dn-obs-block { display: grid; gap: 8px; }
+.dn-obs-block h3 { margin: 0; }
 /* Animated body — trocou de lead/deal: entra com fade+slide */
 @keyframes ctx-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 .ctx-body { display: grid; gap: 16px; align-content: start; padding-bottom: 20px; animation: ctx-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+/* ── DetalhesNegocio — entrada por conversa + shimmer + reveal cascata ── */
+.dn-root { animation: ctx-enter 0.2s cubic-bezier(.22,1,.36,1) both; }
+@keyframes dn-shimmer { 0% { background-position:-250% 0; } 100% { background-position:250% 0; } }
+.dn-skel { display:inline-block; border-radius:5px; background:linear-gradient(90deg,var(--surface-recessed) 25%,var(--surface-raised) 50%,var(--surface-recessed) 75%); background-size:250% 100%; animation:dn-shimmer 1.4s ease-in-out infinite; }
+.dn-skel-sm  { height:9px; }
+.dn-skel-md  { height:12px; }
+.dn-skel-w30 { width:30%; }
+.dn-skel-w45 { width:45%; }
+.dn-skel-w60 { width:60%; }
+.dn-skel-pill{ height:19px; width:72px; border-radius:999px; }
+@keyframes dn-row-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+.dn-kv-row { animation:dn-row-in 0.28s ease both; }
+.dn-kv-row:nth-child(1)  { animation-delay:  0ms; }
+.dn-kv-row:nth-child(2)  { animation-delay: 40ms; }
+.dn-kv-row:nth-child(3)  { animation-delay: 80ms; }
+.dn-kv-row:nth-child(4)  { animation-delay:120ms; }
+.dn-kv-row:nth-child(5)  { animation-delay:160ms; }
+.dn-kv-row:nth-child(6)  { animation-delay:200ms; }
+.dn-kv-row:nth-child(7)  { animation-delay:240ms; }
+.dn-kv-row:nth-child(8)  { animation-delay:280ms; }
+.dn-kv-row:nth-child(n+9){ animation-delay:320ms; }
+/* cursor piscante durante digitação */
+.dn-typed:not(.done)::after { content:"▋"; font-size:0.8em; opacity:0.55; animation:dn-cursor 0.65s step-end infinite; }
+@keyframes dn-cursor { 0%,100%{opacity:0.55} 50%{opacity:0} }
 /* Score bar — visual no painel de contexto */
 .ctx-score-track { height: 5px; border-radius: 999px; background: var(--border-hairline); overflow: hidden; margin-top: 5px; }
 .ctx-score-fill { height: 100%; border-radius: 999px; background: var(--hbx-brand); transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
@@ -457,17 +507,15 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 /* ---------- WhatsApp Action Button (wa-action-*) — Vendas + Radar ---------- */
 .wa-action-wrap { position: relative; display: inline-block; }
-.wa-action-btn--active { color: var(--hbx-brand-strong) !important; }
-.wa-action-btn--active:hover { background: var(--hbx-brand-soft) !important; }
+.wa-action-btn { background: var(--hbx-surface-raised) !important; color: var(--text-muted) !important; }
+.wa-action-btn:hover { background: var(--hbx-surface-sunken) !important; }
+.wa-action-btn--active { background: var(--hbx-avatar-from) !important; color: var(--hbx-brand-contrast) !important; animation: hbx-avatar-pulse 4s ease-in-out infinite; }
+.wa-action-btn--active:hover { background: var(--hbx-brand-soft) !important; color: var(--hbx-avatar-from) !important; filter: none; }
+/* erro = ligado mas quebrado: acende vermelho (sinalizadores do topo). */
+.wa-action-btn--error { background: var(--hbx-danger) !important; color: #fff !important; }
+.wa-action-btn--error:hover { filter: brightness(1.1); }
 .wa-action-btn:disabled { opacity: 0.38; }
-.wa-action-pop { min-width: 210px; padding: 10px 0; }
-.wa-action-pop-title { padding: 4px 14px 8px; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-.wa-action-pop-err { padding: 4px 14px 6px; font-size: 0.68rem; font-weight: 700; color: var(--hbx-danger); line-height: 1.4; }
-.wa-action-pop-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: transparent; border: none; color: var(--text-body); font-family: var(--font-body); font-size: 0.78rem; text-align: left; cursor: pointer; }
-.wa-action-pop-item:hover { background: var(--hbx-surface-raised); }
-.wa-action-pop-item--disabled { opacity: 0.45; cursor: not-allowed; }
-.wa-action-pop-item--disabled:hover { background: transparent; }
-.wa-action-pop-hint { margin-left: auto; font-size: 0.62rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+/* (popup por-clique do botão removido 21/06 — agora 1 clique abre no padrão escolhido na Topbar) */
 
 /* ---------- Radar VIVO — animações + faixas vivas (PR17062026042) ---------- */
 

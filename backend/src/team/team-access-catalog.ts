@@ -189,7 +189,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Acessar E-mail',
     description: 'Permite enviar e receber mensagens por e-mail quando o modulo estiver habilitado.',
     defaultForAdmin: true,
-    defaultForSeller: true,
+    defaultForSeller: false,
     requiresModule: 'email',
     riskLevel: 'medium',
     sellerVisible: true,

@@ -133,6 +133,13 @@ export class InboxController {
     return this.inboxService.startConversation(req.user, dto || {});
   }
 
+  // "Limpar": apaga as conversas sem nenhuma mensagem (as "+nova" nunca enviadas).
+  // Não dispara nada pro WhatsApp; respeita o escopo visível do usuário.
+  @Post('conversations/clear-empty')
+  clearEmptyConversations(@Req() req: any) {
+    return this.inboxService.clearEmptyConversations(req.user);
+  }
+
   @Get('conversations/:id/messages')
   listConversationMessages(
     @Req() req: any,

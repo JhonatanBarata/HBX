@@ -12,6 +12,7 @@ import React, { useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
 // Fecha um popover ao clicar fora dele ou apertar Esc (ordem do dono 14/06: os
 // menus do topo — temas, avisos, conta — ficavam abertos ao clicar no meio da
@@ -87,6 +88,7 @@ export const ICONS: Record<string, string[]> = {
   file: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5"],
   bolt: ["M13 3 4 14h7l-1 7 9-11h-7z"],
   trash: ["M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"],
+  crown: ["M3 17h18", "M3 17l2.5-8 4.5 3 4-7 4 7 4.5-3L21 17"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -639,6 +641,43 @@ function noticeTarget(notice: MasterNotice): { href: string; hints?: Record<stri
 const TOPBAR_CACHE_TTL = 30_000;
 let noticesCache: { at: number; data: MasterNotice[] } | null = null;
 let unreadCache: { at: number; count: number } | null = null;
+// Sinalizadores do topo (WhatsApp / Bot / E-mail): tri-estado VISUAL — sempre
+// visíveis ("encher o olho" p/ upgrade mesmo sem acesso), mas a cor conta o estado:
+//   off    = recurso não ligado (cinza, default)
+//   active = ligado e funcional (acende na cor do tema)
+//   error  = ligado mas quebrado (vermelho) — ex.: WhatsApp com sessão presa, e-mail sem enviar
+export type SignalState = "off" | "active" | "error";
+export type WaStatus = { state: SignalState; phone: string | null };
+
+function signalBtnClass(state: SignalState) {
+  return "round-btn wa-action-btn"
+    + (state === "active" ? " wa-action-btn--active" : "")
+    + (state === "error" ? " wa-action-btn--error" : "");
+}
+
+let waCache: { at: number; data: WaStatus } | null = null;
+let emailCache: { at: number; state: SignalState } | null = null;
+
+async function fetchWaStatusCached(): Promise<WaStatus> {
+  if (waCache && Date.now() - waCache.at < TOPBAR_CACHE_TTL) return waCache.data;
+  const res = await apiFetch<{ whatsappSession?: { accessible?: boolean; currentSession?: { displayPhone?: string | null; phoneNormalized?: string | null } | null } }>("/inbox/whatsapp-session").catch(() => null);
+  const sess = res?.whatsappSession || null;
+  const phone = sess?.currentSession?.displayPhone || sess?.currentSession?.phoneNormalized || null;
+  // sessão existe mas não acessível = linha presa/conflito (515/multi-device) → erro vermelho.
+  const state: SignalState = sess?.accessible === true ? "active" : sess?.currentSession ? "error" : "off";
+  const data: WaStatus = { state, phone };
+  waCache = { at: Date.now(), data };
+  return data;
+}
+
+async function fetchEmailStatusCached(): Promise<SignalState> {
+  if (emailCache && Date.now() - emailCache.at < TOPBAR_CACHE_TTL) return emailCache.state;
+  const res = await apiFetch<{ enabled?: boolean; ready?: boolean }>("/company-email/status").catch(() => null);
+  // ligado e pronto = aceso; ligado mas não pronto = configurado e quebrado (erro); desligado = cinza.
+  const state: SignalState = res?.enabled ? (res?.ready ? "active" : "error") : "off";
+  emailCache = { at: Date.now(), state };
+  return state;
+}
 
 async function fetchNoticesCached(force = false): Promise<MasterNotice[]> {
   if (!force && noticesCache && Date.now() - noticesCache.at < TOPBAR_CACHE_TTL) return noticesCache.data;
@@ -668,6 +707,14 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
   const podeNovoLead = isModuleVisible("vendas", ent, user, mods);
   const [notices, setNotices] = useState<MasterNotice[]>([]);
   const [unreadChats, setUnreadChats] = useState(0);
+  const [waStatus, setWaStatus] = useState<WaStatus>({ state: "off", phone: null });
+  const [emailState, setEmailState] = useState<SignalState>("off");
+  const [waMenuOpen, setWaMenuOpen] = useState(false);
+  const waMode = useWaOpenMode();
+  const botAccessible = mods.loaded && Boolean(mods.byKey["bot"]?.accessible);
+  const emailAccessible = mods.loaded && Boolean(mods.byKey["email"]?.accessible);
+  // Bot ainda não expõe estado de runtime: aceso quando o módulo está ativo, cinza quando não.
+  const botState: SignalState = botAccessible ? "active" : "off";
   const [bellOpen, setBellOpen] = useState(false);
   // logoff também pelo avatar (pedido do dono: o "⋮" da sidebar estava escondido)
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -676,6 +723,7 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
   // fechamos no clique de cada ação — senão o menu ficaria aberto após navegar).
   const bellRef = useClickAway<HTMLSpanElement>(bellOpen, () => setBellOpen(false));
   const avatarRef = useClickAway<HTMLSpanElement>(avatarOpen, () => setAvatarOpen(false));
+  const waMenuRef = useClickAway<HTMLSpanElement>(waMenuOpen, () => setWaMenuOpen(false));
 
   async function sairTopo() {
     if (signingOut) return;
@@ -716,6 +764,8 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
     if (!getToken()) return;
     fetchNoticesCached().then(data => { if (alive) setNotices(data); });
     fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
+    fetchWaStatusCached().then(s => { if (alive) setWaStatus(s); });
+    if (emailAccessible) fetchEmailStatusCached().then(s => { if (alive) setEmailState(s); });
     const interval = setInterval(() => {
       if (!alive) return;
       fetchNoticesCached(true).then(data => {
@@ -730,9 +780,11 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
         prevNaoLidosRef.current = next;
       });
       fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
+      fetchWaStatusCached().then(s => { if (alive) setWaStatus(s); });
+      if (emailAccessible) fetchEmailStatusCached().then(s => { if (alive) setEmailState(s); });
     }, 60_000);
     return () => { alive = false; clearInterval(interval); };
-  }, []);
+  }, [emailAccessible]);
 
   const naoLidos = notices.filter(n => !n.acknowledged);
 
@@ -852,14 +904,60 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
             </div>
           )}
         </span>
+        {/* Chat interno (restaurado): abre o Atendimento. Gated pelo acesso, como antes. */}
         {podeAtendimento && (
           <button className="round-btn" title="Atendimento" aria-label="Atendimento" onClick={() => router.push("/atendimento")}>
             <I d={ICONS.msg} size={17} />
             {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
           </button>
         )}
+        {/* ── Sinalizadores: sempre visíveis (encher o olho), acendem quando ativos, vermelhos no erro ── */}
+        {/* WhatsApp: popup define o PADRÃO de abertura (interno/externo) usado pelos ícones
+            de WhatsApp dos leads. NÃO navega — só escolhe o padrão. A cor = status da conexão. */}
+        <span ref={waMenuRef} style={{ position: "relative", display: "inline-flex" }}>
+          <button
+            className={signalBtnClass(waStatus.state)}
+            title={(waStatus.state === "active" ? "WhatsApp conectado" : waStatus.state === "error" ? "WhatsApp com erro" : "WhatsApp desconectado") + " · escolher como abrir"}
+            aria-label="WhatsApp — escolher padrão de abertura"
+            onClick={() => setWaMenuOpen(o => !o)}
+          >
+            <WhatsAppMark size={17} />
+          </button>
+          {waMenuOpen && (
+            <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 252, padding: 8, display: "grid", gap: 4 }}>
+              <strong className="font-display" style={{ fontSize: "0.74rem", padding: "2px 6px" }}>Ao clicar no WhatsApp de um lead:</strong>
+              <button className={"nav-item" + (waMode === "internal" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8 }}
+                onClick={() => { setWaOpenMode("internal"); setWaMenuOpen(false); }}>
+                <I d={ICONS.msg} size={16} /> Abrir no atendimento interno
+                {waMode === "internal" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
+              </button>
+              <button className={"nav-item" + (waMode === "external" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8 }}
+                onClick={() => { setWaOpenMode("external"); setWaMenuOpen(false); }}>
+                <WhatsAppMark size={16} /> Abrir no WhatsApp externo
+                {waMode === "external" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
+              </button>
+              <small className="text-ink-muted" style={{ padding: "4px 6px 2px", fontSize: "0.62rem" }}>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>
+            </div>
+          )}
+        </span>
+        <button
+          className={signalBtnClass(botState)}
+          title={botState === "active" ? "Bot ativo" : "Bot inativo"}
+          aria-label={botState === "active" ? "Bot ativo" : "Bot inativo"}
+          onClick={() => router.push("/bot")}
+        >
+          <I d={ICONS.bot} size={17} />
+        </button>
+        <button
+          className={signalBtnClass(emailState)}
+          title={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}
+          aria-label={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}
+          onClick={() => router.push("/configuracoes")}
+        >
+          <I d={ICONS.mail} size={17} />
+        </button>
         <span ref={avatarRef} style={{ position: "relative", display: "inline-flex" }}>
-          <button className="round-btn" title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)} data-tut="conta">
+          <button className={`round-btn${avatarOpen ? " avatar-btn-active" : ""}`} title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)} data-tut="conta">
             <Av name={currentUserDisplayName(user)} size={34} />
           </button>
           {avatarOpen && (

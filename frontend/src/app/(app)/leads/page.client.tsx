@@ -44,6 +44,17 @@ type RadarLead = {
   instagramUrl?: string | null;
   facebookUrl?: string | null;
   website?: string | null;
+  rating?: number | null;
+  reviews?: number | null;
+  enrichmentScore?: number | null;   // >0 quando enriquecido pelo radar
+  lastEnrichedAt?: string | null;    // ISO — presente quando enriquecido
+  vendasStatus?: string | null;
+  vendasReturnAt?: string | null;
+  vendasAttemptCount?: number | null;
+  vendasShortNote?: string | null;
+  vendasLastResult?: string | null;
+  vendasSaleStatus?: string | null;
+  vendasSaleValue?: number | null;
 };
 
 type LeadsResponse = {
@@ -496,15 +507,47 @@ export function LeadsClient() {
   }
 
   // ── Detalhe do lead (reutilizável: desktop aside + mobile sheet) ──────────
+  function fmtVendasStatusLabel(status: string | null | undefined) {
+    switch (String(status || "").trim().toLowerCase()) {
+      case "contato": return "Em contato";
+      case "retorno": return "Retorno";
+      case "qualificado": return "Qualificado";
+      case "encerrado": return "Encerrado";
+      default: return "Novo lead";
+    }
+  }
+
+  function fmtSaleStatusLabel(status: string | null | undefined) {
+    switch (String(status || "").trim().toLowerCase()) {
+      case "activation_pending": return "Aguardando ativação";
+      case "trial_started": return "Trial iniciado";
+      case "sale_confirmed": return "Venda confirmada";
+      case "inactive": return "Inativo";
+      case "canceled": return "Cancelado";
+      default: return null;
+    }
+  }
+
+  function fmtMoney(value: number | null | undefined) {
+    if (value == null || value <= 0) return null;
+    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+
   function buildNegocioDetail(lead: RadarLead): NegocioDetail {
     const revealed = tab === "carteira" && Boolean(lead.phone);
+    const hasVendas = revealed && lead.vendasStatus != null;
+    const saleStatus = hasVendas ? lead.vendasSaleStatus : null;
+    const saleStatusLabel = fmtSaleStatusLabel(saleStatus);
     return {
       id: lead.id,
+      enriched: Boolean(lead.lastEnrichedAt) || Number(lead.enrichmentScore) > 0,
       name: lead.name,
       city: lead.city,
       state: lead.state,
       segment: lead.segment || lead.businessCategory || null,
       opportunityScore: lead.opportunityScore > 0 ? lead.opportunityScore : null,
+      rating: lead.rating ?? null,
+      reviews: lead.reviews ?? null,
       // contato: só revelado na carteira
       phone: revealed ? lead.phone : null,
       email: revealed ? (lead.email ?? null) : null,
@@ -515,6 +558,19 @@ export function LeadsClient() {
         instagramUrl: revealed ? (lead.instagramUrl ?? null) : null,
         facebookUrl: revealed ? (lead.facebookUrl ?? null) : null,
       },
+      // pipeline de Vendas — só na carteira
+      statusLabel: hasVendas ? fmtVendasStatusLabel(lead.vendasStatus) : undefined,
+      returnAt: hasVendas ? (lead.vendasReturnAt ?? undefined) : undefined,
+      attemptCount: hasVendas ? (lead.vendasAttemptCount ?? undefined) : undefined,
+      shortNote: hasVendas ? (lead.vendasShortNote ?? null) : undefined,
+      lastResult: hasVendas ? (lead.vendasLastResult ?? null) : undefined,
+      sale: saleStatusLabel && saleStatus && saleStatus !== "none"
+        ? {
+            status: saleStatus,
+            statusLabel: saleStatusLabel,
+            valueLabel: fmtMoney(lead.vendasSaleValue) ?? undefined,
+          }
+        : undefined,
     };
   }
 

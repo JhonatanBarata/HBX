@@ -30,8 +30,6 @@ import { Av, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
-import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
-import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
@@ -108,6 +106,16 @@ type StatusCardCustomer = {
 };
 type StatusCardLead = {
   id: string;
+  name: string | null;
+  email: string | null;
+  city: string | null;
+  state: string | null;
+  segment: string | null;
+  website: string | null;
+  opportunityScore: number | null;
+  leadTemperature: string | null;
+  rating: number | null;
+  reviews: number;
   status: string;
   statusLabel: string;
   nextAction: string | null;
@@ -116,8 +124,30 @@ type StatusCardLead = {
   timesSeen: number;
   sourceType: string | null;
   shortNote: string | null;
+  lastResult: string | null;
   lastContactAt: string | null;
+  productName: string | null;
+  productValueLabel: string | null;
+  saleStatus: string;
+  saleStatusLabel: string | null;
+  saleValueLabel: string | null;
+  commissionStatusLabel: string | null;
+  commissionValueLabel: string | null;
+  setupValueLabel: string | null;
+  setupCommissionValueLabel: string | null;
   updatedAt: string | null;
+  leadIntelligence?: {
+    whatsappStatus?: string | null;
+    emailStatus?: string | null;
+    websiteStatus?: string | null;
+    instagramUrl?: string | null;
+    facebookUrl?: string | null;
+    recommendedChannel?: string | null;
+    painType?: string | null;
+    painPitch?: string | null;
+    opportunityReason?: string | null;
+    enrichedAt?: string | null;
+  } | null;
 } | null;
 type StatusCardHistory = {
   id: string;
@@ -360,8 +390,6 @@ export function AtendimentoClient() {
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waModalOpen, setWaModalOpen] = useState(false);
 
-  // Módulo bot acessível: /modules/me (key==="bot" && accessible===true) — hero do card
-  const [canBot, setCanBot] = useState(false);
 
   // sessões WhatsApp: modo (company/current/meta/none), lista de sessões visíveis,
   // e ids das sessões deste usuário (para controle de supervisão/read-only).
@@ -540,16 +568,6 @@ export function AtendimentoClient() {
     return () => clearInterval(t);
   }, [refreshWaStatus, refreshWaSession]);
 
-  // Módulo bot: busca uma vez na montagem (mesma resposta /modules/me usada em Vendas/Leads)
-  useEffect(() => {
-    apiFetch<Array<{ key: string; accessible?: boolean }>>("/modules/me")
-      .then(list => {
-        const mods = Array.isArray(list) ? list : [];
-        const bot = mods.find(m => String(m.key || "").trim().toLowerCase() === "bot");
-        setCanBot(bot?.accessible === true);
-      })
-      .catch(() => setCanBot(false));
-  }, []);
 
   // Carrega o roster da empresa quando é admin em visão-empresa (o seletor "Chat" só
   // aparece nesse caso). Reage à mudança de modo/identidade.
@@ -570,6 +588,10 @@ export function AtendimentoClient() {
   const [novaForm, setNovaForm] = useState({ phone: "", name: "" });
   const [novaBusy, setNovaBusy] = useState(false);
   const [novaMsg, setNovaMsg] = useState<string | null>(null);
+
+  // "Limpar": apaga as conversas que nunca receberam/enviaram nada (as "+nova"
+  // abertas e jamais usadas). Não dispara nada pro WhatsApp.
+  const [limparBusy, setLimparBusy] = useState(false);
 
   // mensagens rápidas
   const [quickList, setQuickList] = useState<QuickReply[]>([]);
@@ -916,6 +938,25 @@ export function AtendimentoClient() {
       setNovaMsg(err instanceof Error ? err.message : "Não foi possível iniciar a conversa.");
     } finally {
       setNovaBusy(false);
+    }
+  }
+
+  // Varre as conversas e apaga as que estão sem mensagem alguma (as "+nova" abertas
+  // e nunca enviadas — nada foi pro WhatsApp). Não envia nada; só limpa do banco e
+  // recarrega a lista.
+  async function limparVazias() {
+    if (limparBusy) return;
+    const vazias = convs.filter(isNovaConversa).length;
+    if (!vazias) { setLoadError(null); return; }
+    if (!window.confirm(`Apagar ${vazias} conversa(s) sem nenhuma mensagem? Nada é enviado ao WhatsApp.`)) return;
+    setLimparBusy(true);
+    try {
+      await apiFetch("/inbox/conversations/clear-empty", { method: "POST", body: JSON.stringify({}) });
+      await loadConvs();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Não foi possível limpar as conversas vazias.");
+    } finally {
+      setLimparBusy(false);
     }
   }
 
@@ -1344,6 +1385,8 @@ export function AtendimentoClient() {
   }
 
   const convo = convs.find(c => c.id === selId) || null;
+  // true enquanto a conversa está selecionada mas o card ainda não chegou do servidor
+  const cardLoading = Boolean(convo && !card);
   const blocked = Boolean((convo?.metadata as Record<string, unknown> | null | undefined)?.["atendimentoBlockedAt"]);
   // A conversa ABERTA conta como lida na hora (igual ao WhatsApp Web): o aviso (X)
   // some imediatamente, sem esperar o servidor. Vale pro selo, pra aba "Não lidas" e
@@ -1522,6 +1565,11 @@ export function AtendimentoClient() {
                     <h2>Conversas</h2>
                     <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
                       <I d={ICONS.plus} size={13} /> Nova
+                    </button>
+                    {/* "Limpar": apaga as conversas abertas e nunca usadas (sem mensagem
+                        alguma) — não envia nada pro WhatsApp. */}
+                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={limparVazias} disabled={limparBusy} title="Apagar conversas sem nenhuma mensagem">
+                      <I d={ICONS.trash} size={13} /> {limparBusy ? "Limpando…" : "Limpar"}
                     </button>
                   </div>
                   {/* Filtros irmãos: Fila + Chat (um controle por função — sem o ícone-funil que duplicava). */}
@@ -1889,16 +1937,41 @@ export function AtendimentoClient() {
 
           <aside className="ctx">
             <DetalhesNegocio
+              key={convo?.id ?? "empty"}
+              loading={cardLoading}
               detail={convo ? ({
                 id: convo.id,
-                name: convName(convo),
+                // Coroa acende quando o lead foi enriquecido (mesmo critério da Vendas).
+                enriched: Boolean(card?.lead?.leadIntelligence?.enrichedAt),
+                // Nome: lead tem nome de empresa, senão usa o nome do contato WhatsApp
+                name: card?.lead?.name || convName(convo),
                 avatarUrl: convAvatar(convo) || null,
                 online: Boolean(presence?.online),
                 phone: phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || null,
-                email: convo.customer?.email ?? null,
+                // Email: lead tem email completo; fallback pro contato do WhatsApp
+                email: card?.lead?.email || convo.customer?.email || null,
+                website: card?.lead?.website ?? null,
+                city: card?.lead?.city ?? null,
+                state: card?.lead?.state ?? null,
+                segment: card?.lead?.segment ?? null,
+                opportunityScore: card?.lead?.opportunityScore ?? null,
+                leadTemperature: card?.lead?.leadTemperature ?? null,
+                rating: card?.lead?.rating ?? null,
+                reviews: card?.lead?.reviews ?? null,
                 statusLabel: card?.lead?.statusLabel ?? null,
                 doNotCall: card?.customer?.doNotCall ?? false,
                 channel: "WhatsApp",
+                leadIntelligence: {
+                  whatsappStatus: "confirmed",
+                  emailStatus: card?.lead?.leadIntelligence?.emailStatus ?? null,
+                  websiteStatus: card?.lead?.leadIntelligence?.websiteStatus ?? null,
+                  instagramUrl: card?.lead?.leadIntelligence?.instagramUrl ?? null,
+                  facebookUrl: card?.lead?.leadIntelligence?.facebookUrl ?? null,
+                  recommendedChannel: card?.lead?.leadIntelligence?.recommendedChannel ?? null,
+                  painType: card?.lead?.leadIntelligence?.painType ?? null,
+                  painPitch: card?.lead?.leadIntelligence?.painPitch ?? null,
+                  opportunityReason: card?.lead?.leadIntelligence?.opportunityReason ?? null,
+                },
                 nextAction: card?.lead?.nextAction ?? null,
                 returnAt: card?.lead?.returnAt ?? undefined,
                 lastContactAt: card?.lead?.lastContactAt ?? undefined,
@@ -1906,9 +1979,26 @@ export function AtendimentoClient() {
                 attemptCount: card?.lead?.attemptCount ?? null,
                 timesSeen: card?.lead?.timesSeen ?? null,
                 shortNote: card?.lead?.shortNote ?? null,
+                lastResult: card?.lead?.lastResult ?? null,
                 botActive: convo.botActive,
                 humanAssigned: convo.humanAssigned,
                 observations: card?.customer?.observations ?? null,
+                // Produto / valor (só quando tem lead linkado)
+                productName: card?.lead?.productName ?? null,
+                valueLabel: card?.lead?.productValueLabel ?? card?.lead?.saleValueLabel ?? null,
+                // Venda (só quando há venda real)
+                sale: card?.lead?.saleStatus && card.lead.saleStatus !== "none"
+                  ? {
+                      status: card.lead.saleStatus,
+                      statusLabel: card.lead.saleStatusLabel,
+                      valueLabel: card.lead.saleValueLabel,
+                      commissionLabel: card.lead.commissionStatusLabel,
+                      commissionValueLabel: card.lead.commissionValueLabel,
+                      setupLabel: card.lead.setupValueLabel
+                        ? `${card.lead.setupValueLabel}${card.lead.setupCommissionValueLabel ? ` · comissão: ${card.lead.setupCommissionValueLabel}` : ""}`
+                        : null,
+                    }
+                  : null,
                 history: card?.history?.map(h => ({
                   id: h.id,
                   title: h.title,
@@ -1918,23 +2008,6 @@ export function AtendimentoClient() {
                   createdAt: h.createdAt,
                 })) ?? null,
               } satisfies NegocioDetail) : null}
-              heroAction={convo ? (() => {
-                const phone = phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || null;
-                const waActive = waStatus === "connected";
-                return (
-                  <>
-                    <BotStatusIcon accessible={canBot} />
-                    <WhatsAppActionButton
-                      phone={phone}
-                      name={convName(convo)}
-                      qrActive={waActive}
-                      canInternal={false}
-                      onOpenExternal={() => { if (phone) window.open(`https://wa.me/${phone.replace(/\D/g, "")}`, "_blank"); }}
-                      onOpenInternal={() => {}}
-                    />
-                  </>
-                );
-              })() : undefined}
               obsDraft={obsDraft}
               onObsChange={convo ? setObsDraft : undefined}
               onObsSave={convo ? salvarObs : undefined}

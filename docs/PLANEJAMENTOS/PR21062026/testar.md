@@ -22,6 +22,36 @@ Se algo não acontecer como está escrito, me avisa.
 ## Atendimento no celular (ajuste)
 - Entre em **Atendimento** pelo celular. A lista de conversas tem que estar **mais fininha** (cabe mais conversa na tela), com uma **linha** separando cada uma.
 
+## Card de detalhes — aberto, escrevendo, igual nas 3 telas (novo)
+- Entre em **Vendas** e **clique num negócio**. No topo do card, fixo: o **nome** e uma fileira com **6 ícones** (WhatsApp, telefone, e-mail, Instagram, Facebook, site). Os 6 aparecem **sempre** — os que o cliente não tem ficam **apagados (cinza) e sem clique**; os que tem ficam coloridos e clicáveis.
+- As informações abaixo vão **aparecendo como se estivessem sendo escritas** (efeito máquina de escrever).
+- Tem uma **setinha pra baixo**: o card começa **compacto**; clica na setinha e ele **abre o resto** das informações (e fecha de novo). Cada coisa no seu lugar.
+- Se o lead foi **enriquecido**, aparece uma **coroa** no topo (perto do nome). Se for só um rascunho do Radar, **sem coroa**.
+- Agora clique no **mesmo cliente** em **Atendimento** e depois em **Radar → aba Carteira**: o card tem que ser **o mesmo** (mesmos campos, mesma cara). No Radar, como é só o primeiro rascunho, alguns campos que só nascem depois (histórico, dono, tentativas, venda) podem aparecer **vazios** — é o certo.
+
+## Atendimento — botão Limpar (novo)
+- Entre em **Atendimento**. Abra uma conversa **nova** (botão **+ Nova**) com um número, mas **não mande nenhuma mensagem** — ela aparece com o selo **novo**.
+- Aperte o botão **Limpar** (do lado do **+ Nova**) → confirme → essas conversas **vazias somem** da lista. As conversas que **já têm mensagem** continuam lá, intactas. Nada é enviado pra ninguém no WhatsApp.
+
+## Ícones do topo: conversa, WhatsApp, robô e envelope (novo)
+Olhe o **topo da tela**, perto do botão de **trocar o tema** (claro/escuro). Tem uma fileira de ícones: **balãozinho de conversa**, **WhatsApp**, **robô** e **envelope**.
+- Os ícones de **WhatsApp, robô e envelope aparecem sempre** — mesmo numa conta que não tem aquilo no plano (é de propósito, pra dar vontade de contratar).
+- A **cor conta o estado** de cada um: **colorido** = ligado e funcionando; **vermelho** = ligado mas com problema; **apagado (cinza)** = desligado / não contratado.
+- **Balãozinho de conversa:** clique → abre o **Atendimento**. Se tiver conversa não lida, aparece um **número** em cima dele.
+- **WhatsApp:** clique → abre um **menuzinho de ESCOLHA DE PADRÃO** (não abre conversa nenhuma): você marca se, ao clicar no WhatsApp **de um cliente**, ele deve **abrir aqui dentro (atendimento)** ou **abrir no WhatsApp por fora**. O que estiver marcado fica com um **✓**. Marcar **"aqui dentro"** **NÃO** pode te jogar pra tela de Atendimento — é só ajuste.
+- **Robô:** clique → abre a tela do **Bot**.
+- **Envelope:** clique → abre a tela de **E-mail** nas Configurações.
+
+## WhatsApp do cliente abre no padrão escolhido (novo)
+- Primeiro escolha o padrão no ícone de **WhatsApp do topo** (veja acima): "aqui dentro" ou "por fora".
+- Agora entre em **Vendas** (ou **Radar**), **abra um cliente** e clique no **ícone verde do WhatsApp** do card.
+  - Se o padrão for **"por fora"**: abre o **WhatsApp** (aba nova) já no número do cliente.
+  - Se o padrão for **"aqui dentro"**: abre a conversa **dentro do sistema** (Atendimento). *(Se o WhatsApp da empresa não estiver conectado, ele abre por fora mesmo — pra nunca travar.)*
+- O importante: ele **não fica mais perguntando** a cada clique — vai direto no padrão que você deixou.
+
+## E-mail: aba só aparece com plano (novo)
+- Entre em **Configurações**. A aba **E-mail** só aparece pra quem tem **e-mail liberado no plano**. Numa conta sem e-mail no plano, **a aba some** (antes aparecia pra todo administrador, mesmo sem ter).
+
 ## Entrar e pagar (cadastro/planos)
 - Na escolha de planos: escolha um plano → preencha o cadastro → envie → cai na tela **Aguardando confirmação**. Aperte **F5 (recarregar)**: tem que **voltar pra tela de espera**, não pro formulário em branco.
 - Tente **entrar** com um e-mail ainda **não confirmado** e a **senha certa**: tem que oferecer **Continuar cadastro** e te levar de volta de onde parou. Com **senha errada**: mensagem genérica, sem dizer mais nada.

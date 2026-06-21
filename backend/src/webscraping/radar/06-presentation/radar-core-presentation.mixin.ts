@@ -1917,6 +1917,17 @@ export class RadarCorePresentationMixin {
             assignedUserId: true,
             assignedByUserId: true,
             assignedAt: true,
+            vendasLead: {
+              select: {
+                status: true,
+                returnAt: true,
+                attemptCount: true,
+                shortNote: true,
+                lastResult: true,
+                saleStatus: true,
+                saleValue: true,
+              },
+            },
           },
         },
         events: {
@@ -2271,6 +2282,14 @@ export class RadarCorePresentationMixin {
       lastSeenAt: row?.lastSeenAt instanceof Date ? row.lastSeenAt.toISOString() : null,
       companyStatus: companyState?.status || status,
       vendasLeadId: companyState?.vendasLeadId || null,
+      // Dados de pipeline (VendasLead) — presentes quando o lead foi puxado pra carteira.
+      vendasStatus: companyState?.vendasLead?.status || null,
+      vendasReturnAt: companyState?.vendasLead?.returnAt instanceof Date ? companyState.vendasLead.returnAt.toISOString() : null,
+      vendasAttemptCount: companyState?.vendasLead != null ? safeInteger(companyState.vendasLead.attemptCount) : null,
+      vendasShortNote: companyState?.vendasLead?.shortNote || null,
+      vendasLastResult: companyState?.vendasLead?.lastResult || null,
+      vendasSaleStatus: companyState?.vendasLead?.saleStatus || null,
+      vendasSaleValue: companyState?.vendasLead?.saleValue != null ? Number(companyState.vendasLead.saleValue) : null,
       // Sinais de presença (sempre): a vitrine mostra ✓ sem o valor cru.
       hasPhone: Boolean(row?.phoneDigits || row?.phone),
       hasEmail: Boolean(safeEmail),

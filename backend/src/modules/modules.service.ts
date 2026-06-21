@@ -2259,6 +2259,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       'gerencial',
       'whatsapp',
       'cadastro',
+      'email',
+      'bot',
     ]);
     for (const row of rows) {
       knownModuleKeys.add(this.normalizeRequestedModuleKey(row.systemModule.key));
