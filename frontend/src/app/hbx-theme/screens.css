@@ -1394,6 +1394,14 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   color: var(--hbx-danger);
 }
 
+/* ── Leads: tela fixa sem scroll de página ───────────────────────────────── */
+.leads-page .work { grid-template-rows: auto 1fr; align-content: stretch; padding-bottom: 0; }
+.leads-page .leads-shelf { min-height: 0; display: flex; flex-direction: column; }
+.leads-page .radar2-shell { flex: 1; min-height: 0; align-items: stretch; }
+.leads-page .radar2-rail { overflow-y: auto; }
+.leads-page .radar2-main { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.leads-page .radar2-main .tbl-wrap { flex: 1; overflow-y: auto; min-height: 0; }
+
 /* ── KPIs compactos no mobile ─────────────────────────────────────────────── */
 /* KPIs compactos no mobile */
 .lead-kpis-strip {

@@ -16,6 +16,11 @@ model Company {
   entityType              String    @default("PJ") // PF | PJ
   slug                    String?   @unique
   companyKind             String    @default("tenant") // tenant | platform_infra
+  // Opt-in (default false): tenant autorizado a REVENDER planos HBX. Habilita o
+  // seletor de plano (List/Lead Plus/Pro) no "Fechar venda" e o salePlanKey no
+  // link de contratação. Cliente comum NUNCA vê (default false) — sem privilégio
+  // por slug/nome; este flag é a fonte única (mesmo padrão do billingExempt).
+  sellsHbxPlans           Boolean   @default(false)
   trialModuleSelection    String? // vendas | recovery
   selectedPlanKey         String? // hbx_lite | hbx_padrao | hbx_melhor
   signupUsesPublicEmail   Boolean   @default(false)

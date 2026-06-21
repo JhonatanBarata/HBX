@@ -1559,6 +1559,18 @@ export class VendasService {
     };
   }
 
+  // Opt-in de revenda de planos HBX: só o tenant marcado (sellsHbxPlans) é o
+  // "HBX admin" que escolhe o plano no Fechar venda e manda salePlanKey no link.
+  // Cliente comum nasce false → seletor escondido e salePlanKey ignorado. Fonte
+  // única no banco; sem privilégio por slug/nome (mesmo padrão do billingExempt).
+  private async resolveSellsHbxPlans(companyId: number): Promise<boolean> {
+    if (!companyId) return false;
+    const company = await this.prisma.company
+      .findUnique({ where: { id: companyId }, select: { sellsHbxPlans: true } })
+      .catch(() => null);
+    return Boolean((company as any)?.sellsHbxPlans);
+  }
+
   private assertVendasPermission(allowed: unknown, message: string) {
     if (!allowed) throw new ForbiddenException(message);
   }
@@ -7242,6 +7254,7 @@ export class VendasService {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanReadVendasCards(context);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const sellsHbxPlans = await this.resolveSellsHbxPlans(context.companyId);
     const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId);
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
@@ -7342,6 +7355,7 @@ export class VendasService {
       },
       planTier: planAccess.planTier,
       capabilities: planAccess.capabilities,
+      sellsHbxPlans,
       usage,
       blocks,
     };
@@ -8357,7 +8371,11 @@ export class VendasService {
     const productPatch = this.hasDtoField(dto, 'productId')
       ? await this.resolveVendasProductPatch(context, dto.productId)
       : null;
-    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    // salePlanKey só vale para o HBX admin (tenant sellsHbxPlans). Cliente comum:
+    // ignora o que vier no DTO e cai no plano do produto/card (comportamento legado).
+    const sellsHbxPlans = await this.resolveSellsHbxPlans(context.companyId);
+    const requestedPlanKey = sellsHbxPlans ? this.normalizeText(dto?.salePlanKey) : null;
+    const planKey = normalizeCommercialPlanKey(requestedPlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
     const planLabel = productPatch?.product?.name ? String(productPatch.product.name) : this.commercialPlanLabel(planKey);
     const productPriceCents = this.normalizePriceCentsFromProduct(productPatch?.product);
     const planAmount = productPriceCents
@@ -8496,7 +8514,10 @@ export class VendasService {
     const email = this.normalizeEmail(dto?.email || existing.email);
     if (!email) throw new BadRequestException('Informe um e-mail valido do cliente para comprovar o cadastro.');
 
-    const planKey = normalizeCommercialPlanKey(dto?.salePlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    // salePlanKey só vale para o HBX admin (tenant sellsHbxPlans) — igual ao handoff.
+    const sellsHbxPlans = await this.resolveSellsHbxPlans(context.companyId);
+    const requestedPlanKey = sellsHbxPlans ? this.normalizeText(dto?.salePlanKey) : null;
+    const planKey = normalizeCommercialPlanKey(requestedPlanKey || productPatch?.product?.planKey || existing.salePlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
     const planLabel = productPatch?.product?.name ? String(productPatch.product.name) : this.commercialPlanLabel(planKey);
     const companyName = this.normalizeText(dto?.companyName) || this.normalizeText(existing.name) || 'Cliente HBX';
     const contactName = this.normalizeText(dto?.contactName) || this.normalizeText(existing.name) || companyName;

@@ -47,6 +47,13 @@ type VendasLead = {
   setupCommissionStatusLabel?: string | null;
   commissionPercentSnapshot?: number | null;
   product: { name: string | null; priceLabel: string | null; canViewPrice?: boolean } | null;
+  leadIntelligence?: {
+    whatsappStatus?: string | null;   // 'confirmed' | 'missing' | 'invalid' | 'unverified'
+    emailStatus?: string | null;      // 'confirmed' | 'probable' | 'missing' | 'invalid' | 'unverified'
+    websiteStatus?: string | null;
+    instagramUrl?: string | null;
+    facebookUrl?: string | null;
+  } | null;
   owner: { name: string | null } | null;
   block: "today" | "overdue" | "scheduled" | "closed";
 };
@@ -54,6 +61,9 @@ type VendasLead = {
 type BoardResponse = {
   summary: { total: number; today: number; overdue: number; scheduled: number; closed: number };
   blocks: { today: VendasLead[]; overdue: VendasLead[]; scheduled: VendasLead[]; closed: VendasLead[] };
+  // Opt-in: tenant HBX admin (revende planos HBX) — habilita o seletor de plano
+  // no Fechar venda. Cliente comum vem ausente/false e nunca vê o seletor.
+  sellsHbxPlans?: boolean;
 } | null;
 
 type Produto = {
@@ -217,6 +227,8 @@ export function VendasClient() {
   const [produtos, setProdutos] = useState<Produto[] | null>(null);
   const [planosPreco, setPlanosPreco] = useState<CatalogPreco[] | null>(null);
   const [prodId, setProdId] = useState("");
+  // HBX admin: plano escolhido (List/Lead Plus/Pro) que vira o salePlanKey do link.
+  const [salePlanSel, setSalePlanSel] = useState("");
   const [valor, setValor] = useState("");
   const [setupValor, setSetupValor] = useState("");
   const [fecharBusy, setFecharBusy] = useState(false);
@@ -343,6 +355,7 @@ export function VendasClient() {
     if (!sel?.id) return;
     setFecharMsg(null);
     setLinkInfo(null);
+    setSalePlanSel("");
     setSetupValor(deal?.setupValue ? String(deal.setupValue) : "");
     setFecharOpen(true);
     if (produtos === null) {
@@ -366,6 +379,14 @@ export function VendasClient() {
     const p = (produtos || []).find(x => String(x.id) === id) || null;
     const preco = precoDoProduto(p);
     setValor(preco != null ? String(preco) : "");
+  }
+
+  // HBX admin: escolhe o PLANO comercial direto (vem do catálogo público, fonte
+  // única de preço) — vira o salePlanKey do link e prefilla a mensalidade de tabela.
+  function escolherPlano(key: string) {
+    setSalePlanSel(key);
+    const plano = (planosPreco || []).find(p => p.key === key) || null;
+    setValor(plano?.monthlyPrice != null ? String(plano.monthlyPrice) : "");
   }
 
   // Modelo real do fechamento (descoberto no contrato): a venda NUNCA é
@@ -393,6 +414,7 @@ export function VendasClient() {
           method: "POST",
           body: JSON.stringify({
             ...(prodId ? { productId: Number(prodId) } : {}),
+            ...(board?.sellsHbxPlans && salePlanSel ? { salePlanKey: salePlanSel } : {}),
             origin: window.location.origin,
           }),
         },
@@ -419,6 +441,7 @@ export function VendasClient() {
         method: "PATCH",
         body: JSON.stringify({
           ...(prodId ? { productId: Number(prodId) } : {}),
+          ...(board?.sellsHbxPlans && salePlanSel ? { salePlanKey: salePlanSel } : {}),
           ...(valor ? { saleValue: Number(valor) } : {}),
           ...(setupValor ? { setupValue: Number(setupValor) } : {}),
         }),
@@ -922,8 +945,33 @@ export function VendasClient() {
             ) : deal ? (
               <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem telefone neste card.</div>
             ) : null}
+            {/* 6 selos de canal (padrão central CanalIcon) — WhatsApp verificado vem
+                de leadIntelligence.whatsappStatus === 'confirmed' (motor confirmou o número). */}
+            {deal && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "8px 0 2px", alignItems: "center" }}>
+                {deal.leadIntelligence?.whatsappStatus === "confirmed" && deal.phone ? (
+                  <a href={`https://wa.me/55${deal.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><CanalIcon canal="whatsapp" size="xl" /></a>
+                ) : deal.phone ? (
+                  <a href={`tel:${deal.phone.replace(/[^\d+]/g, "")}`} aria-label="Telefone"><CanalIcon canal="telefone" size="xl" /></a>
+                ) : null}
+                {(deal.email || deal.leadIntelligence?.emailStatus === "confirmed" || deal.leadIntelligence?.emailStatus === "probable") && (
+                  deal.email
+                    ? <a href={`mailto:${deal.email}`} aria-label="E-mail"><CanalIcon canal="email" size="xl" /></a>
+                    : <CanalIcon canal="email" size="xl" />
+                )}
+                {deal.leadIntelligence?.instagramUrl && (
+                  <a href={deal.leadIntelligence.instagramUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram"><CanalIcon canal="instagram" size="xl" /></a>
+                )}
+                {deal.leadIntelligence?.facebookUrl && (
+                  <a href={deal.leadIntelligence.facebookUrl} target="_blank" rel="noopener noreferrer" aria-label="Facebook"><CanalIcon canal="facebook" size="xl" /></a>
+                )}
+                {deal.website && (
+                  <a href={deal.website.startsWith("http") ? deal.website : `https://${deal.website}`} target="_blank" rel="noopener noreferrer" aria-label="Site"><CanalIcon canal="site" size="xl" /></a>
+                )}
+              </div>
+            )}
             {deal?.website && (
-              <a href={deal.website.startsWith("http") ? deal.website : `https://${deal.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone" style={{ marginTop: 4 }}>
+              <a href={deal.website.startsWith("http") ? deal.website : `https://${deal.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone ctx-phone--site" style={{ marginTop: 4 }}>
                 <CanalIcon canal="site" /> {deal.website}
               </a>
             )}
@@ -1119,7 +1167,7 @@ export function VendasClient() {
                 </a>
               ) : null}
               {sel.website && (
-                <a href={sel.website.startsWith("http") ? sel.website : `https://${sel.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone" style={{ marginTop: 4 }}>
+                <a href={sel.website.startsWith("http") ? sel.website : `https://${sel.website}`} target="_blank" rel="noopener noreferrer" className="ctx-phone ctx-phone--site" style={{ marginTop: 4 }}>
                   <CanalIcon canal="site" /> {sel.website}
                 </a>
               )}
@@ -1284,36 +1332,63 @@ export function VendasClient() {
             {fecharMsg && !fecharMsg.startsWith("✓") && (
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{fecharMsg}</div>
             )}
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="field-label">Produto</label>
-              {produtos === null && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando produtos…</span>}
-              {produtos !== null && produtos.length === 0 && (
-                <span style={{ fontSize: "0.72rem", color: "var(--hbx-warning)", lineHeight: 1.5 }}>
-                  Nenhum produto cadastrado na empresa — dá para fechar só com o valor, ou cadastrar produtos (tela chega na sequência da trilha).
-                </span>
-              )}
-              {produtos !== null && produtos.length > 0 && (
-                <select className="select-dark" value={prodId} onChange={e => escolherProduto(e.target.value)} style={{ width: "100%" }}>
-                  <option value="">Sem produto (só valor)</option>
-                  {produtos.map(p => {
-                    const preco = precoDoProduto(p);
-                    return <option key={p.id} value={String(p.id)}>{p.name}{preco != null ? ` — ${preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " — sob consulta"}</option>;
-                  })}
-                </select>
-              )}
-            </div>
-            {planosPreco && planosPreco.some(p => fmtPreco(p.monthlyPrice)) && (
-              <div className="doc-slot" style={{ display: "grid", gap: 6 }}>
-                <span className="field-label">Mensalidade por plano (referência)</span>
-                <div className="kv">
-                  {planosPreco.filter(p => fmtPreco(p.monthlyPrice)).map(p => (
-                    <div className="row" key={p.key}>
-                      <span className="k">{p.title}</span>
-                      <span className="v">{fmtPreco(p.monthlyPrice)}/mês</span>
-                    </div>
-                  ))}
-                </div>
+            {board?.sellsHbxPlans ? (
+              // HBX admin: escolhe o PLANO HBX direto — vira o link de contratação
+              // certo (List/Lead Plus/Pro). Preço sai do catálogo público (fonte
+              // única). Lead Plus = 14 dias grátis; List/Pro entram sem trial.
+              <div className="stack6">
+                <label className="field-label">Plano HBX a contratar</label>
+                {planosPreco === null && <span className="hint">Carregando planos…</span>}
+                {planosPreco !== null && (
+                  <select className="select-dark" value={salePlanSel} onChange={e => escolherPlano(e.target.value)} style={{ width: "100%" }}>
+                    <option value="">Escolha o plano…</option>
+                    {planosPreco.filter(p => fmtPreco(p.monthlyPrice)).map(p => (
+                      <option key={p.key} value={p.key}>{p.title} — {fmtPreco(p.monthlyPrice)}/mês</option>
+                    ))}
+                  </select>
+                )}
+                {salePlanSel && (
+                  <span className="hint">
+                    {salePlanSel === "hbx_padrao"
+                      ? "Lead Plus: o cliente ativa pelo Gmail e ganha 14 dias grátis — a cobrança entra depois."
+                      : "Sem dias grátis: o cliente ativa pelo Gmail e a cobrança entra já na ativação."}
+                  </span>
+                )}
               </div>
+            ) : (
+              <React.Fragment>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label className="field-label">Produto</label>
+                  {produtos === null && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando produtos…</span>}
+                  {produtos !== null && produtos.length === 0 && (
+                    <span style={{ fontSize: "0.72rem", color: "var(--hbx-warning)", lineHeight: 1.5 }}>
+                      Nenhum produto cadastrado na empresa — dá para fechar só com o valor, ou cadastrar produtos (tela chega na sequência da trilha).
+                    </span>
+                  )}
+                  {produtos !== null && produtos.length > 0 && (
+                    <select className="select-dark" value={prodId} onChange={e => escolherProduto(e.target.value)} style={{ width: "100%" }}>
+                      <option value="">Sem produto (só valor)</option>
+                      {produtos.map(p => {
+                        const preco = precoDoProduto(p);
+                        return <option key={p.id} value={String(p.id)}>{p.name}{preco != null ? ` — ${preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " — sob consulta"}</option>;
+                      })}
+                    </select>
+                  )}
+                </div>
+                {planosPreco && planosPreco.some(p => fmtPreco(p.monthlyPrice)) && (
+                  <div className="doc-slot" style={{ display: "grid", gap: 6 }}>
+                    <span className="field-label">Mensalidade por plano (referência)</span>
+                    <div className="kv">
+                      {planosPreco.filter(p => fmtPreco(p.monthlyPrice)).map(p => (
+                        <div className="row" key={p.key}>
+                          <span className="k">{p.title}</span>
+                          <span className="v">{fmtPreco(p.monthlyPrice)}/mês</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
             )}
             <div style={{ display: "grid", gap: 6 }}>
               <label className="field-label">Mensalidade / valor (R$)</label>
@@ -1327,11 +1402,11 @@ export function VendasClient() {
             </div>
             {!linkInfo && (
               <React.Fragment>
-                <button className="btn-teal" onClick={gerarLink} disabled={fecharBusy} style={{ minHeight: 42 }}>
-                  {fecharBusy ? "Gerando…" : "Gerar link de contratação →"}
+                <button className="btn-teal" onClick={gerarLink} disabled={fecharBusy || (Boolean(board?.sellsHbxPlans) && !salePlanSel)} style={{ minHeight: 42 }}>
+                  {fecharBusy ? "Gerando…" : board?.sellsHbxPlans && !salePlanSel ? "Escolha o plano acima" : "Gerar link de contratação →"}
                 </button>
                 <button className="btn-ghost" onClick={salvarProdutoValor} disabled={fecharBusy} style={{ minHeight: 38 }}>
-                  Salvar produto/valor no card
+                  {board?.sellsHbxPlans ? "Salvar plano/valor no card" : "Salvar produto/valor no card"}
                 </button>
                 <p style={{ margin: 0, fontSize: "0.64rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
                   O cliente ativa pelo link — e a venda confirma SOZINHA no seu card, com a comissão calculada sobre o valor real. Transparência total, sem digitação manual de status.

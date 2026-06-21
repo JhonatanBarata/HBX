@@ -169,6 +169,13 @@ function convName(c: InboxConversation) {
   );
 }
 
+// Conversa criada pelo "+nova" e ainda SEM nenhuma mensagem: o dono abriu pra contatar
+// mas não enviou nada. Fica destacada (selo + topo da lista) até a 1ª mensagem sair.
+function isNovaConversa(c: InboxConversation | null | undefined) {
+  const started = (c?.metadata as Record<string, unknown> | null | undefined)?.["manualConversationStarted"];
+  return Boolean(started) && (c?.messages?.length ?? 0) === 0;
+}
+
 function convUnread(c: InboxConversation) {
   const raw = (c.metadata as Record<string, unknown> | null | undefined)?.["whatsappUnreadCount"];
   const n = Number(raw ?? 0);
@@ -591,7 +598,10 @@ export function AtendimentoClient() {
     const q = filaRef.current ? `&queue=${encodeURIComponent(filaRef.current)}` : "";
     return apiFetch<InboxConversation[]>(`/inbox/conversations?take=50${q}`)
       .then(res => {
-        const list = Array.isArray(res) ? res : [];
+        const raw = Array.isArray(res) ? res : [];
+        // "+nova" sem 1ª mensagem sobe pro topo (senão afundaria — a lista ordena por
+        // última mensagem real, e ela ainda não tem nenhuma). Resto mantém a ordem do backend.
+        const list = [...raw.filter(isNovaConversa), ...raw.filter(c => !isNovaConversa(c))];
         setConvs(list);
         setHasMore(list.length === 50);
         setLoadError(null);
@@ -881,7 +891,11 @@ export function AtendimentoClient() {
       setNovaOpen(false);
       setNovaForm({ phone: "", name: "" });
       await loadConvs();
-      if (res?.id != null) setSelId(String(res.id));
+      if (res?.id != null) {
+        setSelId(String(res.id));
+        // Abre já pronto pra digitar a 1ª mensagem (o "+nova" não passa pelo openConv).
+        requestAnimationFrame(() => draftRef.current?.focus());
+      }
     } catch (err) {
       setNovaMsg(err instanceof Error ? err.message : "Não foi possível iniciar a conversa.");
     } finally {
@@ -1600,7 +1614,8 @@ export function AtendimentoClient() {
                         <span style={{ display: "grid", minWidth: 0, flex: 1 }}>
                           <span className="nm"><strong>{convName(c)}</strong><time>{fmtConvTime(c.lastMessageAt)}</time></span>
                           <span className="pv">
-                            <small>{lastMsg?.content || "—"}</small>
+                            <small>{isNovaConversa(c) ? "Mande a primeira mensagem…" : (lastMsg?.content || "—")}</small>
+                            {isNovaConversa(c) && <span className="conv-nova">novo</span>}
                             <span className="chan wa">WhatsApp</span>
                             {showNumberFilter && !numberFilter && c.whatsappConnectionSessionId && sessionMap.has(String(c.whatsappConnectionSessionId)) && (
                               <span className="conv-seller">{sessionLabel(sessionMap.get(String(c.whatsappConnectionSessionId)))}</span>
@@ -1737,7 +1752,14 @@ export function AtendimentoClient() {
                     );
                   })}
                   {visibleThread.length === 0 && convo && (
-                    <span className="day">Sem mensagens nesta conversa</span>
+                    isNovaConversa(convo) ? (
+                      <div className="thread-empty-nova">
+                        <strong>Conversa criada — ninguém foi avisado ainda.</strong>
+                        <span>Digite abaixo e envie a primeira mensagem para falar com {convName(convo)} no WhatsApp.</span>
+                      </div>
+                    ) : (
+                      <span className="day">Sem mensagens nesta conversa</span>
+                    )
                   )}
                 </div>
                 {showThrottleWarning && (

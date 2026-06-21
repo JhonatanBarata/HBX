@@ -3522,6 +3522,9 @@ export class InboxService {
           { metadata: { contains: '"inboxManualQueueOverride":"archived"' } },
           { metadata: { contains: '"inboxLocalDeleted":true' } },
           { metadata: { contains: '"atendimentoBlockedAt"' } },
+          // "+nova" do Atendimento: conversa manual ainda SEM mensagem precisa aparecer
+          // na lista mesmo sem msg real (o gate por última-msg-real a deixaria de fora).
+          { metadata: { contains: '"manualConversationStarted":true' } },
           {
             flowResult: {
               in: [

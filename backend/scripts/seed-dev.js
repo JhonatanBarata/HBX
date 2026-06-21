@@ -46,6 +46,8 @@ async function main() {
         trialStartsAt: now,
         trialEndsAt,
         deactivatedAt: null,
+        // Sandbox local = HBX admin: habilita o seletor de plano no Fechar venda.
+        sellsHbxPlans: true,
       },
       create: {
         name: companySeed.name,
@@ -53,6 +55,7 @@ async function main() {
         isActive: true,
         trialStartsAt: now,
         trialEndsAt,
+        sellsHbxPlans: true,
       },
     });
 

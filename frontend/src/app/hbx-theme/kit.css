@@ -112,6 +112,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .sig-pad { --sig-ink: var(--text-body); display: block; width: 100%; height: 160px; border-radius: var(--radius-sm); border: 1px dashed var(--border-hairline); background: var(--hbx-surface); touch-action: none; cursor: crosshair; }
 .field-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
 .hint { font-size: 0.68rem; line-height: 1.5; color: var(--text-muted); }
+.stack6 { display: grid; gap: 6px; }
 .link { font-size: 0.72rem; color: var(--hbx-brand-strong); font-weight: 700; cursor: pointer; }
 .sep { height: 1px; background: var(--border-hairline); }
 
@@ -159,7 +160,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .ctx-score-label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .ctx-score-num { font-family: var(--font-mono); font-weight: 800; font-size: 0.88rem; }
 /* Phone hero — número grande e clicável (leads + vendas) */
-.ctx-phone { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand); background: color-mix(in srgb, var(--hbx-brand) 6%, var(--hbx-surface-soft)); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; text-decoration: none; width: 100%; box-sizing: border-box; }
+.ctx-phone { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand); background: color-mix(in srgb, var(--hbx-brand) 6%, var(--hbx-surface-soft)); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; text-decoration: none; width: 100%; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ctx-phone--site { font-size: 0.75rem; font-weight: 600; letter-spacing: 0; }
 .ctx-phone:hover { background: color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-surface-soft)); }
 /* Empty state — painel de contexto sem seleção */
 .ctx-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; color: var(--text-muted); text-align: center; padding: 0 16px; }
@@ -214,6 +216,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .conv .unread { min-width: 17px; height: 17px; border-radius: 999px; display: grid; place-items: center; font-size: 0.6rem; font-weight: 800; color: var(--hbx-action-ink); background: var(--hbx-brand-strong); }
 /* Chip de vendedor/sessão dentro da linha de conversa (modo empresa). */
 .conv-seller { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--radius-xs); font-size: 0.56rem; font-weight: 700; white-space: nowrap; color: var(--text-muted); background: var(--hbx-surface-raised); border: 1px solid var(--border-hairline); }
+/* Selo "novo": conversa criada pelo "+nova" e ainda sem 1ª mensagem (destaque de acento). */
+.conv-nova { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--radius-xs); font-size: 0.54rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; color: var(--hbx-action-ink); background: var(--hbx-brand-strong); }
 /* Aviso de supervisão (somente leitura) no composer. */
 .composer-readonly { font-size: 0.74rem; color: var(--text-muted); }
 .field-dark { width: 100%; min-height: 38px; border-radius: var(--control-radius); border: 1px solid var(--border-hairline); padding: 0 12px; font-family: var(--font-body); font-size: 0.8rem; color: var(--text-strong); background: var(--hbx-field-surface); outline: none; }
@@ -227,6 +231,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .thread-head small { display: block; font-size: 0.66rem; color: var(--text-muted); }
 .msgs { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
 .day { align-self: center; font-size: 0.64rem; color: var(--text-muted); padding: 3px 12px; border-radius: 999px; background: var(--hbx-surface); border: 1px solid var(--border-hairline); margin: 4px 0; }
+/* Thread vazia de conversa recém-criada pelo "+nova": chamada pra mandar a 1ª mensagem. */
+.thread-empty-nova { align-self: center; max-width: 340px; margin: 14px 0; padding: 14px 18px; display: grid; gap: 5px; text-align: center; border-radius: var(--radius-md); background: var(--hbx-surface); border: 1px solid var(--border-hairline); }
+.thread-empty-nova strong { font-size: 0.82rem; color: var(--text-strong); }
+.thread-empty-nova span { font-size: 0.72rem; color: var(--text-muted); line-height: 1.5; }
 .msg { display: flex; gap: 8px; max-width: 70%; }
 .msg.out { align-self: flex-end; flex-direction: row-reverse; }
 .bubble { padding: 9px 12px 6px; border-radius: var(--radius-md); font-size: 0.82rem; line-height: 1.5; border: 1px solid var(--border-hairline); background: var(--hbx-chat-inbound); }
