@@ -194,17 +194,6 @@ export class WhatsAppModalService {
   // Gate de conexão (Etapa 4 — Modelo de atendimento)
   // ---------------------------------------------------------------------------
 
-  private parseLooseJsonObject(raw: string | null | undefined): Record<string, any> {
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-      return parsed as Record<string, any>;
-    } catch {
-      return {};
-    }
-  }
-
   private isModalAdminOwner(user: any): boolean {
     if (user?.isSystemMaster) return true;
     const role = String(user?.role || '').trim().toUpperCase();
@@ -242,20 +231,16 @@ export class WhatsAppModalService {
     const effectiveMode: 'shared' | 'individual' = rawMode === 'shared' ? 'shared' : 'individual';
 
     if (effectiveMode === 'shared') {
-      // Modo compartilhado: só o admin-dono/master conecta.
-      // Vendedor/gerente chega aqui → bloqueado.
+      // Modo compartilhado: o vendedor HERDA o número da empresa (atende pelo pool),
+      // não conecta o próprio. Só o admin-dono/master conecta o chip compartilhado.
       throw new ForbiddenException('No modo compartilhado, só o admin conecta o WhatsApp da empresa.');
     }
 
-    // Modo individual: role USER precisa ter canConnectWhatsapp === true na policy.
-    const policyRow = await this.prisma.userTeamPolicy.findUnique({
-      where: { userId },
-      select: { visibilityJson: true },
-    }).catch(() => null);
-    const vis = this.parseLooseJsonObject(policyRow?.visibilityJson);
-    if (!vis?.canConnectWhatsapp) {
-      throw new ForbiddenException('Conexão de WhatsApp não liberada para este acesso — peça ao admin.');
-    }
+    // Modo individual: quem tem o Atendimento conecta o PRÓPRIO chip — não existe
+    // permissão "pode conectar chip" separada. O acesso ao Atendimento JÁ é o gate:
+    // os endpoints de conexão (me/whatsapp-modal/start|qr) exigem
+    // @ModuleAccess('atendimento'), então chegar aqui prova esse acesso. Atendimento
+    // sem chip = inútil; ou herda (shared) ou conecta o seu (individual).
   }
 
   getAvailability() {
@@ -793,12 +778,34 @@ export class WhatsAppModalService {
     }
   }
 
-  async requestPairingCode(companyId: number, sessionId: string, phoneNumber: string): Promise<WhatsAppPairingCodeResponse> {
-    const company = await this.loadCompany(companyId);
-    const storedSnapshot = this.buildStoredSnapshot(company);
-    const availabilityResponse = this.buildAvailabilityResponse(company, storedSnapshot, 'pairing');
+  async requestPairingCode(
+    companyId: number,
+    sessionId: string,
+    phoneNumber: string,
+    userId?: number,
+    user?: any,
+  ): Promise<WhatsAppPairingCodeResponse> {
+    // Gate de conexão (Etapa 4): só quando há userId (fluxo vendedor/gerente), igual QR/start.
+    if (userId && user !== undefined) {
+      await this.assertConnectionGate(companyId, user, userId);
+    }
+    const baseCompany = await this.loadCompany(companyId);
+    // POR USUÁRIO (18/06): pareia a instância DO VENDEDOR (`company-{id}-user-{userId}`), não a
+    // da empresa. Sem isto, o pairing resolvia a chave operacional company-level (a sessão ativa
+    // do admin/empresa) e o fetchLiveSnapshot a via "connected" → recusava com "WhatsApp já está
+    // conectado nesta sessão", mesmo o número do vendedor nunca tendo conectado. O QR já era
+    // per-user (getCompanyQrCode recebe userId); só o Código tinha ficado company-level.
+    const company = userId
+      ? this.patchCompanyWithTenantKey(baseCompany, this.buildUserTenantKey(baseCompany, userId))
+      : baseCompany;
+    const storedSnapshot = await this.resolveStoredSnapshot(baseCompany, userId);
+    const availabilityResponse = this.buildAvailabilityResponse(baseCompany, storedSnapshot, 'pairing');
     const tenantKey = this.resolveOperationalTenantKey(company);
-    if (sessionId !== tenantKey) {
+    // sessionId é só sanity-token: o front manda a chave operacional da empresa (data.tenantKey),
+    // que pode diferir da chave por-vendedor resolvida aqui. A fronteira real é o companyId do JWT;
+    // basta a sessão pertencer a ESTA empresa (`company-{id}` ou `company-{id}-...`).
+    const baseKey = this.buildTenantKey(baseCompany);
+    if (sessionId && sessionId !== baseKey && !sessionId.startsWith(`${baseKey}-`)) {
       throw new NotFoundException('Sessão WhatsApp não encontrada para esta empresa.');
     }
     if (availabilityResponse) {
@@ -806,8 +813,8 @@ export class WhatsAppModalService {
     }
 
     const normalizedPhone = this.normalizePairingPhoneOrThrow(phoneNumber);
-    this.assertLeadTrialPairingPhoneAllowed(company, normalizedPhone);
-    const latest = await this.fetchLiveSnapshot(company, { includeQr: false });
+    this.assertLeadTrialPairingPhoneAllowed(baseCompany, normalizedPhone);
+    const latest = await this.fetchLiveSnapshot(company, { includeQr: false }, userId);
     if (latest.status === 'connected') {
       return {
         success: false,
@@ -857,7 +864,7 @@ export class WhatsAppModalService {
         updatedAt: new Date(),
         qrCodeDataUrl: null,
       };
-      await this.persistSnapshot(company, snapshot, 'pairing_code');
+      await this.persistSnapshot(company, snapshot, 'pairing_code', userId);
       return {
         success: true,
         sessionId: tenantKey,

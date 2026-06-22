@@ -27,6 +27,11 @@ export class WhatsAppPairingController {
     return companyId;
   }
 
+  private resolveUserId(req: any): number | undefined {
+    const id = Number(req?.user?.id || 0);
+    return id > 0 ? id : undefined;
+  }
+
   @Post('sessions/:sessionId/pairing-code')
   @UseGuards(ModuleAccessGuard)
   @ModuleAccess('atendimento')
@@ -39,6 +44,8 @@ export class WhatsAppPairingController {
       this.resolveCompanyId(req),
       String(sessionId || '').trim(),
       body.phoneNumber,
+      this.resolveUserId(req),
+      req.user,
     );
   }
 }

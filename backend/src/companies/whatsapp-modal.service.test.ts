@@ -467,6 +467,31 @@ test('pairing-code retorna erro claro quando provider nao devolve codigo', async
   );
 });
 
+test('pairing-code e por-vendedor: roteia pra company-{id}-user-{userId}, nao pra instancia da empresa', async () => {
+  // Regressao do bug do Codigo (22/06): a empresa tem uma sessao company-level ATIVA (ex.: admin
+  // conectado). Antes do fix, requestPairingCode resolvia ESSA chave operacional e o fetchLiveSnapshot
+  // a via "connected" -> recusava com "WhatsApp ja esta conectado nesta sessao", mesmo o numero do
+  // vendedor nunca tendo conectado (o QR ja era per-user; so o Codigo tinha ficado company-level).
+  const company = createCompany({
+    currentWhatsappConnectionSessionId: 'admin-session',
+    currentWhatsappConnectionSession: {
+      id: 'admin-session',
+      provider: 'webwhats',
+      tenantKey: 'company-7-user-1',
+      status: 'active',
+    },
+  });
+  const service = createService(company, { code: 'WXYZ-1234' });
+
+  // userId=99 (vendedora). user master so pra pular o gate de conexao (gate tem teste proprio).
+  const response = await service.requestPairingCode(7, 'company-7', '+5519999999999', 99, { isSystemMaster: true });
+
+  assert.equal(response.success, true);
+  assert.equal(response.code, 'WXYZ-1234');
+  // sessionId = tenantKey usado no motor: tem que ser o do VENDEDOR, nao o da empresa/admin.
+  assert.equal(response.sessionId, 'company-7-user-99');
+});
+
 test('pairing-code gera codigo com sucesso sem persistir o codigo', async () => {
   const updates: any[] = [];
   const prisma = createPrisma(createCompany());
