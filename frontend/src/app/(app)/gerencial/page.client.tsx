@@ -125,7 +125,7 @@ function cicloLabel(c?: string | null) {
 const FORM_VAZIO = { name: "", sku: "", description: "", preco: "", billingCycle: "" };
 
 export function GerencialClient() {
-  const user = useCurrentUser() as { role?: string; isSystemMaster?: boolean } | null;
+  const user = useCurrentUser() as { role?: string; isSystemMaster?: boolean; username?: string | null; email?: string | null } | null;
   const isAdmin = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.isSystemMaster));
 
   const [aba, setAba] = useTabIndex("aba", 0);
@@ -321,6 +321,35 @@ export function GerencialClient() {
     return apiFetch<TeamMember[]>("/users/company")
       .then(res => setTeam(Array.isArray(res) ? res : []))
       .catch(() => setTeamDenied(true));
+  }
+
+  // Excluir vendedor (restaurado 22/06): o backend já tinha DELETE /users/:id/delete
+  // (admin-only, hard delete). Aqui o front liga o botão + confirmação.
+  const [excluirAlvo, setExcluirAlvo] = useState<TeamMember | null>(null);
+  const [excluirBusy, setExcluirBusy] = useState(false);
+  async function excluirMembro() {
+    if (!excluirAlvo || excluirBusy) return;
+    setExcluirBusy(true);
+    setTeamMsg(null);
+    try {
+      await apiFetch(`/users/${excluirAlvo.id}/delete`, { method: "DELETE" });
+      setTeamMsg("✓ Vendedor excluído definitivamente.");
+      setExcluirAlvo(null);
+      await recarregarEquipe();
+    } catch (err) {
+      setTeamMsg(err instanceof Error ? err.message : "Não foi possível excluir.");
+    } finally {
+      setExcluirBusy(false);
+    }
+  }
+  function ehProprioUsuario(m: TeamMember): boolean {
+    if (!user) return false;
+    const uEmail = String(user.email || "").toLowerCase();
+    const uUser = String(user.username || "").toLowerCase();
+    return Boolean(
+      (uEmail && m.email && uEmail === String(m.email).toLowerCase()) ||
+      (uUser && m.username && uUser === String(m.username).toLowerCase()),
+    );
   }
 
   useEffect(() => {
@@ -791,9 +820,33 @@ export function GerencialClient() {
         <NovoAcessoModal
           member={gerirMembro}
           team={team || []}
+          isSelf={ehProprioUsuario(gerirMembro)}
           onClose={() => setMembroParam("")}
           onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
+          onRequestExcluir={m => setExcluirAlvo(m as TeamMember)}
         />
+      )}
+
+      {excluirAlvo && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget && !excluirBusy) setExcluirAlvo(null); }}>
+          <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24 }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>
+              Excluir vendedor
+            </h3>
+            <p style={{ margin: 0, fontSize: "0.78rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
+              Tem certeza que deseja excluir <b>{excluirAlvo.name || excluirAlvo.username || excluirAlvo.email || `Usuário ${excluirAlvo.id}`}</b> definitivamente?
+              Esta ação não pode ser desfeita.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button type="button" className="btn-ghost" disabled={excluirBusy} onClick={() => setExcluirAlvo(null)} style={{ minHeight: 40 }}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-ghost btn-danger" disabled={excluirBusy} onClick={excluirMembro} style={{ minHeight: 40 }}>
+                {excluirBusy ? "Excluindo…" : "Excluir definitivamente"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {payoutOpen && (

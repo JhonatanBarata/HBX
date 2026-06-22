@@ -153,6 +153,13 @@ class UpdateCompanyUserProfileDto {
 	@IsString()
 	name?: string;
 
+	// E-mail editável pelo admin da empresa (ordem do dono 22/06): liberar login
+	// com Google p/ vendedor (o vínculo é por e-mail). Uniqueness/normalização no handler.
+	@IsOptional()
+	@IsString()
+	@MaxLength(180)
+	email?: string;
+
 	@IsOptional()
 	@IsString()
 	phone?: string;
@@ -952,6 +959,14 @@ export class UsersController {
 		}
 
 		const data: any = {};
+		if (typeof dto.email === 'string') {
+			const email = dto.email.trim().toLowerCase();
+			if (!email) throw new BadRequestException('E-mail inválido');
+			if (!email.includes('@')) throw new BadRequestException('E-mail inválido');
+			const existing = await this.usersService.findByEmail(email);
+			if (existing && existing.id !== id) throw new BadRequestException('E-mail já cadastrado');
+			data.email = email;
+		}
 		const name = normalizeNullableText(dto.name);
 		const phone = normalizeNullableText(dto.phone);
 		const commissionPercent = normalizeCommissionPercent(dto.commissionPercent);
@@ -1146,6 +1161,9 @@ export class UsersController {
 		}
 		if (target.isSystemMaster) {
 			throw new ForbiddenException('Usuário MASTER não pode ser removido por admin da empresa');
+		}
+		if (Number(req?.user?.id) === id) {
+			throw new ForbiddenException('Você não pode excluir o próprio acesso.');
 		}
 
 		await this.usersService.hardDeleteUser(id, { actorUserId: Number(req?.user?.id || 0), action: 'delete' });

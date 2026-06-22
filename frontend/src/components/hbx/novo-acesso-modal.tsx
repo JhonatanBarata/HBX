@@ -158,8 +158,11 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
         .then(res => { if (alive) setSeatInfo(res); })
         .catch(() => { if (alive) setSeatInfo(null); });
     }
-    apiFetch<{ enabled?: boolean; sender?: { ready?: boolean } }>("/company-email")
-      .then(res => { if (alive) setEmailUsable(Boolean(res?.enabled && res?.sender?.ready)); })
+    // Probe NÃO-gated: /company-email é travado por @ModuleAccess('email') e dá 403
+    // (floodando o console) em empresa sem o módulo. /company-email/status só exige
+    // login e devolve {enabled, ready} — é o probe certo pra acender o botão de e-mail.
+    apiFetch<{ enabled?: boolean; ready?: boolean }>("/company-email/status")
+      .then(res => { if (alive) setEmailUsable(Boolean(res?.enabled && res?.ready)); })
       .catch(() => { if (alive) setEmailUsable(false); });
     // gerenciar (ou F5 com cadastro já criado): recarrega documentos do servidor.
     const alvo = member?.id ?? rascunho0.current?.createdUserId;
@@ -280,9 +283,11 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
     setBusy(true);
     setMsg(null);
     try {
+      const emailEditado = form.email.trim().toLowerCase();
       await apiFetch(`/users/${member.id}/profile`, {
         method: "PATCH",
         body: JSON.stringify({
+          ...(emailEditado && emailEditado !== String(member.email || "").toLowerCase() ? { email: emailEditado } : {}),
           ...(form.name.trim() ? { name: form.name.trim() } : {}),
           ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
           ...(form.commissionPercent !== "" ? { commissionPercent: Number(form.commissionPercent) } : {}),
@@ -638,8 +643,9 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={lbl}>E-mail{isEdit ? " (login)" : " (opcional)"}</label>
-              <input className="field-dark" type="email" maxLength={180} value={form.email} disabled={soCadastro}
+              <label style={lbl}>E-mail{isEdit ? " (login / Google)" : " (opcional)"}</label>
+              {/* Editável no GERENCIAR (admin libera login com Google p/ vendedor — vínculo por e-mail). Travado só durante o painel pós-criação. */}
+              <input className="field-dark" type="email" maxLength={180} value={form.email} disabled={travaForm}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>

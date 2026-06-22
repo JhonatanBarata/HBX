@@ -1369,6 +1369,12 @@ export class AuthService implements OnModuleInit {
     if (user) {
       if (user.isActive === false) throw new UnauthorizedException('Conta desativada. Contate seu Administrador.');
       if (!user.companyId && !user.isSystemMaster) throw new UnauthorizedException('Conta sem empresa vinculada.');
+      // Google é login federado (sem senha): a identidade já está provada pelo
+      // token. Forçar "troque a senha temporária" para quem entrou por Google é
+      // contradição — e a pessoa pode nem ter senha local. Limpa a trava.
+      if (user.mustChangePassword) {
+        await this.prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: false } });
+      }
       return this.login(user, { companyId: user.companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
     }
 

@@ -59,7 +59,7 @@ const CONTRACT_SIGNATURE_INSTRUCTION = 'Assine pelo gov.br ou por assinatura dig
 const ONBOARDING_ATTACHMENT_RETENTION_DAYS = 7;
 const SELLER_ONBOARDING_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SELLER_ONBOARDING_INCLUDE = {
-  user: { select: { emailConfirmedAt: true } },
+  user: { select: { emailConfirmedAt: true, email: true } },
   attachments: { orderBy: { createdAt: 'desc' as const } },
 };
 
@@ -1373,7 +1373,9 @@ export class SellerOnboardingService {
 
   async assertCanActivatePartner(companyId: number, userId: number, approvedByUserId?: number | null) {
     const { user } = await this.requirePartnerUserInCompany(companyId, userId);
-    if (!user.emailConfirmedAt) {
+    // Só exige confirmação quando há e-mail. Vendedor de cadastro simples (usuário+senha,
+    // sem e-mail) não tem o que confirmar — a credencial é entregue na tela/mão.
+    if (user.email && !user.emailConfirmedAt) {
       throw new BadRequestException({
         code: 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING',
         message: 'Vendedor ainda não pode ser liberado. Faltou confirmar o e-mail do pré-boas-vindas.',
@@ -1531,7 +1533,10 @@ export class SellerOnboardingService {
     }));
     const missingRequiredDocuments = documents.filter((item) => item.required && !item.present);
     const emailConfirmed = Boolean(onboarding?.user?.emailConfirmedAt);
-    const missingActivationRequirements = emailConfirmed
+    // Confirmação de e-mail só faz sentido se há e-mail (cadastro simples = usuário+senha
+    // não tem e-mail pra confirmar). Sem e-mail, a credencial é entregue na tela/mão.
+    const hasEmail = Boolean(onboarding?.user?.email || onboarding?.email);
+    const missingActivationRequirements = !hasEmail || emailConfirmed
       ? []
       : [{ code: 'email_confirmation', label: 'Confirmar e-mail do pré-boas-vindas' }];
     return {
