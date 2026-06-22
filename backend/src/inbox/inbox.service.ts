@@ -932,6 +932,21 @@ export class InboxService {
     return { mode, effectiveMode, companyWhatsapp, team };
   }
 
+  // Admin "derruba" o chip de um atendente pelo painel da Equipe (modo individual):
+  // logout+delete limpo da sessão dele no motor. O atendente reconecta quando quiser
+  // (acesso ao Atendimento já é o gate). Não mexe em permissão — ela não existe mais.
+  async disconnectMemberWhatsapp(user: any, targetUserId: number) {
+    this.assertCompanyAdminOwner(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const target = await this.prisma.user.findFirst({
+      where: { id: Number(targetUserId) || 0, companyId },
+      select: { id: true, name: true, username: true },
+    });
+    if (!target) throw new BadRequestException('Atendente inválido.');
+    await this.whatsappModal.disconnectCompanySession(companyId, target.id);
+    return { ok: true, userId: String(target.id) };
+  }
+
   private buildWhatsappSessionConversationAliases(conversation: any) {
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const values = [

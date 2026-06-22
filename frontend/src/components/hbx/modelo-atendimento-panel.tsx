@@ -1,12 +1,16 @@
 "use client";
 
-// Painel "Modelo de atendimento" (só admin).
-// Consumido em /atendimento — botão abre este drawer via hbx-veil.
-// Quem tem o Atendimento conecta o próprio chip (modo individual) ou herda o número
-// da empresa (modo compartilhado) — NÃO existe permissão "pode conectar chip" separada.
+// Pop-up "Modelo de atendimento" (só admin). Centralizado pela central (.hbx-veil
+// + .hbx-modal — Lei 2). Consumido em /atendimento.
+// Duas guias: "Modelo atual" (escolher compartilhado × individual + WhatsApp da
+// empresa) e "Equipe" (lista de atendentes → toca num e abre o WhatsApp DELE:
+// número, tempo conectado e a opção de DERRUBAR a conexão).
+// Quem tem o Atendimento conecta o próprio chip (individual) ou herda o número da
+// empresa (compartilhado) — NÃO existe permissão "pode conectar chip" separada.
 // Endpoints:
 //   GET  /inbox/whatsapp/admin-panel
-//   POST /inbox/whatsapp/attendance-mode { mode, confirm? }
+//   POST /inbox/whatsapp/attendance-mode    { mode, confirm? }
+//   POST /inbox/whatsapp/member-disconnect  { userId }
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
@@ -15,12 +19,13 @@ import { apiFetch } from "@/lib/api";
 // ---- tipos ---------------------------------------------------------------
 
 type TeamMember = {
-  userId: number;
+  userId: number | string;
   name: string | null;
   role: string | null;
   canAttendSharedInbox?: boolean | null;
   whatsappConnected?: boolean | null;
   whatsappPhone?: string | null;
+  whatsappConnectedAt?: string | null;
   openConversations?: number | null;
   currentAssignedConversations?: number | null;
 };
@@ -56,6 +61,20 @@ function fmtDate(iso?: string | null) {
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+// "há 2 dias" / "há 3 h" / "há 12 min" / "agora" — tempo desde a conexão.
+function fmtSince(iso?: string | null) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  const mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  if (mins < 1) return "agora";
+  if (mins < 60) return `há ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `há ${hrs} h`;
+  const days = Math.floor(hrs / 24);
+  return `há ${days} ${days === 1 ? "dia" : "dias"}`;
+}
+
 // ---- component -----------------------------------------------------------
 
 type Props = {
@@ -68,6 +87,12 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [modeBusy, setModeBusy] = useState(false);
+  const [tab, setTab] = useState<"modelo" | "equipe">("modelo");
+
+  // detalhe do atendente selecionado na guia Equipe + derrubada em 2 passos
+  const [selUserId, setSelUserId] = useState<string | null>(null);
+  const [dropArm, setDropArm] = useState(false);
+  const [dropBusy, setDropBusy] = useState(false);
 
   // confirmação de troca de modo (vai desconectar chips)
   const [confirmData, setConfirmData] = useState<ConfirmPayload | null>(null);
@@ -86,6 +111,19 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
   useEffect(() => {
     loadRef.current();
   }, []);
+
+  function goEquipe() {
+    setTab("equipe");
+    setSelUserId(null);
+    setDropArm(false);
+    setMsg(null);
+  }
+
+  function selecionar(userId: string) {
+    setSelUserId(userId);
+    setDropArm(false);
+    setMsg(null);
+  }
 
   async function setMode(mode: "shared" | "individual", confirm?: boolean) {
     setModeBusy(true);
@@ -118,11 +156,29 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
     await setMode(mode, true);
   }
 
+  async function derrubar(userId: string) {
+    setDropBusy(true);
+    setMsg(null);
+    try {
+      await apiFetch("/inbox/whatsapp/member-disconnect", {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      });
+      setDropArm(false);
+      await load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível derrubar a conexão.");
+    } finally {
+      setDropBusy(false);
+    }
+  }
+
   const isShared = panel?.mode === "shared";
   const isIndividual = panel?.mode === "individual";
   const isNull = panel?.mode == null;
+  const sel = (panel?.team || []).find(m => String(m.userId) === selUserId) || null;
 
-  // ---- render confirm overlay ------------------------------------------
+  // ---- render confirm overlay (troca de modo) --------------------------
   if (confirmData) {
     return (
       <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setConfirmData(null); }}>
@@ -156,10 +212,14 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
     );
   }
 
-  // ---- render main drawer -----------------------------------------------
+  // ---- render pop-up central -------------------------------------------
   return (
-    <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="hbx-drawer at-panel-drawer" onClick={e => e.stopPropagation()}>
+    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div
+        className="hbx-modal"
+        style={{ width: "min(560px, 100%)", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+        onClick={e => e.stopPropagation()}
+      >
         {/* cabeçalho */}
         <div className="at-panel-head">
           <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
@@ -169,80 +229,90 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
           <button className="icon-ghost" onClick={onClose} aria-label="Fechar painel"><I d={ICONS.x} size={17} /></button>
         </div>
 
-        {loading && <div className="at-panel-note">Carregando…</div>}
-        {!loading && !panel && <div className="at-panel-note">Não foi possível carregar as informações.</div>}
+        {/* guias */}
+        <div className="at-tabs">
+          <div className="seg-toggle">
+            <button className={"seg" + (tab === "modelo" ? " on" : "")} onClick={() => setTab("modelo")}>Modelo atual</button>
+            <button className={"seg" + (tab === "equipe" ? " on" : "")} onClick={goEquipe}>Equipe</button>
+          </div>
+        </div>
 
-        {!loading && panel && (
-          <div className="at-panel-body">
+        <div className="at-panel-body">
+          {loading && <span className="muted-note">Carregando…</span>}
+          {!loading && !panel && <span className="muted-note">Não foi possível carregar as informações.</span>}
 
-            {/* ---- BLOCO 1: Card do modelo atual ---- */}
-            <div className="at-block">
-              <div className="at-block-head">
-                <span className="at-block-title">Modelo atual</span>
-                {isNull && <span className="tag warn">Não definido</span>}
-                {isShared && <span className="tag teal">Compartilhado</span>}
-                {isIndividual && <span className="tag">Individual</span>}
-              </div>
-
-              <div className="at-mode-desc muted-note">
-                {isNull && <span>Escolha o modelo de atendimento. Esta escolha define como as conversas do WhatsApp são distribuídas para a equipe.</span>}
-                {isShared && <span><strong>Compartilhado:</strong> Todas as conversas entram em um pool da empresa. Qualquer atendente pode puxar e responder usando o número da empresa.</span>}
-                {isIndividual && <span><strong>Individual:</strong> Cada atendente conecta seu próprio chip de WhatsApp e responde apenas pelas suas conversas.</span>}
-              </div>
-
-              {msg && <span className="tag red" style={{ marginBottom: 8 }}>{msg}</span>}
-
-              <div className="at-mode-btns">
-                <button
-                  className={"btn-ghost" + (isShared ? " at-mode-active" : "")}
-                  disabled={modeBusy || isShared}
-                  onClick={() => setMode("shared")}
-                >
-                  <I d={ICONS.users} size={14} /> Número compartilhado
-                </button>
-                <button
-                  className={"btn-ghost" + (isIndividual ? " at-mode-active" : "")}
-                  disabled={modeBusy || isIndividual}
-                  onClick={() => setMode("individual")}
-                >
-                  <I d={ICONS.phone} size={14} /> Chips individuais
-                </button>
-              </div>
-            </div>
-
-            {/* ---- BLOCO 2: WhatsApp da empresa (destaque no shared) ---- */}
-            <div className={"at-block" + (isShared ? " at-block-highlight" : "")}>
-              <div className="at-block-head">
-                <span className="at-block-title">WhatsApp da empresa</span>
-                {panel.companyWhatsapp?.connected
-                  ? <span className="tag teal">Conectado</span>
-                  : <span className="tag red">Desconectado</span>}
-              </div>
-
-              <div className="kv" style={{ marginBottom: 12 }}>
-                <div className="row">
-                  <span className="k">Número</span>
-                  <span className="v">{panel.companyWhatsapp?.phone || "—"}</span>
+          {/* ====== GUIA: MODELO ATUAL ====== */}
+          {!loading && panel && tab === "modelo" && (
+            <React.Fragment>
+              <div className="at-block">
+                <div className="at-block-head">
+                  <span className="at-block-title">Modelo atual</span>
+                  {isNull && <span className="tag warn">Não definido</span>}
+                  {isShared && <span className="tag teal">Compartilhado</span>}
+                  {isIndividual && <span className="tag">Individual</span>}
                 </div>
-                <div className="row">
-                  <span className="k">Conectado por</span>
-                  <span className="v">{panel.companyWhatsapp?.connectedByName || "—"}</span>
+
+                <div className="at-mode-desc muted-note">
+                  {isNull && <span>Escolha o modelo de atendimento. Esta escolha define como as conversas do WhatsApp são distribuídas para a equipe.</span>}
+                  {isShared && <span><strong>Compartilhado:</strong> Todas as conversas entram em um pool da empresa. Qualquer atendente puxa e responde usando o número da empresa.</span>}
+                  {isIndividual && <span><strong>Individual:</strong> Cada atendente conecta seu próprio chip de WhatsApp e responde apenas pelas suas conversas.</span>}
                 </div>
-                <div className="row">
-                  <span className="k">Última atividade</span>
-                  <span className="v">{fmtDate(panel.companyWhatsapp?.lastActivityAt)}</span>
+
+                {msg && <span className="tag red">{msg}</span>}
+
+                <div className="at-mode-btns">
+                  <button
+                    className={"btn-ghost" + (isShared ? " at-mode-active" : "")}
+                    disabled={modeBusy || isShared}
+                    onClick={() => setMode("shared")}
+                  >
+                    <I d={ICONS.users} size={14} /> Número compartilhado
+                  </button>
+                  <button
+                    className={"btn-ghost" + (isIndividual ? " at-mode-active" : "")}
+                    disabled={modeBusy || isIndividual}
+                    onClick={() => setMode("individual")}
+                  >
+                    <I d={ICONS.phone} size={14} /> Chips individuais
+                  </button>
                 </div>
               </div>
 
-              {onConnectWhatsApp && (
-                <button className="btn-ghost btn-xs" onClick={onConnectWhatsApp}>
-                  <I d={ICONS.msg} size={13} />
-                  {panel.companyWhatsapp?.connected ? "Reconectar / Desconectar" : "Conectar WhatsApp"}
-                </button>
-              )}
-            </div>
+              <div className={"at-block" + (isShared ? " at-block-highlight" : "")}>
+                <div className="at-block-head">
+                  <span className="at-block-title">WhatsApp da empresa</span>
+                  {panel.companyWhatsapp?.connected
+                    ? <span className="tag teal">Conectado</span>
+                    : <span className="tag red">Desconectado</span>}
+                </div>
 
-            {/* ---- BLOCO 3: Tabela da equipe ---- */}
+                <div className="kv">
+                  <div className="row">
+                    <span className="k">Número</span>
+                    <span className="v">{panel.companyWhatsapp?.phone || "—"}</span>
+                  </div>
+                  <div className="row">
+                    <span className="k">Conectado por</span>
+                    <span className="v">{panel.companyWhatsapp?.connectedByName || "—"}</span>
+                  </div>
+                  <div className="row">
+                    <span className="k">Última atividade</span>
+                    <span className="v">{fmtDate(panel.companyWhatsapp?.lastActivityAt)}</span>
+                  </div>
+                </div>
+
+                {onConnectWhatsApp && (
+                  <button className="btn-ghost btn-xs" onClick={onConnectWhatsApp}>
+                    <I d={ICONS.msg} size={13} />
+                    {panel.companyWhatsapp?.connected ? "Reconectar / Desconectar" : "Conectar WhatsApp"}
+                  </button>
+                )}
+              </div>
+            </React.Fragment>
+          )}
+
+          {/* ====== GUIA: EQUIPE — lista ====== */}
+          {!loading && panel && tab === "equipe" && !sel && (
             <div className="at-block">
               <div className="at-block-head">
                 <span className="at-block-title">Equipe</span>
@@ -254,66 +324,96 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
               )}
 
               {panel.team && panel.team.length > 0 && (
-                <div className="tbl-wrap">
-                  <table className="tbl at-team-tbl">
-                    <thead>
-                      <tr>
-                        <th>Nome</th>
-                        <th>Cargo</th>
-                        {isIndividual && <th>Chip</th>}
-                        {isIndividual && <th>Conversas</th>}
-                        {isShared && <th>Abertas</th>}
-                        {isShared && <th>Atendimento atual</th>}
-                        {isNull && <th>Conversas</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {panel.team.map(m => (
-                        <tr key={m.userId}>
-                          <td><strong className="at-team-name">{m.name || "—"}</strong></td>
-                          <td><span className="tag">{m.role || "—"}</span></td>
-
-                          {isIndividual && (
+                <React.Fragment>
+                  <div className="tbl-wrap">
+                    <table className="tbl at-team-tbl">
+                      <thead>
+                        <tr>
+                          <th>Nome</th>
+                          <th>Cargo</th>
+                          <th>Chip</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {panel.team.map(m => (
+                          <tr
+                            key={String(m.userId)}
+                            className={String(m.userId) === selUserId ? "sel" : undefined}
+                            onClick={() => selecionar(String(m.userId))}
+                          >
+                            <td><strong className="at-team-name">{m.name || "—"}</strong></td>
+                            <td><span className="tag">{m.role || "—"}</span></td>
                             <td>
                               {m.whatsappConnected
                                 ? <span className="tag teal">● Conectado</span>
                                 : <span className="tag red">○ Desconectado</span>}
                             </td>
-                          )}
-
-                          {isIndividual && (
-                            <td className="at-team-num">
-                              {m.openConversations ?? "—"}
-                            </td>
-                          )}
-
-                          {isShared && (
-                            <td className="at-team-num">
-                              {m.openConversations ?? "—"}
-                            </td>
-                          )}
-
-                          {isShared && (
-                            <td className="at-team-num">
-                              {m.currentAssignedConversations ?? "—"}
-                              {/* TODO: coluna "bloquear atendimento" (canAttendSharedInbox) — em breve */}
-                            </td>
-                          )}
-
-                          {isNull && (
-                            <td className="at-team-num">
-                              {m.openConversations ?? "—"}
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <span className="muted-note">Toque num atendente para ver o WhatsApp dele e derrubar a conexão se precisar.</span>
+                </React.Fragment>
               )}
             </div>
-          </div>
-        )}
+          )}
+
+          {/* ====== GUIA: EQUIPE — WhatsApp do atendente ====== */}
+          {!loading && panel && tab === "equipe" && sel && (
+            <div className="at-block">
+              <div className="at-block-head">
+                <button className="btn-ghost btn-xs" onClick={() => { setSelUserId(null); setDropArm(false); setMsg(null); }}>‹ Equipe</button>
+                <span className="at-block-title" style={{ textAlign: "right" }}>{sel.name || "—"}</span>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span className="tag">{sel.role || "—"}</span>
+                {sel.whatsappConnected
+                  ? <span className="tag teal">● Conectado</span>
+                  : <span className="tag red">○ Desconectado</span>}
+              </div>
+
+              <div className="kv">
+                <div className="row">
+                  <span className="k">WhatsApp</span>
+                  <span className="v">{sel.whatsappPhone || "—"}</span>
+                </div>
+                <div className="row">
+                  <span className="k">Conectado</span>
+                  <span className="v">{sel.whatsappConnected ? (fmtSince(sel.whatsappConnectedAt) || "—") : "—"}</span>
+                </div>
+                <div className="row">
+                  <span className="k">Desde</span>
+                  <span className="v">{sel.whatsappConnected ? fmtDate(sel.whatsappConnectedAt) : "—"}</span>
+                </div>
+                <div className="row">
+                  <span className="k">Conversas abertas</span>
+                  <span className="v">{sel.openConversations ?? 0}</span>
+                </div>
+              </div>
+
+              {msg && <span className="tag red">{msg}</span>}
+
+              {sel.whatsappConnected ? (
+                dropArm ? (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="btn-ghost btn-danger" disabled={dropBusy} onClick={() => derrubar(String(sel.userId))}>
+                      {dropBusy ? "Derrubando…" : "Confirmar — derrubar conexão"}
+                    </button>
+                    <button className="btn-ghost btn-xs" disabled={dropBusy} onClick={() => setDropArm(false)}>Cancelar</button>
+                  </div>
+                ) : (
+                  <button className="btn-ghost btn-danger" onClick={() => setDropArm(true)}>
+                    Derrubar conexão
+                  </button>
+                )
+              ) : (
+                <span className="muted-note">Este atendente não tem um chip próprio conectado.</span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

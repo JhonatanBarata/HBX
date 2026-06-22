@@ -82,6 +82,14 @@ export class InboxController {
     return this.inboxService.getWhatsappAdminPanel(req.user);
   }
 
+  @Post('whatsapp/member-disconnect')
+  disconnectMemberWhatsapp(
+    @Req() req: any,
+    @Body() dto: { userId?: number | string },
+  ) {
+    return this.inboxService.disconnectMemberWhatsapp(req.user, Number(dto?.userId || 0));
+  }
+
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);

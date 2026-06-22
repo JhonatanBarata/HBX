@@ -44,6 +44,13 @@ Se algo não acontecer como está escrito, me avisa.
 - Um vendedor **sem** Atendimento no acesso: nem chega a ver a tela de conectar.
 - Troque para **Número compartilhado**: aí o vendedor **não conecta** chip nenhum — ele usa o número da empresa (já cai pronto pra ele).
 
+## Modelo de atendimento: agora é um pop-up com duas abas (novo)
+- No **Atendimento**, abra **Modelo de atendimento**: tem que abrir um **quadro no meio da tela** (não mais uma gaveta lateral), com duas abas em cima: **Modelo atual** e **Equipe**.
+- Na aba **Modelo atual**: escolhe entre **Número compartilhado** e **Chips individuais**, e vê o **WhatsApp da empresa** (número, conectado por quem, última atividade).
+- Vá na aba **Equipe** e **toque num atendente**: abre o **WhatsApp dele** — o número, **há quanto tempo está conectado** e desde quando, e quantas conversas tem abertas.
+- Se ele estiver conectado, aparece o botão **Derrubar conexão**. Aperte → ele pede pra **confirmar** → ao confirmar, o WhatsApp daquela pessoa **cai** (ela pode reconectar depois). O **‹ Equipe** volta pra lista.
+- Quem **não tem chip próprio** conectado mostra "sem chip próprio" e **não** aparece o botão de derrubar.
+
 ## Atendimento — botão Limpar (novo)
 - Entre em **Atendimento**. Abra uma conversa **nova** (botão **+ Nova**) com um número, mas **não mande nenhuma mensagem** — ela aparece com o selo **novo**.
 - Aperte o botão **Limpar** (do lado do **+ Nova**) → confirme → essas conversas **vazias somem** da lista. As conversas que **já têm mensagem** continuam lá, intactas. Nada é enviado pra ninguém no WhatsApp.

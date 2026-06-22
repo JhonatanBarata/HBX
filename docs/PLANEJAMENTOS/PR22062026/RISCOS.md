@@ -2,6 +2,42 @@
 
 ---
 
+## ⭐ 2026-06-22 (sessão COM o dono) — "Modelo de atendimento" vira POP-UP central com 2 guias + derrubar chip
+
+> Pedido: "deixa o modelo mais bem feito, talvez um pop-up; guia 'Modelo atual' + guia 'Equipe'; ao escolher a
+> pessoa abre o WhatsApp dela (número, tempo conectado, opção de derrubar) — hoje o 'WhatsApp da empresa' é
+> morto, não reage ao clique. Segue TODAS as regras de frontend." **NÃO commitado, sem push, nada live.**
+> Backend build + 46/46 testes inbox; frontend `next build` verde; **check-pele limpo nos meus arquivos**
+> (as violações que restam são do `screens.css` WIP do dono, não meus).
+
+### O que mudei (5 Leis seguidas: popup pela central, só tokens/classes, inline só layout)
+- **Frontend** (`modelo-atendimento-panel.tsx`): era uma **gaveta lateral** (`hbx-veil to-right`/`hbx-drawer`);
+  virou **pop-up CENTRAL** (`hbx-veil` + `hbx-modal`, Lei 2 — central centraliza, zero reposição inline).
+  Duas **guias** pelo controle central `.seg-toggle`/`.seg`: **Modelo atual** (escolher compartilhado ×
+  individual + card WhatsApp da empresa) e **Equipe** (lista → toca no atendente → **detalhe do WhatsApp dele**:
+  número, **tempo conectado** "há X" + desde quando, conversas abertas, e **Derrubar conexão** em 2 passos).
+  O "WhatsApp da empresa" deixou de ser morto — agora cada atendente tem o próprio detalhe interativo.
+- **CSS** (`kit.css`): nova classe central `.at-tabs` (só tokens); removidas as órfãs `.at-panel-drawer` e
+  `.at-panel-note` (a gaveta morreu).
+- **Backend**: `getWhatsappAdminPanel` passou a devolver `whatsappConnectedAt` por atendente (tempo conectado);
+  novo `POST /inbox/whatsapp/member-disconnect {userId}` (admin) → `disconnectMemberWhatsapp` →
+  `whatsappModal.disconnectCompanySession(companyId, userId)` (logout+delete limpo do chip do atendente).
+
+### RISCOS (conferir)
+- **Não vi rodando autenticado** (preview é login-gated, painel é admin): builds + testes + fiscal verdes, mas
+  a **cara do pop-up e o "derrubar" ao vivo precisam do seu olho** (ver `testar.md`).
+- **"Derrubar" desconecta de verdade** o chip do atendente no motor (logout+delete) — é reversível (ele
+  reconecta), mas derruba a sessão na hora. Tem confirmação em 2 passos pra não derrubar sem querer.
+- No modo **compartilhado** o detalhe do atendente mostra "sem chip próprio" (ele usa o número da empresa) —
+  o "derrubar" só aparece pra quem tem chip individual conectado. É o esperado.
+
+### Reverter
+- `git checkout HEAD --` em: `frontend/src/components/hbx/modelo-atendimento-panel.tsx`,
+  `frontend/src/app/hbx-theme/kit.css`, `backend/src/inbox/inbox.service.ts`, `backend/src/inbox/inbox.controller.ts`.
+  Zero migration → revert não toca dados.
+
+---
+
 ## ⭐ 2026-06-22 (sessão COM o dono) — "Pode conectar chip?" MORRE: acesso ao Atendimento É o gate
 
 > Pedido: "o 'pode usar chip' não precisa existir; se o vendedor tem Atendimento, ou herda ou conecta o

@@ -723,15 +723,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    Estrutura 100% tokens — ZERO hex inline.
    ============================================================ */
 
-/* Drawer lateral do painel de modelo de atendimento */
-.at-panel-drawer {
-  width: min(480px, 96vw);
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .at-panel-head {
   display: flex;
   align-items: center;
@@ -744,6 +735,16 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   font-weight: 700;
   flex: 0 0 auto;
 }
+
+/* Barra de guias do pop-up (Modelo atual × Equipe) — divide a largura em dois */
+.at-tabs {
+  display: flex;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-hairline);
+  flex: 0 0 auto;
+}
+.at-tabs .seg-toggle { width: 100%; }
+.at-tabs .seg { flex: 1; text-align: center; }
 
 .at-panel-body {
   flex: 1;
@@ -851,7 +852,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 }
 
 /* Nota de estado (carregando / sem dados) no painel de modelo */
-.at-panel-note { padding: 24px; font-size: 0.78rem; color: var(--text-muted); }
 
 /* Modal de confirmação de troca de modo */
 .at-confirm-modal { width: min(420px, 100%); padding: 24px; display: grid; gap: 14px; }
