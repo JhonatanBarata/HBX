@@ -82,14 +82,6 @@ export class InboxController {
     return this.inboxService.getWhatsappAdminPanel(req.user);
   }
 
-  @Post('whatsapp/seller-connect-permission')
-  setSellerConnectPermission(
-    @Req() req: any,
-    @Body() dto: { userId?: number | string; allowed?: boolean },
-  ) {
-    return this.inboxService.setSellerConnectPermission(req.user, Number(dto?.userId || 0), Boolean(dto?.allowed));
-  }
-
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);

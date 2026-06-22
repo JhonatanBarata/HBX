@@ -2,10 +2,11 @@
 
 // Painel "Modelo de atendimento" (só admin).
 // Consumido em /atendimento — botão abre este drawer via hbx-veil.
+// Quem tem o Atendimento conecta o próprio chip (modo individual) ou herda o número
+// da empresa (modo compartilhado) — NÃO existe permissão "pode conectar chip" separada.
 // Endpoints:
 //   GET  /inbox/whatsapp/admin-panel
 //   POST /inbox/whatsapp/attendance-mode { mode, confirm? }
-//   POST /inbox/whatsapp/seller-connect-permission { userId, allowed }
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
@@ -18,7 +19,6 @@ type TeamMember = {
   name: string | null;
   role: string | null;
   canAttendSharedInbox?: boolean | null;
-  canConnectWhatsapp?: boolean | null;
   whatsappConnected?: boolean | null;
   whatsappPhone?: string | null;
   openConversations?: number | null;
@@ -68,14 +68,10 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [modeBusy, setModeBusy] = useState(false);
-  const [permBusy, setPermBusy] = useState<number | null>(null);
 
   // confirmação de troca de modo (vai desconectar chips)
   const [confirmData, setConfirmData] = useState<ConfirmPayload | null>(null);
   const pendingModeRef = useRef<"shared" | "individual" | null>(null);
-
-  // confirmação de revogação de permissão de chip (vai desconectar o vendedor)
-  const [revokeTarget, setRevokeTarget] = useState<TeamMember | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -122,37 +118,6 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
     await setMode(mode, true);
   }
 
-  async function togglePermission(userId: number, allowed: boolean) {
-    setPermBusy(userId);
-    setMsg(null);
-    try {
-      await apiFetch("/inbox/whatsapp/seller-connect-permission", {
-        method: "POST",
-        body: JSON.stringify({ userId, allowed }),
-      });
-      await load();
-    } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Não foi possível atualizar a permissão.");
-    } finally {
-      setPermBusy(null);
-    }
-  }
-
-  function requestRevoke(member: TeamMember) {
-    if (member.whatsappConnected) {
-      setRevokeTarget(member);
-    } else {
-      togglePermission(member.userId, false);
-    }
-  }
-
-  async function confirmRevoke() {
-    if (!revokeTarget) return;
-    const target = revokeTarget;
-    setRevokeTarget(null);
-    await togglePermission(target.userId, false);
-  }
-
   const isShared = panel?.mode === "shared";
   const isIndividual = panel?.mode === "individual";
   const isNull = panel?.mode == null;
@@ -184,36 +149,6 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
             <button className="btn-ghost" onClick={() => setConfirmData(null)} disabled={modeBusy}>Cancelar</button>
             <button className="btn-teal" onClick={confirmMode} disabled={modeBusy}>
               {modeBusy ? "Trocando…" : "Confirmar e trocar"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ---- render revoke confirm overlay ------------------------------------
-  if (revokeTarget) {
-    return (
-      <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setRevokeTarget(null); }}>
-        <div className="hbx-modal at-confirm-modal">
-          <h3>
-            Revogar permissão de chip
-            <span className="hbx-x" onClick={() => setRevokeTarget(null)}>✕</span>
-          </h3>
-          <p className="at-confirm-body">
-            Revogar a permissão vai <strong>desconectar</strong> o WhatsApp do atendente abaixo. Ele precisará reconectar quando a permissão for restaurada.
-          </p>
-          <div className="at-confirm-list">
-            <div className="at-confirm-row">
-              <strong>{revokeTarget.name || "—"}</strong>
-              {revokeTarget.whatsappPhone && <span className="tag">{revokeTarget.whatsappPhone}</span>}
-            </div>
-          </div>
-          {msg && <span className="tag red">{msg}</span>}
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button className="btn-ghost" onClick={() => setRevokeTarget(null)} disabled={permBusy === revokeTarget.userId}>Cancelar</button>
-            <button className="btn-teal" onClick={confirmRevoke} disabled={permBusy === revokeTarget.userId}>
-              {permBusy === revokeTarget.userId ? "Revogando…" : "Confirmar e revogar"}
             </button>
           </div>
         </div>
@@ -325,7 +260,6 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                       <tr>
                         <th>Nome</th>
                         <th>Cargo</th>
-                        {isIndividual && <th>Pode conectar chip?</th>}
                         {isIndividual && <th>Chip</th>}
                         {isIndividual && <th>Conversas</th>}
                         {isShared && <th>Abertas</th>}
@@ -338,22 +272,6 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                         <tr key={m.userId}>
                           <td><strong className="at-team-name">{m.name || "—"}</strong></td>
                           <td><span className="tag">{m.role || "—"}</span></td>
-
-                          {isIndividual && (
-                            <td>
-                              {/* toggle can-connect */}
-                              <button
-                                className={"seg-toggle at-perm-toggle" + (m.canConnectWhatsapp ? " at-perm-on" : "")}
-                                disabled={permBusy === m.userId}
-                                onClick={() => m.canConnectWhatsapp ? requestRevoke(m) : togglePermission(m.userId, true)}
-                                title={m.canConnectWhatsapp ? "Revogar permissão" : "Conceder permissão"}
-                              >
-                                <span className={"seg" + (m.canConnectWhatsapp ? " on" : "")}>
-                                  {permBusy === m.userId ? "…" : (m.canConnectWhatsapp ? "Sim" : "Não")}
-                                </span>
-                              </button>
-                            </td>
-                          )}
 
                           {isIndividual && (
                             <td>

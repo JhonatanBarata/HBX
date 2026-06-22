@@ -804,17 +804,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   background: var(--hbx-brand-soft);
 }
 
-/* Toggle de permissão de chip (can-connect) na tabela da equipe */
-.at-perm-toggle {
-  display: inline-flex;
-  gap: 0;
-  padding: 2px;
-  cursor: pointer;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--control-radius);
-  background: var(--hbx-surface-soft);
-}
-
 /* Tabela da equipe: sem word-break nos nomes */
 .at-team-tbl td,
 .at-team-tbl th { white-space: nowrap; }

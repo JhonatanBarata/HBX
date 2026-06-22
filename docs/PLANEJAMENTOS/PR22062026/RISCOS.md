@@ -2,6 +2,79 @@
 
 ---
 
+## ⭐ 2026-06-22 (sessão COM o dono) — "Pode conectar chip?" MORRE: acesso ao Atendimento É o gate
+
+> Pedido: "o 'pode usar chip' não precisa existir; se o vendedor tem Atendimento, ou herda ou conecta o
+> próprio — senão o atendimento é inútil". **NÃO commitado, sem push, nada live.** Backend build + **42/42**
+> testes do inbox verdes; frontend `next build` verde.
+
+### O que mudei (sem-legado: a permissão saiu inteira, no mesmo passo)
+- **Gate** (`whatsapp-modal.service.ts assertConnectionGate`): no modo **individual** removi a checagem
+  `canConnectWhatsapp` da policy. Os endpoints de conexão (`me/whatsapp-modal/start|qr`) **já exigem**
+  `@ModuleAccess('atendimento')` — chegar no gate prova o acesso. Modo **compartilhado** segue igual (vendedor
+  herda o número da empresa; só admin conecta). Helper `parseLooseJsonObject` (só o gate usava) removido.
+- **Backend** (`inbox.service.ts`/`inbox.controller.ts`): apaguei o endpoint `POST /inbox/whatsapp/
+  seller-connect-permission` + método `setSellerConnectPermission` + o campo `canConnectWhatsapp` do payload
+  `GET /inbox/whatsapp/admin-panel` (e o `select teamPolicy`/import órfão).
+- **Frontend** (`modelo-atendimento-panel.tsx`): coluna **"Pode conectar chip?"** + toggle + modal de
+  revogação + estados (`permBusy`/`revokeTarget`) removidos. CSS órfão `.at-perm-toggle` saiu do `kit.css`.
+
+### RISCOS (conferir)
+- **Perdeu-se o atalho "revogar = desconectar o chip do vendedor"** (era efeito colateral da permissão). Pra
+  impedir um vendedor de conectar agora, **tire o Atendimento do acesso dele** (cargo). Decisão alinhada ao
+  pedido ("não tem pra onde correr").
+- **Dado morto inofensivo:** `UserTeamPolicy.visibilityJson.canConnectWhatsapp` pode existir em vendedores
+  antigos — ninguém mais lê. Sem migration; não precisa limpar.
+- **Não vi rodando autenticado** (preview login-gated): builds + 42/42 testes verdes; o teste real é seu
+  (ver `testar.md` → "vendedor conecta o WhatsApp sozinho").
+
+### Reverter
+- `git checkout HEAD --` em: `backend/src/companies/whatsapp-modal.service.ts`, `backend/src/inbox/inbox.service.ts`,
+  `backend/src/inbox/inbox.controller.ts`, `frontend/src/components/hbx/modelo-atendimento-panel.tsx`,
+  `frontend/src/app/hbx-theme/kit.css`. Zero migration → revert não toca dados.
+
+---
+
+## ⭐ 2026-06-22 (sessão COM o dono) — Ciclo de acesso do vendedor: e-mail é OPCIONAL (parar de deadlockar)
+
+> Pedido: "siga o PLAN-VENDEDOR-CICLO-ACESSO". Frente de acesso/auth → **Opus direto**.
+> **NÃO commitado, sem push, nada live.** Backend prisma:validate + build + **12/12 testes** do
+> onboarding verdes; frontend `next build` verde. Plano concluído → arquivo apagado (delta mora aqui).
+
+### O que mudei (revert por arquivo; tudo aditivo, zero migration)
+- **P1 — reativar vendedor desativado** (`users.controller.ts`): separei **1ª liberação** (com checklist
+  de documentos + credencial + boas-vindas) de **reativação** de quem já foi liberado/desativado. Quem já
+  esteve ativo (`deactivatedAt`) **ou** já foi aprovado reativa **direto** — toggle puro, sem re-exigir
+  documentos (podem ter sido purgados) e sem confirmação de e-mail, mantendo a senha que já tinha. Mesmo
+  guard aplicado no caminho do Master (`updateUserAsMaster`). Novo método `isPartnerAlreadyApproved`
+  (`seller-onboarding.service.ts`).
+- **P2 — e-mail nunca trava** (`seller-onboarding.service.ts` `assertCanActivatePartner`): removi o muro
+  `HBX_PARTNER_EMAIL_CONFIRMATION_PENDING`. O único gate duro da 1ª liberação são os **documentos
+  obrigatórios**; a confirmação de e-mail virou só **nudge** (o `readiness` ainda reporta pra UI, mas não
+  barra). Caso real Gabriele (e-mail injetado não-confirmado) destravado.
+- **P3 — cliente (Master):** **verificado, nada a mudar.** O admin-cliente nasce `isActive:true` +
+  `emailConfirmedAt` já setado (`master-provisioning.service.ts`); não há gate de ativação por e-mail. A
+  única fricção (troca de senha × Google) já estava no ar.
+- **P4 — reaproveitar dados no Gerenciar** (`novo-acesso-modal.tsx` + `users.service.ts`): o modal
+  pré-preenche telefone/comissão/indicador/limite-dia a partir do membro (a lista `/users/company` passou a
+  devolver `sellerDistributionDailyLimitOverride`); CPF/endereço/D+ seguem vindo do onboarding. Front mostra
+  **"Reativar acesso"** (toggle puro) quando o vendedor já foi liberado, em vez de "Liberar acesso".
+
+### RISCOS (conferir — é ACESSO/credencial)
+- **Não vi rodando autenticado** (preview é login-gated): builds + testes verdes, mas o **veredito real
+  precisa do seu olho** — ver `testar.md` (Vendedor: liberar / reativar / sem e-mail).
+- **Reativação NÃO reseta a senha** (de propósito): o vendedor volta com a senha que já tinha. Se ele
+  perdeu, use **Redefinir senha** no mesmo modal. (1ª liberação continua gerando senha temporária.)
+- **Sinal "já liberado"** = `deactivatedAt` setado **ou** onboarding `status='approved'`. Vendedor criado
+  inativo e nunca liberado cai certo na 1ª liberação (com checklist). Decisão de desenho, não trava nada.
+
+### Reverter
+- `git checkout HEAD --` em: `backend/src/users/users.controller.ts`, `backend/src/users/users.service.ts`,
+  `backend/src/gerencial/seller-onboarding.service.ts`, `backend/src/gerencial/seller-onboarding.service.test.ts`,
+  `frontend/src/components/hbx/novo-acesso-modal.tsx`. Zero migration → revert não toca dados.
+
+---
+
 ## ⭐ NOITE 2026-06-21 — Card "Detalhes do negócio": injetar tudo + 3 telas iguais + coroa (orquestrado: Opus + 3 workers)
 
 > Pedido: "injeta tudo agora, filtra depois; 6 ícones sempre; efeito de escrever; 3 telas iguais; coroa de

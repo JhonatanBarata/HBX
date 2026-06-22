@@ -12,7 +12,6 @@ import {
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
@@ -904,7 +903,6 @@ export class InboxService {
         role: true,
         isSystemMaster: true,
         canViewBilling: true,
-        teamPolicy: { select: { visibilityJson: true } },
       },
     });
 
@@ -914,14 +912,11 @@ export class InboxService {
       const isGerente = roleUp === 'ADMIN' && u.canViewBilling === false && !u.isSystemMaster;
       const roleLabel = isAdminOwner ? 'admin' : isGerente ? 'gerente' : 'vendedor';
       const sess = sessionByUser.get(Number(u.id)) || null;
-      const vis = this.parseConversationMetadata(u.teamPolicy?.visibilityJson);
-      const canConnectWhatsapp = isAdminOwner ? true : Boolean(vis?.canConnectWhatsapp);
       return {
         userId: String(u.id),
         name: u.name || u.username || `#${u.id}`,
         role: roleLabel,
         canAttendSharedInbox: true,
-        canConnectWhatsapp,
         whatsappConnected: Boolean(sess?.id),
         whatsappPhone: sess?.phone || null,
         openConversations: sess?.id ? openBySessionId.get(sess.id) || 0 : 0,
@@ -930,37 +925,6 @@ export class InboxService {
     });
 
     return { mode, effectiveMode, companyWhatsapp, team };
-  }
-
-  // Admin libera/bloqueia um vendedor a conectar o próprio chip (modo individual). Grava em
-  // UserTeamPolicy.visibilityJson.canConnectWhatsapp — a MESMA chave que o gate de conexão lê.
-  async setSellerConnectPermission(user: any, targetUserId: number, allowed: boolean) {
-    this.assertCompanyAdminOwner(user);
-    const companyId = this.requireCompanyIdFromUser(user);
-    const target = await this.prisma.user.findFirst({
-      where: { id: Number(targetUserId) || 0, companyId },
-      select: { id: true },
-    });
-    if (!target) throw new BadRequestException('Atendente inválido.');
-    await ensureUserTeamPolicyForUser(this.prisma, target.id, { source: 'inbox_connect_permission' });
-    const policy = await this.prisma.userTeamPolicy.findUnique({
-      where: { userId: target.id },
-      select: { visibilityJson: true },
-    });
-    const vis = this.parseConversationMetadata(policy?.visibilityJson);
-    vis.canConnectWhatsapp = Boolean(allowed);
-    await this.prisma.userTeamPolicy.update({
-      where: { userId: target.id },
-      data: { visibilityJson: JSON.stringify(vis) },
-    });
-    if (!allowed) {
-      try {
-        await this.whatsappModal.disconnectCompanySession(companyId, target.id);
-      } catch (err) {
-        this.logger.warn(`setSellerConnectPermission: falha ao desconectar chip do userId=${target.id}: ${String((err as any)?.message || err)}`);
-      }
-    }
-    return { ok: true, userId: String(target.id), canConnectWhatsapp: Boolean(allowed) };
   }
 
   private buildWhatsappSessionConversationAliases(conversation: any) {
@@ -4259,11 +4223,46 @@ export class InboxService {
     }
     const now = new Date();
     const displayName = String(input?.name || '').replace(/\s+/g, ' ').trim();
+
+    // FONTE DA VERDADE = motor. O +Nova aceitava qualquer número e o "9 a mais" dos
+    // celulares do Sul (ex.: 5551993572856 não existe; o real é 555193572856) virava
+    // conversa-fantasma que nunca enviava. Pergunta-se ao WhatsApp (onWhatsApp): mandando
+    // com OU sem o 9 ele devolve o JID canônico correto — NÃO inserimos/removemos 9 por
+    // conta própria, usamos o que ele devolve. Sem WhatsApp = recusa (não cria). Motor fora
+    // do ar = degrada (cria com o digitado + whatsappUnverified, nunca trava).
+    let canonicalContact = normalized.contact;
+    let canonicalRemoteJid = normalized.remoteJid;
+    let whatsappUnverified = false;
+    try {
+      const selector: WebwhatsSessionSelector | undefined = sessionScope.currentSessionId
+        ? { sessionId: sessionScope.currentSessionId }
+        : undefined;
+      const [check] = await this.webwhatsBridge.checkWhatsappNumbers(
+        companyId,
+        [normalized.digits],
+        selector,
+      );
+      if (!check || !check.exists) {
+        throw new BadRequestException('Esse número não tem WhatsApp — confira o DDD/celular.');
+      }
+      const canonicalDigits = String(
+        check.remoteJid ? check.remoteJid.split('@')[0] : check.normalizedNumber || '',
+      ).replace(/\D/g, '');
+      if (canonicalDigits.length >= 10) {
+        canonicalContact = `+${canonicalDigits}`;
+        canonicalRemoteJid = check.remoteJid || `${canonicalDigits}@s.whatsapp.net`;
+      }
+    } catch (error) {
+      // Recusa explícita (número sem WhatsApp) sobe pro front; só a FALHA do motor degrada.
+      if (error instanceof BadRequestException) throw error;
+      whatsappUnverified = true;
+    }
+
     const metadata = {
       sourceModule: 'atendimento_manual',
       queueTarget: 'conversas',
       routeTarget: 'conversas',
-      whatsappRemoteJid: normalized.remoteJid,
+      whatsappRemoteJid: canonicalRemoteJid,
       whatsappIsGroup: false,
       ...(displayName
         ? {
@@ -4274,8 +4273,16 @@ export class InboxService {
       manualConversationStarted: true,
       manualConversationStartedAt: now.toISOString(),
       whatsappConnectionSessionId: sessionScope.currentSessionId || null,
+      ...(whatsappUnverified ? { whatsappUnverified: true } : {}),
     };
+    // Casa contra o canônico do motor E contra o digitado cru: conversa aberta antes
+    // (sob os dígitos errados, ex.: com o 9 a mais) é reaproveitada e migrada pro canônico.
+    const canonicalDigits = canonicalContact.replace(/\D/g, '');
     const candidates = Array.from(new Set([
+      canonicalContact,
+      canonicalDigits,
+      canonicalDigits.startsWith('55') ? `+${canonicalDigits.slice(2)}` : '',
+      canonicalDigits.startsWith('55') ? canonicalDigits.slice(2) : '',
       normalized.contact,
       normalized.digits,
       normalized.digits.startsWith('55') ? `+${normalized.digits.slice(2)}` : '',
@@ -4291,6 +4298,7 @@ export class InboxService {
         ...currentSessionWhere,
         OR: [
           ...candidates.map((contact) => ({ contact })),
+          { metadata: { contains: canonicalRemoteJid } },
           { metadata: { contains: normalized.remoteJid } },
         ],
       },
@@ -4302,7 +4310,7 @@ export class InboxService {
       conversation = await this.prisma.companyConversation.update({
         where: { id: conversation.id },
         data: {
-          contact: normalized.contact,
+          contact: canonicalContact,
           metadata: JSON.stringify({ ...previousMetadata, ...metadata }),
           currentFlow: 'cobranca_recovery',
           currentStep: 'novo',
@@ -4319,7 +4327,7 @@ export class InboxService {
         data: {
           companyId,
           channel: 'whatsapp',
-          contact: normalized.contact,
+          contact: canonicalContact,
           currentFlow: 'cobranca_recovery',
           currentStep: 'novo',
           flowResult: null,
@@ -4339,11 +4347,12 @@ export class InboxService {
       event: 'manual_conversation_started',
       message: 'Conversa manual iniciada pelo Atendimento.',
       conversationId: conversation.id,
-      phone: normalized.contact,
+      phone: canonicalContact,
       result: 'created',
       extra: {
         whatsappCommandSent: false,
-        remoteJid: normalized.remoteJid,
+        remoteJid: canonicalRemoteJid,
+        whatsappUnverified,
       },
     });
 
@@ -4353,12 +4362,14 @@ export class InboxService {
     });
   }
 
-  // "Limpar" do Atendimento: apaga as conversas que NUNCA tiveram mensagem (0 inbound /
-  // 0 outbound) — as "+nova" abertas e nunca enviadas. Como não há mensagem, o motor
-  // nunca recebeu nada (NADA é disparado pro WhatsApp aqui) e não há histórico a
-  // preservar: é só remover o placeholder do banco. Respeita o MESMO escopo de
-  // visibilidade da lista (por-vendedor / agregado-admin / só-Meta) — cada um só limpa
-  // o que enxerga.
+  // "Limpar" do Atendimento: faxina LOCAL do banco (NUNCA comando pro WhatsApp). Apaga:
+  //   (1) conversas que NUNCA tiveram mensagem — as "+nova" abertas e nunca enviadas; e
+  //   (2) as "bugadas/fantasma": têm mensagem, mas NENHUMA é INBOUND e NENHUMA é OUTBOUND
+  //       de fato enviada (SENT/DELIVERED/READ) — só sobrou FAILED/never-sent (a fantasma do
+  //       +Nova pra número que não existia / 9 errado, que travou no envio).
+  // GUARDA DURA: qualquer INBOUND ou qualquer OUTBOUND SENT/DELIVERED/READ = histórico real,
+  // NUNCA apaga. Respeita o MESMO escopo de visibilidade da lista (por-vendedor /
+  // agregado-admin / só-Meta) — cada um só limpa o que enxerga.
   async clearEmptyConversations(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
     const userId = Number(user?.id || 0) || undefined;
@@ -4369,9 +4380,23 @@ export class InboxService {
     });
     if (!sessionScope.accessible) return { deleted: 0, ids: [] as string[] };
 
-    // Candidatas = conversas WhatsApp da empresa sem nenhuma mensagem (qualquer tipo).
+    // Uma mensagem conta como "real" se for INBOUND (cliente falou) OU OUTBOUND realmente
+    // entregue ao motor (SENT/DELIVERED/READ). "Apagável" = a conversa NÃO tem nenhuma
+    // dessas. FAILED/QUEUED/SENDING/RECEIVED-outbound não contam — nunca chegaram ao cliente.
+    const REAL_OUTBOUND_STATUSES = ['SENT', 'DELIVERED', 'READ'];
+    const deletableMessagesWhere = {
+      AND: [
+        // nenhuma mensagem INBOUND
+        { messages: { none: { direction: 'INBOUND' } } },
+        // nenhuma OUTBOUND realmente enviada
+        { messages: { none: { direction: 'OUTBOUND', status: { in: REAL_OUTBOUND_STATUSES } } } },
+      ],
+    };
+
+    // Candidatas = conversas WhatsApp da empresa sem NENHUMA mensagem real (cobre o caso
+    // "zero mensagem" — subconjunto — e o caso "só FAILED/never-sent").
     const candidates = await this.prisma.companyConversation.findMany({
-      where: { companyId, channel: 'whatsapp', messages: { none: {} } },
+      where: { companyId, channel: 'whatsapp', ...deletableMessagesWhere },
       select: { id: true, whatsappConnectionSessionId: true, metadata: true, contact: true },
     });
 
@@ -4393,10 +4418,10 @@ export class InboxService {
         where: { companyId, conversationId: { in: ids } },
         data: { conversationId: null },
       });
-      // Guarda dupla `messages: none`: se uma 1ª mensagem entrou entre a leitura e o
-      // delete (corrida), a conversa não é mais vazia e NÃO é apagada.
+      // Guarda dura repetida no delete: se uma mensagem REAL entrou entre a leitura e o
+      // delete (corrida), a conversa deixa de ser apagável e NÃO é removida.
       await tx.companyConversation.deleteMany({
-        where: { companyId, id: { in: ids }, channel: 'whatsapp', messages: { none: {} } },
+        where: { companyId, id: { in: ids }, channel: 'whatsapp', ...deletableMessagesWhere },
       });
     });
 

@@ -926,10 +926,13 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
           {waMenuOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 252, padding: 8, display: "grid", gap: 4 }}>
               <strong className="font-display" style={{ fontSize: "0.74rem", padding: "2px 6px" }}>Ao clicar no WhatsApp de um lead:</strong>
-              <button className={"nav-item" + (waMode === "internal" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8 }}
+              <button className={"nav-item" + (waMode === "internal" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8, opacity: waStatus.state !== "active" ? 0.45 : 1, cursor: waStatus.state !== "active" ? "not-allowed" : "pointer" }}
+                disabled={waStatus.state !== "active"}
                 onClick={() => { setWaOpenMode("internal"); setWaMenuOpen(false); }}>
                 <I d={ICONS.msg} size={16} /> Abrir no atendimento interno
-                {waMode === "internal" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
+                {waStatus.state !== "active"
+                  ? <span style={{ marginLeft: "auto", fontSize: "0.65rem" }} className="muted-note">Sem conexão</span>
+                  : waMode === "internal" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
               </button>
               <button className={"nav-item" + (waMode === "external" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8 }}
                 onClick={() => { setWaOpenMode("external"); setWaMenuOpen(false); }}>

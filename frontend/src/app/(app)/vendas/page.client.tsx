@@ -14,7 +14,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
-import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -1094,18 +1093,10 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
-                heroAction={deal?.phone ? (
-                  <WhatsAppActionButton
-                    phone={deal.phone}
-                    name={deal.name}
-                    qrActive={waQrActive}
-                    canInternal={canAtendimento}
-                    onOpenExternal={() => abrirWhatsAppExterno(deal.phone)}
-                    onOpenInternal={() => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name })}
-                    startBusy={waStartBusy}
-                    startError={waStartError}
-                  />
-                ) : undefined}
+                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone) : undefined}
+                onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
+                waQrActive={waQrActive}
+                waCanInternal={canAtendimento}
                 actions={deal ? (
                   <div style={{ display: "grid", gap: 8 }}>
                     {fecharMsg && (
@@ -1220,18 +1211,10 @@ export function VendasClient() {
               detail={toNegocioDetail(sel)}
               title={sel.name || "Negócio"}
               onClose={() => setMobileDetailOpen(false)}
-              heroAction={sel.phone ? (
-                <WhatsAppActionButton
-                  phone={sel.phone}
-                  name={sel.name}
-                  qrActive={waQrActive}
-                  canInternal={canAtendimento}
-                  onOpenExternal={() => abrirWhatsAppExterno(sel.phone)}
-                  onOpenInternal={() => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name })}
-                  startBusy={waStartBusy}
-                  startError={waStartError}
-                />
-              ) : undefined}
+              onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone) : undefined}
+              onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
+              waQrActive={waQrActive}
+              waCanInternal={canAtendimento}
               actions={
                 <div style={{ display: "grid", gap: 8 }}>
                   {fecharMsg && (

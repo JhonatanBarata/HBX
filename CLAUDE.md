@@ -53,6 +53,14 @@ versiona/reverte é REGRA.)
 - Backend: `cd backend && npm run prisma:validate` → `npm run build`
 - E2E (`npm run test:e2e` na raiz) só quando um caminho end-to-end mudou e o ambiente está pronto.
 
+## Publicar (deploy pro VPS — sempre com autorização do dono; ação live irreversível, ver Guardrails)
+- **Edição pequena** (poucos arquivos, sem rebuild pesado) → **`npm run new`**: publish seletivo, sobe só o
+  que foi editado e reinicia menos coisas. É o caminho preferido pro corriqueiro.
+- **Mudança grande / muitos arquivos / precisa rebuild completo** → `npm run publish` (rebuild total
+  backend+frontend+motores no VPS).
+- Ambos commitam o working tree inteiro (`git add -A`) e o VPS faz `git reset --hard origin/master`. Pra subir
+  **só um fix** no meio de outras mudanças: commita os arquivos do fix isolados + stash do resto antes de publicar.
+
 ## Orquestrador × subagentes (papéis)
 O **planejador (Opus)** planeja e orquestra; quem **edita** são os **workers (Sonnet, inteligência
 máxima)**, spawnados ao "aplique com o orquestrador" — divididos em blocos/pedidos separados

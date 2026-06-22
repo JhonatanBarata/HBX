@@ -1090,13 +1090,21 @@ export class UsersController {
 		let welcomeEmail: Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> | null = null;
 		let confirmationEmail: (Pick<MailSendResult, 'ok' | 'transport' | 'messageId' | 'errorCode' | 'errorMessage'> & { previewUrl?: string | null; confirmUrl?: string | null }) | null = null;
 		const sellerOptionsEnabled = await this.usersService.isSellerNetworkCompany(companyId);
-		const isSellerOnboardingActivation =
+		const sellerHasOnboarding =
 			sellerOptionsEnabled &&
 			String(target.role || '').toUpperCase() === 'USER' &&
 			target.isActive === false &&
 			await this.sellerOnboardingService.hasOnboardingForUser(companyId, id);
+		// 1ª liberação (checklist de documentos + credencial + boas-vindas) × reativação
+		// de quem JÁ foi liberado e desativado. Quem já esteve ativo (deactivatedAt) ou já
+		// foi aprovado reativa direto: toggle puro, sem e-mail, sem re-exigir documentos
+		// (que podem ter sido purgados) e mantendo a senha que o vendedor já tinha.
+		const alreadyLiberated = sellerHasOnboarding
+			&& (Boolean(target.deactivatedAt)
+				|| await this.sellerOnboardingService.isPartnerAlreadyApproved(companyId, id));
+		const isFirstLiberation = sellerHasOnboarding && !alreadyLiberated;
 		let finalTemporaryPassword: string | null = null;
-		if (isSellerOnboardingActivation) {
+		if (isFirstLiberation) {
 			await this.sellerOnboardingService.assertCanActivatePartner(companyId, id, requesterId);
 			finalTemporaryPassword = `Hbx@${Math.random().toString(36).slice(2, 10)}A1`;
 			assertPasswordPolicy(finalTemporaryPassword);
@@ -1112,7 +1120,7 @@ export class UsersController {
 		}
 
 		const updated = await this.usersService.reactivateUser(id);
-		if (isSellerOnboardingActivation && finalTemporaryPassword) {
+		if (isFirstLiberation && finalTemporaryPassword) {
 			welcomeEmail = await this.sendWelcomeAccessEmail({
 				email: updated.email || updated.username || '',
 				login: updated.username || updated.email || '',
@@ -1129,17 +1137,17 @@ export class UsersController {
 		// PR12062026005: se o e-mail da empresa não enviou as boas-vindas, a
 		// senha temporária volta na resposta para o admin entregar na mão —
 		// sem isso a credencial se perderia.
-		const welcomeFailed = isSellerOnboardingActivation && Boolean(finalTemporaryPassword) && !welcomeEmail?.ok;
+		const welcomeFailed = isFirstLiberation && Boolean(finalTemporaryPassword) && !welcomeEmail?.ok;
 		return {
 			id: updated.id,
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,
 			retentionUntil: updated.retentionUntil,
-			message: isSellerOnboardingActivation
+			message: isFirstLiberation
 				? (welcomeEmail?.ok
 					? 'Vendedor liberado e e-mail de boas-vindas enviado.'
 					: 'Vendedor liberado — o e-mail de boas-vindas NÃO saiu; entregue a senha temporária abaixo.')
-				: 'Usuário reativado com sucesso',
+				: 'Acesso reativado com sucesso',
 			welcomeEmail,
 			confirmationEmail,
 			...(welcomeFailed ? { temporaryPassword: finalTemporaryPassword } : {}),
@@ -1723,7 +1731,11 @@ export class UsersController {
 				data.retentionUntil = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000);
 			} else {
 				const hasSellerOnboarding = await this.sellerOnboardingService.hasOnboardingForUser(Number(target.companyId || 0), id);
-				if (hasSellerOnboarding && nextRole === 'USER' && target.isActive === false) {
+					// 1ª liberação valida documentos; reativar quem já foi liberado/desativado
+					// é toggle puro (sem re-exigir documentos nem confirmação de e-mail).
+					const alreadyLiberated = Boolean(target.deactivatedAt)
+						|| await this.sellerOnboardingService.isPartnerAlreadyApproved(Number(target.companyId || 0), id);
+				if (hasSellerOnboarding && nextRole === 'USER' && target.isActive === false && !alreadyLiberated) {
 					await this.sellerOnboardingService.assertCanActivatePartner(Number(target.companyId || 0), id, Number(req.user?.id || 0) || null);
 				}
 				data.isActive = true;

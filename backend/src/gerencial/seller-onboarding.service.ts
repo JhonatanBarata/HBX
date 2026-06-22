@@ -897,6 +897,26 @@ export class SellerOnboardingService {
     return count > 0;
   }
 
+  // "Já foi liberado uma vez?" — a 1ª liberação grava status 'approved'
+  // (assertCanActivatePartner) e aprova o contrato. Reativar quem já passou por
+  // isso NÃO re-exige checklist de documentos (podem ter sido purgados) nem
+  // confirmação de e-mail: é toggle puro.
+  async isPartnerAlreadyApproved(companyId: number, userId: number) {
+    const normalizedCompanyId = Number(companyId || 0);
+    const normalizedUserId = Number(userId || 0);
+    if (!normalizedCompanyId || !normalizedUserId) return false;
+    const onboarding = await this.prisma.sellerOnboarding.findUnique({
+      where: { companyId_userId: { companyId: normalizedCompanyId, userId: normalizedUserId } },
+      select: { status: true },
+    });
+    if (onboarding?.status === 'approved') return true;
+    const contract = await this.prisma.partnerContract.findUnique({
+      where: { partnerId: normalizedUserId },
+      select: { status: true, approvedAt: true },
+    });
+    return contract?.status === 'approved' || Boolean(contract?.approvedAt);
+  }
+
   async updateDraft(companyId: number, userId: number, dto: UpdateDraftInput) {
     await this.assertSellerNetworkCompany(companyId);
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
@@ -1372,25 +1392,15 @@ export class SellerOnboardingService {
   }
 
   async assertCanActivatePartner(companyId: number, userId: number, approvedByUserId?: number | null) {
-    const { user } = await this.requirePartnerUserInCompany(companyId, userId);
-    // Só exige confirmação quando há e-mail. Vendedor de cadastro simples (usuário+senha,
-    // sem e-mail) não tem o que confirmar — a credencial é entregue na tela/mão.
-    if (user.email && !user.emailConfirmedAt) {
-      throw new BadRequestException({
-        code: 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING',
-        message: 'Vendedor ainda não pode ser liberado. Faltou confirmar o e-mail do pré-boas-vindas.',
-        missingActivationRequirements: [
-          { code: 'email_confirmation', label: 'Confirmar e-mail do pré-boas-vindas' },
-        ],
-      });
-    }
+    await this.requirePartnerUserInCompany(companyId, userId);
     const onboarding = await this.getOrCreateForUser(companyId, userId, null);
     const readiness = this.buildReadiness(onboarding);
-    if (!readiness.complete) {
-      const missing = [
-        ...readiness.missingRequiredDocuments.map((item) => item.label),
-        ...readiness.missingActivationRequirements.map((item) => item.label),
-      ].join(', ');
+    // E-mail é OPCIONAL (cadastro simples = usuário+senha): a confirmação de e-mail
+    // é empurrãozinho, NUNCA muro. O único gate duro da 1ª liberação são os
+    // DOCUMENTOS obrigatórios escolhidos pelo admin — quando faltam, a credencial
+    // não sai porque ainda não há o que entregar.
+    if (readiness.missingRequiredDocuments.length) {
+      const missing = readiness.missingRequiredDocuments.map((item) => item.label).join(', ');
       throw new BadRequestException({
         code: 'HBX_PARTNER_ONBOARDING_PENDING',
         message: `Vendedor ainda não pode ser liberado. Faltou: ${missing || 'documentação'}.`,

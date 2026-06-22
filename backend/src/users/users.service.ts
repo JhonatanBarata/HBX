@@ -927,6 +927,9 @@ export class UsersService {
         sellerReferralCommissionPercent: true,
         referredByUserId: true,
         referredByCommissionPercentSnapshot: true,
+        // Reaproveitar dados no Gerenciar (P4): o modal pré-preenche o limite/dia
+        // a partir daqui em vez de cair no default genérico.
+        sellerDistributionDailyLimitOverride: true,
         referredByUser: {
           select: {
             id: true,

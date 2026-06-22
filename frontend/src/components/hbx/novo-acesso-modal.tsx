@@ -29,7 +29,7 @@ import { Av } from "@/components/hbx/shell";
 import { SignaturePad, type SignaturePadHandle } from "@/components/hbx/signature-pad";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null };
+type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null; phone?: string | null; commissionPercent?: number | null; referredByUserId?: number | null; sellerDistributionDailyLimitOverride?: number | null; deactivatedAt?: string | null };
 
 type SeatBilling = { planTitle?: string; activeUsers?: number; includedUsers?: number; extraUserMonthlyPrice?: number; nextUserIsExtra?: boolean; seatCap?: number | null; capReached?: boolean } | null;
 
@@ -107,12 +107,19 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   if (rascunho0.current === undefined) rascunho0.current = isEdit ? null : lerRascunho();
   const [form, setForm] = useState(() => (isEdit
     ? {
+        // Reaproveitar dados no Gerenciar (P4): pré-preenche tudo que o membro já
+        // tem (a lista /users/company traz telefone, comissão, indicador, limite/dia).
+        // O resto (CPF/endereço/D+) chega depois via refreshOnboarding.
         ...FORM_VAZIO,
         role: (String(member?.role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER") as "USER" | "ADMIN",
         name: member?.name || "",
         email: member?.email || "",
+        phone: member?.phone || "",
+        commissionPercent: member?.commissionPercent != null ? String(member.commissionPercent) : "",
         commissionMonthlyCap: member?.commissionMonthlyCap != null ? String(member.commissionMonthlyCap) : "",
         setupCommissionCap: member?.setupCommissionCap != null ? String(member.setupCommissionCap) : "",
+        referredByUserId: member?.referredByUserId != null ? String(member.referredByUserId) : "",
+        dailyLimit: member?.sellerDistributionDailyLimitOverride != null ? String(member.sellerDistributionDailyLimitOverride) : "30",
       }
     : { ...FORM_VAZIO, ...(rascunho0.current?.form || {}) }));
   const [busy, setBusy] = useState(false);
@@ -538,6 +545,10 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const soCadastro = travaForm || isEdit;
   const ativo = member?.isActive !== false;
   const emailConfirmado = Boolean(onboarding?.user?.emailConfirmedAt);
+  // Já foi liberado uma vez? (onboarding aprovado ou membro que já esteve ativo e
+  // foi desativado). Quem já passou pela 1ª liberação reativa direto — sem checklist
+  // de documentos e sem confirmação de e-mail (espelha a regra do backend).
+  const jaLiberado = onboarding?.status === "approved" || Boolean(member?.deactivatedAt);
   const nomeMembro = member?.name || member?.username || member?.email || (member ? `Usuário ${member.id}` : "");
   const avisoUsuario = !isEdit && usernameCheck ? (
     usernameCheck === "checking"
@@ -755,7 +766,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                 </div>
                 <div className="sep"></div>
                 <div style={{ display: "grid", gap: 8 }}>
-                  {!ativo && vendedor ? (
+                  {!ativo && vendedor && !jaLiberado ? (
                     liberarArm ? (
                       <button type="button" className="btn-teal" onClick={alternarAtivo} disabled={busy || isSelf} style={{ minHeight: 40 }}>
                         {busy ? "Liberando…" : "Confirmar liberação (envia usuário e senha)"}

@@ -17,7 +17,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
-import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
@@ -583,21 +582,11 @@ export function LeadsClient() {
         detail={detail}
         title={opts?.title ?? "Detalhes do lead"}
         onClose={opts?.onClose}
-        heroAction={revealed ? (
-          <>
-            <BotStatusIcon accessible={canBot} />
-            <WhatsAppActionButton
-              phone={lead.phone}
-              name={lead.name}
-              qrActive={waQrActive}
-              canInternal={canAtendimento}
-              onOpenExternal={() => abrirWhatsAppExterno(lead.phone)}
-              onOpenInternal={() => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name })}
-              startBusy={waStartBusy}
-              startError={waStartError}
-            />
-          </>
-        ) : null}
+        heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
+        onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone) : undefined}
+        onWaOpenInternal={revealed ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
+        waQrActive={waQrActive}
+        waCanInternal={canAtendimento}
         kvExtra={
           <>
             {!revealed && tab === "shelf" && (

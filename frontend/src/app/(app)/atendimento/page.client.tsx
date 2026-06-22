@@ -193,6 +193,43 @@ function phoneFromContact(value: string | null | undefined): string | null {
   return cleanContact(raw);
 }
 
+// --- Máscara de telefone do "+Nova" (entrada manual) ---------------------------
+// O +55 entra automático; mostra o ( ) do DDD; formata como +55 (DD) NNNN-NNNN ou
+// +55 (DD) NNNNN-NNNN conforme a QUANTIDADE de dígitos digitados. NUNCA insere o "9"
+// (nono dígito) — número sem ele é legítimo (Sul, fixos). Só formata os dígitos reais.
+
+// Extrai a parte nacional (DDD + assinante, até 11 dígitos), sem o 55 do país.
+function nationalDigitsBR(raw: string): string {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.startsWith("55") && d.length > 11) d = d.slice(2); // 55 só conta como país se sobra DDD+número
+  return d.slice(0, 11);
+}
+
+// Monta o texto exibido no campo a partir dos dígitos nacionais já digitados.
+function formatPhoneBR(raw: string): string {
+  const d = nationalDigitsBR(raw);
+  if (!d) return "";
+  const ddd = d.slice(0, 2);
+  const rest = d.slice(2);
+  let out = "+55 (" + ddd;
+  if (d.length < 2) return out;          // ainda digitando o DDD: "+55 (1"
+  out += ")";
+  if (!rest) return out;                 // DDD completo, sem assinante ainda: "+55 (11)"
+  out += " ";
+  // Quebra do hífen: 8 dígitos → 4+4; 9 dígitos → 5+4. Enquanto < 5, fica tudo num bloco.
+  const split = rest.length > 8 ? 5 : 4;
+  if (rest.length <= split) return out + rest;
+  return out + rest.slice(0, split) + "-" + rest.slice(split);
+}
+
+// O que vai pro backend: só dígitos, com 55 garantido na frente (o backend já normaliza
+// e prefixa 55, mas mandar pronto é à prova de número de 12 dígitos sem prefixo automático).
+function phoneToBackendBR(raw: string): string {
+  const d = nationalDigitsBR(raw);
+  if (!d) return "";
+  return "55" + d;
+}
+
 function convName(c: InboxConversation) {
   return (
     cleanContact(c.customer?.name) ||
@@ -922,7 +959,7 @@ export function AtendimentoClient() {
       const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
         method: "POST",
         body: JSON.stringify({
-          phone: novaForm.phone.trim(),
+          phone: phoneToBackendBR(novaForm.phone),
           ...(novaForm.name.trim() ? { name: novaForm.name.trim() } : {}),
         }),
       });
@@ -2099,8 +2136,8 @@ export function AtendimentoClient() {
             {novaMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
-              <input className="field-dark" type="tel" required autoFocus maxLength={20} placeholder="11999990000" value={novaForm.phone}
-                onChange={e => setNovaForm(f => ({ ...f, phone: e.target.value }))} />
+              <input className="field-dark" type="tel" inputMode="tel" required autoFocus maxLength={22} placeholder="+55 (  )  ____-____" value={novaForm.phone}
+                onChange={e => setNovaForm(f => ({ ...f, phone: formatPhoneBR(e.target.value) }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>

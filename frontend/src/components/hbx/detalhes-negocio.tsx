@@ -20,6 +20,7 @@ import React, { useEffect, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
+import { useWaOpenMode } from "@/lib/wa-open-mode";
 
 // ── Ordem configurável das seções ─────────────────────────────────────────────
 // Seções primárias: sempre visíveis abaixo do header
@@ -286,11 +287,20 @@ const CANAIS_ORDEM: Canal[] = ["whatsapp", "telefone", "email", "instagram", "fa
 function ChannelRow({
   n,
   onWaExternal,
+  onWaInternal,
+  waQrActive,
+  waCanInternal,
 }: {
   n: NegocioDetail;
   onWaExternal?: () => void;
+  onWaInternal?: () => void;
+  waQrActive?: boolean;
+  waCanInternal?: boolean;
 }) {
   const li = n.leadIntelligence;
+  const mode = useWaOpenMode();
+  const internalReady = Boolean(waCanInternal && waQrActive);
+  const useInternal = mode === "internal" && internalReady && Boolean(onWaInternal);
 
   function getHref(canal: Canal): string | null {
     switch (canal) {
@@ -345,10 +355,12 @@ function ChannelRow({
           );
         }
 
-        // WhatsApp com handler externo (ex.: abrir via wa.me pelo vendedor)
-        if (canal === "whatsapp" && onWaExternal) {
+        // WhatsApp: usa modo interno/externo quando callbacks disponíveis
+        if (canal === "whatsapp" && (onWaExternal || onWaInternal)) {
           return (
-            <span key={canal} style={{ cursor: "pointer" }} onClick={onWaExternal} role="button" aria-label="WhatsApp">
+            <span key={canal} style={{ cursor: "pointer" }}
+              onClick={() => { if (useInternal) onWaInternal!(); else if (onWaExternal) onWaExternal(); }}
+              role="button" aria-label="WhatsApp">
               <CanalIcon canal={canal} size="xl" />
             </span>
           );
@@ -994,18 +1006,6 @@ export function DetalhesNegocio({
                   )}
                   {crownSlot && <>{crownSlot}</>}
                   {heroAction && <>{heroAction}</>}
-                  {!heroAction && hasLegacyWa && (
-                    <LegacyWaButton
-                      phone={waPhone ?? n.phone}
-                      name={waName ?? n.name}
-                      qrActive={waQrActive}
-                      canInternal={waCanInternal}
-                      onOpenExternal={onWaOpenExternal ?? (() => {})}
-                      onOpenInternal={onWaOpenInternal ?? (() => {})}
-                      startBusy={waStartBusy}
-                      startError={waStartError}
-                    />
-                  )}
                 </div>
                 <div className="sub sub--seg">
                   <TypedText text={n.segment || n.city || "—"} speed={50} delay={180} />
@@ -1033,7 +1033,13 @@ export function DetalhesNegocio({
             </div>
 
             {/* Fileira dos 6 ícones de canal — SEMPRE presentes */}
-            <ChannelRow n={n} onWaExternal={onWaOpenExternal ?? undefined} />
+            <ChannelRow
+              n={n}
+              onWaExternal={onWaOpenExternal ?? undefined}
+              onWaInternal={onWaOpenInternal ?? undefined}
+              waQrActive={waQrActive}
+              waCanInternal={waCanInternal}
+            />
           </div>
 
           {/* ── SEÇÕES PRIMÁRIAS (sempre visíveis) ───────────────────── */}

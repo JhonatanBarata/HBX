@@ -2311,3 +2311,171 @@ test('Fase B (c): ADMIN company mode inclui conversa só-Meta quando metaActive'
   assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowMeta, scope), true);
   assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowWebwhats, scope), false);
 });
+
+// ---------------------------------------------------------------------------
+// startConversation (+Nova): canonicaliza via motor (onWhatsApp = fonte da verdade)
+// ---------------------------------------------------------------------------
+
+function buildStartConversationService(opts: {
+  checkWhatsappNumbers: (companyId: number, numbers: any[], selector?: any) => Promise<any[]>;
+}) {
+  const created: Array<Record<string, any>> = [];
+  const logged: Array<Record<string, any>> = [];
+  const { service } = createService({
+    webwhatsBridge: { checkWhatsappNumbers: opts.checkWhatsappNumbers },
+    prisma: {
+      companyConversation: {
+        findFirst: async () => null,
+        create: async ({ data }: any) => {
+          created.push(data);
+          return { id: 4242, ...data };
+        },
+      },
+    },
+  });
+  (service as any).resolveInboxWhatsappSessionScope = async () => ({
+    accessible: true,
+    reason: 'webwhats_active',
+    currentSessionId: 'session-7',
+    mode: 'current',
+  });
+  (service as any).logInboxEvent = async () => undefined;
+  (service as any).getPersistedConversationByIdForCompany = async (
+    _companyId: number,
+    id: number,
+  ) => ({ id: String(id), messages: [] });
+  return { service, created, logged };
+}
+
+test('startConversation usa o JID canônico do motor (resolve o "9 a mais")', async () => {
+  let askedNumbers: any[] | null = null;
+  const { service, created } = buildStartConversationService({
+    // Dono digitou com o 9 extra (5551993572856); o motor devolve o canônico (555193572856).
+    checkWhatsappNumbers: async (_companyId, numbers) => {
+      askedNumbers = numbers;
+      return [
+        {
+          input: '5551993572856',
+          normalizedNumber: '5551993572856',
+          exists: true,
+          remoteJid: '555193572856@s.whatsapp.net',
+          raw: null,
+        },
+      ];
+    },
+  });
+
+  await service.startConversation({ companyId: 7, id: 55 }, { phone: '5551993572856' });
+
+  // Perguntou ao motor com os dígitos digitados (sem inventar/remover 9 por conta própria).
+  assert.deepEqual(askedNumbers, ['5551993572856']);
+  assert.equal(created.length, 1);
+  // Persistiu o canônico do motor, NÃO o digitado.
+  assert.equal(created[0].contact, '+555193572856');
+  const metadata = JSON.parse(created[0].metadata);
+  assert.equal(metadata.whatsappRemoteJid, '555193572856@s.whatsapp.net');
+  assert.equal(metadata.whatsappUnverified, undefined);
+});
+
+test('startConversation rejeita número sem WhatsApp e NÃO cria conversa', async () => {
+  const { service, created } = buildStartConversationService({
+    checkWhatsappNumbers: async () => [
+      {
+        input: '5551999999999',
+        normalizedNumber: '5551999999999',
+        exists: false,
+        remoteJid: null,
+        raw: null,
+      },
+    ],
+  });
+
+  await assert.rejects(
+    () => service.startConversation({ companyId: 7, id: 55 }, { phone: '5551999999999' }),
+    (err: any) => /não tem WhatsApp/i.test(String(err?.message || '')),
+  );
+  assert.equal(created.length, 0, 'não pode criar conversa pra número sem WhatsApp');
+});
+
+test('startConversation degrada (não trava) quando o motor falha — marca whatsappUnverified', async () => {
+  const { service, created } = buildStartConversationService({
+    checkWhatsappNumbers: async () => {
+      throw new Error('motor fora do ar');
+    },
+  });
+
+  await service.startConversation({ companyId: 7, id: 55 }, { phone: '5551993572856' });
+
+  assert.equal(created.length, 1, 'motor fora do ar não pode travar o +Nova');
+  // Sem confirmação do motor, mantém o digitado e sinaliza não-verificado.
+  assert.equal(created[0].contact, '+5551993572856');
+  assert.equal(JSON.parse(created[0].metadata).whatsappUnverified, true);
+});
+
+// ---------------------------------------------------------------------------
+// clearEmptyConversations: faxina local — apaga vazia/fantasma, preserva real
+// ---------------------------------------------------------------------------
+
+test('clearEmptyConversations remove só-FAILED mas PRESERVA conversa com mensagem real', async () => {
+  // O banco fake aplica o filtro `messages`: conversas com INBOUND ou OUTBOUND SENT/DELIVERED/READ
+  // NÃO casam o critério de apagável, então nem aparecem como candidatas.
+  const universe = [
+    // fantasma: só uma OUTBOUND FAILED → apagável
+    { id: 1, whatsappConnectionSessionId: 'session-7', metadata: '{}', contact: '+5511000000001', messages: [{ direction: 'OUTBOUND', status: 'FAILED' }] },
+    // vazia (+Nova nunca enviada) → apagável
+    { id: 2, whatsappConnectionSessionId: 'session-7', metadata: '{}', contact: '+5511000000002', messages: [] },
+    // real: tem INBOUND → preservar
+    { id: 3, whatsappConnectionSessionId: 'session-7', metadata: '{}', contact: '+5511000000003', messages: [{ direction: 'INBOUND', status: 'RECEIVED' }] },
+    // real: OUTBOUND SENT → preservar
+    { id: 4, whatsappConnectionSessionId: 'session-7', metadata: '{}', contact: '+5511000000004', messages: [{ direction: 'OUTBOUND', status: 'SENT' }] },
+  ];
+  const isDeletable = (row: any) => {
+    const msgs = row.messages || [];
+    const hasInbound = msgs.some((m: any) => m.direction === 'INBOUND');
+    const hasRealOutbound = msgs.some(
+      (m: any) => m.direction === 'OUTBOUND' && ['SENT', 'DELIVERED', 'READ'].includes(m.status),
+    );
+    return !hasInbound && !hasRealOutbound;
+  };
+
+  let deletedIds: number[] = [];
+  const { service } = createService({
+    prisma: {
+      companyConversation: {
+        findMany: async () => universe.filter(isDeletable),
+        deleteMany: async ({ where }: any) => {
+          // Reaplica o filtro de apagável no delete (guarda dura contra corrida).
+          deletedIds = (where?.id?.in || []).filter((id: number) => {
+            const row = universe.find((r) => r.id === id);
+            return row && isDeletable(row);
+          });
+          return { count: deletedIds.length };
+        },
+      },
+      atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
+      $transaction: async (cb: any) => cb({
+        atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
+        companyConversation: {
+          deleteMany: async ({ where }: any) => {
+            deletedIds = (where?.id?.in || []).filter((id: number) => {
+              const row = universe.find((r) => r.id === id);
+              return row && isDeletable(row);
+            });
+            return { count: deletedIds.length };
+          },
+        },
+      }),
+    },
+  });
+  (service as any).resolveInboxWhatsappSessionScope = async () => ({ accessible: true, mode: 'company', reason: 'webwhats_active' });
+  (service as any).isAggregateUser = () => true;
+  (service as any).isRowVisibleForWhatsappSessionScope = () => true;
+  (service as any).logInboxEvent = async () => undefined;
+
+  const result = await service.clearEmptyConversations({ companyId: 7, id: 55 });
+
+  // Apagou as duas apagáveis (fantasma só-FAILED + vazia), preservou as duas reais.
+  assert.deepEqual(result.ids.map(Number).sort((a, b) => a - b), [1, 2]);
+  assert.deepEqual(deletedIds.sort((a, b) => a - b), [1, 2]);
+  assert.equal(result.deleted, 2);
+});

@@ -382,7 +382,7 @@ test('sendOnboardingEmail respeita curriculum obrigatorio configurado', async ()
   }
 });
 
-test('assertCanActivatePartner bloqueia vendedor com email ainda nao confirmado', async () => {
+test('assertCanActivatePartner libera mesmo com email nao confirmado (e-mail e nudge, nao muro)', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
   try {
     const attachments = [
@@ -392,12 +392,35 @@ test('assertCanActivatePartner bloqueia vendedor com email ainda nao confirmado'
     ];
     const { service, state } = buildOnboardingService({ attachments, emailConfirmedAt: null });
 
+    const readiness = await service.assertCanActivatePartner(1, 200, 1);
+
+    // E-mail não confirmado NÃO trava a liberação: documentos completos = aprovado.
+    assert.equal(state.partnerContractUpsertData.update.status, 'approved');
+    assert.equal(state.onboardingUpdateData.status, 'approved');
+    // readiness ainda reporta o e-mail como pendente (nudge na UI), mas não barra.
+    assert.equal(readiness.emailConfirmed, false);
+    assert.equal(readiness.missingActivationRequirements.length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertCanActivatePartner bloqueia quando falta documento obrigatorio', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hbx-onboarding-'));
+  try {
+    // sem photo_id (obrigatório por padrão) — o gate de documentos continua de pé.
+    const attachments = [
+      await createTempAttachment(dir, 'contract_pdf'),
+      await createTempAttachment(dir, 'generated_contract'),
+    ];
+    const { service, state } = buildOnboardingService({ attachments, emailConfirmedAt: new Date() });
+
     await assert.rejects(
       () => service.assertCanActivatePartner(1, 200, 1),
       (error: any) => {
         const response = error.getResponse();
-        assert.equal(response.code, 'HBX_PARTNER_EMAIL_CONFIRMATION_PENDING');
-        assert.match(response.message, /e-mail/i);
+        assert.equal(response.code, 'HBX_PARTNER_ONBOARDING_PENDING');
+        assert.equal(response.missingRequiredDocuments[0].kind, 'photo_id');
         return true;
       },
     );

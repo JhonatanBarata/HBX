@@ -3,6 +3,15 @@
 Cada teste é assim: **entre em tal lugar → faça tal coisa → tem que acontecer isso.**
 Se algo não acontecer como está escrito, me avisa.
 
+## Vendedor: editar e-mail, ativar e excluir (já no ar)
+- Entre em **Equipe** → **Gerenciar** num vendedor → role até embaixo: tem que ter o botão **Excluir**. Aperte → confirme → o vendedor **some da lista**.
+- Tente **Excluir você mesmo**: o botão tem que ficar **travado** (não dá pra apagar o próprio acesso).
+- Ainda no **Gerenciar**: o campo **E-mail** agora dá pra **mudar** e **Salvar**.
+- Pegue um vendedor que você cadastrou **só com usuário e senha (sem e-mail)** e que está **desligado**. Mande **liberar o acesso**: tem que liberar **sem pedir e-mail nenhum**, e a **senha dele aparece na tela** pra você entregar na mão.
+- Pegue um vendedor que **já estava trabalhando** e que você **desligou**. Entre no **Gerenciar** dele: o botão tem que estar escrito **Reativar acesso**. Aperte → ele **volta a ativo na hora**, **sem** pedir documento e **sem** pedir e-mail. (A senha dele continua a mesma de antes; se ele esqueceu, use **Redefinir senha** ali mesmo.)
+- Abra o **Gerenciar** de um vendedor que já tem dados: telefone, comissão, quem indicou e o limite por dia têm que **aparecer já preenchidos** — não em branco.
+- Quem entra pelo **Google (Gmail)**: tem que entrar **direto**, **sem** cair naquela tela de "troque sua senha".
+
 ## Radar (Leads) no celular — lista + card que abre na frente (novo)
 - Entre no **Radar** pelo celular. Aparece uma **lista de clientes** (você rola a lista de cima pra baixo com o dedo).
 - **Toque num cliente** da lista: abre um **card na frente** (no meio da tela) com os detalhes do negócio.
@@ -28,6 +37,12 @@ Se algo não acontecer como está escrito, me avisa.
 - Tem uma **setinha pra baixo**: o card começa **compacto**; clica na setinha e ele **abre o resto** das informações (e fecha de novo). Cada coisa no seu lugar.
 - Se o lead foi **enriquecido**, aparece uma **coroa** no topo (perto do nome). Se for só um rascunho do Radar, **sem coroa**.
 - Agora clique no **mesmo cliente** em **Atendimento** e depois em **Radar → aba Carteira**: o card tem que ser **o mesmo** (mesmos campos, mesma cara). No Radar, como é só o primeiro rascunho, alguns campos que só nascem depois (histórico, dono, tentativas, venda) podem aparecer **vazios** — é o certo.
+
+## Atendimento: vendedor conecta o WhatsApp sozinho (mudou)
+- Entre no **Atendimento** → abra o painel **Modelo de atendimento** → escolha **Chips individuais**. Na tabela da equipe a coluna **"Pode conectar chip?"** tem que ter **sumido** (não existe mais essa liberação).
+- Entre como um **vendedor que tem o Atendimento liberado**: ele consegue **conectar o WhatsApp dele** (ler o QR) **sozinho**, sem depender de o admin liberar nada.
+- Um vendedor **sem** Atendimento no acesso: nem chega a ver a tela de conectar.
+- Troque para **Número compartilhado**: aí o vendedor **não conecta** chip nenhum — ele usa o número da empresa (já cai pronto pra ele).
 
 ## Atendimento — botão Limpar (novo)
 - Entre em **Atendimento**. Abra uma conversa **nova** (botão **+ Nova**) com um número, mas **não mande nenhuma mensagem** — ela aparece com o selo **novo**.

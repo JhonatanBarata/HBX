@@ -493,6 +493,12 @@ export function MarketingClient() {
             {/* Microprova: a mesma base por trás dos dois modos */}
             <p className="portal-foot" aria-hidden={!!lado}>Radar · Vendas · Atendimento · Recovery — numa base só</p>
 
+            <div className="site-legal-links portal-legal" aria-hidden={!!lado}>
+              <button type="button" className="site-legal-link" onClick={() => openLegal("politicas")}>Política de Privacidade</button>
+              <span className="site-legal-sep" aria-hidden>·</span>
+              <button type="button" className="site-legal-link" onClick={() => openLegal("termos")}>Termos de Serviço</button>
+            </div>
+
             <div className="portal-stage" aria-hidden={!lado}>
               {lado && (() => {
                 const c = PORTAL_COPY[lado];
