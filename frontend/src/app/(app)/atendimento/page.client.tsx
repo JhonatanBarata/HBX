@@ -194,29 +194,30 @@ function phoneFromContact(value: string | null | undefined): string | null {
 }
 
 // --- Máscara de telefone do "+Nova" (entrada manual) ---------------------------
-// O +55 entra automático; mostra o ( ) do DDD; formata como +55 (DD) NNNN-NNNN ou
-// +55 (DD) NNNNN-NNNN conforme a QUANTIDADE de dígitos digitados. NUNCA insere o "9"
-// (nono dígito) — número sem ele é legítimo (Sul, fixos). Só formata os dígitos reais.
+// O "+55" é prefixo FIXO ao lado do campo (NÃO entra no valor editável — senão o "55" do
+// país briga com o DDD 55 e vira loop de "5555…"). O campo formata só a parte NACIONAL:
+// (DD) NNNN-NNNN ou (DD) NNNNN-NNNN conforme os dígitos. NUNCA insere o "9" — número sem
+// ele é legítimo (fixos); o motor decide o canônico depois.
 
-// Extrai a parte nacional (DDD + assinante, até 11 dígitos), sem o 55 do país.
+// Extrai a parte nacional (DDD + assinante, até 11 dígitos). Só tira o 55 do país quando
+// colaram um número COMPLETO (12-13 díg começando com 55); DDD 55 nacional (10-11) fica.
 function nationalDigitsBR(raw: string): string {
   let d = String(raw || "").replace(/\D/g, "");
-  if (d.startsWith("55") && d.length > 11) d = d.slice(2); // 55 só conta como país se sobra DDD+número
+  if (d.length > 11 && d.startsWith("55")) d = d.slice(2);
   return d.slice(0, 11);
 }
 
-// Monta o texto exibido no campo a partir dos dígitos nacionais já digitados.
-function formatPhoneBR(raw: string): string {
+// Texto exibido no campo: SÓ a parte nacional, sem o "+55" (prefixo fixo no JSX).
+function formatNationalBR(raw: string): string {
   const d = nationalDigitsBR(raw);
   if (!d) return "";
   const ddd = d.slice(0, 2);
   const rest = d.slice(2);
-  let out = "+55 (" + ddd;
-  if (d.length < 2) return out;          // ainda digitando o DDD: "+55 (1"
-  out += ")";
-  if (!rest) return out;                 // DDD completo, sem assinante ainda: "+55 (11)"
+  if (d.length < 2) return "(" + ddd;    // digitando o DDD: "(5"
+  let out = "(" + ddd + ")";
+  if (!rest) return out;                 // DDD pronto: "(55)"
   out += " ";
-  // Quebra do hífen: 8 dígitos → 4+4; 9 dígitos → 5+4. Enquanto < 5, fica tudo num bloco.
+  // Quebra do hífen: assinante de 9 díg → 5+4; senão 4+4.
   const split = rest.length > 8 ? 5 : 4;
   if (rest.length <= split) return out + rest;
   return out + rest.slice(0, split) + "-" + rest.slice(split);
@@ -2136,8 +2137,11 @@ export function AtendimentoClient() {
             {novaMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
-              <input className="field-dark" type="tel" inputMode="tel" required autoFocus maxLength={22} placeholder="+55 (  )  ____-____" value={novaForm.phone}
-                onChange={e => setNovaForm(f => ({ ...f, phone: formatPhoneBR(e.target.value) }))} />
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700, color: "var(--text-muted)" }}>+55</span>
+                <input className="field-dark" style={{ flex: 1 }} type="tel" inputMode="tel" required autoFocus maxLength={16} placeholder="(  )  ____-____" value={novaForm.phone}
+                  onChange={e => setNovaForm(f => ({ ...f, phone: formatNationalBR(e.target.value) }))} />
+              </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>
