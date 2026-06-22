@@ -863,13 +863,17 @@ export class InboxService {
 
     const sessions = await this.prisma.whatsAppConnectionSession.findMany({
       where: { companyId, provider: 'webwhats', status: 'active' },
-      select: { id: true, userId: true, displayPhone: true, phoneNormalized: true },
+      select: { id: true, userId: true, displayPhone: true, phoneNormalized: true, connectedAt: true },
     });
-    const sessionByUser = new Map<number, { id: string; phone: string | null }>();
+    const sessionByUser = new Map<number, { id: string; phone: string | null; connectedAt: Date | null }>();
     for (const s of sessions) {
       const uid = Number(s.userId || 0);
       if (uid && !sessionByUser.has(uid)) {
-        sessionByUser.set(uid, { id: String(s.id), phone: this.cleanDisplayPhone(s.displayPhone || s.phoneNormalized || null) });
+        sessionByUser.set(uid, {
+          id: String(s.id),
+          phone: this.cleanDisplayPhone(s.displayPhone || s.phoneNormalized || null),
+          connectedAt: s.connectedAt || null,
+        });
       }
     }
 
@@ -919,6 +923,7 @@ export class InboxService {
         canAttendSharedInbox: true,
         whatsappConnected: Boolean(sess?.id),
         whatsappPhone: sess?.phone || null,
+        whatsappConnectedAt: sess?.connectedAt || null,
         openConversations: sess?.id ? openBySessionId.get(sess.id) || 0 : 0,
         currentAssignedConversations: assignedCountByUser.get(Number(u.id)) || 0,
       };
