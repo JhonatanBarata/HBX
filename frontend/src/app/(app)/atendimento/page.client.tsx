@@ -26,7 +26,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -630,6 +630,7 @@ export function AtendimentoClient() {
   // "Limpar": apaga as conversas que nunca receberam/enviaram nada (as "+nova"
   // abertas e jamais usadas). Não dispara nada pro WhatsApp.
   const [limparBusy, setLimparBusy] = useState(false);
+  const [limparConfirm, setLimparConfirm] = useState(false);
 
   // mensagens rápidas
   const [quickList, setQuickList] = useState<QuickReply[]>([]);
@@ -982,15 +983,19 @@ export function AtendimentoClient() {
   // Varre as conversas e apaga as que estão sem mensagem alguma (as "+nova" abertas
   // e nunca enviadas — nada foi pro WhatsApp). Não envia nada; só limpa do banco e
   // recarrega a lista.
-  async function limparVazias() {
+  // Abre o confirm CENTRAL do kit (Lei de pop-up — nunca window.confirm nativo).
+  function limparVazias() {
     if (limparBusy) return;
-    const vazias = convs.filter(isNovaConversa).length;
-    if (!vazias) { setLoadError(null); return; }
-    if (!window.confirm(`Apagar ${vazias} conversa(s) sem nenhuma mensagem? Nada é enviado ao WhatsApp.`)) return;
+    if (!convs.filter(isNovaConversa).length) { setLoadError(null); return; }
+    setLimparConfirm(true);
+  }
+
+  async function doLimparVazias() {
     setLimparBusy(true);
     try {
       await apiFetch("/inbox/conversations/clear-empty", { method: "POST", body: JSON.stringify({}) });
       await loadConvs();
+      setLimparConfirm(false);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Não foi possível limpar as conversas vazias.");
     } finally {
@@ -2155,6 +2160,16 @@ export function AtendimentoClient() {
         </div>
       )}
 
+      <ConfirmDialog
+        open={limparConfirm}
+        title="Limpar conversas vazias"
+        message={`Apagar ${convs.filter(isNovaConversa).length} conversa(s) sem nenhuma mensagem? Nada é enviado ao WhatsApp do cliente — é só faxina aqui.`}
+        confirmLabel="Apagar"
+        danger
+        busy={limparBusy}
+        onConfirm={doLimparVazias}
+        onCancel={() => setLimparConfirm(false)}
+      />
     </React.Fragment>
   );
 }
