@@ -53,6 +53,7 @@ const TRUST: { icon: SideIconName; title: string; desc: string }[] = [
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
 type WinG = typeof window & { google?: { accounts?: { id?: GisApi } } };
+type Lado = "corporativo" | "autonomo";
 
 export function LoginClient() {
   const router = useRouter();
@@ -68,6 +69,7 @@ export function LoginClient() {
   // F4 (19/06): destino de RETOMADA devolvido pelo backend (/?ver=planos&resume=1).
   const [resumeHref, setResumeHref] = useState<string>("/?ver=planos&resume=1");
   const [plain, setPlain] = useState(false);
+  const [lado, setLado] = useState<Lado>("corporativo"); // login entra no MUNDO escolhido (default: empresa)
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const loginInFlightRef = useRef(false);
 
@@ -109,6 +111,8 @@ export function LoginClient() {
           setNotice("Sua empresa foi removida. Se isso não era esperado, fale com o suporte HBX.");
         }
         setPlain(localStorage.getItem("hbx:login-plain") === "1");
+        const l = new URLSearchParams(window.location.search).get("lado");
+        if (l === "corporativo" || l === "autonomo") setLado(l);
       } catch { /* sem storage */ }
     });
     return () => { alive = false; };
@@ -217,7 +221,7 @@ export function LoginClient() {
       <AuthThemeControls />
       <SceneMenu active="entrar" mode="world" />
 
-      <div className={"hbx-scene login-console" + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
+      <div className={"hbx-scene login-console world world--" + lado + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
         <div className="login-art" aria-hidden>
           <i className="login-art__frame" />
           <i className="login-art__frame" />

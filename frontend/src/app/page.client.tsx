@@ -26,6 +26,7 @@ import { PlanCard } from "@/components/hbx/plan-card";
 // Login saiu da casca (16/06): a view "entrar" foi removida — "Entrar" agora abre
 // a rota /login (tela única, por e-mail). A casca é só marketing.
 type View = "inicio" | "esteira" | "modulos" | "planos";
+type Lado = "corporativo" | "autonomo";
 
 // ── dados de inicio ────────────────────────────────────────────────────────────
 const FEATURES = [
@@ -130,6 +131,10 @@ export function MarketingClient() {
   const router = useRouter();
   const [view, setView] = useState<View>("inicio");
   const [phase, setPhase] = useState<"in" | "out">("in");
+  // PORTAL v3.0 — bifurcação Empresa × Vendedor na entrada da casca
+  const [lado, setLado] = useState<Lado | null>(null);
+  const [hoverLado, setHoverLado] = useState<Lado | null>(null);
+  const SHOW_LEGACY_HERO: boolean = false; // hero antigo parkeado (substituído pelo Portal v3.0)
   const [activeCard, setActiveCard] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [planMode, setPlanMode] = useState<"list" | "choosing" | "register" | "detailReturning" | "detail2Returning" | "returning" | "restoring">("list");
@@ -256,6 +261,8 @@ export function MarketingClient() {
     if (v === view) return;
     transition(() => {
       setView(v);
+      if (v === "inicio") setLado(null); // volta ao split; demais views herdam o mundo escolhido
+      setHoverLado(null);
       setSelectedPlan(null);
       setPlanMode("list");
       setIntruderVisible(false);
@@ -337,28 +344,185 @@ export function MarketingClient() {
   }
 
   const onNav = (k: SceneNav) => {
-    if (k === "entrar") { goRoute("/login"); return; }
+    if (k === "entrar") { goRoute("/login" + (lado ? "?lado=" + lado : "")); return; }
     if (k === "inicio") goView("inicio");
     else if (k === "esteira") goView("esteira");
     else if (k === "modulos") goView("modulos");
     else if (k === "planos") goView("planos");
   };
 
-  // plain: inicio mostra robô; demais views (marketing) escondem
-  const plain = view !== "inicio";
+  // PORTAL v3.0 é o palco da entrada → robô oculto em toda a casca de marketing
+  const plain = true;
+
+  // Marca: na entrada apenas reseta a escolha (volta ao split); nas outras views, vai pra entrada
+  const goBrand = () => { if (view === "inicio") setLado(null); else goView("inicio"); };
+
+  // PORTAL v3.0 — mesmo esqueleto (achar → atender → cobrar), pele por público
+  type PortalEntry = {
+    label: string; img: string; kicker: string; shortTitle: string; promise: string;
+    ideal: string[]; enterLabel: string;
+    title: string; sub: string; bullets: string[];
+    primary: { label: string; go: () => void };
+    secondary: { label: string; go: () => void };
+  };
+  const PORTAL_COPY: Record<Lado, PortalEntry> = {
+    corporativo: {
+      label: "empresa",
+      img: "/portal/corporativo.png",
+      kicker: "Para empresas",
+      shortTitle: "Empresas",
+      promise: "Prospecção, atendimento, equipe e cobrança numa operação comercial única.",
+      ideal: ["Pequenas que querem vender com método", "Médias que precisam organizar equipe e retorno", "Operações que exigem implantação e integração"],
+      enterLabel: "Sou empresa",
+      title: "Sua operação comercial em uma única esteira.",
+      sub: "O HBX organiza prospecção, atendimento, retorno, cobrança e integração — sua empresa vende com mais controle e menos processo solto.",
+      bullets: ["Leads entram com contexto e responsável", "Atendimento e WhatsApp no mesmo fluxo", "Recovery de inadimplentes e clientes parados", "Integração com ERP e planilhas"],
+      primary: { label: "Falar com especialista", go: () => goView("planos") },
+      secondary: { label: "Ver como funciona", go: () => goView("esteira") },
+    },
+    autonomo: {
+      label: "vendedor",
+      img: "/portal/autonomo.png",
+      kicker: "Para vendedor autônomo",
+      shortTitle: "Vendedor autônomo",
+      promise: "Leads acionáveis e lista organizada pra prospectar sem garimpar empresa por empresa.",
+      ideal: ["Vendedor independente e representante", "Prestador que prospecta sozinho", "Quem quer começar no List ou Lead"],
+      enterLabel: "Sou vendedor autônomo",
+      title: "Pare de procurar cliente no escuro.",
+      sub: "O HBX entrega listas e leads acionáveis pra você abordar com mais velocidade, contexto e organização.",
+      bullets: ["Empresas reais organizadas em cards", "Telefone, cidade, segmento e site", "Score e mensagem pronta no Lead", "Retorno e histórico pra não perder a hora"],
+      primary: { label: "Ver planos List e Lead", go: () => goView("planos") },
+      secondary: { label: "Ver como funciona", go: () => goView("esteira") },
+    },
+  };
+
+  // Telas internas herdam o MUNDO escolhido (foto de fundo + accent + cópia por público)
+  const worldOn = !!lado && view !== "inicio";
+  const PLAN_BY_LADO: Record<Lado, readonly string[]> = {
+    corporativo: ["hbx_pro", "hbx_melhor"],
+    autonomo: ["hbx_lite", "hbx_padrao"],
+  };
+  const planOrder: readonly string[] = (lado && PLAN_BY_LADO[lado]) || PLAN_ORDER;
+
+  type InnerCopy = { eyebrow: string; pre: string; accent: string; pos: string; sub: string };
+  const INNER_COPY: Record<"esteira" | "modulos" | "planos", Record<"base" | Lado, InnerCopy>> = {
+    esteira: {
+      base:        { eyebrow: "Como funciona", pre: "A esteira ", accent: "HBX", pos: ".", sub: "Do primeiro contato até a cobrança. Tudo no automático." },
+      corporativo: { eyebrow: "Como funciona", pre: "Da prospecção à ", accent: "recuperação", pos: ", numa esteira só.", sub: "Encontrar, organizar, acionar, atender e recuperar — sua operação comercial num fluxo único, com contexto e histórico." },
+      autonomo:    { eyebrow: "Como funciona", pre: "Do lead pronto ao ", accent: "fechamento", pos: ".", sub: "Você recebe a empresa certa com a mensagem na mão. O trabalho chato fica com o HBX." },
+    },
+    modulos: {
+      base:        { eyebrow: "Tudo conectado", pre: "Integra, sincroniza e ", accent: "entrega resultado", pos: ".", sub: "Conectamos os canais e sistemas que seu negócio já usa — os dados fluem e o resultado aparece." },
+      corporativo: { eyebrow: "Tudo conectado", pre: "Plugamos no seu ", accent: "ERP e CRM", pos: ".", sub: "WhatsApp, Mercado Pago, HubSpot, SAP/TOTVS — o HBX entra na operação que você já roda." },
+      autonomo:    { eyebrow: "Tudo na sua mão", pre: "WhatsApp, agenda e ", accent: "cobrança", pos: ".", sub: "Tudo pra prospectar e fechar no celular — sem planilha, sem complicação." },
+    },
+    planos: {
+      base:        { eyebrow: "Planos HBX", pre: "O plano certo para ", accent: "o seu momento", pos: ".", sub: "Do frio ao automatizado: escolha como a HBX entra na sua operação." },
+      corporativo: { eyebrow: "Planos · Empresas", pre: "Operação pronta para ", accent: "escalar", pos: ".", sub: "Atendimento no painel, Bot IA e implantação feita pela HBX — com Recovery e ERP." },
+      autonomo:    { eyebrow: "Planos · Vendedor", pre: "Comece a vender ", accent: "hoje", pos: ".", sub: "Lead pronto na mão a partir de R$49/mês. Sem fidelidade, cancele quando quiser." },
+    },
+  };
+  const innerCopy = (v: "esteira" | "modulos" | "planos"): InnerCopy =>
+    (lado ? INNER_COPY[v][lado] : INNER_COPY[v].base);
 
   return (
     <HbxScene
       active={view as SceneNav}
       plain={plain}
       themeControls={false}
-      onBrand={() => goView("inicio")}
+      onBrand={goBrand}
       onNav={onNav}
     >
-      <div className={"scene-view is-" + phase}>
+      <div className={"scene-view is-" + phase + (worldOn && lado ? " world world--" + lado : "")}>
+
+        {/* Mundo escolhido herdado pelas telas internas: foto de fundo + chip "trocar" */}
+        {worldOn && lado && (
+          <>
+            <div className="world-bg" aria-hidden>
+              <i className="pframe" /><i className="pframe" /><i className="pframe" /><i className="pframe" /><i className="pframe" />
+            </div>
+            <button type="button" className="world-chip" onClick={() => goView("inicio")} aria-label="Trocar de mundo">
+              <span className="world-chip__label">{PORTAL_COPY[lado].shortTitle}</span>
+              <span className="world-chip__swap"><Ic paths={CHEVRON} />trocar</span>
+            </button>
+          </>
+        )}
 
         {/* ── INÍCIO ──────────────────────────────────────────────────────── */}
         {view === "inicio" && (
+          <div className={"portal" + (lado ? " is-chosen chose-" + lado : "") + (!lado && hoverLado ? " is-hover-" + hoverLado : "")}>
+
+            {(["corporativo", "autonomo"] as Lado[]).map((side) => {
+              const c = PORTAL_COPY[side];
+              return (
+                <button
+                  key={side}
+                  type="button"
+                  className={"portal-side portal-side--" + (side === "corporativo" ? "corp" : "auto")}
+                  onMouseEnter={() => { if (!lado) setHoverLado(side); }}
+                  onMouseLeave={() => setHoverLado(null)}
+                  onClick={() => { if (!lado) setLado(side); }}
+                  aria-label={"Entrar como " + c.label}
+                >
+                  <span className="portal-side__photo" aria-hidden>
+                    <i className="pframe" /><i className="pframe" /><i className="pframe" /><i className="pframe" /><i className="pframe" />
+                  </span>
+                  <span className="portal-side__veil" aria-hidden />
+                  <span className="portal-side__label">
+                    <span className="portal-side__kicker">{c.kicker}</span>
+                    <span className="portal-side__title">{c.shortTitle}</span>
+                    <span className="portal-side__promise">{c.promise}</span>
+                    <span className="portal-side__ideal">
+                      {c.ideal.map((it) => <span key={it} className="portal-side__ideal-item">{it}</span>)}
+                    </span>
+                    <span className="portal-side__cue">{c.enterLabel}<Ic paths={CHEVRON} /></span>
+                  </span>
+                </button>
+              );
+            })}
+
+            <span className="portal-seam" aria-hidden />
+
+            {/* Hero central da escolha (some no takeover) */}
+            <div className="portal-hero" aria-hidden={!!lado}>
+              <span className="portal-hero__eyebrow">Como você quer usar o HBX?</span>
+              <h1 className="portal-hero__title">Uma esteira comercial.<br />Dois modos de operação.</h1>
+              <p className="portal-hero__sub">O HBX encontra oportunidades, organiza contatos e transforma intenção em ação comercial. Escolha o modo que faz sentido pra você.</p>
+            </div>
+
+            {/* Microprova: a mesma base por trás dos dois modos */}
+            <p className="portal-foot" aria-hidden={!!lado}>Radar · Vendas · Atendimento · Recovery — numa base só</p>
+
+            <div className="portal-stage" aria-hidden={!lado}>
+              {lado && (() => {
+                const c = PORTAL_COPY[lado];
+                return (
+                  <div className="portal-copy">
+                    <span className="portal-copy__kicker">{c.kicker}</span>
+                    <h1 className="portal-copy__title">{c.title}</h1>
+                    <p className="portal-copy__sub">{c.sub}</p>
+                    <ul className="portal-copy__list">
+                      {c.bullets.map((b) => <li key={b}><Ic paths={IC_CHECK} />{b}</li>)}
+                    </ul>
+                    <div className="portal-copy__cta">
+                      <button type="button" className="portal-btn portal-btn--solid" onClick={c.primary.go}>{c.primary.label}</button>
+                      <button type="button" className="portal-btn portal-btn--ghost" onClick={c.secondary.go}>{c.secondary.label}</button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {lado && (
+              <button type="button" className="portal-back" onClick={() => setLado(null)}>
+                <Ic paths={CHEVRON} />trocar
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── HERO ANTIGO — parkeado (substituído pelo Portal v3.0) ─────────── */}
+        {SHOW_LEGACY_HERO && (
           <div className="scene-hero">
             {/* Carrossel desktop: palavras (Radar/Vendas/Atendimento/Recovery) — original */}
             <div className="site-carousel site-carousel--words" role="region" aria-label="Módulos HBX" onClick={advance}>
@@ -604,9 +768,11 @@ export function MarketingClient() {
         {/* ── ESTEIRA ─────────────────────────────────────────────────────── */}
         {view === "esteira" && (
           <div className="scene-center scene-esteira">
-            <span className="site-eyebrow">Como funciona</span>
-            <h2 className="site-esteira-title">A esteira <span className="site-accent">HBX</span>.</h2>
-            <p className="site-sub">Do primeiro contato até a cobrança. Tudo no automático.</p>
+            {(() => { const c = innerCopy("esteira"); return (<>
+              <span className="site-eyebrow">{c.eyebrow}</span>
+              <h2 className="site-esteira-title">{c.pre}<span className="site-accent">{c.accent}</span>{c.pos}</h2>
+              <p className="site-sub">{c.sub}</p>
+            </>); })()}
             <div className="site-esteira">
               {STATIONS.map((s) => (
                 <button key={s.t} type="button"
@@ -633,9 +799,11 @@ export function MarketingClient() {
         {/* ── MÓDULOS ─────────────────────────────────────────────────────── */}
         {view === "modulos" && (
           <div className="scene-center scene-esteira">
-            <span className="site-eyebrow">Tudo conectado</span>
-            <h2 className="site-esteira-title">Integra, sincroniza e <span className="site-accent">entrega resultado</span>.</h2>
-            <p className="site-sub">Conectamos os canais e sistemas que seu negócio já usa — os dados fluem, as tarefas acontecem e o resultado aparece.</p>
+            {(() => { const c = innerCopy("modulos"); return (<>
+              <span className="site-eyebrow">{c.eyebrow}</span>
+              <h2 className="site-esteira-title">{c.pre}<span className="site-accent">{c.accent}</span>{c.pos}</h2>
+              <p className="site-sub">{c.sub}</p>
+            </>); })()}
             <div className="site-integra">
               {INTEGRATIONS.map((it) => (
                 <div key={it.n} className="site-station">
@@ -659,11 +827,13 @@ export function MarketingClient() {
         {/* ── PLANOS ──────────────────────────────────────────────────────── */}
         {view === "planos" && (
           <div className={"scene-center scene-planos" + (planMode !== "list" ? " is-choosing is-" + planMode : "") + (intruderVisible ? " has-intruder" : "") + (intruder2Visible ? " has-intruder2" : "")}>
-            <span className="site-eyebrow">Planos HBX</span>
-            <h2 className="site-esteira-title">O plano certo para <span className="site-accent">o seu momento</span>.</h2>
-            <p className="site-sub">Do frio ao automatizado: escolha como a HBX entra na sua operação.</p>
-            <div ref={plansTrackRef} className={"site-plans" + (planMode !== "list" ? " is-choosing is-" + planMode : "")}>
-                {PLAN_ORDER.map((key) => {
+            {(() => { const c = innerCopy("planos"); return (<>
+              <span className="site-eyebrow">{c.eyebrow}</span>
+              <h2 className="site-esteira-title">{c.pre}<span className="site-accent">{c.accent}</span>{c.pos}</h2>
+              <p className="site-sub">{c.sub}</p>
+            </>); })()}
+            <div ref={plansTrackRef} className={"site-plans" + (lado ? " is-filtered" : "") + (planMode !== "list" ? " is-choosing is-" + planMode : "")}>
+                {planOrder.map((key) => {
                   const s = PLAN_STATIC[key];
                   const lp = getLivePlan(key);
                   return (
@@ -686,7 +856,7 @@ export function MarketingClient() {
             {/* Dots de paginação do carrossel de planos — visíveis apenas no mobile via CSS */}
             {planMode === "list" && (
               <div className="site-plans-dots" aria-hidden>
-                {PLAN_ORDER.map((key, i) => (
+                {planOrder.map((key, i) => (
                   <button
                     key={key}
                     type="button"
