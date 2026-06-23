@@ -446,7 +446,16 @@ export class BaileysStartupService extends ChannelStartupService {
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const codesToNotReconnect = [DisconnectReason.loggedOut, DisconnectReason.forbidden, 402, 406];
+      // conflict:replaced (440) NÃO reconecta: o "replaced" significa que OUTRA conexão assumiu
+      // este número. Reconectar aqui só recria o socket por cima e o WhatsApp manda replaced de
+      // novo → loop infinito (storm de ban). O socket que perdeu morre limpo; quem assumiu vence.
+      const codesToNotReconnect = [
+        DisconnectReason.loggedOut,
+        DisconnectReason.connectionReplaced,
+        DisconnectReason.forbidden,
+        402,
+        406,
+      ];
       const shouldReconnect = !codesToNotReconnect.includes(statusCode);
       if (shouldReconnect) {
         await this.connectToWhatsapp(this.phoneNumber);
@@ -727,6 +736,28 @@ export class BaileysStartupService extends ChannelStartupService {
     };
 
     this.endSession = false;
+
+    // Idempotência anti-"conflict: replaced": NUNCA deixar dois sockets vivos com as MESMAS
+    // credenciais. Se já existe um client, tira os listeners (pra ele não disparar reconexão)
+    // e encerra antes de abrir o novo — senão o socket velho continua vivo no WhatsApp e
+    // derruba o novo em loop.
+    if (this.client) {
+      try {
+        this.client.ev.removeAllListeners();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        this.client.ws?.close?.();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        this.client.end?.(new Error('replacing previous socket'));
+      } catch {
+        /* best-effort */
+      }
+    }
 
     this.client = makeWASocket(socketConfig);
 
