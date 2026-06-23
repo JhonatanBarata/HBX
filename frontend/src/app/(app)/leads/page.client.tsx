@@ -210,6 +210,20 @@ function RadarDisc({ opState }: { opState: "funcionando" | "pausado" | "parado" 
   );
 }
 
+// Mapa nome-do-estado → sigla (para reverse geocode via Nominatim)
+const STATE_NAME_TO_UF: Record<string, string> = {
+  "Acre":"AC","Alagoas":"AL","Amapá":"AP","Amazonas":"AM","Bahia":"BA","Ceará":"CE",
+  "Distrito Federal":"DF","Espírito Santo":"ES","Goiás":"GO","Maranhão":"MA",
+  "Mato Grosso":"MT","Mato Grosso do Sul":"MS","Minas Gerais":"MG","Pará":"PA",
+  "Paraíba":"PB","Paraná":"PR","Pernambuco":"PE","Piauí":"PI","Rio de Janeiro":"RJ",
+  "Rio Grande do Norte":"RN","Rio Grande do Sul":"RS","Rondônia":"RO","Roraima":"RR",
+  "Santa Catarina":"SC","São Paulo":"SP","Sergipe":"SE","Tocantins":"TO",
+};
+
+function normCity(s: string) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
 export function LeadsClient() {
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -272,6 +286,7 @@ export function LeadsClient() {
   const [forcarCanais, setForcarCanais] = useState(false);
 
   // Geolocalização — sincroniza com o botão do Topbar via localStorage + evento
+  const [geoBusy, setGeoBusy] = useState(false);
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -288,6 +303,35 @@ export function LeadsClient() {
     window.addEventListener("hbx:geo-updated", onGeo);
     return () => window.removeEventListener("hbx:geo-updated", onGeo);
   }, []);
+
+  async function pullGeoLocation() {
+    if (!geo || geoBusy) return;
+    setGeoBusy(true);
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${geo.lat}&lon=${geo.lng}&format=json`,
+        { headers: { "Accept-Language": "pt-BR" } },
+      );
+      const data = await resp.json();
+      const addr = data.address || {};
+      // Estado: preferir BR-XX do ISO3166-2-lvl4, senão mapear pelo nome completo
+      const iso = String(data["ISO3166-2-lvl4"] || "");
+      const ufFromISO = iso.startsWith("BR-") ? iso.slice(3) : "";
+      const resolvedUf = ufFromISO || STATE_NAME_TO_UF[addr.state || ""] || "";
+      // Cidade: tentar city → town → municipality → county
+      const cityRaw = String(addr.city || addr.town || addr.municipality || addr.county || "").trim();
+      if (resolvedUf) {
+        setUf(resolvedUf);
+        if (cityRaw) {
+          const cities = BRAZIL_CITIES_BY_UF[resolvedUf] || [];
+          const match = cities.find(c => normCity(c) === normCity(cityRaw));
+          setCity(match || cityRaw);
+          setAlcance("");
+        }
+      }
+    } catch { /* silently ignore */ }
+    finally { setGeoBusy(false); }
+  }
 
   const loadBank = useCallback(() => {
     apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
@@ -847,6 +891,22 @@ export function LeadsClient() {
             </p>
           )}
         </div>
+
+        {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
+        {geo && (
+          <div className="radar-geo-chip">
+            <I d={ICONS.mapin} size={13} />
+            <span className="radar-geo-chip__lbl">Minha localização</span>
+            <button
+              type="button"
+              className="btn-teal btn-xs"
+              onClick={pullGeoLocation}
+              disabled={geoBusy}
+            >
+              {geoBusy ? "…" : "Preencher"}
+            </button>
+          </div>
+        )}
 
         {/* Filtros compactos */}
         <div className="radar-controls">
