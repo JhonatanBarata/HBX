@@ -743,7 +743,9 @@ export class BaileysStartupService extends ChannelStartupService {
     // derruba o novo em loop.
     if (this.client) {
       try {
-        this.client.ev.removeAllListeners();
+        // O emitter tipado do Baileys exige um evento em removeAllListeners(event); no runtime
+        // (Node EventEmitter) o no-arg remove TODOS — é o que queremos pra soltar o socket velho.
+        (this.client.ev as any).removeAllListeners();
       } catch {
         /* best-effort */
       }
