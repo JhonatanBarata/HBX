@@ -8,6 +8,7 @@
 // + ticket/sino do dono — sem abrir WhatsApp por fora).
 
 import { useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 
 import { TutorialCoach } from "@/components/hbx/tutorial-coach";
 import {
@@ -18,6 +19,7 @@ import {
   useMyModules,
 } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { getWaOpenMode } from "@/lib/wa-open-mode";
 import { buildCoachSteps, buildModuleTour, type CoachAudience, type CoachRole } from "@/lib/tutorial-coach-steps";
 import {
   getTutorialCoachActive,
@@ -26,7 +28,11 @@ import {
   subscribeTutorialCoach,
 } from "@/lib/tutorial-coach-store";
 
+const SUPPORT_PHONE = "5519997024884";
+const SUPPORT_MSG = "Estou com dúvidas na tela /leads";
+
 export function TutorialCoachHost() {
+  const router = useRouter();
   const active = useSyncExternalStore(subscribeTutorialCoach, getTutorialCoachActive, () => false);
   // tourId null = tour completo (1º acesso); "leads"/… = tour daquele módulo.
   const tourId = useSyncExternalStore(subscribeTutorialCoach, getTutorialCoachTour, () => null);
@@ -60,6 +66,29 @@ export function TutorialCoachHost() {
     stopTutorialCoach();
   }
 
+  async function handleSupport() {
+    const mode = getWaOpenMode();
+    if (mode === "internal") {
+      try {
+        const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
+          method: "POST",
+          body: JSON.stringify({ phone: SUPPORT_PHONE, name: "HBX Suporte" }),
+        });
+        if (res?.id != null) {
+          try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* */ }
+          try { sessionStorage.setItem("hbx:abrir-conversa-draft", SUPPORT_MSG); } catch { /* */ }
+          router.push("/atendimento");
+        }
+      } catch { /* sem conexão interna, cai no externo */ }
+      return;
+    }
+    window.open(
+      `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_MSG)}`,
+      "_blank",
+      "noopener",
+    );
+  }
+
   async function askHelp() {
     // Best-effort: o backend cria ticket/sino do dono + registra a mensagem de
     // suporte. NUNCA estourar (era o bug do "falar com a HBX") — se a rede falhar,
@@ -87,6 +116,7 @@ export function TutorialCoachHost() {
       onDone={finish}
       onSkip={finish}
       onAskHelp={askHelp}
+      onSupport={handleSupport}
       exitTo={tourId ? null : "/dashboard"}
     />
   );

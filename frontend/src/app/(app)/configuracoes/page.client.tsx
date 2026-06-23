@@ -388,7 +388,13 @@ export function ConfiguracoesClient() {
                       </div>
                     )}
                   </div>
-                  <div style={{ padding: 18, display: "grid", gap: 16 }}>
+                  <div style={{ padding: 18 }}>
+                    {/* Dividido no meio: esquerda = plano/estado/módulos; direita = assentos extras (só quando o card aparece). */}
+                    {(() => {
+                    const showSeats = canSelectPlan && current?.accessState === "paying" && current?.planKey !== "hbx_lite";
+                    return (
+                    <div className={showSeats ? "plan-billing-split" : undefined}>
+                    <div className="pbs-main">
                     <div style={{ display: "flex", gap: 14, alignItems: "center", padding: 16, borderRadius: "var(--radius-md)", border: "1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent)", background: "var(--hbx-brand-soft)" }}>
                       <div style={{ flex: 1 }}>
                         <strong style={{ fontSize: "0.94rem" }}>{planoAtual?.title || (current?.planKey ? current.planKey : "Sem plano ativo")}</strong>
@@ -432,10 +438,16 @@ export function ConfiguracoesClient() {
                     {current?.assistedSetup?.message && (
                       <p style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5, color: "var(--hbx-warning)" }}>{current.assistedSetup.message}</p>
                     )}
-                    {/* F6 — assento extra: só admin pagante, e plano que trabalha com extra (List não). */}
-                    {canSelectPlan && current?.accessState === "paying" && current?.planKey !== "hbx_lite" && (
-                      <ExtraSeatsCard onDone={recarregarPlano} />
+                    </div>
+                    {/* F6 — assento extra: só admin pagante, e plano que trabalha com extra (List não). Coluna direita. */}
+                    {showSeats && (
+                      <div className="pbs-seats">
+                        <ExtraSeatsCard onDone={recarregarPlano} />
+                      </div>
                     )}
+                    </div>
+                    );
+                    })()}
                   </div>
                 </section>
 

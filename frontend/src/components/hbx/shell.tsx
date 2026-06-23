@@ -825,6 +825,39 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
     }
   }
 
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [searchValue, setSearchValue] = useState("");
+
+  // Limpa o filtro ao navegar de página
+  useEffect(() => {
+    handleSearch("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  // ⌘K / Ctrl+K foca o campo de busca
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  function handleSearch(q: string) {
+    setSearchValue(q);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (q) params.set("q", q); else params.delete("q");
+      const qs = params.toString();
+      window.history.replaceState(window.history.state, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
+    }
+    window.dispatchEvent(new CustomEvent("hbx:search-query", { detail: q }));
+  }
+
   return (
     <header className="topbar">
       <button className="burger" aria-label="Menu" onClick={onMenu}><span></span><span></span><span></span></button>
@@ -832,10 +865,19 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
         <h1>{title}</h1>
         <div className="crumbs">{crumbs}</div>
       </div>
-      <div className="search">
+      <div className="search" onClick={() => searchRef.current?.focus()}>
         <I d={ICONS.search} size={15} />
-        Buscar leads, empresas, propostas...
-        <span className="kbd">⌘ K</span>
+        <input
+          ref={searchRef}
+          type="text"
+          placeholder="Buscar leads, empresas, propostas..."
+          value={searchValue}
+          onChange={e => handleSearch(e.target.value)}
+          onKeyDown={e => { if (e.key === "Escape") { handleSearch(""); searchRef.current?.blur(); } }}
+          style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--text-body)", fontSize: "inherit", fontFamily: "inherit", minWidth: 0 }}
+          aria-label="Buscar leads, empresas ou propostas"
+        />
+        {!searchValue && <span className="kbd">⌘ K</span>}
       </div>
       <div className="top-actions">
         {/* "Como usar" — só aparece nas telas que já têm tour de módulo; dispara o

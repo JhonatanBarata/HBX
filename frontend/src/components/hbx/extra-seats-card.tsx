@@ -84,6 +84,7 @@ export function ExtraSeatsCard({ onDone }: { onDone?: () => void }) {
       {preview && (
         <React.Fragment>
           <div className="kv">
+            <div className="row"><span className="k">Valor por assento</span><span className="v">{brl(preview.extraSeatMonthly)}/mês</span></div>
             <div className="row"><span className="k">Cobrança agora ({preview.remainingDays}/{preview.daysInMonth} dias)</span><span className="v">{brl(preview.chargeNow)}</span></div>
             <div className="row"><span className="k">Próximo mês (cheio)</span><span className="v">{brl(preview.nextCycleFullAmount)}/mês</span></div>
             <div className="row"><span className="k">Capacidade de acessos</span><span className="v">{preview.currentSeatCap} → {preview.newSeatCap}</span></div>

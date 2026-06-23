@@ -315,6 +315,7 @@ body { min-height: 100vh; }
 .tut-help-btn:hover:not(:disabled) { background: var(--hbx-brand-soft); }
 .tut-help-btn:disabled { cursor: default; opacity: 0.75; }
 .tut-final__note { font-size: 0.72rem; color: var(--hbx-success); }
+.tut-btn--support { background: var(--hbx-success); box-shadow: 0 6px 18px color-mix(in srgb, var(--hbx-success) 45%, transparent); margin-right: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .tut-spot { animation: none; } .tut-hint__dot { animation: none; } .tut-caret { animation: none; }
@@ -1052,6 +1053,15 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .sc-anual-val { color: var(--text-body); }
 .sc-seats-row { display: flex; align-items: center; gap: 8px; }
 .sc-seats-n { min-width: 36px; text-align: center; font-weight: 700; font-size: 0.92rem; font-family: var(--font-mono); }
+/* Plano e cobrança dividido no meio: esquerda = plano/estado/módulos; direita = assentos extras (divisor vertical). Colapsa no mobile. */
+.plan-billing-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.pbs-main { display: grid; gap: 16px; align-content: start; }
+.pbs-seats { border-left: 1px solid var(--border-hairline); padding-left: 18px; }
+.pbs-seats .sc-quotas { border-top: 0; padding-top: 0; }
+@media (max-width: 860px) {
+  .plan-billing-split { grid-template-columns: 1fr; }
+  .pbs-seats { border-left: 0; padding-left: 0; border-top: 1px solid var(--border-hairline); padding-top: 16px; }
+}
 @media (max-width: 1100px) { .plan-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .plan-grid { grid-template-columns: 1fr; } }
 .site-trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; margin-top: 22px; width: min(1240px, 100%); }

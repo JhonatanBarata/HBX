@@ -197,6 +197,14 @@ export function VendasClient() {
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
+  // Filtro de texto: sincronizado com o campo de busca do topbar (hbx:search-query)
+  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    const handler = (e: Event) => setSearchQuery((e as CustomEvent<string>).detail ?? "");
+    window.addEventListener("hbx:search-query", handler);
+    return () => window.removeEventListener("hbx:search-query", handler);
+  }, []);
+
   // agenda embutida (ordem do dono): painel lateral com os retornos reais
   // do board + sincronização da agenda de hoje no WhatsApp
   const [agendaOpen, setAgendaOpen] = useState(false);
@@ -840,6 +848,13 @@ export function VendasClient() {
     };
   }
 
+  function matchSearch(card: VendasLead): boolean {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return [card.name, card.phone, card.email, card.segment, card.city, card.state, card.nextAction, card.shortNote]
+      .some(v => v?.toLowerCase().includes(q));
+  }
+
   const summary = board?.summary;
   const deal = sel;
 
@@ -858,7 +873,13 @@ export function VendasClient() {
               <div className="panel-head">
                 <h2>Pipeline de vendas</h2>
                 <div className="meta">
-                  <span>{board ? `${summary?.total ?? 0} cards` : loadError ? "" : "Carregando…"}</span>
+                  <span>
+                    {board
+                      ? searchQuery
+                        ? `${BLOCK_ORDER.flatMap(b => board.blocks?.[b.key] || []).filter(matchSearch).length} de ${summary?.total ?? 0} cards`
+                        : `${summary?.total ?? 0} cards`
+                      : loadError ? "" : "Carregando…"}
+                  </span>
                   <span className="seg-toggle" role="group" aria-label="Visão do pipeline">
                     <button className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
                     <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
@@ -928,7 +949,7 @@ export function VendasClient() {
               {isMobile && board && (summary?.total ?? 0) > 0 && (
                 <div className="vnd-list">
                   {BLOCK_ORDER.map(({ key, label }) => {
-                    const cards = board?.blocks?.[key] || [];
+                    const cards = (board?.blocks?.[key] || []).filter(matchSearch);
                     if (cards.length === 0) return null;
                     return (
                       <React.Fragment key={key}>
@@ -982,7 +1003,7 @@ export function VendasClient() {
                     </thead>
                     <tbody>
                       {BLOCK_ORDER.flatMap(({ key, label }) =>
-                        (board?.blocks?.[key] || []).map(card => {
+                        (board?.blocks?.[key] || []).filter(matchSearch).map(card => {
                           const tagCls = key === "overdue" ? "tag warn" : key === "closed" ? "tag teal" : "tag";
                           return (
                             <tr key={card.id} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}>
@@ -1007,7 +1028,7 @@ export function VendasClient() {
               <>
               <div className="board" ref={boardRef} onScroll={isMobile ? onBoardScroll : undefined}>
                 {BLOCK_ORDER.map(({ key, label }) => {
-                  const cards = board?.blocks?.[key] || [];
+                  const cards = (board?.blocks?.[key] || []).filter(matchSearch);
                   const sumCents = cards.reduce((acc, c) => acc + (c.saleValue || 0), 0);
                   return (
                     <div key={key}>

@@ -78,12 +78,15 @@ export function TutorialCoach({
   onDone,
   onSkip,
   onAskHelp,
+  onSupport,
   exitTo = "/dashboard",
 }: {
   steps: CoachStep[];
   onDone?: () => void;
   onSkip?: () => void;
   onAskHelp?: () => Promise<void>;
+  // Botão "Suporte" verde no passo 0: abre WhatsApp do suporte no modo escolhido pelo usuário.
+  onSupport?: () => void;
   // Pra onde mandar ao Pular/Finalizar. Tour completo (1º acesso) = "/dashboard".
   // Tour de UM módulo = null → fica na própria tela (a pessoa pediu "como usar
   // ESTA tela"; jogar pro dashboard seria estranho).
@@ -203,13 +206,19 @@ export function TutorialCoach({
   const balloon: { left: number; top: number } = { left: 0, top: 0 };
   if (spotlit && rect) {
     const vw = window.innerWidth;
+    const vh = window.innerHeight;
     const W = Math.min(330, vw - 24);
+    const BALLOON_H = 240; // estimativa generosa da altura do balão
     if (rect.left < vw * 0.34) {
       balloon.left = Math.min(rect.left + rect.width + 16, vw - W - 12);
       balloon.top = Math.max(12, rect.top - 4);
     } else {
       balloon.left = Math.min(Math.max(12, rect.left + rect.width / 2 - W / 2), vw - W - 12);
-      balloon.top = rect.top + rect.height + 16;
+      const below = rect.top + rect.height + 16;
+      // Se o balão abaixo ultrapassaria a viewport, sobe para cima do alvo
+      balloon.top = below + BALLOON_H > vh - 12
+        ? Math.max(12, rect.top - BALLOON_H - 12)
+        : below;
     }
   }
 
@@ -267,6 +276,9 @@ export function TutorialCoach({
           </div>
         ) : (
           <div className="tut-balloon__foot">
+            {i === 0 && onSupport && (
+              <button className="tut-btn tut-btn--support" onClick={onSupport} type="button">Suporte</button>
+            )}
             {step.gate === "next" || centered || step.plain ? (
               <button className="tut-btn" onClick={advance} type="button">
                 {step.cta || (isLast ? "Concluir" : "Continuar")} →

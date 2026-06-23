@@ -787,16 +787,23 @@ export function AtendimentoClient() {
     //   2) query param ?conversation=<id> — deep-link de URL (ex.: /atendimento?conversation=42)
     let alive = true;
     let pendingId: string | null = null;
+    let pendingDraft: string | null = null;
     try {
       pendingId = sessionStorage.getItem("hbx:abrir-conversa");
       if (pendingId) sessionStorage.removeItem("hbx:abrir-conversa");
+      pendingDraft = sessionStorage.getItem("hbx:abrir-conversa-draft");
+      if (pendingDraft) sessionStorage.removeItem("hbx:abrir-conversa-draft");
     } catch { /* sem storage */ }
     if (!pendingId && typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const qp = params.get("conversation");
       if (qp) pendingId = qp;
     }
-    loadConvs().then(() => { if (alive && pendingId) setSelId(pendingId); });
+    loadConvs().then(() => {
+      if (!alive) return;
+      if (pendingId) setSelId(pendingId);
+      if (pendingDraft) setDraft(pendingDraft);
+    });
     loadMetrics();
     return () => { alive = false; };
   }, [loadConvs, loadMetrics]);

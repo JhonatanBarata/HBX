@@ -90,5 +90,23 @@ Esta seção sobrepõe as outras (inclusive "escala pro dono" do orquestrador):
 - Único não-faço: disparar ação live que escapa do localhost (ver Guardrails) — git não desfaz.
 - Termina tudo, depois desliga o PC. não importa se ficou algo pra trás o pc tem q ser desligado.
 
-## Webwhats
-`Webwhats/` é projeto separado. Leia `Webwhats/AGENTS.md` antes de tocar em qualquer arquivo lá.
+## Webwhats / Motor WhatsApp (regras duras — custaram chips banidos em jun/26)
+`Webwhats/` é projeto separado (Evolution API/Baileys). Leia `Webwhats/AGENTS.md` antes de tocar. No VPS roda como systemd
+`webwhats.service` (host `:8080`, log `journalctl -u webwhats.service`, banco `webwhats_prod`) — **NÃO é container**; o backend
+fala por `http://172.18.0.1:8080`. **Conectar/reconectar chip é AÇÃO LIVE IRREVERSÍVEL** (chip banido não tem `git revert`) —
+entra nos Guardrails.
+- **Reconexão SÓ com disjuntor.** Nunca loop livre: teto de tentativas + backoff + parar e marcar p/ reparear. Bug que gera
+  reconexão → a correção é o **FREIO**, nunca tapar o sintoma da vez. Loop de reconexão = ban.
+- **1 número = 1 conexão.** Mesmo chip em 2 lugares → o último a conectar vence, o anterior **cai e limpa**. Nunca 2 sockets
+  vivos no mesmo número (conflito multi-device = ban).
+- **NUNCA reiniciar/publicar o motor com chip conectado que importe** — restart re-linka TODOS os chips (re-registra o aparelho)
+  → device_removed/restrição. `npm run publish` e `npm run new` reiniciam o `webwhats.service`.
+- **Testar conexão/reconexão em número DESCARTÁVEL meu, jamais no chip do dono** — ver ficar `open` sem loop por minutos antes
+  de encostar em chip real. Culpar "o número" por bug meu de reconexão = proibido.
+- **Derrubar chip SEMPRE pela rotina do app** (`disconnectCompanySession`), nunca pela API crua do motor
+  (`DELETE /instance/logout|delete`) — a crua não sincroniza o banco do app e o painel passa a mentir.
+- **Fonte única da verdade = motor ao vivo** (`/instance/connectionState`, `/instance/fetchInstances`), não o banco do app.
+- **Deploy do motor:** `npm run publish` (full) funciona; **`npm run new` está QUEBRADO** (gera script remoto com syntax error →
+  sai status 2 → não aplica nada). Manual cirúrgico que funciona: `node scripts/vps-run.js` → `cd /root/HBX && git fetch origin
+  master && git reset --hard origin/master && cd Webwhats && npm run build && systemctl restart webwhats`; conferir o `dist`
+  depois. `publish`/`new` rodam typecheck ESTRITO do motor → passar `cd Webwhats && npm run typecheck`, não só `build`.
