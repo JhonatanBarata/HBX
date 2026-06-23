@@ -177,6 +177,10 @@ export class WhatsAppModalService {
   private readonly recentWebhookConfigureAt = new Map<string, number>();
   private readonly qrCodeCache = new Map<string, { dataUrl: string; capturedAtMs: number }>();
   private readonly recentPairingCodeAttemptAt = new Map<string, number>();
+  // Anti-flap: marca QUANDO começou a instabilidade atual de cada instância (tenantKey).
+  // Zera ao ver 'open'. Âncora de relógio de parede que EXPIRA de verdade (não é renovada
+  // pelos polls de reconnecting), então um piscar é segurado mas uma queda real cai sozinha.
+  private readonly reconnectGraceStartedAt = new Map<string, number>();
   private readonly liveHealthCache = new Map<number, { capturedAtMs: number; payload: WhatsAppLiveHealthResponse }>();
   private readonly connectAttemptCooldownMs = 12000;
   private readonly webhookConfigureCooldownMs = 60000;
@@ -1610,6 +1614,89 @@ export class WhatsAppModalService {
       qrCodeDataUrl: null,
       rawStatus: fallback.rawStatus,
     };
+  }
+
+  // SELF-HEAL ANTI-FLAP (causa-raiz do "sem chip" fantasma do restart): o `connectionState` é uma
+  // visão fina — durante um restart/piscar do motor ele pode responder `close` (=515/428) por um
+  // instante, e o mapeamento vira 'disconnected'. A regra antiga acreditava NA HORA e latchava
+  // desconectado + zerava o ponteiro da empresa, mesmo o chip voltando a 'open' segundos depois.
+  // Aqui, quando o app ACREDITAVA estar conectado e veio um estado transitório de queda, NÃO
+  // confio só no `connectionState`: confirmo na fonte AUTORITATIVA (`fetchInstances`, que traz o
+  // `connectionStatus` real). Se o motor mostra a instância 'open'/'connecting' (disjuntor
+  // religando), foi piscar → seguro como 'reconnecting' (sessão e ponteiro preservados) por uma
+  // janela de parede que EXPIRA. Se o motor TAMBÉM confirma queda (close/sumiu) → derruba na hora
+  // (invariante "provider confirma desconectado = acredita" mantido). `fetchInstances` é READ —
+  // não dispara reconexão, então ZERO risco de loop/ban.
+  private async holdSnapshotIfMotorAlive(
+    tenantKey: string,
+    snapshot: ModalSnapshot,
+    fallback: ModalSnapshot,
+  ): Promise<ModalSnapshot> {
+    if (snapshot.status === 'connected' || snapshot.status === 'waiting_qr') {
+      this.reconnectGraceStartedAt.delete(tenantKey);
+      return snapshot;
+    }
+    const transientDown =
+      snapshot.status === 'offline' ||
+      snapshot.status === 'error' ||
+      snapshot.status === 'disconnected' ||
+      snapshot.status === 'starting';
+    if (!transientDown) return snapshot;
+    // Só investiga se ACREDITÁVAMOS estar conectados (senão é offline legítimo, não um piscar).
+    const believedConnected = fallback.status === 'connected' || fallback.status === 'reconnecting';
+    if (!believedConnected) {
+      this.reconnectGraceStartedAt.delete(tenantKey);
+      return snapshot;
+    }
+
+    const motorAlive = await this.motorInstanceLooksAlive(tenantKey);
+    const now = Date.now();
+    let startedAt = this.reconnectGraceStartedAt.get(tenantKey);
+    if (typeof startedAt !== 'number') {
+      startedAt = now;
+      this.reconnectGraceStartedAt.set(tenantKey, startedAt);
+    }
+    if (motorAlive && now - startedAt <= this.reconnectGraceMs) {
+      return this.buildReconnectingSnapshot(
+        { ...fallback, rawStatus: snapshot.rawStatus },
+        'Motor religando a instancia (disjuntor); segurando a sessao antes de derrubar.',
+      );
+    }
+    // Motor confirma queda (ou janela estourou): queda real, deixa cair e zera o timer.
+    this.reconnectGraceStartedAt.delete(tenantKey);
+    return snapshot;
+  }
+
+  // Fonte autoritativa: a instância existe e está 'open'/'connecting' no motor AO VIVO?
+  // (READ-ONLY — só leitura, nunca conecta.) Sem evidência positiva de vida → false (deixa cair).
+  private async motorInstanceLooksAlive(tenantKey: string): Promise<boolean> {
+    try {
+      const list = await this.requestProvider({
+        method: 'GET',
+        path: '/instance/fetchInstances',
+        purpose: 'estado autoritativo da instancia (anti-flap)',
+        treatNotFoundAsNull: true,
+      });
+      const arr = Array.isArray(list)
+        ? list
+        : Array.isArray((list as any)?.instances)
+          ? (list as any).instances
+          : [];
+      const inst = arr.find((entry: any) => {
+        const name = entry?.name || entry?.instance?.instanceName || entry?.instanceName;
+        return String(name || '') === tenantKey;
+      });
+      if (!inst) return false;
+      const status = String(
+        inst?.connectionStatus || inst?.instance?.status || inst?.state || '',
+      )
+        .trim()
+        .toLowerCase();
+      return status === 'open' || status === 'connecting';
+    } catch {
+      // Sem evidência positiva de vida (motor não respondeu) → não mascara: deixa cair.
+      return false;
+    }
   }
 
   private async probeProviderHealth() {
@@ -3258,19 +3345,10 @@ export class WhatsAppModalService {
         };
     snapshot = this.reconcileTransientSnapshot(tenantKey, snapshot);
 
-    if (
-      instanceExists &&
-      ['offline', 'error'].includes(snapshot.status) &&
-      this.shouldPreserveSessionDuringReconnectGrace(fallback)
-    ) {
-      snapshot = this.buildReconnectingSnapshot(
-        {
-          ...fallback,
-          rawStatus: snapshot.rawStatus,
-        },
-        snapshot.lastError || 'Provider Webwhats retornou estado instavel durante janela de reconexao.',
-      );
-    }
+    // Anti-flap: o 'close'/restart do motor (→ 'disconnected') só derruba a sessão se a fonte
+    // autoritativa (fetchInstances) confirmar que a instância morreu; se o motor estiver
+    // 'open'/'connecting' (religando), segura como 'reconnecting' em vez de latchar desconectado.
+    snapshot = await this.holdSnapshotIfMotorAlive(tenantKey, snapshot, fallback);
 
     if (options?.includeQr && instanceExists && snapshot.status !== 'connected') {
       const connectSnapshot = await this.connectProviderSession(company, snapshot);
