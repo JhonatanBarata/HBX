@@ -14,14 +14,10 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { type PublicPlan } from "@/lib/plans";
+import { PlanDetailCard } from "@/components/hbx/plan-detail-card";
 
 export type TrocarPlanoDirection = "upgrade" | "downgrade" | "same";
-
-type PlanInfo = {
-  key: string;
-  title: string;
-  monthlyPrice?: number | null;
-};
 
 type ChangePreview = {
   chargeNow?: number;
@@ -38,14 +34,17 @@ type ChangeResult = {
 };
 
 type Props = {
-  fromPlan: PlanInfo | null;
-  toPlan: PlanInfo;
+  fromPlan: PublicPlan | null;
+  toPlan: PublicPlan;
   direction: TrocarPlanoDirection;
   accessState?: string | null;
   trialRemainingDays?: number | null;
   onClose: () => void;
+  // Cartão na ficha (assinatura vigente): mostra "•••• 4242 — confirmar" e deixa
+  // o pagante reusar sem redigitar (change-plan reusa o preapproval).
+  savedCard?: { brand: string | null; last4: string | null } | null;
   // Fallback p/ cartão: assinar do zero ou cobrar a diferença no live.
-  onConfirmUpgrade: (plan: PlanInfo) => void;
+  onConfirmUpgrade: (plan: PublicPlan) => void;
   // Troca aplicada no backend (refresh + mensagem).
   onApplied: (msg: string) => void;
 };
@@ -55,11 +54,35 @@ function fmt(n?: number | null) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Métrica "antes → depois" da faixa de comparação. up=null → seta neutra (→).
+function Metric({ k, from, to, up }: { k: string; from: string | null; to: string; up: boolean | null }) {
+  const cls = up == null ? "" : up ? "is-up" : "is-down";
+  return (
+    <div className="bv-metric">
+      <span className="bv-metric__k">{k}</span>
+      <span className="bv-metric__row">
+        {from != null && <span className="bv-metric__from">{from}</span>}
+        <span className={`bv-metric__arrow ${cls}`} aria-hidden="true">{up == null ? "→" : up ? "↑" : "↓"}</span>
+        <span className="bv-metric__to">{to}</span>
+      </span>
+    </div>
+  );
+}
+
+const fmtInt = (n?: number | null) =>
+  n != null && Number.isFinite(n) ? n.toLocaleString("pt-BR") : null;
+
+// Direção da seta: sobe (true) / desce (false) / neutra (null, sem base ou igual).
+const cmp = (a?: number | null, b?: number | null): boolean | null => {
+  if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b) || a === b) return null;
+  return b > a;
+};
+
 const NEEDS_CARD_CODES = ["NEEDS_CHECKOUT", "LIVE_PRORATION_TODO", "CARD_REQUIRED"];
 
 export function TrocarPlanoModal({
   fromPlan, toPlan, direction, accessState, trialRemainingDays,
-  onClose, onConfirmUpgrade, onApplied,
+  savedCard, onClose, onConfirmUpgrade, onApplied,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -131,7 +154,7 @@ export function TrocarPlanoModal({
 
   return (
     <div className="bv-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bv-card">
+      <div className="bv-card bv-card--plan">
         <div className="bv-hero">
           <div className="orb" />
           <span className="kicker">{direction === "upgrade" ? "Upgrade de plano" : "Redução de plano"}</span>
@@ -145,7 +168,54 @@ export function TrocarPlanoModal({
           )}
         </div>
         <div className="bv-body">
+
+          {/* Faixa diferença atual → destino (preço, acessos, leads/mês). */}
+          {fromPlan && (
+            <div className="bv-compare">
+              <Metric
+                k="Preço/mês"
+                from={fmt(fromPlan.monthlyPrice)}
+                to={fmt(toPlan.monthlyPrice) ?? "—"}
+                up={cmp(fromPlan.monthlyPrice, toPlan.monthlyPrice)}
+              />
+              <Metric
+                k="Acessos"
+                from={fmtInt(fromPlan.includedUsers)}
+                to={fmtInt(toPlan.includedUsers) ?? "—"}
+                up={cmp(fromPlan.includedUsers, toPlan.includedUsers)}
+              />
+              <Metric
+                k="Leads/mês"
+                from={fmtInt(fromPlan.cardsPerMonth)}
+                to={fmtInt(toPlan.cardsPerMonth) ?? "—"}
+                up={cmp(fromPlan.cardsPerMonth, toPlan.cardsPerMonth)}
+              />
+            </div>
+          )}
+
+          {/* Detalhe do destino — MESMO UI/UX de "Detalhes do plano" da landing. */}
+          <div className="bv-plan-details">
+            <PlanDetailCard planKey={toPlan.key} live={toPlan} showHeader={false} showHow={false} />
+          </div>
+
           <div className="bv-steps">
+
+            {/* Cartão na ficha: o pagante reusa o cartão já cadastrado (change-plan
+                reusa o preapproval) — sem redigitar. "usar outro cartão" cai no form. */}
+            {isPaying && savedCard?.last4 && (
+              <div className="bv-step">
+                <span className="n">💳</span>
+                <span className="tx">
+                  <strong>Cobrança no cartão{savedCard.brand ? ` ${savedCard.brand}` : ""} •••• {savedCard.last4}</strong>
+                  <small>
+                    Confirmar usa o cartão que você já cadastrou — sem digitar de novo.{" "}
+                    {direction === "upgrade" && (
+                      <button type="button" className="bv-link" onClick={() => onConfirmUpgrade(toPlan)} disabled={busy}>usar outro cartão</button>
+                    )}
+                  </small>
+                </span>
+              </div>
+            )}
 
             {/* Upgrade: aviso de trial perdido */}
             {direction === "upgrade" && hasTrial && (

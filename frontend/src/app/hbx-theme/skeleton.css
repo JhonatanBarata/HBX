@@ -115,6 +115,23 @@
   --hbx-ultra: #5B39FF;
   --hbx-night-1: #03080D;
   --hbx-night-2: #071724;
+
+  /* ---- Radar console — tokens derivados do accent (5 Leis) ---------------- */
+  /* Fundo do disco: ÚNICA exceção "cena-instrumento" — valor neutro escuro neutro */
+  --radar-base: #0d1117;
+  /* Todos os demais nascem de color-mix → recolorem com a pele */
+  --radar-sweep:  color-mix(in srgb, var(--hbx-brand-strong) 82%, transparent);
+  --radar-ring:   color-mix(in srgb, var(--hbx-brand-strong) 28%, transparent);
+  --radar-blip:   color-mix(in srgb, var(--hbx-brand-strong) 90%, transparent);
+  --radar-glow:   color-mix(in srgb, var(--hbx-brand-strong) 72%, transparent);
+  --radar-trail:  color-mix(in srgb, var(--hbx-brand-strong) 30%, transparent);
+  --radar-axis:   color-mix(in srgb, var(--hbx-brand-strong) 22%, transparent);
+  /* Estado pausado — usa warning */
+  --radar-pause:  color-mix(in srgb, var(--hbx-warning) 80%, transparent);
+  /* Indicador de menu — cor persistente por estado */
+  --radar-menu-working: var(--hbx-brand-strong);
+  --radar-menu-paused:  var(--hbx-warning);
+  --radar-menu-stopped: var(--text-muted);
 }
 
 /* ============================================================

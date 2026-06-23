@@ -36,6 +36,8 @@ html, body { margin: 0; }
 .plan-card strong { font-size: 0.8rem; }
 .plan-card small { font-size: 0.68rem; color: var(--text-muted); }
 .plan-card button { min-height: 32px; border-radius: var(--radius-xs); border: 1px solid var(--hbx-brand); background: transparent; color: var(--hbx-brand); font-family: var(--font-body); font-size: 0.74rem; font-weight: 700; cursor: pointer; }
+/* Trial: CTA de upgrade preenchido (chama pra ação) — destaca o "Assinar agora". */
+.plan-card button.plan-card__upgrade { background: var(--login-accent); border-color: transparent; color: var(--hbx-brand-ink, #fff); }
 .user-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); }
 .user-card strong { display: block; font-size: 0.78rem; }
 .user-card small { font-size: 0.66rem; color: var(--text-muted); }
@@ -551,6 +553,12 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .hbx-nudge .tx { flex: 1; min-width: 180px; display: grid; gap: 3px; }
 .hbx-nudge .title { font-weight: 700; font-size: 0.8rem; color: var(--text-strong); }
 .hbx-nudge .body-txt { color: var(--text-body); line-height: 1.45; }
+
+/* ── Leads nav-item: cor persistente por estado do radar ─────────────────── */
+/* Indicador sutil (ponto colorido à direita do label) recolore com operationalState */
+.nav-item--radar-working { color: var(--radar-menu-working) !important; }
+.nav-item--radar-paused  { color: var(--radar-menu-paused)  !important; }
+/* parado = cor normal do nav-item, sem override */
 
 /* Bot nav: reage periodicamente com brilho sinistro (a cada ~3 min) */
 @keyframes bot-lurk {

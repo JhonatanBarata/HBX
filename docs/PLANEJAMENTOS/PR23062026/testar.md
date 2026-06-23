@@ -102,3 +102,17 @@ Olhe o **topo da tela**, perto do botão de **trocar o tema** (claro/escuro). Te
 - Na tela de espera, **Confirmar pelo WhatsApp** (no ambiente de teste): digite o telefone → **Enviar código** → o código de 6 números **aparece na própria tela** → digite → **confirma**. (Na versão de verdade o código **não** aparece na tela, chega no WhatsApp.)
 - **Cartão** só abre **depois de confirmar o e-mail**. Antes disso, sempre a tela de espera.
 - **Anti-abuso:** duas empresas diferentes tentando usar o **mesmo CPF/telefone** num plano com teste grátis → a segunda recebe **erro**. A mesma empresa refazendo → **passa** normal.
+
+## O cartão do teste aparece pra subir de plano (novo)
+- Pegue uma conta que **já passou o cartão pra começar o teste**. No canto, no quadrinho do seu plano, o botão tem que estar escrito **Assinar agora** (em destaque, preenchido).
+- Aperte **Assinar agora**: em vez de pedir o cartão de novo, tem que aparecer **o cartão que você já cadastrou** — algo como **"•••• 4242 — confirmar"** — e um link **usar outro cartão**.
+- Confirme com esse cartão: a assinatura tem que **ativar na hora**, **sem você digitar o cartão de novo**. *(No ambiente de teste roda do começo ao fim; na versão de verdade pode pedir pra concluir o pagamento.)*
+- Agora escolha **um plano maior** no catálogo (subir de plano): de novo tem que mostrar **"•••• 4242 — confirmar"**, não o formulário em branco. O link **usar outro cartão** sempre fica disponível pra quem quer trocar.
+- Escolha **um plano menor** (baixar): tem que continuar como antes — **sem cobrança agora**, mantém o que pagou até o fim e gera crédito.
+
+## Trocar de plano: tela com os detalhes e a diferença (novo)
+- Entre em **Configurações** → **Plano e cobrança**. Num plano **mais forte**, aperte **Fazer upgrade**.
+- Abre um **quadro no meio da tela** que tem que mostrar: **os detalhes do plano novo** (igual ao que aparece no site quando você clica num plano — pra que serve, o que vem nele) e uma **fileira comparando** o plano de agora com o novo: **preço por mês**, **quantos acessos** e **quantos leads por mês**, com uma **setinha** mostrando se sobe ou desce.
+- O quadro **não pode ficar vazio dos lados** (era esse o problema).
+- Num plano **mais fraco**, aperte **Reduzir plano**: a **mesma cara**, mostrando o que muda e o aviso de que você usa o que já pagou até o fim.
+- Confira no **site** também (a tela de planos, clicando num plano pra ver os "Detalhes"): tem que continuar **igual a antes** — não pode ter quebrado nada.

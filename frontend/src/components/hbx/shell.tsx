@@ -89,7 +89,7 @@ export const ICONS: Record<string, string[]> = {
   file: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5"],
   bolt: ["M13 3 4 14h7l-1 7 9-11h-7z"],
   trash: ["M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"],
-  crown: ["M3 17h18", "M3 17l2.5-8 4.5 3 4-7 4 7 4.5-3L21 17"],
+  crown: ["M2 19h20", "M6 19l1.5-6 4 2.5L12 8l.5 7.5 4-2.5L18 19", "M12 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "M3.5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z", "M20.5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"],
   help: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9.6 9.3a2.4 2.4 0 0 1 4.7.7c0 1.6-2.3 1.9-2.3 3.5", "M12 17h.01"],
 };
 
@@ -204,7 +204,7 @@ export const NAV_LINKS = [
   { id: "dash", label: "Dashboard", href: "/dashboard" },
   // 15/06 (#5): Radar+Leads viram UMA entrada "Radar" → /leads (achar+puxar+distribuir
   // no mesmo lugar). A busca crua /webscraping segue roteável (admin), fora do menu.
-  { id: "leads", label: "Radar", href: "/leads" },
+  { id: "leads", label: "Leads", href: "/leads" },
   { id: "vendas", label: "Vendas", href: "/vendas", chevron: true },
   { id: "atend", label: "Atendimento", href: "/atendimento" },
   { id: "bot", label: "Bot", href: "/bot" },
@@ -335,6 +335,12 @@ export async function fetchPlanMeCached(): Promise<PlanMe> {
 export function peekPlanMeCache(): PlanMe | undefined {
   if (planMeCache && Date.now() - planMeCache.at < 60_000) return planMeCache.data;
   return undefined;
+}
+
+// Invalida o cache pra forçar um plano/me fresco no próximo fetch (ex.: depois de
+// re-sincronizar a cobrança e querer reavaliar o bloqueio na hora).
+export function clearPlanMeCache() {
+  planMeCache = null;
 }
 
 export function useEntitlements() {
@@ -488,10 +494,44 @@ export function isModuleVisible(
 }
 
 // Leva para Configurações → Plano e cobrança (mesmo padrão de "dica" dos avisos do
-// topo: a tela lê hbx:config-sec no mount e abre a seção certa).
+// topo: a tela lê hbx:config-sec no mount e abre a seção certa). No trial, o "Assinar
+// agora" cai aqui (catálogo + modal que reusa o cartão da ficha).
 function abrirPlanoECobranca(router: ReturnType<typeof useRouter>) {
   try { sessionStorage.setItem("hbx:config-sec", "Plano e cobrança"); } catch { /* sem storage */ }
   router.push("/configuracoes");
+}
+
+// ── Radar state poll (leve: ~8s) — tinge o item "Leads" no menu global ──────
+// Consulta /webscraping/radar/search-runs/latest e extrai operationalState.
+// Roda em QUALQUER tela (persistente no shell). Para quando o componente desmonta.
+type RadarNavState = "funcionando" | "pausado" | "parado" | null;
+
+function useRadarNavState(): RadarNavState {
+  const [state, setState] = useState<RadarNavState>(null);
+  useEffect(() => {
+    if (!getToken()) return;
+    let alive = true;
+    async function poll() {
+      try {
+        const res = await apiFetch<{ meta?: { operationalState?: string } } | null>(
+          "/webscraping/radar/search-runs/latest"
+        );
+        if (!alive) return;
+        const opState = String(res?.meta?.operationalState || "").trim().toLowerCase();
+        if (opState === "funcionando" || opState === "pausado" || opState === "parado") {
+          setState(opState as RadarNavState);
+        } else {
+          setState("parado");
+        }
+      } catch {
+        // sem acesso ao módulo ou erro de rede — não pinta
+      }
+    }
+    poll();
+    const id = setInterval(poll, 8000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  return state;
 }
 
 export function Sidebar({ active }: { active: string }) {
@@ -500,9 +540,14 @@ export function Sidebar({ active }: { active: string }) {
   const mods = useMyModules();
   const router = useRouter();
   const plan = usePlanSummary();
+  const radarNavState = useRadarNavState();
   // Vendedor (role USER) NUNCA vê plano/cobrança (PAGAMENTOS.md). O backend já
   // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura vazia.
   const isSeller = user?.userKind === "seller";
+  // Trial → CTA de upgrade DIRETO (o dono reclamou que o "cartão" não aparecia pra
+  // assinar). Só quem realmente assina (admin/master, mesmo critério do backend).
+  const canSubscribe = Boolean(user?.isSystemMaster) || String(user?.role || "").toUpperCase() === "ADMIN";
+  const showUpgrade = plan.isTrial && canSubscribe;
   const planSub = plan.isTrial
     ? `Teste · ${plan.trialDays != null ? `${plan.trialDays} dia(s)` : "ativo"}`
     : (plan.accessLabel || "");
@@ -514,7 +559,10 @@ export function Sidebar({ active }: { active: string }) {
         <strong>HBX</strong>
       </div>
       {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods)).map(n => {
-        const cls = "nav-item" + (n.id === active ? " active" : "");
+        let cls = "nav-item" + (n.id === active ? " active" : "");
+        // Tinge o item "Leads" com a cor persistente do estado do radar
+        if (n.id === "leads" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
+        if (n.id === "leads" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
         return (
           <Link key={n.id} className={cls} href={n.href} data-tut={"nav-" + n.id}>
             <I d={ICONS[n.id]} />
@@ -530,7 +578,7 @@ export function Sidebar({ active }: { active: string }) {
               <strong>{plan.title || "Seu plano"}</strong>
               {planSub && <><br /><small>{planSub}</small></>}
             </div>
-            <button onClick={() => abrirPlanoECobranca(router)}>Gerenciar plano</button>
+            <button className={showUpgrade ? "plan-card__upgrade" : undefined} onClick={() => abrirPlanoECobranca(router)}>{showUpgrade ? "Assinar agora" : "Gerenciar plano"}</button>
           </div>
         )}
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
@@ -734,6 +782,46 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
   const emailAccessible = mods.loaded && Boolean(mods.byKey["email"]?.accessible);
   // Bot ainda não expõe estado de runtime: aceso quando o módulo está ativo, cinza quando não.
   const botState: SignalState = botAccessible ? "active" : "off";
+  // Localização: lê do localStorage e dispara a API de geolocalização.
+  const [geoState, setGeoState] = useState<SignalState>(() => {
+    if (typeof window === "undefined") return "off";
+    try {
+      const stored = localStorage.getItem("hbx:geo");
+      if (stored) {
+        const p = JSON.parse(stored);
+        if (p?.lat && p?.lng) return "active";
+      }
+    } catch { /* sem storage */ }
+    return "off";
+  });
+
+  function toggleGeo() {
+    if (geoState === "active") {
+      // desligar
+      try { localStorage.removeItem("hbx:geo"); } catch { /* sem storage */ }
+      setGeoState("off");
+      window.dispatchEvent(new CustomEvent("hbx:geo-updated", { detail: null }));
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGeoState("error");
+      return;
+    }
+    setGeoState("error"); // amarelo enquanto aguarda
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const payload = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        try { localStorage.setItem("hbx:geo", JSON.stringify(payload)); } catch { /* sem storage */ }
+        setGeoState("active");
+        window.dispatchEvent(new CustomEvent("hbx:geo-updated", { detail: payload }));
+      },
+      () => {
+        setGeoState("off");
+        try { localStorage.removeItem("hbx:geo"); } catch { /* sem storage */ }
+      },
+      { timeout: 10_000 }
+    );
+  }
   const [bellOpen, setBellOpen] = useState(false);
   // logoff também pelo avatar (pedido do dono: o "⋮" da sidebar estava escondido)
   const [avatarOpen, setAvatarOpen] = useState(false);

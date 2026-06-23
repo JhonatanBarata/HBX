@@ -1,15 +1,13 @@
 "use client";
 
-// Tela RADAR — MODELO LIMPO (PR18062026046). Três camadas, uma história só:
-//   LAGO NACIONAL  → número do Brasil (GET /night-factory/leads-bank), enche o olho.
-//   PRATELEIRA     → disponíveis pra você, contato MASCARADO, listada e navegável
-//                    (GET /webscraping/radar/leads?scope=vitrine). Buscar dispara o
-//                    motor quando a prateleira está fina (POST .../search-runs + polling).
-//   CARTEIRA       → o que você puxou, contato revelado (GET .../radar/leads sem scope).
-// Regra de ouro: abundância na VISTA, escassez na AÇÃO. As ÚNICAS travas que sobrevivem
-// são mascarar o contato + a cota (medidor único, GET /vendas/usage). Puxar = revela +
-// debita: POST /webscraping/radar/leads/:id/send-to-vendas. Histórico negativo nunca é
-// apagado (MOTOR.md). Visual 100% em classe/token central (5 Leis).
+// Tela LEADS — redesenho 23/06/2026
+// Painel direito (aside) tem 2 rostos:
+//   IDLE (sem lead selecionado) → RADAR console: disco animado + filtros + Play/STOP + Automático
+//   LEAD SELECIONADO → mini-radar no topo + DetalhesNegocio + botão voltar
+// Lista engordou: sem KPIs (exceto Total no Brasil como linha fininha) e sem rail lateral.
+// Barra de 6 ícones de canal: modo "Filtrar resultado" (client-side) e "Forçar na busca".
+// operationalState do backend ("funcionando"|"pausado"|"parado") dirige a animação e o botão.
+// Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -45,8 +43,8 @@ type RadarLead = {
   website?: string | null;
   rating?: number | null;
   reviews?: number | null;
-  enrichmentScore?: number | null;   // >0 quando enriquecido pelo radar
-  lastEnrichedAt?: string | null;    // ISO — presente quando enriquecido
+  enrichmentScore?: number | null;
+  lastEnrichedAt?: string | null;
   vendasStatus?: string | null;
   vendasReturnAt?: string | null;
   vendasAttemptCount?: number | null;
@@ -79,13 +77,20 @@ type LeadsResponse = {
   };
 };
 
+// operationalState vem dentro de meta no run
 type RunResponse = {
   id?: string;
   runId?: string;
   status?: string;
   message?: string;
   foundCount?: number;
-  meta?: { progress?: number; terminal?: boolean };
+  meta?: {
+    progress?: number;
+    terminal?: boolean;
+    operationalState?: string;
+    operationalReason?: string;
+    operationalMessage?: string;
+  };
 } | null;
 
 type BankResponse = { total?: number; deltaToday?: number; available?: boolean } | null;
@@ -106,7 +111,15 @@ type UsageResponse = {
 
 type Tab = "shelf" | "carteira";
 
-const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "error"]);
+// B0: statuses realmente terminais — removeu "error" fantasma, adicionou partial_error
+const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
+
+// Tipos de canal pra barra de 6 ícones
+type CanalKey = "whatsapp" | "email" | "telefone" | "instagram" | "facebook" | "site";
+const ALL_CANAIS: CanalKey[] = ["whatsapp", "email", "telefone", "instagram", "facebook", "site"];
+
+// Modo da barra de canais
+type CanalMode = "filtrar" | "forcar";
 
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
   const seen = new Set<string>();
@@ -142,6 +155,79 @@ type StandingOrder = {
   alcance: string;
   quantos: number;
 };
+
+// Extrai operationalState do run
+function getOpState(run: RunResponse): "funcionando" | "pausado" | "parado" | null {
+  if (!run) return null;
+  const opState = String(run.meta?.operationalState || "").trim().toLowerCase();
+  if (opState === "funcionando" || opState === "pausado" || opState === "parado") return opState;
+  return null;
+}
+
+// Filtra leads client-side por canais ativos
+function filterLeadsByCanal(items: RadarLead[], canais: Set<CanalKey>): RadarLead[] {
+  if (canais.size === 0) return items;
+  return items.filter(row => {
+    for (const c of canais) {
+      if (c === "whatsapp" && row.hasWhatsapp) return true;
+      if (c === "email" && row.hasEmail) return true;
+      if (c === "telefone" && row.hasPhone) return true;
+      if (c === "instagram" && row.instagramUrl) return true;
+      if (c === "facebook" && row.facebookUrl) return true;
+      if (c === "site" && row.website) return true;
+    }
+    return false;
+  });
+}
+
+// Componente: disco de radar animado (reutilizável: tamanho controlado pelo wrapper)
+function RadarDisc({ opState }: { opState: "funcionando" | "pausado" | "parado" | null }) {
+  const state = opState ?? "parado";
+  const modClass = state === "funcionando" ? "radar-disc-wrap--funcionando"
+    : state === "pausado" ? "radar-disc-wrap--pausado"
+    : "radar-disc-wrap--parado";
+
+  // posições dos blips (estáticas — efeito visual)
+  const blips: Array<{ top: string; left: string }> = [
+    { top: "28%", left: "62%" },
+    { top: "58%", left: "44%" },
+    { top: "42%", left: "74%" },
+    { top: "70%", left: "34%" },
+  ];
+
+  return (
+    <div className={`radar-disc-wrap ${modClass}`}>
+      {/* Disco interno */}
+      <div className="radarMotionDisc">
+        {/* Eixos */}
+        <i className="radarMotionAxis" data-axis="vertical" />
+        <i className="radarMotionAxis" data-axis="horizontal" />
+        {/* Anéis */}
+        <i className="radarMotionCircle" data-ring="outer" />
+        <i className="radarMotionCircle" data-ring="one" />
+        <i className="radarMotionCircle" data-ring="two" />
+        <i className="radarMotionCircle" data-ring="three" />
+        <i className="radarMotionCircle" data-ring="four" />
+        {/* Sweep */}
+        <div className="radarMotionSweep">
+          <i className="radarMotionTrail" />
+          <i className="radarMotionCore" />
+        </div>
+        {/* Anéis girando */}
+        <i className="radarMotionRing" />
+        <i className="radarMotionRingReverse" />
+        {/* Blips */}
+        {blips.map((b, i) => (
+          <div key={i} className="radarMotionBlip" style={{ top: b.top, left: b.left }}>
+            <i />
+          </div>
+        ))}
+        {/* Centro */}
+        <i className="radarMotionGlow" />
+      </div>
+    </div>
+  );
+}
 
 export function LeadsClient() {
   const router = useRouter();
@@ -186,7 +272,7 @@ export function LeadsClient() {
   const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
 
-  // WhatsApp action (resolve TODO do aside): sessão QR + acesso ao Atendimento
+  // WhatsApp action: sessão QR + acesso ao Atendimento
   const [waQrActive, setWaQrActive] = useState(false);
   const [canAtendimento, setCanAtendimento] = useState(false);
   const [canBot, setCanBot] = useState(false);
@@ -196,10 +282,13 @@ export function LeadsClient() {
   // Mobile v2: lista + card-overlay com swipe
   const [cardIdx, setCardIdx] = useState(0);
   const [cardOpen, setCardOpen] = useState(false);
-  // Swipe state (usado no card-overlay)
   const dragRef = useRef<{ startX: number; dx: number; active: boolean }>({ startX: 0, dx: 0, active: false });
   const [dragDx, setDragDx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Barra de canais
+  const [canalAtivos, setCanalAtivos] = useState<Set<CanalKey>>(new Set());
+  const [canalMode, setCanalMode] = useState<CanalMode>("filtrar");
 
   const loadBank = useCallback(() => {
     apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
@@ -215,7 +304,7 @@ export function LeadsClient() {
       .catch(() => setUsage(null));
   }, []);
 
-  const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number }) => {
+  const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number; canaisForcar?: Set<CanalKey> }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
     const limit = which === "shelf" ? (opts?.quantosOverride ?? quantos) : pageSize;
@@ -225,6 +314,9 @@ export function LeadsClient() {
     if (city) params.set("city", city);
     if (uf) params.set("state", uf);
     if (which === "shelf" && alcance) params.set("radius", alcance);
+    // Modo "Forçar na busca": tenta passar canais como restrição query.
+    // O endpoint /radar/leads NÃO aceita filtro de canal (confirmado na análise de loadList).
+    // O "Forçar" age na URL do search-run (POST), não aqui — ver executarBusca().
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
       .then(res => {
         setData(res);
@@ -248,7 +340,6 @@ export function LeadsClient() {
     apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order")
       .then(res => { if (res?.standingOrder) setStandingOrder(res.standingOrder); })
       .catch(() => null);
-    // WhatsApp: mesma lógica do Vendas (qrActive + canAtendimento para o botão de ação)
     apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
       .then(res => setWaQrActive(res?.whatsappSession?.accessible === true))
       .catch(() => setWaQrActive(false));
@@ -272,10 +363,14 @@ export function LeadsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segment, city, uf]);
 
+  // B0: polling por operationalState do backend (não por status fantasma)
   useEffect(() => {
     const runId = run?.id || run?.runId;
+    const opState = getOpState(run);
     const status = String(run?.status || "");
-    if (!runId || TERMINAL_RUN.has(status)) {
+    // Só para o poll se terminou E o operationalState diz "parado"
+    const isTerminal = TERMINAL_RUN.has(status) || run?.meta?.terminal;
+    if (!runId || (isTerminal && opState !== "funcionando" && opState !== "pausado")) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
     }
@@ -284,7 +379,10 @@ export function LeadsClient() {
       try {
         const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
         setRun(res);
-        if (TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal) {
+        const resOpState = getOpState(res);
+        const resStatus = String(res?.status || "");
+        const resTerminal = TERMINAL_RUN.has(resStatus) || res?.meta?.terminal;
+        if (resTerminal && resOpState !== "funcionando" && resOpState !== "pausado") {
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
           loadList("shelf", { page: 1 });
           loadBank();
@@ -292,7 +390,7 @@ export function LeadsClient() {
           setPage(1);
         }
       } catch {
-        // mantém o último estado; a próxima volta tenta de novo
+        // mantém o último estado
       }
     }, 4000);
     return () => {
@@ -326,6 +424,7 @@ export function LeadsClient() {
     });
   }
 
+  // B5: Automático — repõe a lista do Vendas sozinho
   async function toggleAutomatico() {
     if (autoBusy) return;
     setAutoBusy(true);
@@ -344,22 +443,44 @@ export function LeadsClient() {
       });
       if (res?.standingOrder) setStandingOrder(res.standingOrder);
     } catch {
-      // silencia — o estado local já atualiza via setStandingOrder
+      // silencia
     } finally {
       setAutoBusy(false);
     }
   }
 
+  // operationalState atual (do run mais recente)
+  const opState = getOpState(run);
+
+  // B0: runActive agora usa operationalState + TERMINAL_RUN corrigido
+  // "pausado" (descansando) NÃO desabilita o Play — retoma sozinho
+  const runActive = Boolean(
+    (run?.id || run?.runId) &&
+    !TERMINAL_RUN.has(String(run?.status || "")) &&
+    opState === "funcionando"
+  );
+  const runPaused = opState === "pausado"; // descansando — não bloqueia Play
+  const runProgress = run?.meta?.progress;
+
   async function executarBusca() {
+    // "pausado" não bloqueia — pode iniciar nova busca
     if (runBusy || runActive) return;
     if (!city.trim()) { setSearchMsg("Me diz a cidade — o motor não varre sem ela."); return; }
     if (!segment.trim()) { setSearchMsg("Escolha um segmento pra eu varrer."); return; }
     setSearchMsg(null);
     setRunBusy(true);
     try {
+      // Modo "Forçar na busca": tenta passar canais preferidos no body do search-run.
+      // Nota: o endpoint aceita requiredChannels/channelMatchMode (confirmado no backup),
+      // mas o backend pode ignorar se não tiver suporte — degrada graciosamente.
+      const body: Record<string, unknown> = { city, state: uf || undefined, segment };
+      if (canalMode === "forcar" && canalAtivos.size > 0) {
+        body.requiredChannels = Array.from(canalAtivos);
+        body.channelMatchMode = "any";
+      }
       const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
         method: "POST",
-        body: JSON.stringify({ city, state: uf || undefined, segment }),
+        body: JSON.stringify(body),
       });
       setRun(res);
       if (res?.message) setSearchMsg(res.message);
@@ -367,6 +488,19 @@ export function LeadsClient() {
       setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
     } finally {
       setRunBusy(false);
+    }
+  }
+
+  async function pararBusca() {
+    const runId = run?.id || run?.runId;
+    if (!runId || !runActive) return;
+    try {
+      await apiFetch(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: JSON.stringify({}) });
+      // atualiza run
+      const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
+      setRun(res);
+    } catch {
+      // silencia — o poll vai pegar o estado real
     }
   }
 
@@ -419,7 +553,21 @@ export function LeadsClient() {
     setPage(1);
   }
 
-  const items = data?.items || [];
+  // Canal toggle
+  function toggleCanal(c: CanalKey) {
+    setCanalAtivos(prev => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c); else next.add(c);
+      return next;
+    });
+  }
+
+  const rawItems = data?.items || [];
+  // Aplicar filtro de canal client-side quando modo = "filtrar"
+  const items = canalMode === "filtrar" && canalAtivos.size > 0
+    ? filterLeadsByCanal(rawItems, canalAtivos)
+    : rawItems;
+
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
@@ -428,9 +576,6 @@ export function LeadsClient() {
   const cityOptions = uf
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
     : [];
-
-  const runActive = Boolean((run?.id || run?.runId) && !TERMINAL_RUN.has(String(run?.status || "")));
-  const runProgress = run?.meta?.progress;
 
   const pageTotal = data?.total || 0;
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
@@ -454,8 +599,14 @@ export function LeadsClient() {
       : tab === "carteira"
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
         : city
-          ? `Prateleira vazia pra ${city}. Clique Buscar — o motor varre e traz fresquinhos.`
-          : "Escolha cidade + segmento e clique Buscar.";
+          ? `Prateleira vazia pra ${city}. Use o Radar → Buscar no painel ao lado.`
+          : "Escolha cidade + segmento no painel ao lado e busque leads.";
+
+  const meterPct = Math.min(100, Math.round(
+    isSeller
+      ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100
+      : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
+  ));
 
   function contatoMascarado(row: RadarLead) {
     const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
@@ -473,7 +624,6 @@ export function LeadsClient() {
     );
   }
 
-  // WhatsApp Externo: wa.me direto
   function abrirWhatsAppExterno(phone: string | null | undefined) {
     if (!phone) return;
     const digits = phone.replace(/\D/g, "");
@@ -481,7 +631,6 @@ export function LeadsClient() {
     window.open(`https://wa.me/${target}`, "_blank", "noopener");
   }
 
-  // WhatsApp Interno: POST /inbox/conversations/start → navega pro /atendimento
   async function abrirWhatsAppInterno(lead: { phone: string | null; name: string | null }) {
     if (!lead.phone || waStartBusy) return;
     setWaStartBusy(true);
@@ -505,7 +654,6 @@ export function LeadsClient() {
     }
   }
 
-  // ── Detalhe do lead (reutilizável: desktop aside + mobile sheet) ──────────
   function fmtVendasStatusLabel(status: string | null | undefined) {
     switch (String(status || "").trim().toLowerCase()) {
       case "contato": return "Em contato";
@@ -547,7 +695,6 @@ export function LeadsClient() {
       opportunityScore: lead.opportunityScore > 0 ? lead.opportunityScore : null,
       rating: lead.rating ?? null,
       reviews: lead.reviews ?? null,
-      // contato: só revelado na carteira
       phone: revealed ? lead.phone : null,
       email: revealed ? (lead.email ?? null) : null,
       website: revealed ? (lead.website ?? null) : null,
@@ -557,7 +704,6 @@ export function LeadsClient() {
         instagramUrl: revealed ? (lead.instagramUrl ?? null) : null,
         facebookUrl: revealed ? (lead.facebookUrl ?? null) : null,
       },
-      // pipeline de Vendas — só na carteira
       statusLabel: hasVendas ? fmtVendasStatusLabel(lead.vendasStatus) : undefined,
       returnAt: hasVendas ? (lead.vendasReturnAt ?? undefined) : undefined,
       attemptCount: hasVendas ? (lead.vendasAttemptCount ?? undefined) : undefined,
@@ -611,6 +757,7 @@ export function LeadsClient() {
                 <span className={`radar2-fit${lead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {lead.fitScore}</span>
               </div>
             )}
+            {waStartError && <p style={{ marginTop: 8, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>{waStartError}</p>}
           </>
         }
         actions={
@@ -633,7 +780,115 @@ export function LeadsClient() {
     );
   }
 
-  // Swipe handlers (usados no card-overlay)
+  // ── Radar console: o disco + controles quando nenhum lead está selecionado ──
+  function renderRadarConsole(mini: boolean) {
+    const stateLabel = runActive
+      ? "Varrendo agora"
+      : runPaused
+        ? "Descansando — retoma sozinho"
+        : "Pronto pra buscar";
+    const stateClass = runActive ? "radar-state-label--funcionando"
+      : runPaused ? "radar-state-label--pausado"
+      : "radar-state-label--parado";
+    const opMsg = run?.meta?.operationalMessage || null;
+
+    if (mini) {
+      return (
+        <div className="radar-mini-bar">
+          <div style={{ flexShrink: 0, width: 56, height: 56 }}>
+            <RadarDisc opState={opState} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div className={`radar-state-label ${stateClass}`} style={{ textAlign: "left", margin: 0 }}>{stateLabel}</div>
+            {opMsg && <div className="radar-state-msg" style={{ textAlign: "left", margin: "2px 0 0" }}>{opMsg}</div>}
+          </div>
+          <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
+            ← Voltar
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="radar-console">
+        <RadarDisc opState={opState} />
+
+        <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
+        {opMsg && <div className="radar-state-msg">{opMsg}</div>}
+
+        {/* Filtros compactos */}
+        <div className="radar-controls">
+          <div className="f">
+            <label htmlFor="rc-uf">Estado</label>
+            <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
+              <option value="">Todos</option>
+              {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="f">
+            <label htmlFor="rc-city">Cidade</label>
+            <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
+              <option value="">Cidade</option>
+              {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="f">
+            <label htmlFor="rc-seg">Segmento</label>
+            <select id="rc-seg" className="select-dark" value={segment} onChange={e => setSegment(e.target.value)}>
+              <option value="">Ex.: Odontologia</option>
+              {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="f">
+            <label htmlFor="rc-alcance">Alcance</label>
+            <select id="rc-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
+              <option value="">Só a cidade</option>
+              <option value="25">+ 25 km</option>
+              <option value="50">+ 50 km</option>
+              <option value="100">+ 100 km</option>
+            </select>
+          </div>
+          <div className="f">
+            <label htmlFor="rc-quantos">Quantos</label>
+            <select id="rc-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
+              {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Ações: Play/STOP + Automático */}
+        <div className="radar-actions">
+          {runActive ? (
+            <button className="btn-ghost" onClick={pararBusca}>
+              ◼ STOP
+            </button>
+          ) : (
+            <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>
+              {runBusy ? "Iniciando…" : runPaused ? "▶ Retomar" : "▶ Buscar"}
+            </button>
+          )}
+          <button
+            className={"btn-ghost radar-auto" + (standingOrder?.active ? " radar-auto--on" : "")}
+            onClick={toggleAutomatico}
+            disabled={autoBusy}
+            aria-pressed={standingOrder?.active}
+            title="Automático — repõe sua lista de Vendas sozinho"
+          >
+            {standingOrder?.active ? "◉ Auto" : "◎ Auto"}
+          </button>
+        </div>
+
+        {/* Ver N leads disponíveis */}
+        <button className="btn-ghost btn-xs" onClick={() => { setPage(1); setSelected(new Set()); loadList("shelf", { page: 1, quantosOverride: quantos }); }}>
+          <I d={ICONS.search} size={12} /> Ver {quantos} leads disponíveis
+        </button>
+
+        {searchMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{searchMsg}</p>}
+      </div>
+    );
+  }
+
+  // ── Swipe handlers (card-overlay mobile) ─────────────────────────────────
   function onPointerDown(e: React.PointerEvent) {
     dragRef.current = { startX: e.clientX, dx: 0, active: true };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -654,24 +909,11 @@ export function LeadsClient() {
     const dx = dragRef.current.dx;
     setDragDx(0);
     if (Math.abs(dx) > 80) {
-      if (dx < 0) {
-        // swipe esquerda = próximo
-        cardGo(1);
-      } else {
-        // swipe direita = anterior
-        cardGo(-1);
-      }
+      if (dx < 0) cardGo(1);
+      else cardGo(-1);
     }
   }
 
-  // Mete %
-  const meterPct = Math.min(100, Math.round(
-    isSeller
-      ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100
-      : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
-  ));
-
-  // ── Card overlay: estado (cardIdx efetivo, aberto/fechado) ────────────────
   const isCardHandoff = cardIdx >= items.length;
   const activeCard = !isCardHandoff ? items[cardIdx] : null;
 
@@ -680,7 +922,6 @@ export function LeadsClient() {
       const next = prev + dir;
       if (next < 0) return 0;
       if (next >= items.length) {
-        // passou do último → vai pra vendas
         router.push("/vendas");
         return items.length;
       }
@@ -699,60 +940,51 @@ export function LeadsClient() {
     setCardOpen(false);
   }
 
-  // Vista mobile: lista vertical
+  // ── Vista mobile: lista vertical ──────────────────────────────────────────
   function renderListMobile() {
     return (
       <>
-      <div className="lead-list">
-        {/* Empty state */}
-        {items.length === 0 && (
-          <div className="lead-list__empty">
-            <div className="radar2-empty">{emptyMsg}</div>
-          </div>
-        )}
-
-        {/* Linhas */}
-        {items.map((row, i) => (
-          <button
-            key={row.id}
-            className="lead-list-row"
-            onClick={() => openCard(i)}
-            aria-label={`Abrir detalhes de ${row.name || "lead"}`}
-          >
-            {/* Avatar */}
-            <Av name={row.name || "—"} size={42} />
-
-            {/* Info central */}
-            <div className="lead-list-row__body">
-              <span className="lead-list-row__name">{row.name || "—"}</span>
-              <span className="lead-list-row__sub">
-                {row.segment || row.businessCategory || "—"}
-                {row.city ? ` · ${row.city}${row.state ? `/${row.state}` : ""}` : ""}
-              </span>
-              {row.opportunitySignals && row.opportunitySignals.length > 0 && (
-                <div className="lead-list-row__pills">
-                  {row.opportunitySignals.slice(0, 2).map(sig => {
-                    const m = SIGNAL_META[sig];
-                    if (!m) return null;
-                    return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
-                  })}
-                  {row.fitScore != null && row.fitScore > 0 && (
-                    <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>
-                      Fit {row.fitScore}
-                    </span>
-                  )}
-                </div>
-              )}
+        <div className="lead-list">
+          {items.length === 0 && (
+            <div className="lead-list__empty">
+              <div className="radar2-empty">{emptyMsg}</div>
             </div>
+          )}
+          {items.map((row, i) => (
+            <button
+              key={row.id}
+              className="lead-list-row"
+              onClick={() => openCard(i)}
+              aria-label={`Abrir detalhes de ${row.name || "lead"}`}
+            >
+              <Av name={row.name || "—"} size={42} />
+              <div className="lead-list-row__body">
+                <span className="lead-list-row__name">{row.name || "—"}</span>
+                <span className="lead-list-row__sub">
+                  {row.segment || row.businessCategory || "—"}
+                  {row.city ? ` · ${row.city}${row.state ? `/${row.state}` : ""}` : ""}
+                </span>
+                {row.opportunitySignals && row.opportunitySignals.length > 0 && (
+                  <div className="lead-list-row__pills">
+                    {row.opportunitySignals.slice(0, 2).map(sig => {
+                      const m = SIGNAL_META[sig];
+                      if (!m) return null;
+                      return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                    })}
+                    {row.fitScore != null && row.fitScore > 0 && (
+                      <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>
+                        Fit {row.fitScore}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <span className="lead-list-row__chev" aria-hidden>›</span>
+            </button>
+          ))}
+        </div>
 
-            {/* Chevron */}
-            <span className="lead-list-row__chev" aria-hidden>›</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Barra de cota compacta — fixa no rodapé (fora do scroll da lista) */}
-      {tab === "shelf" && (
+        {tab === "shelf" && (
           <div className={"lead-list__meter" + (meterBlocked ? " blocked" : "")}>
             <div className="lead-list__meter-row">
               <span className="lead-list__meter-lbl">
@@ -771,74 +1003,39 @@ export function LeadsClient() {
     );
   }
 
-  // ── Card overlay (swipe Tinder) ───────────────────────────────────────────
+  // ── Card overlay mobile (swipe Tinder) ────────────────────────────────────
   function renderCardOverlay() {
     if (!cardOpen) return null;
     return (
       <div className="hbx-veil" onClick={closeCard}>
-        <div
-          className="lead-card-modal"
-          onClick={e => e.stopPropagation()}
-        >
-          {/* Topo do modal: nav + X */}
+        <div className="lead-card-modal" onClick={e => e.stopPropagation()}>
           <div className="lead-card-modal__nav">
-            <button
-              className="lead-card-modal__arrow"
-              onClick={() => cardGo(-1)}
-              disabled={cardIdx === 0}
-              aria-label="Anterior"
-            >
-              ‹
-            </button>
+            <button className="lead-card-modal__arrow" onClick={() => cardGo(-1)} disabled={cardIdx === 0} aria-label="Anterior">‹</button>
             <div className="lead-card-modal__dots">
               {items.slice(0, Math.min(items.length, 10)).map((_, i) => (
-                <span
-                  key={i}
-                  className={"lead-card-modal__dot" + (i === cardIdx ? " lead-card-modal__dot--active" : "")}
-                />
+                <span key={i} className={"lead-card-modal__dot" + (i === cardIdx ? " lead-card-modal__dot--active" : "")} />
               ))}
             </div>
             <span className="lead-card-modal__progress">
               {isCardHandoff ? `${items.length}/${items.length}` : `${cardIdx + 1}/${items.length}`}
             </span>
-            <button
-              className="lead-card-modal__arrow"
-              onClick={() => {
-                if (isCardHandoff) { router.push("/vendas"); }
-                else { cardGo(1); }
-              }}
-              aria-label="Próximo"
-            >
-              ›
-            </button>
-            <button
-              className="lead-card-modal__close"
-              onClick={closeCard}
-              aria-label="Fechar"
-            >
-              ✕
-            </button>
+            <button className="lead-card-modal__arrow" onClick={() => { if (isCardHandoff) router.push("/vendas"); else cardGo(1); }} aria-label="Próximo">›</button>
+            <button className="lead-card-modal__close" onClick={closeCard} aria-label="Fechar">✕</button>
           </div>
 
-          {/* Card deslizável (swipe Tinder) */}
           <div className="lead-card-modal__body">
             {isCardHandoff ? (
-              /* Slide de handoff */
               <div className="lead-card lead-card--handoff" onClick={() => router.push("/vendas")}>
                 <div className="lead-handoff__icon">🏆</div>
                 <div className="lead-handoff__title">Acabou a prateleira</div>
                 <div className="lead-handoff__sub">Seus leads viram negócios — toque pra abrir o Vendas</div>
-                <button className="btn-teal" onClick={() => router.push("/vendas")}>
-                  Abrir Vendas →
-                </button>
+                <button className="btn-teal" onClick={() => router.push("/vendas")}>Abrir Vendas →</button>
               </div>
             ) : activeCard && (
               <div
                 className="lead-card"
                 style={{
-                  transform: isDragging
-                    ? `translateX(${dragDx}px) rotate(${dragDx * 0.03}deg)`
-                    : "translateX(0) rotate(0deg)",
+                  transform: isDragging ? `translateX(${dragDx}px) rotate(${dragDx * 0.03}deg)` : "translateX(0) rotate(0deg)",
                   opacity: isDragging ? Math.max(0.75, 1 - Math.abs(dragDx) / 500) : 1,
                   transition: isDragging ? "none" : "transform 0.22s ease, opacity 0.22s ease",
                 }}
@@ -847,7 +1044,6 @@ export function LeadsClient() {
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerUp}
               >
-                {/* Hero */}
                 <div className="lead-card__hero">
                   <Av name={activeCard.name || "—"} size={48} />
                   <div className="lead-card__hero-body">
@@ -868,8 +1064,6 @@ export function LeadsClient() {
                     </div>
                   </div>
                 </div>
-
-                {/* Body: detalhe completo */}
                 <div className="lead-card__body">
                   {renderLeadDetail(activeCard)}
                 </div>
@@ -877,11 +1071,36 @@ export function LeadsClient() {
             )}
           </div>
 
-          {/* Dica de swipe */}
-          <p className="lead-card-modal__hint">
-            ← Arraste o card para navegar →
-          </p>
+          <p className="lead-card-modal__hint">← Arraste o card para navegar →</p>
         </div>
+      </div>
+    );
+  }
+
+  // ── Barra de canal (B5) ────────────────────────────────────────────────────
+  function renderCanalBar() {
+    return (
+      <div className="radar-canal-bar">
+        <span className="radar-canal-bar__mode">Canais:</span>
+        {ALL_CANAIS.map(c => (
+          <button
+            key={c}
+            className={"radar-canal-toggle" + (canalAtivos.has(c) ? " radar-canal-toggle--active" : "")}
+            onClick={() => toggleCanal(c)}
+            title={c.charAt(0).toUpperCase() + c.slice(1)}
+            aria-pressed={canalAtivos.has(c)}
+          >
+            <CanalIcon canal={c} size="sm" />
+            <span>{c === "instagram" ? "IG" : c === "facebook" ? "FB" : c.charAt(0).toUpperCase() + c.slice(1)}</span>
+          </button>
+        ))}
+        <button
+          className={"radar-canal-mode-btn" + (canalMode === "forcar" ? " radar-canal-mode-btn--force" : "")}
+          onClick={() => setCanalMode(m => m === "filtrar" ? "forcar" : "filtrar")}
+          title={canalMode === "filtrar" ? "Modo: Filtrar resultado (clique para Forçar na busca)" : "Modo: Forçar na busca (clique para Filtrar resultado)"}
+        >
+          {canalMode === "filtrar" ? "Filtrar resultado" : "Forçar na busca"}
+        </button>
       </div>
     );
   }
@@ -889,48 +1108,24 @@ export function LeadsClient() {
   return (
     <div className="content leads-page">
       <div className="work">
-        {/* 4 KPIs do topo */}
-        <section className="panel" style={{ padding: "14px 16px" }} data-tut="leads-kpis">
+        {/* B1: linha fininha Total no Brasil (substituiu os 4 KPIs) */}
+        <section className="panel" style={{ padding: 0 }}>
           {isMobile ? (
-            <div className="lead-kpis-strip">
-              <div className="radar2-kpi">
-                <span className="lbl">Brasil</span>
-                <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
-              </div>
-              <div className="radar2-kpi">
-                <span className="lbl">Filtrados</span>
-                <span className="num">{data?.meta?.filteredOut != null ? fmtInt(data.meta.filteredOut) : "—"}</span>
-              </div>
-              <div className="radar2-kpi">
-                <span className="lbl">WhatsApp</span>
-                <span className="num">{data?.meta?.whatsappVerified != null ? fmtInt(data.meta.whatsappVerified) : "—"}</span>
-              </div>
-              <div className="radar2-kpi">
-                <span className="lbl">Carteira</span>
-                <span className="num">{usage?.sellerActiveQuota?.activeCount != null ? fmtInt(usage.sellerActiveQuota.activeCount) : "—"}</span>
-              </div>
+            /* Mobile: mantém tira de KPIs mas compacto */
+            <div className="leads-bank-strip">
+              <span>Brasil:</span>
+              <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
+              {bank && Number(bank.deltaToday || 0) > 0 && (
+                <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
+              )}
             </div>
           ) : (
-            <div className="radar2-kpis">
-              <div className="radar2-kpi">
-                <span className="lbl">Total no Brasil</span>
-                <span className="num">{bank ? fmtInt(bank.total) : "—"}</span>
-                {bank && Number(bank.deltaToday || 0) > 0 && <span className="delta">+{fmtInt(bank.deltaToday)} hoje</span>}
-              </div>
-              <div className="radar2-kpi">
-                <span className="lbl">Filtrados (removidos)</span>
-                <span className="num">{data?.meta?.filteredOut != null ? fmtInt(data.meta.filteredOut) : "—"}</span>
-                {data?.meta?.filteredOut == null && <span className="sub2">ligando o motor…</span>}
-              </div>
-              <div className="radar2-kpi">
-                <span className="lbl">Com WhatsApp</span>
-                <span className="num">{data?.meta?.whatsappVerified != null ? fmtInt(data.meta.whatsappVerified) : "—"}</span>
-                {data?.meta?.whatsappVerified == null && <span className="sub2">ligando o motor…</span>}
-              </div>
-              <div className="radar2-kpi">
-                <span className="lbl">Em atendimento</span>
-                <span className="num">{usage?.sellerActiveQuota?.activeCount != null ? fmtInt(usage.sellerActiveQuota.activeCount) : "—"}</span>
-              </div>
+            <div className="leads-bank-strip">
+              <span>Total no Brasil:</span>
+              <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
+              {bank && Number(bank.deltaToday || 0) > 0 && (
+                <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
+              )}
             </div>
           )}
         </section>
@@ -938,7 +1133,7 @@ export function LeadsClient() {
         {/* PRATELEIRA + CARTEIRA */}
         <section className="panel leads-shelf" style={{ padding: 0 }}>
           <div className="radar2-shell">
-            {/* rail de filtros */}
+            {/* Mobile: filtro toggle */}
             {isMobile && (
               <button
                 className="radar2-filter-toggle"
@@ -950,76 +1145,69 @@ export function LeadsClient() {
                 <I d={ICONS.filter} size={14} />
               </button>
             )}
-            <div className={"radar2-rail" + (isMobile ? (filterOpen ? " radar2-rail--open" : "") : "")} data-tut="leads-filtros">
-              <div className="f">
-                <label htmlFor="radar2-uf">Estado</label>
-                <select id="radar2-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
-                  <option value="">Todos</option>
-                  {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div className="f">
-                <label htmlFor="radar2-city">Cidade</label>
-                <select id="radar2-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
-                  <option value="">Cidade</option>
-                  {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-                </select>
-              </div>
-              <div className="f">
-                <label htmlFor="radar2-alcance">Alcance</label>
-                <select id="radar2-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
-                  <option value="">Só a cidade</option>
-                  <option value="25">+ 25 km</option>
-                  <option value="50">+ 50 km</option>
-                  <option value="100">+ 100 km</option>
-                </select>
-              </div>
-              <div className="f">
-                <label htmlFor="radar2-seg">Segmento</label>
-                <select id="radar2-seg" className="select-dark" value={segment} onChange={e => setSegment(e.target.value)}>
-                  <option value="">Ex.: Odontologia</option>
-                  {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-                </select>
-              </div>
-              <div className="f">
-                <label htmlFor="radar2-quantos">Quantos</label>
-                <select id="radar2-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
-                  {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-              </div>
-              <button className="btn-teal" data-tut="leads-ver" onClick={() => { setPage(1); setSelected(new Set()); loadList("shelf", { page: 1, quantosOverride: quantos }); }}>
-                <I d={ICONS.search} size={14} /> Ver {quantos} leads disponíveis
-              </button>
-              <button className="btn-ghost btn-xs" data-tut="leads-buscar" onClick={executarBusca} disabled={runBusy || runActive}>
-                {runActive ? "Varrendo…" : runBusy ? "Iniciando…" : "Buscar (motor)"}
-              </button>
-              <button
-                className={"btn-teal radar2-auto" + (standingOrder?.active ? " radar2-auto--on" : "")}
-                data-tut="leads-auto"
-                onClick={toggleAutomatico}
-                disabled={autoBusy}
-                aria-pressed={standingOrder?.active}
-              >
-                {standingOrder?.active ? "◉ Automático" : "◎ Automático"}
-              </button>
-              <p className="hint">Prateleira fina? Buscar (motor) varre a internet com cidade + segmento.</p>
-              {searchMsg && <p className="hint">{searchMsg}</p>}
-            </div>
 
-            {/* prateleira / carteira */}
+            {/* Mobile: rail de filtros (ainda existe no mobile via toggle) */}
+            {isMobile && (
+              <div className={"radar2-rail" + (filterOpen ? " radar2-rail--open" : "")}>
+                <div className="f">
+                  <label>Estado</label>
+                  <select className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
+                    <option value="">Todos</option>
+                    {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="f">
+                  <label>Cidade</label>
+                  <select className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
+                    <option value="">Cidade</option>
+                    {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="f">
+                  <label>Segmento</label>
+                  <select className="select-dark" value={segment} onChange={e => setSegment(e.target.value)}>
+                    <option value="">Ex.: Odontologia</option>
+                    {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+                  </select>
+                </div>
+                <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>
+                  {runActive ? "Varrendo…" : "Buscar (motor)"}
+                </button>
+                <button
+                  className={"btn-teal radar2-auto" + (standingOrder?.active ? " radar2-auto--on" : "")}
+                  onClick={toggleAutomatico}
+                  disabled={autoBusy}
+                  aria-pressed={standingOrder?.active}
+                >
+                  {standingOrder?.active ? "◉ Automático" : "◎ Automático"}
+                </button>
+                {searchMsg && <p className="hint">{searchMsg}</p>}
+              </div>
+            )}
+
+            {/* Área principal da lista */}
             <div className="radar2-main">
               <div className="tabs" data-tut="leads-abas">
                 <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
-                  Disponíveis pra você <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                  Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
                 </button>
                 <button className={"tab" + (tab === "carteira" ? " active" : "")} onClick={() => switchTab("carteira")}>
                   Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
                 </button>
               </div>
 
+              {/* B5: Barra de 6 ícones de canal */}
+              {tab === "shelf" && renderCanalBar()}
+
               {runActive && (
                 <div className="radar2-live">
                   <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+                </div>
+              )}
+              {runPaused && (
+                <div className="radar2-live" style={{ background: "color-mix(in srgb, var(--hbx-warning) 12%, transparent)", color: "var(--hbx-warning)" }}>
+                  <span className="dot" style={{ background: "var(--hbx-warning)" }} /> Descansando — retoma sozinho
+                  {run?.meta?.operationalMessage ? ` · ${run.meta.operationalMessage}` : ""}
                 </div>
               )}
 
@@ -1171,22 +1359,34 @@ export function LeadsClient() {
         )}
       </div>
 
-      {/* Desktop: aside lateral */}
+      {/* B4: Desktop: aside lateral com 2 estados */}
       {!isMobile && (
         <aside className="ctx">
           {!selLead ? (
-            <DetalhesNegocio
-              detail={null}
-              emptyHint="Clique em um lead para ver os detalhes do negócio"
-            />
+            /* Idle: radar console completo */
+            renderRadarConsole(false)
           ) : (
-            renderLeadDetail(selLead, { title: "Detalhes do lead", onClose: () => setSelLead(null) })
+            /* Lead selecionado: mini-radar no topo + detalhe */
+            <>
+              <div className="radar-console--mini">
+                {renderRadarConsole(true)}
+              </div>
+              {renderLeadDetail(selLead, { title: "Detalhes do lead", onClose: () => setSelLead(null) })}
+            </>
           )}
         </aside>
       )}
 
-      {/* Mobile: card-overlay central com swipe tinder */}
-      {isMobile && renderCardOverlay()}
+      {/* Mobile: radar hero no topo (sempre visível) + card-overlay com swipe */}
+      {isMobile && (
+        <>
+          {/* Hero radar no topo mobile */}
+          <div style={{ padding: "10px 14px 0" }}>
+            {renderRadarConsole(true)}
+          </div>
+          {renderCardOverlay()}
+        </>
+      )}
     </div>
   );
 }

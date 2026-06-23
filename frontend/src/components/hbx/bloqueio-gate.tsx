@@ -11,10 +11,10 @@
 // Lei 5: todo visual reusa as classes .bv-*/.reg-form (mesmo gate das boas-vindas).
 
 import { usePathname, useRouter } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
-import { fetchPlanMeCached, peekPlanMeCache, useCurrentUser } from "@/components/hbx/shell";
+import { clearPlanMeCache, fetchPlanMeCached, peekPlanMeCache, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
 
 type PlanLite = { key: string; title: string; monthlyPrice?: number | null };
@@ -60,6 +60,7 @@ export function BloqueioGate() {
   });
   const [saindo, setSaindo] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const syncedRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -70,6 +71,23 @@ export function BloqueioGate() {
     });
     return () => { alive = false; };
   }, [user]);
+
+  // Re-sync 1x ao abrir o bloqueio (no lugar de poll de fundo): pega webhook
+  // perdido e libera na hora se o MP já confirmou. Só pra inadimplente (tem
+  // assinatura). pending_checkout (sem cartão) e vendedor (accessState nulo) pulam.
+  useEffect(() => {
+    if (syncedRef.current) return;
+    if (!getToken() || !user || user.isSystemMaster) return;
+    if (!state.loaded || !state.paused) return;
+    if (state.accessState == null || state.accessState === "pending_checkout") return;
+    syncedRef.current = true;
+    let alive = true;
+    apiFetch("/financeiro/subscription/sync", { method: "POST" })
+      .then(() => { clearPlanMeCache(); return fetchPlanMeCached(); })
+      .then(res => { if (alive) setState(deriveGateState(res)); })
+      .catch(() => { /* silencioso; o webhook ainda resolve */ });
+    return () => { alive = false; };
+  }, [state.loaded, state.paused, state.accessState, user]);
 
   // Master nunca é bloqueado; sem dados ou empresa operante → sem portão.
   if (!user || user.isSystemMaster) return null;

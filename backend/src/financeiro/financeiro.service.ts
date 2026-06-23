@@ -3238,6 +3238,18 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     const existing = await this.findCurrentCompanySubscription(context.companyId);
     if (existing?.providerPreapprovalId && !['canceled', 'blocked'].includes(String(existing.status || '').toLowerCase())) {
+      // Cartao NOVO numa assinatura travada (pending/past_due/paused): atualiza o
+      // cartao NA preapproval antes de re-sincronizar, pra liberar o acesso com o
+      // cartao novo (dunning "trocar cartao libera"). NAO recria a assinatura —
+      // evita re-conceder trial / preapproval orfa. Saudavel (authorized) OU sem
+      // token novo = so re-sincroniza, como antes.
+      if (cardTokenId && this.normalizeProviderSubscriptionStatus(existing.status) !== 'authorized') {
+        try {
+          await this.mercadoPagoClient.changePreapprovalCard(accessToken, existing.providerPreapprovalId, cardTokenId);
+        } catch (error: any) {
+          this.logger.warn(`subscription_change_card_on_reuse_failed company=${context.companyId} error=${String(error?.message || error)}`);
+        }
+      }
       try {
         await this.syncPreapprovalFromProvider(existing.providerPreapprovalId, {
           source: 'subscription_create_reuse',
@@ -4052,6 +4064,28 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       subscription: this.serializeSubscription(subscription),
       overview: await this.getOverviewForUser(user),
     };
+  }
+
+  // Re-sincroniza a assinatura da empresa com o MP UMA vez, sob demanda (chamado
+  // pela tela de bloqueio ao abrir). Pega webhook perdido sem poll de fundo: é um
+  // GET no MP (nao recobra cartao) e o guard de etapa do e-mail evita reenvio.
+  // Sem preapproval (pending_checkout) ou em mock = no-op.
+  async syncSubscriptionForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const subscription = await this.findCurrentCompanySubscription(context.companyId);
+    if (subscription?.providerPreapprovalId && !this.isMockPaymentsProvider()) {
+      try {
+        await this.syncPreapprovalFromProvider(subscription.providerPreapprovalId, {
+          source: 'manual_sync_on_block',
+          companyId: context.companyId,
+        });
+      } catch (error: any) {
+        this.logger.warn(`subscription_sync_on_block_failed company=${context.companyId} error=${String(error?.message || error)}`);
+      }
+    }
+    return { ok: true, overview: await this.getOverviewForUser(user) };
   }
 
   async refreshChargeForUser(user: any, chargeId: string, paymentIdRaw?: string) {

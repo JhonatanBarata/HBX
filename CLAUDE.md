@@ -99,8 +99,9 @@ entra nos Guardrails.
   reconexão → a correção é o **FREIO**, nunca tapar o sintoma da vez. Loop de reconexão = ban.
 - **1 número = 1 conexão.** Mesmo chip em 2 lugares → o último a conectar vence, o anterior **cai e limpa**. Nunca 2 sockets
   vivos no mesmo número (conflito multi-device = ban).
-- **NUNCA reiniciar/publicar o motor com chip conectado que importe** — restart re-linka TODOS os chips (re-registra o aparelho)
-  → device_removed/restrição. `npm run publish` e `npm run new` reiniciam o `webwhats.service`.
+- **`npm run publish`/`new` reiniciam o `webwhats.service`** — o restart re-linka os chips (close 515/428 por um instante →
+  re-`open` sozinho; boot escalonado de 8s). Isso, por si só, **NÃO bana** — re-link no deploy é comprovadamente seguro. A
+  máquina de ban era o **LOOP de reconexão** (já morto pelo disjuntor); o cuidado é com o loop, não com o restart do publish.
 - **Testar conexão/reconexão em número DESCARTÁVEL meu, jamais no chip do dono** — ver ficar `open` sem loop por minutos antes
   de encostar em chip real. Culpar "o número" por bug meu de reconexão = proibido.
 - **Derrubar chip SEMPRE pela rotina do app** (`disconnectCompanySession`), nunca pela API crua do motor

@@ -21,6 +21,7 @@ import {
   type PublicPlan,
 } from "@/lib/plans";
 import { PlanCard } from "@/components/hbx/plan-card";
+import { PlanDetailCard } from "@/components/hbx/plan-detail-card";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 // Login saiu da casca (16/06): a view "entrar" foi removida — "Entrar" agora abre
@@ -885,28 +886,10 @@ export function MarketingClient() {
                   <span className="scene-next__hint">Voltar</span>
                 </button>
                 {intruderVisible && selectedPlan && (() => {
-                  const s = PLAN_STATIC[selectedPlan] ?? PLAN_STATIC.hbx_lite;
                   const lp = getLivePlan(selectedPlan);
                   return (
                     <aside className="site-plan-intruder card" aria-label="Detalhes do plano">
-                      <h2 className="site-plan-intruder__type">HBX {s.accent} · {s.temp}</h2>
-                      <div className="site-plan-intruder__body">
-                        <p className="site-plan-intruder__tag">{s.pitch}</p>
-                        <div className="site-plan-intruder__sec">
-                          <span className="site-plan-intruder__label">Como funciona</span>
-                          <ol className="site-plan-intruder__how">
-                            {s.how.map(step => <li key={step}>{step}</li>)}
-                          </ol>
-                        </div>
-                        <div className="site-plan-intruder__sec">
-                          <span className="site-plan-intruder__label">No plano</span>
-                          <ul className="site-plan-intruder__feats">
-                            {s.points(lp.includedUsers, lp.cardsPerMonth || 0).map(f => <li key={f}><Ic paths={IC_CHECK} />{f}</li>)}
-                          </ul>
-                        </div>
-                        <p className="site-plan-intruder__for">{s.forWho}</p>
-                      </div>
-                      <p className="sub site-plan-intruder__safe">{s.foot}</p>
+                      <PlanDetailCard planKey={selectedPlan} live={lp} />
                     </aside>
                   );
                 })()}

@@ -82,6 +82,7 @@ type CommercialPlansMe = {
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
     isTrial?: boolean;
+    savedCard?: { brand: string | null; last4: string | null } | null;
     assistedSetup?: { required?: boolean; status?: string | null; message?: string | null };
   };
   plans?: CatalogPlan[];
@@ -540,6 +541,7 @@ export function ConfiguracoesClient() {
             direction={dir}
             accessState={current?.accessState}
             trialRemainingDays={current?.trialRemainingDays}
+            savedCard={current?.savedCard ?? null}
             onClose={() => setTrocarPlano(null)}
             onConfirmUpgrade={plan => {
               setTrocarPlano(null);

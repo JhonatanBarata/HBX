@@ -56,6 +56,9 @@ type CommercialCurrentState = {
   billingGraceRemainingHours: number | null;
   isTrial: boolean;
   billingBreakdown?: CommercialBillingBreakdown | null;
+  // Cartão na ficha (assinatura vigente, inclusive trial): permite reusar no
+  // upgrade/assinar ("•••• 4242 — confirmar") sem redigitar. Só audiência de billing.
+  savedCard: { brand: string | null; last4: string | null } | null;
   assistedSetup: {
     required: boolean;
     status: string;
@@ -327,6 +330,7 @@ export class CommercialPlansService {
       : planKey
       ? await this.computeCompanyCommercialAmount(Number(company?.id || 0), planKey, company?.billingCycle)
       : null;
+    const savedCard = platformInfra ? null : await this.loadSavedCard(Number(company?.id || 0));
     const assistedSetupRequired = platformInfra
       ? false
       : Boolean(company?.assistedSetupRequired) || planKey === COMMERCIAL_PLAN_KEYS.MELHOR;
@@ -356,6 +360,7 @@ export class CommercialPlansService {
       billingGraceRemainingHours,
       isTrial,
       billingBreakdown,
+      savedCard,
       assistedSetup: {
         required: assistedSetupRequired,
         status: platformInfra ? 'completed' : assistedSetupStatus,
@@ -399,7 +404,24 @@ export class CommercialPlansService {
       billingGraceEndsAt: null,
       billingGraceRemainingHours: null,
       billingBreakdown: null,
+      savedCard: null,
     };
+  }
+
+  // Cartão da assinatura vigente (inclui 'trialing' — o trial já autoriza o cartão).
+  // Só o "•••• 4242"/bandeira, nunca o número. Devolve null se não há cartão na ficha.
+  private async loadSavedCard(
+    companyId: number,
+  ): Promise<{ brand: string | null; last4: string | null } | null> {
+    if (!companyId) return null;
+    const sub = await this.prisma.companySubscription.findFirst({
+      where: { companyId, status: { in: ['trialing', 'authorized', 'active', 'past_due', 'paused'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { cardBrand: true, cardLast4: true },
+    });
+    const last4 = sub?.cardLast4 ? String(sub.cardLast4).replace(/\D/g, '').slice(-4) : null;
+    if (!last4) return null;
+    return { brand: sub?.cardBrand ? String(sub.cardBrand) : null, last4 };
   }
 
   private async buildPayload(company: any, user?: any) {

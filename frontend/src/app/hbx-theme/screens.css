@@ -717,6 +717,26 @@ html, body { height: 100%; }
 .bv-step .tx { display: grid; gap: 2px; min-width: 0; }
 .bv-step .tx strong { font-size: 0.79rem; }
 .bv-step .tx small { font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
+
+/* Troca de plano: faixa antes→depois + detalhe do destino reusando o UI da landing. */
+.bv-card--plan { width: min(680px, 100%); }
+.bv-compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.bv-metric { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); min-width: 0; }
+.bv-metric__k { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; color: var(--text-muted); }
+.bv-metric__row { display: inline-flex; align-items: baseline; gap: 6px; font-size: 0.9rem; line-height: 1.2; flex-wrap: wrap; }
+.bv-metric__from { color: var(--text-muted); }
+.bv-metric__arrow { font-size: 0.78rem; color: var(--text-muted); }
+.bv-metric__arrow.is-up { color: var(--hbx-brand-strong); }
+.bv-metric__to { font-weight: 800; }
+.bv-metric__arrow.is-up + .bv-metric__to { color: var(--hbx-brand-strong); }
+
+/* Detalhe do plano FORA da cena (modal): herda o visual da landing, mas estático
+   (sem a animação de entrada presa ao .hbx-scene) e com o accent vindo da marca. */
+.bv-plan-details { --login-accent: var(--hbx-brand-strong); display: grid; gap: 14px; padding-top: 14px; border-top: 1px solid var(--border-hairline); }
+.bv-plan-details .site-plan-intruder__body { opacity: 1; animation: none; }
+.bv-plan-details .site-plan-intruder__type { opacity: 1; clip-path: none; animation: none; }
+.bv-plan-details .site-plan-intruder__safe { text-align: left; margin-top: 2px !important; }
+
 .bv-dots { display: inline-flex; gap: 6px; align-items: center; }
 .bv-dots i { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--border-strong); transition: width var(--motion-fast), background var(--motion-fast); }
 .bv-dots i.on { width: 20px; background: var(--login-accent); }
@@ -1451,10 +1471,189 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* ── Leads: tela fixa sem scroll de página ───────────────────────────────── */
 .leads-page .work { grid-template-rows: auto 1fr; align-content: stretch; padding-bottom: 0; }
 .leads-page .leads-shelf { min-height: 0; display: flex; flex-direction: column; }
-.leads-page .radar2-shell { flex: 1; min-height: 0; align-items: stretch; }
-.leads-page .radar2-rail { overflow-y: auto; }
+/* Shell agora é 1 coluna — o rail sumiu, a busca mora no aside direito */
+.leads-page .radar2-shell { flex: 1; min-height: 0; align-items: stretch; grid-template-columns: 1fr; }
 .leads-page .radar2-main { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .leads-page .radar2-main .tbl-wrap { flex: 1; overflow-y: auto; min-height: 0; }
+
+/* ── Leads: cabeçalho banco (linha fininha com Total no Brasil) ─────────── */
+.leads-bank-strip { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--border-hairline); }
+.leads-bank-strip__num { font-family: var(--font-display); font-size: 0.96rem; font-weight: 800; color: var(--text-strong); }
+.leads-bank-strip__delta { color: var(--hbx-brand-strong); font-weight: 700; }
+
+/* ── Radar console (aside direito / painel 2-estados) ────────────────────── */
+/* Disco: container do efeito animado */
+.radar-console { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 18px; }
+.radar-console--mini { padding: 8px 14px 10px; border-bottom: 1px solid var(--border-hairline); }
+
+.radar-disc-wrap { position: relative; width: 100%; aspect-ratio: 1; max-width: 220px; margin: 0 auto;
+  /* fundo escuro do disco — cena-instrumento, ÚNICA exceção de cor "própria"; valor via token */
+  background: var(--radar-base);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.radar-disc-wrap--mini { max-width: 64px; margin: 0; border-radius: 12px; aspect-ratio: 1; }
+
+/* Todos os filhos do disco */
+.radar-disc-wrap *,
+.radar-disc-wrap--mini * { position: absolute; display: block; box-sizing: border-box; min-width: 0; min-height: 0; }
+
+/* Disco central (84% do wrapper) */
+.radarMotionDisc {
+  left: 50%; top: 50%; width: 84%; aspect-ratio: 1;
+  overflow: hidden; border-radius: 999px;
+  transform: translate(-50%,-50%);
+}
+
+/* Círculos / anéis */
+.radarMotionCircle {
+  border-radius: 999px;
+  border: 1px solid var(--radar-ring);
+}
+.radarMotionCircle[data-ring="outer"] { inset: 0; }
+.radarMotionCircle[data-ring="one"]   { inset: 6%;  border-width: 2px; }
+.radarMotionCircle[data-ring="two"]   { inset: 18%; border-width: 2px; }
+.radarMotionCircle[data-ring="three"] { inset: 32%; border-width: 2px; }
+.radarMotionCircle[data-ring="four"]  { inset: 46%; border-width: 2px; }
+
+/* Eixos */
+.radarMotionAxis[data-axis="vertical"]   { left: 50%; top: 0; width: 2px; height: 100%; background: var(--radar-axis); transform: translateX(-50%); }
+.radarMotionAxis[data-axis="horizontal"] { left: 0; top: 50%; width: 100%; height: 2px; background: var(--radar-axis); transform: translateY(-50%); }
+
+/* Sweep + trail + core */
+.radarMotionSweep { inset: 0; border-radius: 999px; transform-origin: center; animation: radarMotionSweepSpin 3.4s linear infinite; }
+.radarMotionTrail,
+.radarMotionCore { left: 50%; top: 50%; width: 50%; height: 50%; overflow: hidden; transform-origin: top left; }
+.radarMotionTrail {
+  background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, var(--radar-trail) 34deg, transparent 96deg);
+  filter: blur(8px);
+  transform: rotate(-14deg);
+  animation: radarMotionTrailFade 3.4s ease-in-out infinite;
+}
+.radarMotionCore {
+  background: conic-gradient(from 45deg at 0% 0%, var(--radar-sweep) 0deg, color-mix(in srgb, var(--radar-sweep) 60%, transparent) 16deg, color-mix(in srgb, var(--radar-sweep) 20%, transparent) 30deg, transparent 44deg);
+  filter: drop-shadow(0 0 8px var(--radar-glow));
+}
+
+/* Anéis girando */
+.radarMotionRing {
+  inset: 2%; border-radius: 999px;
+  border: 1px dashed var(--radar-ring);
+  transform-origin: center;
+  animation: radarMotionRingSpin 18s linear infinite;
+}
+.radarMotionRingReverse {
+  inset: 10%; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--radar-ring) 60%, transparent);
+  transform-origin: center;
+  animation: radarMotionRingSpinReverse 26s linear infinite;
+}
+
+/* Blips */
+.radarMotionBlip {
+  width: 12px; height: 12px; border-radius: 999px;
+  background: var(--radar-blip);
+  box-shadow: 0 0 16px var(--radar-glow);
+  transform: translate(-50%,-50%) scale(0.82);
+  animation: radarMotionPulse 1.8s ease-in-out infinite;
+}
+.radarMotionBlip i {
+  left: 50%; top: 50%; width: 12px; height: 12px;
+  border: 2px solid var(--radar-ring);
+  border-radius: 999px;
+  transform: translate(-50%,-50%) scale(0.45);
+  animation: radarMotionRipple 3.4s ease-out infinite;
+}
+
+/* Glow central */
+.radarMotionGlow {
+  left: 50%; top: 50%; width: 20px; height: 20px;
+  border-radius: 999px;
+  background: var(--radar-blip);
+  box-shadow: 0 0 22px var(--radar-glow);
+  transform: translate(-50%,-50%);
+  animation: radarMotionCenterPulse 1.4s ease-in-out infinite;
+}
+
+/* ── Estado pausado: âmbar/warning ──────────────────────────────────────── */
+.radar-disc-wrap--pausado .radarMotionBlip  { background: var(--radar-pause); box-shadow: 0 0 16px var(--radar-pause); animation-duration: 3.2s; }
+.radar-disc-wrap--pausado .radarMotionGlow  { background: var(--radar-pause); box-shadow: 0 0 22px var(--radar-pause); animation-duration: 3.2s; }
+.radar-disc-wrap--pausado .radarMotionCore  { background: conic-gradient(from 45deg at 0% 0%, var(--radar-pause) 0deg, transparent 44deg); }
+.radar-disc-wrap--pausado .radarMotionTrail { background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, color-mix(in srgb, var(--radar-pause) 30%, transparent) 34deg, transparent 96deg); }
+.radar-disc-wrap--pausado .radarMotionSweep { animation-duration: 8s; }
+
+/* ── Estado parado: animações mortas, tudo neutro ───────────────────────── */
+.radar-disc-wrap--parado .radarMotionSweep,
+.radar-disc-wrap--parado .radarMotionTrail,
+.radar-disc-wrap--parado .radarMotionRing,
+.radar-disc-wrap--parado .radarMotionRingReverse { animation: none; }
+.radar-disc-wrap--parado .radarMotionBlip  { animation: none; background: var(--text-muted); box-shadow: none; opacity: 0.4; }
+.radar-disc-wrap--parado .radarMotionGlow  { animation: none; background: var(--text-muted); box-shadow: none; opacity: 0.3; }
+.radar-disc-wrap--parado .radarMotionCore  { background: conic-gradient(from 45deg at 0% 0%, color-mix(in srgb, var(--text-muted) 40%, transparent) 0deg, transparent 44deg); filter: none; }
+
+/* ── Keyframes do radar ─────────────────────────────────────────────────── */
+@keyframes radarMotionSweepSpin   { to { transform: rotate(360deg); } }
+@keyframes radarMotionRingSpin    { to { transform: rotate(360deg); } }
+@keyframes radarMotionRingSpinReverse { to { transform: rotate(-360deg); } }
+@keyframes radarMotionPulse {
+  0%, 100% { transform: translate(-50%,-50%) scale(0.82); opacity: 0.55; }
+  50%       { transform: translate(-50%,-50%) scale(1.18); opacity: 1; }
+}
+@keyframes radarMotionCenterPulse {
+  0%, 100% { transform: translate(-50%,-50%) scale(0.9); opacity: 0.75; }
+  50%       { transform: translate(-50%,-50%) scale(1.16); opacity: 1; }
+}
+@keyframes radarMotionRipple {
+  0%,42% { transform: translate(-50%,-50%) scale(0.45); opacity: 0; }
+  52%    { opacity: 0.8; }
+  100%   { transform: translate(-50%,-50%) scale(4.2); opacity: 0; }
+}
+@keyframes radarMotionTrailFade {
+  0%, 100% { opacity: 0.92; }
+  50%       { opacity: 0.68; }
+}
+
+/* prefers-reduced-motion: para todas as animações do radar */
+@media (prefers-reduced-motion: reduce) {
+  .radarMotionSweep,
+  .radarMotionTrail,
+  .radarMotionBlip,
+  .radarMotionBlip i,
+  .radarMotionGlow,
+  .radarMotionRing,
+  .radarMotionRingReverse { animation: none !important; }
+}
+
+/* ── Radar console: estado label + filtros ───────────────────────────────── */
+.radar-state-label { font-size: 0.72rem; font-weight: 700; text-align: center; color: var(--text-muted); margin: 4px 0 0; }
+.radar-state-label--funcionando { color: var(--hbx-brand-strong); }
+.radar-state-label--pausado     { color: var(--hbx-warning); }
+.radar-state-label--parado      { color: var(--text-muted); }
+
+.radar-state-msg { font-size: 0.64rem; color: var(--text-muted); text-align: center; line-height: 1.4; margin: 4px 14px 0; }
+
+.radar-controls { display: grid; gap: 8px; }
+.radar-controls .f { display: grid; gap: 4px; }
+.radar-controls label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); }
+.radar-controls .select-dark { width: 100%; min-width: 0; }
+
+.radar-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.radar-actions--single { grid-template-columns: 1fr; }
+
+.radar-auto { position: relative; overflow: hidden; }
+.radar-auto--on { animation: radar2-auto-pulse 2s ease-in-out infinite; }
+
+/* Mini radar no topo do painel com lead selecionado */
+.radar-mini-bar { display: flex; align-items: center; gap: 10px; }
+.radar-mini-bar__back { flex: 0 0 auto; }
+
+/* Canal filter bar */
+.radar-canal-bar { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border-hairline); flex-wrap: wrap; }
+.radar-canal-bar__mode { font-size: 0.62rem; font-weight: 700; color: var(--text-muted); margin-right: 2px; }
+.radar-canal-toggle { display: inline-flex; align-items: center; gap: 3px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border-hairline); background: transparent; color: var(--text-muted); font-size: 0.66rem; font-weight: 600; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
+.radar-canal-toggle--active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
+.radar-canal-mode-btn { font-size: 0.6rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); color: var(--text-muted); cursor: pointer; margin-left: auto; white-space: nowrap; transition: background var(--motion-fast), color var(--motion-fast); }
+.radar-canal-mode-btn--force { color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand-strong) 8%, transparent); }
 
 /* ── KPIs compactos no mobile ─────────────────────────────────────────────── */
 /* KPIs compactos no mobile */

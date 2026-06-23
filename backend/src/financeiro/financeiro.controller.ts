@@ -78,6 +78,12 @@ export class FinanceiroController {
     return this.financeiroService.getSubscriptionStatusForUser(req.user);
   }
 
+  // Re-sincroniza a assinatura com o MP sob demanda (tela de bloqueio ao abrir).
+  @Post('subscription/sync')
+  syncSubscription(@Req() req: any) {
+    return this.financeiroService.syncSubscriptionForUser(req.user);
+  }
+
   @Post('charges/:chargeId/refresh')
   refreshCharge(@Req() req: any, @Param('chargeId') chargeId: string, @Body() dto?: { paymentId?: string }) {
     return this.financeiroService.refreshChargeForUser(req.user, chargeId, dto?.paymentId);
