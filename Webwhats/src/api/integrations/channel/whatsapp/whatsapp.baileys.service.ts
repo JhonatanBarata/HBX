@@ -250,6 +250,23 @@ export class BaileysStartupService extends ChannelStartupService {
   private readonly msgRetryCounterCache: CacheStore = new NodeCache();
   private readonly userDevicesCache: CacheStore = new NodeCache({ stdTTL: 300000, useClones: false });
   private endSession = false;
+  // Disjuntor de reconexao (anti-ban): NUNCA reconectar em loop livre.
+  private reconnectAttempts = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectCircuitOpen = false;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 4;
+  private static readonly RECONNECT_BASE_DELAY_MS = 15_000;
+  private static readonly RECONNECT_MAX_DELAY_MS = 120_000;
+
+  private resetReconnectCircuit() {
+    this.reconnectAttempts = 0;
+    this.reconnectCircuitOpen = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
   private chatModifyQueue: Promise<unknown> = Promise.resolve();
@@ -456,10 +473,48 @@ export class BaileysStartupService extends ChannelStartupService {
         402,
         406,
       ];
-      const shouldReconnect = !codesToNotReconnect.includes(statusCode);
+      const terminal = codesToNotReconnect.includes(statusCode);
+      // DISJUNTOR: so reconecta se nao for terminal, se o disjuntor nao estiver aberto
+      // e se ainda nao estourou o teto de tentativas. Reconexao em loop livre bane chip.
+      const shouldReconnect =
+        !terminal &&
+        !this.reconnectCircuitOpen &&
+        this.reconnectAttempts < BaileysStartupService.MAX_RECONNECT_ATTEMPTS;
       if (shouldReconnect) {
-        await this.connectToWhatsapp(this.phoneNumber);
+        this.reconnectAttempts += 1;
+        const backoff = Math.min(
+          BaileysStartupService.RECONNECT_BASE_DELAY_MS * 2 ** (this.reconnectAttempts - 1),
+          BaileysStartupService.RECONNECT_MAX_DELAY_MS,
+        );
+        const delayMs = backoff + Math.floor(Math.random() * 5_000);
+        this.logger.warn(
+          `[DISJUNTOR] ${this.instance.name}: reconexao ${this.reconnectAttempts}/` +
+            `${BaileysStartupService.MAX_RECONNECT_ATTEMPTS} em ${Math.round(delayMs / 1000)}s (close=${statusCode}).`,
+        );
+        try {
+          this.client?.ws?.close?.();
+        } catch {
+          /* best-effort: encerra o socket atual antes de agendar o proximo */
+        }
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.connectToWhatsapp(this.phoneNumber).catch((error) =>
+            this.logger.error(`[DISJUNTOR] ${this.instance.name}: falha ao reconectar: ${error?.toString()}`),
+          );
+        }, delayMs);
       } else {
+        if (!terminal && this.reconnectAttempts >= BaileysStartupService.MAX_RECONNECT_ATTEMPTS) {
+          this.reconnectCircuitOpen = true;
+          this.logger.warn(
+            `[DISJUNTOR] ${this.instance.name}: ABRIU apos ${this.reconnectAttempts} tentativas — ` +
+              `parando reconexao. Requer re-pareamento manual (QR/Codigo).`,
+          );
+        }
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         this.clearQrCode('logout');
 
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
@@ -497,6 +552,7 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (connection === 'open') {
+      this.resetReconnectCircuit();
       this.clearQrCode('connected');
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');
       try {

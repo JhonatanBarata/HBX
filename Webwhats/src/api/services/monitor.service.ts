@@ -34,6 +34,7 @@ export class WAMonitoringService {
   }
 
   private readonly db: Partial<Database> = {};
+  private bootConnectSlot = 0;
   private readonly redis: Partial<CacheConf> = {};
 
   private readonly logger = new Logger('WAMonitoringService');
@@ -394,10 +395,21 @@ export class WAMonitoringService {
 
     try {
       if (instanceData.connectionStatus === 'open' || instanceData.connectionStatus === 'connecting') {
+        // Escalonar o auto-connect no boot: re-linkar TODOS os chips de uma vez gera
+        // device_removed/restricao no WhatsApp. Espalha as reconexoes no tempo.
+        const slot = this.bootConnectSlot++;
+        const delayMs = slot * 8_000;
         this.logger.info(
-          `Auto-connecting instance "${instanceData.instanceName}" (status: ${instanceData.connectionStatus})`,
+          `Auto-connecting instance "${instanceData.instanceName}" (status: ${instanceData.connectionStatus})` +
+            ` em ${Math.round(delayMs / 1000)}s (slot ${slot})`,
         );
-        await instance.connectToWhatsapp();
+        setTimeout(() => {
+          instance
+            .connectToWhatsapp()
+            .catch((error) =>
+              this.logger.error(`Failed to initialize instance "${instanceData.instanceName}": ${error?.toString()}`),
+            );
+        }, delayMs);
       } else {
         this.logger.info(
           `Skipping auto-connect for instance "${instanceData.instanceName}" (status: ${instanceData.connectionStatus || 'close'})`,
