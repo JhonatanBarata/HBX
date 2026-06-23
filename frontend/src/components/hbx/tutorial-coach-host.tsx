@@ -18,15 +18,18 @@ import {
   useMyModules,
 } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
-import { buildCoachSteps, type CoachAudience, type CoachRole } from "@/lib/tutorial-coach-steps";
+import { buildCoachSteps, buildModuleTour, type CoachAudience, type CoachRole } from "@/lib/tutorial-coach-steps";
 import {
   getTutorialCoachActive,
+  getTutorialCoachTour,
   stopTutorialCoach,
   subscribeTutorialCoach,
 } from "@/lib/tutorial-coach-store";
 
 export function TutorialCoachHost() {
   const active = useSyncExternalStore(subscribeTutorialCoach, getTutorialCoachActive, () => false);
+  // tourId null = tour completo (1º acesso); "leads"/… = tour daquele módulo.
+  const tourId = useSyncExternalStore(subscribeTutorialCoach, getTutorialCoachTour, () => null);
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
@@ -50,7 +53,7 @@ export function TutorialCoachHost() {
     hasRelatorios: isModuleVisible("relat", ent, user, mods),
   };
 
-  const steps = buildCoachSteps(audience);
+  const steps = tourId ? buildModuleTour(tourId, audience) : buildCoachSteps(audience);
 
   function finish() {
     try { localStorage.setItem("hbx:tutorial-visto", "1"); } catch { /* sem storage */ }
@@ -76,5 +79,15 @@ export function TutorialCoachHost() {
     }
   }
 
-  return <TutorialCoach steps={steps} onDone={finish} onSkip={finish} onAskHelp={askHelp} />;
+  // Tour de módulo fica na própria tela ao fechar (exitTo=null); tour completo
+  // (1º acesso) cai no Dashboard como antes.
+  return (
+    <TutorialCoach
+      steps={steps}
+      onDone={finish}
+      onSkip={finish}
+      onAskHelp={askHelp}
+      exitTo={tourId ? null : "/dashboard"}
+    />
+  );
 }

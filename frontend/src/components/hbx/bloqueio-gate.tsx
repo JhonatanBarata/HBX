@@ -2,19 +2,19 @@
 
 // Portão de BLOQUEIO (paywall mansa) — montado no AuthGate, sobrepõe o app quando
 // a empresa não pode operar (accessPaused = pending_checkout / overdue / suspended).
-// Papel-aware: ADMIN em pending_checkout vê "Ativar agora" que abre o checkout
-// inline (sem navegar para /configuracoes — o beco antigo); demais estados de
-// cobrança vêem "Ver planos"; VENDEDOR vê aviso NEUTRO (sem valor/cobrança —
+// Papel-aware: ADMIN vê o checkout HBX inline (mesmo CheckoutPanel do cadastro —
+// sem segundo checkout/Brick); VENDEDOR vê aviso NEUTRO (sem valor/cobrança —
 // PAGAMENTOS.md). Enforcement real continua no backend; isto é só UX (FRONTEND.md).
-// Regra única F8 (19/06): pending_checkout BLOQUEIA igual aos outros estados não-operacionais
-// — "sem cartão, sem app". Listener hbx:need-checkout removido (nunca houve dispatcher).
-// Lei 5: todo visual reusa as classes .bv-* (mesmo gate das boas-vindas). Zero CSS novo.
+// Dois recados de cobrança (ordem do dono 23/06): SEM cartão (pending_checkout) =
+// "Termine seu cadastro"; COM cartão/inadimplente (overdue/suspended/trial vencido) =
+// "Ative seu plano". "Ver planos" foi REMOVIDO (mandava pra dentro do sistema).
+// Lei 5: todo visual reusa as classes .bv-*/.reg-form (mesmo gate das boas-vindas).
 
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 
-import { fetchPlanMeCached, useCurrentUser } from "@/components/hbx/shell";
-import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
+import { CheckoutPanel } from "@/components/hbx/checkout-panel";
+import { fetchPlanMeCached, peekPlanMeCache, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
 
 type PlanLite = { key: string; title: string; monthlyPrice?: number | null };
@@ -26,12 +26,37 @@ type GateState = {
   plan: PlanLite | null;
 };
 
+const EMPTY_STATE: GateState = {
+  loaded: false, paused: false, accessState: null, trialEnded: false, plan: null,
+};
+
+function deriveGateState(res: Awaited<ReturnType<typeof fetchPlanMeCached>>): GateState {
+  const cur = res?.current || {};
+  const ts = cur.trialEndsAt ? new Date(cur.trialEndsAt).getTime() : 0;
+  // selectedPlanKey = plano escolhido mas checkout não concluído (pending_checkout).
+  const pendingKey = cur.selectedPlanKey || cur.planKey;
+  const planEntry = pendingKey && Array.isArray(res?.plans)
+    ? res!.plans.find(p => p.key === pendingKey)
+    : null;
+  return {
+    loaded: true,
+    paused: Boolean(cur.accessPaused),
+    accessState: cur.accessState || null,
+    trialEnded: cur.accessState === "suspended" && ts > 0 && ts < Date.now(),
+    plan: planEntry
+      ? { key: planEntry.key, title: planEntry.title || planEntry.key, monthlyPrice: planEntry.monthlyPrice ?? null }
+      : null,
+  };
+}
+
 export function BloqueioGate() {
   const router = useRouter();
   const pathname = usePathname();
   const user = useCurrentUser();
-  const [state, setState] = useState<GateState>({
-    loaded: false, paused: false, accessState: null, trialEnded: false, plan: null,
+  // Init SÍNCRONO do cache: em navegação client já monta bloqueado, sem flash.
+  const [state, setState] = useState<GateState>(() => {
+    const cached = peekPlanMeCache();
+    return cached !== undefined ? deriveGateState(cached) : EMPTY_STATE;
   });
   const [saindo, setSaindo] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -41,22 +66,7 @@ export function BloqueioGate() {
     if (!getToken() || !user || user.isSystemMaster) return;
     fetchPlanMeCached().then(res => {
       if (!alive) return;
-      const cur = res?.current || {};
-      const ts = cur.trialEndsAt ? new Date(cur.trialEndsAt).getTime() : 0;
-      // selectedPlanKey = plano escolhido mas checkout não concluído (pending_checkout).
-      const pendingKey = cur.selectedPlanKey || cur.planKey;
-      const planEntry = pendingKey && Array.isArray(res?.plans)
-        ? res!.plans.find(p => p.key === pendingKey)
-        : null;
-      setState({
-        loaded: true,
-        paused: Boolean(cur.accessPaused),
-        accessState: cur.accessState || null,
-        trialEnded: cur.accessState === "suspended" && ts > 0 && ts < Date.now(),
-        plan: planEntry
-          ? { key: planEntry.key, title: planEntry.title || planEntry.key, monthlyPrice: planEntry.monthlyPrice ?? null }
-          : null,
-      });
+      setState(deriveGateState(res));
     });
     return () => { alive = false; };
   }, [user]);
@@ -70,18 +80,29 @@ export function BloqueioGate() {
   // O backend só manda accessState para audiência de cobrança (admin/gerente);
   // vendedor vem com accessState nulo → cai no aviso neutro.
   const billingView = state.accessState != null;
-  const trialEnded = state.trialEnded;
   const isPendingCheckout = state.accessState === "pending_checkout";
+  // Tem cartão na empresa? pending_checkout = nunca pagou (sem cartão);
+  // demais estados de cobrança = já teve cartão e está inadimplente.
+  const semCartao = isPendingCheckout;
 
-  // Checkout inline: pending_checkout usa o plano da empresa (state.plan);
-  // demais estados bloqueados (overdue, suspended…) também.
+  // Checkout HBX inline (mesmo do cadastro). Reativação não mostra moldura de trial.
   if (showCheckout && state.plan) {
     return (
-      <SubscribeCardModal
-        plan={state.plan}
-        onClose={() => setShowCheckout(false)}
-        onDone={() => { window.location.reload(); }}
-      />
+      <div className="bv-veil" role="dialog" aria-modal="true">
+        <div className="reg-form">
+          <CheckoutPanel
+            planKey={state.plan.key}
+            phone={user.company?.contactPhone || ""}
+            email={user.email || ""}
+            name={user.name || user.company?.name || ""}
+            reactivation={!semCartao}
+            onSuccess={() => { window.location.reload(); }}
+          />
+          <button type="button" className="bv-link" onClick={() => setShowCheckout(false)}>
+            ← Voltar
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -93,34 +114,21 @@ export function BloqueioGate() {
     router.replace("/login");
   }
 
-  function verPlanos() {
-    try { sessionStorage.setItem("hbx:config-sec", "Plano e cobrança"); } catch { /* sem storage */ }
-    router.push("/configuracoes");
-  }
-
   let kicker = "Acesso";
   let title = "Acesso pausado";
   let body = "O acesso da sua empresa está pausado no momento. Fale com o administrador da empresa para regularizar.";
   if (billingView) {
-    if (isPendingCheckout) {
-      kicker = "Plano"; title = "Ative seu plano HBX";
-      body = "Complete o pagamento para liberar o acesso da sua operação.";
-    } else if (trialEnded) {
-      kicker = "Teste grátis"; title = "Seu teste terminou";
-      body = "Escolha um plano para continuar de onde você parou.";
-    } else if (state.accessState === "overdue") {
-      kicker = "Pagamento"; title = "Pagamento em atraso";
-      body = "Regularize o pagamento para manter o acesso da sua operação ativo.";
-    } else if (state.accessState === "suspended") {
-      kicker = "Acesso"; title = "Acesso suspenso";
-      body = "O acesso da sua empresa está suspenso. Escolha um plano ou fale com a HBX para reativar.";
+    if (semCartao) {
+      kicker = "Cadastro"; title = "Termine seu cadastro HBX!";
+      body = "Complete seu cadastro conosco, para liberar seu acesso.";
     } else {
-      title = "Acesso pausado"; body = "Escolha um plano para reativar o acesso da sua operação.";
+      kicker = "Plano"; title = "Ative seu plano HBX";
+      body = "Complete o pagamento para liberar o acesso da sua operação:";
     }
   }
 
-  // "Ativar agora" só aparece se temos o plano carregado (precisa do key pro checkout).
-  const canActivateInline = isPendingCheckout && Boolean(state.plan);
+  // O botão de ação (Cadastrar/Ativar agora) só abre se temos o plano carregado.
+  const canActivateInline = billingView && Boolean(state.plan);
 
   return (
     <div className="bv-veil" role="dialog" aria-modal="true">
@@ -137,21 +145,10 @@ export function BloqueioGate() {
               {saindo ? "Saindo…" : "Sair"}
             </button>
             <span className="grow" />
-            {billingView && (
-              <>
-                {canActivateInline && (
-                  <button type="button" className="btn-teal" onClick={() => setShowCheckout(true)}>
-                    Ativar agora →
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={canActivateInline ? "bv-link" : "btn-teal"}
-                  onClick={verPlanos}
-                >
-                  Ver planos →
-                </button>
-              </>
+            {canActivateInline && (
+              <button type="button" className="btn-teal" onClick={() => setShowCheckout(true)}>
+                {semCartao ? "Cadastrar →" : "Ativar agora →"}
+              </button>
             )}
           </div>
         </div>

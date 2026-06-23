@@ -2397,19 +2397,20 @@ test('startConversation rejeita número sem WhatsApp e NÃO cria conversa', asyn
   assert.equal(created.length, 0, 'não pode criar conversa pra número sem WhatsApp');
 });
 
-test('startConversation degrada (não trava) quando o motor falha — marca whatsappUnverified', async () => {
+test('startConversation NÃO cria conversa quando o motor falha — recusa pra validar de novo', async () => {
+  // Ordem do dono 23/06: "bater número por número". Falha do motor NÃO degrada criando
+  // fantasma — recusa pedindo nova tentativa (nenhuma conversa nasce sem confirmação).
   const { service, created } = buildStartConversationService({
     checkWhatsappNumbers: async () => {
       throw new Error('motor fora do ar');
     },
   });
 
-  await service.startConversation({ companyId: 7, id: 55 }, { phone: '5551993572856' });
-
-  assert.equal(created.length, 1, 'motor fora do ar não pode travar o +Nova');
-  // Sem confirmação do motor, mantém o digitado e sinaliza não-verificado.
-  assert.equal(created[0].contact, '+5551993572856');
-  assert.equal(JSON.parse(created[0].metadata).whatsappUnverified, true);
+  await assert.rejects(
+    () => service.startConversation({ companyId: 7, id: 55 }, { phone: '5551993572856' }),
+    (err: any) => /confirmar|tente de novo/i.test(String(err?.message || '')),
+  );
+  assert.equal(created.length, 0, 'falha de validação NÃO pode virar conversa-fantasma');
 });
 
 // ---------------------------------------------------------------------------
@@ -2455,7 +2456,20 @@ test('clearEmptyConversations remove só-FAILED mas PRESERVA conversa com mensag
       atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
       $transaction: async (cb: any) => cb({
         atendimentoAppointment: { updateMany: async () => ({ count: 0 }) },
+        companyMessage: {
+          deleteMany: async ({ where }: any) => {
+            // As mensagens têm que cair ANTES da conversa (FK Restrict) — só as apagáveis.
+            const count = (where?.conversationId?.in || []).filter((id: number) => {
+              const row = universe.find((r) => r.id === id);
+              return row && isDeletable(row);
+            }).length;
+            return { count };
+          },
+        },
         companyConversation: {
+          // Reconfirma apagáveis dentro da transação (guarda dura contra corrida).
+          findMany: async ({ where }: any) =>
+            universe.filter((r) => (where?.id?.in || []).includes(r.id) && isDeletable(r)),
           deleteMany: async ({ where }: any) => {
             deletedIds = (where?.id?.in || []).filter((id: number) => {
               const row = universe.find((r) => r.id === id);

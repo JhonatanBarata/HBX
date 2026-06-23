@@ -28,7 +28,7 @@ import { useRouter } from "next/navigation";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
-import { SubscribeCardModal } from "@/components/hbx/subscribe-card-modal";
+import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
 import { PlanCard } from "@/components/hbx/plan-card";
 import { Av, ConfirmDialog, I, ICONS, useMyModules } from "@/components/hbx/shell";
@@ -491,11 +491,19 @@ export function ConfiguracoesClient() {
         </div>
 
       {subscribePlan && (
-        <SubscribeCardModal
-          plan={{ key: subscribePlan.key, title: subscribePlan.title, monthlyPrice: subscribePlan.monthlyPrice }}
-          onClose={() => setSubscribePlan(null)}
-          onDone={async (msg) => { setSubscribePlan(null); setPlanoMsg(msg); await recarregarPlano(); }}
-        />
+        <div className="bv-veil" role="dialog" aria-modal="true">
+          <div className="reg-form">
+            <CheckoutPanel
+              planKey={subscribePlan.key}
+              phone={user?.company?.contactPhone || ""}
+              email={user?.email || ""}
+              name={nome || user?.name || user?.company?.name || ""}
+              reactivation
+              onSuccess={async () => { setSubscribePlan(null); setPlanoMsg("✓ Assinatura ativa! Acesso liberado."); await recarregarPlano(); }}
+            />
+            <button type="button" className="bv-link" onClick={() => setSubscribePlan(null)}>← Voltar</button>
+          </div>
+        </div>
       )}
 
       <ConfirmDialog

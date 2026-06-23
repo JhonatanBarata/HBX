@@ -7,7 +7,7 @@
 //   - upgrade  → cobra a diferença proporcional e libera na hora (mock: ponta a ponta;
 //                live com cobrança da diferença volta NEEDS_CHECKOUT/TODO → cai pro cartão).
 //   - downgrade → não cobra, mantém o acesso até o fim do período e gera crédito.
-// Sem assinatura ativa → upgrade abre o cartão (SubscribeCardModal pelo pai);
+// Sem assinatura ativa → upgrade abre o cartão (CheckoutPanel pelo pai);
 //   downgrade só registra a intenção (/commercial-plans/select).
 // Os números do preview vêm do backend (dryRun) — nunca calculados na tela.
 // Lei 5: zero style={{}} inline.

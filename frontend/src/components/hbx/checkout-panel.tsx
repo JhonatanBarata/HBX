@@ -18,9 +18,30 @@ import {
 
 const onlyDigits = (v: string) => v.replace(/\D/g, "");
 const fmtCardNumber = (v: string) => onlyDigits(v).slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 ");
+const fmtDoc = (digits: string): string => {
+  if (digits.length <= 11) {
+    return digits
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3}\.\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3}\.\d{3}\.\d{3})(\d{1,2})/, "$1-$2");
+  }
+  return digits
+    .replace(/(\d{2})(\d)/, "$1.$2")
+    .replace(/(\d{2}\.\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{2}\.\d{3}\.\d{3})(\d)/, "$1/$2")
+    .replace(/(\d{2}\.\d{3}\.\d{3}\/\d{4})(\d{1,2})/, "$1-$2");
+};
 const fmtExp = (v: string) => {
   const d = onlyDigits(v).slice(0, 4);
   return d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
+};
+// Telefone BR com DDD (10 fixo / 11 celular). Guardamos só dígitos; exibimos formatado.
+const fmtPhone = (digits: string): string => {
+  const d = digits.slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 };
 
 // Bandeira pelo BIN (mesma heurística do gateway): Visa (4), Mastercard (51–55
@@ -53,7 +74,8 @@ function readMpError(err: unknown): string {
 type PayConfig = { mode?: "mock" | "live"; publicKey?: string | null };
 
 export function CheckoutPanel({
-  planKey, phone = "", email, name, trialEndsAt, onSuccess, demoOutcome,
+  planKey, phone: initialPhone = "", email, name, trialEndsAt, onSuccess, demoOutcome,
+  reactivation = false,
 }: {
   planKey: string;
   phone?: string;
@@ -61,6 +83,9 @@ export function CheckoutPanel({
   name: string;
   trialEndsAt?: string | null;
   onSuccess: () => void;
+  // Reativação (bloqueio-gate, inadimplente): sem moldura de trial — é pagamento
+  // direto pra religar o acesso, não início de teste grátis.
+  reactivation?: boolean;
   // dev-only: a prévia /dev/checkout força a fase (aprovado/recusado) sem tocar
   // na rede, pra mostrar o efeito. O funil real nunca passa isto.
   demoOutcome?: "approved" | "declined";
@@ -68,13 +93,16 @@ export function CheckoutPanel({
   const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
   const plan = livePlans.find((p) => p.key === planKey) ?? getPlanFallback(planKey);
   const planName = PLAN_STATIC[planKey]?.accent ?? plan.title;
-  const isTrial = plan.trialDays > 0;
+  const isTrial = !reactivation && plan.trialDays > 0;
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [cfg, setCfg] = useState<PayConfig | null>(null);
   const [card, setCard] = useState({ number: "", holder: "", exp: "", cvv: "" });
   // CPF/CNPJ do pagador é pedido AQUI (ordem do dono 19/06: saiu do cadastro,
   // entra na tela do cartão). Alimenta a identificação na tokenização do MP.
   const [doc, setDoc] = useState("");
+  // Telefone de contato/cobrança. Vem pré-preenchido do cadastro (confirmação por
+  // WhatsApp) quando existe; no login por Gmail vem vazio e é coletado AQUI.
+  const [phone, setPhone] = useState(() => onlyDigits(initialPhone).slice(0, 11));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Fases do "momento da aprovação" (ordem do dono 19/06): o cartão mock é o
@@ -111,6 +139,10 @@ export function CheckoutPanel({
   async function pay(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
+    if (!demoOutcome && phone.length < 10) {
+      setError("Informe um telefone com DDD (10 ou 11 dígitos).");
+      return;
+    }
     setBusy(true);
     setError(null);
     setCvvFocus(false);
@@ -179,7 +211,7 @@ export function CheckoutPanel({
   const showNumber = card.number || "•••• •••• •••• ••••";
   const showName = card.holder ? card.holder.toUpperCase() : "SEU NOME";
   const showExp = card.exp || "MM/AA";
-  const showCvv = card.cvv || "•••";
+  const showCvv = card.cvv ? "***" : "•••";
 
   const resolving = phase === "paying";
   const approved = phase === "approved";
@@ -283,8 +315,13 @@ export function CheckoutPanel({
         <div className="hbx-checkout-fields">
           <div className="f">
             <label htmlFor="payer-doc">CPF ou CNPJ do pagador</label>
-            <input id="payer-doc" className="field-dark" inputMode="numeric" placeholder="Somente números" required maxLength={14}
-              value={doc} onChange={e => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
+            <input id="payer-doc" className="field-dark" inputMode="numeric" placeholder="000.000.000-00" required maxLength={18}
+              value={fmtDoc(doc)} onChange={e => setDoc(onlyDigits(e.target.value).slice(0, 14))} />
+          </div>
+          <div className="f">
+            <label htmlFor="payer-phone">Telefone com DDD</label>
+            <input id="payer-phone" className="field-dark" inputMode="numeric" type="tel" placeholder="(11) 99999-9999" required maxLength={16}
+              value={fmtPhone(phone)} onChange={e => setPhone(onlyDigits(e.target.value).slice(0, 11))} />
           </div>
           <div className="f">
             <label htmlFor="cc">Número do cartão</label>
@@ -304,7 +341,7 @@ export function CheckoutPanel({
             </div>
             <div className="f">
               <label htmlFor="cv">CVV</label>
-              <input id="cv" className="field-dark" inputMode="numeric" placeholder="000" required maxLength={4}
+              <input id="cv" className="field-dark" type="password" inputMode="numeric" placeholder="000" required maxLength={4}
                 value={card.cvv}
                 onFocus={() => setCvvFocus(true)}
                 onBlur={() => setCvvFocus(false)}

@@ -351,6 +351,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         showCheckout ? (
           <CheckoutPanel
             planKey={selectedPlan}
+            phone={waPhone}
             email={email}
             name={nome}
             trialEndsAt={done.trialEndsAt}

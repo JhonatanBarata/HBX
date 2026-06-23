@@ -7,11 +7,12 @@
 // visual como no template (ver doc do PR).
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
 // Fecha um popover ao clicar fora dele ou apertar Esc (ordem do dono 14/06: os
@@ -89,6 +90,7 @@ export const ICONS: Record<string, string[]> = {
   bolt: ["M13 3 4 14h7l-1 7 9-11h-7z"],
   trash: ["M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"],
   crown: ["M3 17h18", "M3 17l2.5-8 4.5 3 4-7 4 7 4.5-3L21 17"],
+  help: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9.6 9.3a2.4 2.4 0 0 1 4.7.7c0 1.6-2.3 1.9-2.3 3.5", "M12 17h.01"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -325,6 +327,14 @@ export async function fetchPlanMeCached(): Promise<PlanMe> {
   const data = await apiFetch<PlanMe>("/commercial-plans/me").catch(() => null);
   planMeCache = { at: Date.now(), data };
   return data;
+}
+
+// Leitura SÍNCRONA do cache (sem disparar fetch). O BloqueioGate usa pra já
+// montar bloqueado em navegação client — mata o flash da tela aparecendo antes
+// do portão. undefined = cache frio (decide no async).
+export function peekPlanMeCache(): PlanMe | undefined {
+  if (planMeCache && Date.now() - planMeCache.at < 60_000) return planMeCache.data;
+  return undefined;
 }
 
 export function useEntitlements() {
@@ -696,11 +706,20 @@ async function fetchUnreadChatsCached(): Promise<number> {
   return count;
 }
 
+// Rota → id do tour daquele módulo (desmembrado, 23/06). Existe aqui = o topo
+// mostra o botão "Como usar" que dispara o tour profundo da tela. Crescer ao
+// desmembrar Vendas/Atendimento/etc. (par do MODULE_TOUR_BUILDERS nos steps).
+const MODULE_TOURS: Record<string, string> = {
+  "/leads": "leads",
+};
+
 export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React.ReactNode; onMenu?: () => void }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
   const router = useRouter();
+  const pathname = usePathname() || "";
+  const moduleTourId = MODULE_TOURS[pathname];
   // atalhos do topo seguem o mesmo gate da sidebar: o que o usuário não acessa
   // não aparece (ordem do dono 13/06/2026).
   const podeAtendimento = isModuleVisible("atend", ent, user, mods);
@@ -819,6 +838,19 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
         <span className="kbd">⌘ K</span>
       </div>
       <div className="top-actions">
+        {/* "Como usar" — só aparece nas telas que já têm tour de módulo; dispara o
+            tour profundo daquela tela (coach vive no app-shell). */}
+        {moduleTourId && (
+          <button
+            className="round-btn"
+            title="Como usar esta tela"
+            aria-label="Como usar esta tela"
+            onClick={() => startTutorialCoach(moduleTourId)}
+            data-tut="como-usar"
+          >
+            <I d={ICONS.help} size={17} />
+          </button>
+        )}
         <PeleSwitch />
         <ModeToggle />
         {podeNovoLead && (

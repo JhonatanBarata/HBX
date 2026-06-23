@@ -78,11 +78,16 @@ export function TutorialCoach({
   onDone,
   onSkip,
   onAskHelp,
+  exitTo = "/dashboard",
 }: {
   steps: CoachStep[];
   onDone?: () => void;
   onSkip?: () => void;
   onAskHelp?: () => Promise<void>;
+  // Pra onde mandar ao Pular/Finalizar. Tour completo (1º acesso) = "/dashboard".
+  // Tour de UM módulo = null → fica na própria tela (a pessoa pediu "como usar
+  // ESTA tela"; jogar pro dashboard seria estranho).
+  exitTo?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname() || "";
@@ -108,8 +113,8 @@ export function TutorialCoach({
   }
   function advance() { go(isLast ? "done" : Math.min(steps.length - 1, i + 1)); }
   // Sair do tour (Pular/ESC) nunca deixa a pessoa numa /tutorial vazia: leva pro
-  // Dashboard. Os botões do passo final fazem a própria navegação.
-  function skip() { router.push("/dashboard"); (onSkip || onDone)?.(); }
+  // exitTo (Dashboard no tour completo; null = fica onde está, nos tours de módulo).
+  function skip() { if (exitTo) router.push(exitTo); (onSkip || onDone)?.(); }
 
   // ESC encerra o tour.
   useEffect(() => {
@@ -187,7 +192,7 @@ export function TutorialCoach({
     try { await onAskHelp(); setHelp("sent"); }
     catch { setHelp("error"); }
   }
-  function closeFinal() { router.push("/dashboard"); onDone?.(); }
+  function closeFinal() { if (exitTo) router.push(exitTo); onDone?.(); }
 
   const PAD = 8;
   const spotlit = !!step.target && !!rect && !step.plain;

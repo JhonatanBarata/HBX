@@ -890,7 +890,7 @@ export function LeadsClient() {
     <div className="content leads-page">
       <div className="work">
         {/* 4 KPIs do topo */}
-        <section className="panel" style={{ padding: "14px 16px" }}>
+        <section className="panel" style={{ padding: "14px 16px" }} data-tut="leads-kpis">
           {isMobile ? (
             <div className="lead-kpis-strip">
               <div className="radar2-kpi">
@@ -950,7 +950,7 @@ export function LeadsClient() {
                 <I d={ICONS.filter} size={14} />
               </button>
             )}
-            <div className={"radar2-rail" + (isMobile ? (filterOpen ? " radar2-rail--open" : "") : "")}>
+            <div className={"radar2-rail" + (isMobile ? (filterOpen ? " radar2-rail--open" : "") : "")} data-tut="leads-filtros">
               <div className="f">
                 <label htmlFor="radar2-uf">Estado</label>
                 <select id="radar2-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
@@ -987,14 +987,15 @@ export function LeadsClient() {
                   {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
-              <button className="btn-teal" onClick={() => { setPage(1); setSelected(new Set()); loadList("shelf", { page: 1, quantosOverride: quantos }); }}>
+              <button className="btn-teal" data-tut="leads-ver" onClick={() => { setPage(1); setSelected(new Set()); loadList("shelf", { page: 1, quantosOverride: quantos }); }}>
                 <I d={ICONS.search} size={14} /> Ver {quantos} leads disponíveis
               </button>
-              <button className="btn-ghost btn-xs" onClick={executarBusca} disabled={runBusy || runActive}>
+              <button className="btn-ghost btn-xs" data-tut="leads-buscar" onClick={executarBusca} disabled={runBusy || runActive}>
                 {runActive ? "Varrendo…" : runBusy ? "Iniciando…" : "Buscar (motor)"}
               </button>
               <button
                 className={"btn-teal radar2-auto" + (standingOrder?.active ? " radar2-auto--on" : "")}
+                data-tut="leads-auto"
                 onClick={toggleAutomatico}
                 disabled={autoBusy}
                 aria-pressed={standingOrder?.active}
@@ -1007,7 +1008,7 @@ export function LeadsClient() {
 
             {/* prateleira / carteira */}
             <div className="radar2-main">
-              <div className="tabs">
+              <div className="tabs" data-tut="leads-abas">
                 <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
                   Disponíveis pra você <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
                 </button>
@@ -1122,7 +1123,7 @@ export function LeadsClient() {
                         </button>
                       </div>
                       <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
-                        <div className="radar2-meter-card">
+                        <div className="radar2-meter-card" data-tut="leads-cota">
                           <span className="radar2-meter-lbl">
                             <I d={ICONS.bolt} size={11} /> {meterLabel}
                           </span>
@@ -1132,7 +1133,7 @@ export function LeadsClient() {
                           </div>
                           {isSeller && <span className="radar2-quota-note">os 20 são compartilhados com o Vendas</span>}
                         </div>
-                        <button className="btn-teal" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                        <button className="btn-teal" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
                           <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
                         </button>
                       </div>

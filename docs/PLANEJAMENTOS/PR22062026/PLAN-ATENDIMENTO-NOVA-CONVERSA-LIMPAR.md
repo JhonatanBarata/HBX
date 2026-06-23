@@ -5,6 +5,19 @@
 > +55 51 3726-3309, sem WhatsApp) e pro **mesmo contato em dois formatos**; o envio morreu em "Bad Request"
 > e a conversa-fantasma ficou na lista sem o Limpar conseguir tirar (tem 1 msg FAILED → não é "vazia").
 
+## FEITO 23/06 (working tree, não commitado/publicado) — conserto dos 2 bugs do dono
+Incidente 23/06: o +Nova **abriu** um número inexistente (`1996015804`, fixo/9-faltando) e o **Limpar deu erro 500**.
+- **A2 endurecido (reversão do "degrada"):** o motor é a FONTE DA VERDADE e o +Nova **não abre nada** sem
+  confirmação. Motor não confirma `exists` → recusa: `400` "não tem WhatsApp" (inexistente) **ou** `503`
+  "não consegui confirmar agora, tente de novo" (motor instável). **Acabou o `whatsappUnverified`/conversa-fantasma.**
+  O fake escapava justamente pelo `catch` que criava mesmo assim. Ordem do dono: "bater número por número".
+  *Reverter (se a instabilidade do motor incomodar):* voltar o `catch` a degradar com `whatsappUnverified=true`
+  em `startConversation` ([inbox.service.ts](../../../backend/src/inbox/inbox.service.ts)).
+- **B / o 500 do Limpar:** causa-raiz = `CompanyMessage.conversation` é FK **obrigatória (Restrict)**; o Limpar
+  estendido apaga conversa que TEM mensagem FAILED, e apagar a conversa sem apagar as mensagens **estoura FK**.
+  Fix: dentro da transação, reconfirma apagáveis → apaga `companyMessage` **antes** da conversa. Guarda dura mantida.
+- Testes (`inbox.service.test.ts`): 46/46 verdes. `prisma:validate` ok, build ok. **Não publicado** (deploy = ordem do dono).
+
 ## Decisões travadas (ordem do dono 22/06 — não reabrir)
 - **O 9º dígito NÃO é lei.** Número sem o 9 é legítimo (regiões sem nono dígito; ex.: o da Gabriele,
   `555180338382`). **Proibido forçar/injetar o 9.** Quem manda no formato real é o WhatsApp (JID canônico).

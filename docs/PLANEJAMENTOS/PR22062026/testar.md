@@ -51,9 +51,15 @@ Se algo não acontecer como está escrito, me avisa.
 - Se ele estiver conectado, aparece o botão **Derrubar conexão**. Aperte → ele pede pra **confirmar** → ao confirmar, o WhatsApp daquela pessoa **cai** (ela pode reconectar depois). O **‹ Equipe** volta pra lista.
 - Quem **não tem chip próprio** conectado mostra "sem chip próprio" e **não** aparece o botão de derrubar.
 
-## Atendimento — botão Limpar (novo)
-- Entre em **Atendimento**. Abra uma conversa **nova** (botão **+ Nova**) com um número, mas **não mande nenhuma mensagem** — ela aparece com o selo **novo**.
-- Aperte o botão **Limpar** (do lado do **+ Nova**) → confirme → essas conversas **vazias somem** da lista. As conversas que **já têm mensagem** continuam lá, intactas. Nada é enviado pra ninguém no WhatsApp.
+## Atendimento — +Nova só abre número que EXISTE no WhatsApp (mudou)
+- Entre em **Atendimento** → **+ Nova** → digite um número **que não existe** (faltando um dígito, ou um telefone fixo) → confirme. Tem que aparecer um aviso **"esse número não tem WhatsApp"** e a conversa **NÃO pode abrir**. (Antes ele abria do mesmo jeito — não pode mais.)
+- Faça de novo com o **seu próprio número** (que tem WhatsApp): aí **abre normal**.
+- Se o WhatsApp estiver com a conexão instável na hora, ele avisa **"não consegui confirmar agora, tente de novo"** — e também **não abre** uma conversa torta. É só tentar de novo.
+
+## Atendimento — botão Limpar (corrigido)
+- Entre em **Atendimento**. Abra uma conversa **nova** (botão **+ Nova**) com um número, mas **não mande nenhuma mensagem**.
+- Aperte o botão **Limpar** (do lado do **+ Nova**) → confirme → essas conversas **vazias somem** da lista — **sem dar erro** (antes dava erro vermelho). As conversas que **já têm mensagem de verdade** (que você recebeu ou que saiu) continuam lá, intactas. Nada é enviado pra ninguém no WhatsApp.
+- Também some a conversa **bugada** (aquela que você abriu e a mensagem **falhou**/nunca saiu): o Limpar agora pega ela também.
 
 ## Ícones do topo: conversa, WhatsApp, robô e envelope (novo)
 Olhe o **topo da tela**, perto do botão de **trocar o tema** (claro/escuro). Tem uma fileira de ícones: **balãozinho de conversa**, **WhatsApp**, **robô** e **envelope**.

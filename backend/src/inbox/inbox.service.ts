@@ -4244,38 +4244,41 @@ export class InboxService {
     const now = new Date();
     const displayName = String(input?.name || '').replace(/\s+/g, ' ').trim();
 
-    // FONTE DA VERDADE = motor. O +Nova aceitava qualquer número e o "9 a mais" dos
-    // celulares do Sul (ex.: 5551993572856 não existe; o real é 555193572856) virava
-    // conversa-fantasma que nunca enviava. Pergunta-se ao WhatsApp (onWhatsApp): mandando
-    // com OU sem o 9 ele devolve o JID canônico correto — NÃO inserimos/removemos 9 por
-    // conta própria, usamos o que ele devolve. Sem WhatsApp = recusa (não cria). Motor fora
-    // do ar = degrada (cria com o digitado + whatsappUnverified, nunca trava).
+    // FONTE DA VERDADE = motor (onWhatsApp). Ordem do dono 23/06: "bater número por
+    // número" — o +Nova NÃO abre chat sem o WhatsApp CONFIRMAR que o número existe.
+    // Acabou a conversa-fantasma "não verificada": sem confirmação clara = recusa.
+    //   • número sem WhatsApp (fixo/errado/9 a mais que não existe) → 400 "não tem WhatsApp".
+    //   • motor instável / sem resposta → 503 "não consegui confirmar agora, tente de novo"
+    //     (NÃO cria nada — falha de validação jamais vira chat).
+    // Mandando com OU sem o 9 o motor devolve o JID canônico; gravamos o que ELE devolve
+    // (não inserimos/removemos 9 por conta própria).
     let canonicalContact = normalized.contact;
     let canonicalRemoteJid = normalized.remoteJid;
-    let whatsappUnverified = false;
+    let check: { exists?: boolean; remoteJid?: string | null; normalizedNumber?: string } | undefined;
     try {
       const selector: WebwhatsSessionSelector | undefined = sessionScope.currentSessionId
         ? { sessionId: sessionScope.currentSessionId }
         : undefined;
-      const [check] = await this.webwhatsBridge.checkWhatsappNumbers(
+      [check] = await this.webwhatsBridge.checkWhatsappNumbers(
         companyId,
         [normalized.digits],
         selector,
       );
-      if (!check || !check.exists) {
-        throw new BadRequestException('Esse número não tem WhatsApp — confira o DDD/celular.');
-      }
-      const canonicalDigits = String(
-        check.remoteJid ? check.remoteJid.split('@')[0] : check.normalizedNumber || '',
-      ).replace(/\D/g, '');
-      if (canonicalDigits.length >= 10) {
-        canonicalContact = `+${canonicalDigits}`;
-        canonicalRemoteJid = check.remoteJid || `${canonicalDigits}@s.whatsapp.net`;
-      }
     } catch (error) {
-      // Recusa explícita (número sem WhatsApp) sobe pro front; só a FALHA do motor degrada.
-      if (error instanceof BadRequestException) throw error;
-      whatsappUnverified = true;
+      // Motor não respondeu: NÃO degrada criando fantasma. Recusa pedindo pra tentar de novo.
+      throw new ServiceUnavailableException(
+        'Não consegui confirmar esse número no WhatsApp agora (conexão instável). Tente de novo em instantes.',
+      );
+    }
+    if (!check || !check.exists) {
+      throw new BadRequestException('Esse número não tem WhatsApp — confira o DDD/celular.');
+    }
+    const verifiedDigits = String(
+      check.remoteJid ? check.remoteJid.split('@')[0] : check.normalizedNumber || '',
+    ).replace(/\D/g, '');
+    if (verifiedDigits.length >= 10) {
+      canonicalContact = `+${verifiedDigits}`;
+      canonicalRemoteJid = check.remoteJid || `${verifiedDigits}@s.whatsapp.net`;
     }
 
     const metadata = {
@@ -4293,7 +4296,6 @@ export class InboxService {
       manualConversationStarted: true,
       manualConversationStartedAt: now.toISOString(),
       whatsappConnectionSessionId: sessionScope.currentSessionId || null,
-      ...(whatsappUnverified ? { whatsappUnverified: true } : {}),
     };
     // Casa contra o canônico do motor E contra o digitado cru: conversa aberta antes
     // (sob os dígitos errados, ex.: com o 9 a mais) é reaproveitada e migrada pro canônico.
@@ -4372,7 +4374,6 @@ export class InboxService {
       extra: {
         whatsappCommandSent: false,
         remoteJid: canonicalRemoteJid,
-        whatsappUnverified,
       },
     });
 
@@ -4432,28 +4433,46 @@ export class InboxService {
     }
     if (!ids.length) return { deleted: 0, ids: [] as string[] };
 
+    let deletedIds: number[] = [];
     await this.prisma.$transaction(async (tx) => {
-      // FK nullable sem cascade — solta o vínculo antes de apagar (igual ao wipe-all).
+      // Guarda dura DENTRO da transação: reconfirma quais ainda são apagáveis. Se uma
+      // mensagem REAL entrou entre a leitura e agora (corrida), a conversa sai daqui e
+      // NÃO é tocada (nem ela nem as mensagens dela).
+      const stillDeletable = await tx.companyConversation.findMany({
+        where: { companyId, id: { in: ids }, channel: 'whatsapp', ...deletableMessagesWhere },
+        select: { id: true },
+      });
+      deletedIds = stillDeletable.map((row) => Number(row.id));
+      if (!deletedIds.length) return;
+
+      // FK opcional (SetNull na mão, igual ao wipe-all): solta o vínculo do agendamento.
       await tx.atendimentoAppointment.updateMany({
-        where: { companyId, conversationId: { in: ids } },
+        where: { companyId, conversationId: { in: deletedIds } },
         data: { conversationId: null },
       });
-      // Guarda dura repetida no delete: se uma mensagem REAL entrou entre a leitura e o
-      // delete (corrida), a conversa deixa de ser apagável e NÃO é removida.
+      // FK OBRIGATÓRIA (CompanyMessage.conversation = Restrict): apaga as mensagens ANTES
+      // da conversa. Aqui só sobra FAILED/never-sent (o critério acima já garantiu zero
+      // INBOUND e zero OUTBOUND enviado), então nada real morre — mas SEM apagar a mensagem
+      // o delete da conversa estourava violação de FK = 500 no "Limpar". Faxina LOCAL:
+      // nada disso vira comando pro WhatsApp do cliente.
+      await tx.companyMessage.deleteMany({
+        where: { companyId, conversationId: { in: deletedIds } },
+      });
       await tx.companyConversation.deleteMany({
-        where: { companyId, id: { in: ids }, channel: 'whatsapp', ...deletableMessagesWhere },
+        where: { companyId, id: { in: deletedIds }, channel: 'whatsapp' },
       });
     });
+    if (!deletedIds.length) return { deleted: 0, ids: [] as string[] };
 
     await this.logInboxEvent({
       companyId,
       event: 'empty_conversations_cleared',
-      message: `[LIMPAR] ${ids.length} conversa(s) vazia(s) removida(s) — sem mensagem, nada enviado ao WhatsApp.`,
+      message: `[LIMPAR] ${deletedIds.length} conversa(s) removida(s) — sem mensagem real, nada enviado ao WhatsApp.`,
       result: 'cleared',
-      extra: { ids, whatsappCommandSent: false },
+      extra: { ids: deletedIds, whatsappCommandSent: false },
     });
 
-    return { deleted: ids.length, ids: ids.map(String) };
+    return { deleted: deletedIds.length, ids: deletedIds.map(String) };
   }
 
   // Echo pós-mutação (enviar, marcar lida, status, fila, bloquear, claim/transfer, avatar...): a

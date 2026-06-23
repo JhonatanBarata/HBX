@@ -169,3 +169,114 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
 
   return steps;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// TOURS POR MÓDULO (desmembrado, 23/06). Cada módulo tem seu tour PROFUNDO, que
+// destaca os elementos REAIS da tela (âncoras data-tut na própria page.client),
+// disparado pelo botão "Como usar" do topo. Diferente do tour completo acima,
+// que é a orientação rasa de primeiro acesso ("aqui MORA cada coisa"). Cada
+// elemento destacado precisa do data-tut correspondente na tela.
+//
+// ALVO ausente (cargo/plano não tem, ou mobile que não renderiza aquele bloco)
+// NÃO trava: o coach espera ~4s e pula sozinho. Foco do POC = desktop.
+
+// Radar (/leads): achar empresa → mirar filtro → ver/buscar → puxar pra carteira.
+// Sem cargo por enquanto (todo mundo vê os mesmos passos); quando um módulo
+// precisar variar por cargo, devolver o audience como argumento (par do builder).
+function leadsModuleSteps(): CoachStep[] {
+  return [
+    {
+      id: "leads-intro",
+      route: "/leads",
+      title: "Este é o seu Radar",
+      body: "É aqui que você acha empresas pra vender. Vou te mostrar cada parte em poucos toques.",
+      gate: "next",
+      cta: "Bora",
+    },
+    {
+      id: "leads-kpis",
+      route: "/leads",
+      target: '[data-tut="leads-kpis"]',
+      title: "O tamanho do lago",
+      body: "Esses números são o Brasil inteiro: quantas empresas existem, quantas já foram filtradas pra você e quantas têm WhatsApp.",
+      gate: "next",
+    },
+    {
+      id: "leads-filtros",
+      route: "/leads",
+      target: '[data-tut="leads-filtros"]',
+      title: "Aqui você mira",
+      body: "Escolha estado, cidade, alcance e o segmento que você atende. É o que diz pro Radar o tipo de empresa que você procura.",
+      gate: "next",
+    },
+    {
+      id: "leads-ver",
+      route: "/leads",
+      target: '[data-tut="leads-ver"]',
+      title: "Ver quem já está pronto",
+      body: "Mostra na hora as empresas que já estão na prateleira pro filtro que você escolheu.",
+      gate: "next",
+    },
+    {
+      id: "leads-buscar",
+      route: "/leads",
+      target: '[data-tut="leads-buscar"]',
+      title: "Prateleira fina? Liga o motor",
+      body: "Isso manda o Radar varrer a internet com a sua cidade e segmento e trazer empresas novinhas.",
+      gate: "next",
+    },
+    {
+      id: "leads-auto",
+      route: "/leads",
+      target: '[data-tut="leads-auto"]',
+      title: "Piloto automático",
+      body: "Liga e o Radar fica buscando sozinho com esse filtro — você chega e já tem lead novo esperando.",
+      gate: "next",
+    },
+    {
+      id: "leads-abas",
+      route: "/leads",
+      target: '[data-tut="leads-abas"]',
+      title: "Prateleira e carteira",
+      body: "“Disponíveis” é a prateleira, com o contato ainda escondido. “Minha carteira” é o que já é seu, com o contato liberado.",
+      gate: "next",
+    },
+    {
+      id: "leads-puxar",
+      route: "/leads",
+      target: '[data-tut="leads-puxar"]',
+      title: "Puxar pra você",
+      body: "Marque as empresas e clique aqui: o contato aparece e elas entram na sua carteira, prontas pra abordar.",
+      gate: "next",
+    },
+    {
+      id: "leads-cota",
+      route: "/leads",
+      target: '[data-tut="leads-cota"]',
+      title: "Seu limite",
+      body: "Mostra quantas empresas você pode ter em mãos. Encheu? Feche uma venda ou agende um retorno pra abrir vaga.",
+      gate: "next",
+    },
+  ];
+}
+
+// De-para módulo → passos. Crescer aqui ao desmembrar Vendas/Atendimento/etc.
+const MODULE_TOUR_BUILDERS: Record<string, () => CoachStep[]> = {
+  leads: leadsModuleSteps,
+};
+
+// Tour de UM módulo: passos profundos + um fecho curto (com "falar com a HBX").
+// Módulo sem tour cai no tour completo (fallback seguro). `audience` segue na
+// assinatura pro fallback e pros tours por-cargo que virão.
+export function buildModuleTour(moduleId: string, audience: Partial<CoachAudience> = {}): CoachStep[] {
+  const build = MODULE_TOUR_BUILDERS[moduleId];
+  if (!build) return buildCoachSteps(audience);
+  const steps = build();
+  steps.push({
+    id: `${moduleId}-final`,
+    title: "Pronto! ✨",
+    body: "É isso. Toque em Finalizar e comece a usar — ou chame a gente se ficou alguma dúvida.",
+    final: true,
+  });
+  return steps;
+}

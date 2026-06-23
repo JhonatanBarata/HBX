@@ -2301,7 +2301,8 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   content:""; position:absolute; inset:0; z-index:4; pointer-events:none;
   background:
     radial-gradient(120% 78% at 0% 0%, rgba(3,5,10,.5), transparent 36%),
-    radial-gradient(120% 78% at 0% 100%, rgba(3,5,10,.55), transparent 40%);
+    radial-gradient(120% 78% at 0% 100%, rgba(3,5,10,.55), transparent 40%),
+    radial-gradient(ellipse 72% 44% at 50% 0%, rgba(3,5,10,.44), transparent 56%);
 }
 
 /* ── ESCOLHIDO: takeover ──────────────────────────────────────────────────── */
@@ -2477,6 +2478,19 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .world-chip__swap svg { width: 13px; height: 13px; stroke: currentColor; fill: none; transform: rotate(180deg); }
 
 @media (prefers-reduced-motion: reduce){ .world-bg { transform: none; } }
+
+/* ── Contraste: nav + marca sobre fundos SEMPRE escuros (portal, world).
+   var(--text-body) é temático — aurora claro = #3D2B63 sobre #05070c ≈ 1.7:1, WCAG fail.
+   Força branco nesses contextos; .site-enter e .is-current mantêm lógica própria. */
+.scene:has(.portal) .scene-nav__item:not(.site-enter),
+.scene:has(.scene-view.world) .scene-nav__item:not(.site-enter) { color: rgba(255,255,255,.8); }
+.scene:has(.portal) .scene-nav__item:not(.site-enter):hover,
+.scene:has(.scene-view.world) .scene-nav__item:not(.site-enter):hover { color: #fff; background-color: rgba(255,255,255,.08); }
+.scene:has(.portal) .scene-nav__item.is-current,
+.scene:has(.scene-view.world) .scene-nav__item.is-current { color: var(--login-accent); background-color: color-mix(in srgb, var(--login-accent) 14%, transparent); }
+.scene:has(.portal) .site-brand,
+.scene:has(.scene-view.world) .site-brand { color: rgba(255,255,255,.9); }
+
 /* ════════════════════════════════════════════════════════════════════════════
    PORTAL — 5 fotos por lado em CROSS-FADE (mesma cadência de cor do master).
    Reusa o keyframe hbx-robo-cycle (90s, janela op1 5–25%, troca limpa) e os
@@ -2571,7 +2585,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .portal-hero__sub {
   margin: 12px auto 0; max-width: 52ch; font-size: clamp(.9rem, 1.1vw, 1.04rem);
-  line-height: 1.5; color: rgba(255,255,255,.82); text-shadow: 0 1px 12px rgba(0,0,0,.6);
+  line-height: 1.5; color: rgba(255,255,255,.88); text-shadow: 0 1px 16px rgba(0,0,0,.78), 0 0 32px rgba(0,0,0,.42);
 }
 
 /* microprova (rodapé central) */
