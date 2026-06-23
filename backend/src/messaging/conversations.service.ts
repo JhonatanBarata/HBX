@@ -11,6 +11,7 @@ import {
   META_TEMPLATES_REQUIRED_MESSAGE,
   resolveProviderCapabilitiesFromCompany,
 } from '../inbox/atendimento-config';
+import { WebwhatsBridgeService } from './webwhats-bridge.service';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -66,7 +67,10 @@ export type ConversationStatePatch = {
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
+  ) {}
 
   private async supportsWhatsAppEndpointTable() {
     return this.prisma.hasTable('CompanyWhatsAppEndpoint');
@@ -505,7 +509,20 @@ export class ConversationsService {
     const evolutionChannel = providerCapabilities.provider === 'evolution';
 
     if (evolutionChannel && !modalConnected) {
-      throw new BadRequestException('WhatsApp Evolution nao configurado para esta empresa.');
+      // POR USUÁRIO: o connect per-vendedor NÃO seta company.whatsappModalStatus (de propósito —
+      // senão o status/número de um vaza pros outros). Depois que a conexão virou por-vendedor,
+      // ninguém mais grava CONNECTED no nível da empresa pela tela de Atendimento; o status da
+      // empresa sozinho passou a barrar o ENQUEUE de TODO mundo — mesmo com o chip vivo. O DISPATCH
+      // (messaging.service) já corrige isso olhando a sessão viva (hasOperationalSession); o enqueue
+      // tinha ficado pra trás. Espelha o mesmo gate aqui: se há sessão webwhats VIVA pra esta
+      // conversa (ou pra empresa), libera — o dispatch resolve o tenantKey por-vendedor.
+      const hasLiveSession = await this.webwhatsBridge.hasOperationalSession(companyId, {
+        sessionId: conversation?.whatsappConnectionSessionId ?? null,
+        tenantKey: conversation?.sourceTenantKey ?? null,
+      });
+      if (!hasLiveSession) {
+        throw new BadRequestException('WhatsApp Evolution nao configurado para esta empresa.');
+      }
     }
     if (!evolutionChannel && !hasMetaCredentials) {
       throw new BadRequestException('WhatsApp nao configurado para esta empresa.');

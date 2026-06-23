@@ -70,8 +70,12 @@ function createService(opts?: {
     },
   } as any;
 
+  const webwhatsBridge = {
+    hasOperationalSession: async () => true,
+  } as any;
+
   return {
-    service: new ConversationsService(prisma),
+    service: new ConversationsService(prisma, webwhatsBridge),
     outboundCreateCalls,
     messageCreateCalls,
     conversationUpdateCalls,
