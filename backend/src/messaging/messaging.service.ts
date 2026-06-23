@@ -5845,6 +5845,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       });
       return { handled: true, recoveryBlocked: true };
     }
+
+    // Gate de recovery ao vivo (kill-switch): chavinha desligada = bot não responde.
+    // A conversa continua aberta, mas a automação para.
+    {
+      const companyLiveFlags = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { recoveryBotLiveAt: true },
+      }).catch(() => null);
+      if (!companyLiveFlags?.recoveryBotLiveAt) {
+        await this.prisma.companyMessage.update({
+          where: { id: inboundMessageId },
+          data: { sourceModule: 'hbx_recovery_paused', isComplaint: false },
+        }).catch(() => null);
+        this.logger.log(`[recovery] recoveryBotLiveAt null — resposta automática bloqueada companyId=${companyId} conversationId=${safeConversationId}`);
+        return { handled: false, recoveryBotPaused: true };
+      }
+    }
+
     const interactiveId = this.normalizeRecoveryActionId(
       rawActionId,
       config,

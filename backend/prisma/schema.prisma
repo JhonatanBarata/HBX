@@ -153,6 +153,12 @@ model Company {
   botArmChannel         String?   // 'webwhats' | 'meta'
   botArmedByUserId      Int?
   botArmReason          String?
+  // Ativação por tipo de bot (22/06): null = desligado; timestamp = ligado + auditoria.
+  // Atendimento NÃO usa coluna — fonte é routingRules.globalBotEnabled no config JSON.
+  recoveryBotLiveAt         DateTime?
+  recoveryBotLiveByUserId   Int?
+  prospectingBotLiveAt      DateTime?
+  prospectingBotLiveByUserId Int?
   createdAt               DateTime  @default(now())
   products                Product[]
   users                   User[]
@@ -1150,6 +1156,7 @@ model User {
   teamPolicy UserTeamPolicy? @relation("UserTeamPolicyUser")
   referredUserTeamPolicies UserTeamPolicy[] @relation("UserTeamPolicyReferrer")
   whatsappConnectionSessions WhatsAppConnectionSession[]
+  gmailConnection GmailConnection?
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
@@ -3122,4 +3129,20 @@ model CnpjPublicCompany {
   @@index([normalizedCity, state])
   @@index([state, cnae])
   @@index([phoneDigits])
+}
+
+model GmailConnection {
+  id                     String   @id @default(uuid())
+  userId                 Int      @unique
+  companyId              Int
+  email                  String?
+  refreshTokenCiphertext String?
+  scope                  String?
+  status                 String   @default("connected")
+  lastError              String?
+  connectedAt            DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
 }

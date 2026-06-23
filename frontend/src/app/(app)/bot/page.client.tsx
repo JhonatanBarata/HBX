@@ -1,25 +1,20 @@
 "use client";
 
-// Tela Bot (template docs/TEMAS/*/corporate/Bot.html) ligada na config real:
-// GET /inbox/bot-config → nós mapeáveis do canvas mostram os textos reais
-// (Boas-vindas=welcomeMessage, Qualificação=mainMenuPrompt, Transferir para
-// humano=humanAckMessage, Mensagem final=closeTopicMessage) e o chat de
-// teste usa as mensagens/botões reais. O bot real é CONFIG estruturada, não
-// grafo livre — edição pelo canvas precisa de decisão de produto (doc do PR).
-// Salvar/Publicar = PATCH real: como o backend faz FULL-REPLACE (normaliza o
-// payload do zero), mandamos a config COMPLETA carregada com as edições por
-// cima, senão campos fora do formulário (botões, actionCatalog, setup) seriam
-// zerados. ⋯ recarrega do servidor; zoom/pan do canvas, reset do chat de teste
-// e inserir emoji ligados. Os blocos levam às Configurações (onde o bot é
-// configurado); o construtor visual de grafo continua sendo decisão de produto.
-// Adaptação SPA: classe extra "app-viewport" no .app (ver screens.css).
+// Tela Bot — painel de controle real: pino + 3 chavinhas + pré-voo + config 3 tipos + modo teste.
+// B: Header com faixa do pino (read-only) + 3 chavinhas (Atendimento/Recovery/Prospecção) cada
+//    com chip tri-cor (chipConectado/configCompleta/passouModoTeste) e switch .sw.
+// C: Aba Configurações com seletor de tipo: troca endpoint (atendimento/recovery/prospecção).
+// D: Chat de teste chama POST /bot/activation/mark-tested ao concluir rodada → acende 3ª luz.
+// Design System: zero hex/inline solto — só classes/tokens centrais. CSS novo em screens.css.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
+
+// ─── Tipos ──────────────────────────────────────────────────────────────────
 
 type BotButton = { buttonId: string; actionId: string; title: string; nextNodeId?: string };
 
@@ -48,15 +43,38 @@ type BotConfig = {
   actionCatalog?: BotAction[];
 };
 
-// grupos de botões editáveis (PATCH /inbox/bot-config) — o backend exige
-// buttonId estável e único e actionId existente no actionCatalog
+type BotTypeName = "atendimento" | "recovery" | "prospeccao";
+
+type PreflightStatus = {
+  chipConectado: boolean;
+  configCompleta: boolean;
+  passouModoTeste: boolean;
+};
+
+type BotTypeStatus = {
+  live: boolean;
+  preflight: PreflightStatus;
+  blocked: string | null;
+};
+
+type ActivationState = {
+  armed: boolean;
+  armedBy: string | null;
+  armReason: string | null;
+  channel: string | null;
+  canAdminToggle: boolean;
+  types: Record<BotTypeName, BotTypeStatus>;
+};
+
+// ─── Constantes de config ────────────────────────────────────────────────────
+
 type BotaoGrupo = "welcomeButtons" | "mainMenuButtons";
+
 const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string; hint: string }[] = [
   { key: "welcomeButtons", label: "Botões de boas-vindas", hint: "aparecem na primeira mensagem" },
   { key: "mainMenuButtons", label: "Botões do menu principal", hint: "opções do menu" },
 ];
 
-// campos de mensagem editáveis na aba Configurações (PATCH /inbox/bot-config)
 const BOT_MSG_FIELDS: { key: keyof BotConfig; label: string; hint: string }[] = [
   { key: "welcomeMessage", label: "Boas-vindas", hint: "Primeira mensagem para contato novo" },
   { key: "returningCustomerMessage", label: "Cliente retornando", hint: "Quando o contato já é conhecido" },
@@ -74,6 +92,34 @@ const BOT_RULES: { key: keyof BotRoutingRules; label: string; hint: string }[] =
   { key: "autoReopenClosedConversation", label: "Reabrir conversa fechada", hint: "Nova mensagem reabre o atendimento" },
   { key: "notifyOnNewInbound", label: "Avisar nova mensagem", hint: "Notifica a equipe a cada inbound" },
 ];
+
+// Mapeamento: qual endpoint GET/PATCH usar por tipo
+const TYPE_ENDPOINT: Record<BotTypeName, string> = {
+  atendimento: "/inbox/bot-config",
+  recovery: "/hbx-recovery/bot-config",
+  prospeccao: "/vendas/automation/bot-config",
+};
+
+const TYPE_LABEL: Record<BotTypeName, string> = {
+  atendimento: "Atendimento",
+  recovery: "Recovery",
+  prospeccao: "Prospecção",
+};
+
+const TYPE_DESC: Record<BotTypeName, string> = {
+  atendimento: "Responde contatos novos automaticamente",
+  recovery: "Aciona devedores com templates de cobrança",
+  prospeccao: "Inicia conversas com leads prospectados",
+};
+
+// Proativos = requerem confirmação ao ligar e têm pré-voo mais rigoroso
+const PROATIVO: Record<BotTypeName, boolean> = {
+  atendimento: false,
+  recovery: true,
+  prospeccao: true,
+};
+
+// ─── Canvas/fluxo (decorativo) ────────────────────────────────────────────────
 
 const BLOCKS = [
   { t: "Mensagem", d: "Envie uma mensagem de texto", c: "var(--hbx-brand)", ic: "msg" },
@@ -109,6 +155,8 @@ const EDGES: FlowEdge[] = [
   { from: [528, 408], to: [528, 480], c: "var(--hbx-brand)" },
 ];
 
+// ─── Chat de teste ────────────────────────────────────────────────────────────
+
 type ChatMsg = { dir: "in" | "out"; text: string; tm: string; quick?: boolean };
 
 const CHAT0: ChatMsg[] = [
@@ -123,7 +171,6 @@ function hhmm() {
   return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-// textos reais da config nos nós mapeáveis do canvas
 const NODE_CONFIG_FIELD: Record<string, keyof BotConfig> = {
   boas: "welcomeMessage",
   qual: "mainMenuPrompt",
@@ -131,20 +178,184 @@ const NODE_CONFIG_FIELD: Record<string, keyof BotConfig> = {
   msgf: "closeTopicMessage",
 };
 
+// ─── Pré-voo chip ────────────────────────────────────────────────────────────
+
+function PreflightChip({
+  ok,
+  label,
+  tooltip,
+}: {
+  ok: boolean;
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <span
+      className={"bot-pf-chip" + (ok ? " bot-pf-chip--ok" : " bot-pf-chip--warn")}
+      title={tooltip}
+      aria-label={label + (ok ? " OK" : " — " + tooltip)}
+    >
+      {ok ? "✓" : "!"} {label}
+    </span>
+  );
+}
+
+// ─── Chavinha (card de tipo) ──────────────────────────────────────────────────
+
+function BotTypeCard({
+  tipo,
+  status,
+  armed,
+  onToggle,
+  busy,
+}: {
+  tipo: BotTypeName;
+  status: BotTypeStatus;
+  armed: boolean;
+  onToggle: (tipo: BotTypeName, live: boolean) => void;
+  busy: boolean;
+}) {
+  const pf = status.preflight;
+  const isProativo = PROATIVO[tipo];
+
+  // Pré-voo verde = todas as 3 luzes OK para proativos; atendimento só exige chip + config
+  const preflightOk = isProativo
+    ? pf.chipConectado && pf.configCompleta && pf.passouModoTeste
+    : pf.chipConectado && pf.configCompleta;
+
+  // Switch desabilitado quando: sem pino, pré-voo vermelho (proativos), ou busy
+  const switchDisabled = !armed || (isProativo && !preflightOk) || busy;
+
+  // Tooltip para o switch quando travado
+  function switchTooltip(): string {
+    if (!armed) return "Aguarde o Suporte armar o pino primeiro";
+    if (!pf.chipConectado) return "Conecte o WhatsApp antes de ligar";
+    if (!pf.configCompleta) return "Complete a configuração do bot antes de ligar";
+    if (isProativo && !pf.passouModoTeste) return "Rode o teste simulado antes de ligar";
+    return "";
+  }
+
+  function handleToggle() {
+    if (switchDisabled) return;
+    const ligar = !status.live;
+    if (ligar && isProativo) {
+      const msg =
+        tipo === "recovery"
+          ? "Ligar o Recovery? Ele vai CONTATAR devedores automaticamente. Começa devagar."
+          : "Ligar a Prospecção? Ela vai INICIAR conversas com leads. Começa devagar.";
+      if (!window.confirm(msg)) return;
+    }
+    onToggle(tipo, ligar);
+  }
+
+  return (
+    <div className={"bot-type-card" + (!armed ? " bot-type-card--disabled" : "")}>
+      <div className="bot-type-card-head">
+        <div className="bot-type-card-info">
+          <strong className="bot-type-card-name">{TYPE_LABEL[tipo]}</strong>
+          <small className="bot-type-card-desc">{TYPE_DESC[tipo]}</small>
+        </div>
+        <button
+          className={"sw" + (status.live ? " on" : "")}
+          role="switch"
+          aria-checked={status.live}
+          aria-label={`Ligar ${TYPE_LABEL[tipo]}`}
+          disabled={switchDisabled}
+          title={switchDisabled ? switchTooltip() : (status.live ? "Desligar" : "Ligar")}
+          onClick={handleToggle}
+        >
+          <i></i>
+        </button>
+      </div>
+      <div className="bot-type-card-pf">
+        <PreflightChip
+          ok={pf.chipConectado}
+          label="WhatsApp"
+          tooltip={pf.chipConectado ? "Chip conectado" : "Conecte o WhatsApp"}
+        />
+        <PreflightChip
+          ok={pf.configCompleta}
+          label="Config"
+          tooltip={pf.configCompleta ? "Configuração completa" : "Complete a configuração na aba Configurações"}
+        />
+        <PreflightChip
+          ok={pf.passouModoTeste}
+          label="Testado"
+          tooltip={pf.passouModoTeste ? "Já testado" : (isProativo ? "Rode o teste simulado antes de ligar" : "Recomendado: rode o teste simulado")}
+        />
+      </div>
+      {status.blocked && (
+        <div className="bot-type-card-blocked">{status.blocked}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 export function BotClient() {
   const isMobile = useIsMobile();
   const [selNode, setSelNode] = useState("cond");
   const [chat, setChat] = useState(CHAT0);
   const [draft, setDraft] = useState("");
+  // config do atendimento (aba Fluxo / canvas)
   const [config, setConfig] = useState<BotConfig | null>(null);
   const [step, setStep] = useState(0);
-  // aba ativa + editor da aba Configurações (decisão do dono 12/06/2026:
-  // a configuração do bot mora aqui; PATCH /inbox/bot-config)
   const [tab, setTab] = useTabIndex("tab", 0);
+
+  // ── Activation (pino + 3 chavinhas) ──────────────────────────────────────
+  const [activation, setActivation] = useState<ActivationState | null>(null);
+  const [actBusy, setActBusy] = useState(false);
+  const [actMsg, setActMsg] = useState<string | null>(null);
+
+  const defaultActivation: ActivationState = {
+    armed: false,
+    armedBy: null,
+    armReason: null,
+    channel: null,
+    canAdminToggle: false,
+    types: {
+      atendimento: { live: false, preflight: { chipConectado: false, configCompleta: false, passouModoTeste: false }, blocked: null },
+      recovery:    { live: false, preflight: { chipConectado: false, configCompleta: false, passouModoTeste: false }, blocked: null },
+      prospeccao:  { live: false, preflight: { chipConectado: false, configCompleta: false, passouModoTeste: false }, blocked: null },
+    },
+  };
+
+  // setState só em callback assíncrono (regra react-hooks/set-state-in-effect).
+  const loadActivation = useCallback(() => {
+    apiFetch<ActivationState>("/bot/activation")
+      .then(data => { if (data) setActivation(data); })
+      .catch(() => { /* backend indisponível — mantém estado padrão, tela não quebra */ });
+  }, []);
+
+  async function toggleType(tipo: BotTypeName, live: boolean) {
+    if (actBusy) return;
+    setActBusy(true);
+    setActMsg(null);
+    try {
+      const data = await apiFetch<ActivationState>("/bot/activation", {
+        method: "PUT",
+        body: JSON.stringify({ type: tipo, live }),
+      });
+      if (data) setActivation(data);
+      setActMsg(live ? `✓ ${TYPE_LABEL[tipo]} ligado.` : `✓ ${TYPE_LABEL[tipo]} desligado.`);
+    } catch (err) {
+      setActMsg(err instanceof Error ? err.message : "Não foi possível alterar.");
+    } finally {
+      setActBusy(false);
+    }
+  }
+
+  // ── Tipo selecionado na aba Configurações ─────────────────────────────────
+  const [cfgTipo, setCfgTipo] = useState<BotTypeName>("atendimento");
+  // config carregada por tipo (cache simples: só o tipo atual)
+  const [cfgData, setCfgData] = useState<BotConfig | null>(null);
   const [cfgForm, setCfgForm] = useState<Partial<BotConfig>>({});
   const [cfgRules, setCfgRules] = useState<Partial<BotRoutingRules>>({});
+  const [cfgBotoes, setCfgBotoes] = useState<Partial<Record<BotaoGrupo, BotButton[]>>>({});
   const [cfgBusy, setCfgBusy] = useState(false);
   const [cfgMsg, setCfgMsg] = useState<string | null>(null);
+
   const [zoom, setZoom] = useState(1);
   const [canvasTool, setCanvasTool] = useState<"select" | "pan">("select");
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -152,29 +363,82 @@ export function BotClient() {
   const panRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const emojiIdx = useRef(0);
 
+  // ── Carregar config do tipo selecionado ───────────────────────────────────
+  // setState só em callback assíncrono (regra react-hooks/set-state-in-effect).
+  // initCfgTipo é para a montagem (sem setState síncrono); loadCfgTipo é para reload.
+
+  const initCfgTipo = useCallback((tipo: BotTypeName) => {
+    apiFetch<BotConfig>(TYPE_ENDPOINT[tipo])
+      .then(data => {
+        if (!data) return;
+        setCfgData(data);
+        if (tipo === "atendimento") {
+          setConfig(data);
+          if (data.welcomeMessage) {
+            setChat([{ dir: "in", text: data.welcomeMessage, tm: hhmm(), quick: true }]);
+            setStep(0);
+          }
+        }
+      })
+      .catch(() => { /* config indisponível */ });
+  }, []);
+
+  function loadCfgTipo(tipo: BotTypeName) {
+    setCfgBusy(true);
+    setCfgMsg(null);
+    setCfgForm({});
+    setCfgRules({});
+    setCfgBotoes({});
+    apiFetch<BotConfig>(TYPE_ENDPOINT[tipo])
+      .then(data => {
+        if (!data) return;
+        setCfgData(data);
+        if (tipo === "atendimento") {
+          setConfig(data);
+          if (data.welcomeMessage) {
+            setChat([{ dir: "in", text: data.welcomeMessage, tm: hhmm(), quick: true }]);
+            setStep(0);
+          }
+        }
+      })
+      .catch(() => { setCfgData(null); })
+      .finally(() => { setCfgBusy(false); });
+  }
+
+  // Carregar ativação + config inicial na montagem
+  useEffect(() => {
+    loadActivation();
+    initCfgTipo("atendimento");
+  }, [loadActivation, initCfgTipo]);
+
+  // Trocar tipo → recarregar config
+  function selecionarTipo(tipo: BotTypeName) {
+    setCfgTipo(tipo);
+    loadCfgTipo(tipo);
+  }
+
+  // ── Helpers de edição ─────────────────────────────────────────────────────
+
   function cfgValue(key: keyof BotConfig): string {
     const edited = cfgForm[key];
     if (typeof edited === "string") return edited;
-    const real = config?.[key];
+    const real = cfgData?.[key];
     return typeof real === "string" ? real : "";
   }
 
   function ruleValue(key: keyof BotRoutingRules): boolean {
     const edited = cfgRules[key];
     if (typeof edited === "boolean") return edited;
-    return Boolean(config?.routingRules?.[key]);
+    return Boolean(cfgData?.routingRules?.[key]);
   }
 
-  // editor de botões: null no grupo = não editado (mostra a config real)
-  const [cfgBotoes, setCfgBotoes] = useState<Partial<Record<BotaoGrupo, BotButton[]>>>({});
-
   function botoesDe(grupo: BotaoGrupo): BotButton[] {
-    return cfgBotoes[grupo] ?? (config?.[grupo] || []);
+    return cfgBotoes[grupo] ?? (cfgData?.[grupo] || []);
   }
 
   function editarBotao(grupo: BotaoGrupo, idx: number, patch: Partial<BotButton>) {
     setCfgBotoes(prev => {
-      const atual = (prev[grupo] ?? (config?.[grupo] || [])).map(b => ({ ...b }));
+      const atual = (prev[grupo] ?? (cfgData?.[grupo] || [])).map(b => ({ ...b }));
       if (atual[idx]) atual[idx] = { ...atual[idx], ...patch };
       return { ...prev, [grupo]: atual };
     });
@@ -182,8 +446,7 @@ export function BotClient() {
 
   function addBotao(grupo: BotaoGrupo) {
     setCfgBotoes(prev => {
-      const atual = (prev[grupo] ?? (config?.[grupo] || [])).map(b => ({ ...b }));
-      // buttonId estável e único (exigência do backend)
+      const atual = (prev[grupo] ?? (cfgData?.[grupo] || [])).map(b => ({ ...b }));
       const novoId = `btn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
       atual.push({ buttonId: novoId, actionId: "", title: "" });
       return { ...prev, [grupo]: atual };
@@ -192,19 +455,16 @@ export function BotClient() {
 
   function removerBotao(grupo: BotaoGrupo, idx: number) {
     setCfgBotoes(prev => {
-      const atual = (prev[grupo] ?? (config?.[grupo] || [])).filter((_, i) => i !== idx);
+      const atual = (prev[grupo] ?? (cfgData?.[grupo] || [])).filter((_, i) => i !== idx);
       return { ...prev, [grupo]: atual };
     });
   }
 
-  const acoesDisponiveis = (config?.actionCatalog || []).filter(a => a.enabled !== false);
+  const acoesDisponiveis = (cfgData?.actionCatalog || []).filter(a => a.enabled !== false);
 
-  // PATCH /inbox/bot-config é FULL-REPLACE (o backend normaliza o payload do
-  // zero e zera o que não vier — welcomeButtons viram [], setup/actionCatalog
-  // voltam ao default). Por isso partimos da config COMPLETA carregada e só
-  // sobrepomos as edições do formulário: assim nada é perdido ao salvar.
+  // PATCH full-replace: parte da config completa + sobrepõe edições
   function buildBody(overrides?: { globalBotEnabled?: boolean }): Record<string, unknown> {
-    const body: Record<string, unknown> = config ? { ...config } : {};
+    const body: Record<string, unknown> = cfgData ? { ...cfgData } : {};
     for (const f of BOT_MSG_FIELDS) {
       const v = cfgValue(f.key);
       if (v.trim()) body[f.key] = v;
@@ -230,15 +490,20 @@ export function BotClient() {
     setCfgBusy(true);
     setCfgMsg(null);
     try {
-      const updated = await apiFetch<BotConfig>("/inbox/bot-config", {
+      const updated = await apiFetch<BotConfig>(TYPE_ENDPOINT[cfgTipo], {
         method: "PATCH",
         body: JSON.stringify(body),
       });
-      if (updated && typeof updated === "object") setConfig(updated);
+      if (updated && typeof updated === "object") {
+        setCfgData(updated);
+        if (cfgTipo === "atendimento") setConfig(updated);
+      }
       setCfgForm({});
       setCfgRules({});
       setCfgBotoes({});
       setCfgMsg(okMsg);
+      // Recarregar ativação para atualizar pré-voo (configCompleta pode mudar)
+      loadActivation();
     } catch (err) {
       setCfgMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
     } finally {
@@ -250,37 +515,15 @@ export function BotClient() {
     void patchConfig(buildBody(), "✓ Configuração salva.");
   }
 
-  // Publicar = salvar + ligar/desligar o bot em todas as conversas novas
-  // (routingRules.globalBotEnabled). O backend recusa se o setup não estiver
-  // completo — a mensagem dele aparece no cabeçalho.
-  function publicar() {
-    if (cfgBusy) return;
-    const ligar = !Boolean(config?.routingRules?.globalBotEnabled);
-    if (
-      ligar &&
-      typeof window !== "undefined" &&
-      !window.confirm("Publicar o bot? Ele passará a responder automaticamente as novas conversas do WhatsApp.")
-    ) return;
-    void patchConfig(buildBody({ globalBotEnabled: ligar }), ligar ? "✓ Bot publicado e ativo." : "✓ Bot despublicado.");
+  function recarregar() {
+    loadCfgTipo(cfgTipo);
+    setCfgMsg("✓ Recarregando…");
   }
 
-  // Recarrega a config salva do servidor (botão ⋯) e descarta edições locais.
-  async function recarregar() {
-    if (cfgBusy) return;
-    setCfgMsg(null);
-    try {
-      const cfg = await apiFetch<BotConfig>("/inbox/bot-config");
-      if (!cfg) return;
-      setConfig(cfg);
-      setCfgForm({});
-      setCfgRules({});
-      setCfgBotoes({});
-      if (cfg.welcomeMessage) { setChat([{ dir: "in", text: cfg.welcomeMessage, tm: hhmm(), quick: true }]); setStep(0); }
-      setCfgMsg("✓ Configuração recarregada.");
-    } catch (err) {
-      setCfgMsg(err instanceof Error ? err.message : "Não foi possível recarregar.");
-    }
-  }
+  // ── Chat de teste ─────────────────────────────────────────────────────────
+
+  // Tipo selecionado no chat (Fluxo) — controla qual tipo "mark-tested" vai chamar
+  const [chatTipo, setChatTipo] = useState<BotTypeName>("atendimento");
 
   function resetChat() {
     if (config?.welcomeMessage) setChat([{ dir: "in", text: config.welcomeMessage, tm: hhmm(), quick: true }]);
@@ -289,47 +532,14 @@ export function BotClient() {
     setDraft("");
   }
 
-  const zoomIn = () => setZoom(z => Math.min(1.5, Math.round((z + 0.1) * 10) / 10));
-  const zoomOut = () => setZoom(z => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
-
-  function addEmoji() {
-    const e = EMOJIS[emojiIdx.current % EMOJIS.length];
-    emojiIdx.current += 1;
-    setDraft(d => d + e);
-  }
-
-  // pan do canvas quando a ferramenta "mover" está ativa (arrasta o scroll)
-  function onCanvasDown(e: React.MouseEvent) {
-    if (canvasTool !== "pan" || !canvasRef.current) return;
-    panRef.current = { x: e.clientX, y: e.clientY, sl: canvasRef.current.scrollLeft, st: canvasRef.current.scrollTop };
-  }
-  function onCanvasMove(e: React.MouseEvent) {
-    if (!panRef.current || !canvasRef.current) return;
-    canvasRef.current.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x);
-    canvasRef.current.scrollTop = panRef.current.st - (e.clientY - panRef.current.y);
-  }
-  function onCanvasUp() { panRef.current = null; }
-  useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [chat]);
-
-  useEffect(() => {
-    let alive = true;
-    apiFetch<BotConfig>("/inbox/bot-config")
-      .then(cfg => {
-        if (!alive || !cfg) return;
-        setConfig(cfg);
-        if (cfg.welcomeMessage) {
-          setChat([{ dir: "in", text: cfg.welcomeMessage, tm: hhmm(), quick: true }]);
-          setStep(0);
-        }
-      })
-      .catch(() => { /* config indisponível — teste segue com texto do template */ });
-    return () => { alive = false; };
-  }, []);
-
-  function nodeBody(n: FlowNode) {
-    const field = NODE_CONFIG_FIELD[n.id];
-    const real = field && config ? config[field] : null;
-    return typeof real === "string" && real.trim() ? real : n.b;
+  // Ao concluir rodada de teste: chama mark-tested e recarrega ativação
+  function marcarTestado(tipo: BotTypeName) {
+    apiFetch("/bot/activation/mark-tested", {
+      method: "POST",
+      body: JSON.stringify({ type: tipo }),
+    })
+      .then(() => { loadActivation(); })
+      .catch(() => { /* silencia — pré-voo será atualizado na próxima carga */ });
   }
 
   function reply(text: string) {
@@ -347,42 +557,79 @@ export function BotClient() {
       }
       return next;
     });
-    setStep(s => s + 1);
+    const novoStep = step + 1;
+    setStep(novoStep);
+    // Após 2 trocas consideramos "rodada concluída" → marca como testado
+    if (novoStep >= 2) {
+      void marcarTestado(chatTipo);
+    }
   }
+
   function send() { if (!draft.trim()) return; reply(draft.trim()); setDraft(""); }
+
+  // ── Canvas ────────────────────────────────────────────────────────────────
+
+  const zoomIn = () => setZoom(z => Math.min(1.5, Math.round((z + 0.1) * 10) / 10));
+  const zoomOut = () => setZoom(z => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
+
+  function addEmoji() {
+    const e = EMOJIS[emojiIdx.current % EMOJIS.length];
+    emojiIdx.current += 1;
+    setDraft(d => d + e);
+  }
+
+  function onCanvasDown(e: React.MouseEvent) {
+    if (canvasTool !== "pan" || !canvasRef.current) return;
+    panRef.current = { x: e.clientX, y: e.clientY, sl: canvasRef.current.scrollLeft, st: canvasRef.current.scrollTop };
+  }
+  function onCanvasMove(e: React.MouseEvent) {
+    if (!panRef.current || !canvasRef.current) return;
+    canvasRef.current.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x);
+    canvasRef.current.scrollTop = panRef.current.st - (e.clientY - panRef.current.y);
+  }
+  function onCanvasUp() { panRef.current = null; }
+
+  useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [chat]);
+
+  function nodeBody(n: FlowNode) {
+    const field = NODE_CONFIG_FIELD[n.id];
+    const real = field && config ? config[field] : null;
+    return typeof real === "string" && real.trim() ? real : n.b;
+  }
+
+  // ── Derived state ─────────────────────────────────────────────────────────
+
+  const act = activation ?? defaultActivation;
+  const setupBadge = cfgData
+    ? cfgData.setup?.completed ? "✓ Configurado" : "Configuração pendente"
+    : "✓ Salvo";
 
   const quickOptions = config
     ? (step === 0 ? config.welcomeButtons : config.mainMenuButtons)?.map(b => b.title).filter(Boolean) || []
     : ["Aumentar vendas", "Organizar processos", "Encontrar novos clientes", "Outro"];
-  const setupBadge = config
-    ? config.setup?.completed ? "✓ Configurado" : "Configuração pendente"
-    : "✓ Salvo";
-  const botAtivo = Boolean(config?.routingRules?.globalBotEnabled);
 
-  // --- Render alternativo mobile: mesma rota /bot, sem canvas ---
+  // ── Render mobile ─────────────────────────────────────────────────────────
+
   if (isMobile) {
     return (
       <React.Fragment>
         <div className="bot-head">
           <h1>Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
-          <span className={"saved" + (config && !config.setup?.completed ? " bot-badge--warn" : "")}>{setupBadge}</span>
-          {cfgMsg && (
-            <span className={"bot-mobile-msg" + (cfgMsg.startsWith("✓") ? " bot-mobile-msg--ok" : " bot-mobile-msg--err")}>{cfgMsg}</span>
+          <span className={"saved" + (cfgData && !cfgData.setup?.completed ? " bot-badge--warn" : "")}>{setupBadge}</span>
+          {actMsg && (
+            <span className={"bot-mobile-msg" + (actMsg.startsWith("✓") ? " bot-mobile-msg--ok" : " bot-mobile-msg--err")}>{actMsg}</span>
           )}
         </div>
 
         <div className="bot-mobile-view">
-          {/* Aviso */}
           <div className="bot-mobile-notice">
             <I d={ICONS.scrape} size={15} />
             Edição do desenho é no computador. Aqui você vê o fluxo e controla o bot.
           </div>
 
-          {/* Lista dos blocos do fluxo em leitura */}
           <div className="bot-block-list">
             {NODES.map(n => (
               <div className="bot-block-item" key={n.id}>
-                {/* usa CSS custom property --bot-nc (layout + cor via var, não visual prop) */}
                 <span className="bicon bot-block-icon" style={{ "--bot-nc": n.c, width: 34, height: 34, flexShrink: 0 } as React.CSSProperties}>
                   <I d={ICONS[n.ic]} size={16} />
                 </span>
@@ -401,17 +648,23 @@ export function BotClient() {
             ))}
           </div>
 
-          {/* Ações principais */}
           <div className="bot-mobile-actions">
             <button className="btn-ghost" onClick={() => setTab(0)}>
               <I d={ICONS.send} size={14} /> Testar bot
             </button>
             <button
-              className={"btn-teal"}
-              onClick={publicar}
-              disabled={cfgBusy}
+              className="btn-teal"
+              onClick={() => {
+                const tipo = "atendimento";
+                const status = act.types[tipo];
+                if (!act.armed) return;
+                const ligar = !status.live;
+                if (ligar && !window.confirm("Publicar o bot? Ele passará a responder automaticamente as novas conversas do WhatsApp.")) return;
+                void toggleType(tipo, ligar);
+              }}
+              disabled={actBusy || !act.armed}
             >
-              {cfgBusy ? "Aguarde…" : botAtivo ? "Desativar bot" : "Ativar bot"}
+              {actBusy ? "Aguarde…" : act.types.atendimento.live ? "Desativar bot" : "Ativar bot"}
             </button>
           </div>
         </div>
@@ -419,27 +672,67 @@ export function BotClient() {
     );
   }
 
+  // ── Render desktop ────────────────────────────────────────────────────────
+
   return (
     <React.Fragment>
-        <div className="bot-head">
-          <h1>Construtor de Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
-          <span className="saved" style={config && !config.setup?.completed ? { color: "var(--hbx-warning)" } : {}}>{setupBadge}</span>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
-            {cfgMsg && <span style={{ alignSelf: "center", fontSize: "0.7rem", fontWeight: 700, color: cfgMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{cfgMsg}</span>}
-            <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração do servidor" onClick={recarregar} disabled={cfgBusy}>⋯</button>
-            <button className="btn-ghost" onClick={() => setTab(0)}><I d={ICONS.send} size={13} /> Testar bot</button>
-            <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
-            <button className="btn-teal" onClick={publicar} disabled={cfgBusy}>{botAtivo ? "Publicado ✓" : "Publicar"}</button>
-          </div>
-        </div>
-        <div className="bot-tabs">
-          {["Fluxo", "Configurações", "Integrações", "Publicação", "Análises"].map((t, i) => (
-            <button key={t} className={"bot-tab" + (tab === i ? " on" : "")} onClick={() => setTab(i)}>{t}</button>
-          ))}
-          <div className="right"><span>Versão rascunho</span><span className="saved">{setupBadge}</span></div>
-        </div>
+      {/* ── Header: título + faixa do pino + 3 chavinhas ── */}
+      <div className="bot-head">
+        <h1>Construtor de Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
 
-        {tab === 0 && (
+        {/* Faixa do pino (read-only) */}
+        <span className={"bot-pin-faixa" + (act.armed ? " bot-pin-faixa--armed" : "")}>
+          {act.armed
+            ? `Bot armado por ${act.armedBy ?? "Suporte"}${act.channel ? ` · ${act.channel}` : ""}`
+            : "Aguardando ativação do Suporte"}
+        </span>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: 9, alignItems: "center" }}>
+          {actMsg && (
+            <span className={"bot-act-msg" + (actMsg.startsWith("✓") ? " bot-act-msg--ok" : " bot-act-msg--err")}>
+              {actMsg}
+            </span>
+          )}
+          {cfgMsg && (
+            <span className={"bot-act-msg" + (cfgMsg.startsWith("✓") ? " bot-act-msg--ok" : " bot-act-msg--err")}>
+              {cfgMsg}
+            </span>
+          )}
+          <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração" onClick={recarregar} disabled={cfgBusy}>⋯</button>
+          <button className="btn-ghost" onClick={() => setTab(0)}><I d={ICONS.send} size={13} /> Testar bot</button>
+          <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
+        </div>
+      </div>
+
+      {/* ── 3 chavinhas ── */}
+      {!act.armed && (
+        <div className="bot-pin-aviso">
+          Pino não armado — chavinhas desabilitadas. Solicite ao Suporte a ativação do bot para esta empresa.
+        </div>
+      )}
+      <div className="bot-type-cards">
+        {(["atendimento", "recovery", "prospeccao"] as BotTypeName[]).map(tipo => (
+          <BotTypeCard
+            key={tipo}
+            tipo={tipo}
+            status={act.types[tipo]}
+            armed={act.armed}
+            onToggle={toggleType}
+            busy={actBusy}
+          />
+        ))}
+      </div>
+
+      {/* ── Abas ── */}
+      <div className="bot-tabs">
+        {["Fluxo", "Configurações", "Integrações", "Publicação", "Análises"].map((t, i) => (
+          <button key={t} className={"bot-tab" + (tab === i ? " on" : "")} onClick={() => setTab(i)}>{t}</button>
+        ))}
+        <div className="right"><span>Versão rascunho</span><span className="saved">{setupBadge}</span></div>
+      </div>
+
+      {/* ── Aba Fluxo (canvas + chat de teste) ── */}
+      {tab === 0 && (
         <div className="builder">
           <aside className="blocks">
             <h2>Tipos de bloco</h2>
@@ -503,6 +796,21 @@ export function BotClient() {
           <aside className="test">
             <div className="test-head">
               <h2>Teste seu bot</h2>
+              {/* Seletor do tipo sendo testado */}
+              <select
+                className="field-dark bot-chat-tipo-sel"
+                value={chatTipo}
+                onChange={e => {
+                  const t = e.target.value as BotTypeName;
+                  setChatTipo(t);
+                  resetChat();
+                }}
+                aria-label="Tipo de bot no teste"
+              >
+                <option value="atendimento">Atendimento</option>
+                <option value="recovery">Recovery</option>
+                <option value="prospeccao">Prospecção</option>
+              </select>
               <span className="saved" style={{ fontSize: "0.66rem" }}>Online ●</span>
               <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Reiniciar conversa de teste" onClick={resetChat}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
             </div>
@@ -538,64 +846,91 @@ export function BotClient() {
             <div className="test-foot">⚡ Teste simulado · As respostas podem variar.</div>
           </aside>
         </div>
-        )}
+      )}
 
-        {tab === 1 && (
-          <div className="work" style={{ flex: 1, overflowY: "auto" }}>
-            <section className="panel">
-              <div className="panel-head">
-                <h2>Mensagens do bot</h2>
-                <div className="meta">
-                  <button className="btn-teal" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar alterações"}</button>
+      {/* ── Aba Configurações (3 tipos) ── */}
+      {tab === 1 && (
+        <div className="work" style={{ flex: 1, overflowY: "auto" }}>
+          {/* Seletor de tipo */}
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Tipo de bot</h2>
+            </div>
+            <div className="bot-cfg-tipo-row">
+              {(["atendimento", "recovery", "prospeccao"] as BotTypeName[]).map(t => (
+                <button
+                  key={t}
+                  className={"bot-cfg-tipo-btn" + (cfgTipo === t ? " on" : "")}
+                  onClick={() => selecionarTipo(t)}
+                  disabled={cfgBusy}
+                >
+                  {TYPE_LABEL[t]}
+                </button>
+              ))}
+              <span className="bot-cfg-tipo-desc">{TYPE_DESC[cfgTipo]}</span>
+            </div>
+          </section>
+
+          {/* Mensagens */}
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Mensagens do bot — {TYPE_LABEL[cfgTipo]}</h2>
+              <div className="meta">
+                <button className="btn-teal" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar alterações"}</button>
+              </div>
+            </div>
+            <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {BOT_MSG_FIELDS.map(f => (
+                <div key={String(f.key)} style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{f.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {f.hint}</span></label>
+                  <textarea className="field-dark" rows={3} style={{ resize: "vertical", padding: "9px 12px", minHeight: 72 }}
+                    value={cfgValue(f.key)} onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))} />
                 </div>
-              </div>
-              <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {BOT_MSG_FIELDS.map(f => (
-                  <div key={String(f.key)} style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{f.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {f.hint}</span></label>
-                    <textarea className="field-dark" rows={3} style={{ resize: "vertical", padding: "9px 12px", minHeight: 72 }}
-                      value={cfgValue(f.key)} onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))} />
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="panel">
-              <div className="panel-head"><h2>Botões do bot</h2></div>
-              <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {BOT_BTN_GROUPS.map(g => (
-                  <div key={g.key} style={{ display: "grid", gap: 8, alignContent: "start" }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{g.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {g.hint}</span></label>
-                    {botoesDe(g.key).length === 0 && (
-                      <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem botões — adicione o primeiro.</span>
-                    )}
-                    {botoesDe(g.key).map((b, i) => (
-                      <div key={b.buttonId || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6 }}>
-                        <input className="field-dark" style={{ minHeight: 34 }} maxLength={60} placeholder="Texto do botão"
-                          value={b.title} onChange={e => editarBotao(g.key, i, { title: e.target.value })} />
-                        <select className="field-dark" style={{ minHeight: 34 }} value={b.actionId}
-                          onChange={e => editarBotao(g.key, i, { actionId: e.target.value })} aria-label="Ação do botão">
-                          <option value="">Ação…</option>
-                          {acoesDisponiveis.map(a => (
-                            <option key={a.actionId} value={a.actionId}>{a.title || a.actionId}</option>
-                          ))}
-                          {b.actionId && !acoesDisponiveis.some(a => a.actionId === b.actionId) && (
-                            <option value={b.actionId}>{b.actionId}</option>
-                          )}
-                        </select>
-                        <button className="icon-ghost" title="Remover botão" aria-label="Remover botão"
-                          onClick={() => removerBotao(g.key, i)}>✕</button>
-                      </div>
-                    ))}
-                    <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.68rem", width: "fit-content" }} onClick={() => addBotao(g.key)}>
-                      <I d={ICONS.plus} size={12} /> Adicionar botão
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div style={{ padding: "0 18px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
-                Cada botão dispara uma ação do catálogo do bot. As alterações valem após “Salvar alterações”.
-              </div>
-            </section>
+              ))}
+            </div>
+          </section>
+
+          {/* Botões */}
+          <section className="panel">
+            <div className="panel-head"><h2>Botões do bot — {TYPE_LABEL[cfgTipo]}</h2></div>
+            <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {BOT_BTN_GROUPS.map(g => (
+                <div key={g.key} style={{ display: "grid", gap: 8, alignContent: "start" }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{g.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {g.hint}</span></label>
+                  {botoesDe(g.key).length === 0 && (
+                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem botões — adicione o primeiro.</span>
+                  )}
+                  {botoesDe(g.key).map((b, i) => (
+                    <div key={b.buttonId || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6 }}>
+                      <input className="field-dark" style={{ minHeight: 34 }} maxLength={60} placeholder="Texto do botão"
+                        value={b.title} onChange={e => editarBotao(g.key, i, { title: e.target.value })} />
+                      <select className="field-dark" style={{ minHeight: 34 }} value={b.actionId}
+                        onChange={e => editarBotao(g.key, i, { actionId: e.target.value })} aria-label="Ação do botão">
+                        <option value="">Ação…</option>
+                        {acoesDisponiveis.map(a => (
+                          <option key={a.actionId} value={a.actionId}>{a.title || a.actionId}</option>
+                        ))}
+                        {b.actionId && !acoesDisponiveis.some(a => a.actionId === b.actionId) && (
+                          <option value={b.actionId}>{b.actionId}</option>
+                        )}
+                      </select>
+                      <button className="icon-ghost" title="Remover botão" aria-label="Remover botão"
+                        onClick={() => removerBotao(g.key, i)}>✕</button>
+                    </div>
+                  ))}
+                  <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.68rem", width: "fit-content" }} onClick={() => addBotao(g.key)}>
+                    <I d={ICONS.plus} size={12} /> Adicionar botão
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "0 18px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
+              Cada botão dispara uma ação do catálogo do bot. As alterações valem após &quot;Salvar alterações&quot;.
+            </div>
+          </section>
+
+          {/* Regras de roteamento (só Atendimento tem essas opções) */}
+          {cfgTipo === "atendimento" && (
             <section className="panel">
               <div className="panel-head"><h2>Regras de roteamento</h2></div>
               <div style={{ padding: "6px 18px 14px" }}>
@@ -611,28 +946,30 @@ export function BotClient() {
                 ))}
               </div>
             </section>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {tab >= 2 && (() => {
-          const slots: Record<number, { icon: string[]; title: string; desc: string; color: string }> = {
-            2: { icon: ICONS.scrape, title: "Conecte suas ferramentas", desc: "Zapier, webhooks, API própria e muito mais — disponível na fase técnica.", color: "var(--hbx-info)" },
-            3: { icon: ICONS.send,   title: "Publique com controle total", desc: "Ambientes, versionamento e rollback instantâneo do bot — chegando em breve.", color: "var(--hbx-brand)" },
-            4: { icon: ICONS.relat,  title: "Veja o bot em ação", desc: "Taxa de conclusão, pontos de abandono e funil de conversão em tempo real.", color: "var(--hbx-success)" },
-          };
-          const s = slots[tab];
-          if (!s) return null;
-          return (
-            <div className="bot-empty">
-              <div className="bot-empty-ring" style={{ "--ec": s.color } as React.CSSProperties}>
-                <span className="bicon" style={{ background: s.color }}><I d={s.icon} size={26} /></span>
-              </div>
-              <strong className="bot-empty-title">{s.title}</strong>
-              <p className="bot-empty-desc">{s.desc}</p>
-              <span className="bot-empty-badge">Em breve</span>
+      {/* ── Abas em breve ── */}
+      {tab >= 2 && (() => {
+        const slots: Record<number, { icon: string[]; title: string; desc: string; color: string }> = {
+          2: { icon: ICONS.scrape, title: "Conecte suas ferramentas", desc: "Zapier, webhooks, API própria e muito mais — disponível na fase técnica.", color: "var(--hbx-info)" },
+          3: { icon: ICONS.send,   title: "Publique com controle total", desc: "Ambientes, versionamento e rollback instantâneo do bot — chegando em breve.", color: "var(--hbx-brand)" },
+          4: { icon: ICONS.relat,  title: "Veja o bot em ação", desc: "Taxa de conclusão, pontos de abandono e funil de conversão em tempo real.", color: "var(--hbx-success)" },
+        };
+        const s = slots[tab];
+        if (!s) return null;
+        return (
+          <div className="bot-empty">
+            <div className="bot-empty-ring" style={{ "--ec": s.color } as React.CSSProperties}>
+              <span className="bicon" style={{ background: s.color }}><I d={s.icon} size={26} /></span>
             </div>
-          );
-        })()}
+            <strong className="bot-empty-title">{s.title}</strong>
+            <p className="bot-empty-desc">{s.desc}</p>
+            <span className="bot-empty-badge">Em breve</span>
+          </div>
+        );
+      })()}
     </React.Fragment>
   );
 }

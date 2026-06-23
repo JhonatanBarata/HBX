@@ -13,10 +13,12 @@ import { HbxPresentationEmailService } from './hbx-presentation-email.service';
 import { MasterEmailSettingsService } from './master-email-settings.service';
 import { MasterEmailController } from './master-email.controller';
 import { MailService } from './mail.service';
+import { GmailOAuthService } from './gmail-oauth.service';
+import { GmailOAuthController } from './gmail-oauth.controller';
 
 @Module({
   imports: [forwardRef(() => ModulesAccessModule)],
-  controllers: [MasterEmailController, CompanyEmailController, CompanyEmailStatusController],
+  controllers: [MasterEmailController, CompanyEmailController, CompanyEmailStatusController, GmailOAuthController],
   providers: [
     MailService,
     EmailTemplateService,
@@ -28,6 +30,7 @@ import { MailService } from './mail.service';
     CompanyMailerService,
     CompanyPresentationEmailService,
     MasterGuard,
+    GmailOAuthService,
   ],
   exports: [
     MailService,
@@ -38,6 +41,7 @@ import { MailService } from './mail.service';
     CompanyEmailTemplateService,
     CompanyMailerService,
     CompanyPresentationEmailService,
+    GmailOAuthService,
   ],
 })
 export class MailModule {}

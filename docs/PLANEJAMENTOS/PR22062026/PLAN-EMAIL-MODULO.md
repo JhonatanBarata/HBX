@@ -48,9 +48,28 @@ Arquivos: `frontend/src/app/(app)/configuracoes/page.client.tsx`, `frontend/src/
   Ícone `ICONS.mail`. `NAV_MODULE_KEY`/`NAV_ENTITLEMENT`: adicionar `email` se for gatear via `isModuleVisible`.
 - Checks: `cd frontend && npm run lint && npm run build`.
 
-## Fase 2 — Envio Gmail + captura de resposta — PAUSADA pelo dono (21/06)
-Dono vai criar projeto Google SEPARADO (não arrastar o app de login `-6pcir0` pra verificação) e
-pensar o modo de trabalho. Decisão de produto tomada nesta sessão (pensar junto):
+## Fase 2 — Envio Gmail + captura de resposta — EM EXECUÇÃO (22/06)
+Dono cria projeto Google SEPARADO (não arrastar o login `-6pcir0` p/ verificação). **Decisões travadas (22/06):**
+(1) Gmail **POR VENDEDOR**; conexão gateada por **2ª camada = nova permissão `communication.email.gmailConnect`**
+que o admin libera por usuário (ter o módulo e-mail não basta). (2) Aviso de resposta **nos DOIS lugares**:
+timeline do card + bolinha no ícone de e-mail E no sino. (3) `From` real do vendedor (frestinha aceita).
+**Validação só na VPS** (Gmail off no localhost; inbound precisa DNS público) → tudo mock-first/log no localhost.
+
+### Blocos de execução (workers Sonnet; Opus revisa diff)
+- **A (backend fundação) — EM EXECUÇÃO:** modelo `GmailConnection` POR USER (refresh token cifrado via
+  `IntegrationSecretsService`, env `INTEGRATION_SECRET_KEY`) + migration; permissão `communication.email.gmailConnect`
+  no `team-access-catalog` (admin libera por vendedor); endpoints por-user `GET /company-email/gmail/connect|callback|status`,
+  `POST .../disconnect` (gateados por módulo email + permissão; mock quando env Gmail ausente). Lib `google-auth-library` (já é dep).
+- **B (backend envio):** Gmail API (`users.messages.send` via REST + access token do refresh) no
+  `company-mailer.service.ts` quando o user tem conexão; `From` real + `Reply-To: resposta+<token>` + guardar `Message-ID`;
+  fallback SMTP/HBX. Util HMAC do token (`empresa+vendedor+card`).
+- **C (backend inbound + aviso):** `POST /company-email/inbound` (segredo compartilhado, sem JWT) → verifica HMAC →
+  card+vendedor → timeline do card + master-notice (sino) + contador não-lido (ícone). [explorar timeline do vendas + master-notice]
+- **D (frontend):** botão "Conectar Gmail" + status no `CompanyEmailSection` (gateado pela permissão); bolinha de
+  não-lido no ícone de e-mail; respostas na timeline do card (`DetalhesNegocio`).
+- **E (Cloudflare Worker):** código do Email Worker (parse MIME `postal-mime` + POST c/ segredo) p/ o dono deployar.
+
+Decisão de produto tomada nesta sessão (pensar junto):
 
 **Três posturas — escolhida a 3ª:**
 1. Só disparo (`gmail.send`): manda, não recebe → cego, não fecha o ciclo.
@@ -62,7 +81,7 @@ pensar o modo de trabalho. Decisão de produto tomada nesta sessão (pensar junt
 NÃO volta pro Gmail — volta pro HBX (mesmo modelo do inbox WhatsApp). Quebra em 2 peças INDEPENDENTES:
 
 - **2A — Enviar pelo Gmail da pessoa.** OAuth `gmail.send` + Gmail API (NÃO XOAUTH2/SMTP, que exige o
-  escopo amplo `https://mail.google.com/`). Refresh token cifrado por empresa; encaixa no
+  escopo amplo `https://mail.google.com/`). Refresh token cifrado **por VENDEDOR** (não por empresa); encaixa no
   `company-mailer.service.ts` ao lado de SMTP/HBX. Front: botão "Conectar Gmail" + status. Guardar o
   `Message-ID` de cada envio. **Fora do código (dono):** ativar Gmail API + scope `gmail.send` + consent no
   projeto Google novo. Gmail off no localhost → só valida na VPS.

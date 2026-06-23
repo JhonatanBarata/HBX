@@ -628,6 +628,18 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     backendEnforced: true,
   },
   {
+    key: 'communication.email.gmailConnect',
+    group: 'communication',
+    label: 'Conectar Gmail',
+    description: 'Permite o usuario conectar a propria conta Gmail para enviar e-mails pelo HBX.',
+    defaultForAdmin: true,
+    defaultForSeller: false,
+    requiresModule: 'email',
+    riskLevel: 'high',
+    sellerVisible: true,
+    backendEnforced: true,
+  },
+  {
     key: 'communication.support.contactAdmin',
     group: 'communication',
     label: 'Chamar responsavel',

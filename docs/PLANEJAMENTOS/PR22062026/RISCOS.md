@@ -2,6 +2,47 @@
 
 ---
 
+## ⭐ 2026-06-22 (sessão COM o dono) — Bot: painel de ativação + 3 tipos (orquestrado: Opus + 4 workers Sonnet)
+
+> Pedido: "comece implantar, modo orquestrador" sobre os planos PLAN-BOT-00..F. **NÃO commitado, sem push,
+> nada live (nenhuma mensagem real disparada).** Backend `prisma:validate`+`build` verdes; frontend `next build`
+> verde (`/bot` e `/relatorios`); testes do bloco E 36/36. **1 migration LOCAL aplicada** (colunas nullable).
+> `check-pele` vermelho é **pré-existente** (landing/portal V1.0 no `screens.css`, linhas 118 e 2203+) — **não é do bot**.
+
+### O que entrou (4 blocos, revert isolado)
+- **A — Backend fundação** (`backend/src/bot/` novo: controller+service+dto+module; `app.module.ts`; `schema.prisma`
+  +migration): `GET/PUT /bot/activation` + `POST /bot/activation/mark-tested`. Pino (`botArmedAt`) continua sendo do
+  Master; admin liga por tipo. Pré-voo `{chipConectado,configCompleta,passouModoTeste}`; PUT recusa ligar proativo
+  sem pré-voo verde. Flags novos em `Company`: `recoveryBotLiveAt`/`prospectingBotLiveAt` (+`...ByUserId`). Atendimento
+  reusa `globalBotEnabled` (sem coluna nova). `testedAt` no config de cada tipo.
+- **FE-BOT — Frontend `/bot`** (`bot/page.client.tsx` reescrito; `hbx-theme/screens.css` +34 linhas só-tokens):
+  header com faixa do pino + 3 chavinhas (`.sw`) + chips de pré-voo tri-cor; proativo travado sem pré-voo + confirm ao
+  ligar; aba Configurações com seletor dos 3 tipos (troca a fonte GET/PATCH); chat de teste chama `mark-tested`.
+- **E — Segurança/runtime** (`vendas-automation.service.ts`, `messaging.service.ts`, `hbx-recovery.service.ts`):
+  prospecção/recovery **só disparam com o flag ligado** (kill-switch pausa a fila na hora); rampa de aquecimento
+  5→8→12→20/h por dias-sem-bloqueio; opt-out e quiet-hours confirmados intactos.
+- **F — Acesso por vendedor** (`relatorios/page.client.tsx`; `vendas.service.ts` expôs `botAccessEnabled` no audit):
+  toggle "Liberar bot p/ este vendedor" + "Liberar todos", reusando `PATCH /vendas/seller-audit/:id/governance`.
+
+### RISCOS (conferir)
+- **Não vi rodando autenticado** (preview é login-gated): builds+testes verdes, mas a **cara do painel, as luzinhas de
+  pré-voo e o seletor de config precisam do seu olho** (ver `testar.md` → "Bot: a chave e as 3 chavinhas").
+- **Migration LOCAL já aplicada** (via `db execute`) — o DB local tem as 4 colunas novas (nullable, inofensivas). Pra
+  zerar 100%: dropar as colunas. `git checkout` do schema sozinho deixa as colunas órfãs (sem dano).
+- **O "ao vivo" de verdade é seu:** ligar a chavinha de um proativo + ter chip conectado = a fila PODE disparar a cliente
+  real quando publicado. Eu não publiquei nem disparei. Aquecimento + pré-voo + proativo-OFF-default são as travas.
+- **Default opt-in no acesso por vendedor:** armar a empresa NÃO libera todos os vendedores — libere no `/relatorios`
+  (ou "liberar todos"). Decisão de segurança; inverto se você preferir.
+
+### Reverter (por bloco)
+- A: apagar `backend/src/bot/` + `git checkout HEAD -- backend/src/app.module.ts backend/prisma/schema.prisma` + dropar
+  colunas/migration `20260622_bot_activation_flags`.
+- FE-BOT: `git checkout HEAD -- frontend/src/app/(app)/bot/page.client.tsx` + remover o bloco "Bot.html" do `screens.css`.
+- E: `git checkout HEAD --` em `vendas-automation.service.ts`, `messaging.service.ts`, `hbx-recovery.service.ts` (+test).
+- F: `git checkout HEAD -- frontend/src/app/(app)/relatorios/page.client.tsx backend/src/vendas/vendas.service.ts`.
+
+---
+
 ## ⭐ 2026-06-22 (sessão COM o dono) — "Modelo de atendimento" vira POP-UP central com 2 guias + derrubar chip
 
 > Pedido: "deixa o modelo mais bem feito, talvez um pop-up; guia 'Modelo atual' + guia 'Equipe'; ao escolher a

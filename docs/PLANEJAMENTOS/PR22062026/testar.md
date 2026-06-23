@@ -74,6 +74,21 @@ Olhe o **topo da tela**, perto do botão de **trocar o tema** (claro/escuro). Te
 ## E-mail: aba só aparece com plano (novo)
 - Entre em **Configurações**. A aba **E-mail** só aparece pra quem tem **e-mail liberado no plano**. Numa conta sem e-mail no plano, **a aba some** (antes aparecia pra todo administrador, mesmo sem ter).
 
+## Bot: a chave e as 3 chavinhas (novo)
+- Entre no **Bot** (pelo **robô** do topo ou pelo menu). No alto da tela tem uma **faixa** que diz se o bot foi **liberado** pra sua empresa. Se ainda não foi, aparece um aviso **"aguardando ativação"** e as chavinhas ficam **apagadas e travadas** — a tela **não** pode ficar cinza/quebrada, só travada com o aviso.
+- *(Se estiver travado: a liberação se faz no painel do dono — **Empresas → Armar bot**. Depois volte aqui.)*
+- Liberado, aparecem **3 chavinhas**: **Atendimento**, **Recuperação** e **Prospecção**. Cada uma mostra **3 luzinhas**: *WhatsApp conectado*, *configuração pronta* e *testado*. **Verde** = ok; **amarelo** = falta isso.
+- **Atendimento** (responde quem chama): com a configuração pronta, você **liga fácil**.
+- **Recuperação** e **Prospecção** (que **começam** conversa): a chavinha **só deixa ligar** quando as **3 luzinhas estão verdes**. Tente ligar com uma luz **amarela** → **não deixa** e **explica o que falta**. Ao ligar, **pede confirmação**.
+- Pra acender a luz **"testado"**: use o **Testar bot** (o chat de teste), escolha o tipo e **troque algumas mensagens** — a luzinha **acende**.
+- Na aba **Configurações** tem um **seletor** (Atendimento / Recuperação / Prospecção): troque e **edite as mensagens** de cada um, **Salvar**. O Atendimento tem que continuar funcionando **igual a antes**.
+- Importante: **nada é enviado** a cliente de verdade nesses testes.
+
+## Bot: liberar por vendedor (novo)
+- Entre em **Relatórios** → role até a seção **Desempenho por vendedor** → clique num vendedor pra **expandir os detalhes**.
+- No rodapé do card do vendedor, tem que aparecer um **interruptor "Liberar bot para este vendedor"**. Ligue-o: tem que ficar colorido (aceso). Desligue: volta apagado.
+- No cabeçalho da seção tem o botão **Liberar bot p/ todos**: clique → o interruptor de **todos os vendedores** tem que acender de uma vez.
+
 ## Entrar e pagar (cadastro/planos)
 - Na escolha de planos: escolha um plano → preencha o cadastro → envie → cai na tela **Aguardando confirmação**. Aperte **F5 (recarregar)**: tem que **voltar pra tela de espera**, não pro formulário em branco.
 - Tente **entrar** com um e-mail ainda **não confirmado** e a **senha certa**: tem que oferecer **Continuar cadastro** e te levar de volta de onde parou. Com **senha errada**: mensagem genérica, sem dizer mais nada.

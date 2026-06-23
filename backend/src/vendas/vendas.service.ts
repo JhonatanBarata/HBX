@@ -2695,6 +2695,7 @@ export class VendasService {
           sellerDistributionDailyLimitOverride: true,
           sellerDistributionNote: true,
           sellerDistributionUpdatedAt: true,
+          botAccessEnabled: true,
           createdAt: true,
           teamPolicy: {
             select: {
@@ -2923,6 +2924,7 @@ export class VendasService {
           active: Boolean(seller.isActive && !seller.deactivatedAt),
           commissionPercent: this.normalizeCurrencyAmount(seller.commissionPercent),
           startedAt: seller.createdAt instanceof Date ? seller.createdAt.toISOString() : null,
+          botAccessEnabled: Boolean((seller as any).botAccessEnabled),
         },
         metrics: {
           activeCards,

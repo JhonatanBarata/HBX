@@ -143,6 +143,9 @@ function createService(overrides?: {
     vendasAutomationJob: {
       count: async ({ where }: any = {}) => {
         if (where?.OR?.some((item: any) => item?.status === 'replied_negative')) return overrides?.realNegativeBlocksToday || 0;
+        // Hourly cap query (countSuccessfulSendsThisHour) has both gte and lte — return 0 so warmup cap never blocks tests.
+        // Daily cap query (countSuccessfulSendsToday) has only gte — return the test-controlled successfulSendsToday.
+        if (where?.sentAt?.gte && where?.sentAt?.lte) return 0;
         if (where?.sentAt?.gte) return successfulSendsToday;
         return 0;
       },
@@ -220,7 +223,13 @@ function createService(overrides?: {
       findFirst: async () => ({ id: 99, name: 'Jhonatan', companyId: 7, company: { id: 7, name: 'HBX' } }),
     },
     company: {
-      findUnique: async () => ({ id: 7, name: 'HBX' }),
+      // prospectingBotLiveAt setado 30 dias atrás: rampa já no teto máximo nos testes.
+      findUnique: async () => ({
+        id: 7,
+        name: 'HBX',
+        prospectingBotLiveAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        recoveryBotLiveAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      }),
     },
     $transaction: async (callback: (tx: any) => Promise<unknown>) => callback(prisma),
   };

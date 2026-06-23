@@ -34,6 +34,7 @@ import { MasterProvisioningModule } from './master-provisioning/master-provision
 import { TenantCommunicationModule } from './tenant-communication/tenant-communication.module';
 import { NightFactoryModule } from './night-factory/night-factory.module';
 import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
+import { BotModule } from './bot/bot.module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
     TenantCommunicationModule,
     NightFactoryModule,
     MetaLeadAdsModule,
+    BotModule,
     AdminModule,
   ],
   controllers: [AppController],

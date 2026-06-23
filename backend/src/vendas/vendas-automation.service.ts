@@ -1996,6 +1996,61 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Verifica se a chavinha de prospecção ao vivo está ligada para a empresa.
+   * Retorna o timestamp de quando foi ligada (para calcular a rampa) ou null se desligada.
+   */
+  private async getProspectingLiveAt(companyId: number): Promise<Date | null> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { prospectingBotLiveAt: true },
+    });
+    const liveAt = company?.prospectingBotLiveAt;
+    if (!liveAt || !(liveAt instanceof Date) || !Number.isFinite(liveAt.getTime())) return null;
+    return liveAt;
+  }
+
+  /**
+   * Rampa de aquecimento: teto de envios por hora sobe gradualmente com os dias
+   * sem bloqueio desde que `prospectingBotLiveAt` foi ligado.
+   *
+   * Escala: dia 1 = 5/h, dia 3 = 10/h, dia 7 = 20/h, dia 14+ = cap configurado.
+   * O teto final (configurado) nunca é excedido.
+   */
+  private computeWarmupHourlyCap(prospectingBotLiveAt: Date, configuredDailyLimit: number, now = new Date()): number {
+    // Derivar cap/hora do limite diário configurado (janela de 10h úteis / 60 envios max)
+    const maxHourlyCap = Math.max(1, Math.ceil(Math.min(configuredDailyLimit, ABSOLUTE_DAILY_SEND_CAP) / 10));
+    const daysLive = Math.max(0, (now.getTime() - prospectingBotLiveAt.getTime()) / (24 * 60 * 60 * 1000));
+
+    let cap: number;
+    if (daysLive < 1) {
+      cap = 5;
+    } else if (daysLive < 3) {
+      cap = 8;
+    } else if (daysLive < 7) {
+      cap = 12;
+    } else if (daysLive < 14) {
+      cap = 20;
+    } else {
+      cap = maxHourlyCap;
+    }
+
+    return Math.min(cap, maxHourlyCap);
+  }
+
+  /** Conta envios bem-sucedidos na última hora para a campanha (anti-ban por hora). */
+  private countSuccessfulSendsThisHour(campaignId: string, companyId: number, now = new Date()) {
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    return this.prisma.vendasAutomationJob.count({
+      where: {
+        campaignId,
+        companyId,
+        sentAt: { gte: oneHourAgo, lte: now },
+        status: { in: [...SUCCESSFUL_SEND_JOB_STATUSES] as any },
+      },
+    });
+  }
+
   private renderMessageTemplate(template: string, input: { lead: any; campaign: any; user: any }) {
     const companyName = String(input.user?.company?.name || input.user?.masterContext?.companyName || '').trim() || 'nossa empresa';
     const employeeName = String(input.user?.name || '').trim() || 'time comercial';
@@ -2958,6 +3013,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       take: 10,
     });
     for (const campaign of campaigns) {
+      // Kill-switch de prospecção: se a chavinha estiver desligada, não abastece a fila.
+      const liveAt = await this.getProspectingLiveAt(Number(campaign.companyId));
+      if (!liveAt) {
+        this.logger.log(`[vendas-automation] prospecting_not_live — refill bloqueado campaignId=${campaign.id}`);
+        continue;
+      }
+
       if (!this.isInsideWorkingHours(now, campaign)) {
         const next = this.moveToWorkingWindow(now, campaign);
         await this.markCampaignStage(campaign.id, campaign.companyId, 'dormindo', this.formatSleepingUntilText(next), {
@@ -3340,6 +3402,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return deferredResult('hbot_inactive', null);
     }
 
+    // Gate de prospecção ao vivo (kill-switch): chavinha desligada = nenhum disparo sai.
+    // Pausa a fila na hora — jobs ficam agendados mas não são processados.
+    const prospectingLiveAt = await this.getProspectingLiveAt(Number(campaign.companyId));
+    if (!prospectingLiveAt) {
+      await this.markCampaignStage(
+        campaign.id,
+        campaign.companyId,
+        'pausado',
+        'Prospecção ao vivo desligada. Ligue a chavinha em /bot para retomar os disparos.',
+        { type: 'prospecting_not_live' },
+      );
+      return deferredResult('prospecting_not_live', null);
+    }
+
     if (!this.isInsideWorkingHours(now, campaign)) {
       const next = this.moveToWorkingWindow(now, campaign);
       await this.prisma.vendasAutomationJob.update({
@@ -3714,6 +3790,26 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         type: 'daily_limit_reached',
       });
       return deferredResult('daily_limit_reached', next);
+    }
+
+    // Teto de aquecimento por hora: rampa sobre o cap/hora para proteger o chip
+    // nos primeiros dias. O teto efetivo é logado para diagnóstico.
+    const warmupHourlyCap = this.computeWarmupHourlyCap(prospectingLiveAt, campaign.dailyLimit || DEFAULT_DAILY_LIMIT, now);
+    const sentThisHour = await this.countSuccessfulSendsThisHour(campaign.id, campaign.companyId, now);
+    this.logger.log(
+      `[vendas-automation][warmup] campaignId=${campaign.id} sentThisHour=${sentThisHour} warmupHourlyCap=${warmupHourlyCap} daysLive=${((now.getTime() - prospectingLiveAt.getTime()) / 86400000).toFixed(1)}`,
+    );
+    if (sentThisHour >= warmupHourlyCap) {
+      const nextHour = this.moveToWorkingWindow(new Date(now.getTime() + 60 * 60 * 1000), campaign);
+      await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: nextHour } });
+      await this.markCampaignStage(
+        campaign.id,
+        campaign.companyId,
+        'aguardando',
+        `Teto de aquecimento atingido (${warmupHourlyCap}/h). Próximo envio após ${this.formatNextScheduledText(nextHour).toLowerCase()}.`,
+        { type: 'warmup_hourly_cap_reached' },
+      );
+      return deferredResult('warmup_hourly_cap_reached', nextHour);
     }
 
     const nextAllowedSendAt = await this.getNextAllowedSendAt(campaign, job.id);

@@ -3667,6 +3667,18 @@ export class HbxRecoveryService {
   async startTemplateFlow(user: any, customerId: string) {
     const companyId = this.requireCompanyIdFromUser(user);
     await this.assertMetaTemplatesAllowed(companyId);
+
+    // Gate de recovery ao vivo: não dispara template se a chavinha estiver desligada.
+    const liveFlags = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { recoveryBotLiveAt: true },
+    }).catch(() => null);
+    if (!liveFlags?.recoveryBotLiveAt) {
+      throw new BadRequestException(
+        'Recovery bot não está ao vivo. Ligue a chavinha de Recovery em /bot para enviar templates automáticos.',
+      );
+    }
+
     const currentCustomer = await this.findCustomer(companyId, customerId);
     const customer =
       currentCustomer.automationEnabled === false

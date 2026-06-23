@@ -48,7 +48,7 @@ type ReportResponse = {
 
 type SellerAuditRow = {
   // identidade vem aninhada em `seller` no /vendas/seller-audit (não na raiz)
-  seller: { id: number; name: string };
+  seller: { id: number; name: string; botAccessEnabled?: boolean };
   metrics: {
     activeCards: number;
     receivedCards: number;
@@ -114,6 +114,10 @@ export function RelatoriosClient() {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [openSellers, setOpenSellers] = useState<Set<number>>(() => new Set());
+  // bot access por vendedor: chave = sellerId, valor = estado local (optimistic)
+  const [botAccessMap, setBotAccessMap] = useState<Record<number, boolean>>({});
+  const [botAccessBusy, setBotAccessBusy] = useState<Record<number, boolean>>({});
+  const [botAccessMsg, setBotAccessMsg] = useState<string | null>(null);
 
   const load = useCallback((period: string) => {
     return Promise.all([
@@ -131,6 +135,14 @@ export function RelatoriosClient() {
       setReport(r.rep);
       setLoadError(r.err);
       setAudit(aud);
+      // inicializa o mapa de bot-access com o estado atual do backend
+      if (aud?.rows) {
+        const map: Record<number, boolean> = {};
+        for (const row of aud.rows) {
+          map[row.seller.id] = Boolean(row.seller.botAccessEnabled);
+        }
+        setBotAccessMap(map);
+      }
     });
   }, []);
 
@@ -201,6 +213,36 @@ export function RelatoriosClient() {
     a.download = `relatorio-vendas-${per}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function toggleBotAccess(sellerId: number, value: boolean) {
+    if (botAccessBusy[sellerId]) return;
+    setBotAccessBusy(prev => ({ ...prev, [sellerId]: true }));
+    setBotAccessMsg(null);
+    // optimistic
+    setBotAccessMap(prev => ({ ...prev, [sellerId]: value }));
+    try {
+      await apiFetch(`/vendas/seller-audit/${encodeURIComponent(sellerId)}/governance`, {
+        method: "PATCH",
+        body: JSON.stringify({ botAccess: value }),
+      });
+      setBotAccessMsg(value ? "✓ Bot liberado para o vendedor." : "✓ Acesso ao bot removido.");
+    } catch (err) {
+      // reverte se falhar
+      setBotAccessMap(prev => ({ ...prev, [sellerId]: !value }));
+      setBotAccessMsg(err instanceof Error ? err.message : "Não foi possível atualizar o acesso ao bot.");
+    } finally {
+      setBotAccessBusy(prev => ({ ...prev, [sellerId]: false }));
+    }
+  }
+
+  async function liberarTodos() {
+    const ids = (audit?.rows || []).map(r => r.seller.id);
+    if (ids.length === 0) return;
+    setBotAccessMsg(null);
+    // dispara todos em paralelo
+    await Promise.all(ids.map(id => toggleBotAccess(id, true)));
+    setBotAccessMsg("✓ Bot liberado para todos os vendedores.");
   }
 
   const m = report?.metrics;
@@ -349,6 +391,14 @@ export function RelatoriosClient() {
               <div className="panel-head">
                 <h2>Desempenho por vendedor</h2>
                 <div className="meta">
+                  {sellers.length > 0 && (
+                    <button className="btn-ghost" style={{ fontSize: "0.68rem", padding: "4px 10px" }}
+                      onClick={liberarTodos}
+                      title="Libera o bot para todos os vendedores da equipe de uma vez">
+                      Liberar bot p/ todos
+                    </button>
+                  )}
+                  {botAccessMsg && <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--hbx-brand-strong)" }}>{botAccessMsg}</span>}
                   <span className="link" role="button" tabIndex={0} aria-expanded={allSellersOpen}
                     aria-disabled={sellers.length === 0} onClick={toggleAllSellers}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAllSellers(); } }}>
@@ -407,6 +457,20 @@ export function RelatoriosClient() {
                                 {v.operation?.reason && (
                                   <p className="sub2" style={{ margin: "6px 0 0" }}>Observação: {v.operation.reason}</p>
                                 )}
+                                <div className="setting" style={{ marginTop: 8 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <strong>Liberar bot para este vendedor</strong>
+                                    <div className="sub2">Quando ligado, o vendedor pode usar o bot. Default: opt-in explícito.</div>
+                                  </div>
+                                  <button
+                                    className={"sw" + (botAccessMap[v.seller.id] ? " on" : "")}
+                                    role="switch"
+                                    aria-checked={Boolean(botAccessMap[v.seller.id])}
+                                    aria-label={`Liberar bot para ${v.seller.name}`}
+                                    disabled={Boolean(botAccessBusy[v.seller.id])}
+                                    onClick={() => toggleBotAccess(v.seller.id, !botAccessMap[v.seller.id])}
+                                  ><i></i></button>
+                                </div>
                               </td>
                             </tr>
                           )}
