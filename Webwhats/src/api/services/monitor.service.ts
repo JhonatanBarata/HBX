@@ -253,15 +253,21 @@ export class WAMonitoringService {
       select: { id: true, name: true },
     });
 
+    const keeper = this.waInstances[keepInstanceName];
+    const keeperTs = keeper?.lastConnectedAtMs ?? Date.now();
+
     for (const dup of duplicates) {
       const live = this.waInstances[dup.name];
 
-      // Guarda anti-aniquilação: se o peer ESTÁ mesmo aberto na memória, o WhatsApp
-      // teria me derrubado — logo eu não estaria aberto. Se chegamos aqui os dois
-      // "abertos", é corrida; adia o reap e deixa o WhatsApp resolver o conflito.
-      if (live?.connectionStatus?.state === 'open') {
+      // REGRA "um número = uma conexão": quem conectou por ÚLTIMO (keepInstanceName) VENCE; o
+      // duplicado cai e limpa TOTALMENTE, MESMO que ainda esteja 'open'. Antes isso era adiado
+      // "p/ evitar aniquilação mútua" e deixava 2 sockets vivos no mesmo número = conflito
+      // multi-device. Desempate determinístico contra corrida de conexão simultânea: só NÃO reapo
+      // se o duplicado for comprovadamente MAIS NOVO que o keeper — aí ELE vence e reapa este.
+      const dupTs = live?.lastConnectedAtMs ?? 0;
+      if (live?.connectionStatus?.state === 'open' && dupTs > keeperTs) {
         this.logger.warn(
-          `[NUMERO-UNICO] peer "${dup.name}" também aberto no número ${normalized}; reap adiado p/ evitar aniquilação mútua`,
+          `[NUMERO-UNICO] peer "${dup.name}" conectou depois de "${keepInstanceName}"; ele vence, não reapo este.`,
         );
         continue;
       }

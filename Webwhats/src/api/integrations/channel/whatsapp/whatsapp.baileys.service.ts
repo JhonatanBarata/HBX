@@ -254,6 +254,9 @@ export class BaileysStartupService extends ChannelStartupService {
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectCircuitOpen = false;
+  // Momento do ultimo 'open' (ms). Usado pela reap "um numero = uma conexao" como desempate
+  // deterministico: quem conectou por ULTIMO vence; o mais antigo cai e limpa.
+  public lastConnectedAtMs: number | null = null;
   private static readonly MAX_RECONNECT_ATTEMPTS = 4;
   private static readonly RECONNECT_BASE_DELAY_MS = 15_000;
   private static readonly RECONNECT_MAX_DELAY_MS = 120_000;
@@ -499,7 +502,7 @@ export class BaileysStartupService extends ChannelStartupService {
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
-          this.connectToWhatsapp(this.phoneNumber).catch((error) =>
+          this.connectToWhatsapp(this.phoneNumber, true).catch((error) =>
             this.logger.error(`[DISJUNTOR] ${this.instance.name}: falha ao reconectar: ${error?.toString()}`),
           );
         }, delayMs);
@@ -553,6 +556,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
     if (connection === 'open') {
       this.resetReconnectCircuit();
+      this.lastConnectedAtMs = Date.now();
       this.clearQrCode('connected');
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');
       try {
@@ -842,8 +846,15 @@ export class BaileysStartupService extends ChannelStartupService {
     return this.client;
   }
 
-  public async connectToWhatsapp(number?: string): Promise<WASocket> {
+  public async connectToWhatsapp(number?: string, isRetry = false): Promise<WASocket> {
     try {
+      // Conexao EXPLICITA (usuario/boot/restart) zera o disjuntor: ganha 4 tentativas limpas e
+      // o 515 de pareamento consegue religar mesmo se o circuito tinha aberto antes. A retentativa
+      // INTERNA do disjuntor passa isRetry=true para o contador NAO zerar (senao o teto nunca fecha
+      // = volta o loop livre).
+      if (!isRetry) {
+        this.resetReconnectCircuit();
+      }
       this.loadChatwoot();
       this.loadSettings();
       this.loadWebhook();
