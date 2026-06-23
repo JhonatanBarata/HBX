@@ -260,9 +260,155 @@ function leadsModuleSteps(): CoachStep[] {
   ];
 }
 
-// De-para módulo → passos. Crescer aqui ao desmembrar Vendas/Atendimento/etc.
+// Atendimento (/atendimento): conectar WhatsApp → ler conversas → responder →
+// ficha do lead. Passo "modelo" só existe pra admin (botão some pro vendedor →
+// o coach pula sozinho). Painel/compose somem no celular na vista de lista (pula).
+function atendimentoModuleSteps(): CoachStep[] {
+  return [
+    {
+      id: "atend-intro",
+      route: "/atendimento",
+      title: "Este é o seu Atendimento",
+      body: "Aqui você fala com seus leads pelo WhatsApp, tudo num lugar só. Vou te mostrar cada parte.",
+      gate: "next",
+      cta: "Bora",
+    },
+    {
+      id: "atend-whatsapp",
+      route: "/atendimento",
+      target: '[data-tut="atend-whatsapp"]',
+      title: "Conecte seu WhatsApp",
+      body: "Esse selo mostra a conexão. Clique pra parear seu número, igual ao WhatsApp Web. Verde = conectado e recebendo mensagens.",
+      gate: "next",
+    },
+    {
+      id: "atend-lista",
+      route: "/atendimento",
+      target: '[data-tut="atend-lista"]',
+      title: "Suas conversas",
+      body: "Toda conversa dos seus leads cai aqui na hora que a mensagem chega — a mais recente sobe pro topo.",
+      gate: "next",
+    },
+    {
+      id: "atend-abas",
+      route: "/atendimento",
+      target: '[data-tut="atend-abas"]',
+      title: "Filtre rápido",
+      body: "Veja Todas, só as Não lidas, ou apenas as Minhas conversas.",
+      gate: "next",
+    },
+    {
+      id: "atend-busca",
+      route: "/atendimento",
+      target: '[data-tut="atend-busca"]',
+      title: "Achar alguém",
+      body: "Procure uma conversa pelo nome ou número, sem rolar a lista toda.",
+      gate: "next",
+    },
+    {
+      id: "atend-nova",
+      route: "/atendimento",
+      target: '[data-tut="atend-nova"]',
+      title: "Começar do zero",
+      body: "Clique em Nova pra puxar conversa com um número que ainda não te chamou.",
+      gate: "next",
+    },
+    {
+      id: "atend-responder",
+      route: "/atendimento",
+      target: '[data-tut="atend-responder"]',
+      title: "Responder",
+      body: "Digite e mande. Dá pra usar emoji, anexar arquivo, gravar áudio na hora e inserir mensagens prontas.",
+      gate: "next",
+    },
+    {
+      id: "atend-painel",
+      route: "/atendimento",
+      target: '[data-tut="atend-painel"]',
+      title: "Tudo sobre o lead",
+      body: "Do lado direito ficam os dados do cliente, suas observações, a etapa da venda, o agendar retorno e o histórico — sem sair da conversa.",
+      gate: "next",
+    },
+    {
+      id: "atend-modelo",
+      route: "/atendimento",
+      target: '[data-tut="atend-modelo"]',
+      title: "Como o time atende",
+      body: "Escolha o modelo: todo mundo vê todas as conversas (Compartilhado) ou cada vendedor só as suas (Individual).",
+      gate: "next",
+    },
+  ];
+}
+
+// Vendas (/vendas): funil onde o card caminha até fechar. Visão padrão = Lista
+// (o passo "funil" mira a tabela; em Quadro/funil vazio ele pula sozinho). Cabeçalho
+// (visão/novo/prospecção/agenda) e o painel direito são sempre-presentes no desktop.
+function vendasModuleSteps(): CoachStep[] {
+  return [
+    {
+      id: "vendas-intro",
+      route: "/vendas",
+      title: "Este é o seu funil de Vendas",
+      body: "Aqui cada lead que você puxou vira um card e caminha até a venda fechar. Vou te mostrar como tocar.",
+      gate: "next",
+      cta: "Bora",
+    },
+    {
+      id: "vendas-visao",
+      route: "/vendas",
+      target: '[data-tut="vendas-visao"]',
+      title: "Lista ou Quadro",
+      body: "Veja seu funil como lista ou como quadro. No Quadro você arrasta o card de uma etapa pra outra conforme a negociação anda.",
+      gate: "next",
+    },
+    {
+      id: "vendas-funil",
+      route: "/vendas",
+      target: '[data-tut="vendas-funil"]',
+      title: "Sua carteira por etapa",
+      body: "Cada lead aparece agrupado pela etapa em que está. Clique num card pra abrir os detalhes e trabalhar.",
+      gate: "next",
+    },
+    {
+      id: "vendas-painel",
+      route: "/vendas",
+      target: '[data-tut="vendas-painel"]',
+      title: "Trabalhe o lead aqui",
+      body: "No painel do lado você registra o resultado da ligação, agenda o retorno e fecha a venda — sem sair da tela.",
+      gate: "next",
+    },
+    {
+      id: "vendas-novo",
+      route: "/vendas",
+      target: '[data-tut="vendas-novo"]',
+      title: "Cadastrar na mão",
+      body: "Quer um lead que não veio do Radar? Clique em Novo lead e adicione você mesmo.",
+      gate: "next",
+    },
+    {
+      id: "vendas-prosp",
+      route: "/vendas",
+      target: '[data-tut="vendas-prosp"]',
+      title: "Robô buscando por você",
+      body: "Liga a prospecção automática pra encher seu funil sozinho, sem garimpar lead a lead.",
+      gate: "next",
+    },
+    {
+      id: "vendas-agenda",
+      route: "/vendas",
+      target: '[data-tut="vendas-agenda"]',
+      title: "Não perca o retorno",
+      body: "A agenda junta tudo que você marcou pra retornar — ligue na hora certa e não esfrie o lead.",
+      gate: "next",
+    },
+  ];
+}
+
+// De-para módulo → passos. Crescer aqui ao desmembrar os próximos (Bot/Relatórios).
 const MODULE_TOUR_BUILDERS: Record<string, () => CoachStep[]> = {
   leads: leadsModuleSteps,
+  atendimento: atendimentoModuleSteps,
+  vendas: vendasModuleSteps,
 };
 
 // Tour de UM módulo: passos profundos + um fecho curto (com "falar com a HBX").

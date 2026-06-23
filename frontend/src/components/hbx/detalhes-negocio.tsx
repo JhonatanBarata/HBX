@@ -18,7 +18,7 @@
 
 import React, { useEffect, useState } from "react";
 
-import { Av, I, ICONS } from "@/components/hbx/shell";
+import { Av, I, ICONS, PhotoLightbox } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
 
@@ -165,6 +165,8 @@ export type DetalhesNegocioProps = {
   crownSlot?: React.ReactNode;
   actions?: React.ReactNode;
   emptyHint?: string;
+  /** Exclui o card e devolve ao pool — aparece como 7° ícone na fileira de canais */
+  onDelete?: () => void;
 
   /** quando true exibe skeleton shimmer nos campos que vêm da API de card */
   loading?: boolean;
@@ -290,17 +292,25 @@ function ChannelRow({
   onWaInternal,
   waQrActive,
   waCanInternal,
+  onDelete,
 }: {
   n: NegocioDetail;
   onWaExternal?: () => void;
   onWaInternal?: () => void;
   waQrActive?: boolean;
   waCanInternal?: boolean;
+  onDelete?: () => void;
 }) {
   const li = n.leadIntelligence;
   const mode = useWaOpenMode();
   const internalReady = Boolean(waCanInternal && waQrActive);
   const useInternal = mode === "internal" && internalReady && Boolean(onWaInternal);
+  const [deleteArm, setDeleteArm] = useState(false);
+  useEffect(() => {
+    if (!deleteArm) return;
+    const t = setTimeout(() => setDeleteArm(false), 3000);
+    return () => clearTimeout(t);
+  }, [deleteArm]);
 
   function getHref(canal: Canal): string | null {
     switch (canal) {
@@ -342,6 +352,25 @@ function ChannelRow({
 
   return (
     <div className="dn-channels-row">
+      {onDelete && (
+        <button
+          type="button"
+          className="chan-ico--delete"
+          title={deleteArm ? "Confirmar exclusão" : "Excluir card (devolve ao pool)"}
+          aria-label={deleteArm ? "Confirmar exclusão" : "Excluir card"}
+          style={{
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            color: deleteArm ? "var(--hbx-danger)" : "var(--text-muted)",
+            transition: "color 0.15s",
+          }}
+          onClick={() => {
+            if (deleteArm) { onDelete(); setDeleteArm(false); }
+            else setDeleteArm(true);
+          }}
+        >
+          <I d={ICONS.trash} size={22} />
+        </button>
+      )}
       {CANAIS_ORDEM.map(canal => {
         const active = hasData(canal);
         const href = active ? getHref(canal) : null;
@@ -417,10 +446,12 @@ export function DetalhesNegocio({
   onToggleDoNotCall,
   historyLabel = "Histórico",
   kvExtra,
+  onDelete,
 }: DetalhesNegocioProps) {
   const n = detail !== undefined ? detail : (negocio !== undefined ? negocio : null);
   const [internalTab, setInternalTab] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const hasLegacyWa = Boolean(onWaOpenExternal || onWaOpenInternal);
 
   const li = n?.leadIntelligence;
@@ -985,15 +1016,21 @@ export function DetalhesNegocio({
       {/* ── Conteúdo ─────────────────────────────────────────────────── */}
       {n && (
         <>
+          {lightboxSrc && <PhotoLightbox src={lightboxSrc} name={n.name || undefined} onClose={() => setLightboxSrc(null)} />}
           {/* ── HEADER FIXO: avatar + nome + heroAction + coroa + 6 ícones ── */}
           <div className="dn-header">
             <div className="ctx-hero">
-              <Av
-                name={n.name || "—"}
-                src={n.avatarUrl ?? undefined}
-                online={n.online}
-                size={56}
-              />
+              <span
+                onClick={() => { if (n.avatarUrl) setLightboxSrc(n.avatarUrl); }}
+                style={{ cursor: n.avatarUrl ? "zoom-in" : "default", display: "inline-flex" }}
+              >
+                <Av
+                  name={n.name || "—"}
+                  src={n.avatarUrl ?? undefined}
+                  online={n.online}
+                  size={56}
+                />
+              </span>
               <div className="ident">
                 <div className="ident-top">
                   <span className="company" style={{ flex: 1, minWidth: 0 }}>
@@ -1039,6 +1076,7 @@ export function DetalhesNegocio({
               onWaInternal={onWaOpenInternal ?? undefined}
               waQrActive={waQrActive}
               waCanInternal={waCanInternal}
+              onDelete={onDelete}
             />
           </div>
 

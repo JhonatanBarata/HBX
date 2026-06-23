@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
@@ -169,6 +170,46 @@ export function Av({ name, size = 20, src, online }: { name?: string; size?: num
         : null}
       {online ? <i className="avatar-dot" aria-hidden="true" /> : null}
     </span>
+  );
+}
+
+// Lightbox: exibe a foto em fullscreen ao clicar. Fecha com Esc ou clique fora.
+export function PhotoLightbox({ src, name, onClose }: { src: string; name?: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.84)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
+        display: "grid", placeItems: "center",
+        cursor: "zoom-out",
+        animation: "hbx-modal-in 0.22s cubic-bezier(0.16,1,0.3,1)",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={name ?? "foto"}
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth: "min(88vw, 560px)",
+          maxHeight: "88vh",
+          borderRadius: "var(--radius-xl)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.75)",
+          objectFit: "contain",
+          cursor: "default",
+        }}
+      />
+    </div>,
+    document.body,
   );
 }
 
@@ -759,6 +800,8 @@ async function fetchUnreadChatsCached(): Promise<number> {
 // desmembrar Vendas/Atendimento/etc. (par do MODULE_TOUR_BUILDERS nos steps).
 const MODULE_TOURS: Record<string, string> = {
   "/leads": "leads",
+  "/atendimento": "atendimento",
+  "/vendas": "vendas",
 };
 
 export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React.ReactNode; onMenu?: () => void }) {
@@ -983,6 +1026,14 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
         )}
         <PeleSwitch />
         <ModeToggle />
+        <button
+          className={signalBtnClass(geoState)}
+          title={geoState === "active" ? "Localização ativa — clique para desligar" : geoState === "error" ? "Aguardando permissão de localização…" : "Usar minha localização no Radar"}
+          aria-label="Localização"
+          onClick={toggleGeo}
+        >
+          <I d={ICONS.mapin} size={17} />
+        </button>
         {podeNovoLead && (
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}

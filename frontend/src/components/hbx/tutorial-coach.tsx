@@ -17,7 +17,7 @@
 // natureza (rect do alvo) e NÃO são props visuais, então não pesam na catraca.
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type CoachStep = {
@@ -100,6 +100,10 @@ export function TutorialCoach({
   const [leaving, setLeaving] = useState(false);
   const [help, setHelp] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const rafRef = useRef<number | null>(null);
+  // Altura REAL do balão (medida), pra travar a posição dentro da viewport. O corte
+  // embaixo vinha de estimar a altura num número fixo — texto maior estourava.
+  const balloonRef = useRef<HTMLDivElement | null>(null);
+  const [balloonH, setBalloonH] = useState(0);
 
   const step = steps[i];
   const isLast = i >= steps.length - 1;
@@ -187,6 +191,16 @@ export function TutorialCoach({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing]);
 
+  // Mede a altura real do balão a cada render (antes do paint). setState no mesmo
+  // valor é no-op no React, então rodar sem deps NÃO causa loop nem custo relevante —
+  // e pega crescimento por texto/typewriter/troca de passo sem estimar nada. (O
+  // aviso de "loop infinito" do exhaustive-deps é falso-positivo por isso.)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const el = balloonRef.current;
+    if (el) setBalloonH(el.offsetHeight);
+  });
+
   if (!step || typeof document === "undefined") return null;
 
   async function ask() {
@@ -202,24 +216,28 @@ export function TutorialCoach({
   const centered = !step.plain && !spotlit; // boas-vindas / final / enquanto acha alvo
 
   // Posição do balão: ao lado do alvo (à direita se o alvo está à esquerda;
-  // senão abaixo), sempre clampado dentro da viewport.
+  // senão abaixo), com TRAVA vertical final pelos 2 ramos — nunca corta embaixo
+  // nem em cima. Usa a altura MEDIDA (balloonH), não estimativa.
   const balloon: { left: number; top: number } = { left: 0, top: 0 };
   if (spotlit && rect) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const M = 12;
     const W = Math.min(330, vw - 24);
-    const BALLOON_H = 240; // estimativa generosa da altura do balão
+    const H = balloonH || 240; // 1º paint sem medida ainda → fallback; useLayoutEffect corrige antes de pintar
     if (rect.left < vw * 0.34) {
-      balloon.left = Math.min(rect.left + rect.width + 16, vw - W - 12);
-      balloon.top = Math.max(12, rect.top - 4);
+      // alvo à esquerda → balão à direita dele, topo alinhado
+      balloon.left = Math.min(rect.left + rect.width + 16, vw - W - M);
+      balloon.top = rect.top - 4;
     } else {
-      balloon.left = Math.min(Math.max(12, rect.left + rect.width / 2 - W / 2), vw - W - 12);
+      // alvo à direita → balão abaixo; sem espaço abaixo → acima do alvo
+      balloon.left = Math.min(Math.max(M, rect.left + rect.width / 2 - W / 2), vw - W - M);
       const below = rect.top + rect.height + 16;
-      // Se o balão abaixo ultrapassaria a viewport, sobe para cima do alvo
-      balloon.top = below + BALLOON_H > vh - 12
-        ? Math.max(12, rect.top - BALLOON_H - 12)
-        : below;
+      balloon.top = below + H > vh - M ? rect.top - H - 16 : below;
     }
+    // Trava final: mantém o balão inteiro dentro da viewport (vale pros 2 ramos —
+    // era o furo do ramo esquerdo, que não clampava o rodapé → cortava no 7/10).
+    balloon.top = Math.min(Math.max(M, balloon.top), Math.max(M, vh - H - M));
   }
 
   const balloonClass = "tut-balloon"
@@ -240,8 +258,9 @@ export function TutorialCoach({
 
       <div
         key={step.id}
+        ref={balloonRef}
         className={balloonClass}
-        style={spotlit ? { left: balloon.left, top: balloon.top } : undefined}
+        style={spotlit ? { left: balloon.left, top: balloon.top, maxHeight: "calc(100dvh - 24px)", overflowY: "auto" } : undefined}
       >
         <div className="tut-balloon__head">
           <span className="tut-balloon__step">{i + 1} / {steps.length}</span>

@@ -197,6 +197,7 @@ export function VendasClient() {
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
+  const [sortBy, setSortBy] = useState<"default" | "az" | "za">("default");
   // Filtro de texto: sincronizado com o campo de busca do topbar (hbx:search-query)
   const [searchQuery, setSearchQuery] = useState("");
   useEffect(() => {
@@ -307,6 +308,62 @@ export function VendasClient() {
   const [obs, setObs] = useState("");
   const [negMotivo, setNegMotivo] = useState("");
   const [negArm, setNegArm] = useState(false); // confirma em 2 cliques (padrão do kit)
+
+  // Excluir card: devolve ao pool sem edições. POST /vendas/leads/:id/delete
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  async function deletarCard() {
+    if (!sel?.id || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await apiFetch(`/vendas/leads/${encodeURIComponent(sel.id)}/delete`, { method: "POST", body: JSON.stringify({}) });
+      setSel(null);
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível excluir o card.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  // Seleção em massa (lista desktop): checkbox por linha + "Selecionar todos" +
+  // excluir em lote. POST /vendas/leads/delete-bulk { leadIds } devolve cada card
+  // ao pool (mesmo efeito do delete unitário) e responde { deletedCount }.
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [bulkDeleteArm, setBulkDeleteArm] = useState(false); // confirma em 2 cliques (padrão do kit)
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
+  function toggleSelecionado(id: string) {
+    setBulkDeleteArm(false);
+    setSelecionados(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function excluirSelecionados() {
+    const ids = Array.from(selecionados);
+    if (ids.length === 0 || bulkDeleteBusy) return;
+    setBulkDeleteBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await apiFetch<{ deletedCount?: number }>("/vendas/leads/delete-bulk", {
+        method: "POST",
+        body: JSON.stringify({ leadIds: ids }),
+      });
+      const n = res?.deletedCount ?? ids.length;
+      if (sel && ids.includes(sel.id)) setSel(null);
+      setSelecionados(new Set());
+      setBulkMsg(`✓ ${n} card${n === 1 ? "" : "s"} excluído${n === 1 ? "" : "s"}.`);
+      await loadBoard();
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : "Não foi possível excluir os cards.");
+    } finally {
+      setBulkDeleteBusy(false);
+      setBulkDeleteArm(false);
+    }
+  }
 
   // Negativar com MOTIVO (dono 14/06): leve volta pro pool pros outros; dura some
   // pra todos. Tira o card da carteira. POST /vendas/lead/:id/negativar { status, note }.
@@ -855,6 +912,50 @@ export function VendasClient() {
       .some(v => v?.toLowerCase().includes(q));
   }
 
+  const flatLeads: VendasLead[] = (() => {
+    if (!board) return [];
+    let list = BLOCK_ORDER.flatMap(({ key }) => (board.blocks?.[key] || []).filter(matchSearch));
+    if (sortBy === "az") list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" }));
+    else if (sortBy === "za") list = [...list].sort((a, b) => (b.name || "").localeCompare(a.name || "", "pt-BR", { sensitivity: "base" }));
+    return list;
+  })();
+
+  // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
+  const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
+  function toggleTodos() {
+    setBulkDeleteArm(false);
+    setSelecionados(todosSelecionados ? new Set() : new Set(flatLeads.map(c => c.id)));
+  }
+
+  // Navega com ↑/↓ entre leads igual Excel — só na lista desktop
+  useEffect(() => {
+    if (isMobile || view !== "list") return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (fecharOpen || novoOpen || cadOpen || clienteOpen || prospOpen || agendaOpen || mobileDetailOpen) return;
+      e.preventDefault();
+      const q = searchQuery.toLowerCase();
+      let list = BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
+        !searchQuery || [card.name, card.phone, card.email, card.segment, card.city, card.state, card.nextAction, card.shortNote].some(v => v?.toLowerCase().includes(q))
+      ));
+      if (sortBy === "az") list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" }));
+      else if (sortBy === "za") list = [...list].sort((a, b) => (b.name || "").localeCompare(a.name || "", "pt-BR", { sensitivity: "base" }));
+      const idx = sel ? list.findIndex(c => c.id === sel.id) : -1;
+      const next = e.key === "ArrowDown"
+        ? (idx < list.length - 1 ? list[idx + 1] : list[0]) ?? null
+        : (idx > 0 ? list[idx - 1] : list[list.length - 1]) ?? null;
+      if (next) {
+        setSel(next);
+        setTimeout(() => document.getElementById(`vnd-row-${next.id}`)?.scrollIntoView({ block: "nearest" }), 0);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, cadOpen, clienteOpen, prospOpen, agendaOpen, mobileDetailOpen]);
+
   const summary = board?.summary;
   const deal = sel;
 
@@ -876,22 +977,28 @@ export function VendasClient() {
                   <span>
                     {board
                       ? searchQuery
-                        ? `${BLOCK_ORDER.flatMap(b => board.blocks?.[b.key] || []).filter(matchSearch).length} de ${summary?.total ?? 0} cards`
+                        ? `${flatLeads.length} de ${summary?.total ?? 0} cards`
                         : `${summary?.total ?? 0} cards`
                       : loadError ? "" : "Carregando…"}
                   </span>
-                  <span className="seg-toggle" role="group" aria-label="Visão do pipeline">
+                  <span className="seg-toggle" role="group" aria-label="Visão do pipeline" data-tut="vendas-visao">
                     <button className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
                     <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
                   </span>
-                  <button className="icon-ghost" title="Prospecção automática" aria-label="Prospecção automática" onClick={() => setProspOpen(true)}>
+                  {!isMobile && view === "list" && (
+                    <button className="btn-ghost" onClick={() => setSortBy(s => s === "default" ? "az" : s === "az" ? "za" : "default")}
+                      title="Ordenar por nome" aria-label="Ordenar por nome">
+                      {sortBy === "az" ? "A→Z" : sortBy === "za" ? "Z→A" : "A→Z"}
+                    </button>
+                  )}
+                  <button className="icon-ghost" title="Prospecção automática" aria-label="Prospecção automática" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
                   </button>
-                  <button className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" onClick={() => setAgendaOpen(o => !o)}>
+                  <button className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" data-tut="vendas-agenda" onClick={() => setAgendaOpen(o => !o)}>
                     <I d={ICONS.clock} size={16} />
                   </button>
                   <button className="btn-ghost">Todas as equipes ▾</button>
-                  <button className="btn-teal" onClick={() => setNovoOpen(true)}><I d={ICONS.plus} size={14} /> Novo lead</button>
+                  <button className="btn-teal" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}><I d={ICONS.plus} size={14} /> Novo lead</button>
                 </div>
               </div>
               {loadError && (
@@ -993,34 +1100,68 @@ export function VendasClient() {
               {/* LISTA DENSA (padrão): varredura rápida de todos os leads —
                   tabela central do kit, clique na linha abre o detalhe lateral. */}
               {!isMobile && view === "list" && board && (summary?.total ?? 0) > 0 && (
-                <div className="tbl-wrap">
-                  <table className="tbl">
+                <>
+                  {/* Barra de seleção em massa: "Selecionar todos" + excluir em lote */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 8px" }}>
+                    <button className="btn-ghost btn-xs" onClick={toggleTodos}>
+                      {todosSelecionados ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                    {selecionados.size > 0 && (
+                      <>
+                        <span className="sub2">{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</span>
+                        <button
+                          className="btn-ghost danger btn-xs"
+                          onClick={() => (bulkDeleteArm ? excluirSelecionados() : setBulkDeleteArm(true))}
+                          disabled={bulkDeleteBusy}
+                        >
+                          <I d={ICONS.trash} size={13} />{" "}
+                          {bulkDeleteBusy ? "Excluindo…" : bulkDeleteArm ? `Confirmar exclusão (${selecionados.size})` : "Excluir selecionados"}
+                        </button>
+                        {bulkDeleteArm && !bulkDeleteBusy && (
+                          <button className="btn-ghost btn-xs" onClick={() => setBulkDeleteArm(false)}>Cancelar</button>
+                        )}
+                      </>
+                    )}
+                    {bulkMsg && <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span>}
+                  </div>
+                  <div className="tbl-wrap">
+                  <table className="tbl" data-tut="vendas-funil">
                     <thead>
                       <tr>
+                        <th style={{ width: 34 }}>
+                          <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
+                            aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
+                        </th>
                         <th>Empresa</th><th>Segmento</th><th>Etapa</th><th>Valor</th>
                         <th>Próximo passo</th><th>Responsável</th><th>Data</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {BLOCK_ORDER.flatMap(({ key, label }) =>
-                        (board?.blocks?.[key] || []).filter(matchSearch).map(card => {
-                          const tagCls = key === "overdue" ? "tag warn" : key === "closed" ? "tag teal" : "tag";
+                      {(() => {
+                        const blockLbl: Record<string, string> = { today: "Hoje", overdue: "Atrasados", scheduled: "Agendados", closed: "Fechados" };
+                        return flatLeads.map(card => {
+                          const tagCls = card.block === "overdue" ? "tag warn" : card.block === "closed" ? "tag teal" : "tag";
                           return (
-                            <tr key={card.id} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}>
-                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2">{card.city}</div>}</div></td>
+                            <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}>
+                              <td onClick={e => e.stopPropagation()}>
+                                <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
+                                  aria-label={`Selecionar ${card.name || "card"}`} />
+                              </td>
+                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}</div></td>
                               <td>{card.segment || "—"}</td>
-                              <td><span className={tagCls}>{label}</span>{card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}</td>
+                              <td><span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>{card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}</td>
                               <td className="hbx-mono">{leadValueLabel(card)}</td>
                               <td><span className="nowrap-cell" style={{ maxWidth: 240, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }} title={card.nextAction || card.shortNote || ""}>{card.nextAction || card.statusLabel || "—"}</span></td>
                               <td>{card.owner?.name ? <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Av name={card.owner.name} size={20} />{card.owner.name}</span> : "—"}</td>
                               <td className="hbx-mono">{fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt)}</td>
                             </tr>
                           );
-                        }),
-                      )}
+                        });
+                      })()}
                     </tbody>
                   </table>
-                </div>
+                  </div>
+                </>
               )}
 
               {/* QUADRO (kanban) — opcional, para arrastar entre etapas. Desktop only. */}
@@ -1109,7 +1250,7 @@ export function VendasClient() {
             </section>
           </div>
 
-          <aside className="ctx">
+          <aside className="ctx" data-tut="vendas-painel">
             <div key={deal?.id ?? "empty"} className="ctx-body">
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
@@ -1118,6 +1259,7 @@ export function VendasClient() {
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
                 waQrActive={waQrActive}
                 waCanInternal={canAtendimento}
+                onDelete={deal ? () => deletarCard() : undefined}
                 actions={deal ? (
                   <div style={{ display: "grid", gap: 8 }}>
                     {fecharMsg && (
@@ -1236,6 +1378,7 @@ export function VendasClient() {
               onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
               waQrActive={waQrActive}
               waCanInternal={canAtendimento}
+              onDelete={() => { setMobileDetailOpen(false); deletarCard(); }}
               actions={
                 <div style={{ display: "grid", gap: 8 }}>
                   {fecharMsg && (

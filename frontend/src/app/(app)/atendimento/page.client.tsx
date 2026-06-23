@@ -26,7 +26,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, ConfirmDialog, I, ICONS, KpiRow, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS, KpiRow, PhotoLightbox, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -423,6 +423,8 @@ export function AtendimentoClient() {
   // re-busca no motor a cada clique; force=true ignora este guard).
   const avatarTriedRef = useRef<Set<string>>(new Set());
   const router = useRouter();
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // conexão WhatsApp (R2.9): chip de status + modal QR/start/disconnect
   const [waStatus, setWaStatus] = useState<string | null>(null);
@@ -1613,7 +1615,7 @@ export function AtendimentoClient() {
                 <div className="convs-head">
                   <div className="row">
                     <h2>Conversas</h2>
-                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
+                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} data-tut="atend-nova" onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
                       <I d={ICONS.plus} size={13} /> Nova
                     </button>
                     {/* "Limpar": apaga as conversas abertas e nunca usadas (sem mensagem
@@ -1667,6 +1669,7 @@ export function AtendimentoClient() {
                   <div className="row">
                     <button className={"tag" + whatsappPillVariant(waStatus)}
                       style={{ cursor: "pointer" }}
+                      data-tut="atend-whatsapp"
                       onClick={() => setWaModalOpen(true)} title="Conexão WhatsApp">
                       ● WhatsApp: {whatsappPillLabel(waStatus)}
                     </button>
@@ -1674,6 +1677,7 @@ export function AtendimentoClient() {
                       <button
                         className="btn-ghost btn-xs"
                         style={{ marginLeft: "auto" }}
+                        data-tut="atend-modelo"
                         onClick={() => setAtPanelOpen(true)}
                         title="Modelo de atendimento"
                       >
@@ -1693,17 +1697,17 @@ export function AtendimentoClient() {
                     </div>
                   )}
                 </div>
-                <div className="tabs">
+                <div className="tabs" data-tut="atend-abas">
                   {["Todas", "Não lidas", "Minhas"].map((t, i) => (
                     <button key={t} className={"tab" + (tab === i ? " active" : "")} onClick={() => setTab(i)}>
                       {t}{i === 0 && convs.length > 0 && <span className="n">{convs.length}</span>}{i === 1 && naoLidas.length > 0 && <span className="n">{naoLidas.length}</span>}
                     </button>
                   ))}
                 </div>
-                <div style={{ padding: "10px 14px" }}>
+                <div style={{ padding: "10px 14px" }} data-tut="atend-busca">
                   <input className="field-dark" placeholder="Buscar conversas..." value={busca} onChange={e => setBusca(e.target.value)} />
                 </div>
-                <div className="conv-list">
+                <div className="conv-list" data-tut="atend-lista">
                   {filtered.length === 0 && (
                     <div style={{ padding: "18px 14px", display: "grid", gap: 10, justifyItems: "start" }}>
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
@@ -1753,10 +1757,15 @@ export function AtendimentoClient() {
                   <button className="chat-back" aria-label="Voltar para conversas" onClick={() => setMobileThread(false)}>
                     <I d={["M15 6l-6 6 6 6"]} size={20} />
                   </button>
-                  {/* Clicar na foto força nova busca (pedido do dono: "ao clicar na foto faça outro"). */}
+                  {/* Foto: abre lightbox se já tiver foto carregada; sem foto = atualiza. */}
+                  {lightboxSrc && <PhotoLightbox src={lightboxSrc} name={convo ? convName(convo) : undefined} onClose={() => setLightboxSrc(null)} />}
                   <span
-                    onClick={() => { if (convo && selId) void refreshAvatar(selId, true); }}
-                    title={convo ? "Atualizar foto" : undefined}
+                    onClick={() => {
+                      const src = convAvatar(convo);
+                      if (src) { setLightboxSrc(src); }
+                      else if (convo && selId) { void refreshAvatar(selId, true); }
+                    }}
+                    title={convAvatar(convo) ? "Ver foto" : convo ? "Atualizar foto" : undefined}
                     style={{ display: "inline-flex", cursor: convo ? "pointer" : "default" }}
                   >
                     <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
@@ -1879,7 +1888,7 @@ export function AtendimentoClient() {
                     ⚠ WhatsApp limitou este número — aguarde alguns minutos antes de enviar.
                   </div>
                 )}
-                <div className="composer">
+                <div className="composer" data-tut="atend-responder">
                   {sendError && (
                     <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{sendError}</div>
                   )}
@@ -1985,7 +1994,7 @@ export function AtendimentoClient() {
             </div>
           </div>
 
-          <aside className="ctx">
+          <aside className="ctx" data-tut="atend-painel">
             <DetalhesNegocio
               key={convo?.id ?? "empty"}
               loading={cardLoading}

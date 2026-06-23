@@ -78,3 +78,48 @@
 
 ## Checks
 - `cd frontend && npm run lint` (check-pele) → `npm run build`. Runtime no preview: desktop + 390px.
+
+## Pós-teste do dono (23/06) — defeitos da 1ª busca de cliente novo (plano lead)
+> 5 defeitos achados ao testar como cliente novo. Mesma tela (`page.client.tsx` + `screens.css`),
+> + 1 ajuste backend (mensagem do cliente). Frente FRONTEND/MOTOR (Opus orquestra; worker Sonnet edita).
+
+**Causas-raiz (confirmadas no código):**
+1. **400 ao Buscar.** `executarBusca` (~457) manda `{city,state,segment}` SEM `quantity`; o DTO
+   `WebscrapingSearchDto` exige `quantity` (controller `webscraping.controller.ts:62-66`, pipe global
+   `whitelist+forbidNonWhitelisted`) → 400. O `quantos` (state, default 5) existe e nunca entra no body.
+2. **Segmento não digita / "trava ao mexer no alcance".** É `<select>` (851-857 + mobile 1154-1160) cujas
+   opções saem SÓ de `availableFilters.segments` (banco já populado). Cliente novo = banco vazio = zero
+   opção = não escolhe nem digita. E ao recarregar a lista (debounce de city/uf, 340-345) o label escolhido
+   some das opções → select controlado cai pro placeholder = "reset/trava".
+3. **"Achou 3 de 20 e não exibiu nada".** Todo run AUTO-importa os found pra **carteira/Vendas**
+   (`processSearchRun:994` → `autoImportSearchRunToVendas`); os 3 foram pra carteira, não pra "Disponíveis".
+   No fim do poll (366-372) o front força aba `shelf` (vazia) e recarrega só shelf+bank — **não** chama
+   `loadUsage()` nem a carteira → contador velho + aba errada = "sumiu". Os leads estão na carteira.
+4. **Termos técnicos na tela.** `radar-core-search-loop.mixin.ts:1025` monta `batchDebugMeta`
+   (`attempts=…; queryTaskCount=…; currentQuery=…; approved=…`) e cola no `errorMessage` do cliente
+   (1082 e 1110). É telemetria — já vai pro log via `logHbxBatch`; não pode vazar pra `operationalMessage`.
+
+**Blocos pro worker:**
+- **P1 (fix 400):** `executarBusca` passa `quantity: quantos` no body (desktop + rail mobile).
+- **P2 (segmento digitável):** trocar o `<select>` de Segmento por `<input list>` + `<datalist>` alimentado
+  por `segOptions` (mantém sugestão do banco) — valor segue free-text em `segment` (o backend já recebe label
+  livre). Nunca mais reseta. Os 2 lugares (console 851 + rail mobile 1154).
+- **P3 (setas de obrigatório):** seta `›` na cor do radar (`var(--hbx-brand-strong)`, mesma do
+  `radar-state-label--funcionando`) em Estado→Cidade→Segmento enquanto vazios; **some ao preencher**.
+  Classe central em `screens.css` (::after no `.radar-controls .f` ou span dedicado; animação sutil
+  apontando, respeita `prefers-reduced-motion`). Zero hex inline (5 Leis).
+- **P4 (popup de erro):** ao clicar Buscar faltando Cidade/Segmento, abrir modal bem-feito reusando
+  `.hbx-veil` + `.hbx-modal` (já existem) listando o que falta — substitui o `searchMsg` cru pra esse caso.
+- **P5 (mostrar o que achou):** no fim do run, além de shelf+bank, chamar `loadUsage()` + recarregar a
+  carteira; se `run.importedCount > 0` (ou `meta.importedCount`), abrir aba **"Minha carteira"** e avisar
+  "✓ N leads na sua carteira" em vez de cair na shelf vazia.
+- **P6 (backend, sem jargão):** em `radar-core-search-loop.mixin.ts`, parar de concatenar `batchDebugMeta`
+  no `errorMessage` (1082 vira `finalMessage`; 1110 vira `message`). `batchDebugMeta` fica só no `logHbxBatch`.
+  Sem termo técnico em nenhuma mensagem que chega na tela.
+
+**1 decisão de produto (dono):** lead que o vendedor acha na busca deve (A) cair direto na **carteira**
+[como hoje — P5 só revela onde está] ou (B) aparecer **mascarado em "Disponíveis"** pra ele escolher quem
+puxar [exige backend não auto-importar no Buscar manual]. Default deste plano = **A** (menor, e é onde os
+leads já estão). Se for **B**, abre sub-bloco backend.
+
+**Reverter:** cada P = commit isolado; `git revert`. Tudo localhost.

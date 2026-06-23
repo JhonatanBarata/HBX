@@ -17,7 +17,7 @@ import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch } from "@/lib/api";
-import { BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
+import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 type FilterOption = { value: string; label: string; count?: number };
@@ -118,9 +118,6 @@ const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "ca
 type CanalKey = "whatsapp" | "email" | "telefone" | "instagram" | "facebook" | "site";
 const ALL_CANAIS: CanalKey[] = ["whatsapp", "email", "telefone", "instagram", "facebook", "site"];
 
-// Modo da barra de canais
-type CanalMode = "filtrar" | "forcar";
-
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
   const seen = new Set<string>();
   const merged: FilterOption[] = [];
@@ -162,22 +159,6 @@ function getOpState(run: RunResponse): "funcionando" | "pausado" | "parado" | nu
   const opState = String(run.meta?.operationalState || "").trim().toLowerCase();
   if (opState === "funcionando" || opState === "pausado" || opState === "parado") return opState;
   return null;
-}
-
-// Filtra leads client-side por canais ativos
-function filterLeadsByCanal(items: RadarLead[], canais: Set<CanalKey>): RadarLead[] {
-  if (canais.size === 0) return items;
-  return items.filter(row => {
-    for (const c of canais) {
-      if (c === "whatsapp" && row.hasWhatsapp) return true;
-      if (c === "email" && row.hasEmail) return true;
-      if (c === "telefone" && row.hasPhone) return true;
-      if (c === "instagram" && row.instagramUrl) return true;
-      if (c === "facebook" && row.facebookUrl) return true;
-      if (c === "site" && row.website) return true;
-    }
-    return false;
-  });
 }
 
 // Componente: disco de radar animado (reutilizável: tamanho controlado pelo wrapper)
@@ -288,7 +269,25 @@ export function LeadsClient() {
 
   // Barra de canais
   const [canalAtivos, setCanalAtivos] = useState<Set<CanalKey>>(new Set());
-  const [canalMode, setCanalMode] = useState<CanalMode>("filtrar");
+  const [forcarCanais, setForcarCanais] = useState(false);
+
+  // Geolocalização — sincroniza com o botão do Topbar via localStorage + evento
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = localStorage.getItem("hbx:geo");
+      if (stored) { const p = JSON.parse(stored); if (p?.lat && p?.lng) return p; }
+    } catch { /* sem storage */ }
+    return null;
+  });
+  useEffect(() => {
+    function onGeo(e: Event) {
+      const detail = (e as CustomEvent<{ lat: number; lng: number } | null>).detail;
+      setGeo(detail ?? null);
+    }
+    window.addEventListener("hbx:geo-updated", onGeo);
+    return () => window.removeEventListener("hbx:geo-updated", onGeo);
+  }, []);
 
   const loadBank = useCallback(() => {
     apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
@@ -465,16 +464,14 @@ export function LeadsClient() {
   async function executarBusca() {
     // "pausado" não bloqueia — pode iniciar nova busca
     if (runBusy || runActive) return;
-    if (!city.trim()) { setSearchMsg("Me diz a cidade — o motor não varre sem ela."); return; }
+    if (!city.trim() && !geo) { setSearchMsg("Me diz a cidade — ou ative a localização no topo."); return; }
     if (!segment.trim()) { setSearchMsg("Escolha um segmento pra eu varrer."); return; }
     setSearchMsg(null);
     setRunBusy(true);
     try {
-      // Modo "Forçar na busca": tenta passar canais preferidos no body do search-run.
-      // Nota: o endpoint aceita requiredChannels/channelMatchMode (confirmado no backup),
-      // mas o backend pode ignorar se não tiver suporte — degrada graciosamente.
       const body: Record<string, unknown> = { city, state: uf || undefined, segment };
-      if (canalMode === "forcar" && canalAtivos.size > 0) {
+      if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
+      if (forcarCanais && canalAtivos.size > 0) {
         body.requiredChannels = Array.from(canalAtivos);
         body.channelMatchMode = "any";
       }
@@ -562,11 +559,7 @@ export function LeadsClient() {
     });
   }
 
-  const rawItems = data?.items || [];
-  // Aplicar filtro de canal client-side quando modo = "filtrar"
-  const items = canalMode === "filtrar" && canalAtivos.size > 0
-    ? filterLeadsByCanal(rawItems, canalAtivos)
-    : rawItems;
+  const items = data?.items || [];
 
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;
@@ -815,6 +808,45 @@ export function LeadsClient() {
 
         <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
         {opMsg && <div className="radar-state-msg">{opMsg}</div>}
+
+        {/* Canais — forçar na busca (liga/desliga), logo antes de Estado. Sem filtro
+            pós-resultado: o canal não nasce na busca (só enriquecido depois) — "forçar"
+            pede ao motor pra já trazer só quem tem o canal escolhido. */}
+        <div className="radar-canais">
+          <div className="radar-canais__head">
+            <span className="radar-canais__lbl">Canais</span>
+            <button
+              type="button"
+              className={"radar-canais__switch" + (forcarCanais ? " radar-canais__switch--on" : "")}
+              onClick={() => setForcarCanais(v => !v)}
+              aria-pressed={forcarCanais}
+              title="Forçar a busca a trazer só leads com os canais escolhidos"
+            >
+              {forcarCanais ? "Forçar: Ligado" : "Forçar: Desligado"}
+            </button>
+          </div>
+          <div className="radar-canais__chips">
+            {ALL_CANAIS.map(c => (
+              <button
+                key={c}
+                type="button"
+                className={"radar-canal-toggle" + (canalAtivos.has(c) ? " radar-canal-toggle--active" : "")}
+                onClick={() => toggleCanal(c)}
+                disabled={!forcarCanais}
+                title={c.charAt(0).toUpperCase() + c.slice(1)}
+                aria-pressed={canalAtivos.has(c)}
+              >
+                <CanalIcon canal={c} size="sm" />
+                <span>{c === "instagram" ? "IG" : c === "facebook" ? "FB" : c.charAt(0).toUpperCase() + c.slice(1)}</span>
+              </button>
+            ))}
+          </div>
+          {forcarCanais && (
+            <p className="radar-canais__warn">
+              Forçar canais deixa a busca mais lenta e pode trazer menos resultados — o motor tem que verificar WhatsApp/site/redes de cada lead na hora, e às vezes falha.
+            </p>
+          )}
+        </div>
 
         {/* Filtros compactos */}
         <div className="radar-controls">
@@ -1077,34 +1109,6 @@ export function LeadsClient() {
     );
   }
 
-  // ── Barra de canal (B5) ────────────────────────────────────────────────────
-  function renderCanalBar() {
-    return (
-      <div className="radar-canal-bar">
-        <span className="radar-canal-bar__mode">Canais:</span>
-        {ALL_CANAIS.map(c => (
-          <button
-            key={c}
-            className={"radar-canal-toggle" + (canalAtivos.has(c) ? " radar-canal-toggle--active" : "")}
-            onClick={() => toggleCanal(c)}
-            title={c.charAt(0).toUpperCase() + c.slice(1)}
-            aria-pressed={canalAtivos.has(c)}
-          >
-            <CanalIcon canal={c} size="sm" />
-            <span>{c === "instagram" ? "IG" : c === "facebook" ? "FB" : c.charAt(0).toUpperCase() + c.slice(1)}</span>
-          </button>
-        ))}
-        <button
-          className={"radar-canal-mode-btn" + (canalMode === "forcar" ? " radar-canal-mode-btn--force" : "")}
-          onClick={() => setCanalMode(m => m === "filtrar" ? "forcar" : "filtrar")}
-          title={canalMode === "filtrar" ? "Modo: Filtrar resultado (clique para Forçar na busca)" : "Modo: Forçar na busca (clique para Filtrar resultado)"}
-        >
-          {canalMode === "filtrar" ? "Filtrar resultado" : "Forçar na busca"}
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="content leads-page">
       <div className="work">
@@ -1195,9 +1199,6 @@ export function LeadsClient() {
                   Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
                 </button>
               </div>
-
-              {/* B5: Barra de 6 ícones de canal */}
-              {tab === "shelf" && renderCanalBar()}
 
               {runActive && (
                 <div className="radar2-live">
