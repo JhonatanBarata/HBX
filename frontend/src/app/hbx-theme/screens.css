@@ -583,6 +583,24 @@ html, body { height: 100%; }
 .vnd-action-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .vnd-action-row .field-dark { min-height: 36px; }
 
+/* Vendas — popup pequeno (Retorno / Sem Interesse): hbx-veil + hbx-modal estreito. */
+.vnd-popup { width: min(360px, 100%); display: grid; gap: 0; padding: 0; overflow: hidden; }
+.vnd-popup__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 20px 12px; border-bottom: 1px solid var(--border-hairline); }
+.vnd-popup__title { font-family: var(--font-display); font-size: 1rem; font-weight: 800; color: var(--text-strong); }
+.vnd-popup__close { background: none; border: none; padding: 0; cursor: pointer; font-size: 0.9rem; color: var(--text-muted); line-height: 1; }
+.vnd-popup__close:hover { color: var(--text-strong); }
+.vnd-popup__body { display: grid; gap: 12px; padding: 16px 20px 20px; }
+.vnd-popup__field { display: grid; gap: 6px; }
+.vnd-popup__foot { display: flex; gap: 8px; justify-content: flex-end; padding-top: 4px; }
+/* Grade 2 botões lado a lado (Retorno / Sem Interesse no cockpit) */
+.vnd-quick-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Opções do popup Sem Interesse: lista vertical, botão toggle */
+.vnd-si-opts { display: grid; gap: 6px; }
+.vnd-si-opt { display: flex; align-items: center; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-body); font-family: var(--font-body); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; }
+.vnd-si-opt:hover { background: var(--hbx-surface-raised); }
+.vnd-si-opt.is-sel { border-color: var(--login-accent); color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); font-weight: 700; }
+.vnd-si-opt:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* provisioning wizard (multi-step) */
 .prov-step { font-size: 0.64rem; font-weight: 400; color: var(--text-muted); }
 .prov-step.is-active { font-weight: 800; color: var(--hbx-brand-strong); }
@@ -1597,6 +1615,15 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-controls label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); }
 .radar-controls .select-dark { width: 100%; min-width: 0; }
 
+/* ── Blocos Modelo B (Onde buscar / O que buscar / Canais) ── */
+.radar-box { background: var(--hbx-surface-soft); border-radius: var(--radius-md); padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; }
+.radar-box__title { font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
+.radar-box__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.radar-box .f { display: grid; gap: 4px; }
+.radar-box label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); }
+.radar-box .select-dark { width: 100%; min-width: 0; }
+.radar-box .radar-canais { margin-bottom: 0; }
+
 .radar-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .radar-actions--single { grid-template-columns: 1fr; }
 
@@ -1613,9 +1640,9 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-canais__lbl { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .radar-canais__switch { font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); color: var(--text-muted); cursor: pointer; white-space: nowrap; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
 .radar-canais__switch--on { color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
-.radar-canais__chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.radar-canais__chips { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .radar-canais__warn { font-size: 0.64rem; line-height: 1.45; color: var(--hbx-warning); background: color-mix(in srgb, var(--hbx-warning) 10%, transparent); border: 1px solid color-mix(in srgb, var(--hbx-warning) 35%, transparent); border-radius: var(--radius-md); padding: 7px 9px; margin: 0; }
-.radar-canal-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border-hairline); background: transparent; color: var(--text-muted); font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
+.radar-canal-toggle { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: transparent; color: var(--text-muted); cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
 .radar-canal-toggle--active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
 .radar-canal-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
 

@@ -9084,16 +9084,26 @@ export class VendasService {
 
     if (poolRow) {
       const ownerCompanyId = Math.trunc(Number(poolRow.ownerCompanyId || 0)) || 0;
-      // Recusa LEVE (sem interesse) → libera pra lagoa (clean): outra empresa pode
-      // pegar. Recusa DURA (número não existe/não atende/sem WhatsApp/opt-out/
-      // reclamação) → status global protegido = some pra TODAS as empresas.
-      const globalKill = ['no_whatsapp', 'invalid_whatsapp', 'invalid_phone', 'no_answer', 'opt_out', 'do_not_contact', 'complaint', 'blocked'].includes(status);
+      // Recusa LEVE (sem interesse / não quer o produto) → libera pra lagoa (clean):
+      // a empresa atual não vê mais (RadarLeadCompanyState=discarded), mas outras
+      // empresas podem pegar. Recusa DURA (não atende/caixa postal/sem WhatsApp/
+      // opt-out/reclamação) → status global protegido = some pra TODAS as empresas.
+      // ATENÇÃO: usa options.status (raw) para o globalKill, não o status normalizado
+      // do CompanyState (que seria sempre 'discarded'/'complaint').
+      const globalKillStatuses = ['no_whatsapp', 'invalid_whatsapp', 'invalid_phone', 'no_answer', 'voicemail', 'opt_out', 'do_not_contact', 'complaint', 'blocked'];
+      // Mapa raw→status do pool: 'voicemail' não é valor reconhecido pelo RADAR_PROTECTED_STATUSES
+      // então normaliza para 'no_answer' (semanticamente igual: não atendeu/caixa postal).
+      const POOL_STATUS_MAP: Record<string, string> = { voicemail: 'no_answer' };
+      const resolvedRawStatus = POOL_STATUS_MAP[options.status] ?? options.status;
+      const globalKill = globalKillStatuses.includes(resolvedRawStatus) || globalKillStatuses.includes(status);
+      // Para globalKill, usa o status resolvido; para status normalizado 'complaint' usa 'complaint'.
+      const poolKillStatus = globalKillStatuses.includes(resolvedRawStatus) ? resolvedRawStatus : (status === 'complaint' ? 'complaint' : 'no_answer');
       await (this.prisma as any).radarLeadPool.update({
         where: { id: radarLeadId },
         data: {
           ...(hasOwnerColumn && (!ownerCompanyId || ownerCompanyId === context.companyId) ? { ownerCompanyId: null } : {}),
           ...(hasClaimedColumn && (!ownerCompanyId || ownerCompanyId === context.companyId) ? { claimedAt: null } : {}),
-          status: globalKill ? status : 'clean',
+          status: globalKill ? poolKillStatus : 'clean',
           ...(globalKill ? { recommendedChannel: 'discard', enrichmentScore: 0, globalNegativeCount: { increment: 1 } } : {}),
           lastSeenAt: now,
         },
@@ -9205,7 +9215,11 @@ export class VendasService {
   // pros outros; DURA ("não atende/número não existe/sem WhatsApp/opt-out/reclamou")
   // → some pra todas as empresas. Quem negativou nunca mais vê (estado por empresa).
   async negativarLeadForUser(user: any, leadId: string, dto: { status?: string; note?: string } = {}) {
-    const allowed = ['negative', 'no_answer', 'no_whatsapp', 'opt_out', 'complaint'];
+    // motivos globais: lead some pra TODAS as empresas (pool fica com status protegido)
+    // motivos de empresa: lead sai da carteira mas volta pra lagoa pras outras empresas
+    const globalKillStatuses = ['no_answer', 'voicemail', 'no_whatsapp', 'opt_out', 'complaint'];
+    const companyKillStatuses = ['negative', 'not_interested_product'];
+    const allowed = [...globalKillStatuses, ...companyKillStatuses];
     const status = String(dto?.status || '').trim().toLowerCase();
     if (!allowed.includes(status)) {
       throw new BadRequestException('Motivo de negativacao invalido.');
@@ -9217,7 +9231,7 @@ export class VendasService {
       radarStatus: status,
       radarReason: reason,
     });
-    const hard = ['no_answer', 'no_whatsapp', 'opt_out', 'complaint'].includes(status);
+    const hard = globalKillStatuses.includes(status);
     return {
       ok: true,
       deletedCount: result.deletedCount,

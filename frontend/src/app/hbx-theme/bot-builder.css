@@ -68,6 +68,10 @@
 /* o chat de teste ocupa o corpo do drawer (lista rola, composer fixo embaixo) */
 .bot-test-drawer .msgs { flex: 1; min-height: 0; }
 
+/* avatar + status do "HBX Bot" no topo do chat de teste (tokenizado do inline) */
+.bot-test-ava { background: var(--hbx-brand); width: 32px; height: 32px; border-radius: 999px; }
+.bot-test-ava-status { font-size: 0.62rem; color: var(--hbx-brand-strong); font-weight: 700; }
+
 /* ============================================================================
  * IA "painel integrado": 3 GUIAS por tipo + painel único (ativação + fluxo=config).
  * As guias substituem os 3 cards de ativação + o seletor "Tipo de bot" + as abas.

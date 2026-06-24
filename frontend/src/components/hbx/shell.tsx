@@ -762,8 +762,10 @@ async function fetchWaStatusCached(): Promise<WaStatus> {
   const res = await apiFetch<{ whatsappSession?: { accessible?: boolean; currentSession?: { displayPhone?: string | null; phoneNormalized?: string | null } | null } }>("/inbox/whatsapp-session").catch(() => null);
   const sess = res?.whatsappSession || null;
   const phone = sess?.currentSession?.displayPhone || sess?.currentSession?.phoneNormalized || null;
-  // sessão existe mas não acessível = linha presa/conflito (515/multi-device) → erro vermelho.
-  const state: SignalState = sess?.accessible === true ? "active" : sess?.currentSession ? "error" : "off";
+  // WhatsApp não tem "desligado por opção": conectado = cor do tema; QUALQUER outra
+  // coisa (sem sessão, ou sessão presa 515/multi-device) = faltando configuração =
+  // vermelho. Só vira cinza ("off") quando a leitura falha (rede) — pra não alarmar à toa.
+  const state: SignalState = !res ? "off" : sess?.accessible === true ? "active" : "error";
   const data: WaStatus = { state, phone };
   waCache = { at: Date.now(), data };
   return data;
@@ -776,6 +778,41 @@ async function fetchEmailStatusCached(): Promise<SignalState> {
   const state: SignalState = res?.enabled ? (res?.ready ? "active" : "error") : "off";
   emailCache = { at: Date.now(), state };
   return state;
+}
+
+type TopbarBotActivation = {
+  armed: boolean;
+  masterOff?: boolean;
+  types: {
+    atendimento: { live: boolean; blocked: string | null };
+    recovery: { live: boolean; blocked: string | null };
+    prospeccao: { live: boolean; blocked: string | null };
+  };
+};
+
+let botActivationCache: { at: number; data: TopbarBotActivation } | null = null;
+
+async function fetchBotActivationCached(): Promise<TopbarBotActivation | null> {
+  if (botActivationCache && Date.now() - botActivationCache.at < TOPBAR_CACHE_TTL) return botActivationCache.data;
+  const data = await apiFetch<TopbarBotActivation>("/bot/activation").catch(() => null);
+  if (data) botActivationCache = { at: Date.now(), data };
+  return data;
+}
+
+// CHAVE GERAL do bot (modelo confirmado pelo dono, 24/06). UMA chave liga/desliga
+// o bot inteiro; a cor tem 3 estados:
+//   off   (cinza)    = DESLIGADO. O dono baixou a chave geral (`masterOff`) — é
+//                      "desativado desativado", NÃO importa se tem config ou não.
+//                      (também cinza sem acesso/não-armado.)
+//   error (vermelho) = LIGADO, mas não consegue rodar: faltando WhatsApp/chip ou
+//                      config (nenhum tipo no ar). No localhost (sem chip) é sempre isto.
+//   active (tema)    = LIGADO e rodando (algum tipo `live`, sem bloqueio).
+function computeBotSignalState(accessible: boolean, act: TopbarBotActivation | null): SignalState {
+  if (!accessible || !act || !act.armed) return "off";
+  if (act.masterOff) return "off";                                    // chave geral baixada → cinza
+  const types = [act.types.atendimento, act.types.recovery, act.types.prospeccao];
+  if (types.some(t => t.live && t.blocked === null)) return "active"; // rodando → tema
+  return "error";                                                     // ligado, mas não roda → vermelho
 }
 
 async function fetchNoticesCached(force = false): Promise<MasterNotice[]> {
@@ -819,24 +856,41 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
   const [unreadChats, setUnreadChats] = useState(0);
   const [waStatus, setWaStatus] = useState<WaStatus>({ state: "off", phone: null });
   const [emailState, setEmailState] = useState<SignalState>("off");
+  const [botActivation, setBotActivation] = useState<TopbarBotActivation | null>(null);
+  const [botBusy, setBotBusy] = useState(false);
   const [waMenuOpen, setWaMenuOpen] = useState(false);
   const waMode = useWaOpenMode();
   const botAccessible = mods.loaded && Boolean(mods.byKey["bot"]?.accessible);
   const emailAccessible = mods.loaded && Boolean(mods.byKey["email"]?.accessible);
-  // Bot ainda não expõe estado de runtime: aceso quando o módulo está ativo, cinza quando não.
-  const botState: SignalState = botAccessible ? "active" : "off";
-  // Localização: lê do localStorage e dispara a API de geolocalização.
-  const [geoState, setGeoState] = useState<SignalState>(() => {
-    if (typeof window === "undefined") return "off";
-    try {
-      const stored = localStorage.getItem("hbx:geo");
-      if (stored) {
-        const p = JSON.parse(stored);
-        if (p?.lat && p?.lng) return "active";
-      }
-    } catch { /* sem storage */ }
-    return "off";
-  });
+  const botState = computeBotSignalState(botAccessible, botActivation);
+  // Motivo do 1º tipo bloqueado — vira a explicação do tooltip quando o bot está
+  // vermelho (ex.: "Nenhum chip WhatsApp conectado."), pra não ser um vermelho mudo.
+  const botBlockedReason = botActivation
+    ? [botActivation.types.atendimento, botActivation.types.recovery, botActivation.types.prospeccao]
+        .map(t => t.blocked).find(Boolean) || null
+    : null;
+  // Localização: estado inicial SEMPRE "off" pra casar com o HTML do servidor
+  // (evita mismatch de hidratação). O valor salvo no localStorage é lido só
+  // APÓS a montagem (efeito abaixo) — nunca no 1º render do cliente.
+  const [geoState, setGeoState] = useState<SignalState>("off");
+
+  // Pós-montagem: se há localização salva, acende o sinal. O setState vai dentro
+  // de requestAnimationFrame (callback, não no corpo do effect) — respeita a
+  // regra react-hooks/set-state-in-effect.
+  useEffect(() => {
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return;
+      try {
+        const stored = localStorage.getItem("hbx:geo");
+        if (stored) {
+          const p = JSON.parse(stored);
+          if (p?.lat && p?.lng) setGeoState("active");
+        }
+      } catch { /* sem storage */ }
+    });
+    return () => { cancelled = true; cancelAnimationFrame(id); };
+  }, []);
 
   function toggleGeo() {
     if (geoState === "active") {
@@ -889,6 +943,23 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
     router.replace("/login");
   }
 
+  async function toggleBot() {
+    if (!botAccessible || botBusy) return;
+    setBotBusy(true);
+    // CHAVE GERAL: se está desligada (masterOff) → liga; senão → desliga. Desligar
+    // sempre funciona (vira cinza); ligar fica vermelho até ter chip/config (ou tema
+    // se já roda). O backend cuida de derrubar/subir os 3 tipos respeitando o pré-voo.
+    const turningOn = botActivation?.masterOff === true;
+    await apiFetch("/bot/activation/master-switch", {
+      method: "PUT",
+      body: JSON.stringify({ on: turningOn }),
+    }).catch(() => null);
+    botActivationCache = null;
+    const fresh = await fetchBotActivationCached().catch(() => null);
+    if (fresh) setBotActivation(fresh);
+    setBotBusy(false);
+  }
+
   const prevNaoLidosRef = React.useRef(0);
   const [bellPulse, setBellPulse] = React.useState(false);
   // localUnmuted: true = o usuário clicou "reativar" nesta sessão (override local do perfil)
@@ -916,6 +987,7 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
     fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
     fetchWaStatusCached().then(s => { if (alive) setWaStatus(s); });
     if (emailAccessible) fetchEmailStatusCached().then(s => { if (alive) setEmailState(s); });
+    if (botAccessible) fetchBotActivationCached().then(s => { if (alive && s) setBotActivation(s); });
     const interval = setInterval(() => {
       if (!alive) return;
       fetchNoticesCached(true).then(data => {
@@ -932,9 +1004,10 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
       fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
       fetchWaStatusCached().then(s => { if (alive) setWaStatus(s); });
       if (emailAccessible) fetchEmailStatusCached().then(s => { if (alive) setEmailState(s); });
+      if (botAccessible) fetchBotActivationCached().then(s => { if (alive && s) setBotActivation(s); });
     }, 60_000);
     return () => { alive = false; clearInterval(interval); };
-  }, [emailAccessible]);
+  }, [emailAccessible, botAccessible]);
 
   const naoLidos = notices.filter(n => !n.acknowledged);
 
@@ -1026,14 +1099,6 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
         )}
         <PeleSwitch />
         <ModeToggle />
-        <button
-          className={signalBtnClass(geoState)}
-          title={geoState === "active" ? "Localização ativa — clique para desligar" : geoState === "error" ? "Aguardando permissão de localização…" : "Usar minha localização no Radar"}
-          aria-label="Localização"
-          onClick={toggleGeo}
-        >
-          <I d={ICONS.mapin} size={17} />
-        </button>
         {podeNovoLead && (
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}
@@ -1130,7 +1195,7 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
         <span ref={waMenuRef} style={{ position: "relative", display: "inline-flex" }}>
           <button
             className={signalBtnClass(waStatus.state)}
-            title={(waStatus.state === "active" ? "WhatsApp conectado" : waStatus.state === "error" ? "WhatsApp com erro" : "WhatsApp desconectado") + " · escolher como abrir"}
+            title={(waStatus.state === "active" ? "WhatsApp conectado" : waStatus.state === "error" ? "WhatsApp sem conexão — faltando configuração" : "WhatsApp desconectado") + " · escolher como abrir"}
             aria-label="WhatsApp — escolher padrão de abertura"
             onClick={() => setWaMenuOpen(o => !o)}
           >
@@ -1156,14 +1221,39 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
             </div>
           )}
         </span>
+        {/* Localização — movida pra junto dos outros sinalizadores */}
         <button
-          className={signalBtnClass(botState)}
-          title={botState === "active" ? "Bot ativo" : "Bot inativo"}
-          aria-label={botState === "active" ? "Bot ativo" : "Bot inativo"}
-          onClick={() => router.push("/bot")}
+          className={signalBtnClass(geoState)}
+          title={geoState === "active" ? "Localização ativa — clique para desligar" : geoState === "error" ? "Aguardando permissão de localização…" : "Usar minha localização no Radar"}
+          aria-label="Localização"
+          onClick={toggleGeo}
         >
-          <I d={ICONS.bot} size={17} />
+          <I d={ICONS.mapin} size={17} />
         </button>
+        {/* Bot: chave geral + 3 bolinhas de estado por tipo */}
+        <span className="bot-signal-wrap">
+          <button
+            className={signalBtnClass(botState)}
+            title={botState === "active" ? "Bot ligado e rodando — clique para desligar" : botState === "error" ? `Bot ligado, mas não roda: ${botBlockedReason || "faltando configuração"} — clique para desligar` : "Bot desligado — clique para ligar"}
+            aria-label="Bot — ativar ou desativar"
+            onClick={toggleBot}
+            disabled={botBusy}
+          >
+            <I d={ICONS.bot} size={17} />
+          </button>
+          <span className="bot-type-dots" aria-hidden="true">
+            {(["atendimento", "recovery", "prospeccao"] as const).map(tipo => {
+              const s = botActivation?.types[tipo];
+              return (
+                <span
+                  key={tipo}
+                  className={"bot-type-dot" + (s?.live ? " bot-type-dot--on" : "")}
+                  title={tipo}
+                />
+              );
+            })}
+          </span>
+        </span>
         <button
           className={signalBtnClass(emailState)}
           title={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}

@@ -30,15 +30,15 @@ const CARD_PRIMARY: string[] = [
   "kv_main",
   "sale",
   "obs",
+  "actions",
 ];
 
-// Seções secundárias: ocultas sob o chevron "ver tudo"
+// Seções secundárias: ocultas sob o chevron "Detalhes" (default fechado)
 const CARD_SECONDARY: string[] = [
+  "detalhes",
   "intelligence",
   "origin",
   "dates",
-  "history",
-  "actions",
 ];
 
 // ── Modelo normalizado ────────────────────────────────────────────────────────
@@ -226,6 +226,46 @@ function fmtSourceLabel(sourceType?: string | null, primarySource?: string | nul
   return "—";
 }
 
+const STATE_FULL: Record<string, string> = {
+  AC:"Acre",AL:"Alagoas",AM:"Amazonas",AP:"Amapá",BA:"Bahia",CE:"Ceará",DF:"Distrito Federal",
+  ES:"Espírito Santo",GO:"Goiás",MA:"Maranhão",MG:"Minas Gerais",MS:"Mato Grosso do Sul",
+  MT:"Mato Grosso",PA:"Pará",PB:"Paraíba",PE:"Pernambuco",PI:"Piauí",PR:"Paraná",
+  RJ:"Rio de Janeiro",RN:"Rio Grande do Norte",RO:"Rondônia",RR:"Roraima",
+  RS:"Rio Grande do Sul",SC:"Santa Catarina",SE:"Sergipe",SP:"São Paulo",TO:"Tocantins",
+};
+
+function buildLocationLine(
+  city: string | null | undefined,
+  state: string | null | undefined,
+  address: string | null | undefined,
+): string {
+  const base = `${city}${state ? `, ${state}` : ""}`;
+  if (!address) return base;
+
+  const cep = (address.match(/\d{5}-?\d{3}/) || [])[0]?.replace(/(\d{5})-?(\d{3})/, "$1-$2") ?? null;
+
+  const stateUpper = (state || "").trim().toUpperCase();
+  const stateFull = STATE_FULL[stateUpper] || "";
+  const escRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  let street = address
+    .replace(/\d{5}-?\d{3}/g, "")
+    .replace(city ? new RegExp(`,?\\s*${escRx(city)}`, "gi") : /(?:)/, "")
+    .replace(stateFull ? new RegExp(`,?\\s*${escRx(stateFull)}`, "gi") : /(?:)/, "")
+    .replace(stateUpper ? new RegExp(`,?\\s*\\b${escRx(stateUpper)}\\b`, "g") : /(?:)/, "")
+    .replace(/[,\s]+$/g, "").replace(/^[,\s]+/, "")
+    .trim();
+
+  if (/^atendimento\s+online$/i.test(street) || /^online$/i.test(street)) {
+    street = "";
+  }
+
+  let result = base;
+  if (street) result += ` - ${street}`;
+  if (cep) result += ` CEP ${cep}`;
+  return result;
+}
+
 // ── TypedText — efeito de digitação letra por letra ───────────────────────────
 
 // Core remonta via key={text} no wrapper — sem reset de state no effect
@@ -261,11 +301,11 @@ function CollapsibleText({ label, text }: { label: string; text: string }) {
   return (
     <div className="dn-collapsible">
       <button className="dn-collapsible-toggle" onClick={() => setOpen(o => !o)} type="button">
+        {label}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"
           style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.16s" }}>
           <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {label}
       </button>
       {open && <p className="dn-collapsible-body">{text}</p>}
     </div>
@@ -465,7 +505,7 @@ export function DetalhesNegocio({
     return (
       <div className="ctx-score">
         <div className="ctx-score-head">
-          <span className="ctx-score-label">Oportunidade</span>
+          <span className="ctx-score-label">Score</span>
           <span className="ctx-score-num">{n.opportunityScore}<small>/100</small></span>
         </div>
         <div className="ctx-score-track">
@@ -502,7 +542,7 @@ export function DetalhesNegocio({
     if (!n) return null;
     return (
       <div style={{ display: "grid", gap: 6 }}>
-        {/* Telefone hero */}
+        {/* Telefone — compacto, sem pill/borda */}
         {n.phone ? (
           <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
             <CanalIcon canal="telefone" /> {n.phone}
@@ -521,25 +561,6 @@ export function DetalhesNegocio({
           >
             <CanalIcon canal="site" /> {n.website}
           </a>
-        )}
-
-        {/* Canal recomendado */}
-        {recChannel && (
-          <div className="row dn-kv-row">
-            <span className="k">Canal recomendado</span>
-            <span className="v">
-              <CanalIcon canal={recChannel} size="sm" />{" "}
-              <TypedText text={recChannel.charAt(0).toUpperCase() + recChannel.slice(1)} speed={46} delay={0} />
-            </span>
-          </div>
-        )}
-
-        {/* Endereço */}
-        {n.address && (
-          <div className="row dn-kv-row">
-            <span className="k">Endereço</span>
-            <span className="v"><TypedText text={n.address} speed={42} delay={40} /></span>
-          </div>
         )}
 
         {/* CNPJ */}
@@ -567,26 +588,6 @@ export function DetalhesNegocio({
               <I d={ICONS.msg} size={13} /> Canal
             </span>
             <span className="v"><span className="chan wa"><TypedText text={n.channel} speed={46} delay={40} /></span></span>
-          </div>
-        )}
-
-        {/* Qualidade de contato */}
-        {li?.contactQuality && li.contactQuality !== "review" && (
-          <div className="row dn-kv-row">
-            <span className="k">Qualidade de contato</span>
-            <span className="v">
-              <span className={"tag" + (li.contactQuality === "blocked" ? " red" : "")}>
-                {li.contactQuality === "blocked" ? "Bloqueado" : li.contactQuality}
-              </span>
-            </span>
-          </div>
-        )}
-
-        {/* isInInbox */}
-        {n.isInInbox === true && (
-          <div className="row dn-kv-row">
-            <span className="k">No Atendimento</span>
-            <span className="v"><span className="tag teal">Conversa ativa</span></span>
           </div>
         )}
 
@@ -624,63 +625,21 @@ export function DetalhesNegocio({
         )}
         {n.nextAction && (
           <div className="row dn-kv-row">
-            <span className="k">Próxima ação</span>
+            <span className="k" style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
+              <I d={ICONS.clock} size={11} /> Próxima ação
+            </span>
             <span className="v"><TypedText text={n.nextAction} speed={46} delay={80} /></span>
           </div>
         )}
         {n.lastResult && (
           <div className="row dn-kv-row">
-            <span className="k">Último resultado</span>
+            <span className="k" style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
+              <I d={ICONS.bolt} size={11} /> Último resultado
+            </span>
             <span className="v"><TypedText text={n.lastResult} speed={46} delay={100} /></span>
           </div>
         )}
-        {n.returnAt !== undefined && (
-          <div className="row dn-kv-row">
-            <span className="k">Próximo retorno</span>
-            <span className={"v" + (n.returnAt ? "" : " is-empty")}>
-              <TypedText text={fmtDate(n.returnAt)} speed={50} delay={120} />
-            </span>
-          </div>
-        )}
-        {n.lastContactAt !== undefined && (
-          <div className="row dn-kv-row">
-            <span className="k">Último contato</span>
-            <span className={"v" + (n.lastContactAt ? "" : " is-empty")}>
-              <TypedText text={fmtDate(n.lastContactAt)} speed={50} delay={160} />
-            </span>
-          </div>
-        )}
-        {n.lastMessageAt !== undefined && (
-          <div className="row dn-kv-row">
-            <span className="k">Última mensagem</span>
-            <span className="v"><TypedText text={fmtDateTime(n.lastMessageAt)} speed={46} delay={200} /></span>
-          </div>
-        )}
-        {n.attemptCount != null && (
-          <div className="row dn-kv-row">
-            <span className="k">Tentativas</span>
-            <span className={"v hbx-mono" + (n.attemptCount > 0 ? "" : " is-empty")}>
-              <TypedText text={String(n.attemptCount)} speed={50} delay={240} />
-            </span>
-          </div>
-        )}
-        {n.timesSeen != null && n.timesSeen > 1 && (
-          <div className="row dn-kv-row">
-            <span className="k">Visto</span>
-            <span className="v hbx-mono"><TypedText text={`${n.timesSeen}×`} speed={50} delay={260} /></span>
-          </div>
-        )}
-        {/* Bot / Atendimento humano saíram do corpo → viram .dn-status-chip no
-            header (renderStatusChip). Mantém o card enxuto, sem ruído de linha. */}
-        {n.owner?.name && (
-          <div className="row dn-kv-row">
-            <span className="k">Responsável</span>
-            <span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <Av name={n.owner.name} size={18} />
-              <TypedText text={n.owner.name} speed={50} delay={320} />
-            </span>
-          </div>
-        )}
+        {/* Campos de datas / tentativas / responsável movidos para renderDetalhes(). */}
       </div>
     );
   }
@@ -689,71 +648,76 @@ export function DetalhesNegocio({
     if (!n || !n.sale || n.sale.status === "none") return null;
     const s = n.sale;
     return (
-      <div className="kv">
-        <div className="row dn-kv-row">
-          <span className="k">Venda</span>
-          <span className="v">
-            <span className={"tag" + (s.status === "sale_confirmed" ? " teal" : s.status === "canceled" ? " warn" : "")}>
-              {s.statusLabel || s.status}
+      <div style={{ display: "grid", gap: 10 }}>
+        <span className="dn-section-head">
+          <I d={ICONS.money} size={11} /> Venda
+        </span>
+        <div className="kv">
+          <div className="row dn-kv-row">
+            <span className="k">Status</span>
+            <span className="v">
+              <span className={"tag" + (s.status === "sale_confirmed" ? " teal" : s.status === "canceled" ? " warn" : "")}>
+                {s.statusLabel || s.status}
+              </span>
             </span>
-          </span>
-        </div>
-        <div className="row dn-kv-row">
-          <span className="k">Valor fechado</span>
-          <span className="v hbx-mono">
-            <TypedText text={s.valueLabel ?? (s.value != null ? fmtMoney(s.value) : "—")} speed={46} delay={40} />
-          </span>
-        </div>
-        <div className="row dn-kv-row">
-          <span className="k">Comissão</span>
-          <span className="v">
-            {s.commissionLabel ?? s.commissionStatusLabel ?? "—"}
-            {s.commissionValueLabel && (
-              <span className="hbx-mono" style={{ marginLeft: 6 }}>{s.commissionValueLabel}</span>
-            )}
-            {!s.commissionValueLabel && s.commissionAmount != null && (
-              <span className="hbx-mono" style={{ marginLeft: 6 }}>{fmtMoney(s.commissionAmount)}</span>
-            )}
-          </span>
-        </div>
-        {s.commissionRecurring && (
-          <div className="row dn-kv-row">
-            <span className="k">Tipo</span>
-            <span className="v"><span className="tag teal">Recorrente</span></span>
           </div>
-        )}
-        {s.commissionDueAt && (
           <div className="row dn-kv-row">
-            <span className="k">Vence</span>
-            <span className="v"><TypedText text={fmtDate(s.commissionDueAt)} speed={46} delay={60} /></span>
+            <span className="k">Valor fechado</span>
+            <span className="v is-strong">
+              <TypedText text={s.valueLabel ?? (s.value != null ? fmtMoney(s.value) : "—")} speed={46} delay={40} />
+            </span>
           </div>
-        )}
-        {s.commissionNote && (
           <div className="row dn-kv-row">
-            <span className="k">Nota</span>
-            <span className="v"><TypedText text={s.commissionNote} speed={42} delay={80} /></span>
+            <span className="k">Comissão</span>
+            <span className="v">
+              {s.commissionLabel ?? s.commissionStatusLabel ?? "—"}
+              {s.commissionValueLabel && (
+                <span className="hbx-mono" style={{ marginLeft: 6 }}>{s.commissionValueLabel}</span>
+              )}
+              {!s.commissionValueLabel && s.commissionAmount != null && (
+                <span className="hbx-mono" style={{ marginLeft: 6 }}>{fmtMoney(s.commissionAmount)}</span>
+              )}
+            </span>
           </div>
-        )}
-        {s.setupLabel && (
-          <div className="row dn-kv-row">
-            <span className="k">Implantação</span>
-            <span className="v"><TypedText text={s.setupLabel} speed={46} delay={80} /></span>
-          </div>
-        )}
-        {!s.setupLabel && s.setupValue != null && s.setupValue > 0 && (
-          <React.Fragment>
+          {s.commissionRecurring && (
+            <div className="row dn-kv-row">
+              <span className="k">Tipo</span>
+              <span className="v"><span className="tag teal">Recorrente</span></span>
+            </div>
+          )}
+          {s.commissionDueAt && (
+            <div className="row dn-kv-row">
+              <span className="k">Vence</span>
+              <span className="v"><TypedText text={fmtDate(s.commissionDueAt)} speed={46} delay={60} /></span>
+            </div>
+          )}
+          {s.setupLabel && (
             <div className="row dn-kv-row">
               <span className="k">Implantação</span>
-              <span className="v">{fmtMoney(s.setupValue)}</span>
+              <span className="v"><TypedText text={s.setupLabel} speed={46} delay={80} /></span>
             </div>
-            <div className="row dn-kv-row">
-              <span className="k">Comissão implantação</span>
-              <span className="v">
-                {s.setupCommissionStatusLabel || "—"}
-                {s.setupCommissionAmount != null ? ` · ${fmtMoney(s.setupCommissionAmount)}` : ""}
-              </span>
-            </div>
-          </React.Fragment>
+          )}
+          {!s.setupLabel && s.setupValue != null && s.setupValue > 0 && (
+            <React.Fragment>
+              <div className="row dn-kv-row">
+                <span className="k">Implantação</span>
+                <span className="v">{fmtMoney(s.setupValue)}</span>
+              </div>
+              <div className="row dn-kv-row">
+                <span className="k">Comissão implantação</span>
+                <span className="v">
+                  {s.setupCommissionStatusLabel || "—"}
+                  {s.setupCommissionAmount != null ? ` · ${fmtMoney(s.setupCommissionAmount)}` : ""}
+                </span>
+              </div>
+            </React.Fragment>
+          )}
+        </div>
+        {s.commissionNote && (
+          <div className="ctx-note">
+            <span className="ctx-note-lbl">Nota</span>
+            <p className="ctx-note-txt">{s.commissionNote}</p>
+          </div>
         )}
       </div>
     );
@@ -789,14 +753,7 @@ export function DetalhesNegocio({
             </div>
           </div>
         )}
-        {!loading && !onObsChange && n.shortNote && (
-          <div className="ctx-note">
-            <span className="ctx-note-lbl"><I d={ICONS.doc} size={12} /> Observação</span>
-            <p className="ctx-note-txt">
-              <TypedText text={n.shortNote} speed={32} delay={360} />
-            </p>
-          </div>
-        )}
+        {/* Read-only shortNote removido a pedido do dono (24/06). */}
       </>
     );
   }
@@ -815,7 +772,7 @@ export function DetalhesNegocio({
 
     return (
       <div style={{ display: "grid", gap: 10 }}>
-        <span className="ctx-note-lbl" style={{ paddingTop: 2 }}>Inteligência do lead</span>
+        <span className="dn-section-head">Inteligência do lead</span>
 
         {hasLeadReasonTags && (
           <div className="dn-chip-row">
@@ -854,7 +811,9 @@ export function DetalhesNegocio({
         <div className="row dn-kv-row">
           <span className="k">Origem</span>
           <span className="v">
-            <TypedText text={fmtSourceLabel(n.sourceType, n.primarySource)} speed={46} delay={0} />
+            <span className="tag teal">
+              <TypedText text={fmtSourceLabel(n.sourceType, n.primarySource)} speed={46} delay={0} />
+            </span>
           </span>
         </div>
       </div>
@@ -863,105 +822,172 @@ export function DetalhesNegocio({
 
   function renderDates() {
     if (!n) return null;
-    // "Atualizado em" saiu (nunca é acionável). Mantém só "Criado em".
     if (!n.createdAt) return null;
     return (
       <div className="kv">
         <div className="row dn-kv-row">
           <span className="k">Criado em</span>
-          <span className="v"><TypedText text={fmtDateTime(n.createdAt)} speed={46} delay={0} /></span>
+          <span className="v chip"><TypedText text={fmtDateTime(n.createdAt)} speed={46} delay={0} /></span>
         </div>
       </div>
     );
   }
 
+  function renderHistoryList(entries: NegocioDetailHistory[]) {
+    return (
+      <ul className="ctx-timeline">
+        {entries.map(ev => (
+          <li className="ctx-tl-item" key={ev.id}>
+            <span className="ctx-tl-dot" aria-hidden="true" />
+            <div className="ctx-tl-body">
+              <span className="ctx-tl-title">{ev.title || "Atualização"}</span>
+              {ev.description && <span className="ctx-tl-desc">{ev.description}</span>}
+              <div className="ctx-tl-foot">
+                {ev.resultLabel && <span className="tag teal">{ev.resultLabel}</span>}
+                {ev.returnAt && <span className="tag warn">Retorno {fmtDate(ev.returnAt)}</span>}
+                <span className="ctx-tl-when">{fmtDate(ev.createdAt)}</span>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   function renderHistory() {
     if (!n) return null;
+    if (loading) {
+      return (
+        <div className="ctx-sec">
+          <h3 style={{ margin: 0 }}>{historyLabel}</h3>
+          <div style={{ display: "grid", gap: 12, marginTop: 4 }}>
+            {[75, 60, 80].map((w, i) => (
+              <div key={i} style={{ display: "grid", gap: 5 }}>
+                <span className="dn-skel dn-skel-md" style={{ width: `${w}%` }} />
+                <span className="dn-skel dn-skel-sm dn-skel-w45" />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    const hist = n.history;
+    if (!hist || hist.length === 0) {
+      return (
+        <div className="ctx-sec">
+          <h3 style={{ margin: 0 }}>{historyLabel}</h3>
+          <p className="muted-note">Sem histórico ainda.</p>
+        </div>
+      );
+    }
+    const preview = hist.slice(0, 3);
+    const hasMore = hist.length > 3;
     return (
       <div className="dn-history">
-        {loading ? (
-          <div className="ctx-sec">
-            <h3 style={{ margin: 0 }}>{historyLabel}</h3>
-            <div style={{ display: "grid", gap: 12, marginTop: 4 }}>
-              {[75, 60, 80].map((w, i) => (
-                <div key={i} style={{ display: "grid", gap: 5 }}>
-                  <span className="dn-skel dn-skel-md" style={{ width: `${w}%` }} />
-                  <span className="dn-skel dn-skel-sm dn-skel-w45" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : n.history && n.history.length > 3 ? (
-          <>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-              <h3 style={{ margin: 0 }}>Últimas interações</h3>
-              <span
-                className="link"
-                style={{ fontWeight: 700, fontSize: "0.72rem", cursor: "pointer" }}
-                onClick={() => setInternalTab(internalTab === 0 ? 1 : 0)}
-              >
-                {internalTab === 0 ? `Ver todas (${n.history.length})` : "← Voltar"}
-              </span>
-            </div>
-            {internalTab === 0 ? (
-              <ul className="ctx-timeline">
-                {n.history.slice(0, 3).map(ev => (
-                  <li className="ctx-tl-item" key={ev.id}>
-                    <span className="ctx-tl-dot" aria-hidden="true" />
-                    <div className="ctx-tl-body">
-                      <span className="ctx-tl-title">
-                        {ev.title || "Atualização"}{ev.resultLabel ? ` · ${ev.resultLabel}` : ""}
-                      </span>
-                      {ev.description && <span className="ctx-tl-desc">{ev.description}</span>}
-                      <span className="ctx-tl-when">{fmtDate(ev.createdAt)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="dn-history-full">
-                <h3 style={{ margin: "0 0 8px" }}>{historyLabel}</h3>
-                {n.history.map(h => (
-                  <div key={h.id} style={{ display: "grid", gap: 3, marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                      <strong style={{ fontSize: "0.76rem" }}>{h.title || "Atualização"}</strong>
-                      <small className="sub" style={{ marginTop: 0, whiteSpace: "nowrap" }}>{fmtDateTime(h.createdAt)}</small>
-                    </div>
-                    {h.description && <span className="sub" style={{ marginTop: 0 }}>{h.description}</span>}
-                    {(h.resultLabel || h.returnAt) && (
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {h.resultLabel && <span className="tag teal">{h.resultLabel}</span>}
-                        {h.returnAt && <span className="tag warn">Retorno {fmtDateTime(h.returnAt)}</span>}
-                      </div>
-                    )}
-                  </div>
-                ))}
+        <div className="dn-history-head">
+          <span className="dn-history-title">{historyLabel}</span>
+          {hasMore && (
+            <button
+              type="button"
+              className="link dn-history-toggle"
+              onClick={() => setInternalTab(internalTab === 0 ? 1 : 0)}
+            >
+              {internalTab === 0 ? `Ver todas (${hist.length})` : "← Voltar"}
+            </button>
+          )}
+        </div>
+        {internalTab === 0 ? renderHistoryList(preview) : renderHistoryList(hist)}
+      </div>
+    );
+  }
+
+  // ── Seção "Detalhes" (colapsável) — dados secundários + histórico ──────────
+  function renderDetalhes() {
+    if (!n) return null;
+    const hasReturnAt = n.returnAt !== undefined;
+    const hasLastContact = n.lastContactAt !== undefined;
+    const hasLastMsg = n.lastMessageAt !== undefined;
+    const hasAttempts = n.attemptCount != null;
+    const hasOwner = Boolean(n.owner?.name);
+    const hasSeen = n.timesSeen != null && n.timesSeen > 1;
+    const hasRecChannel = Boolean(recChannel);
+    const hasQuality = Boolean(li?.contactQuality && li.contactQuality !== "review");
+    const hasHistory = Boolean(n.history);
+
+    const hasAnyKv = hasReturnAt || hasLastContact || hasLastMsg || hasAttempts || hasOwner || hasSeen || hasRecChannel || hasQuality;
+    if (!hasAnyKv && !hasHistory) return null;
+
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        {hasAnyKv && (
+          <div className="kv">
+            {hasRecChannel && (
+              <div className="row dn-kv-row">
+                <span className="k">Canal recomendado</span>
+                <span className="v">
+                  <CanalIcon canal={recChannel!} size="sm" />{" "}
+                  <TypedText text={recChannel!.charAt(0).toUpperCase() + recChannel!.slice(1)} speed={46} delay={0} />
+                </span>
               </div>
             )}
-          </>
-        ) : (
-          <div className="ctx-sec">
-            <h3 style={{ margin: 0 }}>{historyLabel}</h3>
-            {(!n.history || n.history.length === 0) ? (
-              <p className="muted-note">Sem histórico ainda.</p>
-            ) : (
-              <ul className="ctx-timeline">
-                {n.history.map(ev => (
-                  <li className="ctx-tl-item" key={ev.id}>
-                    <span className="ctx-tl-dot" aria-hidden="true" />
-                    <div className="ctx-tl-body">
-                      <span className="ctx-tl-title">
-                        {ev.title || "Atualização"}{ev.resultLabel ? ` · ${ev.resultLabel}` : ""}
-                      </span>
-                      {ev.description && <span className="ctx-tl-desc">{ev.description}</span>}
-                      <span className="ctx-tl-when">{fmtDate(ev.createdAt)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+            {hasQuality && (
+              <div className="row dn-kv-row">
+                <span className="k">Qualidade de contato</span>
+                <span className="v">
+                  <span className={"tag" + (li!.contactQuality === "blocked" ? " red" : "")}>
+                    {li!.contactQuality === "blocked" ? "Bloqueado" : li!.contactQuality}
+                  </span>
+                </span>
+              </div>
+            )}
+            {hasReturnAt && (
+              <div className="row dn-kv-row">
+                <span className="k">Próximo retorno</span>
+                <span className={"v chip" + (n.returnAt ? "" : " is-empty")}>
+                  <TypedText text={fmtDate(n.returnAt)} speed={50} delay={0} />
+                </span>
+              </div>
+            )}
+            {hasLastContact && (
+              <div className="row dn-kv-row">
+                <span className="k">Último contato</span>
+                <span className={"v chip" + (n.lastContactAt ? "" : " is-empty")}>
+                  <TypedText text={fmtDate(n.lastContactAt)} speed={50} delay={40} />
+                </span>
+              </div>
+            )}
+            {hasLastMsg && (
+              <div className="row dn-kv-row">
+                <span className="k">Última mensagem</span>
+                <span className="v chip"><TypedText text={fmtDateTime(n.lastMessageAt)} speed={46} delay={80} /></span>
+              </div>
+            )}
+            {hasAttempts && (
+              <div className="row dn-kv-row">
+                <span className="k">Tentativas</span>
+                <span className={"v chip" + (n.attemptCount! > 0 ? "" : " is-empty")}>
+                  <TypedText text={String(n.attemptCount)} speed={50} delay={120} />
+                </span>
+              </div>
+            )}
+            {hasSeen && (
+              <div className="row dn-kv-row">
+                <span className="k">Visto</span>
+                <span className="v chip"><TypedText text={`${n.timesSeen}×`} speed={50} delay={140} /></span>
+              </div>
+            )}
+            {hasOwner && (
+              <div className="row dn-kv-row">
+                <span className="k">Responsável</span>
+                <span className="v" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                  <Av name={n.owner!.name!} size={18} />
+                  <TypedText text={n.owner!.name!} speed={50} delay={160} />
+                </span>
+              </div>
             )}
           </div>
         )}
+        {hasHistory && renderHistory()}
       </div>
     );
   }
@@ -981,20 +1007,17 @@ export function DetalhesNegocio({
         <div className="kv">
           <div className="row"><span className="k">Etapa</span><span className="v"><span className="dn-skel dn-skel-pill" /></span></div>
           <div className="row"><span className="k">Próxima ação</span><span className="v"><span className="dn-skel dn-skel-md dn-skel-w60" /></span></div>
-          <div className="row"><span className="k">Próximo retorno</span><span className="v"><span className="dn-skel dn-skel-sm dn-skel-w45" /></span></div>
-          <div className="row"><span className="k">Último contato</span><span className="v"><span className="dn-skel dn-skel-sm dn-skel-w45" /></span></div>
-          <div className="row"><span className="k">Tentativas</span><span className="v"><span className="dn-skel dn-skel-sm dn-skel-w30" /></span></div>
-          <div className="row"><span className="k">Responsável</span><span className="v"><span className="dn-skel dn-skel-sm dn-skel-w60" /></span></div>
+          <div className="row"><span className="k">Valor</span><span className="v"><span className="dn-skel dn-skel-sm dn-skel-w45" /></span></div>
         </div>
       )
       : renderKvMain(),
     sale: !loading ? renderSale() : null,
     obs: !loading ? renderObs() : null,
+    actions: !loading ? renderActions() : null,
+    detalhes: !loading ? renderDetalhes() : null,
     intelligence: !loading ? renderIntelligence() : null,
     origin: !loading ? renderOrigin() : null,
     dates: !loading ? renderDates() : null,
-    history: renderHistory(),
-    actions: !loading ? renderActions() : null,
   };
 
   const primarySections = CARD_PRIMARY.map(k => sectionMap[k]).filter(Boolean);
@@ -1050,13 +1073,15 @@ export function DetalhesNegocio({
                   {crownSlot && <>{crownSlot}</>}
                   {heroAction && <>{heroAction}</>}
                 </div>
-                <div className="sub sub--seg">
-                  <TypedText text={n.segment || n.city || "—"} speed={50} delay={180} />
-                </div>
-                {n.city && n.segment && (
+                {(n.segment || !n.city) && (
+                  <div className="sub sub--seg">
+                    <TypedText text={n.segment || "—"} speed={50} delay={180} />
+                  </div>
+                )}
+                {n.city && (
                   <div className="sub sub--loc">
                     <I d={ICONS.mapin} size={11} />{" "}
-                    <TypedText text={`${n.city}${n.state ? `, ${n.state}` : ""}`} speed={46} delay={300} />
+                    <TypedText text={buildLocationLine(n.city, n.state, n.address)} speed={46} delay={300} />
                   </div>
                 )}
                 <div className="ctx-tags">
@@ -1091,7 +1116,7 @@ export function DetalhesNegocio({
             <React.Fragment key={idx}>{section}</React.Fragment>
           ))}
 
-          {/* ── SEPARADOR + CHEVRON ───────────────────────────────────── */}
+          {/* ── SEPARADOR + CHEVRON "Detalhes" ───────────────────────── */}
           {secondarySections.length > 0 && (
             <>
               <div className="sep" />
@@ -1102,7 +1127,7 @@ export function DetalhesNegocio({
                 aria-expanded={expanded}
               >
                 <ChevronDown />
-                {expanded ? "Ver menos" : "Ver tudo"}
+                Detalhes
               </button>
             </>
           )}

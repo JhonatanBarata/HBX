@@ -176,15 +176,23 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-channels-row > a, .dn-channels-row > span { border-radius: var(--radius-xs); transition: transform var(--motion-fast, 0.16s); }
 .dn-channels-row > a:hover { transform: translateY(-2px); }
 /* Bloco recolhível de texto longo (opportunityReason / painPitch / messageTemplate) */
-.dn-collapsible { display: grid; gap: 4px; }
-.dn-collapsible-toggle { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; color: var(--hbx-brand-strong); cursor: pointer; padding: 0; }
-.dn-collapsible-body { font-size: 0.76rem; line-height: 1.55; color: var(--text-body); white-space: pre-wrap; }
+.dn-collapsible { display: grid; gap: 0; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); overflow: hidden; transition: border-color var(--motion-fast); }
+.dn-collapsible:hover { border-color: var(--border-strong); }
+.dn-collapsible-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; color: var(--text-body); cursor: pointer; padding: 10px 12px; width: 100%; text-align: left; transition: color var(--motion-fast); }
+.dn-collapsible-toggle:hover { color: var(--text-strong); }
+.dn-collapsible-toggle svg { flex-shrink: 0; opacity: 0.55; }
+.dn-collapsible-body { margin: 0; font-size: 0.74rem; line-height: 1.6; color: var(--text-body); white-space: pre-wrap; padding: 2px 12px 12px; border-top: 1px solid var(--border-hairline); }
 /* Botão "ver tudo / ver menos" do colapso secundário */
-.dn-expand-btn { display: flex; align-items: center; gap: 5px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.7rem; font-weight: 700; color: var(--hbx-brand-strong); cursor: pointer; padding: 6px 0; width: 100%; }
+.dn-expand-btn { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.03em; cursor: pointer; padding: 7px 11px; width: 100%; border-radius: var(--radius-xs); transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
+.dn-expand-btn:hover { background: var(--hbx-surface-raised); color: var(--text-body); border-color: var(--border-strong); }
+.dn-expand-btn.is-open { color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); border-color: color-mix(in srgb, var(--hbx-brand) 30%, transparent); }
 .dn-expand-btn svg { transition: transform var(--motion-fast, 0.16s); }
 .dn-expand-btn.is-open svg { transform: rotate(180deg); }
-/* Chips de tags de inteligência */
+/* Chips de tags de inteligência — neutros (não confundir com tags de status) */
 .dn-chip-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.dn-chip-row .tag { background: color-mix(in srgb, var(--text-muted) 8%, transparent); color: var(--text-body); border-color: var(--border-hairline); }
+/* Cabeçalho de seção interna (inteligência, venda) — divisor com overline */
+.dn-section-head { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border-hairline); font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); width: 100%; }
 /* Slot de ações do DetalhesNegocio */
 .dn-actions { display: grid; gap: 8px; }
 /* Bloco de observação */
@@ -218,7 +226,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-typed:not(.done)::after { content:"▋"; font-size:0.8em; opacity:0.55; animation:dn-cursor 0.65s step-end infinite; }
 @keyframes dn-cursor { 0%,100%{opacity:0.55} 50%{opacity:0} }
 /* Score bar — visual no painel de contexto */
-.ctx-score-track { height: 5px; border-radius: 999px; background: var(--border-hairline); overflow: hidden; margin-top: 5px; }
+.ctx-score-track { height: 7px; border-radius: 999px; background: var(--border-hairline); overflow: hidden; margin-top: 6px; }
 .ctx-score-fill { height: 100%; border-radius: 999px; background: var(--hbx-brand); transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
 .ctx-score-label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .ctx-score-num { font-family: var(--font-mono); font-weight: 800; font-size: 0.88rem; }
@@ -226,13 +234,16 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .ctx-phone { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand); background: color-mix(in srgb, var(--hbx-brand) 6%, var(--hbx-surface-soft)); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; text-decoration: none; width: 100%; box-sizing: border-box; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ctx-phone--site { font-size: 0.75rem; font-weight: 600; letter-spacing: 0; }
 .ctx-phone:hover { background: color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-surface-soft)); }
+/* Telefone compacto — sem pill/borda, apenas link discreto com ícone */
+.ctx-phone-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 0.86rem; font-weight: 700; letter-spacing: 0.01em; text-decoration: none; }
+.ctx-phone-inline:hover { text-decoration: underline; }
 /* Empty state — painel de contexto sem seleção */
 .ctx-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; color: var(--text-muted); text-align: center; padding: 0 16px; }
 .ctx-empty__icon { font-size: 1.6rem; opacity: 0.4; }
 .ctx-empty__hint { font-size: 0.75rem; line-height: 1.5; }
 /* "ficha" limpa (15/06): linhas com divisória fina, rótulo discreto, valor firme */
 .kv { display: grid; gap: 0; }
-.kv .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 0.76rem; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); }
+.kv .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 0.76rem; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); }
 .kv .row:first-child { padding-top: 0; }
 .kv .row:last-child { border-bottom: none; padding-bottom: 0; }
 .kv .k { color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
@@ -242,6 +253,9 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 /* valor-âncora (ex.: Valor) — foco visual do bloco */
 .kv .v.is-strong { font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: var(--hbx-brand-strong); }
 .kv .v.mono { font-family: var(--font-mono); }
+/* Valor tipo chip — datas, contagens, origem (aparece como badge sutil) */
+.kv .v.chip { padding: 2px 9px; border-radius: var(--radius-xs); background: var(--hbx-surface-raised); border: 1px solid var(--border-hairline); font-family: var(--font-mono); font-size: 0.72rem; }
+.kv .v.chip.is-empty { background: transparent; border-color: transparent; font-family: var(--font-body); font-size: inherit; }
 /* tags do hero (etapa + temperatura do lead) */
 .ctx-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 /* score de oportunidade (barra herdada do Radar) */
@@ -255,13 +269,24 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 /* seção do painel com título (histórico etc.) */
 .ctx-sec { display: grid; gap: 10px; }
 /* histórico / timeline do negócio (dado real, não fake) */
-.ctx-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 13px; }
-.ctx-tl-item { display: flex; gap: 10px; }
-.ctx-tl-dot { flex: 0 0 auto; width: 9px; height: 9px; margin-top: 4px; border-radius: 999px; background: var(--hbx-brand); box-shadow: 0 0 0 3px var(--hbx-brand-soft); }
-.ctx-tl-body { display: grid; gap: 2px; min-width: 0; }
+.ctx-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.ctx-tl-item { display: flex; gap: 10px; position: relative; padding-bottom: 14px; }
+.ctx-tl-item:last-child { padding-bottom: 0; }
+.ctx-tl-item:not(:last-child)::before { content: ''; position: absolute; left: 4px; top: 14px; bottom: 0; width: 1px; background: linear-gradient(to bottom, var(--border-strong), transparent); }
+.ctx-tl-dot { flex: 0 0 auto; width: 10px; height: 10px; margin-top: 3px; border-radius: 999px; background: var(--hbx-brand); box-shadow: 0 0 0 3px var(--hbx-brand-soft); position: relative; z-index: 1; }
+.ctx-tl-body { display: grid; gap: 3px; min-width: 0; }
 .ctx-tl-title { font-size: 0.76rem; font-weight: 700; color: var(--text-strong); }
 .ctx-tl-desc { font-size: 0.72rem; color: var(--text-body); line-height: 1.45; overflow-wrap: break-word; word-break: break-word; }
-.ctx-tl-when { font-size: 0.64rem; font-family: var(--font-mono); color: var(--text-muted); }
+.ctx-tl-when { font-size: 0.62rem; font-family: var(--font-mono); color: var(--text-muted); }
+/* Rodapé de cada evento do histórico (tags + timestamp alinhados) */
+.ctx-tl-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.ctx-tl-foot .ctx-tl-when { margin-left: auto; }
+/* Cabeçalho da seção de histórico dentro do "Detalhes" colapsável */
+.dn-history { display: grid; gap: 14px; }
+.dn-history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border-hairline); }
+.dn-history-title { font-size: 0.62rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.dn-history-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem; font-weight: 700; flex-shrink: 0; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); color: var(--text-body); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
+.dn-history-toggle:hover { background: var(--hbx-surface-sunken, var(--hbx-surface-raised)); border-color: var(--border-strong); }
 /* nota discreta de estado vazio (substitui style inline repetido — 5 Leis, 15/06) */
 .muted-note { margin: 12px 0; font-size: 0.74rem; color: var(--text-muted); }
 /* feedback inline (✓ sucesso / erro) do painel e modais — substitui color inline */
@@ -513,11 +538,23 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .wa-action-btn:hover { background: var(--hbx-surface-sunken) !important; }
 .wa-action-btn--active { background: var(--hbx-avatar-from) !important; color: var(--hbx-brand-contrast) !important; animation: hbx-avatar-pulse 4s ease-in-out infinite; }
 .wa-action-btn--active:hover { background: var(--hbx-brand-soft) !important; color: var(--hbx-avatar-from) !important; filter: none; }
-/* erro = ligado mas quebrado: acende vermelho (sinalizadores do topo). */
-.wa-action-btn--error { background: var(--hbx-danger) !important; color: #fff !important; }
+/* erro = faltando configuração / quebrado: acende VERMELHO de verdade (token de
+   sinal, fixo — não o danger da pele, que no Aurora é rosa). */
+.wa-action-btn--error { background: var(--hbx-signal-danger) !important; color: #fff !important; }
 .wa-action-btn--error:hover { filter: brightness(1.1); }
 .wa-action-btn:disabled { opacity: 0.38; }
 /* (popup por-clique do botão removido 21/06 — agora 1 clique abre no padrão escolhido na Topbar) */
+
+/* ---------- Bot signal wrap + bolinhas de tipo (topbar) ---------- */
+.bot-signal-wrap { position: relative; display: inline-flex; }
+/* 3 bolinhas (atendimento · recovery · prospecção) logo ABAIXO do ícone do bot.
+   Absolutas na base do botão: não crescem a topbar nem desalinham o ícone dos
+   outros sinalizadores (o botão segue 36px como os demais). Acendem (verde) só
+   quando aquele tipo está no ar; apagadas (cinza) quando desligadas — espelho das
+   bolinhas das guias do /bot (sem estado vermelho aqui). */
+.bot-type-dots { position: absolute; left: 50%; top: calc(100% - 2px); transform: translateX(-50%); display: flex; gap: 3px; align-items: center; pointer-events: none; }
+.bot-type-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong); flex: 0 0 auto; transition: background var(--motion-fast); }
+.bot-type-dot--on { background: var(--hbx-success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--hbx-success) 22%, transparent); }
 
 /* ---------- Radar VIVO — animações + faixas vivas (PR17062026042) ---------- */
 
@@ -1029,6 +1066,34 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   background: color-mix(in srgb, var(--login-accent) 12%, transparent);
   color: var(--text-strong); font-weight: 800;
 }
+
+/* Guias do modal de fechamento — 1 tela, 2 passos (Pré-cadastro · Fechar venda). */
+.fechar-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 4px; border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft); border: 1px solid var(--border-hairline);
+}
+.fechar-tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 34px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-muted);
+  font-family: var(--font-body); font-size: 0.74rem; font-weight: 700;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+}
+.fechar-tab:hover { color: var(--text-body); }
+.fechar-tab.is-active {
+  background: var(--hbx-surface); color: var(--text-strong);
+  border-color: var(--border-hairline); box-shadow: var(--shadow-sm);
+}
+.fechar-tab__n {
+  display: inline-grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 999px;
+  background: color-mix(in srgb, var(--login-accent) 16%, transparent);
+  color: var(--login-accent); font-size: 0.66rem; font-weight: 800;
+}
+.fechar-tab.is-active .fechar-tab__n { background: var(--login-accent); color: var(--text-on-accent, #fff); }
 
 /* Bloco recolhível das ações frias (raras, fora do caminho principal). */
 .dn-more { display: grid; gap: 8px; }

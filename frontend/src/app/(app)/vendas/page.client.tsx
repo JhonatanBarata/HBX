@@ -145,15 +145,6 @@ const BLOCK_ORDER: { key: keyof NonNullable<BoardResponse>["blocks"]; label: str
   { key: "closed", label: "Fechados" },
 ];
 
-// Etapas do funil como chips de 1 toque (substitui o <select> de "Mover etapa").
-// As chaves batem com o que o PATCH /vendas/lead/:id { status } espera.
-const STAGE_CHIPS: { key: string; label: string }[] = [
-  { key: "novo", label: "Novo" },
-  { key: "contato", label: "Contato" },
-  { key: "retorno", label: "Retorno" },
-  { key: "qualificado", label: "Qualificado" },
-  { key: "encerrado", label: "Encerrado" },
-];
 
 function fmtMoney(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
@@ -296,6 +287,9 @@ export function VendasClient() {
   // direta; POST .../hbx-handoff para produto sob consulta (fechamento
   // assistido). Produtos vêm de GET /products (cadastro da empresa).
   const [fecharOpen, setFecharOpen] = useState(false);
+  // Guia ativa dentro do modal de fechamento: "pre" = pré-cadastro do cliente
+  // (passo 1), "fechar" = gerar o link/valor. 1 tela, 2 guias (pedido do dono).
+  const [fecharTab, setFecharTab] = useState<"pre" | "fechar">("pre");
   const [produtos, setProdutos] = useState<Produto[] | null>(null);
   const [planosPreco, setPlanosPreco] = useState<CatalogPreco[] | null>(null);
   const [prodId, setProdId] = useState("");
@@ -313,11 +307,12 @@ export function VendasClient() {
   // {status|returnAt}). Só endpoints existentes — sem mexer no backend.
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
-  const [moverStatus, setMoverStatus] = useState("");
   const [retornoData, setRetornoData] = useState("");
   const [obs, setObs] = useState("");
-  const [negMotivo, setNegMotivo] = useState("");
-  const [negArm, setNegArm] = useState(false); // confirma em 2 cliques (padrão do kit)
+  // Popup de Retorno e Sem Interesse (substituem o clutter do cockpit)
+  const [retornoOpen, setRetornoOpen] = useState(false);
+  const [semInteresseOpen, setSemInteresseOpen] = useState(false);
+  const [semInteresseMotivo, setSemInteresseMotivo] = useState<string>("");
 
   // Excluir card: devolve ao pool sem edições. POST /vendas/leads/:id/delete
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -375,74 +370,27 @@ export function VendasClient() {
     }
   }
 
-  // Negativar com MOTIVO (dono 14/06): leve volta pro pool pros outros; dura some
-  // pra todos. Tira o card da carteira. POST /vendas/lead/:id/negativar { status, note }.
-  async function negativarLead() {
-    if (!sel?.id || !negMotivo || acaoBusy) return;
+  // Negativar via popup "Sem Interesse" (3 motivos fixos, contrato com backend).
+  async function negativarLead(motivo: string) {
+    if (!sel?.id || !motivo || acaoBusy) return;
     setAcaoBusy(true);
     setAcaoMsg(null);
     try {
-      const res = await apiFetch<{ message?: string }>(`/vendas/lead/${encodeURIComponent(sel.id)}/negativar`, {
+      await apiFetch<{ message?: string }>(`/vendas/lead/${encodeURIComponent(sel.id)}/negativar`, {
         method: "POST",
-        body: JSON.stringify({ status: negMotivo, note: obs.trim() || undefined }),
+        body: JSON.stringify({ status: motivo }),
       });
-      setAcaoMsg(`✓ ${res?.message || "Lead negativado."}`);
-      setNegMotivo("");
-      setObs("");
+      setSemInteresseOpen(false);
+      setSemInteresseMotivo("");
       await loadBoard();
+      setSel(null);
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Não foi possível negativar o lead.");
     } finally {
       setAcaoBusy(false);
-      setNegArm(false);
     }
   }
 
-  async function registrarResultado(outcome: string) {
-    if (!sel?.id || acaoBusy) return;
-    setAcaoBusy(true);
-    setAcaoMsg(null);
-    const note = (obs.trim() ? `${outcome} · ${obs.trim()}` : outcome).slice(0, 280);
-    try {
-      // tentativa: incrementa contador + último contato + evento na timeline
-      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}/attempt`, {
-        method: "POST",
-        body: JSON.stringify({ channel: outcome }),
-      });
-      // resultado visível no card (a aside não mostra a timeline; shortNote sim)
-      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ shortNote: note }),
-      });
-      setAcaoMsg(`✓ Resultado: ${outcome}.`);
-      setObs("");
-      await loadBoard();
-    } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Falha ao registrar o resultado.");
-    } finally {
-      setAcaoBusy(false);
-    }
-  }
-
-  async function moverEtapa(status?: string) {
-    const target = status ?? moverStatus;
-    if (!sel?.id || !target || acaoBusy) return;
-    setAcaoBusy(true);
-    setAcaoMsg(null);
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: target }),
-      });
-      setAcaoMsg("✓ Etapa atualizada.");
-      setMoverStatus("");
-      await loadBoard();
-    } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
-    } finally {
-      setAcaoBusy(false);
-    }
-  }
 
   async function notifyBotMaster() {
     if (masterNotified) return;
@@ -458,13 +406,16 @@ export function VendasClient() {
       const effectiveMode = botStatus?.botModuleEnabled && botStatus?.botArmed ? retornoMode : 'manual';
       const body: Record<string, unknown> = { returnAt: new Date(`${retornoData}T09:00:00`).toISOString() };
       if (effectiveMode !== 'manual') body.retornoMode = effectiveMode;
+      if (obs.trim()) body.shortNote = obs.trim().slice(0, 280);
       await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
         method: "PATCH",
         body: JSON.stringify(body),
       });
       setAcaoMsg("✓ Retorno agendado.");
       setRetornoData("");
+      setObs("");
       setRetornoMode("manual");
+      setRetornoOpen(false);
       await loadBoard();
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Falha ao agendar o retorno.");
@@ -486,6 +437,11 @@ export function VendasClient() {
     setLinkInfo(null);
     setSalePlanSel("");
     setSetupValor(deal?.setupValue ? String(deal.setupValue) : "");
+    // 1 tela, 2 guias: o fechamento começa no PRÉ-CADASTRO (passo 1, dados do
+    // card já preenchidos); só depois o vendedor passa pra guia "Fechar venda".
+    setCadForm({ name: sel.name || "", phone: sel.phone || "", email: sel.email || "", document: "" });
+    setCadMsg(null);
+    setFecharTab("pre");
     setFecharOpen(true);
     if (produtos === null) {
       apiFetch<Produto[] | { items?: Produto[] }>("/products?status=active")
@@ -635,28 +591,16 @@ export function VendasClient() {
     }
   }
 
-  // Cliente no fechamento (raciocínio do dono, 12/06/2026): o vendedor pode
-  // CADASTRAR o cliente direto do card (dados puxados de lá) e tem o atalho
-  // da "carta" para abrir o card do cliente quando ele existe. O perfil tem
-  // externalSource/externalCustomerId — os points de integração (TOTVS etc.).
-  type ClienteProfile = { id?: string; name?: string | null; phone?: string | null; email?: string | null; document?: string | null; status?: string | null; externalSource?: string | null; externalCustomerId?: string | null };
-  const [cadOpen, setCadOpen] = useState(false);
+  // Pré-cadastro do cliente: formulário usado na guia "pre" do fecharOpen.
   const [cadForm, setCadForm] = useState({ name: "", phone: "", email: "", document: "" });
   const [cadBusy, setCadBusy] = useState(false);
   const [cadMsg, setCadMsg] = useState<string | null>(null);
-  const [clienteOpen, setClienteOpen] = useState(false);
-  const [cliente, setCliente] = useState<ClienteProfile | null | "nao_encontrado">(null);
 
-  function abrirCadastrarCliente() {
-    if (!sel) return;
-    setCadForm({ name: sel.name || "", phone: sel.phone || "", email: sel.email || "", document: "" });
-    setCadMsg(null);
-    setCadOpen(true);
-  }
-
-  async function cadastrarCliente(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (cadBusy) return;
+  // Núcleo do pré-cadastro (POST do perfil) — devolve sucesso pra quem chamou
+  // decidir o próximo passo (fechar o modal solto OU avançar a guia do fechamento).
+  async function submitCadastro(): Promise<boolean> {
+    if (cadBusy) return false;
+    if (!cadForm.name.trim()) { setCadMsg("Informe o nome do cliente."); return false; }
     setCadBusy(true);
     setCadMsg(null);
     try {
@@ -670,25 +614,19 @@ export function VendasClient() {
         }),
       });
       setCadMsg("✓ Cliente cadastrado — vinculado pelo telefone do card.");
-      setCadOpen(false);
       await loadBoard();
+      return true;
     } catch (err) {
       setCadMsg(err instanceof Error ? err.message : "Não foi possível cadastrar o cliente.");
+      return false;
     } finally {
       setCadBusy(false);
     }
   }
 
-  async function verCliente() {
-    if (!sel?.phone) return;
-    setCliente(null);
-    setClienteOpen(true);
-    try {
-      const res = await apiFetch<ClienteProfile | null>(`/cadastros/customer-profiles/by-phone?phone=${encodeURIComponent(sel.phone)}`);
-      setCliente(res && (res.name || res.phone || res.id) ? res : "nao_encontrado");
-    } catch {
-      setCliente("nao_encontrado");
-    }
+  // Dentro do modal de fechamento: salva o pré-cadastro e desliza pra guia "Fechar venda".
+  async function preCadastroEAvancar() {
+    if (await submitCadastro()) setFecharTab("fechar");
   }
 
   // Novo lead manual (POST /vendas/manual)
@@ -748,7 +686,6 @@ export function VendasClient() {
         body: JSON.stringify({ status }),
       });
       setAcaoMsg("✓ Etapa atualizada.");
-      setMoverStatus("");
       await loadBoard();
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
@@ -945,7 +882,7 @@ export function VendasClient() {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (fecharOpen || novoOpen || cadOpen || clienteOpen || prospOpen || agendaOpen || mobileDetailOpen) return;
+      if (fecharOpen || novoOpen || prospOpen || agendaOpen || mobileDetailOpen || retornoOpen || semInteresseOpen) return;
       e.preventDefault();
       const q = searchQuery.toLowerCase();
       let list = BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
@@ -965,7 +902,7 @@ export function VendasClient() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, cadOpen, clienteOpen, prospOpen, agendaOpen, mobileDetailOpen]);
+  }, [isMobile, view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, mobileDetailOpen, retornoOpen, semInteresseOpen]);
 
   const summary = board?.summary;
   const deal = sel;
@@ -1281,121 +1218,22 @@ export function VendasClient() {
                       <button className="btn-teal" onClick={abrirFechar} disabled={deal.block === "closed"}>
                         <I d={ICONS.check} size={14} /> {deal.block === "closed" ? "Card já fechado" : "Fechar venda"}
                       </button>
-                      {board?.sellsHbxPlans && deal.block !== "closed" && (
-                        <span className="dn-cockpit__label">No fechamento você escolhe o plano HBX e o valor.</span>
-                      )}
                     </div>
 
-                    {/* TIER 1 — Pré-cadastro do cliente (destaque: passo primário do HBX admin) */}
-                    {board?.sellsHbxPlans && (
-                      <div className="dn-cockpit__group">
-                        <span className="dn-cockpit__label">Cliente HBX — passo 1</span>
-                        <button className="btn-teal" onClick={abrirCadastrarCliente}>
-                          <I d={ICONS.users} size={14} /> Pré-cadastro do cliente
-                        </button>
-                      </div>
-                    )}
-
-                    {/* TIER 1 — Como foi a ligação? */}
+                    {/* TIER 2 — Retorno + Sem Interesse */}
                     <div className="dn-cockpit__group">
                       {acaoMsg && (
                         <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
                       )}
-                      <span className="dn-cockpit__label">
-                        <I d={ICONS.phone} size={13} /> Como foi a ligação?
-                      </span>
-                      <div className="dn-call-grid">
-                        <button className="btn-result btn-result--ok" onClick={() => registrarResultado("Atendeu")} disabled={acaoBusy || deal.block === "closed"}>Atendeu</button>
-                        <button className="btn-result" onClick={() => registrarResultado("Não atendeu")} disabled={acaoBusy || deal.block === "closed"}>Não atendeu</button>
-                        <button className="btn-result" onClick={() => registrarResultado("Caixa postal")} disabled={acaoBusy || deal.block === "closed"}>Caixa postal</button>
-                        <button className="btn-result btn-result--cold" onClick={() => registrarResultado("Sem interesse")} disabled={acaoBusy || deal.block === "closed"}>Sem interesse</button>
-                      </div>
-                      <textarea className="field-dark ctx-obs" rows={2} maxLength={240}
-                        placeholder="Observação da ligação (opcional) — vai pro card"
-                        value={obs} onChange={e => setObs(e.target.value)} disabled={deal.block === "closed"} />
-                    </div>
-
-                    {/* TIER 2 — Avançar etapa (chips de 1 toque) + agendar retorno */}
-                    <div className="dn-cockpit__group">
-                      <span className="dn-cockpit__label">Avançar etapa</span>
-                      <div className="dn-stage-chips">
-                        {STAGE_CHIPS.map(({ key, label }) => (
-                          <button key={key} type="button"
-                            className={"dn-stage-chip" + ((moverStatus || deal.status) === key ? " is-active" : "")}
-                            onClick={() => { setMoverStatus(key); moverEtapa(key); }}
-                            disabled={acaoBusy || deal.block === "closed"}>
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                        <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={deal.block === "closed"}
-                          onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
-                        <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
-                      </div>
-                      {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
-                        <div className="retorno-mode">
-                          <span className="lbl">Tipo de retorno</span>
-                          <div className="radios">
-                            {(["manual", ...(deal.email ? ["auto_email"] : []), ...(deal.phone ? ["auto_whatsapp"] : []), ...(deal.email && deal.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
-                              const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
-                              return (
-                                <label key={mode} className="radio-lbl">
-                                  <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
-                                  {labels[mode]}
-                                </label>
-                              );
-                            })}
-                          </div>
-                          {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
-                        </div>
-                      )}
-                      {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
-                        <div className="bot-warn">
-                          <span className="warn-lbl">Bot sem configuração.</span>
-                          <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
-                            {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* TIER 3 — Mais ações (recolhido): ações frias/raras saem do caminho quente */}
-                    <details className="dn-more">
-                      <summary className="dn-more__summary"><span className="chev" aria-hidden="true">▾</span> Mais ações</summary>
-                      {cadMsg && (
-                        <div className={"ctx-msg " + (cadMsg.startsWith("✓") ? "ok" : "err")}>{cadMsg}</div>
-                      )}
-                      <div className="vendas-neg">
-                        <label>Negativar lead (sai da carteira)</label>
-                        <div className="neg-row">
-                          <select className="field-dark" value={negMotivo} disabled={acaoBusy || deal.block === "closed"}
-                            onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
-                            <option value="">Motivo…</option>
-                            <option value="negative">Sem interesse</option>
-                            <option value="no_answer">Não atende / não existe</option>
-                            <option value="no_whatsapp">Sem WhatsApp</option>
-                            <option value="opt_out">Pediu pra não receber</option>
-                            <option value="complaint">Reclamou</option>
-                          </select>
-                          <button className="btn-ghost danger" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
-                            disabled={!negMotivo || acaoBusy}>
-                            {negArm ? "Confirmar" : "Negativar"}
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        {!board?.sellsHbxPlans && (
-                          <button className="btn-ghost" style={{ flex: 1 }} onClick={abrirCadastrarCliente}>
-                            <I d={ICONS.users} size={13} /> Cadastrar cliente
-                          </button>
-                        )}
-                        <button className="icon-ghost" onClick={verCliente} disabled={!deal.phone}
-                          title="Card do cliente 🃏" aria-label="Abrir card do cliente">
-                          <I d={ICONS.doc} size={15} />
+                      <div className="vnd-quick-acts">
+                        <button className="btn-result btn-result--ok" onClick={() => { setRetornoData(""); setObs(""); setAcaoMsg(null); setRetornoOpen(true); }} disabled={deal.block === "closed"}>
+                          <I d={ICONS.clock} size={14} /> Retorno
+                        </button>
+                        <button className="btn-result btn-result--cold" onClick={() => { setSemInteresseMotivo(""); setAcaoMsg(null); setSemInteresseOpen(true); }} disabled={deal.block === "closed"}>
+                          Sem Interesse
                         </button>
                       </div>
-                    </details>
+                    </div>
                   </div>
                 ) : undefined}
               />
@@ -1426,121 +1264,22 @@ export function VendasClient() {
                     <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
                       <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
                     </button>
-                    {board?.sellsHbxPlans && sel.block !== "closed" && (
-                      <span className="dn-cockpit__label">No fechamento você escolhe o plano HBX e o valor.</span>
-                    )}
                   </div>
 
-                  {/* TIER 1 — Pré-cadastro do cliente (destaque: passo primário do HBX admin) */}
-                  {board?.sellsHbxPlans && (
-                    <div className="dn-cockpit__group">
-                      <span className="dn-cockpit__label">Cliente HBX — passo 1</span>
-                      <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
-                        <I d={ICONS.users} size={14} /> Pré-cadastro do cliente
-                      </button>
-                    </div>
-                  )}
-
-                  {/* TIER 1 — Como foi a ligação? */}
+                  {/* TIER 2 — Retorno + Sem Interesse */}
                   <div className="dn-cockpit__group">
                     {acaoMsg && (
                       <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
                     )}
-                    <span className="dn-cockpit__label">
-                      <I d={ICONS.phone} size={13} /> Como foi a ligação?
-                    </span>
-                    <div className="dn-call-grid">
-                      <button className="btn-result btn-result--ok" onClick={() => registrarResultado("Atendeu")} disabled={acaoBusy || sel.block === "closed"}>Atendeu</button>
-                      <button className="btn-result" onClick={() => registrarResultado("Não atendeu")} disabled={acaoBusy || sel.block === "closed"}>Não atendeu</button>
-                      <button className="btn-result" onClick={() => registrarResultado("Caixa postal")} disabled={acaoBusy || sel.block === "closed"}>Caixa postal</button>
-                      <button className="btn-result btn-result--cold" onClick={() => registrarResultado("Sem interesse")} disabled={acaoBusy || sel.block === "closed"}>Sem interesse</button>
-                    </div>
-                    <textarea className="field-dark vnd-obs-field" rows={2} maxLength={240}
-                      placeholder="Observação (opcional)"
-                      value={obs} onChange={e => setObs(e.target.value)} disabled={sel.block === "closed"} />
-                  </div>
-
-                  {/* TIER 2 — Avançar etapa (chips de 1 toque) + agendar retorno */}
-                  <div className="dn-cockpit__group">
-                    <span className="dn-cockpit__label">Avançar etapa</span>
-                    <div className="dn-stage-chips">
-                      {STAGE_CHIPS.map(({ key, label }) => (
-                        <button key={key} type="button"
-                          className={"dn-stage-chip" + ((moverStatus || sel.status) === key ? " is-active" : "")}
-                          onClick={() => { setMoverStatus(key); moverEtapa(key); }}
-                          disabled={acaoBusy || sel.block === "closed"}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="vnd-action-row">
-                      <input className="field-dark" type="date" value={retornoData} disabled={sel.block === "closed"}
-                        onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
-                      <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
-                    </div>
-                    {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
-                      <div className="retorno-mode">
-                        <span className="lbl">Tipo de retorno</span>
-                        <div className="radios">
-                          {(["manual", ...(sel.email ? ["auto_email"] : []), ...(sel.phone ? ["auto_whatsapp"] : []), ...(sel.email && sel.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
-                            const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
-                            return (
-                              <label key={mode} className="radio-lbl">
-                                <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
-                                {labels[mode]}
-                              </label>
-                            );
-                          })}
-                        </div>
-                        {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
-                      </div>
-                    )}
-                    {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
-                      <div className="bot-warn">
-                        <span className="warn-lbl">Bot sem configuração.</span>
-                        <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
-                          {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* TIER 3 — Mais ações (recolhido): ações frias/raras saem do caminho quente */}
-                  <details className="dn-more">
-                    <summary className="dn-more__summary">Mais ações</summary>
-                    {cadMsg && (
-                      <div className={cadMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{cadMsg}</div>
-                    )}
-                    <div className="vendas-neg">
-                      <label>Negativar lead (sai da carteira)</label>
-                      <div className="neg-row">
-                        <select className="field-dark" value={negMotivo} disabled={acaoBusy || sel.block === "closed"}
-                          onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
-                          <option value="">Motivo…</option>
-                          <option value="negative">Sem interesse</option>
-                          <option value="no_answer">Não atende / não existe</option>
-                          <option value="no_whatsapp">Sem WhatsApp</option>
-                          <option value="opt_out">Pediu pra não receber</option>
-                          <option value="complaint">Reclamou</option>
-                        </select>
-                        <button className="btn-ghost danger" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
-                          disabled={!negMotivo || acaoBusy}>
-                          {negArm ? "Confirmar" : "Negativar"}
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      {!board?.sellsHbxPlans && (
-                        <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
-                          <I d={ICONS.users} size={13} /> Cadastrar cliente
-                        </button>
-                      )}
-                      <button className="icon-ghost" onClick={() => { setMobileDetailOpen(false); verCliente(); }} disabled={!sel.phone}
-                        title="Card do cliente" aria-label="Abrir card do cliente">
-                        <I d={ICONS.doc} size={15} />
+                    <div className="vnd-quick-acts">
+                      <button className="btn-result btn-result--ok" onClick={() => { setRetornoData(""); setObs(""); setAcaoMsg(null); setRetornoOpen(true); }} disabled={sel.block === "closed"}>
+                        <I d={ICONS.clock} size={14} /> Retorno
+                      </button>
+                      <button className="btn-result btn-result--cold" onClick={() => { setSemInteresseMotivo(""); setAcaoMsg(null); setSemInteresseOpen(true); }} disabled={sel.block === "closed"}>
+                        Sem Interesse
                       </button>
                     </div>
-                  </details>
+                  </div>
                 </div>
               }
             />
@@ -1600,6 +1339,60 @@ export function VendasClient() {
               Fechar venda — {sel?.name || "card"}
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setFecharOpen(false)}>✕</span>
             </h3>
+
+            {/* 1 tela, 2 guias: o pré-cadastro do cliente é feito JUNTO do fechamento. */}
+            <div className="fechar-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={fecharTab === "pre"}
+                className={"fechar-tab" + (fecharTab === "pre" ? " is-active" : "")}
+                onClick={() => setFecharTab("pre")}>
+                <span className="fechar-tab__n">1</span> Pré-cadastro
+              </button>
+              <button type="button" role="tab" aria-selected={fecharTab === "fechar"}
+                className={"fechar-tab" + (fecharTab === "fechar" ? " is-active" : "")}
+                onClick={() => setFecharTab("fechar")}>
+                <span className="fechar-tab__n">2</span> Fechar venda
+              </button>
+            </div>
+
+            {fecharTab === "pre" ? (
+              <React.Fragment>
+                <p className="hint" style={{ margin: 0 }}>
+                  Dados puxados do card — confira e cadastre o cliente antes de fechar.
+                </p>
+                {cadMsg && (
+                  <div className={"ctx-msg " + (cadMsg.startsWith("✓") ? "ok" : "err")}>{cadMsg}</div>
+                )}
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label className="field-label">Nome *</label>
+                  <input className="field-dark" maxLength={160} value={cadForm.name}
+                    onChange={e => setCadForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label className="field-label">Telefone</label>
+                    <input className="field-dark" maxLength={30} value={cadForm.phone}
+                      onChange={e => setCadForm(f => ({ ...f, phone: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label className="field-label">CPF/CNPJ</label>
+                    <input className="field-dark" maxLength={40} placeholder="opcional" value={cadForm.document}
+                      onChange={e => setCadForm(f => ({ ...f, document: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label className="field-label">E-mail</label>
+                  <input className="field-dark" type="email" maxLength={160} placeholder="opcional" value={cadForm.email}
+                    onChange={e => setCadForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+                <button className="btn-teal" onClick={preCadastroEAvancar} disabled={cadBusy} style={{ minHeight: 42 }}>
+                  {cadBusy ? "Cadastrando…" : "Cadastrar cliente e fechar →"}
+                </button>
+                <button className="btn-ghost" onClick={() => setFecharTab("fechar")} style={{ minHeight: 36 }}>
+                  Pular — fechar sem cadastrar
+                </button>
+              </React.Fragment>
+            ) : (
+            <React.Fragment>
             {fecharMsg && !fecharMsg.startsWith("✓") && (
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{fecharMsg}</div>
             )}
@@ -1702,76 +1495,7 @@ export function VendasClient() {
                 </button>
               </React.Fragment>
             )}
-          </div>
-        </div>
-      )}
-
-      {cadOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setCadOpen(false); }}>
-          <form className="hbx-modal" onSubmit={cadastrarCliente}
-            style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24 }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              Cadastrar cliente
-              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setCadOpen(false)}>✕</span>
-            </h3>
-            <p style={{ margin: 0, fontSize: "0.68rem", color: "var(--text-muted)" }}>Dados puxados do card — ajuste o que precisar.</p>
-            {cadMsg && !cadMsg.startsWith("✓") && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{cadMsg}</div>
-            )}
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome *</label>
-              <input className="field-dark" required maxLength={160} value={cadForm.name}
-                onChange={e => setCadForm(f => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
-                <input className="field-dark" maxLength={30} value={cadForm.phone}
-                  onChange={e => setCadForm(f => ({ ...f, phone: e.target.value }))} />
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>CPF/CNPJ</label>
-                <input className="field-dark" maxLength={40} placeholder="opcional" value={cadForm.document}
-                  onChange={e => setCadForm(f => ({ ...f, document: e.target.value }))} />
-              </div>
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
-              <input className="field-dark" type="email" maxLength={160} placeholder="opcional" value={cadForm.email}
-                onChange={e => setCadForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            <button className="btn-teal" type="submit" disabled={cadBusy} style={{ minHeight: 42 }}>
-              {cadBusy ? "Cadastrando…" : "Cadastrar cliente"}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {clienteOpen && (
-        <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setClienteOpen(false); }}>
-          <div className="hbx-drawer" style={{ width: 330, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              Card do cliente 🃏
-              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setClienteOpen(false)}>✕</span>
-            </h3>
-            {cliente === null && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Consultando…</span>}
-            {cliente === "nao_encontrado" && (
-              <div style={{ display: "grid", gap: 10 }}>
-                <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-                  Este contato ainda não tem cadastro de cliente.
-                </span>
-                <button className="btn-teal" onClick={() => { setClienteOpen(false); abrirCadastrarCliente(); }}>Cadastrar agora</button>
-              </div>
-            )}
-            {cliente !== null && cliente !== "nao_encontrado" && (
-              <div className="kv">
-                <div className="row"><span className="k">Nome</span><span className="v">{cliente.name || "—"}</span></div>
-                <div className="row"><span className="k">Telefone</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{cliente.phone || "—"}</span></div>
-                <div className="row"><span className="k">E-mail</span><span className="v" style={{ fontSize: "0.68rem" }}>{cliente.email || "—"}</span></div>
-                <div className="row"><span className="k">CPF/CNPJ</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{cliente.document || "—"}</span></div>
-                <div className="row"><span className="k">Status</span><span className="v">{cliente.status || "—"}</span></div>
-                <div className="row"><span className="k">Integração</span><span className="v">{cliente.externalSource ? `${cliente.externalSource}${cliente.externalCustomerId ? ` · ${cliente.externalCustomerId}` : ""}` : "— (point TOTVS/ERP futuro)"}</span></div>
-              </div>
+            </React.Fragment>
             )}
           </div>
         </div>
@@ -1890,6 +1614,103 @@ export function VendasClient() {
                   ))}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* Popup: Agendar Retorno */}
+      {retornoOpen && sel && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setRetornoOpen(false); }}>
+          <div className="hbx-modal vnd-popup" onClick={e => e.stopPropagation()}>
+            <div className="vnd-popup__head">
+              <span className="vnd-popup__title">Retorno — {sel.name || "lead"}</span>
+              <button className="vnd-popup__close" onClick={() => setRetornoOpen(false)} aria-label="Fechar">✕</button>
+            </div>
+            <div className="vnd-popup__body">
+              {acaoMsg && (
+                <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
+              )}
+              <div className="vnd-popup__field">
+                <label className="dn-cockpit__label">Data do retorno</label>
+                <input className="field-dark" type="date" value={retornoData}
+                  onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }}
+                  aria-label="Data do retorno" />
+              </div>
+              <div className="vnd-popup__field">
+                <label className="dn-cockpit__label">Observação (opcional)</label>
+                <textarea className="field-dark" rows={2} maxLength={240}
+                  placeholder="Ex.: cliente pediu pra mandar fotos do produto"
+                  value={obs} onChange={e => setObs(e.target.value)} />
+              </div>
+              {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
+                <div className="retorno-mode">
+                  <span className="lbl">Tipo de retorno</span>
+                  <div className="radios">
+                    {(["manual", ...(sel.email ? ["auto_email"] : []), ...(sel.phone ? ["auto_whatsapp"] : []), ...(sel.email && sel.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
+                      const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
+                      return (
+                        <label key={mode} className="radio-lbl">
+                          <input type="radio" name="retorno-mode-popup" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
+                          {labels[mode]}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
+                </div>
+              )}
+              {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
+                <div className="bot-warn">
+                  <span className="warn-lbl">Bot sem configuração.</span>
+                  <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
+                    {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                  </button>
+                </div>
+              )}
+              <div className="vnd-popup__foot">
+                <button className="btn-ghost" onClick={() => setRetornoOpen(false)}>Cancelar</button>
+                <button className="btn-teal" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>
+                  {acaoBusy ? "Agendando…" : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup: Sem Interesse */}
+      {semInteresseOpen && sel && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setSemInteresseOpen(false); }}>
+          <div className="hbx-modal vnd-popup" onClick={e => e.stopPropagation()}>
+            <div className="vnd-popup__head">
+              <span className="vnd-popup__title">Motivo?</span>
+              <button className="vnd-popup__close" onClick={() => setSemInteresseOpen(false)} aria-label="Fechar">✕</button>
+            </div>
+            <div className="vnd-popup__body">
+              {acaoMsg && (
+                <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
+              )}
+              <div className="vnd-si-opts">
+                {([
+                  { status: "no_answer", label: "Não atendeu" },
+                  { status: "voicemail", label: "Caixa postal" },
+                  { status: "not_interested_product", label: "Não quer produto" },
+                ] as { status: string; label: string }[]).map(opt => (
+                  <button key={opt.status} type="button"
+                    className={"vnd-si-opt" + (semInteresseMotivo === opt.status ? " is-sel" : "")}
+                    onClick={() => setSemInteresseMotivo(opt.status)}
+                    disabled={acaoBusy}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="vnd-popup__foot">
+                <button className="btn-ghost" onClick={() => setSemInteresseOpen(false)}>Cancelar</button>
+                <button className="btn-teal" onClick={() => negativarLead(semInteresseMotivo)}
+                  disabled={!semInteresseMotivo || acaoBusy}>
+                  {acaoBusy ? "Enviando…" : "Confirmar"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -1,0 +1,352 @@
+"use client";
+
+// BotProspeccaoPanel — a guia "Prospecção" do Construtor de Bot.
+//
+// Prospecção NÃO é um bot de menu (welcomeMessage/botões); é um MOTOR DE DISPARO
+// FRIO com anti-banimento. Esta guia renderiza a CONFIG REAL de disparo, com a
+// lógica/save centralizada no hook useProspectingConfig (mesma do tutofig).
+//
+// Design System: zero hex/cor inline. Tom de cada peça vai por CSS var
+// (--bot-phase-color). Estilo em hbx-theme/bot-prospeccao.css; o tutofig
+// (sobreposição de 3 colunas) em hbx-theme/bot-tutofig.css.
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { I, ICONS } from "@/components/hbx/shell";
+import { BotTutofig } from "@/components/hbx/bot-tutofig";
+import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
+import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
+import {
+  useProspectingConfig,
+  isProspConfigComplete,
+  fmtWhen,
+  ABSOLUTE_DAILY_SEND_CAP,
+  STATUS_LABEL,
+  PIECES,
+  PIECE_FIELDS,
+  VARIANT_LISTS,
+  type PieceKey,
+  type ProspLive,
+} from "@/lib/use-prospecting-config";
+
+export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
+  const [openPiece, setOpenPiece] = useState<PieceKey | null>(null);
+  // tutofig (config acompanhada) — abre sozinho quando a config está incompleta.
+  const [tutofigOpen, setTutofigOpen] = useState(false);
+  const autoOpenedRef = useRef(false); // só auto-abre 1x por montagem
+  const dismissedRef = useRef(false);  // pulou/fechou → não reabre sozinho
+
+  // Gate de Termos antes de INICIAR — estado controlado por handlers (não effect).
+  const [termsOpen, setTermsOpen] = useState(false);
+  // Ação pendente que será executada após aceitar os termos
+  const pendingStartRef = useRef<"start" | "resume" | null>(null);
+
+  // onLive: roda a cada carga (no .then do hook). Decide o auto-open do tutofig
+  // sem setState síncrono em effect (a regra react-hooks/set-state-in-effect é erro).
+  const onLive = useCallback((data: ProspLive) => {
+    if (autoOpenedRef.current || dismissedRef.current) return;
+    if (!isProspConfigComplete(data)) {
+      autoOpenedRef.current = true;
+      setTutofigOpen(true);
+    }
+  }, []);
+
+  const cfg = useProspectingConfig({ onLive });
+  const { live, loadErr, campaign, draft, busy, saveMsg, canSave, salvar, ciclo, loadLive, piecePreview } = cfg;
+
+  // onSaved do pai (recarrega a ativação do bot) — dispara após salvar/ciclo.
+  const onSavedRef = useRef(onSaved);
+  useEffect(() => { onSavedRef.current = onSaved; });
+
+  const helpers: ProspFieldHelpers = {
+    numVal: cfg.numVal, boolVal: cfg.boolVal, strVal: cfg.strVal, listVal: cfg.listVal,
+    setField: cfg.setField, setNum: cfg.setNum,
+  };
+
+  async function handleSalvar() {
+    const res = await salvar();
+    if (res) onSavedRef.current?.();
+  }
+
+  // Executa o ciclo de start/resume diretamente (termos já aceitos ou aceitos agora).
+  async function executeCiclo(path: "start" | "pause" | "resume" | "cancel") {
+    await ciclo(path);
+    onSavedRef.current?.();
+  }
+
+  // Gate de termos: se não aceito ainda abre o modal; se aceito executa direto.
+  function handleStartOrResume(path: "start" | "resume") {
+    if (isBotTermsAccepted("prospeccao")) {
+      void executeCiclo(path);
+    } else {
+      pendingStartRef.current = path;
+      setTermsOpen(true);
+    }
+  }
+
+  async function handleCiclo(path: "start" | "pause" | "resume" | "cancel") {
+    if (path === "start" || path === "resume") {
+      handleStartOrResume(path);
+    } else {
+      await executeCiclo(path);
+    }
+  }
+
+  // Checklist dos termos: itens baseados no estado atual da config.
+  const termsChecklist = [
+    {
+      label: "Ritmo definido",
+      done: cfg.hasReal("intervalMinutes"),
+    },
+    {
+      label: "Limite diário configurado",
+      done: cfg.hasReal("dailyLimit"),
+    },
+    {
+      label: "Mensagem de 1º contato escrita",
+      done: cfg.listVal("firstContactVariants").filter(s => s.trim().length > 0).length > 0,
+    },
+    {
+      label: "Horário de trabalho definido",
+      done: cfg.hasReal("workingHoursStart") && cfg.hasReal("workingHoursEnd"),
+    },
+  ];
+
+  const statusKey = live?.status || "parado";
+  const statusLabel = STATUS_LABEL[statusKey] || statusKey;
+  const sentToday = live?.sentToday ?? 0;
+  const remainingToday = live?.remainingToday ?? 0;
+  const liveDaily = live?.dailyLimit ?? cfg.numVal("dailyLimit");
+  const nextWhen = fmtWhen(live?.nextScheduledAt);
+  const campaignStatus = campaign?.status;
+
+  // ── Erro de carregamento (não armado / sem plano / falha) ──
+  if (loadErr && !live) {
+    return (
+      <div className="bot-load-error" role="alert">
+        <strong className="bot-load-error__title">Prospecção indisponível</strong>
+        <p className="bot-load-error__msg">{loadErr}</p>
+        <button className="btn-teal" onClick={() => { cfg.setSaveMsg(null); loadLive(); }} disabled={busy}>
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bot-prosp">
+      {/* ── ESQUERDA: peças de configuração que abrem ao clicar ── */}
+      <div className="bot-prosp__main">
+        <div className="bot-prosp__toolbar">
+          <div className="bot-prosp__toolbar-info">
+            <strong className="bot-prosp__toolbar-title">Motor de disparo frio</strong>
+            <span className="bot-prosp__toolbar-hint">Toque numa peça pra ajustar. O ritmo e o limite são a proteção do número.</span>
+          </div>
+          <div className="bot-prosp__toolbar-actions">
+            {saveMsg && (
+              <span className={"bot-prosp__msg" + (saveMsg.startsWith("✓") ? " is-ok" : " is-err")}>{saveMsg}</span>
+            )}
+            <button className="btn-ghost" onClick={() => { dismissedRef.current = false; setTutofigOpen(true); }} disabled={busy}>
+              <I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda
+            </button>
+            <button className="btn-ghost" onClick={() => loadLive()} disabled={busy} title="Recarregar">⟳</button>
+            <button className="btn-teal" onClick={handleSalvar} disabled={!canSave}>{busy ? "Salvando…" : "Salvar disparo"}</button>
+          </div>
+        </div>
+
+        <div className="bot-prosp__pieces">
+          {PIECES.map(p => {
+            const edited = p.key === "mensagens"
+              ? VARIANT_LISTS.some(v => (v.key in draft)) || ("preMessageEnabled" in draft) || ("preMessageVariants" in draft)
+              : p.key === "palavras"
+                ? ("positiveIntentKeywords" in draft) || ("negativeIntentKeywords" in draft)
+                : PIECE_FIELDS[p.key].some(k => k in draft);
+            return (
+              <button
+                key={p.key}
+                type="button"
+                className={"bot-prosp-piece" + (openPiece === p.key ? " is-open" : "") + (edited ? " is-edited" : "")}
+                onClick={() => setOpenPiece(p.key)}
+              >
+                <span className="bot-prosp-piece__icon" style={{ ["--bot-phase-color" as string]: p.tone }}>
+                  <I d={ICONS[p.icon] || ICONS.config} size={16} />
+                </span>
+                <span className="bot-prosp-piece__titles">
+                  <span className="bot-prosp-piece__name">{p.label}</span>
+                  <span className="bot-prosp-piece__hint">{p.hint}</span>
+                  <span className="bot-prosp-piece__preview">{piecePreview(p.key)}</span>
+                </span>
+                {edited && <span className="bot-prosp-piece__badge">editado</span>}
+                <span className="bot-prosp-piece__chev" aria-hidden="true"><I d={ICONS.arrow} size={13} /></span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── DIREITA: resumo do disparo ao vivo ── */}
+      <aside className="bot-prosp__summary">
+        <div className="bot-prosp-sum__head">
+          <span className={"bot-prosp-sum__badge bot-prosp-sum__badge--" + statusKey}>{statusLabel}</span>
+          {live?.cooldownActive && <span className="bot-prosp-sum__cooldown">em pausa de segurança</span>}
+        </div>
+        {live?.text && <p className="bot-prosp-sum__text">{live.text}</p>}
+
+        <div className="bot-prosp-sum__stats">
+          <div className="bot-prosp-stat">
+            <span className="bot-prosp-stat__num">{sentToday}</span>
+            <span className="bot-prosp-stat__label">enviadas hoje</span>
+          </div>
+          <div className="bot-prosp-stat">
+            <span className="bot-prosp-stat__num">{remainingToday}</span>
+            <span className="bot-prosp-stat__label">restam hoje</span>
+          </div>
+          <div className="bot-prosp-stat">
+            <span className="bot-prosp-stat__num">{liveDaily}</span>
+            <span className="bot-prosp-stat__label">limite/dia</span>
+          </div>
+        </div>
+
+        <div className="bot-prosp-sum__rows">
+          <div className="bot-prosp-sum__row">
+            <span className="bot-prosp-sum__row-k">Próximo envio</span>
+            <span className="bot-prosp-sum__row-v">{nextWhen || "—"}</span>
+          </div>
+          {live?.nextEligibleLeadName && (
+            <div className="bot-prosp-sum__row">
+              <span className="bot-prosp-sum__row-k">Próximo lead</span>
+              <span className="bot-prosp-sum__row-v">{live.nextEligibleLeadName}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="bot-prosp-sum__note">
+          <I d={ICONS.bell} size={12} /> Teto fixo de {ABSOLUTE_DAILY_SEND_CAP}/dia. Nos primeiros dias a rampa de aquecimento limita ainda mais — é o que protege o número.
+        </div>
+
+        {/* Ciclo da campanha (opcional) */}
+        <div className="bot-prosp-controls">
+          {campaignStatus === "running" ? (
+            <button className="btn-ghost" onClick={() => handleCiclo("pause")} disabled={busy}><I d={ICONS.pause} size={12} /> Pausar</button>
+          ) : (
+            <button className="btn-ghost" onClick={() => handleCiclo(campaignStatus === "paused" ? "resume" : "start")} disabled={busy}>
+              <I d={ICONS.play} size={12} /> {campaignStatus === "paused" ? "Retomar" : "Iniciar"}
+            </button>
+          )}
+          {campaign && campaignStatus !== "canceled" && campaignStatus !== "done" && (
+            <button className="btn-ghost bot-prosp-controls__danger" onClick={() => handleCiclo("cancel")} disabled={busy}><I d={ICONS.stop} size={12} /> Cancelar</button>
+          )}
+        </div>
+      </aside>
+
+      {/* ── Editor deslizante da peça (gaveta) ── */}
+      <ProspEditorDrawer piece={openPiece} onClose={() => setOpenPiece(null)} h={helpers} />
+
+      {/* ── TutoFig: config acompanhada em 3 colunas (abre sozinho se incompleto) ── */}
+      <BotTutofig
+        open={tutofigOpen}
+        cfg={cfg}
+        onClose={() => { dismissedRef.current = true; setTutofigOpen(false); }}
+        onSaved={() => onSavedRef.current?.()}
+      />
+
+      {/* ── Gate de Termos antes de INICIAR ── */}
+      {termsOpen && (
+        <BotTermsModal
+          open={termsOpen}
+          botType="prospeccao"
+          checklist={termsChecklist}
+          onAccept={() => {
+            setBotTermsAccepted("prospeccao");
+            setTermsOpen(false);
+            const path = pendingStartRef.current;
+            pendingStartRef.current = null;
+            if (path) void executeCiclo(path);
+          }}
+          onClose={() => {
+            setTermsOpen(false);
+            pendingStartRef.current = null;
+          }}
+          accepting={busy}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Editor deslizante (espelha o padrão closing/finishClose do BotPhaseEditor) ──
+function ProspEditorDrawer({ piece, onClose, h }: { piece: PieceKey | null; onClose: () => void; h: ProspFieldHelpers }): React.JSX.Element | null {
+  const open = piece !== null;
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [closing, setClosing] = useState(false);
+
+  // reset SEM effect (mesmo padrão do BotPhaseEditor)
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open && closing) setClosing(false);
+  }
+
+  const finishClose = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setClosing(false);
+    onClose();
+  }, [onClose]);
+
+  const requestClose = useCallback(() => {
+    setClosing(true);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(finishClose, 360);
+  }, [finishClose]);
+
+  const handleAnimEnd = useCallback(() => { if (closing) finishClose(); }, [closing, finishClose]);
+
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); requestClose(); } };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, requestClose]);
+
+  if (!open && !closing) return null;
+  const def = piece ? PIECES.find(p => p.key === piece) : null;
+
+  return (
+    <div
+      className={`hbx-veil to-right${closing ? " bot-prosp-veil--closing" : ""}`}
+      onClick={e => { if (e.target === e.currentTarget) requestClose(); }}
+    >
+      <div
+        className={`hbx-drawer bot-prosp-editor${closing ? " bot-prosp-editor--closing" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Editar: ${def?.label || ""}`}
+        onAnimationEnd={handleAnimEnd}
+      >
+        <header className="bot-prosp-editor__head">
+          <span className="bot-prosp-editor__icon" style={{ ["--bot-phase-color" as string]: def?.tone || "var(--hbx-brand)" }}>
+            <I d={ICONS[def?.icon || "config"] || ICONS.config} size={16} />
+          </span>
+          <span className="bot-prosp-editor__titles">
+            <span className="bot-prosp-editor__title">{def?.label}</span>
+            <span className="bot-prosp-editor__hint">{def?.hint}</span>
+          </span>
+          <button type="button" className="bot-prosp-editor__close" aria-label="Fechar" title="Fechar" onClick={requestClose}>✕</button>
+        </header>
+
+        <div className="bot-prosp-editor__body">
+          {piece && <ProspPieceBody piece={piece} h={h} />}
+        </div>
+
+        <footer className="bot-prosp-editor__foot">
+          <button type="button" className="btn-teal bot-prosp-editor__done" onClick={requestClose}>
+            <I d={ICONS.check} size={13} /> Concluir
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+export default BotProspeccaoPanel;

@@ -13,6 +13,10 @@ import { I, ICONS } from "@/components/hbx/shell";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotPhaseEditor } from "@/components/hbx/bot-phase-editor";
+import { BotProspeccaoPanel } from "@/components/hbx/bot-prospeccao-panel";
+import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+import { BotOnboarding, type BotOnboardingField } from "@/components/hbx/bot-onboarding";
+import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { apiFetch } from "@/lib/api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
@@ -66,6 +70,8 @@ type ActivationState = {
   armedBy: string | null;
   armReason: string | null;
   channel: string | null;
+  // chave geral do bot (topo): true = dono desligou o bot inteiro
+  masterOff?: boolean;
   canAdminToggle: boolean;
   types: Record<BotTypeName, BotTypeStatus>;
 };
@@ -121,23 +127,21 @@ const MONTAGEM_MODOS: { key: MontagemModo; label: string; hint: string; icon: st
   { key: "bandeja", label: "Bandeja", hint: "Arraste as peças pro fluxo", icon: "filter" },
 ];
 
-// Mapeamento: qual endpoint GET/PATCH usar por tipo
+// Mapeamento: qual endpoint GET/PATCH de config de MENSAGEM usar por tipo.
+// Atendimento/Recovery são bots de menu (welcomeMessage/botões). Prospecção NÃO é
+// um bot de menu — é motor de disparo frio; tem painel dedicado (<BotProspeccaoPanel>,
+// live-status + prospecting/config) e NÃO usa este mapa. A entrada existe só para
+// completar o Record; nenhum caminho a consome quando cfgTipo === "prospeccao".
 const TYPE_ENDPOINT: Record<BotTypeName, string> = {
   atendimento: "/inbox/bot-config",
   recovery: "/hbx-recovery/bot-config",
-  prospeccao: "/vendas/automation/bot-config",
+  prospeccao: "/vendas/automation/live-status",
 };
 
 const TYPE_LABEL: Record<BotTypeName, string> = {
   atendimento: "Atendimento",
   recovery: "Recovery",
   prospeccao: "Prospecção",
-};
-
-const TYPE_DESC: Record<BotTypeName, string> = {
-  atendimento: "Responde contatos novos automaticamente",
-  recovery: "Aciona devedores com templates de cobrança",
-  prospeccao: "Inicia conversas com leads prospectados",
 };
 
 // Proativos = requerem confirmação ao ligar e têm pré-voo mais rigoroso
@@ -163,121 +167,6 @@ function hhmm() {
   return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-// ─── Pré-voo chip ────────────────────────────────────────────────────────────
-
-function PreflightChip({
-  ok,
-  label,
-  tooltip,
-}: {
-  ok: boolean;
-  label: string;
-  tooltip: string;
-}) {
-  return (
-    <span
-      className={"bot-pf-chip" + (ok ? " bot-pf-chip--ok" : " bot-pf-chip--warn")}
-      title={tooltip}
-      aria-label={label + (ok ? " OK" : " — " + tooltip)}
-    >
-      {ok ? "✓" : "!"} {label}
-    </span>
-  );
-}
-
-// ─── Chavinha (card de tipo) ──────────────────────────────────────────────────
-
-function BotTypeCard({
-  tipo,
-  status,
-  armed,
-  onToggle,
-  busy,
-  compact,
-}: {
-  tipo: BotTypeName;
-  status: BotTypeStatus;
-  armed: boolean;
-  onToggle: (tipo: BotTypeName, live: boolean) => void;
-  busy: boolean;
-  compact?: boolean;
-}) {
-  const pf = status.preflight;
-  const isProativo = PROATIVO[tipo];
-
-  // Pré-voo verde = todas as 3 luzes OK para proativos; atendimento só exige chip + config
-  const preflightOk = isProativo
-    ? pf.chipConectado && pf.configCompleta && pf.passouModoTeste
-    : pf.chipConectado && pf.configCompleta;
-
-  // Switch desabilitado quando: sem pino, pré-voo vermelho (proativos), ou busy
-  const switchDisabled = !armed || (isProativo && !preflightOk) || busy;
-
-  // Tooltip para o switch quando travado
-  function switchTooltip(): string {
-    if (!armed) return "Aguarde o Suporte armar o pino primeiro";
-    if (!pf.chipConectado) return "Conecte o WhatsApp antes de ligar";
-    if (!pf.configCompleta) return "Complete a configuração do bot antes de ligar";
-    if (isProativo && !pf.passouModoTeste) return "Rode o teste simulado antes de ligar";
-    return "";
-  }
-
-  function handleToggle() {
-    if (switchDisabled) return;
-    const ligar = !status.live;
-    if (ligar && isProativo) {
-      const msg =
-        tipo === "recovery"
-          ? "Ligar o Recovery? Ele vai CONTATAR devedores automaticamente. Começa devagar."
-          : "Ligar a Prospecção? Ela vai INICIAR conversas com leads. Começa devagar.";
-      if (!window.confirm(msg)) return;
-    }
-    onToggle(tipo, ligar);
-  }
-
-  return (
-    <div className={"bot-type-card" + (compact ? " bot-type-card--compact" : "") + (!armed ? " bot-type-card--disabled" : "")}>
-      <div className="bot-type-card-head">
-        <div className="bot-type-card-info">
-          <strong className="bot-type-card-name">{TYPE_LABEL[tipo]}</strong>
-          <small className="bot-type-card-desc">{TYPE_DESC[tipo]}</small>
-        </div>
-        <button
-          className={"sw" + (status.live ? " on" : "")}
-          role="switch"
-          aria-checked={status.live}
-          aria-label={`Ligar ${TYPE_LABEL[tipo]}`}
-          disabled={switchDisabled}
-          title={switchDisabled ? switchTooltip() : (status.live ? "Desligar" : "Ligar")}
-          onClick={handleToggle}
-        >
-          <i></i>
-        </button>
-      </div>
-      <div className="bot-type-card-pf">
-        <PreflightChip
-          ok={pf.chipConectado}
-          label="WhatsApp"
-          tooltip={pf.chipConectado ? "Chip conectado" : "Conecte o WhatsApp"}
-        />
-        <PreflightChip
-          ok={pf.configCompleta}
-          label="Config"
-          tooltip={pf.configCompleta ? "Configuração completa" : "Complete a configuração na aba Configurações"}
-        />
-        <PreflightChip
-          ok={pf.passouModoTeste}
-          label="Testado"
-          tooltip={pf.passouModoTeste ? "Já testado" : (isProativo ? "Rode o teste simulado antes de ligar" : "Recomendado: rode o teste simulado")}
-        />
-      </div>
-      {status.blocked && (
-        <div className="bot-type-card-blocked">{status.blocked}</div>
-      )}
-    </div>
-  );
-}
-
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function BotClient() {
@@ -292,6 +181,13 @@ export function BotClient() {
   const [varsOpen, setVarsOpen] = useState(false);
   const [activeFieldKey, setActiveFieldKey] = useState<keyof BotConfig | null>(null);
   const [testOpen, setTestOpen] = useState(false);
+  // ── Onboarding + Termos ───────────────────────────────────────────────────
+  const [onbOpen, setOnbOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  // flag: após aceitar os Termos, deve ligar o bot
+  const pendingActivateRef = useRef(false);
+  // guard: auto-open do onboarding dispara só 1x por tipo
+  const onbAutoRef = useRef<Set<BotTypeName>>(new Set());
   // ── Montagem "tipo jogo": modo selecionado + peça aberta no editor deslizante ──
   const [montagemModo, setMontagemModo] = useState<MontagemModo>("tabuleiro");
   const [editorKey, setEditorKey] = useState<EditorKey | null>(null);
@@ -376,6 +272,12 @@ export function BotClient() {
             setStep(0);
           }
         }
+        // Auto-open onboarding 1x quando config carrega incompleta (sem welcomeMessage)
+        // Só para tipos que não são prospecção. Dispara no .then (async) — nunca setState síncrono.
+        if (tipo !== "prospeccao" && !data.welcomeMessage && !onbAutoRef.current.has(tipo)) {
+          onbAutoRef.current.add(tipo);
+          setOnbOpen(true);
+        }
       })
       .catch(err => {
         setCfgData(null);
@@ -415,9 +317,46 @@ export function BotClient() {
     initCfgTipo("atendimento");
   }, [loadActivation, initCfgTipo]);
 
-  // Trocar tipo → recarregar config
+  // ── Auto-ligar: a chavinha NÃO depende de clique. Quando o pré-voo do tipo fica
+  // OK (chip + config; proativos exigem também o teste feito), liga SOZINHO. Direção
+  // única (liga ao ficar OK; não desliga sozinho). Em localhost o chip nunca conecta,
+  // então isto NUNCA dispara aqui — só vale em produção (deploy do dono). Ver RISCOS.md.
+  const autoArmedRef = useRef<Set<BotTypeName>>(new Set());
+  useEffect(() => {
+    if (!activation?.armed) return;
+    if (activation.masterOff) return; // chave geral baixada → não re-liga sozinho
+    (Object.keys(activation.types) as BotTypeName[]).forEach(tipo => {
+      const st = activation.types[tipo];
+      const pf = st.preflight;
+      const ok = PROATIVO[tipo]
+        ? pf.chipConectado && pf.configCompleta && pf.passouModoTeste
+        : pf.chipConectado && pf.configCompleta;
+      if (!ok) { autoArmedRef.current.delete(tipo); return; }
+      if (st.live || autoArmedRef.current.has(tipo)) return;
+      autoArmedRef.current.add(tipo);
+      apiFetch<ActivationState>("/bot/activation", {
+        method: "PUT",
+        body: JSON.stringify({ type: tipo, live: true }),
+      })
+        .then(data => { if (data) setActivation(data); setActMsg(`✓ ${TYPE_LABEL[tipo]} ligado automaticamente.`); })
+        .catch(() => { autoArmedRef.current.delete(tipo); });
+    });
+  }, [activation]);
+
+  // Trocar tipo → recarregar config. Prospecção NÃO usa o endpoint de bot-config
+  // (é do atendimento); o <BotProspeccaoPanel> carrega sozinho via live-status.
   function selecionarTipo(tipo: BotTypeName) {
     setCfgTipo(tipo);
+    setEditorKey(null); // fecha qualquer peça aberta da guia anterior
+    if (tipo === "prospeccao") {
+      setCfgErro(null);
+      setCfgMsg(null);
+      setCfgData(null);
+      setCfgForm({});
+      setCfgRules({});
+      setCfgBotoes({});
+      return;
+    }
     loadCfgTipo(tipo);
   }
 
@@ -576,10 +515,28 @@ export function BotClient() {
   }
 
   function salvarConfig() {
+    // Prospecção salva pelo próprio painel (PATCH prospecting/config); o botão
+    // global de Salvar nem aparece nessa guia.
+    if (cfgTipo === "prospeccao") return;
     void patchConfig(buildBody(), "✓ Configuração salva.");
   }
 
+  // Gate de Termos: abre modal de aceite antes de ligar o bot.
+  // Se já aceito, liga direto via toggleType.
+  function requestActivate() {
+    if (!isBotTermsAccepted(cfgTipo)) {
+      pendingActivateRef.current = true;
+      setTermsOpen(true);
+    } else {
+      if (PROATIVO[cfgTipo]) {
+        if (!window.confirm(`Publicar o bot ${TYPE_LABEL[cfgTipo]}? Ele passará a agir automaticamente nas conversas.`)) return;
+      }
+      void toggleType(cfgTipo, true);
+    }
+  }
+
   function recarregar() {
+    if (cfgTipo === "prospeccao") return; // painel dedicado recarrega sozinho
     loadCfgTipo(cfgTipo);
     setCfgMsg("✓ Recarregando…");
   }
@@ -652,6 +609,15 @@ export function BotClient() {
 
   // ── Painel "Testar bot" deslizante (reusa .hbx-veil/.hbx-drawer) ──────────
   // Mesmo chat/estado de antes (mark-tested intacto), agora numa casca slide.
+  // Mapeia o chat de teste pro formato do <WhatsAppPreview> (preview padrão).
+  const previewMessages: WAMessage[] = chat.map(m => ({
+    dir: m.dir,
+    text: m.text,
+    time: m.tm,
+    status: m.dir === "out" ? "read" : undefined,
+  }));
+  const lastQuick = Boolean(chat[chat.length - 1]?.quick) && quickOptions.length > 0;
+
   const testDrawer = testOpen ? (
     <div
       className="hbx-veil to-right"
@@ -675,39 +641,26 @@ export function BotClient() {
             <option value="recovery">Recovery</option>
             <option value="prospeccao">Prospecção</option>
           </select>
-          <span className="saved" style={{ fontSize: "0.66rem" }}>Online ●</span>
           <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Reiniciar conversa de teste" onClick={resetChat}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
           <button className="icon-ghost" style={{ width: 28, height: 28 }} aria-label="Fechar" title="Fechar" onClick={() => setTestOpen(false)}>✕</button>
         </div>
-        <div className="msgs" ref={endRef} style={{ padding: 14 }}>
-          <div style={{ display: "flex", gap: 9, alignItems: "center", marginBottom: 6 }}>
-            <span className="bicon" style={{ background: "var(--hbx-brand)", width: 32, height: 32, borderRadius: 999 }}><I d={ICONS.bot} size={16} /></span>
-            <span><strong style={{ fontSize: "0.8rem" }}>HBX Bot</strong><br /><small style={{ fontSize: "0.62rem", color: "var(--hbx-brand-strong)", fontWeight: 700 }}>Online agora</small></span>
-          </div>
-          {chat.map((m, i) => (
-            <div key={i} className={"msg " + m.dir} style={{ maxWidth: "88%" }}>
-              <div className="bubble" style={m.dir === "out" ? { background: "var(--hbx-brand)", borderColor: "var(--hbx-brand)", color: "var(--hbx-action-ink)", fontWeight: 600 } : {}}>
-                <div style={{ whiteSpace: "pre-line" }}>{m.text}</div>
-                <div className="tm" style={m.dir === "out" ? { color: "color-mix(in srgb, var(--hbx-action-ink) 60%, transparent)" } : {}}>{m.tm}{m.dir === "out" && <span className="ck" style={{ color: "color-mix(in srgb, var(--hbx-action-ink) 70%, transparent)" }}>✓✓</span>}</div>
-              </div>
-            </div>
-          ))}
-          {chat[chat.length - 1].quick && quickOptions.length > 0 && (
-            <div style={{ display: "grid", gap: 7, justifyItems: "start", marginTop: 4 }}>
-              {quickOptions.map(q => (
-                <button key={q} className="qr" onClick={() => reply(q)}>{q}</button>
-              ))}
+
+        <WhatsAppPreview
+          messages={previewMessages}
+          header={{ name: "HBX Bot", status: "online agora" }}
+          quickReplies={lastQuick ? quickOptions : undefined}
+          onQuickReply={reply}
+          bodyRef={endRef}
+          footer={(
+            <div className="wa-composer-row">
+              <input className="field-dark wa-composer-input" placeholder="Digite sua mensagem..." value={draft}
+                onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
+              <button className="icon-ghost" title="Inserir emoji" onClick={addEmoji}><I d={ICONS.smile} size={16} /></button>
+              <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
             </div>
           )}
-        </div>
-        <div className="composer" style={{ padding: "10px 14px" }}>
-          <div className="row">
-            <input className="field-dark" style={{ flex: 1 }} placeholder="Digite sua mensagem..." value={draft}
-              onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
-            <button className="icon-ghost" title="Inserir emoji" onClick={addEmoji}><I d={ICONS.smile} size={16} /></button>
-            <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
-          </div>
-        </div>
+        />
+
         <div className="test-foot">⚡ Teste simulado · As respostas podem variar.</div>
       </div>
     </div>
@@ -799,6 +752,9 @@ export function BotClient() {
           </div>
 
           <div className="bot-mobile-actions">
+            <button className="btn-ghost" onClick={() => setOnbOpen(true)}>
+              <I d={ICONS.help || ICONS.bot} size={14} /> Configurar com ajuda
+            </button>
             <button className="btn-ghost" onClick={() => setTestOpen(true)}>
               <I d={ICONS.send} size={14} /> Testar bot
             </button>
@@ -809,7 +765,12 @@ export function BotClient() {
                 const status = act.types[tipo];
                 if (!act.armed) return;
                 const ligar = !status.live;
-                if (ligar && !window.confirm("Publicar o bot? Ele passará a responder automaticamente as novas conversas do WhatsApp.")) return;
+                if (ligar) {
+                  // Gate de termos antes de ativar
+                  requestActivate();
+                  return;
+                }
+                // Desligar: direto, sem gate
                 void toggleType(tipo, ligar);
               }}
               disabled={actBusy || !act.armed}
@@ -819,6 +780,49 @@ export function BotClient() {
           </div>
         </div>
         {testDrawer}
+
+        {/* Onboarding assistido mobile */}
+        <BotOnboarding
+          open={onbOpen && cfgTipo !== "prospeccao"}
+          botType={cfgTipo as "atendimento" | "recovery"}
+          fields={BOT_MSG_FIELDS.map<BotOnboardingField>(f => ({
+            key: String(f.key),
+            label: f.label,
+            hint: f.hint,
+            icon: f.icon,
+            tone: f.color,
+            buttonsKey: f.buttonsKey,
+          }))}
+          value={k => cfgValue(k as keyof BotConfig)}
+          onChange={(k, v) => setCfgForm(prev => ({ ...prev, [k]: v }))}
+          onSave={async () => { await salvarConfig(); }}
+          saving={cfgBusy}
+          connectionReady={act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado}
+          connectionHint={
+            act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado
+              ? "WhatsApp conectado"
+              : "Conexão pendente — peça ao Suporte"
+          }
+          onClose={() => setOnbOpen(false)}
+          onRequestActivate={() => { setOnbOpen(false); requestActivate(); }}
+        />
+
+        {/* Gate de Termos mobile */}
+        <BotTermsModal
+          open={termsOpen}
+          botType={cfgTipo}
+          checklist={[
+            ...BOT_MSG_FIELDS.map(f => ({ label: f.label, done: cfgValue(f.key).trim().length > 0 })),
+            { label: "WhatsApp conectado", done: act.types[cfgTipo].preflight.chipConectado },
+          ]}
+          onAccept={() => {
+            setBotTermsAccepted(cfgTipo);
+            setTermsOpen(false);
+            pendingActivateRef.current = false;
+            void toggleType(cfgTipo, true);
+          }}
+          onClose={() => { setTermsOpen(false); pendingActivateRef.current = false; }}
+        />
       </React.Fragment>
     );
   }
@@ -849,9 +853,16 @@ export function BotClient() {
               {cfgMsg}
             </span>
           )}
-          <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração" onClick={recarregar} disabled={cfgBusy}>⋯</button>
-          <button className="btn-ghost" onClick={() => setTestOpen(true)}><I d={ICONS.send} size={13} /> Testar bot</button>
-          <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
+          {/* Prospecção tem barra própria no painel (Salvar disparo / recarregar);
+              o teste simulado é de menu (atendimento), não faz sentido no disparo frio. */}
+          {cfgTipo !== "prospeccao" && (
+            <>
+              <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração" onClick={recarregar} disabled={cfgBusy}>⋯</button>
+              <button className="btn-ghost" onClick={() => setOnbOpen(true)}><I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda</button>
+              <button className="btn-ghost" onClick={() => setTestOpen(true)}><I d={ICONS.send} size={13} /> Testar bot</button>
+              <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -873,6 +884,7 @@ export function BotClient() {
               className={"bot-guia" + (cfgTipo === t ? " on" : "")}
               onClick={() => { if (t !== cfgTipo) { selecionarTipo(t); setActiveStep("welcomeMessage"); } }}
               disabled={cfgBusy}
+              title={st.live ? "Ligado automaticamente" : (st.blocked || "Configure pra ligar sozinho")}
             >
               <span className={"bot-guia__dot" + (st.live ? " bot-guia__dot--on" : "")} aria-hidden="true" />
               <span className="bot-guia__name">{TYPE_LABEL[t]}</span>
@@ -881,18 +893,13 @@ export function BotClient() {
         })}
       </div>
 
-      {/* ── Painel integrado do tipo: ativação compacta + fluxo=config (um só) ── */}
+      {/* ── Painel integrado do tipo: fluxo=config (a chavinha liga SOZINHA — ver efeito auto-ligar) ── */}
       <div className="bot-panel">
-        <BotTypeCard
-          tipo={cfgTipo}
-          status={act.types[cfgTipo]}
-          armed={act.armed}
-          onToggle={toggleType}
-          busy={actBusy}
-          compact
-        />
-
-        {cfgErro ? (
+        {cfgTipo === "prospeccao" ? (
+          /* Guia Prospecção: motor de disparo frio (config REAL via live-status +
+             prospecting/config). NÃO usa as peças de mensagem do atendimento. */
+          <BotProspeccaoPanel onSaved={loadActivation} />
+        ) : cfgErro ? (
           <div className="bot-load-error" role="alert">
             <strong className="bot-load-error__title">Não deu pra carregar o bot</strong>
             <p className="bot-load-error__msg">{cfgErro}</p>
@@ -1034,6 +1041,49 @@ export function BotClient() {
       {variablesDrawer}
       {phaseEditor}
       {testDrawer}
+
+      {/* Onboarding assistido (Atendimento/Recovery) */}
+      <BotOnboarding
+        open={onbOpen && cfgTipo !== "prospeccao"}
+        botType={cfgTipo as "atendimento" | "recovery"}
+        fields={BOT_MSG_FIELDS.map<BotOnboardingField>(f => ({
+          key: String(f.key),
+          label: f.label,
+          hint: f.hint,
+          icon: f.icon,
+          tone: f.color,
+          buttonsKey: f.buttonsKey,
+        }))}
+        value={k => cfgValue(k as keyof BotConfig)}
+        onChange={(k, v) => setCfgForm(prev => ({ ...prev, [k]: v }))}
+        onSave={async () => { await salvarConfig(); }}
+        saving={cfgBusy}
+        connectionReady={act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado}
+        connectionHint={
+          act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado
+            ? "WhatsApp conectado"
+            : "Conexão pendente — peça ao Suporte"
+        }
+        onClose={() => setOnbOpen(false)}
+        onRequestActivate={() => { setOnbOpen(false); requestActivate(); }}
+      />
+
+      {/* Gate de Termos antes de ativar */}
+      <BotTermsModal
+        open={termsOpen}
+        botType={cfgTipo}
+        checklist={[
+          ...BOT_MSG_FIELDS.map(f => ({ label: f.label, done: cfgValue(f.key).trim().length > 0 })),
+          { label: "WhatsApp conectado", done: act.types[cfgTipo].preflight.chipConectado },
+        ]}
+        onAccept={() => {
+          setBotTermsAccepted(cfgTipo);
+          setTermsOpen(false);
+          pendingActivateRef.current = false;
+          void toggleType(cfgTipo, true);
+        }}
+        onClose={() => { setTermsOpen(false); pendingActivateRef.current = false; }}
+      />
     </React.Fragment>
   );
 }

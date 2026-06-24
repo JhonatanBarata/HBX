@@ -28,6 +28,15 @@
 @import "./hbx-theme/bot-buttons.css";
 @import "./hbx-theme/bot-variables.css";
 @import "./hbx-theme/bot-builder.css";
+@import "./hbx-theme/bot-prospeccao.css";
+
+/* Preview padrão do sistema (cara fiel de WhatsApp) + tutofig da Prospecção +
+   onboarding gamificado dos bots de menu + gate de Termos de Uso.
+   Depois de transitions.css (reusam .hbx-veil) e antes das peles. */
+@import "./hbx-theme/whatsapp.css";
+@import "./hbx-theme/bot-tutofig.css";
+@import "./hbx-theme/bot-onboarding.css";
+@import "./hbx-theme/bot-terms.css";
 
 /* Peles instaladas (tokens + camada de vestir; sempre por último
    para sobrescreverem o esqueleto). Pele nova = 1 arquivo + 1 linha

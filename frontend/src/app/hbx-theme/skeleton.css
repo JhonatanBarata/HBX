@@ -31,6 +31,11 @@
   --hbx-warning: #6E6E6E;
   --hbx-danger: #2F2F2F;
   --hbx-danger-soft: #EBEBEB;
+  /* Vermelho de SINAL de status (ícones do topo: WhatsApp/Bot/E-mail/Localização).
+     FIXO e verdadeiro — a pele decorativa NÃO o tinge (senão "erro/faltando
+     configuração" vira rosa e perde o sentido de alarme). Semântica de alerta,
+     não de marca; por isso vive aqui no contrato e os theme-*.css não o sobrescrevem. */
+  --hbx-signal-danger: #DC2626;
 
   /* ---- Superfícies ----------------------------------------------------- */
   --hbx-background: #F4F4F4;
@@ -52,6 +57,26 @@
   --hbx-chat-inbound: #FFFFFF;
   --hbx-chat-outbound: #ECECEC;
   --hbx-chat-system: #F5F5F5;
+
+  /* ---- WhatsApp (preview FIEL) -----------------------------------------
+     Cores REAIS do WhatsApp, constantes — a pele NÃO as tinge (senão a prévia
+     deixa de parecer WhatsApp). Valores ficam aqui porque o skeleton é isento do
+     check-pele; o componente <WhatsAppPreview> usa SÓ var(--wa-*), nunca hex. */
+  --wa-header: #075E54;        /* barra verde do topo */
+  --wa-header-ink: #FFFFFF;    /* texto/ícones sobre a barra verde */
+  --wa-header-sub: #BFE9E2;    /* status "online/digitando…" no topo */
+  --wa-avatar: #6B7C85;        /* fundo do avatar (iniciais) */
+  --wa-frame: #0A1014;         /* moldura do celular */
+  --wa-wallpaper: #0B141A;     /* fundo escuro do chat */
+  --wa-bubble-in: #1F2C33;     /* balão recebido (esquerda) */
+  --wa-bubble-out: #005C4B;    /* balão enviado (direita) */
+  --wa-text: #E9EDEF;          /* texto dos balões */
+  --wa-text-sub: #8696A0;      /* hora / legenda dos balões */
+  --wa-tick: #8696A0;          /* ✓✓ entregue (cinza) */
+  --wa-tick-read: #53BDEB;     /* ✓✓ lido (azul) */
+  --wa-composer: #1F2C33;      /* barra do composer dentro do telefone */
+  --wa-quick: #1F2C33;         /* botão de resposta rápida */
+  --wa-quick-ink: #53BDEB;     /* texto do botão de resposta rápida */
 
   /* ---- Texto ------------------------------------------------------------ */
   --hbx-foreground: #1A1A1A;
@@ -153,6 +178,7 @@
   --hbx-warning: #9C9C9C;
   --hbx-danger: #D6D6D6;
   --hbx-danger-soft: #2E2E2E;
+  --hbx-signal-danger: #EF4444;
 
   --hbx-background: #121212;
   --hbx-background-alt: #0E0E0E;

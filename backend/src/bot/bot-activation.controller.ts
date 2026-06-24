@@ -42,6 +42,16 @@ export class BotActivationController {
     return this.botActivationService.putActivation(req.user, { type, live });
   }
 
+  // Chave geral (master switch): liga/desliga o bot inteiro. NÃO usa @BotArmed —
+  // desligar tem que funcionar sempre; o service valida admin e o pré-voo por dentro.
+  @Put('master-switch')
+  setMasterSwitch(@Req() req: any, @Body() body: { on: boolean }) {
+    if (typeof body?.on !== 'boolean') {
+      throw new BadRequestException('Campo "on" deve ser boolean.');
+    }
+    return this.botActivationService.setMasterSwitch(req.user, body.on);
+  }
+
   @Post('mark-tested')
   markTested(@Req() req: any, @Body() body: { type: BotTypeKey }) {
     const type = body?.type;

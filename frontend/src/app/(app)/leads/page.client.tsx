@@ -984,45 +984,6 @@ export function LeadsClient() {
         <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
         {opMsg && <div className="radar-state-msg">{opMsg}</div>}
 
-        {/* Canais — forçar na busca (liga/desliga), logo antes de Estado. Sem filtro
-            pós-resultado: o canal não nasce na busca (só enriquecido depois) — "forçar"
-            pede ao motor pra já trazer só quem tem o canal escolhido. */}
-        <div className="radar-canais">
-          <div className="radar-canais__head">
-            <span className="radar-canais__lbl">Canais</span>
-            <button
-              type="button"
-              className={"radar-canais__switch" + (forcarCanais ? " radar-canais__switch--on" : "")}
-              onClick={() => setForcarCanais(v => !v)}
-              aria-pressed={forcarCanais}
-              title="Forçar a busca a trazer só leads com os canais escolhidos"
-            >
-              {forcarCanais ? "Forçar: Ligado" : "Forçar: Desligado"}
-            </button>
-          </div>
-          <div className="radar-canais__chips">
-            {ALL_CANAIS.map(c => (
-              <button
-                key={c}
-                type="button"
-                className={"radar-canal-toggle" + (canalAtivos.has(c) ? " radar-canal-toggle--active" : "")}
-                onClick={() => toggleCanal(c)}
-                disabled={!forcarCanais}
-                title={c.charAt(0).toUpperCase() + c.slice(1)}
-                aria-pressed={canalAtivos.has(c)}
-              >
-                <CanalIcon canal={c} size="sm" />
-                <span>{c === "instagram" ? "IG" : c === "facebook" ? "FB" : c.charAt(0).toUpperCase() + c.slice(1)}</span>
-              </button>
-            ))}
-          </div>
-          {forcarCanais && (
-            <p className="radar-canais__warn">
-              Forçar canais deixa a busca mais lenta e pode trazer menos resultados — o motor tem que verificar WhatsApp/site/redes de cada lead na hora, e às vezes falha.
-            </p>
-          )}
-        </div>
-
         {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
         {geo && (
           <div className="radar-geo-chip">
@@ -1039,45 +1000,28 @@ export function LeadsClient() {
           </div>
         )}
 
-        {/* Filtros compactos */}
-        <div className="radar-controls">
-          {/* P3: seta aparece no campo Estado enquanto vazio */}
-          <div className="f">
-            <label htmlFor="rc-uf">
-              Estado{!uf && <span className="radar-field-arrow" aria-hidden>›</span>}
-            </label>
-            <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
-              <option value="">Todos</option>
-              {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          {/* P3: seta aparece no campo Cidade enquanto vazio */}
-          <div className="f">
-            <label htmlFor="rc-city">
-              Cidade{!city.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
-            </label>
-            <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
-              <option value="">Cidade</option>
-              {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-            </select>
-          </div>
-          {/* P2: segmento livre (input list) + P3: seta */}
-          <div className="f">
-            <label htmlFor="rc-seg">
-              Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
-            </label>
-            <datalist id="rc-seg-list">
-              {segOptions.map(o => <option key={o.value} value={o.label} />)}
-            </datalist>
-            <input
-              id="rc-seg"
-              list="rc-seg-list"
-              className="select-dark"
-              value={segment}
-              onChange={e => setSegment(e.target.value)}
-              placeholder="Ex.: Odontologia"
-              autoComplete="off"
-            />
+        {/* BLOCO B1: Onde buscar */}
+        <div className="radar-box">
+          <span className="radar-box__title">Onde buscar</span>
+          <div className="radar-box__grid2">
+            <div className="f">
+              <label htmlFor="rc-uf">
+                Estado{!uf && <span className="radar-field-arrow" aria-hidden>›</span>}
+              </label>
+              <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
+                <option value="">Todos</option>
+                {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="f">
+              <label htmlFor="rc-city">
+                Cidade{!city.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
+              </label>
+              <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
+                <option value="">Cidade</option>
+                {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+              </select>
+            </div>
           </div>
           <div className="f">
             <label htmlFor="rc-alcance">Alcance</label>
@@ -1088,11 +1032,71 @@ export function LeadsClient() {
               <option value="100">+ 100 km</option>
             </select>
           </div>
+        </div>
+
+        {/* BLOCO B2: O que buscar */}
+        <div className="radar-box">
+          <span className="radar-box__title">O que buscar</span>
           <div className="f">
-            <label htmlFor="rc-quantos">Quantos</label>
+            <label htmlFor="rc-seg">
+              Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
+            </label>
+            <select
+              id="rc-seg"
+              className="select-dark"
+              value={segment}
+              onChange={e => setSegment(e.target.value)}
+            >
+              <option value="">Escolha um segmento</option>
+              {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+              {segment && !segOptions.some(o => o.label === segment) && (
+                <option value={segment}>{segment}</option>
+              )}
+            </select>
+          </div>
+          <div className="f">
+            <label htmlFor="rc-quantos">Quantos puxar</label>
             <select id="rc-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
               {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
+          </div>
+        </div>
+
+        {/* BLOCO B3: Canais — forçar na busca */}
+        <div className="radar-box">
+          <div className="radar-canais">
+            <div className="radar-canais__head">
+              <span className="radar-canais__lbl">Canais exigidos</span>
+              <button
+                type="button"
+                className={"radar-canais__switch" + (forcarCanais ? " radar-canais__switch--on" : "")}
+                onClick={() => setForcarCanais(v => !v)}
+                aria-pressed={forcarCanais}
+                title="Forçar a busca a trazer só leads com os canais escolhidos"
+              >
+                {forcarCanais ? "Forçar: Ligado" : "Forçar: Desligado"}
+              </button>
+            </div>
+            <div className="radar-canais__chips">
+              {ALL_CANAIS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  className={"radar-canal-toggle" + (canalAtivos.has(c) ? " radar-canal-toggle--active" : "")}
+                  onClick={() => toggleCanal(c)}
+                  disabled={!forcarCanais}
+                  title={c.charAt(0).toUpperCase() + c.slice(1)}
+                  aria-pressed={canalAtivos.has(c)}
+                >
+                  <CanalIcon canal={c} size="lg" />
+                </button>
+              ))}
+            </div>
+            {forcarCanais && (
+              <p className="radar-canais__warn">
+                Forçar canais deixa a busca mais lenta e pode trazer menos resultados — o motor tem que verificar WhatsApp/site/redes de cada lead na hora, e às vezes falha.
+              </p>
+            )}
           </div>
         </div>
 
@@ -1374,20 +1378,20 @@ export function LeadsClient() {
                     {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
                   </select>
                 </div>
-                {/* P2 mobile: segmento livre */}
+                {/* P2 mobile: segmento — select igual desktop */}
                 <div className="f">
                   <label>Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}</label>
-                  <datalist id="rm-seg-list">
-                    {segOptions.map(o => <option key={o.value} value={o.label} />)}
-                  </datalist>
-                  <input
-                    list="rm-seg-list"
+                  <select
                     className="select-dark"
                     value={segment}
                     onChange={e => setSegment(e.target.value)}
-                    placeholder="Ex.: Odontologia"
-                    autoComplete="off"
-                  />
+                  >
+                    <option value="">Escolha um segmento</option>
+                    {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+                    {segment && !segOptions.some(o => o.label === segment) && (
+                      <option value={segment}>{segment}</option>
+                    )}
+                  </select>
                 </div>
                 {/* P4 mobile: botão Buscar usa validação com popup */}
                 <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>

@@ -114,6 +114,21 @@ export class BotActivationService {
     return status === 'CONNECTED';
   }
 
+  // ── chave geral (master switch) por empresa — INDEPENDE de config/chip ───────
+  // Guardada no padrão de config-row (sem migration). off=true → o dono DESLIGOU o
+  // bot inteiro; o ícone do topo fica CINZA mesmo com tudo configurado.
+  private readonly BOT_MASTER_SWITCH_CHANNEL = '__BOT_MASTER_SWITCH__';
+
+  private async resolveMasterOff(companyId: number): Promise<boolean> {
+    const row = await this.getConfigRow(companyId, this.BOT_MASTER_SWITCH_CHANNEL, 'v1');
+    if (!row?.template) return false; // sem registro = chave LIGADA (default)
+    try {
+      return Boolean(JSON.parse(row.template)?.off);
+    } catch {
+      return false;
+    }
+  }
+
   // ── pré-voo: configCompleta por tipo ─────────────────────────────────────
 
   private async resolveConfigCompleta(
@@ -296,11 +311,14 @@ export class BotActivationService {
     const recovLive = armed && Boolean(company?.recoveryBotLiveAt);
     const prospLive = armed && Boolean(company?.prospectingBotLiveAt);
 
+    const masterOff = await this.resolveMasterOff(companyId);
+
     return {
       armed,
       armedBy,
       armReason: company?.botArmReason || null,
       channel: activation.channel,
+      masterOff,
       canAdminToggle,
       types: {
         atendimento: {
@@ -391,6 +409,70 @@ export class BotActivationService {
     }
 
     return { ok: true, type, live };
+  }
+
+  // ── CHAVE GERAL: liga/desliga o bot inteiro (INDEPENDE de pré-voo) ───────────
+  // É a "chave de desligar o bot" do dono. Desligar SEMPRE funciona (não exige
+  // chip/config) e derruba os 3 tipos de verdade. Ligar é best-effort: liga os
+  // tipos que passam no pré-voo — o pré-voo (chip/config/teste) fica INTACTO, então
+  // nada de cold-send sem estar pronto (anti-ban preservado).
+  async setMasterSwitch(user: any, on: boolean) {
+    const companyId = requireCompanyId(user);
+    const userId = requireUserId(user);
+    if (!isAdminOrMaster(user)) {
+      throw new BadRequestException('Apenas administradores podem usar a chave geral do bot.');
+    }
+
+    // grava a INTENÇÃO (independe de config/chip — é a chave geral)
+    await this.saveConfigRow(companyId, this.BOT_MASTER_SWITCH_CHANNEL, 'v1', {
+      off: !on,
+      at: new Date().toISOString(),
+      byUserId: userId,
+    });
+
+    if (!on) {
+      // DESLIGAR DE VERDADE: derruba os 3 tipos (live=false não exige pré-voo).
+      await this.toggleAtendimentoLive(companyId, false).catch(() => undefined);
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: {
+          recoveryBotLiveAt: null,
+          recoveryBotLiveByUserId: null,
+          prospectingBotLiveAt: null,
+          prospectingBotLiveByUserId: null,
+        },
+      });
+      return { ok: true, on: false };
+    }
+
+    // LIGAR: só liga os tipos prontos (pré-voo ok). Em localhost sem chip nenhum
+    // liga → o ícone fica VERMELHO ("ligado, faltando config"), não cinza.
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { botArmedAt: true },
+    });
+    const armed = isBotArmedForCompany(company);
+    const chipConectado = armed ? await this.resolveChipConectado(companyId) : false;
+    for (const type of ['atendimento', 'recovery', 'prospeccao'] as BotTypeKey[]) {
+      const atendCfg =
+        type === 'atendimento' ? await this.getAtendimentoConfig(companyId) : undefined;
+      const preflight = await this.resolvePreflight(companyId, type, chipConectado, atendCfg);
+      if (this.resolveBlocked(type, armed, preflight)) continue; // bloqueado → não liga
+      if (type === 'atendimento') {
+        await this.toggleAtendimentoLive(companyId, true).catch(() => undefined);
+      } else if (type === 'recovery') {
+        await this.prisma.company.update({
+          where: { id: companyId },
+          data: { recoveryBotLiveAt: new Date(), recoveryBotLiveByUserId: userId },
+        });
+      } else {
+        await this.prisma.company.update({
+          where: { id: companyId },
+          data: { prospectingBotLiveAt: new Date(), prospectingBotLiveByUserId: userId },
+        });
+      }
+    }
+    return { ok: true, on: true };
   }
 
   // ── toggle atendimento via config JSON (reutilizar fonte canônica) ─────────
