@@ -1,0 +1,1630 @@
+/* ============================================================
+   PELE: FUTURE — neon navy, cinematográfico sci-fi.
+   Escopo total: [data-theme="future"].
+   A estrela é o MODO ESCURO (navy + azul elétrico).
+   Arquivo completo: tokens globais + bloco FBB (Future Bot Builder).
+   check-pele isenta arquivos hbx-theme/theme-*.css → hex livre aqui.
+   ============================================================ */
+
+/* pele-allow
+   Arquivo de pele: isenção global de hex/rgba pelo check-pele.
+pele-allow-end */
+
+/* ────────────────────────────────────────────────────────────
+   BLOCO A · TOKENS GLOBAIS — FUTURE é SEMPRE o mundo escuro/neon.
+   Ordem do dono: "quebre todas as regras nesse tema". O claro TAMBÉM
+   recebe o navy profundo — a pele ignora claro/escuro de propósito.
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] {
+  --hbx-brand: #21b2ff;
+  --hbx-brand-strong: #6fd6ff;
+  --hbx-brand-soft: #071a2e;
+  --hbx-brand-contrast: #eaf6ff;
+  --hbx-primary: #21b2ff;
+  --hbx-secondary: #7ee6ff;
+  --hbx-success: #22d3a0;
+  --hbx-accent: #7b54ff;
+  --hbx-info: #38bdf8;
+  --hbx-warning: #ffbe3b;
+  --hbx-danger: #ff5c7a;
+  --hbx-danger-soft: #3a0f1c;
+  --hbx-background: #02060f;
+  --hbx-background-alt: #01040b;
+  --hbx-surface: #0a1424;
+  --hbx-surface-soft: #0b1626;
+  --hbx-surface-raised: #102236;
+  --hbx-header-surface: rgba(6,13,26,0.62);
+  --hbx-nav-surface: rgba(6,14,28,0.66);
+  --hbx-field-surface: #081320;
+  --hbx-table-head: #0a1626;
+  --hbx-chat-inbound: #0d1c30;
+  --hbx-chat-outbound: #103053;
+  --hbx-chat-system: #0a1424;
+  --hbx-foreground: #f4f8fd;
+  --hbx-foreground-soft: #c2d6ec;
+  --hbx-muted: #8ba6c4;
+  --hbx-line: #16304f;
+  --hbx-shadow: #000106;
+  --hbx-overlay: rgba(1,4,12,0.82);
+  --border-hairline: #1a3354;
+  --border-strong: #2a5688;
+  --ring-brand: rgba(33,178,255,0.45);
+  --hbx-action-ink: #021018;
+  --hbx-avatar-from: #21b2ff;
+  --hbx-avatar-to: #7ee6ff;
+  --font-display: "Sora", system-ui, sans-serif;
+  --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --shadow-xs: 0 10px 24px -16px rgba(0,0,0,0.7);
+  --shadow-sm: 0 18px 44px -24px rgba(0,0,0,0.72);
+  --shadow-md: 0 28px 64px -30px rgba(0,0,0,0.78);
+  --shadow-lg: 0 44px 90px -36px rgba(0,0,0,0.82);
+  --shadow-inset: inset 0 1px 0 rgba(120,200,255,0.12);
+  --blur-chrome: 22px;
+  --blur-glass: 16px;
+  --panel-glow: rgba(33,178,255,0.24);
+  --hero-glow: rgba(126,230,255,0.24);
+  --soft-ring: rgba(33,178,255,0.32);
+  --motion-fast: 150ms ease;
+  --motion-base: 340ms cubic-bezier(0.22,1,0.36,1);
+  --motion-slow: 560ms cubic-bezier(0.22,1,0.36,1);
+  --ease-out-quint: cubic-bezier(0.22,1,0.36,1);
+  --icon-stroke: 1.7;
+  --enter-name: hbx-enter-glide;
+  --enter-duration: 360ms;
+  --enter-ease: cubic-bezier(0.22,1,0.36,1);
+  --enter-stagger: 0ms;
+}
+
+/* ────────────────────────────────────────────────────────────
+   BLOCO A · TOKENS — Dark (a estrela: navy + neon)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"][data-theme-mode="dark"] {
+  --hbx-brand: #19a9ff;
+  --hbx-brand-strong: #5dc8ff;
+  --hbx-brand-soft: #071828;
+  --hbx-brand-contrast: #eaf5ff;
+  --hbx-primary: #19a9ff;
+  --hbx-secondary: #7ee6ff;
+  --hbx-success: #22d3a0;
+  --hbx-accent: #19a9ff;
+  --hbx-info: #38bdf8;
+  --hbx-warning: #fbbf24;
+  --hbx-danger: #ff5c7a;
+  --hbx-danger-soft: #3a0f1c;
+  --hbx-background: #020711;
+  --hbx-background-alt: #020913;
+  --hbx-surface: #060f1e;
+  --hbx-surface-soft: #080e1c;
+  --hbx-surface-raised: #0c1829;
+  --hbx-header-surface: rgba(4,9,18,0.78);
+  --hbx-nav-surface: rgba(5,10,20,0.88);
+  --hbx-field-surface: #07101f;
+  --hbx-table-head: #071020;
+  --hbx-chat-inbound: #0a1628;
+  --hbx-chat-outbound: #0d2040;
+  --hbx-chat-system: #060f1e;
+  --hbx-foreground: #f4f7fb;
+  --hbx-foreground-soft: #b8ccdf;
+  --hbx-muted: #8fa4bd;
+  --hbx-line: #112035;
+  --hbx-shadow: #000106;
+  --hbx-overlay: rgba(1,4,12,0.78);
+  --border-hairline: #0e2038;
+  --border-strong: #1a3a60;
+  --ring-brand: rgba(25,169,255,0.38);
+  --hbx-action-ink: #eaf5ff;
+  --hbx-avatar-from: #19a9ff;
+  --hbx-avatar-to: #7ee6ff;
+  --shadow-inset: inset 0 1px 0 rgba(100,200,255,0.07);
+  --panel-glow: rgba(25,169,255,0.2);
+  --hero-glow: rgba(126,230,255,0.2);
+  --soft-ring: rgba(25,169,255,0.26);
+}
+
+/* ════════════════════════════════════════════════════════════
+   BLOCO B · MUNDO NEBULOSA — o APP INTEIRO vira sci-fi.
+   Tema PESADO (ordem do dono): nebulosa no app todo, vidro escuro
+   translúcido, bordas neon acesas e glow em tudo. Tudo escopado em
+   [data-theme="future"] — zero efeito nos outros temas.
+   ════════════════════════════════════════════════════════════ */
+
+/* Fundo do app = NEBULOSA real cobrindo tudo (atrás dos painéis de vidro).
+   attachment:fixed → a nebulosa fica parada e o conteúdo desliza por cima. */
+[data-theme="future"] body {
+  background:
+    radial-gradient(circle at 12% 86%, rgba(33,178,255,0.16), transparent 30%),
+    radial-gradient(circle at 88% 14%, rgba(123,84,255,0.18), transparent 32%),
+    linear-gradient(180deg, rgba(2,5,12,0.78), rgba(1,3,9,0.90)),
+    var(--fbb-bg, none),
+    #02060f;
+  background-size: auto, auto, auto, cover, auto;
+  background-position: center, center, center, center, center;
+  background-repeat: no-repeat;
+}
+
+/* Containers estruturais transparentes → a nebulosa do body aparece atrás. */
+[data-theme="future"] .app,
+[data-theme="future"] .main,
+[data-theme="future"] .app-page,
+[data-theme="future"] .content { background: transparent; }
+
+/* Grade de circuito sutil — camada fixa atrás do conteúdo (vaza pelos vidros). */
+[data-theme="future"] .app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--fbb-grid, none);
+  background-size: 340px 340px;
+  opacity: 0.06;
+}
+[data-theme="future"] .side,
+[data-theme="future"] .main { position: relative; z-index: 1; }
+
+/* Sidebar = vidro escuro + borda neon acesa + glow lateral. */
+[data-theme="future"] .side {
+  background: linear-gradient(180deg, rgba(8,18,34,0.74), rgba(4,10,20,0.60));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+  border-right: 1px solid color-mix(in srgb, var(--hbx-brand) 40%, transparent);
+  box-shadow:
+    inset -1px 0 0 color-mix(in srgb, var(--hbx-brand) 26%, transparent),
+    14px 0 50px -26px color-mix(in srgb, var(--hbx-brand) 75%, transparent);
+}
+[data-theme="future"] .logo strong { text-shadow: 0 0 20px var(--hbx-brand); }
+[data-theme="future"] .logo svg { filter: drop-shadow(0 0 10px var(--hbx-brand)); }
+
+/* Topbar = vidro + borda neon embaixo + glow. */
+[data-theme="future"] .topbar {
+  background: linear-gradient(180deg, rgba(8,18,34,0.66), rgba(4,10,20,0.42));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+  border-bottom: 1px solid color-mix(in srgb, var(--hbx-brand) 32%, transparent);
+  box-shadow: 0 10px 40px -22px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+}
+
+/* Painéis/cards = VIDRO escuro translúcido (a nebulosa vaza por trás) +
+   borda neon + glow externo. O coração do "tema pesado cheio de vícios". */
+[data-theme="future"] .panel,
+[data-theme="future"] .kpi,
+[data-theme="future"] .card,
+[data-theme="future"] .plan-card,
+[data-theme="future"] .user-card,
+[data-theme="future"] .deal,
+[data-theme="future"] .hbx-modal,
+[data-theme="future"] .hbx-pop {
+  background:
+    radial-gradient(120% 120% at 100% 0%, color-mix(in srgb, var(--hbx-brand) 10%, transparent), transparent 46%),
+    linear-gradient(180deg, rgba(12,24,44,0.78), rgba(7,15,28,0.66));
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 28%, var(--border-hairline));
+  box-shadow:
+    inset 0 1px 0 rgba(120,200,255,0.12),
+    0 22px 60px -34px rgba(0,0,0,0.85),
+    0 0 30px -14px color-mix(in srgb, var(--hbx-brand) 55%, transparent);
+}
+
+[data-theme="future"] .panel:hover,
+[data-theme="future"] .kpi:hover,
+[data-theme="future"] .deal:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--hbx-brand) 50%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(120,200,255,0.16),
+    0 28px 70px -34px rgba(0,0,0,0.9),
+    0 0 44px -12px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+}
+
+/* Números de KPI e títulos acesos (neon). */
+[data-theme="future"] .kpi b,
+[data-theme="future"] .kpi strong,
+[data-theme="future"] h1,
+[data-theme="future"] h2 {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+}
+
+/* Nav-item: hover e ativo acesos. */
+[data-theme="future"] .nav-item {
+  transition: background var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+[data-theme="future"] .nav-item:hover {
+  background: color-mix(in srgb, var(--hbx-brand) 10%, transparent);
+  transform: translateX(2px);
+}
+[data-theme="future"] .nav-item.active {
+  background: color-mix(in srgb, var(--hbx-brand) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 50%, transparent);
+  color: var(--hbx-brand-contrast);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 22%, transparent),
+    0 0 22px -6px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+}
+[data-theme="future"] .nav-item.active svg { filter: drop-shadow(0 0 8px var(--hbx-brand)); }
+
+/* Botões neon. */
+[data-theme="future"] .btn-teal {
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  color: var(--hbx-action-ink);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 75%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.28),
+    0 0 24px -6px color-mix(in srgb, var(--hbx-brand) 80%, transparent);
+}
+[data-theme="future"] .btn-teal:hover {
+  background: linear-gradient(135deg, var(--hbx-brand-strong), var(--hbx-secondary));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.32),
+    0 0 34px -4px color-mix(in srgb, var(--hbx-brand) 90%, transparent);
+}
+[data-theme="future"] .btn-ghost {
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, var(--border-hairline));
+  box-shadow: var(--shadow-inset);
+}
+[data-theme="future"] .btn-ghost:hover {
+  border-color: color-mix(in srgb, var(--hbx-brand) 55%, transparent);
+  box-shadow: 0 0 18px -8px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+}
+
+/* Campos: vidro escuro + foco neon. */
+[data-theme="future"] .field-dark,
+[data-theme="future"] .select-dark,
+[data-theme="future"] .search,
+[data-theme="future"] input,
+[data-theme="future"] select,
+[data-theme="future"] textarea {
+  background: rgba(4,12,24,0.55);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 22%, var(--border-hairline));
+}
+[data-theme="future"] .field-dark:focus,
+[data-theme="future"] .select-dark:focus,
+[data-theme="future"] .search:focus,
+[data-theme="future"] input:focus,
+[data-theme="future"] select:focus,
+[data-theme="future"] textarea:focus {
+  border-color: var(--hbx-brand);
+  box-shadow: 0 0 0 3px var(--ring-brand), 0 0 18px -4px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+  outline: none;
+}
+
+/* Ícones de KPI / features acesos. */
+[data-theme="future"] .kpi-icon,
+[data-theme="future"] .feat .ic {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hbx-brand) 26%, transparent),
+    0 0 22px -8px color-mix(in srgb, var(--hbx-brand) 70%, transparent);
+}
+
+/* ────────────────────────────────────────────────────────────
+   BLOCO C · FUTURE BOT BUILDER (FBB) — variáveis de imagem
+   Os gradientes seguram o visual se 404; melhora com as imagens.
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] {
+  --fbb-accent: #19a9ff;
+  --fbb-accent2: #7ee6ff;
+  /* Imagem de fundo (nebulosa + grid). Fallback: gradiente puro. */
+  --fbb-bg: url("/future/bg.png");
+  /* Ícones herói dos mode-cards */
+  --fbb-icon-atendimento: url("/future/icon-atendimento.png");
+  --fbb-icon-recovery: url("/future/icon-recovery.png");
+  --fbb-icon-prospeccao: url("/future/icon-prospeccao.png");
+  /* Logo HUD */
+  --fbb-hud-logo: url("/future/hud-hbx.png");
+  /* Grade de fundo opcional */
+  --fbb-grid: url("/future/grid.png");
+}
+
+/* Tokens padrão do FBB no root (portal no body não herda [data-theme="future"]) */
+.fbb-root {
+  --fbb-accent: #19a9ff;
+  --fbb-accent2: #7ee6ff;
+  --fbb-bg: url("/future/bg.png");
+  --fbb-icon-atendimento: url("/future/icon-atendimento.png");
+  --fbb-icon-recovery: url("/future/icon-recovery.png");
+  --fbb-icon-prospeccao: url("/future/icon-prospeccao.png");
+  --fbb-hud-logo: url("/future/hud-hbx.png");
+  --fbb-grid: url("/future/grid.png");
+  background:
+    radial-gradient(circle at 12% 88%, color-mix(in srgb, var(--fbb-accent) 22%, transparent), transparent 26%),
+    radial-gradient(circle at 82% 14%, rgba(82,35,255,0.18), transparent 28%),
+    radial-gradient(circle at 50% 50%, rgba(0,10,32,0.55), transparent 70%),
+    var(--fbb-grid),
+    var(--fbb-bg);
+  background-size: cover, cover, cover, 280px 280px, cover;
+  background-position: left, right, center, center, center;
+  background-blend-mode: normal, normal, multiply, overlay, normal;
+}
+
+/* Recolor por modo: --fbb-accent troca, o resto segue.
+   Duplo seletor: com ancestral (SSR/fallback) e sem (portal no body). */
+[data-theme="future"] .fbb-root[data-mode="recovery"],
+.fbb-root[data-mode="recovery"] {
+  --fbb-accent: #ffae22;
+  --fbb-accent2: #ffd36d;
+}
+
+[data-theme="future"] .fbb-root[data-mode="prospeccao"],
+.fbb-root[data-mode="prospeccao"] {
+  --fbb-accent: #b14cff;
+  --fbb-accent2: #e0a4ff;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · ROOT + BACKDROP
+   O portal renderiza no body — o seletor segue o data-mode no
+   próprio .fbb-root (não precisa de ancestral data-theme).
+   Para os seletores que precisam do contexto de pele ativa,
+   usamos o body com [data-theme="future"] OU direto no .fbb-root.
+   ──────────────────────────────────────────────────────────── */
+.fbb-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  min-height: 100vh;
+  overflow: hidden;
+  color: #f4f7fb;
+  font-family: "Sora", "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-theme="future"] .fbb-root {
+  background:
+    /* Glow de modo (accent muda por modo) */
+    radial-gradient(circle at 12% 88%, color-mix(in srgb, var(--fbb-accent) 22%, transparent), transparent 26%),
+    radial-gradient(circle at 82% 14%, rgba(82,35,255,0.18), transparent 28%),
+    radial-gradient(circle at 50% 50%, rgba(0,10,32,0.55), transparent 70%),
+    /* Grade sutil em cima da nebulosa */
+    var(--fbb-grid),
+    /* Nebulosa principal */
+    var(--fbb-bg);
+  background-size:
+    cover,
+    cover,
+    cover,
+    /* grid: tile pequeno */
+    280px 280px,
+    cover;
+  background-position:
+    left,
+    right,
+    center,
+    center,
+    center;
+  background-blend-mode: normal, normal, multiply, overlay, normal;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · APP FANTASMA (blur por trás do foco)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-fake-app,
+.fbb-root .fbb-fake-app {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  filter: blur(5px);
+  opacity: 0.28;
+  transform: scale(1.02);
+  pointer-events: none;
+}
+
+[data-theme="future"] .fbb-fake-side,
+.fbb-root .fbb-fake-side {
+  background: #050b14;
+  border-right: 1px solid rgba(255,255,255,0.1);
+  padding: 24px 18px;
+}
+
+[data-theme="future"] .fbb-fake-logo,
+.fbb-root .fbb-fake-logo {
+  margin-bottom: 36px;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 950;
+  letter-spacing: 3px;
+  text-shadow: 0 0 18px var(--fbb-accent);
+}
+
+[data-theme="future"] .fbb-fake-nav-item,
+.fbb-root .fbb-fake-nav-item {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  margin: 9px 0;
+  color: #a9bed5;
+  border-radius: 14px;
+  font-weight: 800;
+}
+
+[data-theme="future"] .fbb-fake-nav-item--active,
+.fbb-root .fbb-fake-nav-item--active {
+  color: #fff;
+  background: color-mix(in srgb, var(--fbb-accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 38%, transparent);
+}
+
+[data-theme="future"] .fbb-fake-dot,
+.fbb-root .fbb-fake-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: currentColor;
+  box-shadow: 0 0 14px currentColor;
+}
+
+[data-theme="future"] .fbb-fake-main,
+.fbb-root .fbb-fake-main {
+  padding: 30px;
+  background:
+    linear-gradient(90deg, transparent, rgba(255,255,255,0.03)),
+    radial-gradient(circle at 85% 28%, rgba(25,169,255,0.22), transparent 18%);
+}
+
+[data-theme="future"] .fbb-fake-grid,
+.fbb-root .fbb-fake-grid {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 18px;
+  margin-top: 76px;
+}
+
+[data-theme="future"] .fbb-fake-card,
+.fbb-root .fbb-fake-card {
+  height: 170px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 24px;
+  background: rgba(255,255,255,0.05);
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · CAMADA DE FOCO + PARTÍCULAS
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-focus-layer,
+.fbb-root .fbb-focus-layer {
+  position: absolute;
+  inset: 0;
+  /* Vinhete radial: bordas escuras, centro limpo → nebulosa respira */
+  background: radial-gradient(
+    ellipse 80% 75% at 50% 50%,
+    rgba(0,0,0,0.10) 0%,
+    rgba(0,0,0,0.48) 52%,
+    rgba(0,0,0,0.82) 100%
+  );
+  pointer-events: none;
+}
+
+[data-theme="future"] .fbb-particles,
+.fbb-root .fbb-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+[data-theme="future"] .fbb-particles span,
+.fbb-root .fbb-particles span {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--fbb-accent);
+  opacity: 0.8;
+  box-shadow: 0 0 16px var(--fbb-accent);
+  animation: fbb-float 9s infinite linear;
+}
+
+@keyframes fbb-float {
+  from {
+    opacity: 0;
+    transform: translateY(110vh) translateX(0);
+  }
+  15% {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20vh) translateX(60px);
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · HUD HEXAGONAL (topo-centro, como nas mockups)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-hud,
+.fbb-root .fbb-hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  display: block;
+  /* 120px: visível mas não sobrepõe título do wizard */
+  width: 120px;
+  height: 120px;
+  transform: translateX(-50%);
+  background: var(--fbb-hud-logo) center/contain no-repeat;
+  border: none;
+  clip-path: none;
+  filter: drop-shadow(0 0 22px rgba(25,169,255,0.65));
+  font-size: 0;
+  color: transparent;
+  z-index: 8;
+  pointer-events: none;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · STAGE (3 colunas)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-stage,
+.fbb-root .fbb-stage {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  height: 100vh;
+  grid-template-columns: minmax(680px, 1fr) 420px 240px;
+  gap: 22px;
+  align-items: center;
+  /* padding-top: espaço para o HUD de 120px */
+  padding: 136px 32px 24px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · WIZARD (coluna esquerda)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-wizard,
+.fbb-root .fbb-wizard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 680px;
+  max-height: calc(100vh - 160px);
+  padding: 24px 28px 100px; /* padding-bottom: espaço para .fbb-actions absolute */
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 48%, transparent);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.06), transparent 18%),
+    linear-gradient(180deg, rgba(7,17,31,0.97), rgba(2,7,17,0.95));
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.04),
+    0 0 80px color-mix(in srgb, var(--fbb-accent) 28%, transparent);
+}
+
+/* Scanline sweep (barra neon varrendo o topo) */
+[data-theme="future"] .fbb-wizard::before,
+.fbb-root .fbb-wizard::before {
+  position: absolute;
+  top: 0;
+  inset-inline: -2px;
+  height: 2px;
+  content: "";
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--fbb-accent) 42%, transparent), transparent);
+  animation: fbb-sweep 3.5s infinite;
+  pointer-events: none;
+}
+
+@keyframes fbb-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · CABEÇALHO DO WIZARD (título)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-title-row,
+.fbb-root .fbb-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+[data-theme="future"] .fbb-title-row h1,
+.fbb-root .fbb-title-row h1 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.08;
+  letter-spacing: -0.5px;
+}
+
+[data-theme="future"] .fbb-title-row h1 strong,
+.fbb-root .fbb-title-row h1 strong {
+  color: var(--fbb-accent);
+  text-shadow: 0 0 22px var(--fbb-accent);
+}
+
+[data-theme="future"] .fbb-kicker,
+.fbb-root .fbb-kicker {
+  margin-top: 6px;
+  color: #8fa4bd;
+  font-size: 15px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · BREADCRUMB DE PASSOS (topo do wizard, como nas mockups)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-breadcrumb,
+.fbb-root .fbb-breadcrumb {
+  display: flex;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+[data-theme="future"] .fbb-bc-item,
+.fbb-root .fbb-bc-item {
+  display: flex;
+  align-items: center;
+}
+
+[data-theme="future"] .fbb-bc-step,
+.fbb-root .fbb-bc-step {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 900;
+  color: #8fa4bd;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+[data-theme="future"] .fbb-bc-step--done,
+.fbb-root .fbb-bc-step--done {
+  color: var(--fbb-accent);
+  background: color-mix(in srgb, var(--fbb-accent) 14%, transparent);
+  border-color: var(--fbb-accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--fbb-accent) 45%, transparent);
+}
+
+[data-theme="future"] .fbb-bc-step--active,
+.fbb-root .fbb-bc-step--active {
+  color: #fff;
+  background: var(--fbb-accent);
+  border-color: var(--fbb-accent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--fbb-accent) 70%, transparent);
+}
+
+[data-theme="future"] .fbb-bc-line,
+.fbb-root .fbb-bc-line {
+  width: 32px;
+  height: 2px;
+  margin: 0 4px;
+  background: rgba(255,255,255,0.14);
+  border-radius: 99px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · NÓ HEXAGONAL DE MISSÃO (rodapé wizard, como mockup 1)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-mission-hex-row,
+.fbb-root .fbb-mission-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 28%, rgba(255,255,255,0.08));
+  border-radius: 18px;
+}
+
+[data-theme="future"] .fbb-mission-hex,
+.fbb-root .fbb-mission-hex {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  /* Hexágono por clip-path */
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  background: color-mix(in srgb, var(--fbb-accent) 22%, rgba(0,5,18,0.9));
+  border: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 28px color-mix(in srgb, var(--fbb-accent) 55%, transparent);
+}
+
+[data-theme="future"] .fbb-mission-hex-inner,
+.fbb-root .fbb-mission-hex-inner {
+  display: grid;
+  place-items: center;
+}
+
+[data-theme="future"] .fbb-mission-hex-pct,
+.fbb-root .fbb-mission-hex-pct {
+  font-size: 15px;
+  font-weight: 950;
+  color: var(--fbb-accent);
+  text-shadow: 0 0 14px var(--fbb-accent);
+  line-height: 1;
+}
+
+[data-theme="future"] .fbb-mission-hex-label,
+.fbb-root .fbb-mission-hex-label {
+  flex: 1;
+}
+
+[data-theme="future"] .fbb-mission-hex-title,
+.fbb-root .fbb-mission-hex-title {
+  display: block;
+  color: #c8dff2;
+  font-size: 13px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+[data-theme="future"] .fbb-mission-hex-bar,
+.fbb-root .fbb-mission-hex-bar {
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+[data-theme="future"] .fbb-mission-hex-fill,
+.fbb-root .fbb-mission-hex-fill {
+  height: 100%;
+  background: var(--fbb-accent);
+  border-radius: 99px;
+  box-shadow: 0 0 10px var(--fbb-accent);
+  transition: width 0.4s cubic-bezier(0.22,1,0.36,1);
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · MODE-CARDS (3 botões de seleção de modo)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-mode-grid,
+.fbb-root .fbb-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 12px;
+  margin: 14px 0;
+}
+
+[data-theme="future"] .fbb-mode-card,
+.fbb-root .fbb-mode-card {
+  position: relative;
+  height: 168px;
+  padding: 16px;
+  overflow: hidden;
+  color: #f4f7fb;
+  text-align: left;
+  cursor: pointer;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  transition: 0.2s ease;
+}
+
+[data-theme="future"] .fbb-mode-card:hover,
+.fbb-root .fbb-mode-card:hover {
+  transform: translateY(-3px);
+}
+
+[data-theme="future"] .fbb-mode-card--active,
+.fbb-root .fbb-mode-card--active {
+  background: color-mix(in srgb, var(--fbb-accent) 12%, rgba(255,255,255,0.04));
+  border-color: var(--fbb-accent);
+  box-shadow: 0 0 30px color-mix(in srgb, var(--fbb-accent) 35%, transparent);
+}
+
+[data-theme="future"] .fbb-mode-icon,
+.fbb-root .fbb-mode-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 8px;
+  font-size: 0;
+  color: transparent;
+  text-shadow: none;
+}
+
+/* PNG herói — porta + contexto portal */
+[data-theme="future"] .fbb-mode-card[data-mode-card="atendimento"] .fbb-mode-icon,
+.fbb-root .fbb-mode-card[data-mode-card="atendimento"] .fbb-mode-icon {
+  background: var(--fbb-icon-atendimento) center/contain no-repeat;
+  filter: drop-shadow(0 0 14px rgba(25,169,255,0.7));
+}
+
+[data-theme="future"] .fbb-mode-card[data-mode-card="recovery"] .fbb-mode-icon,
+.fbb-root .fbb-mode-card[data-mode-card="recovery"] .fbb-mode-icon {
+  background: var(--fbb-icon-recovery) center/contain no-repeat;
+  filter: drop-shadow(0 0 14px rgba(255,174,34,0.7));
+}
+
+[data-theme="future"] .fbb-mode-card[data-mode-card="prospeccao"] .fbb-mode-icon,
+.fbb-root .fbb-mode-card[data-mode-card="prospeccao"] .fbb-mode-icon {
+  background: var(--fbb-icon-prospeccao) center/contain no-repeat;
+  filter: drop-shadow(0 0 14px rgba(177,76,255,0.7));
+}
+
+[data-theme="future"] .fbb-mode-card h3,
+.fbb-root .fbb-mode-card h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+[data-theme="future"] .fbb-mode-card p,
+.fbb-root .fbb-mode-card p {
+  margin: 6px 0 0;
+  color: #8fa4bd;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · CONTEÚDO COM ANIMAÇÃO DE ENTRADA
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-content,
+.fbb-root .fbb-content {
+  animation: fbb-pop 0.28s ease both;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@keyframes fbb-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · LAYOUT 2 COLUNAS + CARD VIDRO
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-grid-two,
+.fbb-root .fbb-grid-two {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 14px;
+}
+
+[data-theme="future"] .fbb-card,
+.fbb-root .fbb-card {
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.045);
+}
+
+[data-theme="future"] .fbb-card h3,
+.fbb-root .fbb-card h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · CAMPOS (field row)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-field,
+.fbb-root .fbb-field {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+[data-theme="future"] .fbb-field:last-child,
+.fbb-root .fbb-field:last-child {
+  border-bottom: 0;
+}
+
+[data-theme="future"] .fbb-label,
+.fbb-root .fbb-label {
+  color: #d7e4f4;
+  font-weight: 900;
+}
+
+[data-theme="future"] .fbb-help,
+.fbb-root .fbb-help {
+  margin-top: 3px;
+  color: #8fa4bd;
+  font-size: 12px;
+}
+
+[data-theme="future"] .fbb-card input,
+[data-theme="future"] .fbb-card select,
+[data-theme="future"] .fbb-card textarea,
+.fbb-root .fbb-card input,
+.fbb-root .fbb-card select,
+.fbb-root .fbb-card textarea {
+  width: 100%;
+  padding: 11px 13px;
+  color: #f4f7fb;
+  font: inherit;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 32%, rgba(255,255,255,0.1));
+  border-radius: 13px;
+  outline: none;
+}
+
+[data-theme="future"] .fbb-card textarea,
+.fbb-root .fbb-card textarea {
+  height: 100px;
+  resize: none;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · CHIPS DE ESCOLHA (choices / toggles)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-choice-row,
+.fbb-root .fbb-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-theme="future"] .fbb-choice,
+.fbb-root .fbb-choice {
+  padding: 8px 12px;
+  color: #dcecff;
+  font-weight: 900;
+  font-size: 13px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+}
+
+[data-theme="future"] .fbb-choice--active,
+.fbb-root .fbb-choice--active {
+  color: #fff;
+  background: color-mix(in srgb, var(--fbb-accent) 22%, transparent);
+  border-color: var(--fbb-accent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--fbb-accent) 35%, transparent);
+}
+
+/* Toggle neon */
+[data-theme="future"] .fbb-toggle,
+.fbb-root .fbb-toggle {
+  position: relative;
+  width: 54px;
+  height: 30px;
+  margin-left: auto;
+  background: rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+[data-theme="future"] .fbb-toggle::after,
+.fbb-root .fbb-toggle::after {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  content: "";
+  background: #cad6e5;
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+[data-theme="future"] .fbb-toggle--on,
+.fbb-root .fbb-toggle--on {
+  background: var(--fbb-accent);
+  box-shadow: 0 0 16px var(--fbb-accent);
+}
+
+[data-theme="future"] .fbb-toggle--on::after,
+.fbb-root .fbb-toggle--on::after {
+  left: 26px;
+  background: #fff;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · CHECKLIST VERDE GLOW
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-checklist,
+.fbb-root .fbb-checklist {
+  display: grid;
+  gap: 10px;
+}
+
+[data-theme="future"] .fbb-check,
+.fbb-root .fbb-check {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 11px;
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.24);
+  border-radius: 14px;
+}
+
+[data-theme="future"] .fbb-check i,
+.fbb-root .fbb-check i {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: #63f28d;
+  font-style: normal;
+  font-weight: 950;
+  background: rgba(34,197,94,0.16);
+  border-radius: 11px;
+  flex-shrink: 0;
+}
+
+[data-theme="future"] .fbb-check b,
+.fbb-root .fbb-check b {
+  display: block;
+}
+
+[data-theme="future"] .fbb-check small,
+.fbb-root .fbb-check small {
+  color: #8fa4bd;
+}
+
+/* Inline check badge */
+[data-theme="future"] .fbb-inline-check,
+.fbb-root .fbb-inline-check {
+  width: fit-content;
+  padding: 9px 12px;
+  color: #63f28d;
+  font-weight: 900;
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.24);
+  border-radius: 13px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · MÉTRICAS
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-metric-row,
+.fbb-root .fbb-metric-row {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+
+[data-theme="future"] .fbb-metric,
+[data-theme="future"] .fbb-metric-single,
+.fbb-root .fbb-metric,
+.fbb-root .fbb-metric-single {
+  padding: 14px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+}
+
+[data-theme="future"] .fbb-metric b,
+[data-theme="future"] .fbb-metric-single b,
+.fbb-root .fbb-metric b,
+.fbb-root .fbb-metric-single b {
+  display: block;
+  color: var(--fbb-accent);
+  font-size: 24px;
+}
+
+[data-theme="future"] .fbb-metric span,
+[data-theme="future"] .fbb-metric-single span,
+.fbb-root .fbb-metric span,
+.fbb-root .fbb-metric-single span {
+  color: #8fa4bd;
+  font-size: 12px;
+}
+
+[data-theme="future"] .fbb-metric-single,
+.fbb-root .fbb-metric-single {
+  margin-top: 14px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · FLUXO DE NÓS (glow nas setas)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-flow,
+.fbb-root .fbb-flow {
+  padding: 14px;
+  margin-top: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+}
+
+[data-theme="future"] .fbb-flow h3,
+.fbb-root .fbb-flow h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #8fa4bd;
+}
+
+[data-theme="future"] .fbb-flow-line,
+.fbb-root .fbb-flow-line {
+  display: grid;
+  grid-template-columns: 1fr 20px 1fr 20px 1fr 20px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+[data-theme="future"] .fbb-node,
+.fbb-root .fbb-node {
+  min-height: 60px;
+  padding: 11px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 36%, rgba(255,255,255,0.1));
+  border-radius: 14px;
+  font-size: 13px;
+}
+
+[data-theme="future"] .fbb-arrow,
+.fbb-root .fbb-arrow {
+  color: var(--fbb-accent);
+  font-size: 20px;
+  text-shadow: 0 0 12px var(--fbb-accent);
+  text-align: center;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · GATE DE TERMOS (scroll-para-liberar + aceites)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-terms,
+.fbb-root .fbb-terms {
+  height: 280px;
+  padding: 16px;
+  overflow: auto;
+  color: #d9e4f2;
+  line-height: 1.55;
+  font-size: 14px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 34%, rgba(255,255,255,0.1));
+  border-radius: 16px;
+}
+
+[data-theme="future"] .fbb-terms::-webkit-scrollbar,
+.fbb-root .fbb-terms::-webkit-scrollbar {
+  width: 8px;
+}
+
+[data-theme="future"] .fbb-terms::-webkit-scrollbar-thumb,
+.fbb-root .fbb-terms::-webkit-scrollbar-thumb {
+  background: var(--fbb-accent);
+  border-radius: 999px;
+  box-shadow: 0 0 14px var(--fbb-accent);
+}
+
+[data-theme="future"] .fbb-accept-row,
+.fbb-root .fbb-accept-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  margin-top: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+}
+
+[data-theme="future"] .fbb-accept-row input[type="checkbox"],
+.fbb-root .fbb-accept-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--fbb-accent);
+  flex-shrink: 0;
+}
+
+[data-theme="future"] .fbb-lock-notice,
+.fbb-root .fbb-lock-notice {
+  padding: 12px 14px;
+  margin-top: 10px;
+  color: #ffd98a;
+  font-weight: 900;
+  font-size: 14px;
+  background: rgba(255,190,59,0.1);
+  border: 1px solid rgba(255,190,59,0.3);
+  border-radius: 14px;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · BOTÕES DE AÇÃO (chanfrados como nas mockups)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-actions,
+.fbb-root .fbb-actions {
+  position: absolute;
+  right: 28px;
+  bottom: 18px;
+  left: 28px;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+[data-theme="future"] .fbb-btn-secondary,
+[data-theme="future"] .fbb-btn-primary,
+.fbb-root .fbb-btn-secondary,
+.fbb-root .fbb-btn-primary {
+  height: 56px;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 950;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  letter-spacing: 0.02em;
+}
+
+[data-theme="future"] .fbb-btn-secondary,
+.fbb-root .fbb-btn-secondary {
+  /* Chanfre sutil no canto inferior-direito */
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+  background: rgba(255,255,255,0.07);
+  outline: 1px solid rgba(255,255,255,0.16);
+}
+
+[data-theme="future"] .fbb-btn-primary,
+.fbb-root .fbb-btn-primary {
+  /* Chanfre mais agressivo no canto superior-esquerdo */
+  clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%, 0 14px);
+  background:
+    linear-gradient(100deg,
+      color-mix(in srgb, var(--fbb-accent) 78%, #fff),
+      color-mix(in srgb, var(--fbb-accent) 52%, #00172c));
+  box-shadow:
+    0 0 32px color-mix(in srgb, var(--fbb-accent) 60%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.18);
+}
+
+[data-theme="future"] .fbb-btn-secondary:hover,
+[data-theme="future"] .fbb-btn-primary:hover,
+.fbb-root .fbb-btn-secondary:hover,
+.fbb-root .fbb-btn-primary:hover {
+  transform: translateY(-2px);
+}
+
+[data-theme="future"] .fbb-btn-primary:hover,
+.fbb-root .fbb-btn-primary:hover {
+  box-shadow:
+    0 0 48px color-mix(in srgb, var(--fbb-accent) 75%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.22);
+}
+
+[data-theme="future"] .fbb-btn-primary:disabled,
+.fbb-root .fbb-btn-primary:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.35);
+  opacity: 0.42;
+  transform: none;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · PREVIEW WHATSAPP (coluna central)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-phone-wrap,
+.fbb-root .fbb-phone-wrap {
+  align-self: center;
+  margin-top: 40px;
+}
+
+[data-theme="future"] .fbb-preview-label,
+.fbb-root .fbb-preview-label {
+  margin-bottom: 12px;
+  color: var(--fbb-accent);
+  font-weight: 950;
+  font-size: 13px;
+  text-align: center;
+  text-shadow: 0 0 16px var(--fbb-accent);
+}
+
+[data-theme="future"] .fbb-phone,
+.fbb-root .fbb-phone {
+  width: 380px;
+  height: 680px;
+  padding: 14px;
+  margin: auto;
+  background: linear-gradient(145deg, #1f2937, #02060d);
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 44px;
+  box-shadow:
+    0 0 42px rgba(0,0,0,0.8),
+    0 0 32px color-mix(in srgb, var(--fbb-accent) 28%, transparent);
+}
+
+[data-theme="future"] .fbb-phone-screen,
+.fbb-root .fbb-phone-screen {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,0.06), transparent 28%),
+    #071018;
+  border-radius: 32px;
+}
+
+[data-theme="future"] .fbb-phone-top,
+.fbb-root .fbb-phone-top {
+  display: flex;
+  height: 72px;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  background: #101923;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+[data-theme="future"] .fbb-avatar,
+.fbb-root .fbb-avatar {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  color: #00111f;
+  font-weight: 950;
+  font-size: 12px;
+  background: var(--fbb-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 16px var(--fbb-accent);
+  flex-shrink: 0;
+}
+
+[data-theme="future"] .fbb-chat-title b,
+.fbb-root .fbb-chat-title b {
+  display: block;
+  font-size: 14px;
+}
+
+[data-theme="future"] .fbb-chat-title small,
+.fbb-root .fbb-chat-title small {
+  color: #74f1a1;
+  font-size: 12px;
+}
+
+[data-theme="future"] .fbb-chat,
+.fbb-root .fbb-chat {
+  flex: 1;
+  padding: 16px 12px;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(255,255,255,0.015), rgba(255,255,255,0.015)),
+    radial-gradient(circle at 25% 25%, rgba(255,255,255,0.05), transparent 12%);
+}
+
+[data-theme="future"] .fbb-bubble,
+.fbb-root .fbb-bubble {
+  max-width: 82%;
+  padding: 10px 12px;
+  margin: 0 0 9px;
+  font-size: 13px;
+  line-height: 1.34;
+  border-radius: 14px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+}
+
+[data-theme="future"] .fbb-bubble--bot,
+.fbb-root .fbb-bubble--bot {
+  color: #eef5ff;
+  background: #182231;
+  border-top-left-radius: 3px;
+}
+
+[data-theme="future"] .fbb-bubble--user,
+.fbb-root .fbb-bubble--user {
+  margin-left: auto;
+  color: #fff;
+  background: #075e45;
+  border-top-right-radius: 3px;
+}
+
+[data-theme="future"] .fbb-bubble--system,
+.fbb-root .fbb-bubble--system {
+  background: color-mix(in srgb, var(--fbb-accent) 15%, #141b24);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 45%, transparent);
+}
+
+[data-theme="future"] .fbb-phone-input,
+.fbb-root .fbb-phone-input {
+  display: flex;
+  height: 60px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: #101923;
+}
+
+[data-theme="future"] .fbb-input-pill,
+.fbb-root .fbb-input-pill {
+  flex: 1;
+  padding: 10px 13px;
+  color: #9fb0c3;
+  font-size: 12px;
+  background: #202b38;
+  border-radius: 999px;
+}
+
+[data-theme="future"] .fbb-mic,
+.fbb-root .fbb-mic {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  font-weight: 950;
+  background: #13a86f;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · RAIL LATERAL (direita)
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-right-rail,
+.fbb-root .fbb-right-rail {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  margin-top: 40px;
+}
+
+[data-theme="future"] .fbb-rail-card,
+.fbb-root .fbb-rail-card {
+  min-height: 100px;
+  padding: 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid color-mix(in srgb, var(--fbb-accent) 32%, rgba(255,255,255,0.1));
+  border-radius: 18px;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--fbb-accent) 14%, transparent);
+}
+
+[data-theme="future"] .fbb-rail-title,
+.fbb-root .fbb-rail-title {
+  margin-bottom: 8px;
+  color: var(--fbb-accent);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+[data-theme="future"] .fbb-rail-card p,
+.fbb-root .fbb-rail-card p {
+  margin: 0;
+  color: #8fa4bd;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · TOAST NEON
+   ──────────────────────────────────────────────────────────── */
+[data-theme="future"] .fbb-toast,
+.fbb-root .fbb-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 10010;
+  padding: 13px 18px;
+  color: #fff;
+  font-weight: 900;
+  background: rgba(2,7,17,0.96);
+  border: 1px solid var(--fbb-accent);
+  border-radius: 16px;
+  box-shadow: 0 0 36px color-mix(in srgb, var(--fbb-accent) 42%, transparent);
+  transform: translateX(-50%);
+}
+
+/* ────────────────────────────────────────────────────────────
+   FBB · RESPONSIVO
+   ──────────────────────────────────────────────────────────── */
+@media (max-width: 1180px) {
+  [data-theme="future"] .fbb-root,
+  .fbb-root {
+    overflow: auto;
+  }
+
+  [data-theme="future"] .fbb-stage,
+  .fbb-root .fbb-stage {
+    height: auto;
+    min-height: 100vh;
+    grid-template-columns: 1fr;
+    padding-top: 140px;
+  }
+
+  [data-theme="future"] .fbb-wizard,
+  .fbb-root .fbb-wizard {
+    min-height: 700px;
+    max-height: none;
+  }
+
+  [data-theme="future"] .fbb-phone,
+  .fbb-root .fbb-phone {
+    width: 360px;
+    height: 620px;
+  }
+
+  [data-theme="future"] .fbb-right-rail,
+  .fbb-root .fbb-right-rail {
+    grid-template-columns: repeat(3,1fr);
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  [data-theme="future"] .fbb-stage,
+  .fbb-root .fbb-stage {
+    padding: 120px 18px 20px;
+  }
+
+  [data-theme="future"] .fbb-title-row,
+  .fbb-root .fbb-title-row {
+    flex-direction: column;
+  }
+
+  [data-theme="future"] .fbb-title-row h1,
+  .fbb-root .fbb-title-row h1 {
+    font-size: 30px;
+  }
+
+  [data-theme="future"] .fbb-mode-grid,
+  [data-theme="future"] .fbb-grid-two,
+  [data-theme="future"] .fbb-flow-line,
+  [data-theme="future"] .fbb-actions,
+  [data-theme="future"] .fbb-right-rail,
+  .fbb-root .fbb-mode-grid,
+  .fbb-root .fbb-grid-two,
+  .fbb-root .fbb-flow-line,
+  .fbb-root .fbb-actions,
+  .fbb-root .fbb-right-rail {
+    grid-template-columns: 1fr;
+  }
+
+  [data-theme="future"] .fbb-field,
+  .fbb-root .fbb-field {
+    grid-template-columns: 1fr;
+  }
+
+  [data-theme="future"] .fbb-phone,
+  .fbb-root .fbb-phone {
+    width: min(340px, 100%);
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   ACESSIBILIDADE: desligar animações
+   ──────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="future"] .fbb-particles span,
+  .fbb-root .fbb-particles span {
+    animation: none;
+  }
+
+  [data-theme="future"] .fbb-wizard::before,
+  .fbb-root .fbb-wizard::before {
+    animation: none;
+  }
+
+  [data-theme="future"] .fbb-content,
+  .fbb-root .fbb-content {
+    animation: none;
+  }
+
+  [data-theme="future"] .fbb-mode-card,
+  .fbb-root .fbb-mode-card {
+    transition: none;
+  }
+
+  [data-theme="future"] .fbb-btn-secondary,
+  [data-theme="future"] .fbb-btn-primary,
+  .fbb-root .fbb-btn-secondary,
+  .fbb-root .fbb-btn-primary {
+    transition: none;
+  }
+
+  [data-theme="future"] .fbb-mission-hex-fill,
+  .fbb-root .fbb-mission-hex-fill {
+    transition: none;
+  }
+}

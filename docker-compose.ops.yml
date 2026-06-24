@@ -42,3 +42,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./:/host/hbx:ro
+    # Mesma rede do backend: o governor de motores chama o ops-control por nome (hbx-ops-control:3099).
+    networks:
+      - hbx_net
+
+networks:
+  hbx_net:
+    external: true

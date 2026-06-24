@@ -82,6 +82,10 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const googleBtnRef = useRef<HTMLDivElement>(null);
+  // Prefill do fechamento (PLAN-VENDA-PRONTA-A): o vendedor já confirmou telefone/CPF
+  // do cliente. Guardamos pra passar pro checkout (o cartão nasce pré-preenchido).
+  const [prefill, setPrefill] = useState<{ phone: string; cpf: string } | null>(null);
+  const [prefillActive, setPrefillActive] = useState(false);
 
   // F6 — Confirmação por WhatsApp (3 estados: idle → phone → code)
   const [waStep, setWaStep] = useState<"idle" | "phone" | "code">("idle");
@@ -157,6 +161,30 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
       .catch(() => { /* token expirado/inválido: segue o form normal */ });
     return () => { alive = false; };
   }, [done, router]);
+
+  // Prefill do checkout: o link de contratação traz ?hbxLead=<leadId> (cuid opaco =
+  // token; zero PII na URL). Buscamos o que o vendedor confirmou no fechamento pra
+  // pré-preencher conta (empresa/nome/e-mail) + guardar telefone/CPF pro cartão.
+  // Só preenche campo VAZIO — nunca atropela o que a pessoa já digitou.
+  useEffect(() => {
+    let hbxLead: string | null = null;
+    try { hbxLead = new URLSearchParams(window.location.search).get("hbxLead"); } catch { /* sem url */ }
+    if (!hbxLead) return;
+    let alive = true;
+    apiFetch<{ hasPrefill?: boolean; companyNameSuggested?: string | null; name?: string | null; email?: string | null; phone?: string | null; cpf?: string | null }>(
+      `/vendas/handoff/${encodeURIComponent(hbxLead)}/prefill`,
+    )
+      .then((r) => {
+        if (!alive || !r?.hasPrefill) return;
+        if (r.companyNameSuggested) setEmpresa((v) => v || String(r.companyNameSuggested));
+        if (r.name) setNome((v) => v || String(r.name));
+        if (r.email) setEmail((v) => v || String(r.email));
+        setPrefill({ phone: r.phone || "", cpf: r.cpf || "" });
+        setPrefillActive(true);
+      })
+      .catch(() => { /* lead sem prefill/expirado: segue o cadastro normal */ });
+    return () => { alive = false; };
+  }, []);
 
   const handleGoogleCredential = useCallback(async (response: { credential: string }) => {
     if (busy) return;
@@ -351,7 +379,8 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         showCheckout ? (
           <CheckoutPanel
             planKey={selectedPlan}
-            phone={waPhone}
+            phone={waPhone || prefill?.phone || ""}
+            taxDocument={prefill?.cpf || ""}
             email={email}
             name={nome}
             trialEndsAt={done.trialEndsAt}
@@ -451,6 +480,11 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
           <p className="sub">{copy.formSub}</p>
           {GOOGLE_CLIENT_ID && selectedPlan !== "hbx_melhor" && (
             <>
+              {prefillActive && (
+                <p className="sub" style={{ margin: "0 0 4px", fontWeight: 700, textAlign: "center" }}>
+                  Tem Gmail? Ative em 1 clique — seus dados já vêm preenchidos.
+                </p>
+              )}
               <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
               <div className="login-or"><span>ou preencha abaixo</span></div>
             </>

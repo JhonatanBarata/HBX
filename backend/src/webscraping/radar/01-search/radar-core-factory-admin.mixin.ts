@@ -291,42 +291,13 @@ export class RadarCoreFactoryAdminMixin {
     return state && city ? { state, city } : null;
   }
 
-  private isFactoryWeekendByTimezone(timezone: string, date = new Date()) {
-    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(date).toLowerCase();
-    return weekday === 'sat' || weekday === 'sun';
-  }
-
-  private isWithinFactoryWindow(cursor: any, date = new Date()) {
-    if (cursor?.forcedOn) return true;
-    const window = this.getFactoryWindowConfig();
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: window.timezone, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(date);
-    const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
-    const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
-    const current = hour * 60 + minute;
-    const start = window.startHour * 60 + window.startMinute;
-    const end = window.endHour * 60 + window.endMinute;
-    if (start === end) return true;
-    return start < end ? current >= start && current < end : current >= start || current < end;
-  }
-
-  private isFactoryAllowedNow(cursor: any, config: any, date = new Date()) {
+  private isFactoryAllowedNow(_cursor: any, config: any, _date = new Date()) {
+    // Janela de horário DELETADA (ordem do dono 24/06): a Fábrica roda quando ativa, 24/7.
+    // Só o desligar EXPLÍCITO (emergencyStop) para; a Elasticidade (governor) é o único freio de carga.
     const operationalConfig = config || {};
     const metadata = this.parseOperationalMetadata(operationalConfig?.metadataJson);
     if (metadata.emergencyStop || operationalConfig?.emergencyStop) return false;
-    if (cursor?.forcedOn || this.isForcedOperationalWindow(operationalConfig, date)) return true;
-    if (!metadata.stopOutsideWindow) return true;
-
-    const timezone = String(metadata.timezone || operationalConfig?.timezone || this.getFactoryWindowConfig().timezone || 'America/Sao_Paulo');
-    const weekend = this.isFactoryWeekendByTimezone(timezone, date);
-    if (metadata.weekendAlwaysOn && weekend) return true;
-    if (metadata.weekdaysOnly && weekend) return false;
-    return this.isWithinConfiguredOperationalWindow({
-      enabled: operationalConfig?.enabled ?? true,
-      startHour: operationalConfig?.startHour ?? this.getFactoryWindowConfig().startHour,
-      startMinute: operationalConfig?.startMinute ?? this.getFactoryWindowConfig().startMinute,
-      endHour: operationalConfig?.endHour ?? this.getFactoryWindowConfig().endHour,
-      endMinute: operationalConfig?.endMinute ?? this.getFactoryWindowConfig().endMinute,
-    }, date);
+    return true;
   }
 
   private nextFactoryWindowAt(date = new Date()) {

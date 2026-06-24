@@ -167,7 +167,7 @@ const FILAS: { key: string; label: string }[] = [
   { key: "recovery", label: "Recuperação" },
   { key: "scheduled", label: "Agendadas" },
   { key: "bot", label: "Bot" },
-  { key: "blocked", label: "Bloqueadas" },
+  { key: "blocked", label: "Finalizadas" },
 ];
 
 const EMOJIS = ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "😅", "🙏", "👍", "👏", "🙌", "💪", "🔥", "✅", "❌", "❤️", "💯", "🎉", "👋", "🤝", "😇", "😉", "😢", "😭", "😡", "🥳", "🤩", "😴", "📎"];
@@ -764,6 +764,21 @@ export function AtendimentoClient() {
       .catch(() => { setCard(null); setObsDraft(""); });
   }, []);
 
+  // Consulta-no-clique: verifica se o cliente (por telefone) já está finalizado.
+  // Se sim, o backend re-aplica o SOFT-hide na conversa nova e a encaminha pro bot.
+  // Executa SÓ no clique (mudança de selId) — sem job em background, sem conexão WA.
+  const checkFinalized = useCallback((id: string) => {
+    apiFetch<{ finalized: boolean; reason?: string; alreadyApplied?: boolean }>(
+      `/inbox/conversations/${encodeURIComponent(id)}/check-finalized`,
+      { method: "POST", body: JSON.stringify({}) },
+    ).then(res => {
+      if (res?.finalized && !res?.alreadyApplied) {
+        // Backend reaplicou SOFT-hide — recarrega lista e thread pra refletir
+        loadConvs();
+      }
+    }).catch(() => { /* silencioso — consulta best-effort */ });
+  }, [loadConvs]);
+
   async function carregarMaisAntigas() {
     if (olderBusy || !msgHasMore || !msgBefore || !selId) return;
     setOlderBusy(true);
@@ -889,6 +904,8 @@ export function AtendimentoClient() {
     forceBottomRef.current = true;
     loadCard(selId);
     loadThread(selId);
+    // Consulta-no-clique: re-aplica SOFT-hide se cliente estava finalizado antes da troca de chip
+    checkFinalized(selId);
     // Marca lida no servidor JÁ — não espera a thread carregar. (O backend lê as
     // últimas inbound do banco, então não depende do fetch da thread.) Assim o
     // próximo loadConvs/SSE já volta com unread=0 e o aviso não reaparece.
@@ -902,7 +919,7 @@ export function AtendimentoClient() {
     if (sseOn) return () => { alive = false; };
     const timer = setInterval(() => { if (alive) loadThread(selId); }, 8000);
     return () => { alive = false; clearInterval(timer); };
-  }, [selId, loadThread, loadCard, sseOn]);
+  }, [selId, loadThread, loadCard, checkFinalized, sseOn]);
 
   // A LISTA também precisa de rede de segurança. O SSE pode morrer calado atrás do
   // proxy (res.ok resolve mas nada flui → sseOn fica "true" mentindo): aí a thread
@@ -1351,7 +1368,7 @@ export function AtendimentoClient() {
     }
   }
 
-  // "Não ligar mais" (PATCH status-card { doNotCall })
+  // "Não ligar mais" (PATCH status-card { doNotCall }) — legado / liberar contato
   async function alternarNaoLigar(doNotCall: boolean) {
     if (!selId || acaoBusy) return;
     setAcaoBusy(true);
@@ -1363,6 +1380,23 @@ export function AtendimentoClient() {
       await loadConvs();
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Não foi possível atualizar a preferência.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
+  // "Sem interesse" + motivo → SOFT-hide (atendimentoBlockedAt) → vai pra "Finalizadas"
+  async function semInteresse(reason: string) {
+    if (!selId || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/status-card`,
+        { method: "PATCH", body: JSON.stringify({ doNotCall: true, closureReason: reason }) });
+      await loadCard(selId);
+      await loadConvs();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível registrar o interesse.");
     } finally {
       setAcaoBusy(false);
     }
@@ -2093,6 +2127,7 @@ export function AtendimentoClient() {
               onObsSave={convo ? salvarObs : undefined}
               obsBusy={obsBusy}
               onToggleDoNotCall={convo ? () => alternarNaoLigar(!card?.customer?.doNotCall) : undefined}
+              onSemInteresse={convo ? semInteresse : undefined}
               historyLabel="Histórico do lead"
               title="Detalhes do lead"
               actions={convo ? (

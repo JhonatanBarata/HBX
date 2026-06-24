@@ -29,7 +29,7 @@ export const viewport: Viewport = {
 // hbx:pele = aurora|ember|rose (padrão aurora; skeleton.css é só a base);
 // hbx:mode = claro/escuro global automático. 15/06: a landing "/" deixou de ser
 // "html puro" — agora É o login (tokens + robô do tema), herda data-theme/mode.
-const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var P=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
+const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var P=["aurora","ember","rose","hbx-cyber","future"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
 // PWA (ordem do dono 14/06: "Responsivo + PWA"). Substitui o kill-switch antigo:
 // (1) APAGA todos os caches do navegador a cada load — defesa contra o PWA velho

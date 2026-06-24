@@ -28,6 +28,17 @@ export type BotConfigMissingInput = {
   requestedByEmail?: string | null;
 };
 
+export type ImplantacaoSoldInput = {
+  companyId: number;
+  sellerName?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  planLabel?: string | null;
+  monthlyValue?: number | null;
+  setupValue?: number | null;
+  leadId?: string | null;
+};
+
 @Injectable()
 export class MasterAlertService {
   private readonly logger = new Logger(MasterAlertService.name);
@@ -150,6 +161,82 @@ export class MasterAlertService {
       }
     } catch (error) {
       this.logger.warn(`master_alert_full_whatsapp_falhou: ${String((error as Error)?.message || error)}`);
+      await this.recordLog({ companyId, target: 'whatsapp', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+    }
+
+    return { email: emailOk, whatsapp: whatsappOk };
+  }
+
+  // Alerta ao master quando uma venda fecha COM IMPLANTAÇÃO (setup > 0) — ele
+  // precisa executar a instalação à mão, sem o vendedor mandar mensagem na mão.
+  // Fonte da verdade é o card; isto é só o cutuque. Best-effort em 3 canais
+  // (e-mail, WhatsApp single-shot, log p/ a janela Pagamentos do /master).
+  // NUNCA bloqueia nem derruba o fechamento de quem chamou.
+  async notifyImplantacaoSold(input: ImplantacaoSoldInput): Promise<{ email: boolean; whatsapp: boolean }> {
+    const companyId = Number(input.companyId || 0);
+    const brl = (v: number | null | undefined) =>
+      v != null && Number.isFinite(v)
+        ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+        : '—';
+    const customer = String(input.customerName || '').trim() || 'cliente';
+    const phone = String(input.customerPhone || '').trim();
+    const seller = String(input.sellerName || '').trim();
+    const planLabel = String(input.planLabel || '').trim();
+    const leadId = String(input.leadId || '').trim();
+
+    const linhas = [
+      '💰 Venda fechada COM implantação — toque à mão',
+      `Cliente: ${customer}`,
+      phone ? `Telefone: ${phone}` : '',
+      planLabel ? `Plano: ${planLabel} — mensalidade ${brl(input.monthlyValue)}` : `Mensalidade: ${brl(input.monthlyValue)}`,
+      `Implantação: ${brl(input.setupValue)}`,
+      seller ? `Vendedor: ${seller}` : '',
+      leadId ? `Card: ${leadId}` : '',
+      '',
+      'A implantação precisa ser executada por você (master).',
+    ].filter(Boolean);
+    const text = linhas.join('\n');
+
+    // 0) Registro SEMPRE presente no feed do master (independe de e-mail/WhatsApp):
+    // é o "card de implantação a fazer" na janela Pagamentos do /master. Fonte da
+    // verdade do que o master precisa tocar à mão — os canais abaixo são só o cutuque.
+    await this.recordLog({ companyId, target: 'implantacao', text, status: 'sent' });
+
+    let emailOk = false;
+    let whatsappOk = false;
+
+    // 1) E-mail
+    try {
+      const to = await this.resolveMasterEmail();
+      if (to) {
+        const res = await this.mail.sendMail({
+          to,
+          subject: `Implantação vendida — ${customer}`,
+          text,
+        });
+        emailOk = Boolean(res?.ok);
+        await this.recordLog({ companyId, target: `email:${to}`, text, status: emailOk ? 'sent' : 'failed', errorMessage: emailOk ? null : (res?.errorMessage || 'email não confirmado') });
+      } else {
+        this.logger.warn('master_alert_implantacao_sem_email — defina MASTER_ALERT_EMAIL ou um usuário system_master com e-mail');
+      }
+    } catch (error) {
+      this.logger.warn(`master_alert_implantacao_email_falhou: ${String((error as Error)?.message || error)}`);
+      await this.recordLog({ companyId, target: 'email', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+    }
+
+    // 2) WhatsApp — single-shot, sem loop. Gated por env (sem chip/local não dispara).
+    try {
+      const to = this.normalizeWhatsAppTarget(process.env.MASTER_ALERT_WHATSAPP_TO || '19997024884');
+      const senderCompanyId = Number(process.env.MASTER_ALERT_WA_COMPANY_ID || 0) || 0;
+      if (to && senderCompanyId > 0) {
+        const sent = await this.webwhats.sendText(senderCompanyId, { to, text });
+        whatsappOk = true;
+        await this.recordLog({ companyId, target: sent.target, text, status: 'sent', providerMessageId: sent.providerMessageId });
+      } else if (!senderCompanyId) {
+        this.logger.warn('master_alert_implantacao_sem_whatsapp — defina MASTER_ALERT_WA_COMPANY_ID (empresa HBX com WhatsApp conectado)');
+      }
+    } catch (error) {
+      this.logger.warn(`master_alert_implantacao_whatsapp_falhou: ${String((error as Error)?.message || error)}`);
       await this.recordLog({ companyId, target: 'whatsapp', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
     }
 

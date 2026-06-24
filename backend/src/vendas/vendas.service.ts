@@ -8455,6 +8455,21 @@ export class VendasService {
       ? this.normalizeCurrencyAmount(dto.setupValue)
       : this.normalizeCurrencyAmount(existing.setupValue);
 
+    // Pre-cadastro confirmado no fechamento preenche GAPS do lead (nunca sobrescreve
+    // valor existente) — vira a base do prefill do checkout (PLAN-VENDA-PRONTA-A).
+    // CPF (CustomerProfile.document) entra na convergencia do modal (PLAN-...-B).
+    const contactGapPatch: Record<string, unknown> = {};
+    const dtoName = this.normalizeText((dto as any)?.name);
+    if (dtoName && !this.normalizeText(existing.name)) contactGapPatch.name = dtoName;
+    const dtoEmail = this.normalizeText((dto as any)?.email);
+    if (dtoEmail && !this.normalizeText(existing.email)) contactGapPatch.email = dtoEmail;
+    const dtoPhone = this.normalizeText((dto as any)?.phone);
+    if (dtoPhone && !this.normalizeText(existing.phone)) {
+      contactGapPatch.phone = dtoPhone;
+      const dtoPhoneNorm = this.normalizePhone(dtoPhone);
+      if (dtoPhoneNorm && !existing.phoneNormalized) contactGapPatch.phoneNormalized = dtoPhoneNorm;
+    }
+
     // DONO da comissao: card sem vendedor amarra a quem fecha (quem prospectou MANTEM
     // o seu — nunca rouba carteira). Snapshot do % trava o ganho no fechamento.
     const closerAssignment = await this.resolveCloserAssignmentPatch(context, existing);
@@ -8538,6 +8553,7 @@ export class VendasService {
           lastContactAt: new Date(),
           attemptCount: Math.max(existingAttemptCount + 1, existingAttemptCount),
           lastResult: 'Link HBX enviado',
+          ...contactGapPatch,
           ...(productPatch?.data || {}),
           ...closerAssignment,
           ...saleCommissionPatch.data,
@@ -8568,6 +8584,22 @@ export class VendasService {
 
     await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
 
+    // Implantação fechada (setup > 0) → cutuca o master pra executar à mão, sem o
+    // vendedor mandar mensagem. Fonte da verdade é o card; isto é só o aviso.
+    // Best-effort (3 canais, WhatsApp single-shot gated por env): NUNCA bloqueia.
+    if (explicitSetupValue > 0) {
+      void this.masterAlert.notifyImplantacaoSold({
+        companyId: context.companyId,
+        sellerName: this.normalizeText((user as any)?.name) || this.normalizeText((user as any)?.email) || null,
+        customerName: this.normalizeText((updated as any).name) || null,
+        customerPhone: this.normalizeText((updated as any).phone) || null,
+        planLabel,
+        monthlyValue: baseSaleValue,
+        setupValue: explicitSetupValue,
+        leadId: String(updated.id),
+      }).catch(() => { /* best-effort: aviso nunca derruba o fechamento */ });
+    }
+
     return {
       ok: true,
       planKey,
@@ -8579,6 +8611,64 @@ export class VendasService {
       commissionPreview,
       lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
       commercialUseDebit,
+    };
+  }
+
+  // Prefill PUBLICO do checkout. O link de contratacao leva ?hbxLead=<id> (cuid
+  // opaco = token); a pagina de cadastro busca aqui o que o vendedor ja confirmou
+  // no fechamento pra pre-preencher conta + cartao. Sem auth de proposito; so
+  // responde se o lead tem handoff gerado (senao 404). Nao expoe nada alem do
+  // necessario pro cadastro/checkout do proprio cliente.
+  async getHbxHandoffPrefill(leadId: string) {
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Lead invalido.');
+    const lead = await this.prisma.vendasLead.findUnique({
+      where: { id: normalizedLeadId },
+      select: {
+        companyId: true,
+        name: true,
+        email: true,
+        phone: true,
+        phoneNormalized: true,
+        salePlanKey: true,
+        saleStatus: true,
+      },
+    });
+    const saleStatus = this.normalizeSaleStatus(lead?.saleStatus);
+    const hasHandoff =
+      Boolean(lead) && ['activation_pending', 'trial_started', 'sale_confirmed'].includes(saleStatus);
+    if (!lead || !hasHandoff) {
+      throw new NotFoundException('Link de contratacao nao encontrado ou expirado.');
+    }
+    // CPF mora no CustomerProfile (canonico, keyed por telefone) — gravado pelo
+    // pre-cadastro do fechamento. ATENCAO: o lead guarda o telefone COM DDI 55
+    // ("5519...") e o CustomerProfile pode guardar SEM ("19..."), entao caso por
+    // VARIANTES (com/sem 55) — telefone unico nao casa. Sem relacao obrigatoria.
+    let cpf: string | null = null;
+    const rawDigits = String(lead.phoneNormalized || lead.phone || '').replace(/\D/g, '');
+    if (rawDigits) {
+      const variants = new Set<string>([
+        rawDigits,
+        rawDigits.slice(-13),
+        rawDigits.slice(-11),
+      ]);
+      if (rawDigits.length === 11) variants.add(`55${rawDigits}`);
+      const profile = await this.prisma.customerProfile.findFirst({
+        where: { companyId: lead.companyId, phoneNormalized: { in: Array.from(variants) } },
+        orderBy: [{ updatedAt: 'desc' }],
+        select: { document: true },
+      });
+      cpf = this.normalizeText(profile?.document) || null;
+    }
+    const name = this.normalizeText(lead.name) || null;
+    return {
+      hasPrefill: true,
+      companyNameSuggested: name,
+      name,
+      email: this.normalizeText(lead.email) || null,
+      phone: this.normalizeText(lead.phone) || null,
+      cpf,
+      planKey: this.normalizeText(lead.salePlanKey) || null,
     };
   }
 

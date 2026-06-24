@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -102,25 +103,6 @@ type BoardResponse = {
   sellsHbxPlans?: boolean;
 } | null;
 
-type Produto = {
-  id: number;
-  name: string;
-  price?: number | null;
-  priceCents?: number | null;
-  billingCycle?: string | null;
-  allowDiscount?: boolean;
-  minPriceCents?: number | null;
-  defaultCommissionPercent?: number | null;
-  status?: string;
-};
-
-// Vitrine de preço do catálogo comercial (GET /commercial-plans/public-catalog):
-// a vendedora vê a mensalidade por plano ANTES de fechar. Preço SÓ do catálogo
-// (PAGAMENTOS.md/FRONTEND.md) — nunca hardcode. /me e /catalog zeram o preço
-// para role USER; a vitrine pública entrega o valor de tabela (sem cobrança do
-// cliente). Vendedor vê PREÇO do plano (ok), nunca a cobrança do cliente.
-type CatalogPreco = { key: string; title: string; monthlyPrice: number | null };
-
 type TriagemItem = { key: string; label: string; ok: boolean };
 type Triagem = { confirmed: boolean; confirmedAt?: string | null; itens: TriagemItem[]; pendentes: string[]; pronto: boolean };
 type LiveStatus = {
@@ -149,13 +131,6 @@ const BLOCK_ORDER: { key: keyof NonNullable<BoardResponse>["blocks"]; label: str
 function fmtMoney(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
-
-// Preço de tabela com centavos (Full = 349,90): fmtMoney corta os centavos,
-// então a vitrine de plano usa o formato cheio de moeda.
-function fmtPreco(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null;
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function leadValueLabel(lead: VendasLead) {
@@ -287,18 +262,6 @@ export function VendasClient() {
   // direta; POST .../hbx-handoff para produto sob consulta (fechamento
   // assistido). Produtos vêm de GET /products (cadastro da empresa).
   const [fecharOpen, setFecharOpen] = useState(false);
-  // Guia ativa dentro do modal de fechamento: "pre" = pré-cadastro do cliente
-  // (passo 1), "fechar" = gerar o link/valor. 1 tela, 2 guias (pedido do dono).
-  const [fecharTab, setFecharTab] = useState<"pre" | "fechar">("pre");
-  const [produtos, setProdutos] = useState<Produto[] | null>(null);
-  const [planosPreco, setPlanosPreco] = useState<CatalogPreco[] | null>(null);
-  const [prodId, setProdId] = useState("");
-  // HBX admin: plano escolhido (List/Lead Plus/Pro) que vira o salePlanKey do link.
-  const [salePlanSel, setSalePlanSel] = useState("");
-  const [valor, setValor] = useState("");
-  const [setupValor, setSetupValor] = useState("");
-  const [fecharBusy, setFecharBusy] = useState(false);
-  const [fecharMsg, setFecharMsg] = useState<string | null>(null);
 
   // quick actions reais do card (caminho da vendedora, 12/06/2026): marcar
   // RESULTADO da ligação + observação (POST lead/:id/attempt grava a tentativa
@@ -307,6 +270,7 @@ export function VendasClient() {
   // {status|returnAt}). Só endpoints existentes — sem mexer no backend.
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
+  const [fecharMsg, setFecharMsg] = useState<string | null>(null);
   const [retornoData, setRetornoData] = useState("");
   const [obs, setObs] = useState("");
   // Popup de Retorno e Sem Interesse (substituem o clutter do cockpit)
@@ -424,135 +388,11 @@ export function VendasClient() {
     }
   }
 
-  function precoDoProduto(p?: Produto | null) {
-    if (!p) return null;
-    if (p.priceCents != null && Number.isFinite(p.priceCents)) return p.priceCents / 100;
-    if (p.price != null && Number.isFinite(p.price)) return p.price;
-    return null;
-  }
-
+  // O FecharVendaModal compartilhado carrega catálogos/perfil e gerencia o próprio
+  // estado (pré-cadastro, plano/valor, implantação, salvar, gerar link). Aqui só abre.
   function abrirFechar() {
     if (!sel?.id) return;
-    setFecharMsg(null);
-    setLinkInfo(null);
-    setSalePlanSel("");
-    setSetupValor(deal?.setupValue ? String(deal.setupValue) : "");
-    // 1 tela, 2 guias: o fechamento começa no PRÉ-CADASTRO (passo 1, dados do
-    // card já preenchidos); só depois o vendedor passa pra guia "Fechar venda".
-    setCadForm({ name: sel.name || "", phone: sel.phone || "", email: sel.email || "", document: "" });
-    setCadMsg(null);
-    setFecharTab("pre");
     setFecharOpen(true);
-    if (produtos === null) {
-      apiFetch<Produto[] | { items?: Produto[] }>("/products?status=active")
-        .then(res => {
-          const list = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
-          setProdutos(list);
-        })
-        .catch(() => setProdutos([]));
-    }
-    if (planosPreco === null) {
-      // Vitrine pública do catálogo: List/Lead+/Full com a mensalidade de tabela.
-      apiFetch<{ plans?: CatalogPreco[] }>("/commercial-plans/public-catalog")
-        .then(res => setPlanosPreco(Array.isArray(res?.plans) ? res.plans : []))
-        .catch(() => setPlanosPreco([]));
-    }
-  }
-
-  function escolherProduto(id: string) {
-    setProdId(id);
-    const p = (produtos || []).find(x => String(x.id) === id) || null;
-    const preco = precoDoProduto(p);
-    setValor(preco != null ? String(preco) : "");
-  }
-
-  // HBX admin: escolhe o PLANO comercial direto (vem do catálogo público, fonte
-  // única de preço) — vira o salePlanKey do link e prefilla a mensalidade de tabela.
-  function escolherPlano(key: string) {
-    setSalePlanSel(key);
-    const plano = (planosPreco || []).find(p => p.key === key) || null;
-    setValor(plano?.monthlyPrice != null ? String(plano.monthlyPrice) : "");
-  }
-
-  // Modelo real do fechamento (descoberto no contrato): a venda NUNCA é
-  // confirmada na mão — o vendedor GERA O LINK de contratação (hbx-handoff:
-  // /register?plan=X&hbxLead=card) e envia ao cliente; quando o cliente
-  // ativa/paga, o backend confirma a venda e calcula a comissão sozinho.
-  const [linkInfo, setLinkInfo] = useState<{ registerUrl: string; message: string; planLabel: string } | null>(null);
-
-  async function gerarLink() {
-    if (!sel?.id || fecharBusy) return;
-    setFecharBusy(true);
-    setFecharMsg(null);
-    try {
-      // Persiste a implantação acordada antes do handoff: quando o cliente
-      // ativar pelo link, o motor calcula a comissão do setup a partir daqui.
-      if (setupValor) {
-        await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ setupValue: Number(setupValor) }),
-        }).catch(() => {});
-      }
-      const res = await apiFetch<{ ok?: boolean; registerUrl?: string; registerPath?: string; message?: string; planLabel?: string }>(
-        `/vendas/lead/${encodeURIComponent(sel.id)}/hbx-handoff`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            ...(prodId ? { productId: Number(prodId) } : {}),
-            ...(board?.sellsHbxPlans && salePlanSel ? { salePlanKey: salePlanSel } : {}),
-            origin: window.location.origin,
-          }),
-        },
-      );
-      setLinkInfo({
-        registerUrl: res?.registerUrl || res?.registerPath || "",
-        message: res?.message || "",
-        planLabel: res?.planLabel || "",
-      });
-      await loadBoard();
-    } catch (err) {
-      setFecharMsg(err instanceof Error ? err.message : "Não foi possível gerar o link.");
-    } finally {
-      setFecharBusy(false);
-    }
-  }
-
-  async function salvarProdutoValor() {
-    if (!sel?.id || fecharBusy) return;
-    setFecharBusy(true);
-    setFecharMsg(null);
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          ...(prodId ? { productId: Number(prodId) } : {}),
-          ...(board?.sellsHbxPlans && salePlanSel ? { salePlanKey: salePlanSel } : {}),
-          ...(valor ? { saleValue: Number(valor) } : {}),
-          ...(setupValor ? { setupValue: Number(setupValor) } : {}),
-        }),
-      });
-      setFecharMsg("✓ Produto e valor salvos no card.");
-      await loadBoard();
-    } catch (err) {
-      setFecharMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
-    } finally {
-      setFecharBusy(false);
-    }
-  }
-
-  function copiarMensagem() {
-    if (!linkInfo) return;
-    navigator.clipboard?.writeText(linkInfo.message || linkInfo.registerUrl).then(
-      () => setFecharMsg("✓ Mensagem copiada."),
-      () => setFecharMsg("Copie manualmente o texto acima."),
-    );
-  }
-
-  function abrirWhatsApp() {
-    if (!linkInfo || !sel?.phone) return;
-    const digits = sel.phone.replace(/\D/g, "");
-    const target = digits.length >= 12 ? digits : `55${digits}`;
-    window.open(`https://wa.me/${target}?text=${encodeURIComponent(linkInfo.message)}`, "_blank", "noopener");
   }
 
   // Abre no WhatsApp Externo (wa.me) direto do ícone de ação — sem link pré-digitado
@@ -589,44 +429,6 @@ export function VendasClient() {
     } finally {
       setWaStartBusy(false);
     }
-  }
-
-  // Pré-cadastro do cliente: formulário usado na guia "pre" do fecharOpen.
-  const [cadForm, setCadForm] = useState({ name: "", phone: "", email: "", document: "" });
-  const [cadBusy, setCadBusy] = useState(false);
-  const [cadMsg, setCadMsg] = useState<string | null>(null);
-
-  // Núcleo do pré-cadastro (POST do perfil) — devolve sucesso pra quem chamou
-  // decidir o próximo passo (fechar o modal solto OU avançar a guia do fechamento).
-  async function submitCadastro(): Promise<boolean> {
-    if (cadBusy) return false;
-    if (!cadForm.name.trim()) { setCadMsg("Informe o nome do cliente."); return false; }
-    setCadBusy(true);
-    setCadMsg(null);
-    try {
-      await apiFetch("/cadastros/customer-profiles", {
-        method: "POST",
-        body: JSON.stringify({
-          name: cadForm.name || undefined,
-          phone: cadForm.phone || undefined,
-          email: cadForm.email || undefined,
-          document: cadForm.document || undefined,
-        }),
-      });
-      setCadMsg("✓ Cliente cadastrado — vinculado pelo telefone do card.");
-      await loadBoard();
-      return true;
-    } catch (err) {
-      setCadMsg(err instanceof Error ? err.message : "Não foi possível cadastrar o cliente.");
-      return false;
-    } finally {
-      setCadBusy(false);
-    }
-  }
-
-  // Dentro do modal de fechamento: salva o pré-cadastro e desliza pra guia "Fechar venda".
-  async function preCadastroEAvancar() {
-    if (await submitCadastro()) setFecharTab("fechar");
   }
 
   // Novo lead manual (POST /vendas/manual)
@@ -1210,13 +1012,15 @@ export function VendasClient() {
                 onDelete={deal ? () => deletarCard() : undefined}
                 actions={deal ? (
                   <div className="dn-cockpit">
-                    {/* TIER 1 — Fechar venda (herói) */}
+                    {/* TIER 1 — Fechar venda (herói bonito, mesmo do Atendimento) */}
                     <div className="dn-cockpit__group">
-                      {fecharMsg && (
-                        <div className={"ctx-msg " + (fecharMsg.startsWith("✓") ? "ok" : "err")}>{fecharMsg}</div>
-                      )}
-                      <button className="btn-teal" onClick={abrirFechar} disabled={deal.block === "closed"}>
-                        <I d={ICONS.check} size={14} /> {deal.block === "closed" ? "Card já fechado" : "Fechar venda"}
+                      <button className="fv-open-cta" onClick={abrirFechar} disabled={deal.block === "closed"} data-tut="vendas-fechar">
+                        <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
+                        <span className="fv-open-cta-txt">
+                          <b>{deal.block === "closed" ? "Card já fechado" : "Fechar venda"}</b>
+                          <small>Gere o link e garanta sua comissão</small>
+                        </span>
+                        <I d={ICONS.arrow} size={16} />
                       </button>
                     </div>
 
@@ -1256,13 +1060,15 @@ export function VendasClient() {
               onDelete={() => { setMobileDetailOpen(false); deletarCard(); }}
               actions={
                 <div className="dn-cockpit">
-                  {/* TIER 1 — Fechar venda (herói) */}
+                  {/* TIER 1 — Fechar venda (herói bonito, mesmo do Atendimento) */}
                   <div className="dn-cockpit__group">
-                    {fecharMsg && (
-                      <div className={fecharMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{fecharMsg}</div>
-                    )}
-                    <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
-                      <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
+                    <button className="fv-open-cta" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
+                      <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
+                      <span className="fv-open-cta-txt">
+                        <b>{sel.block === "closed" ? "Card já fechado" : "Fechar venda"}</b>
+                        <small>Gere o link e garanta sua comissão</small>
+                      </span>
+                      <I d={ICONS.arrow} size={16} />
                     </button>
                   </div>
 
@@ -1332,173 +1138,15 @@ export function VendasClient() {
         </div>
       )}
 
-      {fecharOpen && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setFecharOpen(false); }}>
-          <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              Fechar venda — {sel?.name || "card"}
-              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setFecharOpen(false)}>✕</span>
-            </h3>
-
-            {/* 1 tela, 2 guias: o pré-cadastro do cliente é feito JUNTO do fechamento. */}
-            <div className="fechar-tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={fecharTab === "pre"}
-                className={"fechar-tab" + (fecharTab === "pre" ? " is-active" : "")}
-                onClick={() => setFecharTab("pre")}>
-                <span className="fechar-tab__n">1</span> Pré-cadastro
-              </button>
-              <button type="button" role="tab" aria-selected={fecharTab === "fechar"}
-                className={"fechar-tab" + (fecharTab === "fechar" ? " is-active" : "")}
-                onClick={() => setFecharTab("fechar")}>
-                <span className="fechar-tab__n">2</span> Fechar venda
-              </button>
-            </div>
-
-            {fecharTab === "pre" ? (
-              <React.Fragment>
-                <p className="hint" style={{ margin: 0 }}>
-                  Dados puxados do card — confira e cadastre o cliente antes de fechar.
-                </p>
-                {cadMsg && (
-                  <div className={"ctx-msg " + (cadMsg.startsWith("✓") ? "ok" : "err")}>{cadMsg}</div>
-                )}
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label className="field-label">Nome *</label>
-                  <input className="field-dark" maxLength={160} value={cadForm.name}
-                    onChange={e => setCadForm(f => ({ ...f, name: e.target.value }))} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <label className="field-label">Telefone</label>
-                    <input className="field-dark" maxLength={30} value={cadForm.phone}
-                      onChange={e => setCadForm(f => ({ ...f, phone: e.target.value }))} />
-                  </div>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <label className="field-label">CPF/CNPJ</label>
-                    <input className="field-dark" maxLength={40} placeholder="opcional" value={cadForm.document}
-                      onChange={e => setCadForm(f => ({ ...f, document: e.target.value }))} />
-                  </div>
-                </div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label className="field-label">E-mail</label>
-                  <input className="field-dark" type="email" maxLength={160} placeholder="opcional" value={cadForm.email}
-                    onChange={e => setCadForm(f => ({ ...f, email: e.target.value }))} />
-                </div>
-                <button className="btn-teal" onClick={preCadastroEAvancar} disabled={cadBusy} style={{ minHeight: 42 }}>
-                  {cadBusy ? "Cadastrando…" : "Cadastrar cliente e fechar →"}
-                </button>
-                <button className="btn-ghost" onClick={() => setFecharTab("fechar")} style={{ minHeight: 36 }}>
-                  Pular — fechar sem cadastrar
-                </button>
-              </React.Fragment>
-            ) : (
-            <React.Fragment>
-            {fecharMsg && !fecharMsg.startsWith("✓") && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{fecharMsg}</div>
-            )}
-            {board?.sellsHbxPlans ? (
-              // HBX admin: escolhe o PLANO HBX direto — vira o link de contratação
-              // certo (List/Lead Plus/Pro). Preço sai do catálogo público (fonte
-              // única). Lead Plus = 14 dias grátis; List/Pro entram sem trial.
-              <div className="stack6">
-                <label className="field-label">Plano HBX a contratar</label>
-                {planosPreco === null && <span className="hint">Carregando planos…</span>}
-                {planosPreco !== null && (
-                  <select className="select-dark" value={salePlanSel} onChange={e => escolherPlano(e.target.value)} style={{ width: "100%" }}>
-                    <option value="">Escolha o plano…</option>
-                    {planosPreco.filter(p => fmtPreco(p.monthlyPrice)).map(p => (
-                      <option key={p.key} value={p.key}>{p.title} — {fmtPreco(p.monthlyPrice)}/mês</option>
-                    ))}
-                  </select>
-                )}
-                {salePlanSel && (
-                  <span className="hint">
-                    {salePlanSel === "hbx_padrao"
-                      ? "Lead Plus: o cliente ativa pelo Gmail e ganha 14 dias grátis — a cobrança entra depois."
-                      : "Sem dias grátis: o cliente ativa pelo Gmail e a cobrança entra já na ativação."}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <React.Fragment>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label className="field-label">Produto</label>
-                  {produtos === null && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando produtos…</span>}
-                  {produtos !== null && produtos.length === 0 && (
-                    <span style={{ fontSize: "0.72rem", color: "var(--hbx-warning)", lineHeight: 1.5 }}>
-                      Nenhum produto cadastrado na empresa — dá para fechar só com o valor, ou cadastrar produtos (tela chega na sequência da trilha).
-                    </span>
-                  )}
-                  {produtos !== null && produtos.length > 0 && (
-                    <select className="select-dark" value={prodId} onChange={e => escolherProduto(e.target.value)} style={{ width: "100%" }}>
-                      <option value="">Sem produto (só valor)</option>
-                      {produtos.map(p => {
-                        const preco = precoDoProduto(p);
-                        return <option key={p.id} value={String(p.id)}>{p.name}{preco != null ? ` — ${preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " — sob consulta"}</option>;
-                      })}
-                    </select>
-                  )}
-                </div>
-                {planosPreco && planosPreco.some(p => fmtPreco(p.monthlyPrice)) && (
-                  <div className="doc-slot" style={{ display: "grid", gap: 6 }}>
-                    <span className="field-label">Mensalidade por plano (referência)</span>
-                    <div className="kv">
-                      {planosPreco.filter(p => fmtPreco(p.monthlyPrice)).map(p => (
-                        <div className="row" key={p.key}>
-                          <span className="k">{p.title}</span>
-                          <span className="v">{fmtPreco(p.monthlyPrice)}/mês</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </React.Fragment>
-            )}
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="field-label">Mensalidade / valor (R$)</label>
-              <input className="field-dark" type="number" min={0} step="0.01" placeholder="0,00"
-                value={valor} onChange={e => setValor(e.target.value)} />
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="field-label">Implantação (R$) — valor acordado da instalação</label>
-              <input className="field-dark" type="number" min={0} step="0.01" placeholder="0,00"
-                value={setupValor} onChange={e => setSetupValor(e.target.value)} />
-            </div>
-            {!linkInfo && (
-              <React.Fragment>
-                <button className="btn-teal" onClick={gerarLink} disabled={fecharBusy || (Boolean(board?.sellsHbxPlans) && !salePlanSel)} style={{ minHeight: 42 }}>
-                  {fecharBusy ? "Gerando…" : board?.sellsHbxPlans && !salePlanSel ? "Escolha o plano acima" : "Gerar link de contratação →"}
-                </button>
-                <button className="btn-ghost" onClick={salvarProdutoValor} disabled={fecharBusy} style={{ minHeight: 38 }}>
-                  {board?.sellsHbxPlans ? "Salvar plano/valor no card" : "Salvar produto/valor no card"}
-                </button>
-                <p style={{ margin: 0, fontSize: "0.64rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
-                  O cliente ativa pelo link — e a venda confirma SOZINHA no seu card, com a comissão calculada sobre o valor real. Transparência total, sem digitação manual de status.
-                </p>
-              </React.Fragment>
-            )}
-            {linkInfo && (
-              <React.Fragment>
-                <div className="ok show" style={{ display: "grid", gap: 6 }}>
-                  <strong style={{ fontSize: "0.74rem" }}>✓ Link de contratação gerado{linkInfo.planLabel ? ` — ${linkInfo.planLabel}` : ""}</strong>
-                  <span style={{ fontSize: "0.66rem", lineHeight: 1.5, whiteSpace: "pre-line", wordBreak: "break-all" }}>{linkInfo.message || linkInfo.registerUrl}</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <button className="btn-ghost" onClick={copiarMensagem} style={{ minHeight: 38 }}>Copiar mensagem</button>
-                  <button className="btn-teal" onClick={abrirWhatsApp} disabled={!sel?.phone} style={{ minHeight: 38 }}
-                    title={sel?.phone ? "Abrir conversa no WhatsApp com a mensagem pronta" : "Card sem telefone"}>
-                    Enviar no WhatsApp →
-                  </button>
-                </div>
-                <button className="btn-ghost" onClick={() => { setLinkInfo(null); setFecharOpen(false); }} style={{ minHeight: 36 }}>
-                  Concluir — acompanhar ativação no card
-                </button>
-              </React.Fragment>
-            )}
-            </React.Fragment>
-            )}
-          </div>
-        </div>
+      {fecharOpen && sel && (
+        <FecharVendaModal
+          mode={{ kind: "lead", leadId: sel.id }}
+          leadName={sel.name}
+          phone={sel.phone}
+          sellsHbxPlans={Boolean(board?.sellsHbxPlans)}
+          onClose={() => setFecharOpen(false)}
+          onDone={loadBoard}
+        />
       )}
 
       {prospOpen && (

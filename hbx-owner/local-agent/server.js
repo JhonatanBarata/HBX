@@ -969,6 +969,14 @@ async function route(req, res) {
     return;
   }
 
+  // Favicon: o navegador pede sozinho e SEM token → caía no portão (401) e poluía o console.
+  // Não há arquivo de ícone; responde 204 (sem conteúdo) e encerra o barulho.
+  if (req.method === "GET" && url.pathname === "/favicon.ico") {
+    res.writeHead(204, { "Cache-Control": "public, max-age=86400" });
+    res.end();
+    return;
+  }
+
   if (!isAuthorized(req)) {
     sendError(res, 401, "Token local invalido ou ausente.");
     return;

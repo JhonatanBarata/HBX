@@ -3683,6 +3683,10 @@ export class InboxService {
         if (this.isConversationGroup(row, metadata)) {
           continue;
         }
+        // Finalizadas (SOFT-hide): excluir de "Todas" — só aparecem na fila "blocked".
+        if (this.getAtendimentoBlockedState(row.metadata).isBlocked) {
+          continue;
+        }
         if (visibleSeen < visibleSkip) {
           visibleSeen += 1;
           continue;
@@ -3711,6 +3715,10 @@ export class InboxService {
         // Inbox 1:1 só: grupos legados que já entraram no banco não aparecem mais
         // (o espelhamento novo já bloqueia na origem — ver isSyncableChat no bridge).
         if (this.isConversationGroup(row, metadata)) {
+          continue;
+        }
+        // Finalizadas (SOFT-hide): excluir de "Todas" — só aparecem na fila "blocked".
+        if (this.getAtendimentoBlockedState(row.metadata).isBlocked) {
           continue;
         }
         rows.push(row);
@@ -5071,6 +5079,82 @@ export class InboxService {
     return this.buildStatusCardPayload(records);
   }
 
+  /**
+   * Consulta-no-clique: ao abrir uma conversa, verifica se o cliente já está
+   * finalizado (por telefone, sobrevive à troca de chip). Se sim, re-aplica
+   * o SOFT-hide na conversa atual e encaminha pro bot (roteamento de estado
+   * sem disparar mensagem). Retorna { finalized: true/false, reason? }.
+   *
+   * SÓ no clique — sem job em background, sem novo socket, sem reconexão.
+   * NUNCA chama updateBlockStatus/archiveChat/logout do motor (SOFT apenas).
+   */
+  async checkConversationFinalized(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+
+    // Se já está com SOFT-hide, não precisa reaplicar
+    const alreadyBlocked = this.getAtendimentoBlockedState(conversation.metadata);
+    if (alreadyBlocked.isBlocked) {
+      return { finalized: true, reason: alreadyBlocked.blockedReason, alreadyApplied: true };
+    }
+
+    const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
+    if (!phoneNormalized) {
+      return { finalized: false };
+    }
+    const phoneVariants = this.getStatusCardPhoneVariants(phoneNormalized);
+
+    // Consulta o perfil do cliente por telefone normalizado (sobrevive à troca de chip)
+    const profile = await this.prisma.customerProfile.findFirst({
+      where: { companyId, phoneNormalized: { in: phoneVariants } },
+      orderBy: [{ updatedAt: 'desc' }],
+      select: { botOff: true, botOffReason: true },
+    });
+    if (!profile || !profile.botOff) {
+      return { finalized: false };
+    }
+
+    // Cliente está finalizado — re-aplica SOFT-hide + encaminha pro bot
+    const reason = String(profile.botOffReason || 'sem_interesse').trim();
+    const now = new Date();
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    await this.conversations.updateConversationState(companyId, conversationId, {
+      metadata: {
+        ...metadata,
+        atendimentoBlockedAt: now.toISOString(),
+        atendimentoBlockedReason: reason,
+        atendimentoBlockedByUserId: null,
+        // Encaminha pro bot: estado igual ao roteamento de prospeccao
+        vendasAgendaQueue: {
+          ...(metadata.vendasAgendaQueue || {}),
+          active: true,
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          manualQueueOverride: null,
+          manualQueueOverriddenAt: null,
+          botEligible: false,
+          botEntryPending: false,
+          syncedAt: now,
+        },
+      },
+      botActive: true,
+      humanAssigned: false,
+      flowResult: 'do_not_call',
+    });
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_finalized_reapplied',
+      message: 'Cliente finalizado reconhecido no clique; SOFT-hide reaplicado + encaminhado pro bot.',
+      conversationId,
+      phone: conversation.contact,
+      result: reason,
+    });
+
+    return { finalized: true, reason, alreadyApplied: false };
+  }
+
   // Garante UM card de Vendas para a conversa (reusa o do telefone/perfil ou cria
   // um novo). Usado pelo "Fechar venda" do Atendimento: o vendedor sempre consegue
   // gerar o link de contratacao, mesmo numa conversa que ainda nao tinha card.
@@ -5186,7 +5270,7 @@ export class InboxService {
   async updateConversationStatusCard(
     user: any,
     conversationId: number,
-    dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
+    dto: { doNotCall?: boolean; closureReason?: string | null; returnAt?: string | null; observations?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxMutationSessionScope(user, companyId);
@@ -5195,6 +5279,10 @@ export class InboxService {
       dto.observations === undefined ? undefined : String(dto.observations || '').trim();
     const returnAt = dto.returnAt === undefined ? undefined : this.parseStatusCardDate(dto.returnAt);
     const doNotCall = dto.doNotCall === undefined ? undefined : Boolean(dto.doNotCall);
+    // closureReason: motivo escolhido pelo operador ao clicar "Sem interesse" (SOFT-hide)
+    const closureReason = dto.closureReason !== undefined
+      ? (String(dto.closureReason || '').trim() || 'sem_interesse')
+      : null;
     const now = new Date();
 
     if (doNotCall !== undefined) {
@@ -5202,7 +5290,7 @@ export class InboxService {
         companyId,
         phone: `+${records.phoneNormalized}`,
         botOff: doNotCall,
-        botOffReason: doNotCall ? 'Não ligar mais' : null,
+        botOffReason: doNotCall ? (closureReason || 'Não ligar mais') : null,
         botOffAt: doNotCall ? now : null,
       } as any);
     }
@@ -5236,22 +5324,25 @@ export class InboxService {
 
       const events: any[] = [];
       if (doNotCall !== undefined) {
+        const closureLabel = closureReason
+          ? { sem_interesse: 'Sem interesse', nao_ligar: 'Não ligar mais', ja_tem: 'Já tem solução', preco: 'Preço alto demais', sem_perfil: 'Sem perfil' }[closureReason] ?? closureReason
+          : 'Não ligar mais';
         events.push({
           leadId: lead.id,
           eventType: doNotCall ? 'lead_closed' : 'status_preference',
-          title: doNotCall ? 'Não ligar mais' : 'Contato liberado',
+          title: doNotCall ? closureLabel : 'Contato liberado',
           description: doNotCall
             ? this.buildLeadClosureTimelineDescription({
                 conversationId,
-                detectedText: 'Não ligar mais',
+                detectedText: closureLabel,
                 sourceModule: 'atendimento_human',
-                closureReason: 'do_not_call',
+                closureReason: closureReason || 'do_not_call',
                 createdAt: now,
               })
             : 'Preferencia de nao ligar removida pelo Atendimento.',
           sourceType: doNotCall ? 'atendimento_human' : undefined,
           statusTo: doNotCall ? 'encerrado' : undefined,
-          resultLabel: doNotCall ? 'Não ligar mais' : 'Liberado',
+          resultLabel: doNotCall ? closureLabel : 'Liberado',
           createdByUserId: Number(user?.id || 0) || null,
         });
       }
@@ -5297,6 +5388,18 @@ export class InboxService {
       conversationStatePatch.botActive = false;
       conversationStatePatch.humanAssigned = false;
       conversationStatePatch.flowResult = 'do_not_call';
+      // SOFT-hide: grava atendimentoBlockedAt/Reason no metadata → conversa vai pra "Finalizadas".
+      // NÃO chama updateBlockStatus/archiveChat do motor (proibido — guarda o contato real).
+      conversationStatePatch.metadata = {
+        ...conversationStatePatch.metadata,
+        atendimentoBlockedAt: now.toISOString(),
+        atendimentoBlockedReason: closureReason || 'sem_interesse',
+        atendimentoBlockedByUserId: Number(user?.id || 0) || null,
+      };
+    } else if (doNotCall === false) {
+      // Liberar: limpa o SOFT-hide
+      const cleared = this.clearAtendimentoBlockedMetadata(conversationStatePatch.metadata);
+      conversationStatePatch.metadata = cleared;
     }
     await this.conversations.updateConversationState(companyId, conversationId, conversationStatePatch);
 

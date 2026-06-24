@@ -220,6 +220,29 @@ export class CreateHbxSalesHandoffDto {
   @Max(1000000)
   setupValue?: number;
 
+  // Pre-cadastro confirmado no fechamento — alimenta o prefill do checkout (o que o
+  // vendedor sabe do cliente). Preenche GAPS do lead (nunca apaga valor existente).
+  // cpf vai pro CustomerProfile.document; o resto pro VendasLead.
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  phone?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => optionalEmail(value))
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  cpf?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

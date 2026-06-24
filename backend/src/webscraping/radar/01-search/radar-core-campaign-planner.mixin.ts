@@ -177,7 +177,7 @@ export class RadarCoreCampaignPlannerMixin {
     const allowedStartHour = Math.min(Math.max(Math.trunc(Number(input.allowedStartHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_START_HOUR', mode === 'mass_data' ? 20 : 0))), 0), 23);
     const allowedEndHour = Math.min(Math.max(Math.trunc(Number(input.allowedEndHour ?? parsePositiveIntegerEnv('HBX_RADAR_NIGHT_END_HOUR', mode === 'mass_data' ? 8 : 6))), 0), 23);
     const timezone = String(input.timezone || process.env.HBX_RADAR_NIGHT_TIMEZONE || 'America/Sao_Paulo').trim() || 'America/Sao_Paulo';
-    const nightOnly = input.nightOnly == null ? true : coerceBoolean(input.nightOnly);
+    const nightOnly = input.nightOnly == null ? false : coerceBoolean(input.nightOnly); // Sem janela por padrão: Elasticidade é o único freio (ordem do dono 24/06).
     const maxAttemptsPerTask = Math.min(Math.max(Math.trunc(Number(input.maxAttemptsPerTask || 3) || 3), 1), 10);
     const maxAttempts = mode === 'mass_data' ? maxAttemptsPerTask : Math.max(Math.ceil(Math.max(1, targetTotal) / Math.max(1, batchSize)) * 3, 40);
     const preferredChannels = this.normalizeRadarChannels(input.preferredChannels || []);
@@ -219,14 +219,10 @@ export class RadarCoreCampaignPlannerMixin {
     }
   }
 
-  private isWithinRadarWindow(campaign: any, date = new Date()) {
-    if (!campaign?.nightOnly) return true;
-    if (String(process.env.HBX_RADAR_NIGHT_WORKER_ENABLED || 'true').trim().toLowerCase() === 'false') return false;
-    const start = safeInteger(campaign.allowedStartHour, 0);
-    const end = safeInteger(campaign.allowedEndHour, 6);
-    const hour = this.getZonedHour(String(campaign.timezone || 'America/Sao_Paulo'), date);
-    if (start === end) return true;
-    return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+  private isWithinRadarWindow(_campaign: any, _date = new Date()) {
+    // Janela de horário DELETADA (ordem do dono 24/06): produz quando a campanha está ativa, sem relógio.
+    // O liga/desliga vive no STATUS da campanha; a Elasticidade (governor) é o único freio de carga.
+    return true;
   }
 
   private nextRadarWindowAt(campaign: any, date = new Date()) {

@@ -74,7 +74,7 @@ function readMpError(err: unknown): string {
 type PayConfig = { mode?: "mock" | "live"; publicKey?: string | null };
 
 export function CheckoutPanel({
-  planKey, phone: initialPhone = "", email, name, trialEndsAt, onSuccess, demoOutcome,
+  planKey, phone: initialPhone = "", email, name, taxDocument: initialDoc = "", trialEndsAt, onSuccess, demoOutcome,
   reactivation = false, submitOverride, amountOverride, ctaLabel, title, hideCycle = false,
   dualToken = false,
 }: {
@@ -82,6 +82,9 @@ export function CheckoutPanel({
   phone?: string;
   email: string;
   name: string;
+  // CPF/CNPJ pré-preenchido pelo vendedor no fechamento (prefill do checkout). O
+  // cliente só confere. Vem vazio no login por Gmail sem prefill → coletado aqui.
+  taxDocument?: string;
   trialEndsAt?: string | null;
   onSuccess: () => void;
   // Reativação (bloqueio-gate, inadimplente): sem moldura de trial — é pagamento
@@ -111,7 +114,8 @@ export function CheckoutPanel({
   const [card, setCard] = useState({ number: "", holder: "", exp: "", cvv: "" });
   // CPF/CNPJ do pagador é pedido AQUI (ordem do dono 19/06: saiu do cadastro,
   // entra na tela do cartão). Alimenta a identificação na tokenização do MP.
-  const [doc, setDoc] = useState("");
+  // Vem pré-preenchido quando o vendedor confirmou no fechamento (prefill).
+  const [doc, setDoc] = useState(() => onlyDigits(initialDoc).slice(0, 14));
   // Telefone de contato/cobrança. Vem pré-preenchido do cadastro (confirmação por
   // WhatsApp) quando existe; no login por Gmail vem vazio e é coletado AQUI.
   const [phone, setPhone] = useState(() => onlyDigits(initialPhone).slice(0, 11));

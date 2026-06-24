@@ -103,6 +103,15 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
   const [link, setLink] = useState<LinkInfo | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Pré-cadastro do cliente (confere/completa no fechamento) — alimenta o prefill
+  // do checkout (PLAN-VENDA-PRONTA-A/B). Nome/telefone já vêm do card/conversa;
+  // e-mail/CPF o vendedor completa quando o cliente passa. CPF→CustomerProfile.
+  const [cliName, setCliName] = useState(leadName || "");
+  const [cliPhone, setCliPhone] = useState(phone || "");
+  const [cliEmail, setCliEmail] = useState("");
+  const [cliCpf, setCliCpf] = useState("");
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
   // Carrega catálogos + perfil de comissão na montagem (= ao abrir).
   useEffect(() => {
     apiFetch<Produto[] | { items?: Produto[] }>("/products?status=active")
@@ -165,16 +174,49 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
   const planosComPreco = useMemo(() => (planos || []).filter(p => p.monthlyPrice != null && p.monthlyPrice > 0), [planos]);
   const podeGerar = !busy && valorNum > 0 && (!sellsHbx || Boolean(planSel));
 
+  // Grava o pré-cadastro (CustomerProfile, linka por telefone): persiste e-mail/CPF
+  // do cliente ANTES de gerar o link, pra o prefill do checkout puxar. Não bloqueia
+  // o fechamento se falhar (best-effort) — o cliente completa no cartão se faltar.
+  async function persistCadastro() {
+    const name = cliName.trim();
+    const phoneV = cliPhone.trim();
+    const emailV = cliEmail.trim();
+    const cpfV = cliCpf.trim();
+    if (!name && !phoneV && !emailV && !cpfV) return;
+    await apiFetch("/cadastros/customer-profiles", {
+      method: "POST",
+      body: JSON.stringify({
+        name: name || undefined,
+        phone: phoneV || undefined,
+        email: emailV || undefined,
+        document: cpfV || undefined,
+      }),
+    }).catch(() => { /* best-effort: não trava o fechamento */ });
+  }
+
+  // Cadastro-em-corpo do handoff: preenche GAPS do lead (nome/telefone/email) —
+  // o backend nunca sobrescreve valor existente.
+  function cadastroBody(): Record<string, unknown> {
+    return {
+      ...(cliName.trim() ? { name: cliName.trim() } : {}),
+      ...(cliPhone.trim() ? { phone: cliPhone.trim() } : {}),
+      ...(cliEmail.trim() ? { email: cliEmail.trim() } : {}),
+      ...(cliCpf.trim() ? { cpf: cliCpf.trim() } : {}),
+    };
+  }
+
   async function gerarLink() {
     if (!podeGerar) return;
     setBusy(true);
     setError(null);
     try {
+      await persistCadastro();
       const body: Record<string, unknown> = {
         saleValue: valorNum,
         ...(setupNum > 0 ? { setupValue: setupNum } : {}),
         ...(prodId ? { productId: Number(prodId) } : {}),
         ...(sellsHbx && planSel ? { salePlanKey: planSel } : {}),
+        ...cadastroBody(),
         origin: window.location.origin,
       };
       const path = mode.kind === "lead"
@@ -193,6 +235,33 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
       onDone?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível gerar o link de contratação.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Salvar produto/valor no card SEM gerar link (só pelo pipeline do Vendas, modo
+  // lead). Persiste o pré-cadastro junto. No Atendimento (conversa) não existe.
+  async function salvarNoCard() {
+    if (mode.kind !== "lead" || busy) return;
+    setBusy(true);
+    setError(null);
+    setSavedMsg(null);
+    try {
+      await persistCadastro();
+      await apiFetch(`/vendas/lead/${encodeURIComponent(mode.leadId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(prodId ? { productId: Number(prodId) } : {}),
+          ...(sellsHbx && planSel ? { salePlanKey: planSel } : {}),
+          ...(valorNum > 0 ? { saleValue: valorNum } : {}),
+          ...(setupNum > 0 ? { setupValue: setupNum } : {}),
+        }),
+      });
+      setSavedMsg("✓ Produto e valor salvos no card.");
+      onDone?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível salvar no card.");
     } finally {
       setBusy(false);
     }
@@ -254,6 +323,16 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
 
           {!link && (
             <React.Fragment>
+              {/* Pré-cadastro do cliente — confere/completa; alimenta o prefill do link */}
+              <div className="fv-field">
+                <label className="fv-label">Dados do cliente</label>
+                <span className="fv-hint">Confira e complete — isto já pré-preenche o cadastro e o cartão do cliente no link.</span>
+                <input className="fv-input" placeholder="Nome do cliente" value={cliName} onChange={e => setCliName(e.target.value)} />
+                <input className="fv-input" placeholder="Telefone com DDD" value={cliPhone} onChange={e => setCliPhone(e.target.value)} inputMode="tel" />
+                <input className="fv-input" type="email" placeholder="E-mail (opcional)" value={cliEmail} onChange={e => setCliEmail(e.target.value)} />
+                <input className="fv-input" placeholder="CPF/CNPJ (opcional)" value={cliCpf} onChange={e => setCliCpf(e.target.value)} inputMode="numeric" />
+              </div>
+
               {/* Plano (HBX admin) ou Produto (tenant comum) */}
               {sellsHbx ? (
                 <div className="fv-field">
@@ -383,6 +462,12 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
               <button className="fv-btn fv-btn-primary" onClick={gerarLink} disabled={!podeGerar}>
                 {busy ? "Gerando link…" : sellsHbx && !planSel ? "Escolha o plano acima" : valorNum <= 0 ? "Informe o valor combinado" : (<>Gerar link de contratação <I d={ICONS.arrow} size={15} /></>)}
               </button>
+              {mode.kind === "lead" && (
+                <button className="fv-btn fv-btn-ghost" onClick={salvarNoCard} disabled={busy}>
+                  {sellsHbx ? "Salvar plano/valor no card" : "Salvar produto/valor no card"}
+                </button>
+              )}
+              {savedMsg && <p className="fv-foot-note">{savedMsg}</p>}
               <p className="fv-foot-note">Transparência total: a venda confirma sozinha quando o cliente ativa, com a comissão sobre o valor real.</p>
             </div>
           ) : (

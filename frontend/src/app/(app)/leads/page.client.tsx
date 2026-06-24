@@ -982,7 +982,6 @@ export function LeadsClient() {
         </div>
 
         <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
-        {opMsg && <div className="radar-state-msg">{opMsg}</div>}
 
         {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
         {geo && (
@@ -1002,7 +1001,6 @@ export function LeadsClient() {
 
         {/* BLOCO B1: Onde buscar */}
         <div className="radar-box">
-          <span className="radar-box__title">Onde buscar</span>
           <div className="radar-box__grid2">
             <div className="f">
               <label htmlFor="rc-uf">
@@ -1036,7 +1034,6 @@ export function LeadsClient() {
 
         {/* BLOCO B2: O que buscar */}
         <div className="radar-box">
-          <span className="radar-box__title">O que buscar</span>
           <div className="f">
             <label htmlFor="rc-seg">
               Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
@@ -1433,7 +1430,6 @@ export function LeadsClient() {
               {runPaused && (
                 <div className="radar2-live radar2-live--pausado">
                   <span className="dot" /> Descansando — retoma sozinho
-                  {run?.meta?.operationalMessage ? ` · ${run.meta.operationalMessage}` : ""}
                 </div>
               )}
 

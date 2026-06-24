@@ -175,9 +175,14 @@ export class InboxController {
   updateStatusCard(
     @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
+    @Body() dto: { doNotCall?: boolean; closureReason?: string | null; returnAt?: string | null; observations?: string | null },
   ) {
     return this.inboxService.updateConversationStatusCard(req.user, id, dto || {});
+  }
+
+  @Post('conversations/:id/check-finalized')
+  checkConversationFinalized(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.checkConversationFinalized(req.user, id);
   }
 
   @Patch('conversations/:id/status')

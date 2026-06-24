@@ -194,6 +194,12 @@ export type DetalhesNegocioProps = {
   onObsSave?: () => void;
   obsBusy?: boolean;
   onToggleDoNotCall?: () => void;
+  /**
+   * Chamado quando o operador escolhe "Sem interesse" + motivo no Atendimento.
+   * Se passado, substitui o botão "Não ligar mais" por "Sem interesse" com submenu de motivos.
+   * O callback recebe o slug do motivo (ex: "sem_interesse", "ja_tem", "preco", "sem_perfil").
+   */
+  onSemInteresse?: (reason: string) => void;
   historyLabel?: string;
   kvExtra?: React.ReactNode;
 };
@@ -484,6 +490,7 @@ export function DetalhesNegocio({
   onObsSave,
   obsBusy,
   onToggleDoNotCall,
+  onSemInteresse,
   historyLabel = "Histórico",
   kvExtra,
   onDelete,
@@ -492,6 +499,7 @@ export function DetalhesNegocio({
   const [internalTab, setInternalTab] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const hasLegacyWa = Boolean(onWaOpenExternal || onWaOpenInternal);
 
   const li = n?.leadIntelligence;
@@ -740,11 +748,38 @@ export function DetalhesNegocio({
               style={{ resize: "vertical", paddingTop: 8, paddingBottom: 8 }}
             />
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-              {onToggleDoNotCall && (
+              {/* Sem interesse (Atendimento): submenu de motivos → SOFT-hide pra "Finalizadas" */}
+              {onSemInteresse ? (
+                <span style={{ position: "relative", display: "grid" }}>
+                  {n.doNotCall ? (
+                    <button className="btn-ghost" onClick={onToggleDoNotCall}>Liberar contato</button>
+                  ) : (
+                    <button className="btn-ghost" onClick={() => setSemInteresseOpen(o => !o)}>
+                      Sem interesse ▾
+                    </button>
+                  )}
+                  {semInteresseOpen && !n.doNotCall && (
+                    <div className="hbx-pop" style={{ position: "absolute", left: 0, bottom: "calc(100% + 4px)", zIndex: 30, minWidth: 210, padding: 6, display: "grid", gap: 2 }}>
+                      {[
+                        { key: "sem_interesse", label: "Sem interesse geral" },
+                        { key: "ja_tem", label: "Já tem solução" },
+                        { key: "preco", label: "Preço alto demais" },
+                        { key: "sem_perfil", label: "Fora do perfil" },
+                        { key: "nao_ligar", label: "Não ligar mais" },
+                      ].map(({ key, label }) => (
+                        <button key={key} className="nav-item" style={{ minHeight: 32, textAlign: "left" }}
+                          onClick={() => { setSemInteresseOpen(false); onSemInteresse(key); }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </span>
+              ) : onToggleDoNotCall ? (
                 <button className="btn-ghost" onClick={onToggleDoNotCall}>
                   {n.doNotCall ? "Liberar contato" : "Não ligar mais"}
                 </button>
-              )}
+              ) : null}
               {onObsSave && (
                 <button className="btn-teal" style={{ minHeight: 36 }} disabled={obsBusy} onClick={onObsSave}>
                   {obsBusy ? "Salvando…" : "Salvar"}

@@ -15,6 +15,7 @@
 2. Deixei a lead **Camila Barsotti** fechada como exemplo (pra ver a comissão no Gerencial). Pra limpar:
    `UPDATE "VendasLead" SET "saleStatus"='none',"commissionStatus"='none',"assignedUserId"=NULL,"commissionPercentSnapshot"=0,"saleValue"=NULL,"setupValue"=NULL,"salePlanKey"=NULL WHERE id='cmqrkt3ji0070132d8sumhc74';`
    (rodar no banco: `docker compose exec db psql -U admin -d jhonatan_dev -c "…"`)
+3. **Verificação da venda-pronta (24/06):** re-fechei a Camila com implantação=500 pra testar A/B/C via API (prefill + handoff + aviso de implantação). Deixou 1 registro de demo no log do master (aparece na janela Pagamentos). Pra limpar: `DELETE FROM "MasterPaymentNotificationLog" WHERE target='implantacao';` (o revert do item 2 zera a Camila).
 
 ## Construtor de Bot — reforma "painel integrado tipo jogo" (working tree, NÃO publicado)
 Tudo localhost/reversível. Build + lint verdes (front e back). **Runtime visual NÃO testado** (precisa login+backend) — testar.md tem o roteiro pra você bater o olho.

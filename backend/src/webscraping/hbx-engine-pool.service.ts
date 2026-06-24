@@ -2426,13 +2426,10 @@ export class HbxEnginePoolService implements OnModuleInit {
     const startMinute = this.readIntegerEnv('HBX_FACTORY_START_MINUTE', clampInteger(config?.startMinute, 0, 0, 59), 0, 59);
     const endHour = this.readIntegerEnv('HBX_FACTORY_END_HOUR', clampInteger(config?.endHour, 7, 0, 23), 0, 23);
     const endMinute = this.readIntegerEnv('HBX_FACTORY_END_MINUTE', clampInteger(config?.endMinute, 0, 0, 59), 0, 59);
-    const metadataMaxEngines = metadata.factoryMaxEngines == null
-      ? configuredEngineCount
-      : clampInteger(metadata.factoryMaxEngines, configuredEngineCount, 0, configuredEngineCount);
-    const envMaxEngines = input.factoryMaxEngines == null
-      ? null
-      : clampInteger(input.factoryMaxEngines, configuredEngineCount, 0, configuredEngineCount);
-    const maxEngines = envMaxEngines == null ? metadataMaxEngines : Math.min(metadataMaxEngines, envMaxEngines);
+    // Sub-teto FIXO da fábrica DELETADO (ordem do dono 24/06): a fábrica pode usar TODA a frota
+    // declarada (configuredEngineCount). O único freio dinâmico é a Elasticidade — o memoryGuard
+    // abaixo recua sozinho por pressão de RAM. Sem cap gravado (banco/env) segurando abaixo da frota.
+    const maxEngines = configuredEngineCount;
     const minEngines = metadata.factoryMinEngines == null
       ? maxEngines
       : clampInteger(metadata.factoryMinEngines, maxEngines, 0, maxEngines);
