@@ -63,26 +63,31 @@ export function BotVariablesDrawer({
     if (open && closing) setClosing(false);
   }
 
-  // Pede o fechamento: dispara a animação de saída e só chama onClose quando ela
-  // termina (onAnimationEnd no painel) — com setTimeout de fallback (~350ms) caso
-  // o evento não dispare (reduced-motion / animação desligada).
-  const requestClose = useCallback(() => {
-    setClosing(true);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => {
-      onClose();
-    }, 350);
-  }, [onClose]);
-
-  // Ao terminar a animação de saída, fecha de verdade (cancela o fallback).
-  const handleAnimEnd = useCallback(() => {
-    if (!closing) return;
+  // Fecha de verdade: ZERA o `closing` (senão o componente fica preso montado, com
+  // o véu cobrindo a tela — bug do "não dá pra fechar") e avisa o pai (onClose).
+  const finishClose = useCallback(() => {
     if (closeTimer.current) {
       clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
+    setClosing(false);
     onClose();
-  }, [closing, onClose]);
+  }, [onClose]);
+
+  // Pede o fechamento: dispara a animação de saída e só fecha quando ela termina
+  // (onAnimationEnd no painel) — com setTimeout de fallback caso o evento não
+  // dispare (reduced-motion / animação desligada).
+  const requestClose = useCallback(() => {
+    setClosing(true);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(finishClose, 360);
+  }, [finishClose]);
+
+  // Ao terminar a animação de saída, fecha de verdade (cancela o fallback).
+  const handleAnimEnd = useCallback(() => {
+    if (!closing) return;
+    finishClose();
+  }, [closing, finishClose]);
 
   // Limpa o timer no unmount.
   useEffect(() => {
