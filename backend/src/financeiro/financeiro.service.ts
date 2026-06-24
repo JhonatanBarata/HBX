@@ -1151,6 +1151,24 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // ANTI-BRECHA do crédito de downgrade: prova que o período ATUAL foi realmente
+  // COBRADO (caiu no cartão), não só autorizado. Receita = cobrança paga de cartão/
+  // pix/boleto (exclui CREDIT/BONUS) com `paidAt` dentro do período vigente. Sem isso,
+  // o cliente assinaria o plano maior (1ª fatura ainda não caiu), baixaria na hora e
+  // levaria crédito sem ter passado o cartão de verdade.
+  private async hasCollectedRevenueSince(companyId: number, since: Date | null): Promise<boolean> {
+    if (!(since instanceof Date) || Number.isNaN(since.getTime())) return false;
+    const count = await this.prisma.financeiroCharge.count({
+      where: {
+        companyId,
+        lifecycle: 'paid',
+        paymentMethod: { in: ['CARD', 'PIX', 'BOLETO'] },
+        paidAt: { gte: since },
+      },
+    });
+    return count > 0;
+  }
+
   private async findCurrentCompanySubscription(companyId: number) {
     return this.prisma.companySubscription.findFirst({
       where: {
@@ -3688,6 +3706,17 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const access = resolveCompanyAccessState(company);
     const isPaying = access.state === 'paying';
 
+    // ANTI-BRECHA: o crédito do downgrade só vale se o período ATUAL foi realmente
+    // COBRADO (caiu no cartão), não só autorizado. Sem cobrança confirmada — 1ª fatura
+    // do MP ainda não caiu, ou em atraso — o crédito é ZERO (a troca de plano segue
+    // normal). Senão o cliente assina o plano maior, baixa na hora e embolsa crédito sem
+    // ter passado o cartão de verdade.
+    let effectiveCredit = proration.creditGenerated;
+    if (direction === 'downgrade' && effectiveCredit > 0) {
+      const collected = await this.hasCollectedRevenueSince(context.companyId, periodStart);
+      if (!collected) effectiveCredit = 0;
+    }
+
     const preview = {
       direction,
       fromPlanKey: currentPlanKey,
@@ -3698,7 +3727,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       fromCycleAmount,
       toCycleAmount,
       chargeNow: proration.chargeNow,
-      creditGenerated: proration.creditGenerated,
+      creditGenerated: effectiveCredit,
       remainingDays: prorationRemainingDays(periodEnd, now),
       // Modelo B: tanto upgrade quanto downgrade trocam o plano AGORA. No upgrade cobra a
       // diferença proporcional; no downgrade credita a diferença proporcional (a sobra do
@@ -3746,7 +3775,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     }
     return this.applyDowngradePlanChange({
       user, context, company, subscription, targetPlanKey, billingCycle,
-      toCycleAmount, creditGenerated: proration.creditGenerated, preview, mockMode, periodStart, periodEnd, now,
+      toCycleAmount, creditGenerated: effectiveCredit, preview, mockMode, periodStart, periodEnd, now,
     });
   }
 

@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
-import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
+import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential, resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
+import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { WhatsAppModalService } from './whatsapp-modal.service';
@@ -40,6 +41,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     private readonly whatsappModalService: WhatsAppModalService,
     private readonly mail: MailService,
     private readonly conversations: ConversationsService,
+    private readonly mercadoPagoClient: MercadoPagoClientService,
   ) {}
 
   async onModuleInit() {
@@ -1045,6 +1047,42 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     return this.sanitizeCompany(updated);
   }
 
+  // Cancela no Mercado Pago toda assinatura recorrente VIVA da empresa (preapproval),
+  // pra o provedor parar de cobrar o cartão quando o cliente é excluído. Só toca
+  // assinaturas reais (provider=mercadopago); mock não tem preapproval no provedor.
+  private async cancelCompanyProviderSubscriptions(companyId: number) {
+    try {
+      const subs = await this.prisma.companySubscription.findMany({
+        where: {
+          companyId,
+          provider: 'mercadopago',
+          providerPreapprovalId: { not: null },
+          status: { notIn: ['canceled', 'cancelled'] },
+        },
+        select: { providerPreapprovalId: true },
+      });
+      if (!subs.length) return;
+      const resolved = await resolveCompanyMercadoPagoAccess(this.prisma, companyId);
+      const accessToken = String(resolved.accessToken || '').trim();
+      if (!accessToken) {
+        this.logger.warn(`[company-delete] sem token MP para cancelar assinatura company=${companyId} (assinatura pode seguir ativa no provedor)`);
+        return;
+      }
+      for (const sub of subs) {
+        const preapprovalId = String(sub.providerPreapprovalId || '').trim();
+        if (!preapprovalId) continue;
+        try {
+          await this.mercadoPagoClient.cancelPreapproval(accessToken, preapprovalId);
+          this.logger.log(`[company-delete] assinatura MP cancelada preapproval=${preapprovalId} company=${companyId}`);
+        } catch (error: any) {
+          this.logger.warn(`[company-delete] falha ao cancelar preapproval=${preapprovalId} company=${companyId}: ${String(error?.message || error)}`);
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`[company-delete] cancelamento de assinaturas MP falhou company=${companyId}: ${String(error?.message || error)}`);
+    }
+  }
+
   private async permanentlyDeleteCompanyInternal(input: {
     companyId: number;
     deletedByUserId?: number | null;
@@ -1077,6 +1115,11 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       deletedAt,
       scheduledAt: input.scheduledAt || null,
     });
+
+    // Cancela a assinatura recorrente no Mercado Pago ANTES de apagar — senão o MP
+    // continua cobrando o cartão de um cliente que não existe mais (assinatura órfã).
+    // Best-effort: instabilidade do provedor NÃO pode travar a exclusão.
+    await this.cancelCompanyProviderSubscriptions(id);
 
     await this.prisma.$transaction(async (tx) => {
       if (input.scheduleRecordId) {

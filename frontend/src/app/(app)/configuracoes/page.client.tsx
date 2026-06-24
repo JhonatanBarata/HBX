@@ -551,7 +551,7 @@ export function ConfiguracoesClient() {
       <ConfirmDialog
         open={confirmCancelar}
         title="Cancelar assinatura"
-        message={<>Cancelar a assinatura recorrente? A cobrança automática para, e o acesso continua até o fim do período já pago.<br /><br /><small>Precisa de reembolso ou tem uma reclamação? <a href="https://wa.me/5519997024884" target="_blank" rel="noopener noreferrer">Fale com a gente pelo WhatsApp</a>.</small></>}
+        message={<>Cancelar a assinatura recorrente? A cobrança automática para, e o acesso continua até o fim do período já pago.<br /><br /><small>Precisa de reembolso ou tem uma reclamação? <a href="https://wa.me/5519997024884" target="_blank" rel="noopener noreferrer">Fale conosco pelo WhatsApp</a>.</small></>}
         confirmLabel="Cancelar assinatura"
         danger
         busy={planoBusy}
