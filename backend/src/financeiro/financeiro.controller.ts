@@ -1,11 +1,13 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Patch, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MasterGuard } from '../auth/guards/master.guard';
 import { FinanceiroService } from './financeiro.service';
 import {
   ChangeFinanceiroPlanDto,
   ChangeFinanceiroSubscriptionCardDto,
   CreateFinanceiroCheckoutDto,
   CreateFinanceiroSubscriptionDto,
+  RefundFinanceiroChargeDto,
   SaveFinanceiroCardDto,
   UpdateFinanceiroPreferencesDto,
 } from './dto/financeiro.dto';
@@ -87,5 +89,18 @@ export class FinanceiroController {
   @Post('charges/:chargeId/refresh')
   refreshCharge(@Req() req: any, @Param('chargeId') chargeId: string, @Body() dto?: { paymentId?: string }) {
     return this.financeiroService.refreshChargeForUser(req.user, chargeId, dto?.paymentId);
+  }
+
+  // F3 — estorno acionado pelo MASTER no painel de empresas. Sem amount = estorno total;
+  // com amount = parcial. Guard duplo: MasterGuard + checagem isSystemMaster no service.
+  @Post('master/company/:companyId/charge/:chargeId/refund')
+  @UseGuards(MasterGuard)
+  refundChargeByMaster(
+    @Req() req: any,
+    @Param('companyId') companyId: string,
+    @Param('chargeId') chargeId: string,
+    @Body() dto: RefundFinanceiroChargeDto,
+  ) {
+    return this.financeiroService.refundChargeByMaster(req.user, Number(companyId), chargeId, dto || {});
   }
 }

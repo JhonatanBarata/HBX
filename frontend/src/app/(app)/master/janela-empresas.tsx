@@ -51,7 +51,16 @@ type LedgerRow = {
   paymentMethod?: string | null;
   referenceLabel?: string | null;
   observation?: string | null;
+  metadata?: { chargeId?: string | null } | null;
   createdAt?: string | null;
+};
+
+type DeletionRefundPreview = {
+  eligible?: boolean;
+  amount?: number;
+  remainingDays?: number;
+  paidAmount?: number;
+  reason?: string;
 };
 
 type AuditRow = {
@@ -221,6 +230,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [pagBusy, setPagBusy] = useState(false);
   const [pagMsg, setPagMsg] = useState<string | null>(null);
   const [cancelArm, setCancelArm] = useState<string | null>(null);
+  const [refundArm, setRefundArm] = useState<string | null>(null); // F3 — lançamento a estornar
+  const [delRefund, setDelRefund] = useState<DeletionRefundPreview | null>(null); // F2 — preview do reembolso da exclusão
 
   function carregarDetail(id: number) {
     setSelId(id);
@@ -237,7 +248,13 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setResetResult(null);
     setDeleteArm(null);
     setCancelArm(null);
+    setRefundArm(null);
     setPlanoArm(false);
+    setDelRefund(null);
+    // F2 — quanto seria reembolsado se esta empresa fosse excluída agora (mostra no confirm).
+    apiFetch<{ refund?: DeletionRefundPreview }>(`/companies/master/${id}/deletion-refund-preview`)
+      .then(res => setDelRefund(res?.refund || null))
+      .catch(() => setDelRefund(null));
     apiFetch<Detail>(`/modules/master/company/${id}/detail`)
       .then(res => {
         setDetail(res);
@@ -562,6 +579,27 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       await recarregarTudo();
     } catch (err) {
       setPagMsg(err instanceof Error ? err.message : "Falha ao cancelar o lançamento.");
+    } finally {
+      setPagBusy(false);
+    }
+  }
+
+  // F3 — estorno total da cobrança pelo master. O backend devolve o dinheiro no MP e
+  // marca o lançamento como estornado (REFUNDED). Dinheiro real → exige confirmação.
+  async function reembolsarLancamento(entryId: string, chargeId: string) {
+    if (pagBusy || selId == null) return;
+    setPagBusy(true);
+    setPagMsg(null);
+    try {
+      await apiFetch(`/financeiro/master/company/${selId}/charge/${encodeURIComponent(chargeId)}/refund`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Estorno pelo master" }),
+      });
+      setPagMsg("✓ Estorno solicitado ao Mercado Pago.");
+      setRefundArm(null);
+      await recarregarTudo();
+    } catch (err) {
+      setPagMsg(err instanceof Error ? err.message : "Falha ao estornar a cobrança.");
     } finally {
       setPagBusy(false);
     }
@@ -1034,6 +1072,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
                         Apaga a empresa e TODOS os dados (usuários, leads, mensagens) permanentemente. Sem volta. Um clique exclui.
                       </span>
+                      {delRefund?.eligible && (delRefund.amount || 0) > 0 && (
+                        <span className="tag warn" style={{ fontSize: "0.66rem", alignSelf: "flex-start" }}>
+                          Excluir vai reembolsar {fmtBRL(delRefund.amount)} ao cliente
+                          {delRefund.remainingDays ? ` (${delRefund.remainingDays} dia(s) restantes do período pago)` : ""}.
+                        </span>
+                      )}
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
                         <button className="btn-ghost btn-danger"
                           disabled={comBusy != null} onClick={() => excluirEmpresa()}>
@@ -1260,8 +1304,16 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           )}
                           {ledger.map(l => {
                             // backend grava CANCELLED (2 L); cobre as duas grafias
-                            const cancelado = String(l.status || "").toUpperCase().startsWith("CANCEL");
+                            const statusUp = String(l.status || "").toUpperCase();
+                            const cancelado = statusUp.startsWith("CANCEL");
                             const manual = String(l.origin || "").toLowerCase().includes("manual") || String(l.entryType || "").toLowerCase().includes("manual");
+                            // F3 — estornável: receita de cartão paga, com cobrança vinculada, ainda não estornada.
+                            const jaEstornado = statusUp.includes("REFUND");
+                            const chargeId = l.metadata?.chargeId || null;
+                            const refundable = String(l.entryGroup || "") === "revenue" &&
+                              (statusUp === "APPROVED" || statusUp === "PAID") &&
+                              String(l.paymentMethod || "").toUpperCase() === "CARD" &&
+                              !!chargeId && !jaEstornado;
                             return (
                               <tr key={l.id} style={{ cursor: "default", opacity: cancelado ? 0.55 : 1 }}>
                                 <td>
@@ -1283,6 +1335,14 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                     <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", color: "var(--hbx-danger)" }}
                                       disabled={pagBusy} onClick={() => setCancelArm(l.id)}>Cancelar</button>
                                   ))}
+                                  {refundable && chargeId && (refundArm === l.id ? (
+                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                                      disabled={pagBusy} onClick={() => reembolsarLancamento(l.id, chargeId)}>Confirmar estorno</button>
+                                  ) : (
+                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", color: "var(--hbx-warning)" }}
+                                      disabled={pagBusy} onClick={() => setRefundArm(l.id)}>Reembolsar</button>
+                                  ))}
+                                  {jaEstornado && <span className="bv-hint" style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>estornado</span>}
                                 </td>
                               </tr>
                             );

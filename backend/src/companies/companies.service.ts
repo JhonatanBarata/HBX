@@ -6,6 +6,7 @@ import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential, resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
+import { computeRemainingRatio, remainingDays as prorationRemainingDays } from '../commercial-plans/plan-proration.util';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { WhatsAppModalService } from './whatsapp-modal.service';
@@ -1083,6 +1084,116 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // F2 — reembolso proporcional ao excluir empresa PAGANTE: devolve a SOBRA não-usada
+  // do período já pago (dias que faltam do ciclo vigente). Trial/sem pagamento/cartão
+  // não-MP = 0. PURO (não dispara nada): serve tanto pro preview do confirm quanto pra
+  // exclusão. Fonte do valor: última cobrança de CARTÃO realmente paga no MP do período.
+  private async computeCompanyDeletionRefund(companyId: number): Promise<{
+    eligible: boolean;
+    amount: number;
+    remainingDays: number;
+    paidAmount: number;
+    chargeId: string | null;
+    mpPaymentId: string | null;
+    reason: 'proporcional' | 'sem_pagamento' | 'periodo_consumido';
+  }> {
+    const empty = {
+      eligible: false,
+      amount: 0,
+      remainingDays: 0,
+      paidAmount: 0,
+      chargeId: null,
+      mpPaymentId: null,
+      reason: 'sem_pagamento' as const,
+    };
+    const id = Number(companyId);
+    if (!id) return empty;
+
+    const subscription = await this.prisma.companySubscription.findFirst({
+      where: { companyId: id, provider: 'mercadopago', status: { in: ['authorized', 'active'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { currentPeriodStart: true, currentPeriodEnd: true },
+    });
+    const periodStart = subscription?.currentPeriodStart ?? null;
+    const periodEnd = subscription?.currentPeriodEnd ?? null;
+
+    const charge = await this.prisma.financeiroCharge.findFirst({
+      where: {
+        companyId: id,
+        lifecycle: 'paid',
+        paymentMethod: 'CARD',
+        mpPaymentId: { not: null },
+        status: { in: ['approved', 'partially_refunded'] },
+        ...(periodStart ? { paidAt: { gte: periodStart } } : {}),
+      },
+      orderBy: { paidAt: 'desc' },
+      select: { id: true, amount: true, refundAmount: true, paidAt: true, mpPaymentId: true },
+    });
+    if (!charge || !charge.paidAt) return empty;
+
+    const paidAmount = this.round2(charge.amount);
+    const alreadyRefunded = this.round2(charge.refundAmount || 0);
+    const refundableBase = Math.max(0, paidAmount - alreadyRefunded);
+    const ratio = computeRemainingRatio(periodStart || charge.paidAt, periodEnd, new Date());
+    const amount = this.round2(refundableBase * ratio);
+    const days = prorationRemainingDays(periodEnd, new Date());
+    if (amount <= 0) {
+      return { ...empty, paidAmount, reason: 'periodo_consumido' };
+    }
+    return {
+      eligible: true,
+      amount,
+      remainingDays: days,
+      paidAmount,
+      chargeId: charge.id,
+      mpPaymentId: String(charge.mpPaymentId || '') || null,
+      reason: 'proporcional',
+    };
+  }
+
+  private round2(value: unknown) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.round(numeric * 100) / 100;
+  }
+
+  // Preview pro confirm de exclusão do master: "Excluir vai reembolsar R$X ao cliente".
+  async previewCompanyDeletionRefund(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+    const id = Number(companyId);
+    if (!id) throw new BadRequestException('Empresa invalida');
+    const refund = await this.computeCompanyDeletionRefund(id);
+    return { ok: true, refund };
+  }
+
+  // Dispara o reembolso proporcional ANTES de apagar (best-effort; instabilidade do
+  // provedor NUNCA trava a exclusão). Sem bookkeeping local: a empresa some logo em
+  // seguida. Só PAGANTE com pagamento de cartão no MP entra aqui.
+  private async refundCompanyDeletionProportional(companyId: number) {
+    try {
+      const refund = await this.computeCompanyDeletionRefund(companyId);
+      if (!refund.eligible || !refund.mpPaymentId || refund.amount <= 0) return;
+      const resolved = await resolveCompanyMercadoPagoAccess(this.prisma, companyId);
+      const accessToken = String(resolved.accessToken || '').trim();
+      if (!accessToken) {
+        this.logger.warn(
+          `[company-delete] sem token MP para reembolsar company=${companyId} (reembolso de R$${refund.amount} NÃO disparado)`,
+        );
+        return;
+      }
+      const isFull = refund.amount + 0.005 >= refund.paidAmount;
+      await this.mercadoPagoClient.refundPayment(accessToken, refund.mpPaymentId, isFull ? undefined : refund.amount);
+      this.logger.log(
+        `[company-delete] reembolso proporcional disparado company=${companyId} amount=${refund.amount} ` +
+          `payment=${refund.mpPaymentId} full=${isFull}`,
+      );
+    } catch (error: any) {
+      this.logger.warn(
+        `[company-delete] reembolso proporcional falhou company=${companyId}: ${String(error?.message || error)}`,
+      );
+    }
+  }
+
   private async permanentlyDeleteCompanyInternal(input: {
     companyId: number;
     deletedByUserId?: number | null;
@@ -1120,6 +1231,11 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     // continua cobrando o cartão de um cliente que não existe mais (assinatura órfã).
     // Best-effort: instabilidade do provedor NÃO pode travar a exclusão.
     await this.cancelCompanyProviderSubscriptions(id);
+
+    // F2 — devolve a sobra proporcional do período já pago ao cliente excluído (best-effort;
+    // só PAGANTE com cartão no MP). Cancelar para de cobrar o futuro; o reembolso devolve o
+    // que ele já pagou e não vai usar. Falha do provedor NÃO trava a exclusão.
+    await this.refundCompanyDeletionProportional(id);
 
     await this.prisma.$transaction(async (tx) => {
       if (input.scheduleRecordId) {

@@ -392,6 +392,13 @@ export class CompaniesController {
     return created;
   }
 
+  // F2 — preview do reembolso proporcional ANTES de excluir (mostra "vai reembolsar R$X").
+  @Get('master/:id/deletion-refund-preview')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async deletionRefundPreviewForMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.companiesService.previewCompanyDeletionRefund(Number(req.user?.id), id);
+  }
+
   @Delete('master/:id')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async removeByMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: MasterHardDeleteCompanyDto) {

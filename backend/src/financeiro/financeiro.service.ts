@@ -2332,6 +2332,31 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    // F3: cobrança aprovada que nunca teve lançamento (ex.: checkout avulso confirmado
+    // só pelo webhook) não pode sumir do Financeiro do master — cria o lançamento agora.
+    // Guard `!ledgerEntryId` evita duplicar quando o fluxo já criou um na origem.
+    if (!charge.ledgerEntryId && status === 'approved' && paidAt) {
+      const ledgerEntryId = await this.insertBillingLedgerEntry({
+        companyId,
+        createdByUserId: charge.createdByUserId || null,
+        entryType: 'CHECKOUT_CHARGE',
+        entryGroup: 'revenue',
+        status,
+        origin: 'financeiro_checkout',
+        competence: charge.competence || this.monthKey(paidAt),
+        amount,
+        paidAt,
+        paymentMethod: this.normalizePaymentMethod(charge.paymentMethod),
+        referenceLabel: charge.description || 'HBX Financeiro',
+        observation: 'Cobrança aprovada pelo Mercado Pago.',
+        metadata: { chargeId: charge.id, mpPaymentId: paymentId },
+      });
+      charge = await this.prisma.financeiroCharge.update({
+        where: { id: charge.id },
+        data: { ledgerEntryId },
+      });
+    }
+
     if (status === 'approved' && paidAt) {
       await this.activateCompanyFromCharge(companyId, charge, paidAt);
     }
@@ -4185,6 +4210,136 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     });
     await this.prisma.financeiroCharge.update({ where: { id: charge.id }, data: { ledgerEntryId } });
     return charge;
+  }
+
+  // ── REEMBOLSO (primitivo compartilhado: F2 exclusão de empresa + F3 botão do master) ──
+  // Estorna (total ou parcial) uma cobrança JÁ PAGA: dispara o refund no Mercado Pago,
+  // atualiza a FinanceiroCharge (refundAmount/refundedAt/status) e rebaixa o lançamento do
+  // ledger pra REFUNDED/PARTIALLY_REFUNDED (= o painel do master mostra "estornado"). Mock
+  // (sem mpPaymentId ou PAYMENTS_PROVIDER=mock) pula o gateway e só escritura. NÃO mexe em
+  // acesso/assinatura — estorno é dinheiro de volta, não cancelamento de plano.
+  private async refundFinanceiroChargeById(input: {
+    companyId: number;
+    chargeId: string;
+    amount?: number | null;
+    actorUserId?: number | null;
+    reason?: string | null;
+    source?: string;
+  }) {
+    const companyId = Number(input.companyId);
+    const charge = await this.prisma.financeiroCharge.findFirst({
+      where: { id: String(input.chargeId), companyId },
+    });
+    if (!charge) throw new NotFoundException('Cobrança não encontrada para esta empresa.');
+    if (charge.lifecycle !== 'paid') {
+      throw new BadRequestException('Só é possível estornar uma cobrança que foi paga.');
+    }
+
+    const paidAmount = this.normalizeCurrencyAmount(charge.amount);
+    const alreadyRefunded = this.normalizeCurrencyAmount(charge.refundAmount || 0);
+    const maxRefundable = this.normalizeCurrencyAmount(Math.max(0, paidAmount - alreadyRefunded));
+    if (maxRefundable <= 0) {
+      throw new BadRequestException('Esta cobrança já foi totalmente estornada.');
+    }
+
+    const requested =
+      typeof input.amount === 'number' && Number.isFinite(input.amount) && input.amount > 0
+        ? this.normalizeCurrencyAmount(input.amount)
+        : maxRefundable;
+    if (requested > maxRefundable + 0.005) {
+      throw new BadRequestException(`Valor do estorno acima do disponível (R$ ${maxRefundable.toFixed(2)}).`);
+    }
+    const refundValue = Math.min(requested, maxRefundable);
+
+    const mpPaymentId = String(charge.mpPaymentId || '').trim();
+    const newRefundTotal = this.normalizeCurrencyAmount(alreadyRefunded + refundValue);
+    const fullyRefunded = newRefundTotal + 0.005 >= paidAmount;
+
+    let providerRefund: unknown = null;
+    if (mpPaymentId && !this.isMockPaymentsProvider()) {
+      const { accessToken } = await this.resolveFinanceContext(companyId);
+      providerRefund = await this.mercadoPagoClient.refundPayment(
+        accessToken,
+        mpPaymentId,
+        fullyRefunded ? undefined : refundValue,
+      );
+    }
+
+    const now = new Date();
+    const reasonText = this.normalizeOptionalString(input.reason);
+    const originLabel =
+      input.source === 'company_deletion' ? ' (exclusão da empresa)' : input.source === 'master_refund' ? ' pelo MASTER' : '';
+
+    const updated = await this.prisma.financeiroCharge.update({
+      where: { id: charge.id },
+      data: {
+        status: fullyRefunded ? 'refunded' : 'partially_refunded',
+        refundAmount: newRefundTotal,
+        refundedAt: now,
+        providerPayload: this.providerJson({
+          refund: {
+            amount: refundValue,
+            total: newRefundTotal,
+            source: input.source || 'manual',
+            actorUserId: input.actorUserId || null,
+            at: now.toISOString(),
+          },
+          provider: providerRefund,
+        }),
+      },
+    });
+
+    await this.updateLedgerEntryStatus({
+      entryId: charge.ledgerEntryId,
+      status: fullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+      paidAt: charge.paidAt,
+      paymentMethod: this.normalizePaymentMethod(charge.paymentMethod),
+      observation:
+        `Estorno de R$ ${refundValue.toFixed(2)}${originLabel}` +
+        (reasonText ? ` — ${reasonText}` : '') +
+        ` em ${this.formatDateTimePtBr(now)}.`,
+      metadata: {
+        chargeId: charge.id,
+        mpPaymentId: mpPaymentId || null,
+        refundAmount: refundValue,
+        refundTotal: newRefundTotal,
+        source: input.source || 'manual',
+      },
+    });
+
+    this.logger.log(
+      `financeiro_refund company=${companyId} charge=${charge.id} amount=${refundValue} total=${newRefundTotal} ` +
+        `full=${fullyRefunded} source=${input.source || 'manual'} mp=${mpPaymentId || 'mock'}`,
+    );
+
+    return {
+      ok: true,
+      chargeId: charge.id,
+      refundAmount: refundValue,
+      refundTotal: newRefundTotal,
+      fullyRefunded,
+      charge: this.serializeCharge(updated),
+    };
+  }
+
+  // Estorno acionado pelo MASTER (botão "Reembolsar" no painel de empresas → F3).
+  async refundChargeByMaster(
+    user: any,
+    companyId: number,
+    chargeId: string,
+    input?: { amount?: number | null; reason?: string | null },
+  ) {
+    if (!user?.isSystemMaster) {
+      throw new ForbiddenException('Apenas o MASTER pode estornar cobranças.');
+    }
+    return this.refundFinanceiroChargeById({
+      companyId: Number(companyId),
+      chargeId: String(chargeId),
+      amount: input?.amount ?? null,
+      actorUserId: Number(user?.id) || null,
+      reason: input?.reason ?? null,
+      source: 'master_refund',
+    });
   }
 
   async getSubscriptionStatusForUser(user: any) {

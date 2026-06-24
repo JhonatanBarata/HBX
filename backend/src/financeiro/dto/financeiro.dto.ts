@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
 
 export class UpdateFinanceiroPreferencesDto {
   @IsOptional()
@@ -116,6 +116,20 @@ export class ChangeFinanceiroPlanDto {
   @IsOptional()
   @IsBoolean()
   dryRun?: boolean;
+}
+
+// F3 — estorno de uma cobrança pelo master. amount opcional: ausente = estorno total;
+// presente (> 0) = estorno parcial (validado <= disponível no service).
+export class RefundFinanceiroChargeDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 300)
+  reason?: string;
 }
 
 export class ChangeFinanceiroSubscriptionCardDto {
