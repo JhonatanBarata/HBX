@@ -224,17 +224,35 @@ function normCity(s: string) {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
+function getStoredFilters() {
+  if (typeof window === "undefined") return { uf: "", city: "", segment: "", alcance: "", quantos: 5 };
+  try {
+    const s = localStorage.getItem("hbx:leads-filters");
+    if (s) {
+      const p = JSON.parse(s) as Record<string, unknown>;
+      return {
+        uf: typeof p.uf === "string" ? p.uf : "",
+        city: typeof p.city === "string" ? p.city : "",
+        segment: typeof p.segment === "string" ? p.segment : "",
+        alcance: typeof p.alcance === "string" ? p.alcance : "",
+        quantos: typeof p.quantos === "number" && p.quantos > 0 ? p.quantos : 5,
+      };
+    }
+  } catch { /* sem storage */ }
+  return { uf: "", city: "", segment: "", alcance: "", quantos: 5 };
+}
+
 export function LeadsClient() {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // filtros (lago → prateleira)
-  const [uf, setUf] = useState("");
-  const [city, setCity] = useState("");
-  const [segment, setSegment] = useState("");
-  const [alcance, setAlcance] = useState("");
-  const [quantos, setQuantos] = useState(5);
+  // filtros (lago → prateleira) — persiste em localStorage
+  const [uf, setUf] = useState(() => getStoredFilters().uf);
+  const [city, setCity] = useState(() => getStoredFilters().city);
+  const [segment, setSegment] = useState(() => getStoredFilters().segment);
+  const [alcance, setAlcance] = useState(() => getStoredFilters().alcance);
+  const [quantos, setQuantos] = useState(() => getStoredFilters().quantos);
 
   // navegação
   const [tab, setTab] = useState<Tab>("shelf");
@@ -397,6 +415,10 @@ export function LeadsClient() {
       .catch(() => { setCanAtendimento(false); setCanBot(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem("hbx:leads-filters", JSON.stringify({ uf, city, segment, alcance, quantos })); } catch { /* sem storage */ }
+  }, [uf, city, segment, alcance, quantos]);
 
   const filtersTouched = useRef(false);
   useEffect(() => {
@@ -960,7 +982,7 @@ export function LeadsClient() {
             </button>
           )}
           <button
-            className={"btn-ghost radar-auto" + (standingOrder?.active ? " radar-auto--on" : "")}
+            className={"radar-auto " + (standingOrder?.active ? "btn-teal radar-auto--on" : "btn-ghost")}
             onClick={toggleAutomatico}
             disabled={autoBusy}
             aria-pressed={standingOrder?.active}
@@ -969,11 +991,6 @@ export function LeadsClient() {
             {standingOrder?.active ? "◉ Auto" : "◎ Auto"}
           </button>
         </div>
-
-        {/* Ver N leads disponíveis */}
-        <button className="btn-ghost btn-xs" onClick={() => { setPage(1); setSelected(new Set()); loadList("shelf", { page: 1, quantosOverride: quantos }); }}>
-          <I d={ICONS.search} size={12} /> Ver {quantos} leads disponíveis
-        </button>
 
         {searchMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{searchMsg}</p>}
       </div>
