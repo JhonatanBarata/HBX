@@ -1174,24 +1174,13 @@ export function LeadsClient() {
       <div className="work">
         {/* B1: linha fininha Total no Brasil (substituiu os 4 KPIs) */}
         <section className="panel" style={{ padding: 0 }}>
-          {isMobile ? (
-            /* Mobile: mantém tira de KPIs mas compacto */
-            <div className="leads-bank-strip">
-              <span>Brasil:</span>
-              <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
-              {bank && Number(bank.deltaToday || 0) > 0 && (
-                <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
-              )}
-            </div>
-          ) : (
-            <div className="leads-bank-strip">
-              <span>Total no Brasil:</span>
-              <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
-              {bank && Number(bank.deltaToday || 0) > 0 && (
-                <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
-              )}
-            </div>
-          )}
+          <div className="leads-bank-strip">
+            <span>{isMobile ? "Brasil:" : "Total no Brasil:"}</span>
+            <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
+            {bank && Number(bank.deltaToday || 0) > 0 && (
+              <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
+            )}
+          </div>
         </section>
 
         {/* PRATELEIRA + CARTEIRA */}
