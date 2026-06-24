@@ -531,7 +531,7 @@ export class HbxEnginePoolService implements OnModuleInit {
         : inCooldown
           ? 'cooldown'
           : healthStatus === 'online'
-            ? row.engineIndex === 0 ? 'online' : 'standby'
+            ? 'online'
             : 'offline';
 
       const updated = await (this.prisma as any).hbxEngineLock.update({
@@ -581,8 +581,9 @@ export class HbxEnginePoolService implements OnModuleInit {
     const turboForcedNow = turboEnabled && this.isForcedTurboActive(operationalConfig);
     if (operationalConfig?.enabled) {
       if (this.isWithinOperationalWindow(operationalConfig)) {
-        this.activeEngineCount = this.resolveOperationalEngineCount(operationalConfig);
-        this.lowQueueSinceByEngineCount.clear();
+        const desiredEngineCount = this.resolveDesiredEngineCount(stats.queuedCount);
+        this.activeEngineCount = Math.max(this.activeEngineCount, desiredEngineCount);
+        this.applyHysteresis(stats.queuedCount);
       } else {
         this.activeEngineCount = 1;
         this.googleEmergencyMode = false;
@@ -2521,14 +2522,6 @@ export class HbxEnginePoolService implements OnModuleInit {
       nextStartAt,
       nextStopAt,
     };
-  }
-
-  private resolveOperationalEngineCount(config: any) {
-    const configured = clampInteger(config?.engineCount, getConfiguredHbxEngineCount(), 1, getConfiguredHbxEngineCount());
-    const intensity = String(config?.intensity || 'turbo').trim().toLowerCase();
-    if (intensity === 'economico' || intensity === 'econômico') return 1;
-    if (intensity === 'normal') return Math.min(configured, 2);
-    return configured;
   }
 
   private fullQueueThreshold() {

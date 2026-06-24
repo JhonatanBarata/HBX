@@ -473,15 +473,24 @@ export function LeadsClient() {
           loadList("shelf", { page: 1 });
           loadBank();
           loadUsage();
-          // P5/EFEITO: se importou leads, voa chips pra carteira e troca de aba
-          type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number };
+          // P5/EFEITO: destino depende do "Auto" (standing order).
+          // Auto ON + importou → voa chips pra carteira (foi auto-importado).
+          // Auto OFF → leads ficam na vitrine "Disponíveis"; mostra quantos achou pra puxar.
+          type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number; totalAvailable?: number; deliveredCount?: number };
           const resMeta = res?.meta as RunMetaExt | undefined;
           const importedCount = resMeta?.importedCount ?? 0;
-          if (importedCount > 0) {
+          const autoOn = Boolean(standingOrder?.active);
+          if (autoOn && importedCount > 0) {
             triggerFlyEffect(importedCount, res);
           } else {
             setTab("shelf");
             setPage(1);
+            // "Apreciar o resultado": anuncia quantos leads ficaram disponíveis pra puxar.
+            const disponiveis = resMeta?.totalAvailable ?? res?.foundCount ?? 0;
+            if (disponiveis > 0) {
+              setFlyToast(`${disponiveis} lead${disponiveis > 1 ? "s" : ""} disponíve${disponiveis > 1 ? "is" : "l"} pra puxar`);
+              setTimeout(() => setFlyToast(null), 3200);
+            }
           }
         }
       } catch {
@@ -491,7 +500,7 @@ export function LeadsClient() {
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [run, loadList, loadBank]);
+  }, [run, loadList, loadBank, standingOrder?.active]);
 
   function switchTab(next: Tab) {
     if (next === tab) return;

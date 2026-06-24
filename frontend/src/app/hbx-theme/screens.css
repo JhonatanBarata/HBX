@@ -1457,7 +1457,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 
 /* ── Radar console (aside direito / painel 2-estados) ────────────────────── */
 /* Disco: container do efeito animado */
-.radar-console { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 18px; }
+.radar-console { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; }
 .radar-console--mini { padding: 8px 14px 10px; border-bottom: 1px solid var(--border-hairline); }
 
 .radar-disc-wrap { position: relative; width: 100%; aspect-ratio: 1; max-width: 220px; margin: 0 auto;
@@ -1607,7 +1607,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-state-msg { font-size: 0.64rem; color: var(--text-muted); text-align: center; line-height: 1.4; margin: 4px 14px 0; }
 
 /* Chip de localização do vendedor — aparece quando geo está ativo */
-.radar-geo-chip { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand-strong); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.radar-geo-chip { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand-strong); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
 .radar-geo-chip__lbl { flex: 1; font-size: 0.72rem; font-weight: 600; }
 
 .radar-controls { display: grid; gap: 8px; }
@@ -1616,15 +1616,15 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-controls .select-dark { width: 100%; min-width: 0; }
 
 /* ── Blocos Modelo B (Onde buscar / O que buscar / Canais) ── */
-.radar-box { background: var(--hbx-surface-soft); border-radius: var(--radius-md); padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; }
+.radar-box { background: var(--hbx-surface-soft); border-radius: var(--radius-md); padding: 7px 11px; display: flex; flex-direction: column; gap: 6px; }
 .radar-box__title { font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); }
-.radar-box__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.radar-box__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .radar-box .f { display: grid; gap: 4px; }
 .radar-box label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); }
 .radar-box .select-dark { width: 100%; min-width: 0; }
 .radar-box .radar-canais { margin-bottom: 0; }
 
-.radar-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.radar-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 0; }
 .radar-actions--single { grid-template-columns: 1fr; }
 
 .radar-auto { position: relative; overflow: hidden; }
@@ -1635,7 +1635,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-mini-bar__back { flex: 0 0 auto; }
 
 /* Canais no radar console (forçar busca). Os chips reusam .radar-canal-toggle. */
-.radar-canais { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+.radar-canais { display: flex; flex-direction: column; gap: 5px; margin-bottom: 0; }
 .radar-canais__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .radar-canais__lbl { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .radar-canais__switch { font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); color: var(--text-muted); cursor: pointer; white-space: nowrap; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }

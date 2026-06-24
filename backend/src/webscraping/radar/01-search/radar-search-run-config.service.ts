@@ -126,4 +126,21 @@ export class RadarSearchRunConfigService {
   getSearchRunRestCount(metricsJson: unknown, parseMaybeJsonObject: (value: unknown) => Record<string, any>) {
     return safeInteger(parseMaybeJsonObject(metricsJson)?.radarRestCount);
   }
+
+  // Texto da sugestão de expansão quando a oferta esgota (não é cota). Fala humana, sem jargão.
+  buildExpansionSuggestionHeadline(city: string, segment: string, deliveredCount: number) {
+    const place = String(city || '').trim() || 'a cidade';
+    const what = String(segment || '').trim() || 'contatos';
+    return `${place} tem cerca de ${Math.max(0, safeInteger(deliveredCount))} ${what} com contato. Quer continuar?`;
+  }
+
+  buildExpansionWidenReachLabel(nextRadiusKm: number | null) {
+    if (!nextRadiusKm || nextRadiusKm <= 0) return null;
+    return `Ampliar alcance (+${Math.trunc(nextRadiusKm)} km, cidades vizinhas)`;
+  }
+
+  buildExpansionWidenSegmentLabel(neighborSegments: string[]) {
+    if (!Array.isArray(neighborSegments) || !neighborSegments.length) return null;
+    return 'Incluir segmentos parecidos';
+  }
 }

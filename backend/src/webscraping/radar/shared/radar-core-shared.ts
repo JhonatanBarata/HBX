@@ -268,6 +268,26 @@ export type WebscrapingSearchRunStatus =
   | 'failed'
   | 'canceled';
 export type RadarOperationalState = 'funcionando' | 'pausado' | 'parado';
+
+// Quando a busca ESGOTA a oferta (cidade/segmento secaram e entregou menos que o pedido —
+// NÃO quando pausou por cota), o Radar oferece expandir em 1 toque: ampliar alcance pra cidades
+// vizinhas e/ou incluir segmentos parecidos. A UI re-dispara a MESMA busca já expandida.
+export type RadarExpansionSuggestion = {
+  city: string;
+  state: string | null;
+  segment: string;
+  deliveredCount: number;
+  requestedQuantity: number;
+  // Ampliar alcance: raio atual e o próximo nível sugerido (null = não dá pra subir mais).
+  currentRadiusKm: number;
+  nextRadiusKm: number | null;
+  // Incluir segmentos parecidos (já formatados pro vendedor); vazio = não há vizinhos conhecidos.
+  neighborSegments: string[];
+  headline: string;
+  widenReachLabel: string | null;
+  widenSegmentLabel: string | null;
+};
+
 export type WebscrapingSearchRunItemStatus = 'found' | 'duplicate' | 'skipped' | 'invalid';
 export type HbxBatchStatus =
   | 'queued_wait'
@@ -476,6 +496,129 @@ export const HBX_CATEGORY_SEGMENTS: Record<string, string[]> = {
     'produtos agrícolas',
   ],
 };
+
+// "Esgotou a oferta" → sugerir segmentos VIZINHOS ao pedido (ex.: barbearia → salão de beleza,
+// estética, cabeleireiro). Reaproveita SEGMENT_ALIASES: indexa cada termo (chave OU valor) pros
+// "irmãos" do mesmo grupo, e some o que o usuário já pediu. Sem inventar mapa novo.
+const NEIGHBOR_SEGMENT_LABELS: Record<string, string> = {
+  'salao': 'salões de beleza',
+  'salão': 'salões de beleza',
+  'beleza': 'salões de beleza',
+  'cabeleireiro': 'cabeleireiros',
+  'barbearia': 'barbearias',
+  'estetica': 'clínicas de estética',
+  'estética': 'clínicas de estética',
+  'clinica de estetica': 'clínicas de estética',
+  'clínica de estética': 'clínicas de estética',
+  'cosmeticos': 'cosméticos',
+  'cosméticos': 'cosméticos',
+  'perfumaria': 'perfumarias',
+  'restaurante': 'restaurantes',
+  'pizzaria': 'pizzarias',
+  'pizza': 'pizzarias',
+  'lanchonete': 'lanchonetes',
+  'lanchonetes': 'lanchonetes',
+  'lanches': 'lanchonetes',
+  'hamburgueria': 'hamburguerias',
+  'bar': 'bares',
+  'choperia': 'choperias',
+  'cafeteria': 'cafeterias',
+  'marmitaria': 'marmitarias',
+  'padaria': 'padarias',
+  'panificadora': 'panificadoras',
+  'confeitaria': 'confeitarias',
+  'doceria': 'docerias',
+  'mercado': 'mercados',
+  'supermercado': 'supermercados',
+  'mercearia': 'mercearias',
+  'acougue': 'açougues',
+  'açougue': 'açougues',
+  'oficina': 'oficinas mecânicas',
+  'mecanica': 'oficinas mecânicas',
+  'mecânica': 'oficinas mecânicas',
+  'auto center': 'auto centers',
+  'funilaria': 'funilarias',
+  'pneus': 'pneus',
+  'borracharia': 'borracharias',
+  'automotivo': 'centros automotivos',
+  'auto eletrica': 'auto elétricas',
+  'auto elétrica': 'auto elétricas',
+  'farmacia': 'farmácias',
+  'farmácia': 'farmácias',
+  'drogaria': 'drogarias',
+  'academia': 'academias',
+  'fitness': 'academias',
+  'musculacao': 'academias',
+  'musculação': 'academias',
+  'crossfit': 'crossfit',
+  'pilates': 'estúdios de pilates',
+  'pet shop': 'pet shops',
+  'petshop': 'pet shops',
+  'veterinaria': 'clínicas veterinárias',
+  'veterinária': 'clínicas veterinárias',
+  'banho e tosa': 'banho e tosa',
+  'racao': 'casas de ração',
+  'ração': 'casas de ração',
+  'clinica': 'clínicas',
+  'clínica': 'clínicas',
+  'saude': 'clínicas',
+  'saúde': 'clínicas',
+  'medico': 'clínicas médicas',
+  'médico': 'clínicas médicas',
+  'fisioterapia': 'fisioterapia',
+  'dentista': 'dentistas',
+  'odontologia': 'clínicas odontológicas',
+  'imobiliaria': 'imobiliárias',
+  'imobiliária': 'imobiliárias',
+  'corretor': 'corretores de imóveis',
+  'advogado': 'advogados',
+  'advocacia': 'escritórios de advocacia',
+};
+
+function prettifyNeighborSegment(token: string) {
+  const key = normalizeLookupValue(token);
+  if (NEIGHBOR_SEGMENT_LABELS[key]) return NEIGHBOR_SEGMENT_LABELS[key];
+  return String(token || '').replace(/\s+/g, ' ').trim();
+}
+
+// Dado o segmento pedido (uma ou várias frases separadas por vírgula), devolve até `limit`
+// segmentos vizinhos rotulados pro vendedor — terminologia humana, sem repetir o que ele pediu.
+export function buildRadarNeighborSegments(segment: string | null | undefined, limit = 4): string[] {
+  const requestedRaw = String(segment || '')
+    .split(',')
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (!requestedRaw.length) return [];
+  const requestedKeys = new Set(requestedRaw.map((item) => normalizeLookupValue(item)));
+  const neighborKeys = new Set<string>();
+  const ordered: string[] = [];
+  const pushNeighbor = (token: string) => {
+    const key = normalizeLookupValue(token);
+    if (!key || requestedKeys.has(key) || neighborKeys.has(key)) return;
+    neighborKeys.add(key);
+    ordered.push(prettifyNeighborSegment(token));
+  };
+  for (const requested of requestedRaw) {
+    const requestedKey = normalizeLookupValue(requested);
+    for (const [groupKey, members] of Object.entries(SEGMENT_ALIASES)) {
+      const groupMembers = [groupKey, ...members];
+      const groupKeys = groupMembers.map((item) => normalizeLookupValue(item));
+      const belongsToGroup = groupKeys.includes(requestedKey)
+        || groupKeys.some((item) => item && (requestedKey.includes(item) || item.includes(requestedKey)));
+      if (!belongsToGroup) continue;
+      for (const member of groupMembers) pushNeighbor(member);
+    }
+  }
+  // De-dup por rótulo final também (vários tokens normalizam pro mesmo label humano).
+  const seenLabels = new Set<string>();
+  const deduped = ordered.filter((label) => {
+    const key = normalizeLookupValue(label);
+    if (seenLabels.has(key)) return false;
+    seenLabels.add(key);
+    return true;
+  });
+  return deduped.slice(0, Math.max(0, limit));
+}
 
 export const GENERIC_DIRECTORY_NAMES = [
   'empresa',
@@ -841,6 +984,7 @@ export type WebscrapingSearchRunResponse = {
     operationalState?: RadarOperationalState;
     operationalReason?: string | null;
     operationalMessage?: string | null;
+    expansionSuggestion?: RadarExpansionSuggestion | null;
   };
   items: Array<{
     id: string;

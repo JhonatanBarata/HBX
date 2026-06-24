@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HBX · Future — Atendimento Passo 2</title>
+<style>
+  :root{
+    --blue:#27b3ff; --blue-2:#7fe6ff; --blue-deep:#0a72c2;
+    --violet:#8b5cff; --amber:#ffb23b; --red:#ff5a6a; --green:#27d07a;
+    --gold:#ffd66b;
+    --ink:#eaf4ff; --muted:#8fa8c6; --muted-2:#6e85a3;
+    --panel-line: color-mix(in srgb, var(--blue) 36%, transparent);
+    --glass: linear-gradient(180deg, rgba(13,28,52,.62), rgba(7,16,32,.52));
+    --glass-soft: linear-gradient(180deg, rgba(16,32,58,.55), rgba(9,19,36,.42));
+    --chamfer: polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--ink); overflow:hidden;
+    font-family:"Sora","Plus Jakarta Sans",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    background:#02060f;
+  }
+
+  /* ───────── FUNDO: nebulosa + brasas + glow ───────── */
+  .bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+  .bg .neb{
+    position:absolute;inset:0;
+    background:url("/future/bg.png") center/cover no-repeat;
+    opacity:.9;
+  }
+  .bg .wash{
+    position:absolute;inset:0;
+    background:
+      radial-gradient(120% 80% at 50% -10%, rgba(39,179,255,.18), transparent 50%),
+      radial-gradient(100% 60% at 50% 112%, rgba(255,150,40,.20), transparent 55%),
+      radial-gradient(60% 50% at 12% 8%, rgba(39,179,255,.12), transparent 60%),
+      linear-gradient(180deg, rgba(2,6,15,.55), rgba(1,3,9,.78));
+  }
+  .bg .grid{
+    position:absolute;inset:0;
+    background:url("/future/grid.png") center/360px 360px repeat;
+    opacity:.05;
+  }
+  .bg .vignette{
+    position:absolute;inset:0;
+    box-shadow:inset 0 0 240px 60px rgba(0,2,8,.9);
+  }
+  .particles{position:fixed;inset:0;z-index:1;overflow:hidden;pointer-events:none}
+  .particles i{
+    position:absolute;width:2px;height:2px;border-radius:50%;
+    background:var(--blue);box-shadow:0 0 10px var(--blue);opacity:.7;
+    animation:rise linear infinite;
+  }
+  .particles i.ember{background:var(--amber);box-shadow:0 0 12px var(--amber)}
+  @keyframes rise{
+    from{transform:translateY(102vh) translateX(0);opacity:0}
+    12%{opacity:.85} to{transform:translateY(-12vh) translateX(40px);opacity:0}
+  }
+
+  /* fake app esmaecido atrás */
+  .ghost{position:fixed;inset:0;z-index:1;display:grid;grid-template-columns:230px 1fr;filter:blur(6px);opacity:.20;pointer-events:none}
+  .ghost .gs{border-right:1px solid rgba(255,255,255,.08);padding:22px 16px}
+  .ghost .glogo{font-weight:900;letter-spacing:3px;font-size:22px;color:#fff;margin-bottom:30px;text-shadow:0 0 16px var(--blue)}
+  .ghost .gn{height:40px;border-radius:12px;margin:8px 0;display:flex;align-items:center;gap:10px;color:#9fb6d4;padding:0 12px;font-weight:700;font-size:13px}
+  .ghost .gn b{width:9px;height:9px;border-radius:3px;background:currentColor;box-shadow:0 0 10px currentColor}
+  .ghost .gn.on{color:#fff;background:rgba(39,179,255,.14);border:1px solid rgba(39,179,255,.4)}
+
+  /* ───────── HUD hexagonal ───────── */
+  .hud{
+    position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:6;
+    width:150px;height:122px;display:grid;place-items:center;
+    background:url("/future/hud-hbx.png") center/contain no-repeat;
+  }
+  .hud::before,.hud::after{
+    content:"";position:absolute;top:54%;width:120px;height:1px;
+    background:linear-gradient(90deg,transparent,var(--blue));opacity:.7;
+  }
+  .hud::before{right:100%}
+  .hud::after{left:100%;transform:scaleX(-1)}
+
+  /* ───────── PALCO ───────── */
+  .stage{
+    position:relative;z-index:3;height:100vh;
+    display:grid;grid-template-columns:minmax(640px,1fr) 312px 230px;
+    gap:20px;align-items:stretch;padding:96px 34px 26px;
+  }
+
+  /* coluna esquerda: painel + ações */
+  .left{display:flex;flex-direction:column;gap:16px;min-width:0}
+  .panel{
+    position:relative;flex:1;min-height:0;padding:24px 26px;overflow:hidden;
+    border:1px solid var(--panel-line);border-radius:22px;background:var(--glass);
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+    box-shadow:inset 0 1px 0 rgba(150,210,255,.10), 0 40px 90px -50px #000, 0 0 70px -28px rgba(39,179,255,.45);
+  }
+  .panel::before{ /* scanline */
+    content:"";position:absolute;left:-2px;right:-2px;top:0;height:2px;
+    background:linear-gradient(90deg,transparent,rgba(39,179,255,.7),transparent);
+    animation:sweep 4s linear infinite;
+  }
+  @keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+  .phead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px}
+  .ptitle{margin:0;font-size:34px;line-height:1.05;letter-spacing:-.5px;font-weight:800}
+  .ptitle b{color:var(--blue);text-shadow:0 0 22px rgba(39,179,255,.7)}
+  .psub{margin:6px 0 0;color:var(--muted);font-size:14px}
+  .steps{text-align:right;white-space:nowrap}
+  .steps small{color:var(--muted);font-weight:800;font-size:13px}
+  .dots{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+  .dots b{width:13px;height:13px;border-radius:50%;border:1px solid rgba(150,200,255,.35);background:rgba(255,255,255,.05)}
+  .dots b.on{background:var(--blue);border-color:var(--blue);box-shadow:0 0 14px var(--blue)}
+
+  /* 4 cards */
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .card{
+    position:relative;padding:14px;border:1px solid rgba(120,180,255,.16);border-radius:16px;
+    background:var(--glass-soft);clip-path:var(--chamfer);
+  }
+  .card .ic{
+    width:42px;height:42px;display:grid;place-items:center;border-radius:12px;margin-bottom:10px;
+    background:radial-gradient(circle at 30% 25%, rgba(39,179,255,.30), rgba(39,179,255,.06));
+    border:1px solid rgba(39,179,255,.4);color:var(--blue-2);
+    box-shadow:0 0 22px -4px rgba(39,179,255,.7), inset 0 0 12px rgba(39,179,255,.25);
+  }
+  .card .ic svg{filter:drop-shadow(0 0 6px rgba(39,179,255,.9))}
+  .card h3{margin:0 0 4px;font-size:14.5px;font-weight:800}
+  .card p{margin:0 0 10px;color:var(--muted);font-size:11.5px;line-height:1.4;min-height:32px}
+  .chip{display:block;font-size:11.5px;color:#cfe4ff;padding:7px 9px;margin:5px 0;border-radius:9px;
+    background:rgba(255,255,255,.04);border:1px solid rgba(150,200,255,.12)}
+  .row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#d4e6ff;padding:6px 0}
+  .row .mi{width:18px;height:18px;display:grid;place-items:center;color:var(--blue-2);flex:0 0 auto}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 9px currentColor}
+  .add{margin-top:8px;font-size:11.5px;font-weight:700;color:var(--blue-2);opacity:.92}
+  .tog{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:#d4e6ff;padding:6px 0}
+  .sw{width:34px;height:19px;border-radius:999px;background:var(--blue);position:relative;box-shadow:0 0 12px rgba(39,179,255,.7);flex:0 0 auto}
+  .sw::after{content:"";position:absolute;top:2px;left:17px;width:15px;height:15px;border-radius:50%;background:#fff}
+
+  /* flow */
+  .flow{margin-top:14px;padding:14px 16px;border:1px solid rgba(120,180,255,.14);border-radius:16px;background:rgba(255,255,255,.03)}
+  .flow h4{margin:0 0 12px;font-size:13px;font-weight:800;color:#dbe9ff}
+  .fline{display:grid;grid-template-columns:1fr 22px 1fr 22px 1fr 22px 1fr;align-items:center;gap:8px}
+  .node{display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;border:1px solid rgba(39,179,255,.22);background:rgba(4,12,26,.5)}
+  .node .ni{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:var(--blue-2);background:rgba(39,179,255,.12);border:1px solid rgba(39,179,255,.3);flex:0 0 auto}
+  .node b{display:block;font-size:11.5px}
+  .node small{color:var(--muted-2);font-size:10px;line-height:1.25}
+  .arrow{color:var(--blue);text-align:center;font-size:18px;text-shadow:0 0 10px var(--blue)}
+  .pills{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .pill{display:flex;gap:9px;align-items:center;padding:10px 12px;border-radius:12px;font-size:11.5px;border:1px solid rgba(120,180,255,.16);background:rgba(255,255,255,.03)}
+  .pill.ok{border-color:rgba(39,208,122,.3);background:rgba(39,208,122,.08)}
+  .pill .pi{width:22px;height:22px;display:grid;place-items:center;color:var(--blue-2);flex:0 0 auto}
+  .pill.ok .pi{color:var(--green)}
+  .pill b{font-weight:800}.pill small{color:var(--muted)}
+
+  /* ações */
+  .actions{display:grid;grid-template-columns:200px 1fr;gap:14px}
+  .btn{height:54px;border:0;cursor:pointer;font:inherit;font-weight:850;color:#fff;font-size:15px;
+    display:flex;align-items:center;justify-content:center;gap:10px;clip-path:var(--chamfer)}
+  .btn.ghost{background:rgba(255,255,255,.05);border:1px solid rgba(150,200,255,.18)}
+  .btn.primary{
+    background:linear-gradient(100deg,#28b6ff,#0d72c2);color:#021018;
+    box-shadow:0 0 34px -6px rgba(39,179,255,.9), inset 0 1px 0 rgba(255,255,255,.4);
+    text-transform:uppercase;letter-spacing:.6px;font-weight:900;
+  }
+  .btn.primary:hover{filter:brightness(1.08)}
+
+  /* ───────── TELEFONE ───────── */
+  .phonecol{align-self:center}
+  .phone{width:300px;height:600px;margin:0 auto;border-radius:42px;padding:11px;
+    background:linear-gradient(150deg,#243244,#03070e);
+    border:1px solid rgba(150,200,255,.25);
+    box-shadow:0 40px 80px -30px #000, 0 0 50px -10px rgba(39,179,255,.5)}
+  .screen{height:100%;border-radius:32px;overflow:hidden;background:#0b141d;display:flex;flex-direction:column;position:relative}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:22px;background:#03070e;border-radius:0 0 14px 14px;z-index:3}
+  .statusbar{display:flex;justify-content:space-between;padding:8px 18px 2px;font-size:11px;color:#cfe0f0;font-weight:700}
+  .wahead{display:flex;align-items:center;gap:9px;padding:8px 12px;background:#11202c;border-bottom:1px solid rgba(255,255,255,.06)}
+  .wahead .av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:900;color:#021018;background:var(--blue);box-shadow:0 0 12px var(--blue)}
+  .wahead .nm b{display:block;font-size:13px}
+  .wahead .nm small{color:#7ef0a9;font-size:10.5px}
+  .wahead .ico{margin-left:auto;display:flex;gap:12px;color:#9fb6c8}
+  .chat{flex:1;overflow:hidden;padding:12px 10px;display:flex;flex-direction:column;gap:7px;
+    background:linear-gradient(rgba(255,255,255,.012),rgba(255,255,255,.012)),#0b141d}
+  .b{max-width:84%;padding:7px 9px;border-radius:11px;font-size:11px;line-height:1.32;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+  .b time{font-size:8.5px;opacity:.6;margin-left:6px}
+  .b.in{align-self:flex-start;background:#1a2735;border-top-left-radius:3px}
+  .b.out{align-self:flex-end;background:#0b5e44;border-top-right-radius:3px}
+  .b.out time{color:#a7e8c8}
+  .wainput{display:flex;align-items:center;gap:7px;padding:8px;background:#11202c}
+  .wainput .pill2{flex:1;background:#1d2c3a;border-radius:999px;padding:8px 12px;color:#8298ad;font-size:10.5px}
+  .wainput .mic{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#1fae6a;color:#fff;flex:0 0 auto}
+
+  /* ───────── RAIL DIREITO ───────── */
+  .rail{display:flex;flex-direction:column;gap:14px;align-self:center}
+  .rcard{padding:15px;border:1px solid rgba(120,180,255,.18);border-radius:16px;background:var(--glass-soft);
+    box-shadow:0 0 26px -16px rgba(39,179,255,.6)}
+  .rcard .rt{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13.5px;color:#dcecff;margin-bottom:6px}
+  .rcard .rt .ri{color:var(--blue-2)}
+  .rcard p{margin:0;color:var(--muted);font-size:11px;line-height:1.4}
+  .gauge{display:grid;place-items:center;margin:4px 0 8px}
+  .gauge .pct{position:absolute;font-size:22px;font-weight:900;color:var(--blue-2);text-shadow:0 0 14px rgba(39,179,255,.8)}
+  .gwrap{position:relative;display:grid;place-items:center}
+  .tip{display:flex;gap:8px;align-items:flex-start;font-size:11px;color:#d4e6ff;padding:4px 0}
+  .tip .tc{color:var(--green);flex:0 0 auto}
+  .gold{color:var(--gold);text-shadow:0 0 12px rgba(255,214,107,.5)}
+
+  @media (max-width:1280px){
+    .stage{grid-template-columns:1fr;height:auto;min-height:100vh;overflow:auto;padding-top:120px}
+    body{overflow:auto}
+  }
+</style>
+</head>
+<body>
+  <!-- fundo -->
+  <div class="bg">
+    <div class="neb"></div><div class="wash"></div><div class="grid"></div><div class="vignette"></div>
+  </div>
+  <div class="ghost" aria-hidden="true">
+    <aside class="gs">
+      <div class="glogo">HBX</div>
+      <div class="gn"><b></b>Dashboard</div><div class="gn"><b></b>Contatos</div>
+      <div class="gn"><b></b>Campanhas</div><div class="gn"><b></b>Automações</div>
+      <div class="gn on"><b></b>Construtor de Bot</div><div class="gn"><b></b>Fluxos</div>
+      <div class="gn"><b></b>Integrações</div><div class="gn"><b></b>Configurações</div>
+    </aside><main></main>
+  </div>
+  <div class="particles" id="particles"></div>
+  <div class="hud"></div>
+
+  <main class="stage">
+    <!-- ESQUERDA -->
+    <div class="left">
+      <section class="panel">
+        <div class="phead">
+          <div>
+            <h1 class="ptitle">Atendimento · <b>Passo 2</b></h1>
+            <p class="psub">Regras, base de conhecimento e respostas</p>
+          </div>
+          <div class="steps"><small>2 de 5</small>
+            <div class="dots"><b class="on"></b><b class="on"></b><b></b><b></b><b></b></div>
+          </div>
+        </div>
+
+        <div class="cards">
+          <!-- Perguntas frequentes -->
+          <div class="card">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10h7M8 13h4"/><path d="M3 5h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8l-4 3V7a2 2 0 0 1 2-2z"/><path d="M17 9h2a2 2 0 0 1 2 2v8l-3-2h-4"/></svg></div>
+            <h3>Perguntas frequentes</h3>
+            <p>Cadastre dúvidas comuns com respostas prontas.</p>
+            <span class="chip">Como funciona a troca?</span>
+            <span class="chip">Quais são os prazos?</span>
+            <span class="chip">Como acompanho meu pedido?</span>
+            <div class="add">+ Adicionar pergunta</div>
+          </div>
+          <!-- Base de conhecimento -->
+          <div class="card">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M19 3v18"/><path d="M8 7h7M8 10h5"/></svg></div>
+            <h3>Base de conhecimento</h3>
+            <p>Organize suas informações para respostas precisas.</p>
+            <div class="row"><span class="mi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Produtos</div>
+            <div class="row"><span class="mi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Políticas</div>
+            <div class="row"><span class="mi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Pedidos</div>
+            <div class="row"><span class="mi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>Manual interno</div>
+            <div class="add">+ Adicionar fonte</div>
+          </div>
+          <!-- Quando transferir -->
+          <div class="card">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><path d="M4 13a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2z"/><path d="M20 13a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2 2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2z"/><path d="M18 19a4 4 0 0 1-4 3h-2"/></svg></div>
+            <h3>Quando transferir para humano</h3>
+            <p>Define condições para transferência automática.</p>
+            <div class="row"><span class="dot" style="color:var(--red);background:var(--red)"></span>Cliente irritado</div>
+            <div class="row"><span class="dot" style="color:var(--amber);background:var(--amber)"></span>Pedido complexo</div>
+            <div class="row"><span class="dot" style="color:var(--violet);background:var(--violet)"></span>Solicitação sem resposta</div>
+            <div class="add">+ Adicionar condição</div>
+          </div>
+          <!-- Mensagens automáticas -->
+          <div class="card">
+            <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3 11 14"/><path d="M22 3 15 21l-4-7-7-4z"/></svg></div>
+            <h3>Mensagens automáticas</h3>
+            <p>Configure mensagens-chave do atendimento.</p>
+            <div class="tog">Mensagem de boas-vindas <span class="sw"></span></div>
+            <div class="tog">Mensagem de espera <span class="sw"></span></div>
+            <div class="tog">Fallback (sem resposta) <span class="sw"></span></div>
+            <div class="add">✎ Editar mensagens</div>
+          </div>
+        </div>
+
+        <div class="flow">
+          <h4>Como o atendimento funciona (regra geral)</h4>
+          <div class="fline">
+            <div class="node"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><div><b>Pergunta do cliente</b><small>Cliente envia mensagem</small></div></div>
+            <div class="arrow">→</div>
+            <div class="node"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span><div><b>Entender intenção</b><small>IA identifica o que o cliente precisa</small></div></div>
+            <div class="arrow">→</div>
+            <div class="node"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17 4 12l5-5"/><path d="M4 12h11a5 5 0 0 1 5 5v2"/></svg></span><div><b>Responder</b><small>Bot responde com base na sua base</small></div></div>
+            <div class="arrow">→</div>
+            <div class="node"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 11l3 3 4-4"/></svg></span><div><b>Se falhar, transferir</b><small>Encaminha para um atendente humano</small></div></div>
+          </div>
+        </div>
+
+        <div class="pills">
+          <div class="pill"><span class="pi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/><circle cx="12" cy="12" r="3"/></svg></span><div><b>Seu bot aprende seu contexto</b><br><small>Respostas cada vez mais precisas</small></div></div>
+          <div class="pill ok"><span class="pi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><div><b>Pronto para uso</b><br><small>Configuração rápida e sem complicação</small></div></div>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button class="btn ghost">← Voltar</button>
+        <button class="btn primary">Continuar para segurança →</button>
+      </div>
+    </div>
+
+    <!-- TELEFONE -->
+    <div class="phonecol">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>5G ▮▮▮</span></div>
+        <div class="wahead">
+          <div class="av">HBX</div>
+          <div class="nm"><b>HBX Atendimento ✓</b><small>online</small></div>
+          <div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m23 7-7 5 7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></div>
+        </div>
+        <div class="chat">
+          <div class="b out">Olá, quero saber sobre troca ou devolução<time>09:41 ✓✓</time></div>
+          <div class="b in">Olá! 👋<time>09:41</time></div>
+          <div class="b in">Nossa política permite a solicitação em até 7 dias corridos após o recebimento, com o produto sem uso e na embalagem original.<time>09:41</time></div>
+          <div class="b in">Principais condições:<br>• Prazo de até 7 dias<br>• Produto sem uso<br>• Embalagem original<time>09:41</time></div>
+          <div class="b in">Deseja o passo a passo completo ou prefere falar com um atendente?<time>09:41</time></div>
+          <div class="b out">Quero falar com um atendente<time>09:42 ✓✓</time></div>
+          <div class="b in">Claro! Vou te conectar com um atendente. Em instantes você será atendido. 🙂<time>09:42</time></div>
+        </div>
+        <div class="wainput"><div class="pill2">Digite uma mensagem</div><div class="mic"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0" fill="none" stroke="currentColor" stroke-width="2"/></svg></div></div>
+      </div></div>
+    </div>
+
+    <!-- RAIL -->
+    <aside class="rail">
+      <div class="rcard">
+        <div class="rt"><span class="ri"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></span>Preview inteligente</div>
+        <p>Veja como seu bot responde em tempo real com base nas suas regras.</p>
+      </div>
+      <div class="rcard">
+        <div class="rt">Confiança da resposta</div>
+        <div class="gauge"><div class="gwrap">
+          <svg width="118" height="118" viewBox="0 0 118 118">
+            <circle cx="59" cy="59" r="50" fill="none" stroke="rgba(120,180,255,.14)" stroke-width="9"/>
+            <circle cx="59" cy="59" r="50" fill="none" stroke="#27b3ff" stroke-width="9" stroke-linecap="round"
+              stroke-dasharray="314" stroke-dashoffset="19" transform="rotate(-90 59 59)" style="filter:drop-shadow(0 0 8px rgba(39,179,255,.9))"/>
+          </svg>
+          <span class="pct">94%</span>
+        </div></div>
+        <p style="text-align:center">Resposta altamente confiável com base na sua base de conhecimento.</p>
+      </div>
+      <div class="rcard">
+        <div class="rt"><span class="gold">Dicas de ouro ✦</span></div>
+        <div class="tip"><span class="tc"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span>Mantenha suas respostas curtas e objetivas.</div>
+        <div class="tip"><span class="tc"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span>Atualize sua base regularmente.</div>
+        <div class="tip"><span class="tc"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span>Use transferências com inteligência.</div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const p=document.getElementById('particles');
+    for(let i=0;i<46;i++){const s=document.createElement('i');
+      if(i%6===0)s.className='ember';
+      s.style.left=Math.random()*100+'%';
+      s.style.animationDelay=(Math.random()*9)+'s';
+      s.style.animationDuration=(7+Math.random()*8)+'s';
+      s.style.opacity=.3+Math.random()*.6;
+      p.appendChild(s);}
+  </script>
+</body>
+</html>

@@ -783,6 +783,16 @@ export class RadarCoreSearchLoopMixin {
     const queryUsed = attemptTask.query;
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
     const autoImportAndStopIfPaused = async (label: string) => {
+      // Gate do vendedor: com "Auto" (standing order) OFF, não empurra pro Vendas durante o
+      // ciclo — os leads ficam reservados na vitrine "Disponíveis" pra puxar manualmente.
+      // Não-vendedor (admin / Night Factory) mantém comportamento atual (sempre importa).
+      if (!(await this.shouldAutoImportRadarRunToVendas(user))) {
+        const latest = await this.prisma.webscrapingSearchRun.findUnique({
+          where: { id: runId },
+          select: { id: true, status: true, lastBatchStatus: true, metricsJson: true },
+        }).catch(() => null);
+        return this.isSearchRunPausedByLimit(latest);
+      }
       const imported = await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
         this.logger.warn(`[radar-vendas] auto-import ${label} ignorado run=${runId}: ${String(error?.message || error)}`);
         return null;

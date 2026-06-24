@@ -256,7 +256,9 @@ test('factory scheduler defaults to configured engine count in production when m
   });
 });
 
-test('factory scheduler respects configured database engine quantity', () => {
+test('factory ignores legacy factoryMaxEngines cap and uses the full declared fleet (owner 24/06)', () => {
+  // Sub-teto fixo da fábrica DELETADO: o teto é a frota declarada (configuredEngineCount),
+  // a Elasticidade (memoryGuard) é o único freio. Um cap legado no banco não segura mais.
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
     const allowed = service.resolveFactoryAllowedEngines({
@@ -266,24 +268,32 @@ test('factory scheduler respects configured database engine quantity', () => {
       memoryPressurePercent: 50,
       operationalConfig: { enabled: true, metadataJson: '{"factoryMaxEngines":12,"factoryMinEngines":12}' },
     });
-    assert.equal(allowed.maxEngines, 12);
-    assert.equal(allowed.minEngines, 12);
-    assert.equal(allowed.allowedEngines, 12);
+    assert.equal(allowed.maxEngines, 50);
+    assert.equal(allowed.allowedEngines, 50);
   });
 });
 
-test('factory scheduler keeps automatic work stopped when configured quantity is zero', () => {
+test('factory stops only via emergencyStop, not via a zero engine count (owner 24/06)', () => {
   withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '50', HBX_FACTORY_MAX_ENGINES: '', HBX_FACTORY_START_HOUR: '0', HBX_FACTORY_END_HOUR: '0' }, () => {
     const service = new HbxEnginePoolService({} as any);
-    const allowed = service.resolveFactoryAllowedEngines({
+    // Quantidade zero no banco NÃO para mais (cap fixo removido) — segue na frota cheia.
+    const stillRuns = service.resolveFactoryAllowedEngines({
       engineCount: 50,
       onlineHealthyEngines: 50,
       manualReservedEngines: 0,
       memoryPressurePercent: 50,
       operationalConfig: { enabled: true, metadataJson: '{"factoryMaxEngines":0,"factoryMinEngines":0}' },
     });
-    assert.equal(allowed.maxEngines, 0);
-    assert.equal(allowed.allowedEngines, 0);
+    assert.equal(stillRuns.allowedEngines, 50);
+    // O ÚNICO desliga é o emergencyStop (regra do dono: ativo roda, desativo para).
+    const stopped = service.resolveFactoryAllowedEngines({
+      engineCount: 50,
+      onlineHealthyEngines: 50,
+      manualReservedEngines: 0,
+      memoryPressurePercent: 50,
+      operationalConfig: { enabled: true, metadataJson: '{"emergencyStop":true}' },
+    });
+    assert.equal(stopped.allowedEngines, 0);
   });
 });
 
@@ -1087,8 +1097,23 @@ test('factory drain keeps client reserved engine and drains factory engines', as
   assert.deepEqual(drained, ['hbx-engine-2', 'hbx-engine-3']);
 });
 
-test('operational turbo config respects configured engine count', async () => {
-  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20' }, async () => {
+test('operational turbo config scales demand-driven: full queue uses all engines', async () => {
+  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_CAPACITY_FULL_QUEUE_THRESHOLD: '100' }, async () => {
+    const service = createPoolForCapacity({
+      queuedCount: 100,
+      operationalConfig: {
+        enabled: true,
+        engineCount: 20,
+        intensity: 'turbo',
+      },
+    });
+    const capacity = await service.getCurrentCapacityLevel();
+    assert.equal(capacity.activeEngineCount, 20);
+  });
+});
+
+test('operational turbo config scales demand-driven: small queue uses proportional engines', async () => {
+  await withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_CAPACITY_FULL_QUEUE_THRESHOLD: '100' }, async () => {
     const service = createPoolForCapacity({
       queuedCount: 1,
       operationalConfig: {
@@ -1098,7 +1123,7 @@ test('operational turbo config respects configured engine count', async () => {
       },
     });
     const capacity = await service.getCurrentCapacityLevel();
-    assert.equal(capacity.activeEngineCount, 20);
+    assert.equal(capacity.activeEngineCount, 1);
   });
 });
 
@@ -1151,5 +1176,101 @@ test('old queue with one stuck run does not degrade pool while nineteen engines 
     const capacity = await service.getCurrentCapacityLevel();
     assert.equal(capacity.activeEngineCount, 20);
     assert.equal(capacity.operationalStatus, 'healthy');
+  });
+});
+
+// ── Parallelism fix: all HTTP-healthy engines must count and be eligible ──────
+
+test('all twenty HTTP-healthy engines count as onlineHealthyEngines (not just index 0)', async () => {
+  // Before the fix, only engineIndex===0 was promoted to 'online'; others got 'standby'
+  // and isHealthyEngine returned false for engines with lastHealthStatus 'offline'.
+  // After the fix, all engines with lastHealthStatus 'online' count regardless of index.
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_FACTORY_MAX_ENGINES: '',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    // Simulate 20 engines all reporting lastHealthStatus 'online' (as healthCheckEngines
+    // would set after the fix: every HTTP-healthy engine becomes status 'online').
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    const scheduler = await service.getSchedulerStatus();
+    assert.equal(scheduler.onlineHealthyEngines, 20,
+      'all 20 healthy engines must be counted; fix removes the engineIndex===0 gate');
+  });
+});
+
+test('eligible engines reach the full allowed count when the fleet is healthy under load', async () => {
+  // Manual/reserved engines aside, index > 0 engines must not be blocked by the old index-0 gate.
+  // Use HBX_MANUAL_RESERVED_ENGINES=0 and HBX_CLIENT_RESERVED_ENGINES=0 so the full fleet is allowed.
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_FACTORY_MAX_ENGINES: '',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_MANUAL_RESERVED_ENGINES: '0',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+    HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
+    HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.isWithinClientPriorityWindow = () => false;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    const eligible = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    assert.equal(eligible.length, 20,
+      'all 20 engines must be eligible when healthy, queue is full, and no reservations');
+    // Confirm the last engine (index 19) is included — it was previously stuck at standby.
+    assert.equal(eligible.some((engine: any) => engine.engineIndex === 19), true,
+      'engine at index 19 must be eligible after the engineIndex===0 gate removal');
+  });
+});
+
+test('standby engines with stale offline health are excluded; only HTTP-healthy ones are eligible', async () => {
+  // This simulates the pre-fix scenario: governor started engines but their
+  // lastHealthStatus is still 'offline' (TTL skipped the re-poll). They must NOT be
+  // eligible until health is confirmed. Once health is online, they must be eligible.
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '5',
+    HBX_FACTORY_MAX_ENGINES: '',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_MANUAL_RESERVED_ENGINES: '0',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+    HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
+    HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
+  }, async () => {
+    const service = createPoolForCapacity({ queuedCount: 100 }) as any;
+    service.isWithinClientPriorityWindow = () => false;
+    const rows = buildEngineRows(5);
+    // Engines 2-4 still have stale offline health (governor-started but not yet re-polled).
+    rows[1].status = 'standby';
+    (rows[1] as any).lastHealthStatus = 'offline';
+    rows[2].status = 'standby';
+    (rows[2] as any).lastHealthStatus = 'offline';
+    rows[3].status = 'standby';
+    (rows[3] as any).lastHealthStatus = 'offline';
+    service.healthCheckEngines = async () => rows;
+    const eligible = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    // Only engine-1 (index 0, online+healthy) and engine-5 (index 4, online+healthy) qualify.
+    assert.equal(eligible.length, 2);
+    assert.equal(eligible.some((engine: any) => engine.id === 'hbx-engine-1'), true);
+    assert.equal(eligible.some((engine: any) => engine.id === 'hbx-engine-5'), true);
+    // Once health flips to online, all five must become eligible.
+    rows[1].status = 'online';
+    (rows[1] as any).lastHealthStatus = 'online';
+    rows[2].status = 'online';
+    (rows[2] as any).lastHealthStatus = 'online';
+    rows[3].status = 'online';
+    (rows[3] as any).lastHealthStatus = 'online';
+    const eligibleAfterHealthCheck = await service.getEligibleEnginesForCurrentQueue('mass_data');
+    assert.equal(eligibleAfterHealthCheck.length, 5,
+      'after health re-poll all five engines with online status must be eligible');
   });
 });

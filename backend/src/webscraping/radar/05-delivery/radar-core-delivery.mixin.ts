@@ -589,6 +589,19 @@ export class RadarCoreDeliveryMixin {
     );
   }
 
+  /**
+   * Gate do auto-import Radar→Vendas para o caminho do VENDEDOR.
+   * - Não-vendedor (admin / import-as-admin / Night Factory): mantém comportamento atual (sempre importa).
+   * - Vendedor: só auto-importa quando o standing order (botão "Auto" da tela) está ATIVO.
+   *   Com "Auto" OFF, os leads ficam reservados na vitrine "Disponíveis" e o vendedor
+   *   puxa manualmente com "Puxar selecionados". Sem standing order salvo = inativo (Auto OFF).
+   */
+  private async shouldAutoImportRadarRunToVendas(user: any): Promise<boolean> {
+    if (!this.isCompanySellerUser(user)) return true;
+    const result = await this.getRadarSellerStandingOrder(user).catch(() => null);
+    return Boolean(result?.standingOrder?.active);
+  }
+
   private async buildPausedRadarSearchRunResponse(run: any) {
     const filters = await this.applyTeamPolicyRadarFilters({
       companyId: safeInteger(run?.companyId),
@@ -909,7 +922,10 @@ export class RadarCoreDeliveryMixin {
         },
       };
     }
-    const autoImport = !autoImportBlocked && !options?.skipAutoImport && hasAutoImportPendingCards
+    const autoImportAllowedByStandingOrder = (!autoImportBlocked && !options?.skipAutoImport && hasAutoImportPendingCards)
+      ? await this.shouldAutoImportRadarRunToVendas(user)
+      : false;
+    const autoImport = autoImportAllowedByStandingOrder
       ? await this.autoImportRadarSearchRunToVendas(user, effectiveRun.id).catch((error: any) => {
           this.logger.warn(`[radar-vendas] auto-import ignorado run=${effectiveRun.id}: ${String(error?.message || error)}`);
           return null;

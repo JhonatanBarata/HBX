@@ -170,13 +170,17 @@ export class HbxEngineGovernorService implements OnModuleInit, OnModuleDestroy {
     if (action.action === 'start') {
       await this.docker.startEngine(action.name);
       this.rememberAction(action);
-      await this.updateEngineAfterAction(action, { status: 'standby', lastError: null });
+      // Clear lastCheckedAt so the next healthCheckEngines cycle re-polls this engine
+      // instead of skipping it under the TTL with a stale lastHealthStatus: 'offline'.
+      await this.updateEngineAfterAction(action, { status: 'standby', lastError: null, lastCheckedAt: null });
       return;
     }
     if (action.action === 'restart') {
       await this.docker.restartEngine(action.name);
       this.rememberAction(action);
-      await this.updateEngineAfterAction(action, { status: 'standby', lastError: 'Governor reiniciou motor HBX sem healthcheck saudavel.' });
+      // Clear lastCheckedAt so the next healthCheckEngines cycle re-polls this engine
+      // instead of skipping it under the TTL with a stale lastHealthStatus: 'offline'.
+      await this.updateEngineAfterAction(action, { status: 'standby', lastError: 'Governor reiniciou motor HBX sem healthcheck saudavel.', lastCheckedAt: null });
       return;
     }
     if (action.action === 'stop') {

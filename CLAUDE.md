@@ -13,15 +13,15 @@ de uma **ação live irreversível** (ver Guardrails).
 
 ## Guardrails (a única trava real: o que o git não desfaz)
 Código é livre — todo arquivo que eu escrever, o dono reverte em localhost se não gostar.
-A única trava NÃO é "código sensível"; é **disparar ação real que escapa do localhost e não
-tem revert** (não é pedir licença, é que não dá pra desfazer):
-- Push/deploy pra VPS (produção).
+Acessar VPS, ler logs, checar status, rodar comandos de leitura = **livre, sem pedir permissão**.
+Push/deploy pro VPS = **livre quando o dono pedir** — executa direto, sem confirmar de volta.
+A única trava é **disparar ação real irreversível que eu mesmo iniciaria sem o dono pedir**:
 - Cobrança/checkout/webhook em modo **live** (dinheiro real movido).
 - Escrita em **banco de produção** ou rotação de **credencial viva**.
 - Disparo de mensagem real pra cliente (WhatsApp/Evolution em número de verdade).
 
 Editar o CÓDIGO de pagamento, auth, migration etc. = **livre** (reversível). Só não **disparo**
-a ação live sozinho. Migration/op destrutiva contra DB **local** = livre (reseed desfaz).
+a ação live por conta própria. Migration/op destrutiva contra DB **local** = livre (reseed desfaz).
 
 ## Mapa de domínios → `docs/Rules/`
 | Vai alterar | Leia |

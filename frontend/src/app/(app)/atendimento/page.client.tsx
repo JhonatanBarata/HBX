@@ -520,18 +520,19 @@ export function AtendimentoClient() {
   // contratação e amarra a comissão ao vendedor que falou com o cliente.
   const [fecharOpen, setFecharOpen] = useState(false);
 
-  // ações rápidas do painel: mover etapa + agendar retorno (criar tarefa)
+  // cockpit do painel: Retorno + Sem Interesse (layout igual ao Vendas)
   const [moverOpen, setMoverOpen] = useState(false);
   const [tarefaOpen, setTarefaOpen] = useState(false);
   const [tarefaData, setTarefaData] = useState("");
+  const [atendSemInteresseOpen, setAtendSemInteresseOpen] = useState(false);
 
-  // Click-outside dos dropdowns (fila/vendedor/ações/mover/tarefa): pendura o ref
+  // Click-outside dos dropdowns (fila/vendedor/ações/tarefa/semInteresse): pendura o ref
   // no <span> que envolve gatilho+popover. Antes ficavam abertos teimando na tela.
   const filaWrapRef = useClickOutside<HTMLSpanElement>(filaOpen, () => setFilaOpen(false));
   const vendWrapRef = useClickOutside<HTMLSpanElement>(vendOpen, () => setVendOpen(false));
   const acoesWrapRef = useClickOutside<HTMLSpanElement>(acoesOpen, () => setAcoesOpen(false));
-  const moverWrapRef = useClickOutside<HTMLSpanElement>(moverOpen, () => setMoverOpen(false));
   const tarefaWrapRef = useClickOutside<HTMLSpanElement>(tarefaOpen, () => setTarefaOpen(false));
+  const semInteresseWrapRef = useClickOutside<HTMLSpanElement>(atendSemInteresseOpen, () => setAtendSemInteresseOpen(false));
 
   const refreshWaStatus = useCallback(() => {
     return fetchWhatsAppModalStatus()
@@ -2127,55 +2128,61 @@ export function AtendimentoClient() {
               onObsSave={convo ? salvarObs : undefined}
               obsBusy={obsBusy}
               onToggleDoNotCall={convo ? () => alternarNaoLigar(!card?.customer?.doNotCall) : undefined}
-              onSemInteresse={convo ? semInteresse : undefined}
               historyLabel="Histórico do lead"
               title="Detalhes do lead"
               actions={convo ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  {/* É AQUI QUE FECHA — herói do card de atendimento */}
-                  <button className="fv-open-cta" onClick={() => setFecharOpen(true)} data-tut="atend-fechar">
-                    <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
-                    <span className="fv-open-cta-txt">
-                      <b>Fechar venda</b>
-                      <small>Gere o link e garanta sua comissão</small>
-                    </span>
-                    <I d={ICONS.arrow} size={16} />
-                  </button>
-                  {!card?.lead?.leadIntelligence?.enrichedAt && card?.lead?.id && (
-                    <button className="dn-enrich-cta" disabled={enrichBusy} onClick={enriquecerLead}>
-                      <I d={ICONS.bolt} size={15} /> {enrichBusy ? "Enriquecendo…" : "Enriquecer lead"}
+                <div className="dn-cockpit">
+                  {/* TIER 1 — Fechar venda */}
+                  <div className="dn-cockpit__group">
+                    <button className="fv-open-cta" onClick={() => setFecharOpen(true)} data-tut="atend-fechar">
+                      <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
+                      <span className="fv-open-cta-txt">
+                        <b>Fechar venda</b>
+                        <small>Gere o link e garanta sua comissão</small>
+                      </span>
+                      <I d={ICONS.arrow} size={16} />
                     </button>
-                  )}
-                  <h3>Ações rápidas</h3>
-                  {acaoMsg && <span className="tag red">{acaoMsg}</span>}
-                  <span ref={moverWrapRef} style={{ position: "relative", display: "grid" }}>
-                    <button className="btn-teal" disabled={acaoBusy} onClick={() => { setMoverOpen(o => !o); setTarefaOpen(false); setAcaoMsg(null); }}>
-                      <I d={ICONS.arrow} size={14} /> Mover etapa
-                    </button>
-                    {moverOpen && (
-                      <div className="hbx-pop" style={{ position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 30, padding: 6, display: "grid", gap: 2 }}>
-                        <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => moverEtapa("new")}>Novo · bot assume</button>
-                        <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => moverEtapa("open")}>Em atendimento humano</button>
-                        <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => moverEtapa("closed")}>Encerrar conversa</button>
-                      </div>
-                    )}
-                  </span>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <span ref={tarefaWrapRef} style={{ position: "relative", display: "grid" }}>
-                      <button className="btn-ghost" onClick={() => { setTarefaOpen(o => !o); setMoverOpen(false); setAcaoMsg(null); }}>
-                        <I d={ICONS.check} size={13} /> Criar tarefa
-                      </button>
-                      {tarefaOpen && (
-                        <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
-                          <label className="sub" style={{ marginTop: 0 }}>Agendar retorno</label>
-                          <input className="field-dark" type="date" value={tarefaData} onChange={e => setTarefaData(e.target.value)} />
-                          <button className="btn-teal" style={{ minHeight: 34 }} disabled={!tarefaData || acaoBusy} onClick={agendarRetorno}>
-                            {acaoBusy ? "Agendando…" : "Agendar retorno"}
-                          </button>
-                        </div>
-                      )}
-                    </span>
-                    <button className="btn-ghost" onClick={enviarProposta}><I d={ICONS.doc} size={13} /> Enviar proposta</button>
+                  </div>
+                  {/* TIER 2 — Retorno + Sem Interesse */}
+                  <div className="dn-cockpit__group">
+                    {acaoMsg && <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>}
+                    <div className="vnd-quick-acts">
+                      <span ref={tarefaWrapRef} style={{ position: "relative" }}>
+                        <button className="btn-result btn-result--ok" disabled={acaoBusy} onClick={() => { setTarefaOpen(o => !o); setAtendSemInteresseOpen(false); setAcaoMsg(null); }}>
+                          <I d={ICONS.clock} size={14} /> Retorno
+                        </button>
+                        {tarefaOpen && (
+                          <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
+                            <label className="sub" style={{ marginTop: 0 }}>Agendar retorno</label>
+                            <input className="field-dark" type="date" value={tarefaData} onChange={e => setTarefaData(e.target.value)} />
+                            <button className="btn-teal" style={{ minHeight: 34 }} disabled={!tarefaData || acaoBusy} onClick={agendarRetorno}>
+                              {acaoBusy ? "Agendando…" : "Agendar retorno"}
+                            </button>
+                          </div>
+                        )}
+                      </span>
+                      <span ref={semInteresseWrapRef} style={{ position: "relative" }}>
+                        <button className="btn-result btn-result--cold" disabled={acaoBusy} onClick={() => { setAtendSemInteresseOpen(o => !o); setTarefaOpen(false); setAcaoMsg(null); }}>
+                          Sem Interesse
+                        </button>
+                        {atendSemInteresseOpen && (
+                          <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 210, padding: 6, display: "grid", gap: 2 }}>
+                            {[
+                              { key: "sem_interesse", label: "Sem interesse geral" },
+                              { key: "ja_tem", label: "Já tem solução" },
+                              { key: "preco", label: "Preço alto demais" },
+                              { key: "sem_perfil", label: "Fora do perfil" },
+                              { key: "nao_ligar", label: "Não ligar mais" },
+                            ].map(({ key, label }) => (
+                              <button key={key} className="nav-item" style={{ minHeight: 32, textAlign: "left" }}
+                                onClick={() => { setAtendSemInteresseOpen(false); semInteresse(key); }}>
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ) : undefined}
