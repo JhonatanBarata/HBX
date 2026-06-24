@@ -1079,7 +1079,6 @@ export class RadarCoreSearchLoopMixin {
             ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
             : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
-        const finalMessageWithMeta = `${finalMessage} ${batchDebugMeta}`;
         if (counters.foundCount > 0) {
           await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         }
@@ -1088,7 +1087,7 @@ export class RadarCoreSearchLoopMixin {
           data: {
             status: finalStatus,
             lastBatchStatus: finalStatus,
-            errorMessage: finalMessageWithMeta,
+            errorMessage: finalMessage,
             nextRetryAt: null,
             assignedEngineId: null,
             assignedEngineUrl: null,
@@ -1107,7 +1106,7 @@ export class RadarCoreSearchLoopMixin {
         data: {
           status: 'running',
           lastBatchStatus: approvedCount > 0 ? 'batch_success' : 'empty_batch',
-          errorMessage: `${message} ${batchDebugMeta}`,
+          errorMessage: message,
           nextRetryAt: null,
           assignedEngineId: null,
           assignedEngineUrl: null,

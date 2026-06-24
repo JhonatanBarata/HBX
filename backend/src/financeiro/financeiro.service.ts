@@ -3687,6 +3687,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       planKey?: string;
       billingCycle?: string;
       cardTokenId?: string;
+      recurringCardTokenId?: string;
       paymentMethodId?: string;
       taxDocument?: string;
       dryRun?: boolean;
@@ -3731,15 +3732,23 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const access = resolveCompanyAccessState(company);
     const isPaying = access.state === 'paying';
 
-    // ANTI-BRECHA: o crédito do downgrade só vale se o período ATUAL foi realmente
-    // COBRADO (caiu no cartão), não só autorizado. Sem cobrança confirmada — 1ª fatura
-    // do MP ainda não caiu, ou em atraso — o crédito é ZERO (a troca de plano segue
-    // normal). Senão o cliente assina o plano maior, baixa na hora e embolsa crédito sem
-    // ter passado o cartão de verdade.
+    const subscription = await this.findCurrentCompanySubscription(context.companyId);
+    const mockMode = this.isMockPaymentsProvider();
+    const hasLivePreapproval = Boolean(
+      subscription?.providerPreapprovalId &&
+        !['canceled', 'cancelled', 'blocked'].includes(String(subscription.status || '').toLowerCase()),
+    );
+
+    // ANTI-BRECHA / ANTI-DUPLA-COBRANÇA: "está pagando" (status) NÃO basta — o
+    // discriminador real é se o período ATUAL foi COBRADO (caiu no cartão), não só
+    // autorizado. Empresa em trial-com-cartão pode estar 'active'/autorizada sem nenhuma
+    // cobrança (a #23 é assim: List carregando o trial do Lead). Uma única leitura serve
+    // pra duas decisões: (1) crédito do downgrade só vale se houve cobrança; (2) trocar de
+    // plano SEM cobrança = ainda no trial → encerra o trial e cobra o plano novo.
+    const collectedThisPeriod = await this.hasCollectedRevenueSince(context.companyId, periodStart);
     let effectiveCredit = proration.creditGenerated;
-    if (direction === 'downgrade' && effectiveCredit > 0) {
-      const collected = await this.hasCollectedRevenueSince(context.companyId, periodStart);
-      if (!collected) effectiveCredit = 0;
+    if (direction === 'downgrade' && effectiveCredit > 0 && !collectedThisPeriod) {
+      effectiveCredit = 0;
     }
 
     const preview = {
@@ -3759,12 +3768,31 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       // plano maior não usado). Nada de "manter o plano maior até o fim".
       effectiveAt: now.toISOString(),
       isPaying,
+      // Troca durante o trial (preapproval viva, nada cobrado): a troca ENCERRA o trial e
+      // cobra o plano novo cheio. O front usa isto pro aviso e pra coletar os 2 tokens.
+      trialEnding: hasLivePreapproval && !collectedThisPeriod,
     };
 
     if (dto?.dryRun) return { ok: true, dryRun: true, preview };
 
-    // Sem assinatura ativa (trial/pending/cortesia): não há o que proratar/creditar.
-    // Upgrade exige checkout; downgrade só registra a intenção (igual commercial-plans/select).
+    // FIM DE TRIAL (regra do dono 24/06): há assinatura recorrente VIVA mas NADA foi
+    // cobrado neste período = ainda no trial grátis. Trocar de plano (subir OU descer)
+    // encerra o trial e cobra o plano novo cheio. Cobra o avulso AGORA (síncrono, Regra de
+    // Ouro) e recria a recorrência; recusa/desistência → NADA muda.
+    if (hasLivePreapproval && !collectedThisPeriod) {
+      return this.applyTrialEndingPlanChange({
+        user, context, company, subscription, targetPlanKey, billingCycle,
+        toCycleAmount, direction: direction as 'upgrade' | 'downgrade', preview,
+        cardTokenId: this.normalizeCardToken(dto?.cardTokenId),
+        recurringCardTokenId: this.normalizeCardToken(dto?.recurringCardTokenId),
+        paymentMethodId: String(dto?.paymentMethodId || '').trim() || null,
+        taxDocument: String(dto?.taxDocument || '').trim() || null,
+        mockMode, now,
+      });
+    }
+
+    // Sem assinatura ativa nem trial-com-cartão (pending_checkout/cortesia): não há o que
+    // proratar/creditar. Upgrade exige checkout; downgrade só registra a intenção.
     if (!isPaying) {
       if (direction === 'upgrade') {
         return {
@@ -3784,9 +3812,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       });
       return { ok: true, direction, applied: 'intent', preview, overview: await this.getOverviewForUser(user) };
     }
-
-    const subscription = await this.findCurrentCompanySubscription(context.companyId);
-    const mockMode = this.isMockPaymentsProvider();
 
     if (direction === 'upgrade') {
       return this.applyUpgradePlanChange({
@@ -3958,6 +3983,237 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       charged: this.normalizeCurrencyAmount(chargeNow),
       preview: input.preview,
       liveProrationPending: false,
+      overview: await this.getOverviewForUser(input.user),
+    };
+  }
+
+  // FIM DE TRIAL ao trocar de plano (regra do dono 24/06) — vale pra upgrade E downgrade.
+  // Encerra o período grátis e cobra o plano NOVO cheio. Mecânica escolhida (opção 3):
+  // cobra avulso AGORA (síncrono, Regra de Ouro) + recria a recorrência.
+  //   token do MP é de USO ÚNICO → o front manda 2 tokens: cardTokenId (avulso) e
+  //   recurringCardTokenId (nova preapproval). Sem aprovação/sem token → NADA muda.
+  // ⚠️ LIVE-ONLY: a recriação (cancel + create no MP) e o start_date futuro só dá pra
+  //   validar no VPS com cartão real — aqui só prova em mock.
+  private async applyTrialEndingPlanChange(input: {
+    user: any;
+    context: { companyId: number; userId: number };
+    company: any;
+    subscription: any;
+    targetPlanKey: ActiveCommercialPlanKey;
+    billingCycle: string;
+    toCycleAmount: number;
+    direction: 'upgrade' | 'downgrade';
+    preview: Record<string, unknown>;
+    cardTokenId: string | null;
+    recurringCardTokenId: string | null;
+    paymentMethodId: string | null;
+    taxDocument: string | null;
+    mockMode: boolean;
+    now: Date;
+  }) {
+    const { context, company, subscription, targetPlanKey, billingCycle, toCycleAmount, direction, mockMode, now } = input;
+    const planTitle = getCommercialPlanTitle(targetPlanKey);
+    const periodStart = now;
+    const periodEnd = this.computePeriodEnd(periodStart, billingCycle);
+    const chargeNow = this.normalizeCurrencyAmount(toCycleAmount);
+
+    let providerPaymentId: string | null = null;
+    let newPreapprovalId: string | null = null;
+    let newPreapprovalPlanId: string | null = null;
+    let cardSnapshot: { brand: string | null; last4: string | null } = { brand: null, last4: null };
+
+    if (!mockMode) {
+      // 2 tokens de uso único: avulso + nova recorrência. Falta algum → o front coleta.
+      if (!input.cardTokenId || !input.paymentMethodId) {
+        return {
+          ok: false,
+          code: 'CARD_REQUIRED',
+          direction,
+          preview: input.preview,
+          message: `Trocar de plano durante o teste encerra o período grátis e passa a cobrar o ${planTitle} agora. Confirme o cartão.`,
+        };
+      }
+      if (!input.recurringCardTokenId) {
+        return {
+          ok: false,
+          code: 'RECURRING_CARD_REQUIRED',
+          direction,
+          preview: input.preview,
+          message: 'Confirme o cartão para encerrar o teste e ativar a nova assinatura.',
+        };
+      }
+      const { accessToken } = await this.resolveFinanceContext(context.companyId);
+      const payerEmail =
+        this.normalizePayerEmail(subscription?.payerEmail) ||
+        this.normalizePayerEmail(input.user?.email) ||
+        '';
+      const docDigits = String(input.taxDocument || company.taxDocument || '').replace(/\D/g, '');
+
+      // 1) Cobra o plano NOVO cheio AGORA (avulso, síncrono). Só encerra o trial DEPOIS de
+      //    aprovado — recusa/erro → NADA muda (trial e plano intactos).
+      let payment: any;
+      try {
+        payment = await this.mercadoPagoClient.createPayment(
+          accessToken,
+          {
+            transaction_amount: chargeNow,
+            token: input.cardTokenId,
+            installments: 1,
+            payment_method_id: input.paymentMethodId,
+            description: `${planTitle} — primeira cobrança (fim do teste)`,
+            external_reference: `hbx-trialend-${context.companyId}-${Date.now()}`,
+            metadata: {
+              company_id: context.companyId,
+              source: 'plan_change_trial_end',
+              target_plan: targetPlanKey,
+              direction,
+            },
+            payer: {
+              email: payerEmail,
+              ...(docDigits
+                ? { identification: { type: docDigits.length > 11 ? 'CNPJ' : 'CPF', number: docDigits } }
+                : {}),
+            },
+          },
+          randomUUID(),
+        );
+      } catch (error: any) {
+        this.logger.warn(`plan_change_trial_end_charge_failed company=${context.companyId} error=${String(error?.message || error)}`);
+        return {
+          ok: false,
+          code: 'CHARGE_FAILED',
+          direction,
+          preview: input.preview,
+          message: String(error?.message || 'Não foi possível cobrar no cartão. Tente outro cartão.'),
+        };
+      }
+      if (this.normalizeProviderPaymentStatus(payment?.status) !== 'approved') {
+        return {
+          ok: false,
+          code: 'CHARGE_DECLINED',
+          direction,
+          preview: input.preview,
+          message: 'Pagamento recusado. Confira os dados do cartão ou tente outro.',
+        };
+      }
+      providerPaymentId = payment?.id ? String(payment.id) : null;
+      cardSnapshot = this.subscriptionCardSnapshot(payment, subscription);
+      await this.recordProrationCharge({
+        context,
+        billingCycle,
+        amount: chargeNow,
+        planTitle,
+        entryType: 'PLAN_TRIAL_END_CHARGE',
+        observation: `Encerramento do teste — primeira cobrança do ${planTitle}.`,
+        metadata: { targetPlanKey, fromPlanKey: company.selectedPlanKey, source: 'plan_change_trial_end', direction, providerPaymentId },
+      });
+
+      // 2) Recria a recorrência. Cancela a preapproval com trial ANTES de criar a nova —
+      //    prioriza "nunca cobrar dobrado": se o create falhar, fica SEM recorrência
+      //    (reparável pelo master), nunca com a antiga viva cobrando no fim do trial.
+      if (subscription?.providerPreapprovalId) {
+        try {
+          await this.mercadoPagoClient.cancelPreapproval(accessToken, subscription.providerPreapprovalId);
+        } catch (error: any) {
+          this.logger.warn(`plan_change_trial_end_cancel_old_failed company=${context.companyId} error=${String(error?.message || error)}`);
+        }
+      }
+      try {
+        const providerPlan = await this.ensureMercadoPagoPreapprovalPlan(accessToken, targetPlanKey, billingCycle);
+        const snap = this.buildCommercialPlanProviderSnapshot(targetPlanKey, billingCycle);
+        const provider = await this.mercadoPagoClient.createPreapproval(
+          accessToken,
+          {
+            preapproval_plan_id: providerPlan.providerPlanId,
+            reason: snap.reason,
+            external_reference: `hbx-sub-${context.companyId}-${subscription.id}`,
+            payer_email: payerEmail,
+            card_token_id: input.recurringCardTokenId,
+            auto_recurring: {
+              frequency: snap.frequency,
+              frequency_type: snap.frequencyType,
+              transaction_amount: snap.amount,
+              currency_id: snap.currency,
+              // 1ª recorrência no PRÓXIMO ciclo — este já foi cobrado avulso acima.
+              start_date: periodEnd.toISOString(),
+            },
+            back_url: this.buildSubscriptionBackUrl(),
+            status: 'authorized',
+          },
+          randomUUID(),
+        );
+        newPreapprovalId = String(provider?.id || '').trim() || null;
+        newPreapprovalPlanId = provider?.preapproval_plan_id ? String(provider.preapproval_plan_id) : providerPlan.providerPlanId;
+        if (!cardSnapshot.last4) cardSnapshot = this.subscriptionCardSnapshot(provider, subscription);
+      } catch (error: any) {
+        this.logger.error(
+          `plan_change_trial_end_recreate_failed company=${context.companyId} error=${String(error?.message || error)} ` +
+            `— cobrança do ciclo OK, mas RECORRÊNCIA ficou sem preapproval (reparo manual).`,
+        );
+      }
+    } else if (chargeNow > 0) {
+      // MOCK: só escritura, sem gateway.
+      await this.recordProrationCharge({
+        context,
+        billingCycle,
+        amount: chargeNow,
+        planTitle,
+        entryType: 'PLAN_TRIAL_END_CHARGE_MOCK',
+        observation: `Encerramento do teste — primeira cobrança do ${planTitle} (mock).`,
+        metadata: { targetPlanKey, fromPlanKey: company.selectedPlanKey, source: 'plan_change_trial_end', direction },
+      });
+    }
+
+    // 3) Encerra o trial localmente + aplica o plano (atômico no DB). Novo período começa
+    //    AGORA (ciclo pago). Guarda a preapproval nova quando o live recriou.
+    await this.prisma.$transaction(async (tx) => {
+      if (subscription?.id) {
+        await tx.companySubscription.update({
+          where: { id: subscription.id },
+          data: {
+            planKey: targetPlanKey,
+            billingCycle,
+            status: 'active',
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+            nextBillingAt: periodEnd,
+            ...(newPreapprovalId
+              ? { providerPreapprovalId: newPreapprovalId, providerPreapprovalPlanId: newPreapprovalPlanId, lastProviderStatus: 'authorized' }
+              : {}),
+            ...(cardSnapshot.brand ? { cardBrand: cardSnapshot.brand } : {}),
+            ...(cardSnapshot.last4 ? { cardLast4: cardSnapshot.last4 } : {}),
+          },
+        });
+      }
+      await tx.company.update({
+        where: { id: context.companyId },
+        data: {
+          selectedPlanKey: targetPlanKey,
+          billingCycle,
+          status: 'active',
+          isActive: true,
+          trialEndsAt: null,
+          subscriptionCurrentPeriodStart: periodStart,
+          subscriptionCurrentPeriodEnd: periodEnd,
+          billingProvider: 'mercadopago',
+          paymentMethod: 'CARD',
+          ...(cardSnapshot.brand ? { billingCardBrand: cardSnapshot.brand } : {}),
+          ...(cardSnapshot.last4 ? { billingCardLast4: cardSnapshot.last4 } : {}),
+          billingCardUpdatedAt: now,
+          trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+        },
+      });
+      await this.syncPaidPlanModulesTx(tx, context.companyId, targetPlanKey);
+      await this.syncPaidCommercialEntitlementsTx(tx, context.companyId, targetPlanKey, periodStart, periodEnd);
+    });
+
+    return {
+      ok: true,
+      direction,
+      trialEnded: true,
+      charged: chargeNow,
+      recurringRecreated: Boolean(newPreapprovalId) || mockMode,
+      preview: input.preview,
       overview: await this.getOverviewForUser(input.user),
     };
   }
@@ -4340,6 +4596,47 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       reason: input?.reason ?? null,
       source: 'master_refund',
     });
+  }
+
+  // Cancelamento da assinatura recorrente acionado pelo MASTER no painel de empresas
+  // (aba Financeiro). Cancela a preapproval no Mercado Pago (o cartão deixa de ser
+  // cobrado nas próximas faturas) e marca o estado local. Se ainda há período já pago,
+  // mantém o acesso até o fim dele (cancelAtPeriodEnd) — só corta o futuro, sem suspender
+  // na hora. Guard duplo: MasterGuard na rota + checagem isSystemMaster aqui.
+  async cancelSubscriptionByMaster(user: any, companyId: number) {
+    if (!user?.isSystemMaster) {
+      throw new ForbiddenException('Apenas o MASTER pode cancelar assinaturas.');
+    }
+    const id = Number(companyId);
+    if (!id) throw new BadRequestException('Empresa inválida.');
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const subscription = await this.findCurrentCompanySubscription(id);
+    if (!subscription?.providerPreapprovalId) {
+      throw new NotFoundException('Esta empresa não tem assinatura recorrente ativa no Mercado Pago.');
+    }
+
+    try {
+      if (this.isMockPaymentsProvider() && String(subscription.provider || '').toLowerCase() === 'mock') {
+        await this.applySubscriptionProviderState(subscription, { status: 'canceled' });
+      } else {
+        const { accessToken } = await this.resolveFinanceContext(id);
+        const provider = await this.mercadoPagoClient.cancelPreapproval(accessToken, subscription.providerPreapprovalId);
+        await this.applySubscriptionProviderState(subscription, {
+          ...provider,
+          status: provider?.status || 'cancelled',
+        });
+      }
+      const refreshed = await this.prisma.companySubscription.findFirst({
+        where: { companyId: id, provider: this.subscriptionProviderWhere() },
+        orderBy: { createdAt: 'desc' },
+      });
+      return { ok: true, subscription: this.serializeSubscription(refreshed) };
+    } catch (error: any) {
+      throw new BadRequestException(
+        `Não conseguimos cancelar a assinatura no Mercado Pago. ${String(error?.message || '').trim()}`,
+      );
+    }
   }
 
   async getSubscriptionStatusForUser(user: any) {

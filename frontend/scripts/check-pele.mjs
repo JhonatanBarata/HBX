@@ -15,6 +15,8 @@
 //  - src/app/hbx-theme/skeleton.css, theme.css, theme-*.css (peles/contrato)
 //  - src/app/hbx-theme/marketing.css, src/app/page.client.tsx,
 //    src/app/trabalhe-conosco/** (landing)
+//  - bloco isento explícito: /* pele-allow: motivo */ … /* pele-allow-end */
+//    (cena pública em evolução fora dos arquivos acima, ex.: entrada V1.0)
 //  - literais neutros: #fff #ffffff #000 #000000
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -49,7 +51,14 @@ const visualByFile = new Map();
 
 for (const file of walk(ROOT, [".css"])) {
   if (CSS_ALLOWED.some(re => re.test(file))) continue;
+  let peleOn = true; // false = dentro de bloco isento (pele-allow … pele-allow-end)
   readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
+    // Bloco isento EXPLÍCITO p/ "mundo visual do site público" em evolução (ex.: a
+    // ENTRADA V1.0 / portal — cores cinematográficas que ainda mudam). Reversível:
+    // ao assentar, remover os marcadores e tokenizar. Regra não engessa evolução.
+    if (/pele-allow-end/.test(line)) { peleOn = true; return; }
+    if (/pele-allow\b/.test(line)) { peleOn = false; return; }
+    if (!peleOn) return;
     for (const m of line.matchAll(COLOR_RE)) {
       if (m[0].startsWith("#") && NEUTRAL.test(m[0])) continue;
       hard.push(`R1 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);

@@ -421,7 +421,10 @@ export class MercadoPagoClientService {
     accessTokenRaw: string,
     preapprovalIdRaw: string | number,
   ): Promise<MercadoPagoPreapprovalResponse> {
-    return this.updatePreapproval(accessTokenRaw, preapprovalIdRaw, { status: 'canceled' });
+    // O MP exige a grafia britânica 'cancelled' (2 L) no status da preapproval —
+    // 'canceled' (1 L) é recusado com "Invalid preapproval status param: canceled",
+    // então o cancelamento falhava calado e a recorrência seguia cobrando o cartão.
+    return this.updatePreapproval(accessTokenRaw, preapprovalIdRaw, { status: 'cancelled' });
   }
 
   async pausePreapproval(

@@ -17,6 +17,14 @@
 @import "./hbx-theme/marketing.css";
 @import "./hbx-theme/transitions.css";
 
+/* Construtor de Bot — peças do rebuild (organograma, botões QR×Meta, gaveta de
+   variáveis) + layout da tela dividida. Depois de transitions.css (reusam
+   .hbx-veil/.hbx-drawer) e antes das peles/mobile. */
+@import "./hbx-theme/bot-flow.css";
+@import "./hbx-theme/bot-buttons.css";
+@import "./hbx-theme/bot-variables.css";
+@import "./hbx-theme/bot-builder.css";
+
 /* Peles instaladas (tokens + camada de vestir; sempre por último
    para sobrescreverem o esqueleto). Pele nova = 1 arquivo + 1 linha
    + entrada no registry de theme-attributes.tsx. */

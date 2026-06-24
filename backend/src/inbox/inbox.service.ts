@@ -62,6 +62,11 @@ import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
 import type { Request, Response } from 'express';
 
+type BotConfigProviderCapabilities = {
+  provider: ProviderCapabilities['provider'];
+  canUseOfficialButtons: boolean;
+};
+
 type TrashPurgeDetectedReason =
   | 'SEM_INTERESSE_EXPLICITO'
   | 'NEGATIVO'
@@ -2267,24 +2272,46 @@ export class InboxService {
     await this.prisma.hbxRecoveryFlowStage.create({ data });
   }
 
-  private async getBotConfigByCompanyId(companyId: number): Promise<AtendimentoBotConfig> {
+  private async getBotConfigByCompanyId(
+    companyId: number,
+  ): Promise<AtendimentoBotConfig & { providerCapabilities: BotConfigProviderCapabilities }> {
     const row = await this.getConfigRow(
       companyId,
       ATENDIMENTO_BOT_CONFIG_CHANNEL,
       ATENDIMENTO_BOT_CONFIG_TITLE,
     );
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
+    const providerCapabilities: BotConfigProviderCapabilities = {
+      provider: tenantContext.providerCapabilities.provider,
+      canUseOfficialButtons: tenantContext.providerCapabilities.canUseOfficialButtons,
+    };
+    let sanitized: AtendimentoBotConfig;
     if (!row?.template) {
-      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
+      sanitized = sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
+    } else {
+      try {
+        sanitized = sanitizeAtendimentoBotConfigForTenant(
+          normalizeAtendimentoBotConfig(JSON.parse(row.template)),
+          tenantContext,
+        );
+      } catch {
+        sanitized = sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
+      }
     }
-    try {
-      return sanitizeAtendimentoBotConfigForTenant(
-        normalizeAtendimentoBotConfig(JSON.parse(row.template)),
-        tenantContext,
-      );
-    } catch {
-      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
-    }
+    // Aditivo: catalogos sempre preenchidos (normalize/sanitize partem do DEFAULT, nunca []),
+    // e capacidade do canal explicita para o front nao adivinhar pelo setup.provider.
+    return {
+      ...sanitized,
+      actionCatalog:
+        sanitized.actionCatalog && sanitized.actionCatalog.length
+          ? sanitized.actionCatalog
+          : DEFAULT_ATENDIMENTO_BOT_CONFIG.actionCatalog,
+      variableCatalog:
+        sanitized.variableCatalog && sanitized.variableCatalog.length
+          ? sanitized.variableCatalog
+          : DEFAULT_ATENDIMENTO_BOT_CONFIG.variableCatalog,
+      providerCapabilities,
+    };
   }
 
   private async resolveAtendimentoBotSanitizationContext(companyId: number): Promise<{

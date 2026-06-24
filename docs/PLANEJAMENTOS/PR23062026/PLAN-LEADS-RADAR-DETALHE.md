@@ -123,3 +123,42 @@ puxar [exige backend não auto-importar no Buscar manual]. Default deste plano =
 leads já estão). Se for **B**, abre sub-bloco backend.
 
 **Reverter:** cada P = commit isolado; `git revert`. Tudo localhost.
+
+## Pós-teste do dono (23/06) — RODADA 2 ("pode, siga, criatividade máxima")
+Dono aprovou o conceito visual (radar→atendimento) e liberou aplicar. +3 itens:
+
+**P7 (pulso "tá trabalhando" mais forte).** Em `operationalState=funcionando` o radar tem que GRITAR que
+trabalha: sweep mais rápido + anel pulsante + disco "respirando". Reforçar `.radar-disc-wrap--funcionando`
+e o banner `.radar2-live` (dot pulsando) no `screens.css`; item de menu "Leads" funcionando também pulsa.
+Token (`--hbx-brand-strong`/derivado); disco escuro = exceção já documentada. `prefers-reduced-motion`=estático.
+
+**P8 (BUG da 1ª busca — corrigir de raiz).** Sintoma: 1ª pesquisa "buga", só vai no 2º clique. Causas:
+- (a) `executarBusca` (~530-545) NÃO manda `quantity` → POST `/search-runs` 400 (DTO exige) [= P1].
+- (b) `getLatestRadarSearchRunForUser` devolve run não-terminal antigo (queued/running/sleeping) no mount →
+  `setRun` → `runActive=true` → `if (runBusy||runActive) return` ENGOLE o 1º Buscar; no 2º o poll já
+  resolveu p/ terminal e libera.
+- FIX: (1) mandar `quantity: quantos`; (2) Buscar com cidade+segmento SEMPRE inicia (backend já cancela
+  incompatíveis via `cancelIncompatibleActiveRadarRuns`) — só bloquear se o run estiver "funcionando" AGORA,
+  não num stale. Worker REPRODUZ no preview (carrega /leads → 1 clique) e confirma POST 200 + "varrendo" no 1º.
+
+**P4 reforço (aviso obrigatório sem segmento).** Hoje Buscar/Ver-disponíveis sem segmento não dá erro e não
+mostra nada (o `setSearchMsg` inline passa batido). Abrir o POPUP (.hbx-veil+.hbx-modal) dizendo o que falta
+nos 3 gatilhos (Buscar console, Buscar rail mobile, "Ver N disponíveis"). Sem cidade/segmento = popup, nunca silêncio.
+
+**EFEITO radar→atendimento (P5 + criatividade) — o worker NÃO vê os mockups, spec textual:**
+- Ao concluir run com `importedCount>0`: por lead entregue (cap ~5, escalonado ~120ms) animar um "chip"
+  (avatar+nome) saindo do disco do radar e VOANDO por uma curva (bezier via rAF ou CSS offset-path) até o
+  badge da aba "Minha carteira". Rastro que desvanece (`--hbx-brand-strong`). Pouso = badge "pop" + contador
+  sobe (tick) + toast curto "✓ {nome} na carteira".
+- Depois do voo: trocar pra aba "Minha carteira" + `loadUsage()` + recarregar carteira (resolve "achou 3 e
+  não exibiu"). `prefers-reduced-motion` = sem voo, só incrementa + troca aba.
+- Keyframes/efeito em classe central no `screens.css`; lógica no `page.client.tsx`. ZERO hex/inline novo na TSX.
+- 2 avisos de parada = cards limpos: "Encheu tua carteira (X/Y) — volta sozinho" (pausado/âmbar) e "Varri tudo
+  aqui — mexe no filtro" (parado/cinza) com atalhos clicáveis (+50km / trocar segmento / outra cidade) que
+  ajustam o filtro na hora. Sem jargão (P6 garante no backend).
+
+**Decisão A confirmada pelo dono:** lead achado vai pra carteira do vendedor (não pro "Disponíveis").
+
+**Entregar:** 1 worker coeso (page.client.tsx + screens.css + backend P6/P8a) — sem paralelos no mesmo arquivo.
+Checks: `cd frontend && npm run lint` (check-pele) → `npm run build`; `cd backend && npm run build`; preview
+desktop (1º clique, segmento digitável, setas somem, popup, efeito). Atualizar `testar.md` em LEIGO.

@@ -113,6 +113,24 @@ export class ChangeFinanceiroPlanDto {
   @Length(8, 200)
   cardTokenId?: string;
 
+  // Encerramento de trial (troca de plano durante o período grátis): o token do MP é de
+  // USO ÚNICO — o que cobra o avulso não serve pra criar a nova assinatura. Então o front
+  // tokeniza o cartão 2x: cardTokenId cobra o avulso AGORA, recurringCardTokenId cria a
+  // nova preapproval (recorrência do próximo ciclo). Só exigido no caminho de fim-de-trial.
+  @IsOptional()
+  @IsString()
+  @Length(8, 200)
+  recurringCardTokenId?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(11, 18)
+  taxDocument?: string;
+
   @IsOptional()
   @IsBoolean()
   dryRun?: boolean;

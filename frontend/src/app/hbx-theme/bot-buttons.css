@@ -1,0 +1,79 @@
+/* ── Construtor de Bot · Editor de botões (QR × Meta) ──────────────────────────
+   Peça C do rebuild. Visual 100% por token; nada de cor/borda/sombra solta.
+   Reusa .field-dark / .btn-ghost / .icon-ghost do kit central. */
+
+.bot-btns { display: grid; gap: 10px; align-content: start; }
+
+.bot-btns__head { display: grid; gap: 3px; }
+.bot-btns__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.bot-btns__label .bot-btns__hint { font-weight: 600; opacity: 0.7; }
+
+/* Aviso do modo (QR — opções numeradas, sem botão clicável). */
+.bot-btns__mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 38%, transparent);
+  background: color-mix(in srgb, var(--hbx-warning) 12%, transparent);
+  color: var(--text-body);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+.bot-btns__mode--meta {
+  border-color: color-mix(in srgb, var(--hbx-brand) 35%, transparent);
+  background: var(--hbx-brand-soft);
+}
+.bot-btns__mode-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--hbx-warning);
+}
+.bot-btns__mode--meta .bot-btns__mode-dot { background: var(--hbx-brand-strong); }
+
+.bot-btns__empty { font-size: 0.7rem; color: var(--text-muted); }
+
+.bot-btns__list { display: grid; gap: 8px; }
+
+/* Uma linha de item: [índice/ícone] [texto] [ação] [remover]. */
+.bot-btns__row {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Selo da esquerda: número (QR) ou ícone de botão (Meta). */
+.bot-btns__badge {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--hbx-brand-strong);
+  background: var(--hbx-brand-soft);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 28%, transparent);
+}
+.bot-btns__badge--meta { color: var(--text-muted); }
+
+.bot-btns__add {
+  width: fit-content;
+  min-height: 30px;
+  font-size: 0.68rem;
+}
+
+.bot-btns__foot {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}

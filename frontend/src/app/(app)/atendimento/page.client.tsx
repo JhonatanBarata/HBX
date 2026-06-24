@@ -508,6 +508,7 @@ export function AtendimentoClient() {
   const [acoesOpen, setAcoesOpen] = useState(false);
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
+  const [enrichBusy, setEnrichBusy] = useState(false);
 
   // painel direito: card de situação + observações
   const [card, setCard] = useState<StatusCard | null>(null);
@@ -1308,6 +1309,24 @@ export function AtendimentoClient() {
     }
   }
 
+  // Enriquecer lead cru (POST /vendas/lead/:id/enrichment) → recarrega o card pra
+  // a inteligência (score, dor, pitch, motivo) aparecer no painel.
+  async function enriquecerLead() {
+    const leadId = card?.lead?.id;
+    if (!leadId || !selId || enrichBusy) return;
+    setEnrichBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(leadId)}/enrichment`,
+        { method: "POST", body: JSON.stringify({}) });
+      await loadCard(selId);
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível enriquecer o lead.");
+    } finally {
+      setEnrichBusy(false);
+    }
+  }
+
   // Criar tarefa = agendar retorno (PATCH /conversations/:id/status-card { returnAt })
   async function agendarRetorno() {
     if (!selId || acaoBusy || !tarefaData) return;
@@ -2034,13 +2053,10 @@ export function AtendimentoClient() {
                 nextAction: card?.lead?.nextAction ?? null,
                 returnAt: card?.lead?.returnAt ?? undefined,
                 lastContactAt: card?.lead?.lastContactAt ?? undefined,
-                lastMessageAt: convo.lastMessageAt ?? undefined,
                 attemptCount: card?.lead?.attemptCount ?? null,
                 timesSeen: card?.lead?.timesSeen ?? null,
                 shortNote: card?.lead?.shortNote ?? null,
                 lastResult: card?.lead?.lastResult ?? null,
-                botActive: convo.botActive,
-                humanAssigned: convo.humanAssigned,
                 observations: card?.customer?.observations ?? null,
                 // Produto / valor (só quando tem lead linkado)
                 productName: card?.lead?.productName ?? null,
@@ -2074,21 +2090,13 @@ export function AtendimentoClient() {
               onToggleDoNotCall={convo ? () => alternarNaoLigar(!card?.customer?.doNotCall) : undefined}
               historyLabel="Histórico do lead"
               title="Detalhes do lead"
-              kvExtra={convo && visibleThread.length > 0 ? (
-                <div className="kv" style={{ marginTop: 4 }}>
-                  {visibleThread.slice(-3).reverse().map(m => (
-                    <div className="row" key={m.id}>
-                      <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                        <I d={ICONS.msg} size={13} />
-                        {m.direction === "outbound" ? "Enviada" : "Recebida"}
-                      </span>
-                      <span className="v">{fmtConvTime(m.createdAt)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : undefined}
               actions={convo ? (
                 <div style={{ display: "grid", gap: 8 }}>
+                  {!card?.lead?.leadIntelligence?.enrichedAt && card?.lead?.id && (
+                    <button className="dn-enrich-cta" disabled={enrichBusy} onClick={enriquecerLead}>
+                      <I d={ICONS.bolt} size={15} /> {enrichBusy ? "Enriquecendo…" : "Enriquecer lead"}
+                    </button>
+                  )}
                   <h3>Ações rápidas</h3>
                   {acaoMsg && <span className="tag red">{acaoMsg}</span>}
                   <span ref={moverWrapRef} style={{ position: "relative", display: "grid" }}>

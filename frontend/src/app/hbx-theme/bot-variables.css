@@ -1,0 +1,209 @@
+/* Construtor de Bot — conteúdo da gaveta de variáveis (BotVariablesDrawer).
+   Casca/animação vêm das classes CENTRAIS do kit (.hbx-veil.to-right + .hbx-drawer);
+   aqui mora SÓ o visual do conteúdo, todo em token central (zero hex/inline color).
+   Parte D do rebuild. Import deste arquivo no tema é responsabilidade da etapa E. */
+
+/* Efeito radar — entra deslizando da direita inteira até aparecer completo; ao
+   recolher (clique fora / Esc / X) SAI deslizando ao contrário, na MESMA velocidade.
+   Keyframes próprios e ESCOPADOS — não tocam o `.hbx-drawer` central (outras gavetas
+   usam o keyframe `hbx-drawer-in` de transitions.css). O override usa seletor COMPOSTO
+   (`.hbx-drawer.bot-vars`) pra vencer o `.hbx-drawer { animation }` central por
+   especificidade — independente da ordem de @import. Entrada e saída usam a MESMA
+   duração/ease (`--motion-base`/`--ease-out-quint`): mesma velocidade nos dois sentidos. */
+@keyframes bot-vars-in {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes bot-vars-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateX(100%); opacity: 0.6; }
+}
+
+.hbx-drawer.bot-vars {
+  animation: bot-vars-in var(--motion-base) var(--ease-out-quint) both;
+}
+
+.hbx-drawer.bot-vars.bot-vars--closing {
+  animation: bot-vars-out var(--motion-base) var(--ease-out-quint) both;
+}
+
+/* Fundo (véu) acompanha o fade reverso ao recolher. */
+.bot-vars-veil--closing {
+  animation: bot-vars-veil-out var(--motion-base) var(--ease-out-quint) both;
+}
+
+@keyframes bot-vars-veil-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Sem movimento quando o usuário pede menos animação — só presença, sem slide. */
+@media (prefers-reduced-motion: reduce) {
+  .hbx-drawer.bot-vars,
+  .hbx-drawer.bot-vars.bot-vars--closing,
+  .bot-vars-veil--closing {
+    animation: none;
+  }
+}
+
+.bot-vars {
+  width: min(360px, 92vw);
+  height: 100vh;
+  max-height: 100vh;
+  padding: 18px 16px 12px;
+  gap: 12px;
+}
+
+.bot-vars-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bot-vars-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.bot-vars-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.bot-vars-close:hover {
+  color: var(--text-strong);
+  background: var(--surface-recessed);
+}
+
+.bot-vars-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.bot-vars-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 2px;
+}
+
+.bot-vars-empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.bot-vars-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bot-vars-group-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.bot-vars-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bot-vars-item {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+
+.bot-vars-item:hover {
+  background: var(--surface-recessed);
+  border-color: var(--text-muted);
+}
+
+.bot-vars-item:active {
+  transform: translateY(1px);
+}
+
+.bot-vars-item:focus-visible {
+  outline: 2px solid var(--text-strong);
+  outline-offset: 1px;
+}
+
+.bot-vars-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bot-vars-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.bot-vars-req {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
+.bot-vars-token {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-strong);
+  background: var(--surface-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  align-self: flex-start;
+}
+
+.bot-vars-example {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.bot-vars-desc {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}

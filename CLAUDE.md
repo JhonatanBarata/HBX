@@ -52,6 +52,7 @@ versiona/reverte é REGRA.)
 - Frontend: `cd frontend && npm run lint` → `npm run build`
 - Backend: `cd backend && npm run prisma:validate` → `npm run build`
 - E2E (`npm run test:e2e` na raiz) só quando um caminho end-to-end mudou e o ambiente está pronto.
+- Login User:jhonatan@hbxsystem.com.br Senha:Monkey123 - full acesso, teste o q quiser
 
 ## Publicar (deploy pro VPS — sempre com autorização do dono; ação live irreversível, ver Guardrails)
 - **Edição pequena** (poucos arquivos, sem rebuild pesado) → **`npm run new`**: publish seletivo, sobe só o

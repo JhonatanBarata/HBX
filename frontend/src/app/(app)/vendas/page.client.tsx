@@ -145,6 +145,16 @@ const BLOCK_ORDER: { key: keyof NonNullable<BoardResponse>["blocks"]; label: str
   { key: "closed", label: "Fechados" },
 ];
 
+// Etapas do funil como chips de 1 toque (substitui o <select> de "Mover etapa").
+// As chaves batem com o que o PATCH /vendas/lead/:id { status } espera.
+const STAGE_CHIPS: { key: string; label: string }[] = [
+  { key: "novo", label: "Novo" },
+  { key: "contato", label: "Contato" },
+  { key: "retorno", label: "Retorno" },
+  { key: "qualificado", label: "Qualificado" },
+  { key: "encerrado", label: "Encerrado" },
+];
+
 function fmtMoney(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -414,14 +424,15 @@ export function VendasClient() {
     }
   }
 
-  async function moverEtapa() {
-    if (!sel?.id || !moverStatus || acaoBusy) return;
+  async function moverEtapa(status?: string) {
+    const target = status ?? moverStatus;
+    if (!sel?.id || !target || acaoBusy) return;
     setAcaoBusy(true);
     setAcaoMsg(null);
     try {
       await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
         method: "PATCH",
-        body: JSON.stringify({ status: moverStatus }),
+        body: JSON.stringify({ status: target }),
       });
       setAcaoMsg("✓ Etapa atualizada.");
       setMoverStatus("");
@@ -1261,104 +1272,130 @@ export function VendasClient() {
                 waCanInternal={canAtendimento}
                 onDelete={deal ? () => deletarCard() : undefined}
                 actions={deal ? (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {fecharMsg && (
-                      <div className={"ctx-msg " + (fecharMsg.startsWith("✓") ? "ok" : "err")}>{fecharMsg}</div>
+                  <div className="dn-cockpit">
+                    {/* TIER 1 — Fechar venda (herói) */}
+                    <div className="dn-cockpit__group">
+                      {fecharMsg && (
+                        <div className={"ctx-msg " + (fecharMsg.startsWith("✓") ? "ok" : "err")}>{fecharMsg}</div>
+                      )}
+                      <button className="btn-teal" onClick={abrirFechar} disabled={deal.block === "closed"}>
+                        <I d={ICONS.check} size={14} /> {deal.block === "closed" ? "Card já fechado" : "Fechar venda"}
+                      </button>
+                      {board?.sellsHbxPlans && deal.block !== "closed" && (
+                        <span className="dn-cockpit__label">No fechamento você escolhe o plano HBX e o valor.</span>
+                      )}
+                    </div>
+
+                    {/* TIER 1 — Pré-cadastro do cliente (destaque: passo primário do HBX admin) */}
+                    {board?.sellsHbxPlans && (
+                      <div className="dn-cockpit__group">
+                        <span className="dn-cockpit__label">Cliente HBX — passo 1</span>
+                        <button className="btn-teal" onClick={abrirCadastrarCliente}>
+                          <I d={ICONS.users} size={14} /> Pré-cadastro do cliente
+                        </button>
+                      </div>
                     )}
-                    <button className="btn-teal" onClick={abrirFechar} disabled={deal.block === "closed"}>
-                      <I d={ICONS.check} size={14} /> {deal.block === "closed" ? "Card já fechado" : "Fechar venda"}
-                    </button>
-                    {acaoMsg && (
-                      <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
-                    )}
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <label className="ctx-field-lbl">
-                        <I d={ICONS.phone} size={13} /> Resultado da ligação
-                      </label>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                        {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
-                          <button key={o} className="btn-ghost" style={{ minHeight: 34, fontSize: "0.72rem" }}
-                            onClick={() => registrarResultado(o)} disabled={acaoBusy || deal.block === "closed"}>
-                            {o}
-                          </button>
-                        ))}
+
+                    {/* TIER 1 — Como foi a ligação? */}
+                    <div className="dn-cockpit__group">
+                      {acaoMsg && (
+                        <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
+                      )}
+                      <span className="dn-cockpit__label">
+                        <I d={ICONS.phone} size={13} /> Como foi a ligação?
+                      </span>
+                      <div className="dn-call-grid">
+                        <button className="btn-result btn-result--ok" onClick={() => registrarResultado("Atendeu")} disabled={acaoBusy || deal.block === "closed"}>Atendeu</button>
+                        <button className="btn-result" onClick={() => registrarResultado("Não atendeu")} disabled={acaoBusy || deal.block === "closed"}>Não atendeu</button>
+                        <button className="btn-result" onClick={() => registrarResultado("Caixa postal")} disabled={acaoBusy || deal.block === "closed"}>Caixa postal</button>
+                        <button className="btn-result btn-result--cold" onClick={() => registrarResultado("Sem interesse")} disabled={acaoBusy || deal.block === "closed"}>Sem interesse</button>
                       </div>
                       <textarea className="field-dark ctx-obs" rows={2} maxLength={240}
                         placeholder="Observação da ligação (opcional) — vai pro card"
                         value={obs} onChange={e => setObs(e.target.value)} disabled={deal.block === "closed"} />
                     </div>
-                    <div className="vendas-neg">
-                      <label>Negativar lead (sai da carteira)</label>
-                      <div className="neg-row">
-                        <select className="field-dark" value={negMotivo} disabled={acaoBusy || deal.block === "closed"}
-                          onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
-                          <option value="">Motivo…</option>
-                          <option value="negative">Sem interesse</option>
-                          <option value="no_answer">Não atende / não existe</option>
-                          <option value="no_whatsapp">Sem WhatsApp</option>
-                          <option value="opt_out">Pediu pra não receber</option>
-                          <option value="complaint">Reclamou</option>
-                        </select>
-                        <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
-                          disabled={!negMotivo || acaoBusy}>
-                          {negArm ? "Confirmar" : "Negativar"}
-                        </button>
+
+                    {/* TIER 2 — Avançar etapa (chips de 1 toque) + agendar retorno */}
+                    <div className="dn-cockpit__group">
+                      <span className="dn-cockpit__label">Avançar etapa</span>
+                      <div className="dn-stage-chips">
+                        {STAGE_CHIPS.map(({ key, label }) => (
+                          <button key={key} type="button"
+                            className={"dn-stage-chip" + ((moverStatus || deal.status) === key ? " is-active" : "")}
+                            onClick={() => { setMoverStatus(key); moverEtapa(key); }}
+                            disabled={acaoBusy || deal.block === "closed"}>
+                            {label}
+                          </button>
+                        ))}
                       </div>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                      <select className="field-dark" style={{ minHeight: 36 }} value={moverStatus} disabled={deal.block === "closed"}
-                        onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
-                        <option value="">Mover etapa…</option>
-                        <option value="novo">Novo</option>
-                        <option value="contato">Contato</option>
-                        <option value="retorno">Retorno</option>
-                        <option value="qualificado">Qualificado</option>
-                        <option value="encerrado">Encerrado</option>
-                      </select>
-                      <button className="btn-ghost" onClick={moverEtapa} disabled={!moverStatus || acaoBusy}>Mover</button>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                      <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={deal.block === "closed"}
-                        onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
-                      <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
-                    </div>
-                    {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
-                      <div className="retorno-mode">
-                        <span className="lbl">Tipo de retorno</span>
-                        <div className="radios">
-                          {(["manual", ...(deal.email ? ["auto_email"] : []), ...(deal.phone ? ["auto_whatsapp"] : []), ...(deal.email && deal.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
-                            const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
-                            return (
-                              <label key={mode} className="radio-lbl">
-                                <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
-                                {labels[mode]}
-                              </label>
-                            );
-                          })}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                        <input className="field-dark" type="date" style={{ minHeight: 36 }} value={retornoData} disabled={deal.block === "closed"}
+                          onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
+                        <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
+                      </div>
+                      {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
+                        <div className="retorno-mode">
+                          <span className="lbl">Tipo de retorno</span>
+                          <div className="radios">
+                            {(["manual", ...(deal.email ? ["auto_email"] : []), ...(deal.phone ? ["auto_whatsapp"] : []), ...(deal.email && deal.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
+                              const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
+                              return (
+                                <label key={mode} className="radio-lbl">
+                                  <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
+                                  {labels[mode]}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
                         </div>
-                        {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
+                      )}
+                      {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
+                        <div className="bot-warn">
+                          <span className="warn-lbl">Bot sem configuração.</span>
+                          <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
+                            {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* TIER 3 — Mais ações (recolhido): ações frias/raras saem do caminho quente */}
+                    <details className="dn-more">
+                      <summary className="dn-more__summary"><span className="chev" aria-hidden="true">▾</span> Mais ações</summary>
+                      {cadMsg && (
+                        <div className={"ctx-msg " + (cadMsg.startsWith("✓") ? "ok" : "err")}>{cadMsg}</div>
+                      )}
+                      <div className="vendas-neg">
+                        <label>Negativar lead (sai da carteira)</label>
+                        <div className="neg-row">
+                          <select className="field-dark" value={negMotivo} disabled={acaoBusy || deal.block === "closed"}
+                            onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
+                            <option value="">Motivo…</option>
+                            <option value="negative">Sem interesse</option>
+                            <option value="no_answer">Não atende / não existe</option>
+                            <option value="no_whatsapp">Sem WhatsApp</option>
+                            <option value="opt_out">Pediu pra não receber</option>
+                            <option value="complaint">Reclamou</option>
+                          </select>
+                          <button className="btn-ghost danger" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
+                            disabled={!negMotivo || acaoBusy}>
+                            {negArm ? "Confirmar" : "Negativar"}
+                          </button>
+                        </div>
                       </div>
-                    )}
-                    {retornoData && deal.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
-                      <div className="bot-warn">
-                        <span className="warn-lbl">Bot sem configuração.</span>
-                        <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
-                          {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        {!board?.sellsHbxPlans && (
+                          <button className="btn-ghost" style={{ flex: 1 }} onClick={abrirCadastrarCliente}>
+                            <I d={ICONS.users} size={13} /> Cadastrar cliente
+                          </button>
+                        )}
+                        <button className="icon-ghost" onClick={verCliente} disabled={!deal.phone}
+                          title="Card do cliente 🃏" aria-label="Abrir card do cliente">
+                          <I d={ICONS.doc} size={15} />
                         </button>
                       </div>
-                    )}
-                    {cadMsg && (
-                      <div className={"ctx-msg " + (cadMsg.startsWith("✓") ? "ok" : "err")}>{cadMsg}</div>
-                    )}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                      <button className="btn-ghost" onClick={abrirCadastrarCliente}>
-                        <I d={ICONS.users} size={13} /> Cadastrar cliente
-                      </button>
-                      <button className="icon-ghost" onClick={verCliente} disabled={!deal.phone}
-                        title="Card do cliente 🃏" aria-label="Abrir card do cliente">
-                        <I d={ICONS.doc} size={15} />
-                      </button>
-                    </div>
+                    </details>
                   </div>
                 ) : undefined}
               />
@@ -1380,79 +1417,130 @@ export function VendasClient() {
               waCanInternal={canAtendimento}
               onDelete={() => { setMobileDetailOpen(false); deletarCard(); }}
               actions={
-                <div style={{ display: "grid", gap: 8 }}>
-                  {fecharMsg && (
-                    <div className={fecharMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{fecharMsg}</div>
+                <div className="dn-cockpit">
+                  {/* TIER 1 — Fechar venda (herói) */}
+                  <div className="dn-cockpit__group">
+                    {fecharMsg && (
+                      <div className={fecharMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{fecharMsg}</div>
+                    )}
+                    <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
+                      <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
+                    </button>
+                    {board?.sellsHbxPlans && sel.block !== "closed" && (
+                      <span className="dn-cockpit__label">No fechamento você escolhe o plano HBX e o valor.</span>
+                    )}
+                  </div>
+
+                  {/* TIER 1 — Pré-cadastro do cliente (destaque: passo primário do HBX admin) */}
+                  {board?.sellsHbxPlans && (
+                    <div className="dn-cockpit__group">
+                      <span className="dn-cockpit__label">Cliente HBX — passo 1</span>
+                      <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
+                        <I d={ICONS.users} size={14} /> Pré-cadastro do cliente
+                      </button>
+                    </div>
                   )}
-                  <button className="btn-teal" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
-                    <I d={ICONS.check} size={14} /> {sel.block === "closed" ? "Card já fechado" : "Fechar venda"}
-                  </button>
-                  {acaoMsg && (
-                    <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
-                  )}
-                  <div className="vnd-ligacao-block">
-                    <label className="vnd-ligacao-lbl">
-                      <I d={ICONS.phone} size={13} /> Resultado da ligação
-                    </label>
-                    <div className="vnd-ligacao-opts">
-                      {["Atendeu", "Não atendeu", "Caixa postal", "Sem interesse"].map(o => (
-                        <button key={o} className="btn-ghost vnd-ligacao-btn"
-                          onClick={() => registrarResultado(o)} disabled={acaoBusy || sel.block === "closed"}>
-                          {o}
-                        </button>
-                      ))}
+
+                  {/* TIER 1 — Como foi a ligação? */}
+                  <div className="dn-cockpit__group">
+                    {acaoMsg && (
+                      <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
+                    )}
+                    <span className="dn-cockpit__label">
+                      <I d={ICONS.phone} size={13} /> Como foi a ligação?
+                    </span>
+                    <div className="dn-call-grid">
+                      <button className="btn-result btn-result--ok" onClick={() => registrarResultado("Atendeu")} disabled={acaoBusy || sel.block === "closed"}>Atendeu</button>
+                      <button className="btn-result" onClick={() => registrarResultado("Não atendeu")} disabled={acaoBusy || sel.block === "closed"}>Não atendeu</button>
+                      <button className="btn-result" onClick={() => registrarResultado("Caixa postal")} disabled={acaoBusy || sel.block === "closed"}>Caixa postal</button>
+                      <button className="btn-result btn-result--cold" onClick={() => registrarResultado("Sem interesse")} disabled={acaoBusy || sel.block === "closed"}>Sem interesse</button>
                     </div>
                     <textarea className="field-dark vnd-obs-field" rows={2} maxLength={240}
                       placeholder="Observação (opcional)"
                       value={obs} onChange={e => setObs(e.target.value)} disabled={sel.block === "closed"} />
                   </div>
-                  <div className="vnd-action-row">
-                    <select className="field-dark" value={moverStatus} disabled={sel.block === "closed"}
-                      onChange={e => setMoverStatus(e.target.value)} aria-label="Mover para etapa">
-                      <option value="">Mover etapa…</option>
-                      <option value="novo">Novo</option>
-                      <option value="contato">Contato</option>
-                      <option value="retorno">Retorno</option>
-                      <option value="qualificado">Qualificado</option>
-                      <option value="encerrado">Encerrado</option>
-                    </select>
-                    <button className="btn-ghost" onClick={moverEtapa} disabled={!moverStatus || acaoBusy}>Mover</button>
+
+                  {/* TIER 2 — Avançar etapa (chips de 1 toque) + agendar retorno */}
+                  <div className="dn-cockpit__group">
+                    <span className="dn-cockpit__label">Avançar etapa</span>
+                    <div className="dn-stage-chips">
+                      {STAGE_CHIPS.map(({ key, label }) => (
+                        <button key={key} type="button"
+                          className={"dn-stage-chip" + ((moverStatus || sel.status) === key ? " is-active" : "")}
+                          onClick={() => { setMoverStatus(key); moverEtapa(key); }}
+                          disabled={acaoBusy || sel.block === "closed"}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="vnd-action-row">
+                      <input className="field-dark" type="date" value={retornoData} disabled={sel.block === "closed"}
+                        onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
+                      <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
+                    </div>
+                    {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
+                      <div className="retorno-mode">
+                        <span className="lbl">Tipo de retorno</span>
+                        <div className="radios">
+                          {(["manual", ...(sel.email ? ["auto_email"] : []), ...(sel.phone ? ["auto_whatsapp"] : []), ...(sel.email && sel.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
+                            const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
+                            return (
+                              <label key={mode} className="radio-lbl">
+                                <input type="radio" name="retorno-mode" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
+                                {labels[mode]}
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
+                      </div>
+                    )}
+                    {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
+                      <div className="bot-warn">
+                        <span className="warn-lbl">Bot sem configuração.</span>
+                        <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
+                          {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div className="vnd-action-row">
-                    <input className="field-dark" type="date" value={retornoData} disabled={sel.block === "closed"}
-                      onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }} aria-label="Data do retorno" />
-                    <button className="btn-ghost" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>Agendar</button>
-                  </div>
-                  <div className="vendas-neg">
-                    <label>Negativar lead (sai da carteira)</label>
-                    <div className="neg-row">
-                      <select className="field-dark" value={negMotivo} disabled={acaoBusy || sel.block === "closed"}
-                        onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
-                        <option value="">Motivo…</option>
-                        <option value="negative">Sem interesse</option>
-                        <option value="no_answer">Não atende / não existe</option>
-                        <option value="no_whatsapp">Sem WhatsApp</option>
-                        <option value="opt_out">Pediu pra não receber</option>
-                        <option value="complaint">Reclamou</option>
-                      </select>
-                      <button className="btn-ghost" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
-                        disabled={!negMotivo || acaoBusy}>
-                        {negArm ? "Confirmar" : "Negativar"}
+
+                  {/* TIER 3 — Mais ações (recolhido): ações frias/raras saem do caminho quente */}
+                  <details className="dn-more">
+                    <summary className="dn-more__summary">Mais ações</summary>
+                    {cadMsg && (
+                      <div className={cadMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{cadMsg}</div>
+                    )}
+                    <div className="vendas-neg">
+                      <label>Negativar lead (sai da carteira)</label>
+                      <div className="neg-row">
+                        <select className="field-dark" value={negMotivo} disabled={acaoBusy || sel.block === "closed"}
+                          onChange={e => { setNegMotivo(e.target.value); setNegArm(false); }} aria-label="Motivo da negativação">
+                          <option value="">Motivo…</option>
+                          <option value="negative">Sem interesse</option>
+                          <option value="no_answer">Não atende / não existe</option>
+                          <option value="no_whatsapp">Sem WhatsApp</option>
+                          <option value="opt_out">Pediu pra não receber</option>
+                          <option value="complaint">Reclamou</option>
+                        </select>
+                        <button className="btn-ghost danger" onClick={() => (negArm ? negativarLead() : setNegArm(true))}
+                          disabled={!negMotivo || acaoBusy}>
+                          {negArm ? "Confirmar" : "Negativar"}
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {!board?.sellsHbxPlans && (
+                        <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
+                          <I d={ICONS.users} size={13} /> Cadastrar cliente
+                        </button>
+                      )}
+                      <button className="icon-ghost" onClick={() => { setMobileDetailOpen(false); verCliente(); }} disabled={!sel.phone}
+                        title="Card do cliente" aria-label="Abrir card do cliente">
+                        <I d={ICONS.doc} size={15} />
                       </button>
                     </div>
-                  </div>
-                  {cadMsg && (
-                    <div className={cadMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{cadMsg}</div>
-                  )}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                    <button className="btn-ghost" onClick={() => { setMobileDetailOpen(false); abrirCadastrarCliente(); }}>
-                      <I d={ICONS.users} size={13} /> Cadastrar cliente
-                    </button>
-                    <button className="icon-ghost" onClick={() => { setMobileDetailOpen(false); verCliente(); }} disabled={!sel.phone}
-                      title="Card do cliente" aria-label="Abrir card do cliente">
-                      <I d={ICONS.doc} size={15} />
-                    </button>
-                  </div>
+                  </details>
                 </div>
               }
             />

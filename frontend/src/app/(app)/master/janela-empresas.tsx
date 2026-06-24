@@ -231,6 +231,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [pagMsg, setPagMsg] = useState<string | null>(null);
   const [cancelArm, setCancelArm] = useState<string | null>(null);
   const [refundArm, setRefundArm] = useState<string | null>(null); // F3 — lançamento a estornar
+  const [subCancelArm, setSubCancelArm] = useState(false); // cancelar assinatura recorrente (MP)
   const [delRefund, setDelRefund] = useState<DeletionRefundPreview | null>(null); // F2 — preview do reembolso da exclusão
 
   function carregarDetail(id: number) {
@@ -249,6 +250,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setDeleteArm(null);
     setCancelArm(null);
     setRefundArm(null);
+    setSubCancelArm(false);
     setPlanoArm(false);
     setDelRefund(null);
     // F2 — quanto seria reembolsado se esta empresa fosse excluída agora (mostra no confirm).
@@ -579,6 +581,27 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       await recarregarTudo();
     } catch (err) {
       setPagMsg(err instanceof Error ? err.message : "Falha ao cancelar o lançamento.");
+    } finally {
+      setPagBusy(false);
+    }
+  }
+
+  // Cancela a assinatura recorrente (MP) da empresa: para de cobrar o cartão nas
+  // próximas faturas. Mantém o acesso até o fim do período já pago. Ação live → confirma.
+  async function cancelarAssinatura() {
+    if (pagBusy || selId == null) return;
+    setPagBusy(true);
+    setPagMsg(null);
+    try {
+      await apiFetch(`/financeiro/master/company/${selId}/subscription/cancel`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setPagMsg("✓ Assinatura cancelada no Mercado Pago — o cartão não será mais cobrado.");
+      setSubCancelArm(false);
+      await recarregarTudo();
+    } catch (err) {
+      setPagMsg(err instanceof Error ? err.message : "Falha ao cancelar a assinatura.");
     } finally {
       setPagBusy(false);
     }
@@ -1286,9 +1309,18 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
                 {detailTab === "Financeiro" && (
                   <React.Fragment>
-                    <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }}
                         onClick={() => { setPagForm(PAG_VAZIO); setPagMsg(null); setPagOpen(true); }}>+ Registrar pagamento</button>
+                      {String(c?.billingProvider || "").toLowerCase() === "mercadopago" && (
+                        subCancelArm ? (
+                          <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                            disabled={pagBusy} onClick={() => cancelarAssinatura()}>{pagBusy ? "Cancelando…" : "Confirmar cancelamento da assinatura"}</button>
+                        ) : (
+                          <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", color: "var(--hbx-danger)" }}
+                            disabled={pagBusy} onClick={() => setSubCancelArm(true)}>Cancelar assinatura</button>
+                        )
+                      )}
                       {pagMsg && (
                         <span style={{ fontSize: "0.72rem", fontWeight: 700, color: pagMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{pagMsg}</span>
                       )}

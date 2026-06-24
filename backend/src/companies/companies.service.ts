@@ -1304,6 +1304,12 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.whatsAppWebhookEvent.deleteMany({ where: { companyId: id } });
       await tx.webscrapingUsageLog.deleteMany({ where: { companyId: id } });
       await tx.webscrapingSearchHistory.deleteMany({ where: { companyId: id } });
+      // Runs/campanhas do Radar têm FK userId com onDelete: Restrict — se sobrarem,
+      // o tx.user.deleteMany abaixo estoura "WebscrapingSearchRun_userId_fkey" e a
+      // exclusão inteira faz rollback (500). Apaga por companyId (cascateia os itens
+      // filhos: SearchRunItem, CampaignTask, CampaignBatch) antes de remover o usuário.
+      await tx.webscrapingSearchRun.deleteMany({ where: { companyId: id } });
+      await tx.webscrapingCampaign.deleteMany({ where: { companyId: id } });
       await tx.techAssistantInteraction.deleteMany({ where: { companyId: id } });
       if (supportsWhatsAppEndpointTable) {
         await tx.companyWhatsAppEndpoint.deleteMany({ where: { companyId: id } });
@@ -1316,6 +1322,14 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.cadastroFornecedor.deleteMany({ where: { empresaId: id } });
       await tx.cadastroPorto.deleteMany({ where: { empresaId: id } });
       await tx.cadastroPais.deleteMany({ where: { empresaId: id } });
+
+      // FKs companyId com onDelete: Restrict que não tinham limpeza — travariam o
+      // company.delete final (a #23, p.ex., já tinha 1 CompanyEmailSettings). Tabelas
+      // folha (nada aponta pra elas), delete direto é seguro.
+      await tx.atendimentoAppointment.deleteMany({ where: { companyId: id } });
+      await tx.companyEmailAsset.deleteMany({ where: { companyId: id } });
+      await tx.companyEmailTemplate.deleteMany({ where: { companyId: id } });
+      await tx.companyEmailSettings.deleteMany({ where: { companyId: id } });
 
       await tx.companyModule.deleteMany({ where: { companyId: id } });
       await tx.trialPhoneUsage.deleteMany({ where: { companyId: id } });

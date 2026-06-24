@@ -475,6 +475,29 @@ export function DetalhesNegocio({
     );
   }
 
+  // Selo compacto bot/humano para a fileira .ctx-tags do header (substitui as
+  // duas linhas .dn-kv-row que ficavam no corpo). Só aparece quando há sinal.
+  function renderStatusChip() {
+    if (!n) return null;
+    const hasBot = n.botActive !== undefined && n.botActive !== null;
+    const hasHuman = n.humanAssigned !== undefined && n.humanAssigned !== null;
+    if (!hasBot && !hasHuman) return null;
+    const botOn = n.botActive === true;
+    const human = n.humanAssigned === true;
+    let cls = "dn-status-chip";
+    let label: string;
+    if (botOn) {
+      cls += " is-bot";
+      label = human ? "Bot ativo · Humano" : "Bot ativo";
+    } else if (human) {
+      cls += " is-human";
+      label = hasBot ? "Bot off · Humano" : "Humano";
+    } else {
+      label = "Bot off";
+    }
+    return <span className={cls}>{label}</span>;
+  }
+
   function renderContacts() {
     if (!n) return null;
     return (
@@ -647,18 +670,8 @@ export function DetalhesNegocio({
             <span className="v hbx-mono"><TypedText text={`${n.timesSeen}×`} speed={50} delay={260} /></span>
           </div>
         )}
-        {n.botActive !== undefined && n.botActive !== null && (
-          <div className="row dn-kv-row">
-            <span className="k">Bot</span>
-            <span className="v"><TypedText text={n.botActive ? "Ativo" : "Inativo"} speed={50} delay={280} /></span>
-          </div>
-        )}
-        {n.humanAssigned !== undefined && n.humanAssigned !== null && (
-          <div className="row dn-kv-row">
-            <span className="k">Atendimento humano</span>
-            <span className="v"><TypedText text={n.humanAssigned ? "Sim" : "Não"} speed={50} delay={300} /></span>
-          </div>
-        )}
+        {/* Bot / Atendimento humano saíram do corpo → viram .dn-status-chip no
+            header (renderStatusChip). Mantém o card enxuto, sem ruído de linha. */}
         {n.owner?.name && (
           <div className="row dn-kv-row">
             <span className="k">Responsável</span>
@@ -850,21 +863,14 @@ export function DetalhesNegocio({
 
   function renderDates() {
     if (!n) return null;
-    if (!n.createdAt && !n.updatedAt) return null;
+    // "Atualizado em" saiu (nunca é acionável). Mantém só "Criado em".
+    if (!n.createdAt) return null;
     return (
       <div className="kv">
-        {n.createdAt && (
-          <div className="row dn-kv-row">
-            <span className="k">Criado em</span>
-            <span className="v"><TypedText text={fmtDateTime(n.createdAt)} speed={46} delay={0} /></span>
-          </div>
-        )}
-        {n.updatedAt && (
-          <div className="row dn-kv-row">
-            <span className="k">Atualizado em</span>
-            <span className="v"><TypedText text={fmtDateTime(n.updatedAt)} speed={46} delay={40} /></span>
-          </div>
-        )}
+        <div className="row dn-kv-row">
+          <span className="k">Criado em</span>
+          <span className="v"><TypedText text={fmtDateTime(n.createdAt)} speed={46} delay={0} /></span>
+        </div>
       </div>
     );
   }
@@ -1061,7 +1067,7 @@ export function DetalhesNegocio({
                       {n.leadTemperature === "quente" ? "Quente" : n.leadTemperature === "morno" ? "Morno" : "Frio"}
                     </span>
                   )}
-                  {n.botActive === true && <span className="tag teal">Bot ativo</span>}
+                  {renderStatusChip()}
                   {loading && !n.statusLabel && !n.leadTemperature && (
                     <span className="dn-skel dn-skel-pill" />
                   )}

@@ -173,6 +173,9 @@ export function ConfiguracoesClient() {
   // Upgrade de quem JÁ paga: cobra a diferença proporcional no cartão (change-plan),
   // não cria assinatura nova. chargeNow = valor da diferença (do preview do modal).
   const [upgradePay, setUpgradePay] = useState<{ key: string; chargeNow: number | null } | null>(null);
+  // Fim de trial (live): troca de plano encerra o teste e cobra o plano novo. O cartão
+  // tokeniza 2x (avulso + nova recorrência) e dispara o change-plan com os dois tokens.
+  const [trialEndPay, setTrialEndPay] = useState<{ key: string; title: string; monthlyPrice: number | null } | null>(null);
   const [confirmCancelar, setConfirmCancelar] = useState(false);
   const [implantacaoOpen, setImplantacaoOpen] = useState(false);
   const [trocarPlano, setTrocarPlano] = useState<PublicPlan | null>(null);
@@ -548,6 +551,34 @@ export function ConfiguracoesClient() {
         </div>
       )}
 
+      {trialEndPay && (
+        <div className="bv-veil" role="dialog" aria-modal="true">
+          <div className="reg-form">
+            <CheckoutPanel
+              planKey={trialEndPay.key}
+              phone={user?.company?.contactPhone || ""}
+              email={user?.email || ""}
+              name={nome || user?.name || user?.company?.name || ""}
+              title={`Assinar ${trialEndPay.title}`}
+              ctaLabel="Encerrar teste e assinar"
+              amountOverride={trialEndPay.monthlyPrice ?? undefined}
+              hideCycle
+              reactivation
+              dualToken
+              submitOverride={async ({ cardTokenId, recurringCardTokenId, paymentMethodId, taxDocument }) => {
+                const res = await apiFetch<{ ok?: boolean; message?: string }>("/financeiro/subscription/change-plan", {
+                  method: "POST",
+                  body: JSON.stringify({ planKey: trialEndPay.key, cardTokenId, recurringCardTokenId, paymentMethodId, taxDocument }),
+                });
+                if (!res?.ok) throw new Error(res?.message || "Não foi possível concluir a troca.");
+              }}
+              onSuccess={async () => { setTrialEndPay(null); setPlanoMsg("✓ Teste encerrado — assinatura ativa!"); await recarregarPlano(); }}
+            />
+            <button type="button" className="bv-link" onClick={() => setTrialEndPay(null)}>← Voltar</button>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         open={confirmCancelar}
         title="Cancelar assinatura"
@@ -581,6 +612,11 @@ export function ConfiguracoesClient() {
               } else {
                 setSubscribePlan({ ...plan, monthlyPrice: plan.monthlyPrice ?? null });
               }
+            }}
+            onConfirmTrialEnd={plan => {
+              setTrocarPlano(null);
+              // Fim de trial: painel de cartão com 2 tokens → change-plan encerra o teste.
+              setTrialEndPay({ key: plan.key, title: plan.title, monthlyPrice: plan.monthlyPrice ?? null });
             }}
             onApplied={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
           />

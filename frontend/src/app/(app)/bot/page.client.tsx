@@ -7,9 +7,12 @@
 // D: Chat de teste chama POST /bot/activation/mark-tested ao concluir rodada → acende 3ª luz.
 // Design System: zero hex/inline solto — só classes/tokens centrais. CSS novo em screens.css.
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
+import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
+import { BotButtonsEditor } from "@/components/hbx/bot-buttons-editor";
+import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -41,6 +44,8 @@ type BotConfig = {
   blockedMessage?: string;
   routingRules?: BotRoutingRules;
   actionCatalog?: BotAction[];
+  variableCatalog?: VarDef[];
+  providerCapabilities?: { provider?: string; canUseOfficialButtons?: boolean };
 };
 
 type BotTypeName = "atendimento" | "recovery" | "prospeccao";
@@ -75,14 +80,26 @@ const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string; hint: string }[] = [
   { key: "mainMenuButtons", label: "Botões do menu principal", hint: "opções do menu" },
 ];
 
-const BOT_MSG_FIELDS: { key: keyof BotConfig; label: string; hint: string }[] = [
-  { key: "welcomeMessage", label: "Boas-vindas", hint: "Primeira mensagem para contato novo" },
-  { key: "returningCustomerMessage", label: "Cliente retornando", hint: "Quando o contato já é conhecido" },
-  { key: "mainMenuPrompt", label: "Menu principal", hint: "Pergunta com as opções do menu" },
-  { key: "postActionPrompt", label: "Pós-ação", hint: "Depois de concluir uma ação" },
-  { key: "humanAckMessage", label: "Transferência para humano", hint: "Aviso de que um atendente assume" },
-  { key: "closeTopicMessage", label: "Encerramento", hint: "Fechamento da conversa" },
-  { key: "blockedMessage", label: "Contato bloqueado", hint: "Resposta para contato bloqueado" },
+// Cada fase do bot = um campo de mensagem. `icon`/`color` espelham o organograma
+// (BotFlowCanvas) pra os cards da esquerda baterem com os nós da direita.
+// `buttonsKey` marca as fases que emitem botões (boas-vindas / menu).
+type MsgFieldDef = {
+  key: keyof BotConfig;
+  label: string;
+  hint: string;
+  icon: string;
+  color: string;
+  buttonsKey?: BotaoGrupo;
+};
+
+const BOT_MSG_FIELDS: MsgFieldDef[] = [
+  { key: "welcomeMessage", label: "Boas-vindas", hint: "Primeira mensagem para contato novo", icon: "msg", color: "var(--hbx-brand)", buttonsKey: "welcomeButtons" },
+  { key: "returningCustomerMessage", label: "Cliente retornando", hint: "Quando o contato já é conhecido", icon: "reply", color: "var(--hbx-info)" },
+  { key: "mainMenuPrompt", label: "Menu principal", hint: "Pergunta com as opções do menu", icon: "atend", color: "var(--hbx-info)", buttonsKey: "mainMenuButtons" },
+  { key: "postActionPrompt", label: "Pós-ação", hint: "Depois de concluir uma ação", icon: "check", color: "var(--hbx-success)" },
+  { key: "humanAckMessage", label: "Transferência para humano", hint: "Aviso de que um atendente assume", icon: "users", color: "var(--hbx-warning)" },
+  { key: "closeTopicMessage", label: "Encerramento", hint: "Fechamento da conversa", icon: "clock", color: "var(--hbx-secondary)" },
+  { key: "blockedMessage", label: "Contato bloqueado", hint: "Resposta para contato bloqueado", icon: "x", color: "var(--hbx-danger)" },
 ];
 
 const BOT_RULES: { key: keyof BotRoutingRules; label: string; hint: string }[] = [
@@ -119,42 +136,6 @@ const PROATIVO: Record<BotTypeName, boolean> = {
   prospeccao: true,
 };
 
-// ─── Canvas/fluxo (decorativo) ────────────────────────────────────────────────
-
-const BLOCKS = [
-  { t: "Mensagem", d: "Envie uma mensagem de texto", c: "var(--hbx-brand)", ic: "msg" },
-  { t: "Pergunta", d: "Faça uma pergunta ao contato", c: "var(--hbx-info)", ic: "atend" },
-  { t: "Condição", d: "Crie caminhos com regras", c: "var(--hbx-warning)", ic: "filter" },
-  { t: "Ação", d: "Execute uma ação no sistema", c: "var(--hbx-success)", ic: "check" },
-  { t: "Atraso", d: "Adicione uma pausa no fluxo", c: "var(--hbx-secondary)", ic: "clock" },
-  { t: "Integração", d: "Conecte com outras ferramentas", c: "var(--hbx-info)", ic: "scrape" },
-];
-
-type FlowNode = { id: string; x: number; y: number; ic: string; c: string; t: string; b: string; f?: string; yn?: boolean };
-
-const NODES: FlowNode[] = [
-  { id: "boas", x: 40, y: 60, ic: "msg", c: "var(--hbx-brand)", t: "Boas-vindas", b: "👋 Olá! Bem-vindo à HBX. Como posso te ajudar hoje?", f: "Próximo passo" },
-  { id: "qual", x: 300, y: 60, ic: "atend", c: "var(--hbx-info)", t: "Qualificação", b: "Qual melhor descreve sua necessidade hoje?", f: "Próximo passo" },
-  { id: "cond", x: 560, y: 60, ic: "filter", c: "var(--hbx-warning)", t: "Condição", b: "Interessado em soluções comerciais?", yn: true },
-  { id: "capt", x: 170, y: 290, ic: "doc", c: "var(--hbx-info)", t: "Capturar interesse", b: "Qual área da sua empresa você quer melhorar?", f: "Próximo passo" },
-  { id: "agen", x: 420, y: 290, ic: "clock", c: "var(--hbx-success)", t: "Agendamento", b: "Posso agendar uma conversa com nosso especialista?", f: "Próximo passo" },
-  { id: "msgf", x: 670, y: 290, ic: "msg", c: "var(--hbx-brand)", t: "Mensagem", b: "Tudo bem! Se precisar de algo, estarei por aqui. 😊", f: "Fim do fluxo" },
-  { id: "ofer", x: 170, y: 480, ic: "money", c: "var(--hbx-success)", t: "Oferta", b: "Temos uma solução ideal para o que você precisa.", f: "Próximo passo" },
-  { id: "tran", x: 420, y: 480, ic: "users", c: "var(--hbx-warning)", t: "Transferir para humano", b: "Conectando você com um de nossos atendentes...", f: "Próximo passo" },
-];
-
-type FlowEdge = { from: [number, number]; to: [number, number]; c: string; curve?: boolean };
-
-const EDGES: FlowEdge[] = [
-  { from: [255, 130], to: [300, 130], c: "var(--hbx-brand)" },
-  { from: [515, 130], to: [560, 130], c: "var(--hbx-brand)" },
-  { from: [620, 196], to: [278, 290], c: "var(--hbx-brand)", curve: true },
-  { from: [660, 196], to: [528, 290], c: "var(--hbx-brand)", curve: true },
-  { from: [700, 196], to: [778, 290], c: "var(--hbx-danger)", curve: true },
-  { from: [278, 408], to: [278, 480], c: "var(--hbx-brand)" },
-  { from: [528, 408], to: [528, 480], c: "var(--hbx-brand)" },
-];
-
 // ─── Chat de teste ────────────────────────────────────────────────────────────
 
 type ChatMsg = { dir: "in" | "out"; text: string; tm: string; quick?: boolean };
@@ -170,13 +151,6 @@ const EMOJIS = ["😊", "👍", "🙏", "🎉", "❤️", "😂", "🚀", "✅"]
 function hhmm() {
   return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
-
-const NODE_CONFIG_FIELD: Record<string, keyof BotConfig> = {
-  boas: "welcomeMessage",
-  qual: "mainMenuPrompt",
-  tran: "humanAckMessage",
-  msgf: "closeTopicMessage",
-};
 
 // ─── Pré-voo chip ────────────────────────────────────────────────────────────
 
@@ -295,13 +269,20 @@ function BotTypeCard({
 
 export function BotClient() {
   const isMobile = useIsMobile();
-  const [selNode, setSelNode] = useState("cond");
   const [chat, setChat] = useState(CHAT0);
   const [draft, setDraft] = useState("");
-  // config do atendimento (aba Fluxo / canvas)
+  // config do atendimento (alimenta o organograma + chat de teste)
   const [config, setConfig] = useState<BotConfig | null>(null);
   const [step, setStep] = useState(0);
   const [tab, setTab] = useTabIndex("tab", 0);
+
+  // ── Tela dividida: fase em foco + gaveta de variáveis + painel de teste ──
+  const [activeStep, setActiveStep] = useState<string>("welcomeMessage");
+  const [varsOpen, setVarsOpen] = useState(false);
+  const [activeFieldKey, setActiveFieldKey] = useState<keyof BotConfig | null>(null);
+  const [testOpen, setTestOpen] = useState(false);
+  // ref do textarea da fase atualmente focada (pra inserir variável no cursor)
+  const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
   // ── Activation (pino + 3 chavinhas) ──────────────────────────────────────
   const [activation, setActivation] = useState<ActivationState | null>(null);
@@ -355,12 +336,10 @@ export function BotClient() {
   const [cfgBotoes, setCfgBotoes] = useState<Partial<Record<BotaoGrupo, BotButton[]>>>({});
   const [cfgBusy, setCfgBusy] = useState(false);
   const [cfgMsg, setCfgMsg] = useState<string | null>(null);
+  // erro EXPLÍCITO de carregamento — nunca renderiza editor com config vazia.
+  const [cfgErro, setCfgErro] = useState<string | null>(null);
 
-  const [zoom, setZoom] = useState(1);
-  const [canvasTool, setCanvasTool] = useState<"select" | "pan">("select");
   const endRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLDivElement | null>(null);
-  const panRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const emojiIdx = useRef(0);
 
   // ── Carregar config do tipo selecionado ───────────────────────────────────
@@ -368,9 +347,11 @@ export function BotClient() {
   // initCfgTipo é para a montagem (sem setState síncrono); loadCfgTipo é para reload.
 
   const initCfgTipo = useCallback((tipo: BotTypeName) => {
+    // sem setState síncrono aqui (chamado na montagem dentro de useEffect);
+    // erro/sucesso são setados só nos callbacks assíncronos abaixo.
     apiFetch<BotConfig>(TYPE_ENDPOINT[tipo])
       .then(data => {
-        if (!data) return;
+        if (!data) { setCfgErro("Não foi possível carregar a configuração do bot."); return; }
         setCfgData(data);
         if (tipo === "atendimento") {
           setConfig(data);
@@ -380,18 +361,22 @@ export function BotClient() {
           }
         }
       })
-      .catch(() => { /* config indisponível */ });
+      .catch(err => {
+        setCfgData(null);
+        setCfgErro(err instanceof Error ? err.message : "Não foi possível carregar a configuração do bot.");
+      });
   }, []);
 
   function loadCfgTipo(tipo: BotTypeName) {
     setCfgBusy(true);
     setCfgMsg(null);
+    setCfgErro(null);
     setCfgForm({});
     setCfgRules({});
     setCfgBotoes({});
     apiFetch<BotConfig>(TYPE_ENDPOINT[tipo])
       .then(data => {
-        if (!data) return;
+        if (!data) { setCfgErro("Não foi possível carregar a configuração do bot."); return; }
         setCfgData(data);
         if (tipo === "atendimento") {
           setConfig(data);
@@ -401,7 +386,10 @@ export function BotClient() {
           }
         }
       })
-      .catch(() => { setCfgData(null); })
+      .catch(err => {
+        setCfgData(null);
+        setCfgErro(err instanceof Error ? err.message : "Não foi possível carregar a configuração do bot.");
+      })
       .finally(() => { setCfgBusy(false); });
   }
 
@@ -436,31 +424,58 @@ export function BotClient() {
     return cfgBotoes[grupo] ?? (cfgData?.[grupo] || []);
   }
 
-  function editarBotao(grupo: BotaoGrupo, idx: number, patch: Partial<BotButton>) {
-    setCfgBotoes(prev => {
-      const atual = (prev[grupo] ?? (cfgData?.[grupo] || [])).map(b => ({ ...b }));
-      if (atual[idx]) atual[idx] = { ...atual[idx], ...patch };
-      return { ...prev, [grupo]: atual };
-    });
-  }
-
-  function addBotao(grupo: BotaoGrupo) {
-    setCfgBotoes(prev => {
-      const atual = (prev[grupo] ?? (cfgData?.[grupo] || [])).map(b => ({ ...b }));
-      const novoId = `btn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-      atual.push({ buttonId: novoId, actionId: "", title: "" });
-      return { ...prev, [grupo]: atual };
-    });
-  }
-
-  function removerBotao(grupo: BotaoGrupo, idx: number) {
-    setCfgBotoes(prev => {
-      const atual = (prev[grupo] ?? (cfgData?.[grupo] || [])).filter((_, i) => i !== idx);
-      return { ...prev, [grupo]: atual };
-    });
+  // onChange do <BotButtonsEditor>: troca o grupo inteiro de uma vez.
+  function setCfgBotoesGrupo(grupo: BotaoGrupo, next: BotButton[]) {
+    setCfgBotoes(prev => ({ ...prev, [grupo]: next }));
   }
 
   const acoesDisponiveis = (cfgData?.actionCatalog || []).filter(a => a.enabled !== false);
+  const canUseOfficialButtons = cfgData?.providerCapabilities?.canUseOfficialButtons ?? false;
+
+  // ── Variáveis: abre a gaveta apontando pra uma fase + insere no cursor ──────
+
+  // Abre a gaveta de variáveis ancorada num campo (guarda o textarea focado).
+  function abrirVariaveis(key: keyof BotConfig, el: HTMLTextAreaElement | null) {
+    setActiveFieldKey(key);
+    setActiveStep(String(key));
+    activeFieldRef.current = el;
+    setVarsOpen(true);
+  }
+
+  // Insere o token na posição do cursor do textarea salvo; reposiciona o cursor.
+  function inserirVariavel(token: string) {
+    const key = activeFieldKey;
+    if (!key) return;
+    const el = activeFieldRef.current;
+    const atual = cfgValue(key);
+    const start = el ? el.selectionStart ?? atual.length : atual.length;
+    const end = el ? el.selectionEnd ?? atual.length : atual.length;
+    const novo = atual.slice(0, start) + token + atual.slice(end);
+    setCfgForm(prev => ({ ...prev, [key]: novo }));
+    // reposiciona o cursor após o token e devolve o foco ao textarea
+    const caret = start + token.length;
+    requestAnimationFrame(() => {
+      const node = activeFieldRef.current;
+      if (node) {
+        node.focus();
+        try { node.setSelectionRange(caret, caret); } catch { /* noop */ }
+      }
+    });
+  }
+
+  // ── Organograma ao vivo: mescla cfgData + edições (cfgForm/cfgBotoes) ───────
+  const configVivo = useMemo<BotConfig>(() => {
+    const base: BotConfig = cfgData ? { ...cfgData } : {};
+    for (const f of BOT_MSG_FIELDS) {
+      const edited = cfgForm[f.key];
+      if (typeof edited === "string") (base as Record<string, unknown>)[f.key as string] = edited;
+    }
+    for (const g of BOT_BTN_GROUPS) {
+      const edited = cfgBotoes[g.key];
+      if (edited) base[g.key] = edited;
+    }
+    return base;
+  }, [cfgData, cfgForm, cfgBotoes]);
 
   // PATCH full-replace: parte da config completa + sobrepõe edições
   function buildBody(overrides?: { globalBotEnabled?: boolean }): Record<string, unknown> {
@@ -567,35 +582,13 @@ export function BotClient() {
 
   function send() { if (!draft.trim()) return; reply(draft.trim()); setDraft(""); }
 
-  // ── Canvas ────────────────────────────────────────────────────────────────
-
-  const zoomIn = () => setZoom(z => Math.min(1.5, Math.round((z + 0.1) * 10) / 10));
-  const zoomOut = () => setZoom(z => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
-
   function addEmoji() {
     const e = EMOJIS[emojiIdx.current % EMOJIS.length];
     emojiIdx.current += 1;
     setDraft(d => d + e);
   }
 
-  function onCanvasDown(e: React.MouseEvent) {
-    if (canvasTool !== "pan" || !canvasRef.current) return;
-    panRef.current = { x: e.clientX, y: e.clientY, sl: canvasRef.current.scrollLeft, st: canvasRef.current.scrollTop };
-  }
-  function onCanvasMove(e: React.MouseEvent) {
-    if (!panRef.current || !canvasRef.current) return;
-    canvasRef.current.scrollLeft = panRef.current.sl - (e.clientX - panRef.current.x);
-    canvasRef.current.scrollTop = panRef.current.st - (e.clientY - panRef.current.y);
-  }
-  function onCanvasUp() { panRef.current = null; }
-
   useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [chat]);
-
-  function nodeBody(n: FlowNode) {
-    const field = NODE_CONFIG_FIELD[n.id];
-    const real = field && config ? config[field] : null;
-    return typeof real === "string" && real.trim() ? real : n.b;
-  }
 
   // ── Derived state ─────────────────────────────────────────────────────────
 
@@ -607,6 +600,79 @@ export function BotClient() {
   const quickOptions = config
     ? (step === 0 ? config.welcomeButtons : config.mainMenuButtons)?.map(b => b.title).filter(Boolean) || []
     : ["Aumentar vendas", "Organizar processos", "Encontrar novos clientes", "Outro"];
+
+  // ── Painel "Testar bot" deslizante (reusa .hbx-veil/.hbx-drawer) ──────────
+  // Mesmo chat/estado de antes (mark-tested intacto), agora numa casca slide.
+  const testDrawer = testOpen ? (
+    <div
+      className="hbx-veil to-right"
+      onClick={e => { if (e.target === e.currentTarget) setTestOpen(false); }}
+    >
+      <div
+        className="hbx-drawer bot-test-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Testar bot"
+      >
+        <div className="test-head">
+          <h2>Teste seu bot</h2>
+          <select
+            className="field-dark bot-chat-tipo-sel"
+            value={chatTipo}
+            onChange={e => { setChatTipo(e.target.value as BotTypeName); resetChat(); }}
+            aria-label="Tipo de bot no teste"
+          >
+            <option value="atendimento">Atendimento</option>
+            <option value="recovery">Recovery</option>
+            <option value="prospeccao">Prospecção</option>
+          </select>
+          <span className="saved" style={{ fontSize: "0.66rem" }}>Online ●</span>
+          <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Reiniciar conversa de teste" onClick={resetChat}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
+          <button className="icon-ghost" style={{ width: 28, height: 28 }} aria-label="Fechar" title="Fechar" onClick={() => setTestOpen(false)}>✕</button>
+        </div>
+        <div className="msgs" ref={endRef} style={{ padding: 14 }}>
+          <div style={{ display: "flex", gap: 9, alignItems: "center", marginBottom: 6 }}>
+            <span className="bicon" style={{ background: "var(--hbx-brand)", width: 32, height: 32, borderRadius: 999 }}><I d={ICONS.bot} size={16} /></span>
+            <span><strong style={{ fontSize: "0.8rem" }}>HBX Bot</strong><br /><small style={{ fontSize: "0.62rem", color: "var(--hbx-brand-strong)", fontWeight: 700 }}>Online agora</small></span>
+          </div>
+          {chat.map((m, i) => (
+            <div key={i} className={"msg " + m.dir} style={{ maxWidth: "88%" }}>
+              <div className="bubble" style={m.dir === "out" ? { background: "var(--hbx-brand)", borderColor: "var(--hbx-brand)", color: "var(--hbx-action-ink)", fontWeight: 600 } : {}}>
+                <div style={{ whiteSpace: "pre-line" }}>{m.text}</div>
+                <div className="tm" style={m.dir === "out" ? { color: "color-mix(in srgb, var(--hbx-action-ink) 60%, transparent)" } : {}}>{m.tm}{m.dir === "out" && <span className="ck" style={{ color: "color-mix(in srgb, var(--hbx-action-ink) 70%, transparent)" }}>✓✓</span>}</div>
+              </div>
+            </div>
+          ))}
+          {chat[chat.length - 1].quick && quickOptions.length > 0 && (
+            <div style={{ display: "grid", gap: 7, justifyItems: "start", marginTop: 4 }}>
+              {quickOptions.map(q => (
+                <button key={q} className="qr" onClick={() => reply(q)}>{q}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="composer" style={{ padding: "10px 14px" }}>
+          <div className="row">
+            <input className="field-dark" style={{ flex: 1 }} placeholder="Digite sua mensagem..." value={draft}
+              onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
+            <button className="icon-ghost" title="Inserir emoji" onClick={addEmoji}><I d={ICONS.smile} size={16} /></button>
+            <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
+          </div>
+        </div>
+        <div className="test-foot">⚡ Teste simulado · As respostas podem variar.</div>
+      </div>
+    </div>
+  ) : null;
+
+  // ── Gaveta de variáveis (compartilhada por todas as fases / aba Config) ────
+  const variablesDrawer = (
+    <BotVariablesDrawer
+      open={varsOpen}
+      variableCatalog={cfgData?.variableCatalog ?? []}
+      onClose={() => setVarsOpen(false)}
+      onInsert={inserirVariavel}
+    />
+  );
 
   // ── Render mobile ─────────────────────────────────────────────────────────
 
@@ -628,28 +694,33 @@ export function BotClient() {
           </div>
 
           <div className="bot-block-list">
-            {NODES.map(n => (
-              <div className="bot-block-item" key={n.id}>
-                <span className="bicon bot-block-icon" style={{ "--bot-nc": n.c, width: 34, height: 34, flexShrink: 0 } as React.CSSProperties}>
-                  <I d={ICONS[n.ic]} size={16} />
-                </span>
-                <div className="bot-block-body">
-                  <div className="bot-block-title">{n.t}</div>
-                  <div className="bot-block-text">{nodeBody(n)}</div>
-                  {n.f && <div className="bot-block-text" style={{ marginTop: 3 }}>{n.f}</div>}
-                  {n.yn && (
-                    <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                      <span className="tag teal">Sim</span>
-                      <span className="tag">Não</span>
-                    </div>
-                  )}
+            {BOT_MSG_FIELDS.map(f => {
+              const real = config?.[f.key];
+              const texto = typeof real === "string" && real.trim() ? real : "Sem mensagem ainda";
+              const btns = f.buttonsKey ? (config?.[f.buttonsKey] || []) : [];
+              return (
+                <div className="bot-block-item" key={String(f.key)}>
+                  <span className="bicon bot-block-icon" style={{ "--bot-nc": f.color, width: 34, height: 34, flexShrink: 0 } as React.CSSProperties}>
+                    <I d={ICONS[f.icon] || ICONS.msg} size={16} />
+                  </span>
+                  <div className="bot-block-body">
+                    <div className="bot-block-title">{f.label}</div>
+                    <div className="bot-block-text">{texto}</div>
+                    {btns.length > 0 && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                        {btns.map((b, i) => (
+                          <span className="tag teal" key={b.buttonId || i}>{b.title || `Opção ${i + 1}`}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="bot-mobile-actions">
-            <button className="btn-ghost" onClick={() => setTab(0)}>
+            <button className="btn-ghost" onClick={() => setTestOpen(true)}>
               <I d={ICONS.send} size={14} /> Testar bot
             </button>
             <button
@@ -668,6 +739,7 @@ export function BotClient() {
             </button>
           </div>
         </div>
+        {testDrawer}
       </React.Fragment>
     );
   }
@@ -699,7 +771,7 @@ export function BotClient() {
             </span>
           )}
           <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração" onClick={recarregar} disabled={cfgBusy}>⋯</button>
-          <button className="btn-ghost" onClick={() => setTab(0)}><I d={ICONS.send} size={13} /> Testar bot</button>
+          <button className="btn-ghost" onClick={() => setTestOpen(true)}><I d={ICONS.send} size={13} /> Testar bot</button>
           <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
         </div>
       </div>
@@ -731,121 +803,88 @@ export function BotClient() {
         <div className="right"><span>Versão rascunho</span><span className="saved">{setupBadge}</span></div>
       </div>
 
-      {/* ── Aba Fluxo (canvas + chat de teste) ── */}
+      {/* ── Aba Fluxo → TELA DIVIDIDA: esquerda monta as fases, direita é o
+             organograma que acende ao vivo ── */}
       {tab === 0 && (
-        <div className="builder">
-          <aside className="blocks">
-            <h2>Tipos de bloco</h2>
-            <p className="hint">Clique para configurar o bot</p>
-            {BLOCKS.map(b => (
-              <div className="block" key={b.t} role="button" tabIndex={0} title="Configurar nas Configurações"
-                style={{ cursor: "pointer" }} onClick={() => setTab(1)}
-                onKeyDown={e => (e.key === "Enter" || e.key === " ") && setTab(1)}>
-                <span className="bicon" style={{ background: b.c }}><I d={ICONS[b.ic]} size={17} /></span>
-                <span><strong>{b.t}</strong><small>{b.d}</small></span>
-              </div>
-            ))}
-            <div className="tip">💡 O fluxo do bot é configurado na aba Configurações (mensagens, botões e regras).</div>
-          </aside>
-
-          <div className="canvas" ref={canvasRef} onMouseDown={onCanvasDown} onMouseMove={onCanvasMove}
-            onMouseUp={onCanvasUp} onMouseLeave={onCanvasUp} style={{ cursor: canvasTool === "pan" ? "grab" : "default" }}>
-            <div className="canvas-tools">
-              <button className={"ct" + (canvasTool === "select" ? " on" : "")} title="Selecionar" onClick={() => setCanvasTool("select")}><I d={["M4 4l7 16 2.5-6.5L20 11z"]} size={14} /></button>
-              <button className={"ct" + (canvasTool === "pan" ? " on" : "")} title="Mover (arraste o canvas)" onClick={() => setCanvasTool("pan")}><I d={["M18 11V7a2 2 0 0 0-4 0v4M14 10V5a2 2 0 0 0-4 0v5M10 10.5V7a2 2 0 0 0-4 0v7a7 7 0 0 0 14 0v-3a2 2 0 0 0-4 0"]} size={14} /></button>
-              <button className="ct" title="Diminuir zoom" onClick={zoomOut}><I d={ICONS.search} size={14} /></button>
-              <button className="ct" style={{ minWidth: 44 }} title="Voltar a 100%" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-              <button className="ct" title="Aumentar zoom" onClick={zoomIn}><I d={ICONS.plus} size={14} /></button>
+        cfgErro ? (
+          <div className="bot-load-error" role="alert">
+            <strong className="bot-load-error__title">Não deu pra carregar o bot</strong>
+            <p className="bot-load-error__msg">{cfgErro}</p>
+            <button className="btn-teal" onClick={recarregar} disabled={cfgBusy}>
+              {cfgBusy ? "Carregando…" : "Tentar de novo"}
+            </button>
+          </div>
+        ) : (
+          <div className="bot-split">
+            {/* ESQUERDA: pilha de fases */}
+            <div className="bot-split__left">
+              <p className="bot-split__left-intro">
+                Monte o bot fase por fase. Cada fase preenchida acende um bloco no organograma ao lado.
+              </p>
+              {BOT_MSG_FIELDS.map(f => {
+                const valor = cfgValue(f.key);
+                const grupo = f.buttonsKey;
+                const botoes = grupo ? botoesDe(grupo) : [];
+                const pronto = valor.trim().length > 0 || botoes.length > 0;
+                const ativo = activeStep === String(f.key);
+                return (
+                  <section
+                    key={String(f.key)}
+                    className={"bot-phase" + (ativo ? " bot-phase--active" : "")}
+                    style={{ ["--bot-phase-color" as string]: f.color }}
+                  >
+                    <header className="bot-phase__head">
+                      <span className="bot-phase__icon"><I d={ICONS[f.icon] || ICONS.msg} size={16} /></span>
+                      <div className="bot-phase__titles">
+                        <span className="bot-phase__name">{f.label}</span>
+                        <span className="bot-phase__hint">{f.hint}</span>
+                      </div>
+                      <span className={"bot-phase__badge" + (pronto ? " bot-phase__badge--ready" : "")}>
+                        {pronto ? "Pronto" : "Vazio"}
+                      </span>
+                    </header>
+                    <div className="bot-phase__body">
+                      <textarea
+                        className="field-dark bot-phase__field"
+                        value={valor}
+                        onFocus={e => { setActiveStep(String(f.key)); setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; }}
+                        onChange={e => { setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; setCfgForm(prev => ({ ...prev, [f.key]: e.target.value })); }}
+                        placeholder="Escreva a mensagem desta fase…"
+                      />
+                      <div className="bot-phase__tools">
+                        <button
+                          type="button"
+                          className="btn-ghost bot-phase__var-btn"
+                          title="Inserir variável nesta mensagem"
+                          onClick={() => abrirVariaveis(f.key, activeFieldRef.current)}
+                        >
+                          <I d={ICONS.bolt} size={12} /> Variáveis
+                        </button>
+                      </div>
+                      {grupo && (
+                        <div className="bot-phase__buttons">
+                          <BotButtonsEditor
+                            buttons={botoes}
+                            actionCatalog={acoesDisponiveis}
+                            canUseOfficialButtons={canUseOfficialButtons}
+                            label={grupo === "welcomeButtons" ? "Botões de boas-vindas" : "Botões do menu"}
+                            hint={grupo === "welcomeButtons" ? "aparecem na primeira mensagem" : "opções do menu"}
+                            onChange={next => setCfgBotoesGrupo(grupo, next)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
-            <div style={{ position: "relative", width: 940, height: 640, transform: `scale(${zoom})`, transformOrigin: "top left" }}>
-              <svg style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }} width="940" height="640">
-                {EDGES.map((e, i) => {
-                  const [x1, y1] = e.from, [x2, y2] = e.to;
-                  const d = e.curve
-                    ? `M ${x1} ${y1} C ${x1} ${y1 + 50}, ${x2} ${y2 - 50}, ${x2} ${y2}`
-                    : `M ${x1} ${y1} L ${x2} ${y2}`;
-                  return (
-                    <g key={i} className="edge-group" style={{ color: e.c }}>
-                      <path d={d} className="wire-base" stroke="currentColor" strokeWidth="2.4" fill="none" />
-                      <path d={d} className="wire-flow"  stroke="currentColor" strokeWidth="1.8" fill="none"
-                        style={{ animationDelay: `-${(i * 0.31).toFixed(2)}s` }} />
-                      <path d={d} className="wire-spark" stroke="currentColor" strokeWidth="5" fill="none"
-                        style={{ animationDelay: `${(i * 1.3).toFixed(1)}s` }} />
-                      <circle cx={x2} cy={y2} r="5" fill="currentColor" className="wire-dot"
-                        style={{ animationDelay: `${(i * 0.6).toFixed(1)}s` }} />
-                      <circle cx={x1} cy={y1} r="3.5" fill="currentColor" opacity="0.45" />
-                    </g>
-                  );
-                })}
-              </svg>
-              {NODES.map(n => (
-                <article key={n.id} className={"node" + (selNode === n.id ? " sel" : "")} style={{ left: n.x, top: n.y }} onClick={() => setSelNode(n.id)}>
-                  <div className="nh">
-                    <span className="bicon" style={{ background: n.c, width: 34, height: 34 }}><I d={ICONS[n.ic]} size={16} /></span>
-                    <strong>{n.t}</strong>
-                  </div>
-                  <div className="nb">{nodeBody(n)}</div>
-                  {n.yn
-                    ? <div className="yn"><span className="y">Sim</span><span className="n">Não</span></div>
-                    : <div className="nf">{n.f}<I d={ICONS.arrow} size={11} /></div>}
-                </article>
-              ))}
+
+            {/* DIREITA: organograma vivo (deriva de configVivo) */}
+            <div className="bot-split__right">
+              <BotFlowCanvas config={configVivo} activeStep={activeStep} />
             </div>
           </div>
-
-          <aside className="test">
-            <div className="test-head">
-              <h2>Teste seu bot</h2>
-              {/* Seletor do tipo sendo testado */}
-              <select
-                className="field-dark bot-chat-tipo-sel"
-                value={chatTipo}
-                onChange={e => {
-                  const t = e.target.value as BotTypeName;
-                  setChatTipo(t);
-                  resetChat();
-                }}
-                aria-label="Tipo de bot no teste"
-              >
-                <option value="atendimento">Atendimento</option>
-                <option value="recovery">Recovery</option>
-                <option value="prospeccao">Prospecção</option>
-              </select>
-              <span className="saved" style={{ fontSize: "0.66rem" }}>Online ●</span>
-              <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Reiniciar conversa de teste" onClick={resetChat}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
-            </div>
-            <div className="msgs" ref={endRef} style={{ padding: 14 }}>
-              <div style={{ display: "flex", gap: 9, alignItems: "center", marginBottom: 6 }}>
-                <span className="bicon" style={{ background: "var(--hbx-brand)", width: 32, height: 32, borderRadius: 999 }}><I d={ICONS.bot} size={16} /></span>
-                <span><strong style={{ fontSize: "0.8rem" }}>HBX Bot</strong><br /><small style={{ fontSize: "0.62rem", color: "var(--hbx-brand-strong)", fontWeight: 700 }}>Online agora</small></span>
-              </div>
-              {chat.map((m, i) => (
-                <div key={i} className={"msg " + m.dir} style={{ maxWidth: "88%" }}>
-                  <div className="bubble" style={m.dir === "out" ? { background: "var(--hbx-brand)", borderColor: "var(--hbx-brand)", color: "var(--hbx-action-ink)", fontWeight: 600 } : {}}>
-                    <div style={{ whiteSpace: "pre-line" }}>{m.text}</div>
-                    <div className="tm" style={m.dir === "out" ? { color: "color-mix(in srgb, var(--hbx-action-ink) 60%, transparent)" } : {}}>{m.tm}{m.dir === "out" && <span className="ck" style={{ color: "color-mix(in srgb, var(--hbx-action-ink) 70%, transparent)" }}>✓✓</span>}</div>
-                  </div>
-                </div>
-              ))}
-              {chat[chat.length - 1].quick && quickOptions.length > 0 && (
-                <div style={{ display: "grid", gap: 7, justifyItems: "start", marginTop: 4 }}>
-                  {quickOptions.map(q => (
-                    <button key={q} className="qr" onClick={() => reply(q)}>{q}</button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="composer" style={{ padding: "10px 14px" }}>
-              <div className="row">
-                <input className="field-dark" style={{ flex: 1 }} placeholder="Digite sua mensagem..." value={draft}
-                  onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
-                <button className="icon-ghost" title="Inserir emoji" onClick={addEmoji}><I d={ICONS.smile} size={16} /></button>
-                <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
-              </div>
-            </div>
-            <div className="test-foot">⚡ Teste simulado · As respostas podem variar.</div>
-          </aside>
-        </div>
+        )
       )}
 
       {/* ── Aba Configurações (3 tipos) ── */}
@@ -871,6 +910,16 @@ export function BotClient() {
             </div>
           </section>
 
+          {cfgErro ? (
+            <div className="bot-load-error" role="alert">
+              <strong className="bot-load-error__title">Não deu pra carregar o bot</strong>
+              <p className="bot-load-error__msg">{cfgErro}</p>
+              <button className="btn-teal" onClick={recarregar} disabled={cfgBusy}>
+                {cfgBusy ? "Carregando…" : "Tentar de novo"}
+              </button>
+            </div>
+          ) : (
+          <React.Fragment>
           {/* Mensagens */}
           <section className="panel">
             <div className="panel-head">
@@ -884,7 +933,18 @@ export function BotClient() {
                 <div key={String(f.key)} style={{ display: "grid", gap: 6 }}>
                   <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{f.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {f.hint}</span></label>
                   <textarea className="field-dark" rows={3} style={{ resize: "vertical", padding: "9px 12px", minHeight: 72 }}
-                    value={cfgValue(f.key)} onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))} />
+                    value={cfgValue(f.key)}
+                    onFocus={e => { setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; }}
+                    onChange={e => { setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; setCfgForm(prev => ({ ...prev, [f.key]: e.target.value })); }} />
+                  <button
+                    type="button"
+                    className="btn-ghost bot-phase__var-btn"
+                    title="Inserir variável nesta mensagem"
+                    style={{ justifySelf: "start" }}
+                    onClick={() => abrirVariaveis(f.key, activeFieldRef.current)}
+                  >
+                    <I d={ICONS.bolt} size={12} /> Variáveis
+                  </button>
                 </div>
               ))}
             </div>
@@ -895,37 +955,19 @@ export function BotClient() {
             <div className="panel-head"><h2>Botões do bot — {TYPE_LABEL[cfgTipo]}</h2></div>
             <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {BOT_BTN_GROUPS.map(g => (
-                <div key={g.key} style={{ display: "grid", gap: 8, alignContent: "start" }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{g.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {g.hint}</span></label>
-                  {botoesDe(g.key).length === 0 && (
-                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem botões — adicione o primeiro.</span>
-                  )}
-                  {botoesDe(g.key).map((b, i) => (
-                    <div key={b.buttonId || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6 }}>
-                      <input className="field-dark" style={{ minHeight: 34 }} maxLength={60} placeholder="Texto do botão"
-                        value={b.title} onChange={e => editarBotao(g.key, i, { title: e.target.value })} />
-                      <select className="field-dark" style={{ minHeight: 34 }} value={b.actionId}
-                        onChange={e => editarBotao(g.key, i, { actionId: e.target.value })} aria-label="Ação do botão">
-                        <option value="">Ação…</option>
-                        {acoesDisponiveis.map(a => (
-                          <option key={a.actionId} value={a.actionId}>{a.title || a.actionId}</option>
-                        ))}
-                        {b.actionId && !acoesDisponiveis.some(a => a.actionId === b.actionId) && (
-                          <option value={b.actionId}>{b.actionId}</option>
-                        )}
-                      </select>
-                      <button className="icon-ghost" title="Remover botão" aria-label="Remover botão"
-                        onClick={() => removerBotao(g.key, i)}>✕</button>
-                    </div>
-                  ))}
-                  <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.68rem", width: "fit-content" }} onClick={() => addBotao(g.key)}>
-                    <I d={ICONS.plus} size={12} /> Adicionar botão
-                  </button>
-                </div>
+                <BotButtonsEditor
+                  key={g.key}
+                  buttons={botoesDe(g.key)}
+                  actionCatalog={acoesDisponiveis}
+                  canUseOfficialButtons={canUseOfficialButtons}
+                  label={g.label}
+                  hint={g.hint}
+                  onChange={next => setCfgBotoesGrupo(g.key, next)}
+                />
               ))}
             </div>
             <div style={{ padding: "0 18px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
-              Cada botão dispara uma ação do catálogo do bot. As alterações valem após &quot;Salvar alterações&quot;.
+              As alterações valem após &quot;Salvar alterações&quot;.
             </div>
           </section>
 
@@ -946,6 +988,8 @@ export function BotClient() {
                 ))}
               </div>
             </section>
+          )}
+          </React.Fragment>
           )}
         </div>
       )}
@@ -970,6 +1014,10 @@ export function BotClient() {
           </div>
         );
       })()}
+
+      {/* Gaveta de variáveis (castelo deslizante da direita) + painel de teste */}
+      {variablesDrawer}
+      {testDrawer}
     </React.Fragment>
   );
 }

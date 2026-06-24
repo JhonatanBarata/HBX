@@ -281,6 +281,17 @@ export function LeadsClient() {
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // P4: modal de campo faltando
+  const [missingModal, setMissingModal] = useState<string[] | null>(null);
+
+  // P5/EFEITO: chips voando e toast
+  const [flyChips, setFlyChips] = useState<Array<{ id: number; name: string; x0: number; y0: number; x1: number; y1: number; dur: number }>>([]);
+  const [flyToast, setFlyToast] = useState<string | null>(null);
+  const [tabCarteiraPop, setTabCarteiraPop] = useState(false);
+  const discRef = useRef<HTMLDivElement | null>(null);
+  const tabCarteiraRef = useRef<HTMLButtonElement | null>(null);
+  const flyIdRef = useRef(0);
+
   // Automático (standing order)
   const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
@@ -395,8 +406,18 @@ export function LeadsClient() {
     loadBank();
     loadUsage();
     loadList("shelf", { page: 1 });
+    // P8b: só aceita run do mount se operationalState = funcionando|pausado
+    // (run terminal antigo no banco engoliria o 1º clique via runActive=true)
     apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
-      .then(res => { if (res && (res.id || res.runId)) setRun(res); })
+      .then(res => {
+        if (!res || !(res.id || res.runId)) return;
+        const opState = getOpState(res);
+        const isTerminal = TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal;
+        // Só carrega se está visivelmente ativo (não terminal ou operacional ativo)
+        if (!isTerminal || opState === "funcionando" || opState === "pausado") {
+          setRun(res);
+        }
+      })
       .catch(() => { /* sem busca ativa */ });
     apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order")
       .then(res => { if (res?.standingOrder) setStandingOrder(res.standingOrder); })
@@ -451,8 +472,17 @@ export function LeadsClient() {
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
           loadList("shelf", { page: 1 });
           loadBank();
-          setTab("shelf");
-          setPage(1);
+          loadUsage();
+          // P5/EFEITO: se importou leads, voa chips pra carteira e troca de aba
+          type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number };
+          const resMeta = res?.meta as RunMetaExt | undefined;
+          const importedCount = resMeta?.importedCount ?? 0;
+          if (importedCount > 0) {
+            triggerFlyEffect(importedCount, res);
+          } else {
+            setTab("shelf");
+            setPage(1);
+          }
         }
       } catch {
         // mantém o último estado
@@ -527,15 +557,85 @@ export function LeadsClient() {
   const runPaused = opState === "pausado"; // descansando — não bloqueia Play
   const runProgress = run?.meta?.progress;
 
+  // P5/EFEITO: anima chips saindo do disco do radar e voando pra aba Minha carteira
+  function triggerFlyEffect(importedCount: number, _run: RunResponse) {
+    void _run;
+    const cap = Math.min(importedCount, 5);
+    const discEl = discRef.current;
+    const tabEl = tabCarteiraRef.current;
+
+    if (!discEl || !tabEl || typeof window === "undefined") {
+      // sem elemento de referência: só troca aba
+      setTimeout(() => { setTab("carteira"); setPage(1); loadList("carteira", { page: 1 }); }, 200);
+      return;
+    }
+
+    const discRect = discEl.getBoundingClientRect();
+    const tabRect = tabEl.getBoundingClientRect();
+    const srcX = discRect.left + discRect.width / 2;
+    const srcY = discRect.top + discRect.height / 2;
+    const dstX = tabRect.left + tabRect.width / 2;
+    const dstY = tabRect.top + tabRect.height / 2;
+
+    const chips: typeof flyChips = [];
+    const names = ["Lead", "Empresa", "Contato", "Negócio", "Cliente"];
+    for (let i = 0; i < cap; i++) {
+      chips.push({
+        id: ++flyIdRef.current,
+        name: names[i % names.length],
+        x0: srcX,
+        y0: srcY,
+        x1: dstX - srcX,
+        y1: dstY - srcY,
+        dur: 0.62 + i * 0.12,
+      });
+    }
+    setFlyChips(chips);
+
+    // Badge pop na aba
+    setTimeout(() => {
+      setTabCarteiraPop(true);
+      setTimeout(() => setTabCarteiraPop(false), 500);
+    }, 400);
+
+    // Toast
+    const total = importedCount;
+    setTimeout(() => {
+      setFlyToast(`${total} lead${total > 1 ? "s" : ""} na sua carteira`);
+      setTimeout(() => setFlyToast(null), 3200);
+    }, 600);
+
+    // Limpar chips e trocar aba depois do voo
+    setTimeout(() => {
+      setFlyChips([]);
+      setTab("carteira");
+      setPage(1);
+      loadList("carteira", { page: 1 });
+    }, 1100 + cap * 120);
+  }
+
+  // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
+  function validarCamposOuPopup(): boolean {
+    const faltando: string[] = [];
+    if (!city.trim() && !geo) faltando.push("Cidade");
+    if (!segment.trim()) faltando.push("Segmento");
+    if (faltando.length > 0) {
+      setMissingModal(faltando);
+      return false;
+    }
+    return true;
+  }
+
   async function executarBusca() {
-    // "pausado" não bloqueia — pode iniciar nova busca
+    // P8b: "pausado" não bloqueia — pode iniciar nova busca; só bloqueia se funcionando AGORA
     if (runBusy || runActive) return;
-    if (!city.trim() && !geo) { setSearchMsg("Me diz a cidade — ou ative a localização no topo."); return; }
-    if (!segment.trim()) { setSearchMsg("Escolha um segmento pra eu varrer."); return; }
+    // P4: valida e abre popup se faltando
+    if (!validarCamposOuPopup()) return;
     setSearchMsg(null);
     setRunBusy(true);
     try {
-      const body: Record<string, unknown> = { city, state: uf || undefined, segment };
+      // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400)
+      const body: Record<string, unknown> = { city, state: uf || undefined, segment, quantity: quantos };
       if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
       if (forcarCanais && canalAtivos.size > 0) {
         body.requiredChannels = Array.from(canalAtivos);
@@ -851,6 +951,12 @@ export function LeadsClient() {
       : "radar-state-label--parado";
     const opMsg = run?.meta?.operationalMessage || null;
 
+    // P5 avisos de parada clicáveis
+    const runStatus = String(run?.status || "");
+    const isPausadoCarteira = runPaused && !runActive;
+    const isParadoFiltro = !runActive && !runPaused && (runStatus === "completed_insufficient_results" || runStatus === "failed");
+    const foundCount = run?.foundCount ?? 0;
+
     if (mini) {
       return (
         <div className="radar-mini-bar">
@@ -870,7 +976,10 @@ export function LeadsClient() {
 
     return (
       <div className="radar-console">
-        <RadarDisc opState={opState} />
+        {/* P5/EFEITO: ref no wrapper do disco para pegar posição */}
+        <div ref={discRef}>
+          <RadarDisc opState={opState} />
+        </div>
 
         <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
         {opMsg && <div className="radar-state-msg">{opMsg}</div>}
@@ -932,26 +1041,43 @@ export function LeadsClient() {
 
         {/* Filtros compactos */}
         <div className="radar-controls">
+          {/* P3: seta aparece no campo Estado enquanto vazio */}
           <div className="f">
-            <label htmlFor="rc-uf">Estado</label>
+            <label htmlFor="rc-uf">
+              Estado{!uf && <span className="radar-field-arrow" aria-hidden>›</span>}
+            </label>
             <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
               <option value="">Todos</option>
               {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+          {/* P3: seta aparece no campo Cidade enquanto vazio */}
           <div className="f">
-            <label htmlFor="rc-city">Cidade</label>
+            <label htmlFor="rc-city">
+              Cidade{!city.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
+            </label>
             <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
               <option value="">Cidade</option>
               {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
             </select>
           </div>
+          {/* P2: segmento livre (input list) + P3: seta */}
           <div className="f">
-            <label htmlFor="rc-seg">Segmento</label>
-            <select id="rc-seg" className="select-dark" value={segment} onChange={e => setSegment(e.target.value)}>
-              <option value="">Ex.: Odontologia</option>
-              {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-            </select>
+            <label htmlFor="rc-seg">
+              Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
+            </label>
+            <datalist id="rc-seg-list">
+              {segOptions.map(o => <option key={o.value} value={o.label} />)}
+            </datalist>
+            <input
+              id="rc-seg"
+              list="rc-seg-list"
+              className="select-dark"
+              value={segment}
+              onChange={e => setSegment(e.target.value)}
+              placeholder="Ex.: Odontologia"
+              autoComplete="off"
+            />
           </div>
           <div className="f">
             <label htmlFor="rc-alcance">Alcance</label>
@@ -991,6 +1117,21 @@ export function LeadsClient() {
             {standingOrder?.active ? "◉ Auto" : "◎ Auto"}
           </button>
         </div>
+
+        {/* P5: avisos de parada com atalhos clicáveis */}
+        {isPausadoCarteira && (
+          <div className="radar-stop-warn radar-stop-warn--pausado">
+            <span>Encheu sua carteira ({foundCount} encontrado{foundCount !== 1 ? "s" : ""}) — volta sozinho quando abrir espaço.</span>
+            <button className="btn-ghost btn-xs" onClick={() => setAlcance("50")}>+50 km</button>
+          </div>
+        )}
+        {isParadoFiltro && foundCount === 0 && (
+          <div className="radar-stop-warn radar-stop-warn--parado">
+            <span>Varri tudo aqui e não achei nada — mude o filtro.</span>
+            <button className="btn-ghost btn-xs" onClick={() => setAlcance("50")}>+50 km</button>
+            <button className="btn-ghost btn-xs" onClick={() => setSegment("")}>Trocar segmento</button>
+          </div>
+        )}
 
         {searchMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{searchMsg}</p>}
       </div>
@@ -1233,13 +1374,22 @@ export function LeadsClient() {
                     {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
                   </select>
                 </div>
+                {/* P2 mobile: segmento livre */}
                 <div className="f">
-                  <label>Segmento</label>
-                  <select className="select-dark" value={segment} onChange={e => setSegment(e.target.value)}>
-                    <option value="">Ex.: Odontologia</option>
-                    {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-                  </select>
+                  <label>Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}</label>
+                  <datalist id="rm-seg-list">
+                    {segOptions.map(o => <option key={o.value} value={o.label} />)}
+                  </datalist>
+                  <input
+                    list="rm-seg-list"
+                    className="select-dark"
+                    value={segment}
+                    onChange={e => setSegment(e.target.value)}
+                    placeholder="Ex.: Odontologia"
+                    autoComplete="off"
+                  />
                 </div>
+                {/* P4 mobile: botão Buscar usa validação com popup */}
                 <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>
                   {runActive ? "Varrendo…" : "Buscar (motor)"}
                 </button>
@@ -1261,19 +1411,24 @@ export function LeadsClient() {
                 <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
                   Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
                 </button>
-                <button className={"tab" + (tab === "carteira" ? " active" : "")} onClick={() => switchTab("carteira")}>
+                {/* P5/EFEITO: ref pra saber onde o chip aterra */}
+                <button
+                  ref={tabCarteiraRef}
+                  className={"tab" + (tab === "carteira" ? " active" : "") + (tabCarteiraPop ? " tab--pop" : "")}
+                  onClick={() => switchTab("carteira")}
+                >
                   Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
                 </button>
               </div>
 
               {runActive && (
-                <div className="radar2-live">
+                <div className="radar2-live radar2-live--funcionando">
                   <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
                 </div>
               )}
               {runPaused && (
-                <div className="radar2-live" style={{ background: "color-mix(in srgb, var(--hbx-warning) 12%, transparent)", color: "var(--hbx-warning)" }}>
-                  <span className="dot" style={{ background: "var(--hbx-warning)" }} /> Descansando — retoma sozinho
+                <div className="radar2-live radar2-live--pausado">
+                  <span className="dot" /> Descansando — retoma sozinho
                   {run?.meta?.operationalMessage ? ` · ${run.meta.operationalMessage}` : ""}
                 </div>
               )}
@@ -1453,6 +1608,51 @@ export function LeadsClient() {
           </div>
           {renderCardOverlay()}
         </>
+      )}
+
+      {/* P4: Modal de campo faltando — usa .hbx-veil + .hbx-modal (centralizados pela classe) */}
+      {missingModal && (
+        <div className="hbx-veil" onClick={() => setMissingModal(null)}>
+          <div className="hbx-modal" style={{ width: "min(340px, 92vw)" }} onClick={e => e.stopPropagation()}>
+            <div className="radar-missing-modal">
+              <h3>Falta preencher</h3>
+              <ul>
+                {missingModal.map(f => <li key={f}>{f}</li>)}
+              </ul>
+              <p>Preencha os campos acima antes de buscar.</p>
+              <button className="btn-teal" onClick={() => setMissingModal(null)}>Entendi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P5/EFEITO: chips voando do disco pra aba Minha carteira */}
+      {flyChips.length > 0 && (
+        <div className="radar-fly-layer" aria-hidden>
+          {flyChips.map(chip => (
+            <div
+              key={chip.id}
+              className="radar-fly-chip"
+              style={{
+                left: chip.x0,
+                top: chip.y0,
+                "--fly-x0": "0px",
+                "--fly-y0": "0px",
+                "--fly-x1": `${chip.x1}px`,
+                "--fly-y1": `${chip.y1}px`,
+                "--fly-dur": `${chip.dur}s`,
+              } as React.CSSProperties}
+            >
+              <span className="radar-fly-chip__av">L</span>
+              {chip.name}
+            </div>
+          ))}
+        </div>
+      )}
+      {flyToast && (
+        <div className="radar-fly-toast" aria-live="polite">
+          ✓ {flyToast}
+        </div>
       )}
     </div>
   );

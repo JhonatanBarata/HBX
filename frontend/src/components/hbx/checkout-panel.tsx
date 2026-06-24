@@ -76,6 +76,7 @@ type PayConfig = { mode?: "mock" | "live"; publicKey?: string | null };
 export function CheckoutPanel({
   planKey, phone: initialPhone = "", email, name, trialEndsAt, onSuccess, demoOutcome,
   reactivation = false, submitOverride, amountOverride, ctaLabel, title, hideCycle = false,
+  dualToken = false,
 }: {
   planKey: string;
   phone?: string;
@@ -92,11 +93,14 @@ export function CheckoutPanel({
   // Cobrança AVULSA (ex.: diferença proporcional do upgrade): em vez de criar
   // assinatura, o pai recebe o token + payment_method_id (resolvido pelo BIN) e
   // dispara o /financeiro/subscription/change-plan. Sem isto, fluxo de assinatura normal.
-  submitOverride?: (args: { cardTokenId: string; paymentMethodId: string; taxDocument: string }) => Promise<void>;
+  submitOverride?: (args: { cardTokenId: string; recurringCardTokenId?: string; paymentMethodId: string; taxDocument: string }) => Promise<void>;
   amountOverride?: number; // valor a exibir/cobrar (a diferença), em vez do preço do plano
   ctaLabel?: string;       // rótulo do botão
   title?: string;          // título do painel
   hideCycle?: boolean;     // upgrade mantém o ciclo atual — não mostra o seletor mensal/anual
+  // Fim de trial: token do MP é de USO ÚNICO → tokeniza 2x (avulso + nova recorrência) e
+  // entrega os dois no submitOverride (recurringCardTokenId).
+  dualToken?: boolean;
 }) {
   const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
   const plan = livePlans.find((p) => p.key === planKey) ?? getPlanFallback(planKey);
@@ -170,6 +174,7 @@ export function CheckoutPanel({
       // Em mock o backend aprova sem SDK. Em live, tokenizamos o cartão no navegador
       // via SDK do Mercado Pago — só o token vai pro backend, nunca o número do cartão.
       let cardTokenId: string;
+      let recurringCardTokenId = "";
       let paymentMethodId = "";
       if (cfg?.mode === "live") {
         if (!cfg?.publicKey) throw new Error("Pagamento em produção ainda não configurado. Fale com o suporte HBX.");
@@ -181,7 +186,7 @@ export function CheckoutPanel({
         const mp = new MP(cfg.publicKey);
         const [mm, yy] = card.exp.split("/").map(s => s.trim());
         const docDigits = doc.replace(/\D/g, "");
-        const token = await mp.createCardToken({
+        const tokenInput = {
           cardNumber: card.number.replace(/\D/g, ""),
           cardholderName: card.holder,
           cardExpirationMonth: mm || "",
@@ -189,9 +194,17 @@ export function CheckoutPanel({
           securityCode: card.cvv,
           identificationType: docDigits.length > 11 ? "CNPJ" : "CPF",
           identificationNumber: docDigits,
-        });
+        };
+        const token = await mp.createCardToken(tokenInput);
         cardTokenId = token?.id || "";
         if (!cardTokenId) throw new Error("Não conseguimos validar o cartão. Confira os dados e tente de novo.");
+        // Fim de trial: token é de uso único → gera um 2º token (mesmos dados) pra nova
+        // assinatura recorrente. O avulso usa o 1º; a preapproval nova usa o 2º.
+        if (dualToken) {
+          const token2 = await mp.createCardToken(tokenInput);
+          recurringCardTokenId = token2?.id || "";
+          if (!recurringCardTokenId) throw new Error("Não conseguimos validar o cartão. Tente de novo.");
+        }
         // Cobrança avulsa (one-off) exige payment_method_id — resolvido pelo BIN do cartão.
         if (submitOverride) {
           const bin = card.number.replace(/\D/g, "").slice(0, 6);
@@ -202,10 +215,11 @@ export function CheckoutPanel({
         }
       } else {
         cardTokenId = `mock-card-${Date.now()}`;
+        recurringCardTokenId = dualToken ? `mock-card-recur-${Date.now()}` : "";
         paymentMethodId = "master";
       }
       if (submitOverride) {
-        await submitOverride({ cardTokenId, paymentMethodId, taxDocument: doc });
+        await submitOverride({ cardTokenId, recurringCardTokenId: recurringCardTokenId || undefined, paymentMethodId, taxDocument: doc });
       } else {
         await apiFetch("/financeiro/subscription/create", {
           method: "POST",

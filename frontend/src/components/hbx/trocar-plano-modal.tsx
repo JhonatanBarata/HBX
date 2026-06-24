@@ -24,6 +24,8 @@ type ChangePreview = {
   creditGenerated?: number;
   remainingDays?: number;
   effectiveAt?: string | null;
+  // Backend: troca durante o teste (preapproval viva, nada cobrado) encerra o trial.
+  trialEnding?: boolean;
 };
 
 type ChangeResult = {
@@ -46,6 +48,9 @@ type Props = {
   // Fallback p/ cartão: assinar do zero (sem chargeNow) ou cobrar a diferença
   // proporcional no live (chargeNow = valor da diferença, do preview).
   onConfirmUpgrade: (plan: PublicPlan, chargeNow?: number) => void;
+  // Fim de trial (live): a troca encerra o teste e cobra o plano novo. O cartão precisa
+  // de 2 tokens (uso único) → painel dedicado no pai. Sem isto, cai no onConfirmUpgrade.
+  onConfirmTrialEnd?: (plan: PublicPlan) => void;
   // Troca aplicada no backend (refresh + mensagem).
   onApplied: (msg: string) => void;
 };
@@ -79,11 +84,11 @@ const cmp = (a?: number | null, b?: number | null): boolean | null => {
   return b > a;
 };
 
-const NEEDS_CARD_CODES = ["NEEDS_CHECKOUT", "LIVE_PRORATION_TODO", "CARD_REQUIRED"];
+const NEEDS_CARD_CODES = ["NEEDS_CHECKOUT", "LIVE_PRORATION_TODO", "CARD_REQUIRED", "RECURRING_CARD_REQUIRED"];
 
 export function TrocarPlanoModal({
   fromPlan, toPlan, direction, accessState, trialRemainingDays,
-  savedCard, onClose, onConfirmUpgrade, onApplied,
+  savedCard, onClose, onConfirmUpgrade, onConfirmTrialEnd, onApplied,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -93,9 +98,10 @@ export function TrocarPlanoModal({
   const isInTrial = accessState === "trial" || accessState === "trial_ending";
   const hasTrial = isInTrial && trialRemainingDays != null && trialRemainingDays > 0;
 
-  // Preview real (dryRun) só faz sentido com assinatura ativa.
+  // Preview real (dryRun) com assinatura ativa OU em trial — pra saber se a troca encerra
+  // o teste (backend devolve preview.trialEnding) e os números reais.
   useEffect(() => {
-    if (!isPaying) return;
+    if (!isPaying && !isInTrial) return;
     let alive = true;
     apiFetch<{ preview?: ChangePreview }>("/financeiro/subscription/change-plan", {
       method: "POST",
@@ -104,36 +110,46 @@ export function TrocarPlanoModal({
       .then(r => { if (alive && r?.preview) setPreview(r.preview); })
       .catch(() => { /* segue com copy genérica */ });
     return () => { alive = false; };
-  }, [isPaying, toPlan.key]);
+  }, [isPaying, isInTrial, toPlan.key]);
 
   const chargeNow = preview?.chargeNow ?? null;
   const creditGenerated = preview?.creditGenerated ?? null;
+  // Trocar de plano durante o teste (subir OU descer) encerra o trial e cobra o plano
+  // novo. O backend decide pelo "houve cobrança?" — cobre tanto accessState 'trial' quanto
+  // a empresa 'active' que ainda carrega um trial do MP (caso #23).
+  const trialEnding = isInTrial || preview?.trialEnding === true;
 
   async function confirmar() {
     setBusy(true);
     setErr(null);
     try {
-      if (isPaying) {
+      // Pagante OU em trial (a troca encerra o teste): o backend decide e cobra. Em mock
+      // resolve direto; em live volta CARD_REQUIRED/RECURRING_CARD_REQUIRED → cai pro cartão.
+      if (isPaying || trialEnding) {
         const res = await apiFetch<ChangeResult>("/financeiro/subscription/change-plan", {
           method: "POST",
           body: JSON.stringify({ planKey: toPlan.key }),
         });
         if (res?.ok) {
           onApplied(
-            direction === "upgrade"
-              ? `Upgrade para ${toPlan.title} aplicado. Acesso liberado.`
-              : `Redução para ${toPlan.title} agendada para o fim do período já pago.${res.creditGenerated ? ` Crédito de ${fmt(res.creditGenerated)} na próxima fatura.` : ""}`,
+            trialEnding
+              ? `${toPlan.title} ativado — período de teste encerrado.`
+              : direction === "upgrade"
+                ? `Upgrade para ${toPlan.title} aplicado. Acesso liberado.`
+                : `Redução para ${toPlan.title} agendada para o fim do período já pago.${res.creditGenerated ? ` Crédito de ${fmt(res.creditGenerated)} na próxima fatura.` : ""}`,
           );
           return;
         }
         if (res?.code && NEEDS_CARD_CODES.includes(res.code)) {
-          onConfirmUpgrade(toPlan, chargeNow ?? undefined); // cai pro cartão (diferença proporcional no live)
+          // Fim de trial em live precisa de 2 tokens → painel dedicado; senão, cartão normal.
+          if (trialEnding && onConfirmTrialEnd) onConfirmTrialEnd(toPlan);
+          else onConfirmUpgrade(toPlan, chargeNow ?? undefined);
           return;
         }
         throw new Error(res?.message || "Não foi possível aplicar a troca.");
       }
 
-      // Sem assinatura ativa.
+      // Sem assinatura ativa nem trial (pending_checkout).
       if (direction === "downgrade") {
         await apiFetch("/commercial-plans/select", {
           method: "POST",
@@ -218,19 +234,19 @@ export function TrocarPlanoModal({
               </div>
             )}
 
-            {/* Upgrade: aviso de trial perdido */}
-            {direction === "upgrade" && hasTrial && (
+            {/* Trial: trocar de plano (subir OU descer) encerra o teste e cobra o plano novo */}
+            {trialEnding && (
               <div className="bv-step">
                 <span className="n">⚠</span>
                 <span className="tx">
-                  <strong>Você perde {trialRemainingDays} {trialRemainingDays === 1 ? "dia" : "dias"} de trial</strong>
-                  <small>Ao confirmar o pagamento, o trial encerra e a cobrança começa imediatamente.</small>
+                  <strong>Trocar de plano encerra seu teste{hasTrial ? ` (${trialRemainingDays} ${trialRemainingDays === 1 ? "dia restante" : "dias restantes"})` : ""}</strong>
+                  <small>Ao confirmar, o período grátis acaba e você passa a pagar o {toPlan.title}{fmt(toPlan.monthlyPrice) ? ` (${fmt(toPlan.monthlyPrice)}/mês)` : ""} a partir de agora. Se cancelar aqui, nada muda.</small>
                 </span>
               </div>
             )}
 
             {/* Upgrade: já pagante → diferença proporcional (número real do preview) */}
-            {direction === "upgrade" && isPaying && (
+            {direction === "upgrade" && isPaying && !trialEnding && (
               <div className="bv-step">
                 <span className="n">💳</span>
                 <span className="tx">
@@ -241,7 +257,7 @@ export function TrocarPlanoModal({
             )}
 
             {/* Upgrade: sem plano pago nem trial → assinar do zero */}
-            {direction === "upgrade" && !isPaying && !hasTrial && (
+            {direction === "upgrade" && !isPaying && !hasTrial && !trialEnding && (
               <div className="bv-step">
                 <span className="n">✓</span>
                 <span className="tx">
@@ -252,7 +268,7 @@ export function TrocarPlanoModal({
             )}
 
             {/* Downgrade: pagante → troca AGORA (modelo B), com crédito da sobra */}
-            {direction === "downgrade" && isPaying && (
+            {direction === "downgrade" && isPaying && !trialEnding && (
               <div className="bv-step">
                 <span className="n">↓</span>
                 <span className="tx">
@@ -263,7 +279,7 @@ export function TrocarPlanoModal({
             )}
 
             {/* Downgrade: pagante → crédito gerado (número real do preview) */}
-            {direction === "downgrade" && isPaying && (
+            {direction === "downgrade" && isPaying && !trialEnding && (
               <div className="bv-step">
                 <span className="n">💰</span>
                 <span className="tx">
@@ -273,8 +289,8 @@ export function TrocarPlanoModal({
               </div>
             )}
 
-            {/* Downgrade: trial/sem pagamento → troca simples */}
-            {direction === "downgrade" && !isPaying && (
+            {/* Downgrade: pending_checkout (sem trial, sem pagamento) → troca simples */}
+            {direction === "downgrade" && !isPaying && !trialEnding && (
               <div className="bv-step">
                 <span className="n">↓</span>
                 <span className="tx">

@@ -186,7 +186,7 @@ export function PhotoLightbox({ src, name, onClose }: { src: string; name?: stri
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 9999,
-        background: "rgba(0,0,0,0.84)",
+        background: "var(--hbx-lightbox-veil)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
         display: "grid", placeItems: "center",
@@ -203,7 +203,7 @@ export function PhotoLightbox({ src, name, onClose }: { src: string; name?: stri
           maxWidth: "min(88vw, 560px)",
           maxHeight: "88vh",
           borderRadius: "var(--radius-xl)",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.75)",
+          boxShadow: "var(--hbx-lightbox-shadow)",
           objectFit: "contain",
           cursor: "default",
         }}

@@ -1,0 +1,214 @@
+/* ============================================================================
+ * bot-flow.css — organograma do Construtor de Bot (peça B do rebuild)
+ * Estilo do componente <BotFlowCanvas>. Herda a linguagem do canvas legado
+ * (.node / fios SVG) mas vive aqui, centralizado. Zero hex/inline color.
+ * Só tokens centrais (var(--hbx-*) / spacing / typography). check-pele limpo.
+ * ==========================================================================*/
+
+/* ---- Moldura/superfície do organograma ---- */
+.bfc {
+  position: relative;
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--hbx-background);
+  background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px);
+  background-size: 22px 22px;
+  border-radius: var(--radius-md);
+}
+
+/* palco interno (dimensão definida em layout inline pelo componente) */
+.bfc-stage {
+  position: relative;
+  transform-origin: top left;
+}
+
+/* ---- Camada de fios (SVG) ---- */
+.bfc-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bfc-edge { color: var(--hbx-brand); }
+.bfc-edge--off { color: var(--border-strong); }
+
+.bfc-wire-base {
+  opacity: 0.55;
+  filter: drop-shadow(0 0 2.5px currentColor);
+}
+.bfc-wire-flow {
+  stroke-dasharray: 14 38;
+  animation: bfc-wire-flow 2s linear infinite;
+  filter: drop-shadow(0 0 3px currentColor);
+  opacity: 0.9;
+}
+.bfc-wire-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bfc-wire-dot 2.2s ease-in-out infinite;
+}
+/* aresta apagada (nós ainda sem conteúdo): fio estático, sem fluxo */
+.bfc-edge--off .bfc-wire-base { opacity: 0.3; filter: none; }
+.bfc-edge--off .bfc-wire-flow { display: none; }
+.bfc-edge--off .bfc-wire-dot { display: none; }
+
+@keyframes bfc-wire-flow {
+  from { stroke-dashoffset: 52; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes bfc-wire-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.6); opacity: 0.5; }
+}
+
+/* ---- Nó ---- */
+.bfc-node {
+  position: absolute;
+  width: 200px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    box-shadow var(--motion-fast),
+    border-color var(--motion-fast),
+    opacity var(--motion-base),
+    transform var(--motion-base);
+}
+
+/* fantasma: fase ainda vazia — entra apagado, pronto pra "acender" */
+.bfc-node--ghost {
+  opacity: 0.42;
+  border-style: dashed;
+}
+.bfc-node--ghost .bfc-node-icon { opacity: 0.7; }
+
+/* aceso: a fase ganhou conteúdo — efeito "quebra-cabeça/jogo" */
+.bfc-node--lit {
+  opacity: 1;
+  animation: bfc-node-light-up var(--motion-base);
+}
+.bfc-node--lit .bfc-node-icon { animation: bfc-node-pulse 2.8s ease-in-out infinite; will-change: transform; }
+
+/* nó em foco (activeStep) */
+.bfc-node--active {
+  border-color: var(--login-accent);
+  box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in srgb, var(--login-accent) 16%, transparent);
+}
+.bfc-node--active .bfc-node-icon { animation-play-state: paused; transform: scale(1.15); }
+
+.bfc-node-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+}
+.bfc-node-head strong {
+  font-size: 0.78rem;
+  font-family: var(--font-display);
+}
+
+.bfc-node-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  flex: 0 0 auto;
+  color: var(--hbx-action-ink);
+  background: var(--bfc-node-color, var(--hbx-brand));
+  transition: transform var(--motion-fast);
+}
+
+.bfc-node-body {
+  padding: 0 12px 10px;
+  font-size: 0.7rem;
+  color: var(--text-body);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bfc-node-body--empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.bfc-node-foot {
+  padding: 7px 12px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.bfc-node-foot--lit { color: var(--hbx-brand-strong); font-weight: 700; }
+
+/* contador de botões/saídas do nó */
+.bfc-node-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+.bfc-node--lit .bfc-node-badge { color: var(--hbx-brand-strong); border-color: var(--login-accent); }
+
+/* ---- Legenda ---- */
+.bfc-legend {
+  position: sticky;
+  top: 12px;
+  margin-left: 12px;
+  width: fit-content;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--hbx-surface) 86%, transparent);
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  z-index: 5;
+}
+.bfc-legend-item { display: inline-flex; gap: 5px; align-items: center; }
+.bfc-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.bfc-legend-dot--lit { background: var(--hbx-brand); }
+.bfc-legend-dot--ghost { background: transparent; border: 1px dashed var(--border-strong); }
+.bfc-legend-dot--active { background: var(--login-accent); }
+
+/* ---- Animações ---- */
+@keyframes bfc-node-light-up {
+  0%   { opacity: 0.42; transform: scale(0.94); }
+  55%  { transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes bfc-node-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bfc-wire-flow,
+  .bfc-wire-dot,
+  .bfc-node--lit,
+  .bfc-node--lit .bfc-node-icon {
+    animation: none;
+  }
+}

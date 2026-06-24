@@ -115,7 +115,9 @@ body { min-height: 100vh; }
    robô/accent), NUNCA no mesmo elemento que tem .hbx-page (page-enter) — os dois usam
    `animation` e colidem, matando o ciclo. Por isso no site a classe fica em .site-scene
    (não em .site). ============================================================ */
+/* pele-allow: entrada V1.0 — accent da cena pública (mundo visual do site) */
 .hbx-scene { --login-accent: #4f9bff; }
+/* pele-allow-end */
 @media (prefers-reduced-motion: reduce) { .hbx-scene { animation: none; } }
 
 /* CONTRASTE do texto direto SOBRE a cena (robô): halo de sombra pra legibilidade
@@ -378,32 +380,9 @@ html, body { height: 100%; }
 .bot-tab { padding: 10px 14px; border: none; background: none; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8rem; font-weight: 700; cursor: pointer; border-bottom: 2px solid transparent; }
 .bot-tab.on { color: var(--hbx-brand-strong); border-bottom-color: var(--login-accent); }
 .bot-tabs .right { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 0.7rem; color: var(--text-muted); padding-bottom: 6px; }
-.builder { display: grid; grid-template-columns: 232px 1fr 320px; flex: 1; min-height: 0; }
-.blocks { border-right: 1px solid var(--border-hairline); background: var(--hbx-surface); padding: 14px; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; }
-.blocks h2 { margin: 0; font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; }
-.blocks .hint { font-size: 0.66rem; color: var(--text-muted); margin: 0 0 4px; }
-.block { display: flex; gap: 10px; align-items: flex-start; padding: 11px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); cursor: grab; }
-.block:hover { border-color: var(--login-accent); background: var(--hbx-surface); box-shadow: var(--shadow-xs); }
-.block:hover .bicon { transform: scale(1.14); }
-.block strong { font-size: 0.76rem; display: block; }
-.block small { font-size: 0.64rem; color: var(--text-muted); line-height: 1.35; }
+/* Canvas decorativo do Bot REMOVIDO (rebuild /bot vira tela dividida + BotFlowCanvas).
+   .bicon segue vivo (avatar do chat + bot-empty-ring); test/qr sao do chat. */
 .bicon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius-md); flex: 0 0 auto; color: var(--hbx-action-ink); transition: transform var(--motion-fast); }
-.tip { margin-top: auto; padding: 10px; border-radius: var(--radius-sm); border: 1px dashed var(--border-strong); font-size: 0.64rem; color: var(--text-muted); }
-.canvas { position: relative; overflow: auto; background-color: var(--hbx-background); background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px); background-size: 22px 22px; }
-.canvas-tools { position: sticky; top: 12px; margin-left: auto; margin-right: 16px; width: fit-content; display: flex; gap: 2px; padding: 4px; border-radius: 10px; border: 1px solid var(--border-hairline); background: var(--hbx-surface); z-index: 5; }
-.ct { display: grid; place-items: center; min-width: 30px; height: 30px; border: none; border-radius: 7px; background: transparent; color: var(--text-body); font-family: var(--font-mono); font-size: 0.68rem; cursor: pointer; }
-.ct:hover, .ct.on { background: var(--hbx-surface-raised); }
-.node { position: absolute; width: 215px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-sm); cursor: pointer; transition: box-shadow var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast); }
-.node:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
-.node.sel { border-color: var(--login-accent); box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in srgb, var(--login-accent) 16%, transparent); }
-.node .nh { display: flex; gap: 8px; align-items: center; padding: 10px 12px; }
-.node .nh strong { font-size: 0.78rem; }
-.node .nb { padding: 0 12px 10px; font-size: 0.7rem; color: var(--text-body); line-height: 1.45; }
-.node .nf { padding: 8px 12px; border-top: 1px solid var(--border-hairline); font-size: 0.62rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
-.node .yn { display: flex; border-top: 1px solid var(--border-hairline); }
-.node .yn span { flex: 1; text-align: center; padding: 8px 0; font-size: 0.7rem; font-weight: 800; cursor: pointer; }
-.node .yn .y { color: var(--hbx-brand-strong); border-right: 1px solid var(--border-hairline); }
-.node .yn .n { color: var(--hbx-danger); }
 .test { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface); display: flex; flex-direction: column; min-height: 0; }
 .test-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px; border-bottom: 1px solid var(--border-hairline); }
 .test-head h2 { margin: 0; flex: 1; font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; }
@@ -411,35 +390,10 @@ html, body { height: 100%; }
 .qr:hover { border-color: var(--login-accent); color: var(--hbx-brand-strong); }
 .test-foot { padding: 8px 14px 12px; font-size: 0.62rem; color: var(--text-muted); }
 
-/* ---- Bot: nó pulsa suavemente (parece vivo) ---- */
+/* ---- Bot: ícone pulsa suavemente (parece vivo) — usado por .bot-empty-ring ---- */
 @keyframes node-bicon-pulse {
   0%, 100% { transform: scale(1); }
   50%       { transform: scale(1.1); }
-}
-.node .bicon { animation: node-bicon-pulse 2.8s ease-in-out infinite; will-change: transform; }
-.node:hover .bicon, .node.sel .bicon { animation-play-state: paused; transform: scale(1.15); }
-
-/* ---- Bot: fios elétricos ---- */
-@keyframes wire-flow {
-  from { stroke-dashoffset: 52; }
-  to   { stroke-dashoffset: 0; }
-}
-@keyframes wire-spark {
-  0%, 76%, 100% { opacity: 0; stroke-dashoffset: 28; }
-  77%  { opacity: 1; stroke-dashoffset: 28; }
-  90%  { opacity: 0.95; stroke-dashoffset: -680; }
-  91%  { opacity: 0; stroke-dashoffset: -680; }
-}
-@keyframes wire-dot-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50%       { transform: scale(1.6); opacity: 0.5; }
-}
-.wire-base  { opacity: 0.55; filter: drop-shadow(0 0 2.5px currentColor); }
-.wire-flow  { stroke-dasharray: 14 38; animation: wire-flow 2s linear infinite; filter: drop-shadow(0 0 3px currentColor); opacity: 0.9; }
-.wire-spark { stroke-dasharray: 28 9999; opacity: 0; animation: wire-spark 9s linear infinite; filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 10px currentColor); }
-.wire-dot   { transform-box: fill-box; transform-origin: center; animation: wire-dot-pulse 2.2s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .wire-flow, .wire-spark, .wire-dot, .node .bicon { animation: none; }
 }
 
 /* ---- Bot: abas em breve ---- */
@@ -1298,6 +1252,8 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar2-main { min-width: 0; }
 .radar2-live { display: flex; align-items: center; gap: 8px; margin: 12px 16px 0; padding: 9px 13px; border-radius: var(--radius-md); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-size: 0.74rem; font-weight: 700; }
 .radar2-live .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--hbx-brand-strong); animation: radar2-pulse 1.3s ease-in-out infinite; }
+.radar2-live--pausado { background: color-mix(in srgb, var(--hbx-warning) 12%, transparent); color: var(--hbx-warning); }
+.radar2-live--pausado .dot { background: var(--hbx-warning); }
 @keyframes radar2-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .radar2-live .dot { animation: none; } }
 .radar2-locked { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.68rem; }
@@ -1662,6 +1618,175 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-canal-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border-hairline); background: transparent; color: var(--text-muted); font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
 .radar-canal-toggle--active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
 .radar-canal-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── P3: Seta de campo obrigatório (pisca enquanto vazio, some ao preencher) ── */
+.radar-field-arrow {
+  display: inline-block;
+  color: var(--hbx-brand-strong);
+  font-size: 0.9rem;
+  font-weight: 800;
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: radarFieldArrowPulse 1.1s ease-in-out infinite;
+  line-height: 1;
+}
+@keyframes radarFieldArrowPulse {
+  0%, 100% { opacity: 1; transform: translateX(0); }
+  50%       { opacity: 0.45; transform: translateX(3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar-field-arrow { animation: none; }
+}
+
+/* ── P4: Modal de campo faltando (reutiliza .hbx-veil + .hbx-modal) ── */
+/* Sem estilos extras — o modal já é centralizado pelo .hbx-veil global */
+.radar-missing-modal { display: flex; flex-direction: column; gap: 12px; }
+.radar-missing-modal h3 { margin: 0; font-size: 1rem; font-weight: 700; color: var(--text-strong); }
+.radar-missing-modal ul { margin: 0; padding: 0 0 0 18px; }
+.radar-missing-modal li { font-size: 0.84rem; color: var(--hbx-brand-strong); font-weight: 600; line-height: 1.7; }
+.radar-missing-modal p { margin: 0; font-size: 0.78rem; color: var(--text-muted); }
+
+/* ── P5/EFEITO: chip voando do radar pra aba Minha carteira ─────────────── */
+/* Container de chips em voo — fixed, z acima de tudo */
+.radar-fly-layer { position: fixed; inset: 0; pointer-events: none; z-index: 9999; overflow: hidden; }
+/* Chip individual em voo */
+.radar-fly-chip {
+  position: absolute;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 999px;
+  background: var(--hbx-brand-soft);
+  border: 1px solid var(--hbx-brand-strong);
+  color: var(--hbx-brand-strong);
+  font-size: 0.7rem; font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: radarChipFly var(--fly-dur, 0.72s) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes radarChipFly {
+  0%   { opacity: 0.9; transform: translate(var(--fly-x0), var(--fly-y0)) scale(1); }
+  70%  { opacity: 1;   transform: translate(calc(var(--fly-x1) * 0.5), calc(var(--fly-y1) * 0.5)) scale(0.88); }
+  100% { opacity: 0;   transform: translate(var(--fly-x1), var(--fly-y1)) scale(0.6); }
+}
+/* Avatar do chip de voo */
+.radar-fly-chip__av {
+  width: 18px; height: 18px; border-radius: 999px;
+  background: var(--hbx-brand-soft);
+  border: 1px solid var(--hbx-brand-strong);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.58rem; font-weight: 800; color: var(--hbx-brand-strong);
+  flex: 0 0 auto;
+}
+
+/* Toast de aterrissagem */
+.radar-fly-toast {
+  position: fixed;
+  bottom: 76px; left: 50%; transform: translateX(-50%);
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: var(--hbx-surface);
+  border: 1px solid var(--hbx-brand-strong);
+  color: var(--hbx-brand-strong);
+  font-size: 0.78rem; font-weight: 700;
+  box-shadow: var(--shadow-md);
+  z-index: 9998;
+  animation: radarToastIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
+}
+@keyframes radarToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+/* Badge "pop" na aba carteira ao receber o chip */
+.tabs .tab.tab--pop { animation: radarTabPop 0.4s cubic-bezier(0.36, 1.56, 0.64, 1); }
+@keyframes radarTabPop {
+  0%,100% { transform: scale(1); }
+  45%     { transform: scale(1.13); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar-fly-chip   { animation: none !important; opacity: 0; }
+  .radar-fly-toast  { animation: none !important; }
+  .tabs .tab.tab--pop { animation: none !important; }
+}
+
+/* ── P7: Pulso mais forte em operationalState=funcionando ─────────────────── */
+/* Sweep mais rápido quando funcionando */
+.radar-disc-wrap--funcionando .radarMotionSweep {
+  animation-duration: 1.9s;
+}
+/* Trail mais forte */
+.radar-disc-wrap--funcionando .radarMotionTrail {
+  animation-duration: 1.9s;
+  filter: blur(6px);
+}
+/* Anel pulsante extra (ondulação) */
+.radar-disc-wrap--funcionando .radarMotionRing {
+  animation-duration: 9s;
+  animation-name: radarMotionRingPulse;
+}
+@keyframes radarMotionRingPulse {
+  0%   { transform: rotate(0deg) scale(1);    opacity: 0.8; }
+  25%  { transform: rotate(90deg) scale(1.05); opacity: 1; }
+  50%  { transform: rotate(180deg) scale(1);   opacity: 0.8; }
+  75%  { transform: rotate(270deg) scale(1.05); opacity: 1; }
+  100% { transform: rotate(360deg) scale(1);   opacity: 0.8; }
+}
+/* Disco "respira" (escala sutil) */
+.radar-disc-wrap--funcionando .radarMotionGlow {
+  animation-duration: 0.85s;
+  box-shadow: 0 0 32px var(--radar-glow);
+}
+/* Blips mais rápidos e vivos */
+.radar-disc-wrap--funcionando .radarMotionBlip {
+  animation-duration: 1.1s;
+  box-shadow: 0 0 22px var(--radar-glow);
+}
+/* Banner .radar2-live: borda pulsante quando funcionando */
+.radar2-live--funcionando {
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-brand-strong) 35%, transparent);
+  animation: radar2LiveGlow 1.6s ease-in-out infinite;
+}
+@keyframes radar2LiveGlow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-brand-strong) 35%, transparent); }
+  50%       { box-shadow: 0 0 0 5px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar-disc-wrap--funcionando .radarMotionSweep { animation-duration: 3.4s; }
+  .radar-disc-wrap--funcionando .radarMotionTrail { animation-duration: 3.4s; filter: blur(8px); }
+  .radar-disc-wrap--funcionando .radarMotionRing  { animation-name: radarMotionRingSpin; animation-duration: 18s; }
+  .radar-disc-wrap--funcionando .radarMotionGlow  { animation-duration: 1.4s; box-shadow: 0 0 22px var(--radar-glow); }
+  .radar-disc-wrap--funcionando .radarMotionBlip  { animation-duration: 1.8s; }
+  .radar2-live--funcionando { animation: none; box-shadow: none; }
+}
+
+/* Segmento livre: campo input list para P2 */
+.radar-controls .f input[list] {
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── P5: Avisos de parada clicáveis ─────────────────────────────────────── */
+.radar-stop-warn {
+  font-size: 0.68rem;
+  line-height: 1.5;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.radar-stop-warn--pausado {
+  background: color-mix(in srgb, var(--hbx-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 30%, transparent);
+  color: var(--hbx-warning);
+}
+.radar-stop-warn--parado {
+  background: var(--hbx-surface-raised);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+}
 
 /* ── KPIs compactos no mobile ─────────────────────────────────────────────── */
 /* KPIs compactos no mobile */
@@ -2409,6 +2534,12 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    (foto toma a tela + blur + scrim) e entra a copy direto ao ponto.
    Cores soltas de propósito (autorizado): âmbar = vendedor, azul = empresa.
    ════════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════════
+   pele-allow: ENTRADA V1.0 — portal / mundo escolhido / login-no-mundo.
+   É o "mundo visual do site público" (mesma categoria já isenta da landing).
+   Cores cinematográficas cru enquanto o V1.0 evolui; ao assentar, tokenizar e
+   remover este marcador e o do fim do arquivo (fecha lá embaixo, na última linha).
+   ════════════════════════════════════════════════════════════════════════════ */
 /* a casca vira coluna-flex SÓ quando o Portal está em cena → preenche a viewport
    sem somar scroll, respeitando a barra/nav que a casca joga no fluxo no mobile */
 .scene:has(.portal){ height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
@@ -2844,3 +2975,4 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   .portal-hero, .portal-foot, .portal-side__ideal { display: none; }
   .portal-side__cue { margin-top: 10px; padding: 9px 18px; }
 }
+/* pele-allow-end — fim da entrada V1.0 (portal / mundo / login-no-mundo) */

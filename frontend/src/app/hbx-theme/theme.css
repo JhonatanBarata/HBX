@@ -94,3 +94,10 @@
   --shadow-lg: var(--shadow-lg);
   --shadow-lip: var(--shadow-inset);
 }
+
+/* Lightbox (visualizador de foto) — renderizado via portal em document.body,
+   então mora no :root pra valer fora do wrapper do tema. Escuro fixo (foto). */
+:root {
+  --hbx-lightbox-veil: rgba(0,0,0,0.84);
+  --hbx-lightbox-shadow: 0 24px 80px rgba(0,0,0,0.75);
+}

@@ -103,4 +103,12 @@ export class FinanceiroController {
   ) {
     return this.financeiroService.refundChargeByMaster(req.user, Number(companyId), chargeId, dto || {});
   }
+
+  // Cancela a assinatura recorrente da empresa no MP pelo MASTER (botão na aba
+  // Financeiro do painel de empresas). Para a cobrança do cartão sem excluir a empresa.
+  @Post('master/company/:companyId/subscription/cancel')
+  @UseGuards(MasterGuard)
+  cancelSubscriptionByMaster(@Req() req: any, @Param('companyId') companyId: string) {
+    return this.financeiroService.cancelSubscriptionByMaster(req.user, Number(companyId));
+  }
 }
