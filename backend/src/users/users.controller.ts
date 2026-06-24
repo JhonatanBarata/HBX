@@ -1807,4 +1807,25 @@ export class UsersController {
 			temporaryPassword: tempPassword,
 		};
 	}
+
+	@Patch('master/:id/confirm-email')
+	@UseGuards(JwtAuthGuard, MasterGuard)
+	async masterConfirmEmail(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+		const target = await this.usersService.findById(id);
+		if (!target) throw new NotFoundException('Usuário não encontrado');
+		const result = await this.usersService.markEmailConfirmed(id);
+		await this.masterContextService.registerSupportAction({
+			masterUserId: Number(req.user?.id),
+			companyId: Number(target.companyId || 0) || null,
+			scope: 'master_user',
+			action: 'USER_EMAIL_CONFIRMED',
+			severity: 'INFO',
+			metadata: {
+				userId: id,
+				email: target.email || null,
+				alreadyConfirmed: result.alreadyConfirmed,
+			},
+		});
+		return { ok: true, id, alreadyConfirmed: result.alreadyConfirmed };
+	}
 }

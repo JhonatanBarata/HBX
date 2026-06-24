@@ -1080,7 +1080,24 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         active: true,
       },
     });
-    if (existing?.providerPlanId) return existing;
+    if (existing?.providerPlanId) {
+      // Só reusa o template em cache se o preço/moeda registrados ainda baterem com o
+      // catálogo atual. Se o catálogo mudou de preço depois do registro, o template no MP
+      // ficou VELHO — e como o createPreapproval manda o preço novo contra esse template,
+      // o MP recusa: "transaction_amount must be the same as preapproval_plan". O MP não
+      // deixa mutar o valor de um preapproval_plan existente, então re-registramos um novo
+      // (catálogo = fonte da verdade); o upsert abaixo troca o providerPlanId + amount.
+      const registeredCents = Math.round(Number(existing.amount) * 100);
+      const currentCents = Math.round(Number(snapshot.amount) * 100);
+      const sameAmount = registeredCents === currentCents;
+      const sameCurrency =
+        String(existing.currency || 'BRL').toUpperCase() === String(snapshot.currency || 'BRL').toUpperCase();
+      if (sameAmount && sameCurrency) return existing;
+      this.logger.warn(
+        `mp_preapproval_plan_amount_drift plan=${snapshot.planKey} cycle=${snapshot.billingCycle} ` +
+          `registered=${existing.amount} current=${snapshot.amount} -> re-registrando template`,
+      );
+    }
 
     const providerPlan = await this.mercadoPagoClient.createPreapprovalPlan(
       accessToken,
@@ -3623,7 +3640,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
   // próxima fatura é ato do master (MP não abate parcial de cobrança recorrente fixa).
   async changePlanForUser(
     user: any,
-    dto: { planKey?: string; billingCycle?: string; cardTokenId?: string; dryRun?: boolean },
+    dto: {
+      planKey?: string;
+      billingCycle?: string;
+      cardTokenId?: string;
+      paymentMethodId?: string;
+      taxDocument?: string;
+      dryRun?: boolean;
+    },
   ) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
@@ -3676,10 +3700,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       chargeNow: proration.chargeNow,
       creditGenerated: proration.creditGenerated,
       remainingDays: prorationRemainingDays(periodEnd, now),
-      effectiveAt:
-        direction === 'downgrade'
-          ? (periodEnd ? periodEnd.toISOString() : null)
-          : now.toISOString(),
+      // Modelo B: tanto upgrade quanto downgrade trocam o plano AGORA. No upgrade cobra a
+      // diferença proporcional; no downgrade credita a diferença proporcional (a sobra do
+      // plano maior não usado). Nada de "manter o plano maior até o fim".
+      effectiveAt: now.toISOString(),
       isPaying,
     };
 
@@ -3714,12 +3738,15 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       return this.applyUpgradePlanChange({
         user, context, company, subscription, targetPlanKey, billingCycle,
         toCycleAmount, chargeNow: proration.chargeNow, preview,
-        cardTokenId: this.normalizeCardToken(dto?.cardTokenId), mockMode, periodStart, periodEnd, now,
+        cardTokenId: this.normalizeCardToken(dto?.cardTokenId),
+        paymentMethodId: String(dto?.paymentMethodId || '').trim() || null,
+        taxDocument: String(dto?.taxDocument || '').trim() || null,
+        mockMode, periodStart, periodEnd, now,
       });
     }
     return this.applyDowngradePlanChange({
       user, context, company, subscription, targetPlanKey, billingCycle,
-      toCycleAmount, creditGenerated: proration.creditGenerated, preview, mockMode, now,
+      toCycleAmount, creditGenerated: proration.creditGenerated, preview, mockMode, periodStart, periodEnd, now,
     });
   }
 
@@ -3734,6 +3761,8 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     chargeNow: number;
     preview: Record<string, unknown>;
     cardTokenId: string | null;
+    paymentMethodId: string | null;
+    taxDocument: string | null;
     mockMode: boolean;
     periodStart: Date | null;
     periodEnd: Date | null;
@@ -3744,18 +3773,87 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const periodEnd = input.periodEnd || this.computePeriodEnd(periodStart, billingCycle);
     const planTitle = getCommercialPlanTitle(targetPlanKey);
 
-    // LIVE: cobrar a diferença é um pagamento avulso de cartão de verdade (token +
-    // installments), que o motor de pagamento atual não monta e que não dá pra validar
-    // aqui. NÃO troca o plano sem o pagamento confirmado (Regra de Ouro): devolve um
-    // código sinalizado, sem mexer em nada. No MOCK o fluxo roda ponta a ponta.
+    // LIVE: cobra a diferença proporcional AGORA como pagamento avulso de cartão
+    // (one-off). Regra de Ouro: só libera o plano DEPOIS do pagamento aprovado — se
+    // recusar/falhar, devolve código e NÃO mexe em nada. Sem cartão na requisição,
+    // pede pro front coletar e re-chamar com o token (CARD_REQUIRED).
     if (!mockMode && chargeNow > 0) {
-      return {
-        ok: false,
-        code: 'LIVE_PRORATION_TODO',
-        direction: 'upgrade',
-        preview: input.preview,
-        message: `Upgrade para ${planTitle} cobra a diferença proporcional no cartão. A cobrança avulsa no Mercado Pago real ainda precisa ser validada com credenciais de teste na VPS.`,
-      };
+      if (!input.cardTokenId || !input.paymentMethodId) {
+        return {
+          ok: false,
+          code: 'CARD_REQUIRED',
+          direction: 'upgrade',
+          preview: input.preview,
+          message: `Para subir para ${planTitle} cobramos a diferença proporcional no cartão.`,
+        };
+      }
+      const { accessToken } = await this.resolveFinanceContext(context.companyId);
+      const payerEmail =
+        this.normalizePayerEmail(subscription?.payerEmail) ||
+        this.normalizePayerEmail(input.user?.email) ||
+        '';
+      const docDigits = String(input.taxDocument || company.taxDocument || '').replace(/\D/g, '');
+      let payment: any;
+      try {
+        payment = await this.mercadoPagoClient.createPayment(
+          accessToken,
+          {
+            transaction_amount: this.normalizeCurrencyAmount(chargeNow),
+            token: input.cardTokenId,
+            installments: 1,
+            payment_method_id: input.paymentMethodId,
+            description: `${planTitle} — diferença proporcional do upgrade`,
+            external_reference: `hbx-proration-${context.companyId}-${Date.now()}`,
+            metadata: {
+              company_id: context.companyId,
+              source: 'plan_change_upgrade',
+              target_plan: targetPlanKey,
+            },
+            payer: {
+              email: payerEmail,
+              ...(docDigits
+                ? { identification: { type: docDigits.length > 11 ? 'CNPJ' : 'CPF', number: docDigits } }
+                : {}),
+            },
+          },
+          randomUUID(),
+        );
+      } catch (error: any) {
+        this.logger.warn(
+          `plan_change_upgrade_proration_charge_failed company=${context.companyId} error=${String(error?.message || error)}`,
+        );
+        return {
+          ok: false,
+          code: 'CHARGE_FAILED',
+          direction: 'upgrade',
+          preview: input.preview,
+          message: String(error?.message || 'Não foi possível cobrar a diferença no cartão. Tente outro cartão.'),
+        };
+      }
+      const payStatus = this.normalizeProviderPaymentStatus(payment?.status);
+      if (payStatus !== 'approved') {
+        return {
+          ok: false,
+          code: 'CHARGE_DECLINED',
+          direction: 'upgrade',
+          preview: input.preview,
+          message: 'Pagamento da diferença recusado. Confira os dados do cartão ou tente outro.',
+        };
+      }
+      await this.recordProrationCharge({
+        context,
+        billingCycle,
+        amount: chargeNow,
+        planTitle,
+        entryType: 'PLAN_UPGRADE_PRORATION',
+        observation: `Diferença proporcional do upgrade para ${planTitle}.`,
+        metadata: {
+          targetPlanKey,
+          fromPlanKey: company.selectedPlanKey,
+          source: 'plan_change_upgrade',
+          providerPaymentId: payment?.id ? String(payment.id) : null,
+        },
+      });
     }
 
     // 1) Cobra a diferença AGORA (mock — Regra de Ouro: só libera com pagamento ok).
@@ -3821,6 +3919,8 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     creditGenerated: number;
     preview: Record<string, unknown>;
     mockMode: boolean;
+    periodStart: Date | null;
+    periodEnd: Date | null;
     now: Date;
   }) {
     const { context, company, subscription, targetPlanKey, billingCycle, toCycleAmount, creditGenerated, mockMode, now } = input;
@@ -3850,23 +3950,29 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    // 2) Agenda o plano menor pro PRÓXIMO ciclo (renovação aplica via activate).
-    //    O acesso ao plano atual continua até o fim do período já pago (NÃO reativa
-    //    agora — Regra de Ouro: o que está pago é usado até vencer).
-    if (subscription?.id) {
-      await this.prisma.companySubscription.update({
-        where: { id: subscription.id },
+    // 2) Modelo B: troca o plano AGORA (espelho do upgrade). O cliente NÃO mantém o plano
+    //    maior — cai pro menor na hora; o crédito acima devolve a sobra proporcional do que
+    //    foi pago. Não reinicia o ciclo (preserva o período vigente).
+    const periodStart = input.periodStart || now;
+    const periodEnd = input.periodEnd || this.computePeriodEnd(periodStart, billingCycle);
+    await this.prisma.$transaction(async (tx) => {
+      if (subscription?.id) {
+        await tx.companySubscription.update({
+          where: { id: subscription.id },
+          data: { planKey: targetPlanKey, billingCycle },
+        });
+      }
+      await tx.company.update({
+        where: { id: context.companyId },
         data: {
-          planKey: targetPlanKey,
+          selectedPlanKey: targetPlanKey,
           billingCycle,
-          providerPayloadJson: this.providerJson({
-            scheduledDowngradeTo: targetPlanKey,
-            scheduledAt: now.toISOString(),
-            keepsAccessUntil: company.subscriptionCurrentPeriodEnd || null,
-          }),
+          trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
         },
       });
-    }
+      await this.syncPaidPlanModulesTx(tx, context.companyId, targetPlanKey);
+      await this.syncPaidCommercialEntitlementsTx(tx, context.companyId, targetPlanKey, periodStart, periodEnd);
+    });
 
     // 3) LIVE: baixa o valor recorrente pro próximo ciclo.
     if (!mockMode && subscription?.providerPreapprovalId) {
@@ -3884,7 +3990,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       ok: true,
       direction: 'downgrade',
       creditGenerated: this.normalizeCurrencyAmount(creditGenerated),
-      effectiveAt: company.subscriptionCurrentPeriodEnd instanceof Date ? company.subscriptionCurrentPeriodEnd.toISOString() : null,
+      effectiveAt: now.toISOString(),
       preview: input.preview,
       overview: await this.getOverviewForUser(input.user),
     };

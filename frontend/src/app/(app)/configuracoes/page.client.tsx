@@ -170,6 +170,9 @@ export function ConfiguracoesClient() {
   const [planoBusy, setPlanoBusy] = useState(false);
   const [planoMsg, setPlanoMsg] = useState<string | null>(null);
   const [subscribePlan, setSubscribePlan] = useState<{ key: string; title: string; monthlyPrice: number | null } | null>(null);
+  // Upgrade de quem JÁ paga: cobra a diferença proporcional no cartão (change-plan),
+  // não cria assinatura nova. chargeNow = valor da diferença (do preview do modal).
+  const [upgradePay, setUpgradePay] = useState<{ key: string; chargeNow: number | null } | null>(null);
   const [confirmCancelar, setConfirmCancelar] = useState(false);
   const [implantacaoOpen, setImplantacaoOpen] = useState(false);
   const [trocarPlano, setTrocarPlano] = useState<PublicPlan | null>(null);
@@ -519,6 +522,32 @@ export function ConfiguracoesClient() {
         </div>
       )}
 
+      {upgradePay && (
+        <div className="bv-veil" role="dialog" aria-modal="true">
+          <div className="reg-form">
+            <CheckoutPanel
+              planKey={upgradePay.key}
+              phone={user?.company?.contactPhone || ""}
+              email={user?.email || ""}
+              name={nome || user?.name || user?.company?.name || ""}
+              title={`Subir para ${livePlans.find(p => p.key === upgradePay.key)?.title || "novo plano"}`}
+              amountOverride={upgradePay.chargeNow ?? undefined}
+              hideCycle
+              reactivation
+              submitOverride={async ({ cardTokenId, paymentMethodId, taxDocument }) => {
+                const res = await apiFetch<{ ok?: boolean; message?: string }>("/financeiro/subscription/change-plan", {
+                  method: "POST",
+                  body: JSON.stringify({ planKey: upgradePay.key, cardTokenId, paymentMethodId, taxDocument }),
+                });
+                if (!res?.ok) throw new Error(res?.message || "Não foi possível concluir o upgrade.");
+              }}
+              onSuccess={async () => { setUpgradePay(null); setPlanoMsg("✓ Upgrade aplicado! Acesso liberado."); await recarregarPlano(); }}
+            />
+            <button type="button" className="bv-link" onClick={() => setUpgradePay(null)}>← Voltar</button>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         open={confirmCancelar}
         title="Cancelar assinatura"
@@ -543,9 +572,15 @@ export function ConfiguracoesClient() {
             trialRemainingDays={current?.trialRemainingDays}
             savedCard={current?.savedCard ?? null}
             onClose={() => setTrocarPlano(null)}
-            onConfirmUpgrade={plan => {
+            onConfirmUpgrade={(plan, chargeNow) => {
               setTrocarPlano(null);
-              setSubscribePlan({ ...plan, monthlyPrice: plan.monthlyPrice ?? null });
+              // Já pagante → cobra a diferença proporcional (change-plan com cartão).
+              // Sem assinatura ativa → assina do zero (subscription/create).
+              if (current?.accessState === "paying") {
+                setUpgradePay({ key: plan.key, chargeNow: chargeNow ?? null });
+              } else {
+                setSubscribePlan({ ...plan, monthlyPrice: plan.monthlyPrice ?? null });
+              }
             }}
             onApplied={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
           />

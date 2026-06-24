@@ -67,6 +67,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
     !user.isSystemMaster &&
     user.canViewBilling !== false &&
     Boolean(user.company) &&
+    // Só DEPOIS de ter acesso (cartão/pago/trial). Sem isto a tela de ramo
+    // aparecia antes do cartão (pending_checkout) — o certo é pagar primeiro,
+    // aí o gate de pagamento (bloqueio-gate) é quem assume.
+    Boolean(companyAccess?.canUse) &&
     companyProspectingSegments.length === 0;
   // Preferência do vendedor (self-service 14/06): leitor tolerante a object
   // {segments,cityRegion} e ao bare-array legado. Vira o default do "Puxar leads".
@@ -84,7 +88,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     mustChangePassword: Boolean(user.mustChangePassword),
     // Boas-vindas (primeiro acesso): true = ainda não viu/dispensou o tutorial.
     // O portão (AuthGate) mostra senha → RAMO → tutorial e repete a cada login até resolver.
-    tutorialPending: !user.tutorialCompletedAt,
+    // Gateado por acesso: tutorial/onboarding é DEPOIS de pagar (igual ao ramo) — sem
+    // cartão, o gate de pagamento assume a tela, não o onboarding.
+    tutorialPending: !user.tutorialCompletedAt && Boolean(companyAccess?.canUse),
     // Ramo-alvo: só o dono define. true ⇒ portão pergunta antes do tutorial.
     ramoPending,
     sellerProfile: {

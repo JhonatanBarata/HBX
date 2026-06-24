@@ -75,7 +75,7 @@ type PayConfig = { mode?: "mock" | "live"; publicKey?: string | null };
 
 export function CheckoutPanel({
   planKey, phone: initialPhone = "", email, name, trialEndsAt, onSuccess, demoOutcome,
-  reactivation = false,
+  reactivation = false, submitOverride, amountOverride, ctaLabel, title, hideCycle = false,
 }: {
   planKey: string;
   phone?: string;
@@ -89,11 +89,19 @@ export function CheckoutPanel({
   // dev-only: a prévia /dev/checkout força a fase (aprovado/recusado) sem tocar
   // na rede, pra mostrar o efeito. O funil real nunca passa isto.
   demoOutcome?: "approved" | "declined";
+  // Cobrança AVULSA (ex.: diferença proporcional do upgrade): em vez de criar
+  // assinatura, o pai recebe o token + payment_method_id (resolvido pelo BIN) e
+  // dispara o /financeiro/subscription/change-plan. Sem isto, fluxo de assinatura normal.
+  submitOverride?: (args: { cardTokenId: string; paymentMethodId: string; taxDocument: string }) => Promise<void>;
+  amountOverride?: number; // valor a exibir/cobrar (a diferença), em vez do preço do plano
+  ctaLabel?: string;       // rótulo do botão
+  title?: string;          // título do painel
+  hideCycle?: boolean;     // upgrade mantém o ciclo atual — não mostra o seletor mensal/anual
 }) {
   const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
   const plan = livePlans.find((p) => p.key === planKey) ?? getPlanFallback(planKey);
   const planName = PLAN_STATIC[planKey]?.accent ?? plan.title;
-  const isTrial = !reactivation && plan.trialDays > 0;
+  const isTrial = !reactivation && !submitOverride && plan.trialDays > 0;
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [cfg, setCfg] = useState<PayConfig | null>(null);
   const [card, setCard] = useState({ number: "", holder: "", exp: "", cvv: "" });
@@ -131,6 +139,8 @@ export function CheckoutPanel({
   const monthly = plan.monthlyPrice ?? 0;
   const discount = plan.annualDiscountPercent;
   const total = useMemo(() => (cycle === "ANNUAL" ? monthly * 12 * (1 - discount / 100) : monthly), [cycle, monthly, discount]);
+  // No upgrade cobramos a diferença proporcional (amountOverride), não o preço do plano.
+  const shownTotal = amountOverride != null ? amountOverride : total;
   const trialDate = useMemo(() => {
     if (!trialEndsAt) return null;
     try { return new Date(trialEndsAt).toLocaleDateString("pt-BR"); } catch { return null; }
@@ -160,13 +170,18 @@ export function CheckoutPanel({
       // Em mock o backend aprova sem SDK. Em live, tokenizamos o cartão no navegador
       // via SDK do Mercado Pago — só o token vai pro backend, nunca o número do cartão.
       let cardTokenId: string;
+      let paymentMethodId = "";
       if (cfg?.mode === "live") {
         if (!cfg?.publicKey) throw new Error("Pagamento em produção ainda não configurado. Fale com o suporte HBX.");
-        const MP = (window as unknown as { MercadoPago?: new (k: string) => { createCardToken: (d: Record<string, string>) => Promise<{ id?: string }> } }).MercadoPago;
+        const MP = (window as unknown as { MercadoPago?: new (k: string) => {
+          createCardToken: (d: Record<string, string>) => Promise<{ id?: string }>;
+          getPaymentMethods: (d: { bin: string }) => Promise<{ results?: Array<{ id?: string }> }>;
+        } }).MercadoPago;
         if (!MP) throw new Error("Pagamento seguro ainda carregando. Aguarde um instante e tente de novo.");
+        const mp = new MP(cfg.publicKey);
         const [mm, yy] = card.exp.split("/").map(s => s.trim());
         const docDigits = doc.replace(/\D/g, "");
-        const token = await new MP(cfg.publicKey).createCardToken({
+        const token = await mp.createCardToken({
           cardNumber: card.number.replace(/\D/g, ""),
           cardholderName: card.holder,
           cardExpirationMonth: mm || "",
@@ -177,22 +192,35 @@ export function CheckoutPanel({
         });
         cardTokenId = token?.id || "";
         if (!cardTokenId) throw new Error("Não conseguimos validar o cartão. Confira os dados e tente de novo.");
+        // Cobrança avulsa (one-off) exige payment_method_id — resolvido pelo BIN do cartão.
+        if (submitOverride) {
+          const bin = card.number.replace(/\D/g, "").slice(0, 6);
+          try {
+            const pm = await mp.getPaymentMethods({ bin });
+            paymentMethodId = pm?.results?.[0]?.id || "";
+          } catch { /* segue; backend recusa com mensagem clara se faltar */ }
+        }
       } else {
         cardTokenId = `mock-card-${Date.now()}`;
+        paymentMethodId = "master";
       }
-      await apiFetch("/financeiro/subscription/create", {
-        method: "POST",
-        body: JSON.stringify({
-          planKey,
-          billingCycle: cycle,
-          cardTokenId,
-          contactPhone: phone,
-          contactName: name,
-          taxDocument: doc,
-          payerEmail: email,
-          acceptedTerms: true,
-        }),
-      });
+      if (submitOverride) {
+        await submitOverride({ cardTokenId, paymentMethodId, taxDocument: doc });
+      } else {
+        await apiFetch("/financeiro/subscription/create", {
+          method: "POST",
+          body: JSON.stringify({
+            planKey,
+            billingCycle: cycle,
+            cardTokenId,
+            contactPhone: phone,
+            contactName: name,
+            taxDocument: doc,
+            payerEmail: email,
+            acceptedTerms: true,
+          }),
+        });
+      }
       // APROVADO: o cartão vira herói (verde + ✓) e SÓ depois de ~1,2s o funil
       // avança. Em prefers-reduced-motion mostramos o estado final e seguimos rápido.
       setPhase("approved");
@@ -226,13 +254,15 @@ export function CheckoutPanel({
 
   return (
     <form className="card reg-checkout" onSubmit={pay}>
-      <h2>Ativar o HBX {planName}</h2>
+      <h2>{title ?? `Ativar o HBX ${planName}`}</h2>
       <div className="reg-checkout__summary">
-        <div className="reg-checkout__cycle" role="tablist" aria-label="Ciclo de cobrança">
-          <button type="button" role="tab" aria-selected={cycle === "MONTHLY"} className={cycle === "MONTHLY" ? "is-on" : ""} onClick={() => setCycle("MONTHLY")}>Mensal</button>
-          <button type="button" role="tab" aria-selected={cycle === "ANNUAL"} className={cycle === "ANNUAL" ? "is-on" : ""} onClick={() => setCycle("ANNUAL")}>Anual <span>-{discount}%</span></button>
-        </div>
-        <div className="reg-checkout__total"><b>{formatBRL(total)}</b><em>{cycle === "ANNUAL" ? "/ano" : "/mês"}</em></div>
+        {!hideCycle && (
+          <div className="reg-checkout__cycle" role="tablist" aria-label="Ciclo de cobrança">
+            <button type="button" role="tab" aria-selected={cycle === "MONTHLY"} className={cycle === "MONTHLY" ? "is-on" : ""} onClick={() => setCycle("MONTHLY")}>Mensal</button>
+            <button type="button" role="tab" aria-selected={cycle === "ANNUAL"} className={cycle === "ANNUAL" ? "is-on" : ""} onClick={() => setCycle("ANNUAL")}>Anual <span>-{discount}%</span></button>
+          </div>
+        )}
+        <div className="reg-checkout__total"><b>{formatBRL(shownTotal)}</b><em>{hideCycle ? "" : (cycle === "ANNUAL" ? "/ano" : "/mês")}</em></div>
       </div>
       {isTrial && (
         <div className="reg-checkout__trial">
@@ -364,7 +394,7 @@ export function CheckoutPanel({
         </div>
       ) : (
         <button className="btn-teal" type="submit" disabled={busy}>
-          {resolving ? "Processando…" : approved ? "Aprovado ✓" : isTrial ? "Começar trial sem cobrança" : `Pagar ${formatBRL(total)}`}
+          {resolving ? "Processando…" : approved ? "Aprovado ✓" : ctaLabel ?? (isTrial ? "Começar trial sem cobrança" : `Pagar ${formatBRL(shownTotal)}`)}
         </button>
       )}
       {!inPhase && (

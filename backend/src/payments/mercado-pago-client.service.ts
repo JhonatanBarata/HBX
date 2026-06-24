@@ -92,6 +92,11 @@ export type MercadoPagoCreatePaymentPayload = {
   transaction_amount: number;
   description: string;
   payment_method_id: string;
+  // Cobrança avulsa de cartão (one-off, ex.: diferença proporcional do upgrade):
+  // o token vem do navegador (SDK do MP), o cartão nunca passa pelo backend.
+  token?: string;
+  installments?: number;
+  issuer_id?: string;
   notification_url?: string;
   external_reference?: string;
   metadata?: Record<string, unknown>;
@@ -99,6 +104,8 @@ export type MercadoPagoCreatePaymentPayload = {
     email: string;
     first_name?: string;
     last_name?: string;
+    // CPF/CNPJ do pagador — exigido pelo MP em pagamento de cartão no Brasil.
+    identification?: { type?: string; number?: string };
   };
 };
 

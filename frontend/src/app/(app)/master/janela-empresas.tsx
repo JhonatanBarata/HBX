@@ -663,6 +663,26 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
+  // Confirma o e-mail na mão (suporte). Resolve o login travado no localhost, onde o
+  // envio de e-mail é off e o cadastro não recebe o link de confirmação.
+  async function confirmarEmail(u: DetailUser) {
+    if (userBusy) return;
+    setUserBusy(true);
+    setUserMsg(null);
+    try {
+      const res = await apiFetch<{ ok?: boolean; alreadyConfirmed?: boolean }>(
+        `/users/master/${u.id}/confirm-email`,
+        { method: "PATCH", body: JSON.stringify({}) },
+      );
+      setUserMsg(res?.alreadyConfirmed ? "✓ E-mail já estava confirmado." : "✓ E-mail confirmado — já pode logar.");
+      await recarregarTudo();
+    } catch (err) {
+      setUserMsg(err instanceof Error ? err.message : "Falha ao confirmar o e-mail.");
+    } finally {
+      setUserBusy(false);
+    }
+  }
+
   async function alternarModulo(key: string, enabled: boolean) {
     if (moduloBusy || selId == null) return;
     setModuloBusy(key);
@@ -948,6 +968,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                     <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
                                       onClick={() => setDeleteArm(u.id)}>Excluir</button>
                                   )}
+                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                    onClick={() => confirmarEmail(u)}>Confirmar e-mail</button>
                                 </div>
                               </td>
                             </tr>

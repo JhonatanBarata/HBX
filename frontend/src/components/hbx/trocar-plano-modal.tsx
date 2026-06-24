@@ -43,8 +43,9 @@ type Props = {
   // Cartão na ficha (assinatura vigente): mostra "•••• 4242 — confirmar" e deixa
   // o pagante reusar sem redigitar (change-plan reusa o preapproval).
   savedCard?: { brand: string | null; last4: string | null } | null;
-  // Fallback p/ cartão: assinar do zero ou cobrar a diferença no live.
-  onConfirmUpgrade: (plan: PublicPlan) => void;
+  // Fallback p/ cartão: assinar do zero (sem chargeNow) ou cobrar a diferença
+  // proporcional no live (chargeNow = valor da diferença, do preview).
+  onConfirmUpgrade: (plan: PublicPlan, chargeNow?: number) => void;
   // Troca aplicada no backend (refresh + mensagem).
   onApplied: (msg: string) => void;
 };
@@ -126,7 +127,7 @@ export function TrocarPlanoModal({
           return;
         }
         if (res?.code && NEEDS_CARD_CODES.includes(res.code)) {
-          onConfirmUpgrade(toPlan); // cai pro cartão (assinar / diferença no live)
+          onConfirmUpgrade(toPlan, chargeNow ?? undefined); // cai pro cartão (diferença proporcional no live)
           return;
         }
         throw new Error(res?.message || "Não foi possível aplicar a troca.");
@@ -210,7 +211,7 @@ export function TrocarPlanoModal({
                   <small>
                     Confirmar usa o cartão que você já cadastrou — sem digitar de novo.{" "}
                     {direction === "upgrade" && (
-                      <button type="button" className="bv-link" onClick={() => onConfirmUpgrade(toPlan)} disabled={busy}>usar outro cartão</button>
+                      <button type="button" className="bv-link" onClick={() => onConfirmUpgrade(toPlan, chargeNow ?? undefined)} disabled={busy}>usar outro cartão</button>
                     )}
                   </small>
                 </span>
@@ -250,17 +251,13 @@ export function TrocarPlanoModal({
               </div>
             )}
 
-            {/* Downgrade: pagante → mantém acesso até o fim do período */}
+            {/* Downgrade: pagante → troca AGORA (modelo B), com crédito da sobra */}
             {direction === "downgrade" && isPaying && (
               <div className="bv-step">
-                <span className="n">📅</span>
+                <span className="n">↓</span>
                 <span className="tx">
-                  <strong>Mantém o {fromPlan?.title ?? "plano atual"} até o fim do período</strong>
-                  <small>
-                    O que já está pago você usa até o vencimento
-                    {preview?.remainingDays ? ` (${preview.remainingDays} dia${preview.remainingDays === 1 ? "" : "s"})` : ""}.
-                    Depois o acesso cai para o {toPlan.title}.
-                  </small>
+                  <strong>Troca para {toPlan.title} agora</strong>
+                  <small>O acesso ao {fromPlan?.title ?? "plano atual"} encerra na hora — a sobra proporcional do que você já pagou volta como crédito.</small>
                 </span>
               </div>
             )}

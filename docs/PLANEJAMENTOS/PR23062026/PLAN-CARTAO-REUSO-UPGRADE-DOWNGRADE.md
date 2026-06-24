@@ -99,3 +99,34 @@ UI/UX que já existe** — o card "Detalhes do plano" da landing + o "cartão de
 - [x] **B4** — testar.md leigo.
 - [x] **Fix build** — removido meu auto-open (`checkoutIntentRef`) que dava erro "setState in effect"
       e abria form em branco (errado com o reuso). "Assinar agora" só leva pra tela do plano agora.
+
+## ACHADO 23/06 (teste live no VPS) — bug do upgrade LOCALIZADO
+Upgrade List→Pro falhou: **"The transaction_amount must be the same as preapproval_plan"** + plano
+travou em List. Causa: `createPreapproval` (`financeiro.service.ts:3348`) manda `preapproval_plan_id`
+(template do Pro, R$249) **junto** com `auto_recurring.transaction_amount` = a diferença proporcional
+(R$198,78) → o MP exige que os dois batam. **Fix certo:** a assinatura recorrente carrega o valor CHEIO
+do plano (= o template); a diferença proporcional vira **pagamento avulso separado** (`createPayment`),
+não embutida no `transaction_amount` do preapproval. É o item "cobrança avulsa LIVE" que já estava aberto.
+Testar no **localhost (MP modo TESTE, cartão 4242)** — no VPS é a conta MP de verdade (dinheiro real).
+Visual reprovado (modal sem confirmação, checkout sem vida) → migrou pro `PR24062026`.
+
+## CONSTRUÍDO + VALIDADO 23/06 noite (Opus direto) — upgrade com cobrança da diferença
+**Backend** (`financeiro.service.ts`, `mercado-pago-client.service.ts`):
+- Fix do `transaction_amount`: `ensureMercadoPagoPreapprovalPlan` só reusa o template em cache se preço/moeda
+  ainda baterem com o catálogo; se mudou, re-registra (MP não deixa mutar plano existente). **Erro do dono morto.**
+- `applyUpgradePlanChange`: a trava `LIVE_PRORATION_TODO` virou cobrança REAL — `createPayment` (one-off) da
+  diferença com token+`payment_method_id`+CPF; sem cartão devolve `CARD_REQUIRED`; recusa → `CHARGE_DECLINED`;
+  só libera o plano com pagamento aprovado. Tipo `MercadoPagoCreatePaymentPayload` estendido (token/installments/identification).
+**Frontend** (`checkout-panel.tsx`, `trocar-plano-modal.tsx`, `configuracoes/page.client.tsx`):
+- CheckoutPanel ganhou `submitOverride` (no upgrade chama `change-plan` com o token, não cria assinatura) +
+  resolve `payment_method_id` pelo BIN (MP `getPaymentMethods`) + `amountOverride`/`hideCycle`/`title`.
+- Configurações roteia: pagante→cobra diferença; sem assinatura→assina do zero.
+**Validado em MOCK local (API):** subscribe List ✓; **upgrade List→Pro: dryRun diff R$200, cobra, vira Pro ✓**
+(era exatamente o que travava); downgrade Pro→Lead: sem cobrança, crédito R$150, efetivo no fim do período ✓.
+Backend `build` + frontend `next build` verdes.
+
+**Pendente:** (1) prova REAL no Mercado Pago = só no **VPS (https + conta real)** — o MP de teste local tem quirks
+(exige comprador de teste, back_url público, e dá 500 intermitente no preapproval); (2) **trial vencido → 1ª cobrança
+é do motor recorrente do MP** (não nosso; auto no VPS via webhook) — não exercitável em mock; (3) hardening: template
+de plano apagado/de-outra-conta no MP ainda quebra o subscribe ("template does not exist") — self-heal (re-registrar
+ao falhar) fica como follow-up; (4) visual (modal/checkout) → `PR24062026`.

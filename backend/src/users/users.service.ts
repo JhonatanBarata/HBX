@@ -746,6 +746,15 @@ export class UsersService {
     return this.prisma.user.update({ where: { id: userId }, data: { companyId } });
   }
 
+  // Confirma o e-mail do usuário na mão (ação de suporte do Master). No localhost o
+  // envio de e-mail é OFF → sem isto o cadastro não loga. Idempotente.
+  async markEmailConfirmed(userId: number): Promise<{ alreadyConfirmed: boolean }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { emailConfirmedAt: true } });
+    if (user?.emailConfirmedAt) return { alreadyConfirmed: true };
+    await this.prisma.user.update({ where: { id: userId }, data: { emailConfirmedAt: new Date() } });
+    return { alreadyConfirmed: false };
+  }
+
   async setPassword(userId: number, hashedPassword: string, options?: { mustChangePassword?: boolean }): Promise<User> {
     const mustChangePassword = Boolean(options?.mustChangePassword);
     if (mustChangePassword) {

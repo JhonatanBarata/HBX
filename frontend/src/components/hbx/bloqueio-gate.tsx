@@ -137,13 +137,18 @@ export function BloqueioGate() {
   let body = "O acesso da sua empresa está pausado no momento. Fale com o administrador da empresa para regularizar.";
   if (billingView) {
     if (semCartao) {
-      kicker = "Cadastro"; title = "Termine seu cadastro HBX!";
-      body = "Complete seu cadastro conosco, para liberar seu acesso.";
+      kicker = "Falta um passo";
+      title = state.plan ? `Quase lá — libere o HBX ${state.plan.title}` : "Quase lá — libere seu acesso";
+      body = "Confirme o pagamento e sua operação abre na hora. É rápido.";
     } else {
       kicker = "Plano"; title = "Ative seu plano HBX";
       body = "Complete o pagamento para liberar o acesso da sua operação:";
     }
   }
+
+  const priceLabel = state.plan?.monthlyPrice != null
+    ? `R$ ${state.plan.monthlyPrice.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}/mês`
+    : null;
 
   // O botão de ação (Cadastrar/Ativar agora) só abre se temos o plano carregado.
   const canActivateInline = billingView && Boolean(state.plan);
@@ -158,6 +163,33 @@ export function BloqueioGate() {
           <p>{body}</p>
         </div>
         <div className="bv-body">
+          {billingView && (
+            <div className="bv-steps">
+              {state.plan && (
+                <div className="bv-step">
+                  <span className="n">★</span>
+                  <span className="tx">
+                    <strong>Plano HBX {state.plan.title}{priceLabel ? ` · ${priceLabel}` : ""}</strong>
+                    <small>O plano que você escolheu — pode trocar depois, quando quiser.</small>
+                  </span>
+                </div>
+              )}
+              <div className="bv-step">
+                <span className="n">✓</span>
+                <span className="tx">
+                  <strong>Acesso liberado na hora</strong>
+                  <small>Assim que o pagamento confirma, sua operação destrava — sem espera.</small>
+                </span>
+              </div>
+              <div className="bv-step">
+                <span className="n">🔒</span>
+                <span className="tx">
+                  <strong>Pagamento seguro · cancele quando quiser</strong>
+                  <small>Processado pelo Mercado Pago. Seu cartão nunca fica com a HBX.</small>
+                </span>
+              </div>
+            </div>
+          )}
           <div className="bv-foot">
             <button type="button" className="bv-link" onClick={sair} disabled={saindo}>
               {saindo ? "Saindo…" : "Sair"}
@@ -165,7 +197,7 @@ export function BloqueioGate() {
             <span className="grow" />
             {canActivateInline && (
               <button type="button" className="btn-teal" onClick={() => setShowCheckout(true)}>
-                {semCartao ? "Cadastrar →" : "Ativar agora →"}
+                {semCartao ? "Liberar meu acesso →" : "Ativar agora →"}
               </button>
             )}
           </div>
