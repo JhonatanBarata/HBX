@@ -94,6 +94,9 @@
   color: var(--text-muted);
 }
 
+.bot-vars-search { display: flex; }
+.bot-vars-search input { width: 100%; }
+
 .bot-vars-scroll {
   display: flex;
   flex-direction: column;

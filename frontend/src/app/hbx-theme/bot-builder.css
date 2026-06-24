@@ -5,142 +5,6 @@
  * AQUI (não em screens.css). Zero hex/inline color — só tokens centrais.
  * ==========================================================================*/
 
-/* ---- Split-screen: 2 metades ---- */
-.bot-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0;
-  flex: 1;
-  min-height: 0;
-}
-
-/* metade esquerda: pilha de fases, scroll próprio */
-.bot-split__left {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px 18px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border-right: 1px solid var(--border-hairline);
-  background: var(--hbx-surface);
-}
-
-.bot-split__left-intro {
-  margin: 0;
-  font-size: 0.7rem;
-  line-height: 1.5;
-  color: var(--text-muted);
-}
-
-/* metade direita: organograma vivo */
-.bot-split__right {
-  min-height: 0;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  background: var(--hbx-background);
-}
-
-/* ---- Card de fase (uma "fase" do bot) ---- */
-.bot-phase {
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-md);
-  background: var(--hbx-surface-soft);
-  box-shadow: var(--shadow-xs);
-  transition:
-    border-color var(--motion-fast),
-    box-shadow var(--motion-fast);
-}
-.bot-phase--active {
-  border-color: var(--login-accent);
-  box-shadow: var(--shadow-sm), 0 0 0 3px color-mix(in srgb, var(--login-accent) 14%, transparent);
-}
-
-.bot-phase__head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 13px;
-  border-bottom: 1px solid var(--border-hairline);
-}
-.bot-phase__icon {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  border-radius: var(--radius-sm);
-  color: var(--hbx-action-ink);
-  background: var(--bot-phase-color, var(--hbx-brand));
-}
-.bot-phase__titles { display: grid; gap: 1px; flex: 1; min-width: 0; }
-.bot-phase__name {
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-strong);
-}
-.bot-phase__hint {
-  font-size: 0.64rem;
-  color: var(--text-muted);
-  line-height: 1.3;
-}
-
-/* selo de estado da fase (Pronto / Vazio) */
-.bot-phase__badge {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 0.6rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  border: 1px solid var(--border-hairline);
-  background: var(--hbx-surface-raised);
-  color: var(--text-muted);
-}
-.bot-phase__badge--ready {
-  border-color: color-mix(in srgb, var(--hbx-success) 40%, transparent);
-  background: color-mix(in srgb, var(--hbx-success) 12%, transparent);
-  color: var(--hbx-success);
-}
-
-.bot-phase__body {
-  padding: 12px 13px 13px;
-  display: grid;
-  gap: 10px;
-}
-
-/* faixa de ações da fase (botão Variáveis) */
-.bot-phase__tools {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: -4px;
-}
-.bot-phase__var-btn {
-  min-height: 28px;
-  font-size: 0.66rem;
-  padding: 0 11px;
-}
-
-.bot-phase__field {
-  width: 100%;
-  resize: vertical;
-  min-height: 76px;
-  padding: 9px 12px;
-  line-height: 1.45;
-}
-
-/* bloco de botões dentro da fase (separador sutil) */
-.bot-phase__buttons {
-  padding-top: 11px;
-  border-top: 1px dashed var(--border-hairline);
-}
-
 /* ---- Estado de erro de carregamento (mata o "Ação…" fantasma) ---- */
 .bot-load-error {
   margin: 16px 18px;
@@ -203,3 +67,480 @@
 
 /* o chat de teste ocupa o corpo do drawer (lista rola, composer fixo embaixo) */
 .bot-test-drawer .msgs { flex: 1; min-height: 0; }
+
+/* ============================================================================
+ * IA "painel integrado": 3 GUIAS por tipo + painel único (ativação + fluxo=config).
+ * As guias substituem os 3 cards de ativação + o seletor "Tipo de bot" + as abas.
+ * ==========================================================================*/
+
+/* ---- 3 guias (Atendimento / Recovery / Prospecção) ---- */
+.bot-guias {
+  display: flex;
+  gap: 6px;
+  padding: 0 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.bot-guia {
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 0.84rem;
+  font-weight: 700;
+  transform: translateY(1px);
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+}
+.bot-guia:hover { color: var(--text-strong); background: var(--hbx-surface-soft); }
+.bot-guia.on {
+  color: var(--text-strong);
+  background: var(--hbx-surface);
+  border-color: var(--border-hairline);
+}
+.bot-guia:disabled { cursor: default; opacity: 0.6; }
+.bot-guia__dot {
+  width: 8px; height: 8px; flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.bot-guia__dot--on {
+  background: var(--hbx-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-success) 22%, transparent);
+}
+
+/* ---- Painel integrado do tipo (ativação compacta + fluxo=config) ---- */
+.bot-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ativação compacta: o card do tipo numa única faixa (não 3 cards empilhados) */
+.bot-type-card--compact {
+  margin: 0 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.bot-type-card--compact .bot-type-card-head { flex: 1; min-width: 220px; }
+.bot-type-card--compact .bot-type-card-pf { margin-top: 0; }
+
+/* ============================================================================
+ * MONTAGEM "TIPO JOGO": switcher de modo + 3 visões (Tabuleiro/Trilha/Bandeja).
+ * As 3 visões mostram AS MESMAS peças (fases reais) — só muda o jeito de montar.
+ * O editor de peça desliza da direita (BotPhaseEditor, classes abaixo).
+ * ==========================================================================*/
+
+.bot-montagem {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 4px;
+}
+
+/* ---- Switcher de modo (segmented control) ---- */
+.bot-modos {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-soft);
+  width: fit-content;
+  max-width: 100%;
+}
+.bot-modo {
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: background var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.bot-modo:hover { color: var(--text-strong); }
+.bot-modo.on {
+  color: var(--hbx-action-ink);
+  background: var(--hbx-brand);
+  box-shadow: var(--shadow-xs);
+}
+.bot-modo__name { white-space: nowrap; }
+.bot-modo__hint {
+  margin-left: 10px;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+/* ---- Casca de cada visão (rola por dentro) ---- */
+.bot-modo-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: bot-modo-in var(--motion-base) var(--ease-out-quint) both;
+}
+@keyframes bot-modo-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bot-modo-view { animation: none; }
+}
+
+/* ---- MODO TABULEIRO: organograma herói + atalho de Ajustes ---- */
+.bot-modo-view--tabuleiro {
+  position: relative;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--hbx-background);
+}
+.bot-board-settings {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-md);
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+.bot-board-settings:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.bot-board-settings.on { border-color: var(--login-accent); }
+.bot-board-settings__icon { display: grid; place-items: center; color: var(--text-muted); }
+.bot-board-settings__dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--border-strong);
+}
+.bot-board-settings__dot.on {
+  background: var(--hbx-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-success) 22%, transparent);
+}
+
+/* ---- MODO TRILHA: passos numerados verticais que acendem ---- */
+.bot-modo-view--trilha {
+  overflow-y: auto;
+  padding: 8px 4px 24px;
+  background: var(--hbx-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+}
+.bot-trail {
+  list-style: none;
+  margin: 0;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bot-trail__step {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  padding-bottom: 6px;
+}
+/* trilho vertical conectando os passos */
+.bot-trail__rail {
+  position: absolute;
+  left: 17px;
+  top: 36px;
+  bottom: -6px;
+  width: 2px;
+  background: var(--border-hairline);
+  transition: background var(--motion-base);
+}
+.bot-trail__step:last-child .bot-trail__rail { display: none; }
+.bot-trail__step.is-done .bot-trail__rail { background: color-mix(in srgb, var(--hbx-success) 55%, transparent); }
+/* selo numerado (vira check verde quando pronto) */
+.bot-trail__num {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 800;
+  transition: border-color var(--motion-base), background var(--motion-base), color var(--motion-base), transform var(--motion-base);
+}
+.bot-trail__step.is-done .bot-trail__num {
+  border-color: var(--hbx-success);
+  background: var(--hbx-success);
+  color: var(--hbx-action-ink);
+  animation: bot-trail-pop var(--motion-base) var(--ease-out-quint);
+}
+.bot-trail__step.is-open .bot-trail__num { border-color: var(--login-accent); transform: scale(1.06); }
+@keyframes bot-trail-pop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+/* cartão clicável do passo */
+.bot-trail__card {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 13px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+.bot-trail__card:hover { transform: translateX(2px); box-shadow: var(--shadow-sm); }
+.bot-trail__step.is-open .bot-trail__card {
+  border-color: var(--login-accent);
+  box-shadow: var(--shadow-sm), 0 0 0 3px color-mix(in srgb, var(--login-accent) 14%, transparent);
+}
+.bot-trail__icon {
+  display: grid; place-items: center;
+  width: 30px; height: 30px; flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  color: var(--hbx-action-ink);
+  background: var(--bot-phase-color, var(--hbx-brand));
+}
+.bot-trail__titles { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.bot-trail__name { font-family: var(--font-display); font-size: 0.82rem; font-weight: 700; color: var(--text-strong); }
+.bot-trail__hint { font-size: 0.64rem; color: var(--text-muted); line-height: 1.3; }
+.bot-trail__badge {
+  flex: 0 0 auto;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised); color: var(--text-muted);
+}
+.bot-trail__badge--ready {
+  border-color: color-mix(in srgb, var(--hbx-success) 40%, transparent);
+  background: color-mix(in srgb, var(--hbx-success) 12%, transparent);
+  color: var(--hbx-success);
+}
+.bot-trail__chev { flex: 0 0 auto; color: var(--text-muted); display: grid; place-items: center; }
+
+/* ---- MODO BANDEJA: chips arrastáveis + área de drop ---- */
+.bot-modo-view--bandeja {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
+  gap: 14px;
+  overflow: hidden;
+}
+@media (max-width: 900px) {
+  .bot-modo-view--bandeja { grid-template-columns: 1fr; overflow-y: auto; }
+}
+.bot-tray {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+  overflow-y: auto;
+  min-height: 0;
+}
+.bot-tray__title { font-family: var(--font-display); font-size: 0.86rem; font-weight: 800; color: var(--text-strong); }
+.bot-tray__sub { font-size: 0.66rem; color: var(--text-muted); margin-bottom: 8px; }
+.bot-tray__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.bot-chip {
+  appearance: none;
+  cursor: grab;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 700;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast), opacity var(--motion-fast);
+}
+.bot-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.bot-chip:active { cursor: grabbing; }
+.bot-chip.is-done { border-color: color-mix(in srgb, var(--hbx-success) 45%, transparent); }
+.bot-chip__icon {
+  display: grid; place-items: center;
+  width: 26px; height: 26px; flex: 0 0 auto;
+  border-radius: 50%;
+  color: var(--hbx-action-ink);
+  background: var(--bot-phase-color, var(--hbx-brand));
+}
+.bot-chip__name { white-space: nowrap; }
+.bot-chip__done { display: grid; place-items: center; color: var(--hbx-success); }
+
+/* área de drop (alvo do arraste) */
+.bot-drop {
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--hbx-background);
+  min-height: 240px;
+  padding: 24px;
+  transition: border-color var(--motion-base), background var(--motion-base);
+}
+.bot-drop.is-over {
+  border-color: var(--login-accent);
+  background: color-mix(in srgb, var(--login-accent) 9%, var(--hbx-background));
+}
+.bot-drop__inner { display: grid; justify-items: center; gap: 8px; text-align: center; max-width: 320px; }
+.bot-drop__icon {
+  display: grid; place-items: center;
+  width: 54px; height: 54px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  background: var(--hbx-surface-soft);
+  border: 1px solid var(--border-hairline);
+  transition: transform var(--motion-base), color var(--motion-base);
+}
+.bot-drop.is-over .bot-drop__icon { transform: scale(1.12); color: var(--login-accent); }
+.bot-drop__title { font-family: var(--font-display); font-size: 0.92rem; font-weight: 800; color: var(--text-strong); }
+.bot-drop__hint { font-size: 0.7rem; color: var(--text-muted); line-height: 1.5; }
+.bot-drop__progress { display: grid; gap: 5px; width: 100%; margin-top: 8px; }
+.bot-drop__count { font-size: 0.66rem; font-weight: 700; color: var(--text-body); }
+.bot-drop__track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hbx-surface-raised);
+  overflow: hidden;
+}
+.bot-drop__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--hbx-brand);
+  transition: width var(--motion-slow) var(--ease-out-quint);
+}
+
+/* ============================================================================
+ * EDITOR DESLIZANTE DE PEÇA (BotPhaseEditor) — casca central (.hbx-veil.to-right
+ * + .hbx-drawer); aqui só o conteúdo + a animação reversa (espelha bot-vars).
+ * ==========================================================================*/
+.hbx-drawer.bot-phase-editor {
+  width: min(440px, 94vw);
+  height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: bot-phase-editor-in var(--motion-base) var(--ease-out-quint) both;
+}
+.hbx-drawer.bot-phase-editor.bot-phase-editor--closing {
+  animation: bot-phase-editor-out var(--motion-base) var(--ease-out-quint) both;
+}
+.bot-phase-veil--closing { animation: bot-vars-veil-out var(--motion-base) var(--ease-out-quint) both; }
+@keyframes bot-phase-editor-in {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes bot-phase-editor-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateX(100%); opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hbx-drawer.bot-phase-editor,
+  .hbx-drawer.bot-phase-editor.bot-phase-editor--closing,
+  .bot-phase-veil--closing { animation: none; }
+}
+
+.bot-phase-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.bot-phase-editor__icon {
+  display: grid; place-items: center;
+  width: 36px; height: 36px; flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  color: var(--hbx-action-ink);
+  background: var(--bot-phase-color, var(--hbx-brand));
+}
+.bot-phase-editor__titles { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.bot-phase-editor__title { font-family: var(--font-display); font-size: 0.96rem; font-weight: 800; color: var(--text-strong); }
+.bot-phase-editor__hint { font-size: 0.66rem; color: var(--text-muted); line-height: 1.3; }
+.bot-phase-editor__close {
+  flex: 0 0 auto;
+  appearance: none;
+  cursor: pointer;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.bot-phase-editor__close:hover { background: var(--hbx-surface-raised); color: var(--text-strong); }
+
+.bot-phase-editor__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.bot-phase-editor__label { font-size: 0.72rem; font-weight: 700; color: var(--text-body); }
+.bot-phase-editor__field { width: 100%; resize: vertical; min-height: 120px; padding: 11px 13px; line-height: 1.5; }
+.bot-phase-editor__tools { display: flex; justify-content: flex-end; }
+.bot-phase-editor__var-btn { min-height: 30px; font-size: 0.68rem; padding: 0 12px; }
+.bot-phase-editor__buttons { padding-top: 13px; border-top: 1px dashed var(--border-hairline); }
+.bot-phase-editor__rules { display: flex; flex-direction: column; gap: 4px; }
+.bot-phase-editor__rule-info { flex: 1; min-width: 0; }
+
+.bot-phase-editor__foot {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-hairline);
+}
+.bot-phase-editor__done { width: 100%; }

@@ -17,6 +17,10 @@
 @import "./hbx-theme/marketing.css";
 @import "./hbx-theme/transitions.css";
 
+/* É AQUI QUE FECHA — modal cinematográfico de fechamento de venda (Atendimento +
+   Vendas), com passo-a-passo da comissão do vendedor. */
+@import "./hbx-theme/fechar-venda.css";
+
 /* Construtor de Bot — peças do rebuild (organograma, botões QR×Meta, gaveta de
    variáveis) + layout da tela dividida. Depois de transitions.css (reusam
    .hbx-veil/.hbx-drawer) e antes das peles/mobile. */

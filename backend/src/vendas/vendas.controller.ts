@@ -55,6 +55,13 @@ export class VendasController {
     return this.vendasService.getBotStatusForUser(req.user);
   }
 
+  // % e tetos de comissao do proprio vendedor — alimenta a estimativa ao vivo do
+  // passo-a-passo de fechamento ("voce vai ganhar ~ R$X").
+  @Get('me/commission-profile')
+  getMyCommissionProfile(@Req() req: any) {
+    return this.vendasService.getMyCommissionProfileForUser(req.user);
+  }
+
   @Post('notify-bot-config-missing')
   notifyBotConfigMissing(@Req() req: any) {
     return this.vendasService.notifyBotConfigMissingForUser(req.user);
@@ -264,6 +271,13 @@ export class VendasController {
   @Post('lead/:leadId/hbx-handoff')
   createHbxSalesHandoff(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: CreateHbxSalesHandoffDto) {
     return this.vendasService.createHbxSalesHandoffForUser(req.user, leadId, dto || {});
+  }
+
+  // Fechamento direto do Atendimento (conversa do WhatsApp). Garante o card e roda
+  // o mesmo handoff — comissao amarrada a quem fecha.
+  @Post('conversation/:conversationId/hbx-handoff')
+  createHbxSalesHandoffFromConversation(@Req() req: any, @Param('conversationId') conversationId: string, @Body() dto: CreateHbxSalesHandoffDto) {
+    return this.vendasService.createHbxSalesHandoffFromConversationForUser(req.user, conversationId, dto || {});
   }
 
   @Post('lead/:leadId/hbx-assisted-signup')

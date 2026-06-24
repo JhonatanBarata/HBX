@@ -202,6 +202,24 @@ export class CreateHbxSalesHandoffDto {
   @MaxLength(64)
   salePlanKey?: string;
 
+  // Valor REAL combinado no fechamento (mensalidade). Quando vier > 0, vira a base
+  // da comissao — "a comissao e calculada sobre o valor real". Sem isso, cai no
+  // preco de tabela do plano/produto (comportamento legado).
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  saleValue?: number;
+
+  // Implantacao (one-time) acordada — comissao da mesma vendedora, nao recorrente.
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  setupValue?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

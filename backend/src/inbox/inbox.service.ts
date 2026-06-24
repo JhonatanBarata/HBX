@@ -5071,6 +5071,25 @@ export class InboxService {
     return this.buildStatusCardPayload(records);
   }
 
+  // Garante UM card de Vendas para a conversa (reusa o do telefone/perfil ou cria
+  // um novo). Usado pelo "Fechar venda" do Atendimento: o vendedor sempre consegue
+  // gerar o link de contratacao, mesmo numa conversa que ainda nao tinha card.
+  // Vendas chama isto (Vendas -> Inbox e a unica direcao permitida entre modulos).
+  async ensureVendasLeadForConversation(user: any, conversationId: number): Promise<{ leadId: string }> {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const records = await this.resolveStatusCardRecords(companyId, conversationId, scope);
+    if (records.lead?.id) return { leadId: String(records.lead.id) };
+    const lead = await this.ensureStatusCardLead({
+      companyId,
+      userId: Number(user?.id || 0) || null,
+      profile: records.profile,
+      atendimentoCustomer: records.atendimentoCustomer,
+      phoneNormalized: records.phoneNormalized,
+    });
+    return { leadId: String(lead.id) };
+  }
+
   private async ensureStatusCardLead(input: {
     companyId: number;
     userId: number | null;

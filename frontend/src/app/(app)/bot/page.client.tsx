@@ -11,10 +11,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
-import { BotButtonsEditor } from "@/components/hbx/bot-buttons-editor";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
+import { BotPhaseEditor } from "@/components/hbx/bot-phase-editor";
 import { apiFetch } from "@/lib/api";
-import { useTabIndex } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
@@ -110,6 +109,18 @@ const BOT_RULES: { key: keyof BotRoutingRules; label: string; hint: string }[] =
   { key: "notifyOnNewInbound", label: "Avisar nova mensagem", hint: "Notifica a equipe a cada inbound" },
 ];
 
+// ── Modos de montagem (experiência "tipo jogo") ──────────────────────────────
+// As 3 visões mostram AS MESMAS peças (derivadas da config) — só muda o jeito de
+// montar. "ajustes" é a peça-chave especial (regras), não uma das fases de mensagem.
+type MontagemModo = "tabuleiro" | "trilha" | "bandeja";
+type EditorKey = keyof BotConfig | "ajustes";
+
+const MONTAGEM_MODOS: { key: MontagemModo; label: string; hint: string; icon: string }[] = [
+  { key: "tabuleiro", label: "Tabuleiro", hint: "Mapa do fluxo — clique nas peças", icon: "dash" },
+  { key: "trilha", label: "Trilha", hint: "Passo a passo numerado", icon: "vendas" },
+  { key: "bandeja", label: "Bandeja", hint: "Arraste as peças pro fluxo", icon: "filter" },
+];
+
 // Mapeamento: qual endpoint GET/PATCH usar por tipo
 const TYPE_ENDPOINT: Record<BotTypeName, string> = {
   atendimento: "/inbox/bot-config",
@@ -182,12 +193,14 @@ function BotTypeCard({
   armed,
   onToggle,
   busy,
+  compact,
 }: {
   tipo: BotTypeName;
   status: BotTypeStatus;
   armed: boolean;
   onToggle: (tipo: BotTypeName, live: boolean) => void;
   busy: boolean;
+  compact?: boolean;
 }) {
   const pf = status.preflight;
   const isProativo = PROATIVO[tipo];
@@ -223,7 +236,7 @@ function BotTypeCard({
   }
 
   return (
-    <div className={"bot-type-card" + (!armed ? " bot-type-card--disabled" : "")}>
+    <div className={"bot-type-card" + (compact ? " bot-type-card--compact" : "") + (!armed ? " bot-type-card--disabled" : "")}>
       <div className="bot-type-card-head">
         <div className="bot-type-card-info">
           <strong className="bot-type-card-name">{TYPE_LABEL[tipo]}</strong>
@@ -274,13 +287,16 @@ export function BotClient() {
   // config do atendimento (alimenta o organograma + chat de teste)
   const [config, setConfig] = useState<BotConfig | null>(null);
   const [step, setStep] = useState(0);
-  const [tab, setTab] = useTabIndex("tab", 0);
-
   // ── Tela dividida: fase em foco + gaveta de variáveis + painel de teste ──
   const [activeStep, setActiveStep] = useState<string>("welcomeMessage");
   const [varsOpen, setVarsOpen] = useState(false);
   const [activeFieldKey, setActiveFieldKey] = useState<keyof BotConfig | null>(null);
   const [testOpen, setTestOpen] = useState(false);
+  // ── Montagem "tipo jogo": modo selecionado + peça aberta no editor deslizante ──
+  const [montagemModo, setMontagemModo] = useState<MontagemModo>("tabuleiro");
+  const [editorKey, setEditorKey] = useState<EditorKey | null>(null);
+  // peça "arrastada/solta na área" (modo Bandeja) — destaca o alvo de drop
+  const [dragOver, setDragOver] = useState(false);
   // ref do textarea da fase atualmente focada (pra inserir variável no cursor)
   const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -431,6 +447,39 @@ export function BotClient() {
 
   const acoesDisponiveis = (cfgData?.actionCatalog || []).filter(a => a.enabled !== false);
   const canUseOfficialButtons = cfgData?.providerCapabilities?.canUseOfficialButtons ?? false;
+
+  // ── Peças (modos de montagem) ─────────────────────────────────────────────
+  // Lista de peças exibida pelos 3 modos: as 7 fases reais + "Ajustes" (regras,
+  // só no atendimento). NADA inventado — espelha BOT_MSG_FIELDS / BOT_RULES.
+  type Peca = { key: EditorKey; label: string; hint: string; icon: string; tone: string; buttonsKey?: BotaoGrupo; settings?: boolean };
+  const pecas: Peca[] = useMemo(() => {
+    const fases: Peca[] = BOT_MSG_FIELDS.map(f => ({
+      key: f.key, label: f.label, hint: f.hint, icon: f.icon, tone: f.color, buttonsKey: f.buttonsKey,
+    }));
+    if (cfgTipo === "atendimento") {
+      fases.push({ key: "ajustes", label: "Ajustes", hint: "Regras gerais do bot", icon: "config", tone: "var(--hbx-secondary)", settings: true });
+    }
+    return fases;
+  }, [cfgTipo]);
+
+  // Uma peça está "pronta" se a mensagem está preenchida OU tem botões. A peça
+  // "Ajustes" conta como pronta se o bot está ligado nas regras (globalBotEnabled).
+  function pecaPronta(p: Peca): boolean {
+    if (p.settings) return ruleValue("globalBotEnabled");
+    const valor = p.key === "ajustes" ? "" : cfgValue(p.key as keyof BotConfig);
+    const botoes = p.buttonsKey ? botoesDe(p.buttonsKey) : [];
+    return valor.trim().length > 0 || botoes.length > 0;
+  }
+
+  const pecasProntas = pecas.filter(pecaPronta).length;
+  const pecasPct = pecas.length > 0 ? Math.round((pecasProntas / pecas.length) * 100) : 0;
+
+  // Abre uma peça no editor deslizante (qualquer modo). Fase real → também
+  // destaca o nó (activeStep). "Ajustes" não é nó, só abre o editor.
+  function abrirPeca(key: EditorKey) {
+    setEditorKey(key);
+    if (key !== "ajustes") setActiveStep(String(key));
+  }
 
   // ── Variáveis: abre a gaveta apontando pra uma fase + insere no cursor ──────
 
@@ -674,6 +723,36 @@ export function BotClient() {
     />
   );
 
+  // ── Editor deslizante de peça (compartilhado pelos 3 modos) ───────────────
+  // Montado SÓ quando há peça selecionada (editorKey). O próprio componente
+  // desmonta ao fechar (padrão closing→finishClose), então não trava o véu.
+  const pecaAtual = editorKey ? pecas.find(p => p.key === editorKey) ?? null : null;
+  const phaseEditor = pecaAtual ? (
+    <BotPhaseEditor
+      open={editorKey !== null}
+      title={pecaAtual.label}
+      hint={pecaAtual.hint}
+      icon={pecaAtual.icon}
+      tone={pecaAtual.tone}
+      isSettings={Boolean(pecaAtual.settings)}
+      value={pecaAtual.settings ? "" : cfgValue(pecaAtual.key as keyof BotConfig)}
+      onChange={next => { if (!pecaAtual.settings) setCfgForm(prev => ({ ...prev, [pecaAtual.key as string]: next })); }}
+      onFocusField={el => { if (!pecaAtual.settings) { setActiveFieldKey(pecaAtual.key as keyof BotConfig); activeFieldRef.current = el; } }}
+      onOpenVariables={el => { if (!pecaAtual.settings) abrirVariaveis(pecaAtual.key as keyof BotConfig, el); }}
+      showButtons={Boolean(pecaAtual.buttonsKey)}
+      buttons={pecaAtual.buttonsKey ? botoesDe(pecaAtual.buttonsKey) : []}
+      actionCatalog={acoesDisponiveis}
+      canUseOfficialButtons={canUseOfficialButtons}
+      buttonsLabel={pecaAtual.buttonsKey === "welcomeButtons" ? "Botões de boas-vindas" : "Botões do menu"}
+      buttonsHint={pecaAtual.buttonsKey === "welcomeButtons" ? "aparecem na primeira mensagem" : "opções do menu"}
+      onButtonsChange={next => { if (pecaAtual.buttonsKey) setCfgBotoesGrupo(pecaAtual.buttonsKey, next); }}
+      rules={BOT_RULES.map(r => ({ key: String(r.key), label: r.label, hint: r.hint }))}
+      ruleValue={k => ruleValue(k as keyof BotRoutingRules)}
+      onToggleRule={k => setCfgRules(prev => ({ ...prev, [k]: !ruleValue(k as keyof BotRoutingRules) }))}
+      onClose={() => setEditorKey(null)}
+    />
+  ) : null;
+
   // ── Render mobile ─────────────────────────────────────────────────────────
 
   if (isMobile) {
@@ -776,37 +855,44 @@ export function BotClient() {
         </div>
       </div>
 
-      {/* ── 3 chavinhas ── */}
+      {/* ── 3 GUIAS por tipo: cada guia É o tipo, com seu fluxo+config no mesmo
+             painel. Substituem os 3 cards de ativação + o seletor de tipo + as abas. ── */}
       {!act.armed && (
         <div className="bot-pin-aviso">
-          Pino não armado — chavinhas desabilitadas. Solicite ao Suporte a ativação do bot para esta empresa.
+          Pino não armado — ative o bot pelo Suporte para esta empresa.
         </div>
       )}
-      <div className="bot-type-cards">
-        {(["atendimento", "recovery", "prospeccao"] as BotTypeName[]).map(tipo => (
-          <BotTypeCard
-            key={tipo}
-            tipo={tipo}
-            status={act.types[tipo]}
-            armed={act.armed}
-            onToggle={toggleType}
-            busy={actBusy}
-          />
-        ))}
+      <div className="bot-guias" role="tablist" aria-label="Tipo de bot">
+        {(["atendimento", "recovery", "prospeccao"] as BotTypeName[]).map(t => {
+          const st = act.types[t];
+          return (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={cfgTipo === t}
+              className={"bot-guia" + (cfgTipo === t ? " on" : "")}
+              onClick={() => { if (t !== cfgTipo) { selecionarTipo(t); setActiveStep("welcomeMessage"); } }}
+              disabled={cfgBusy}
+            >
+              <span className={"bot-guia__dot" + (st.live ? " bot-guia__dot--on" : "")} aria-hidden="true" />
+              <span className="bot-guia__name">{TYPE_LABEL[t]}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── Abas ── */}
-      <div className="bot-tabs">
-        {["Fluxo", "Configurações", "Integrações", "Publicação", "Análises"].map((t, i) => (
-          <button key={t} className={"bot-tab" + (tab === i ? " on" : "")} onClick={() => setTab(i)}>{t}</button>
-        ))}
-        <div className="right"><span>Versão rascunho</span><span className="saved">{setupBadge}</span></div>
-      </div>
+      {/* ── Painel integrado do tipo: ativação compacta + fluxo=config (um só) ── */}
+      <div className="bot-panel">
+        <BotTypeCard
+          tipo={cfgTipo}
+          status={act.types[cfgTipo]}
+          armed={act.armed}
+          onToggle={toggleType}
+          busy={actBusy}
+          compact
+        />
 
-      {/* ── Aba Fluxo → TELA DIVIDIDA: esquerda monta as fases, direita é o
-             organograma que acende ao vivo ── */}
-      {tab === 0 && (
-        cfgErro ? (
+        {cfgErro ? (
           <div className="bot-load-error" role="alert">
             <strong className="bot-load-error__title">Não deu pra carregar o bot</strong>
             <p className="bot-load-error__msg">{cfgErro}</p>
@@ -815,208 +901,138 @@ export function BotClient() {
             </button>
           </div>
         ) : (
-          <div className="bot-split">
-            {/* ESQUERDA: pilha de fases */}
-            <div className="bot-split__left">
-              <p className="bot-split__left-intro">
-                Monte o bot fase por fase. Cada fase preenchida acende um bloco no organograma ao lado.
-              </p>
-              {BOT_MSG_FIELDS.map(f => {
-                const valor = cfgValue(f.key);
-                const grupo = f.buttonsKey;
-                const botoes = grupo ? botoesDe(grupo) : [];
-                const pronto = valor.trim().length > 0 || botoes.length > 0;
-                const ativo = activeStep === String(f.key);
-                return (
-                  <section
-                    key={String(f.key)}
-                    className={"bot-phase" + (ativo ? " bot-phase--active" : "")}
-                    style={{ ["--bot-phase-color" as string]: f.color }}
-                  >
-                    <header className="bot-phase__head">
-                      <span className="bot-phase__icon"><I d={ICONS[f.icon] || ICONS.msg} size={16} /></span>
-                      <div className="bot-phase__titles">
-                        <span className="bot-phase__name">{f.label}</span>
-                        <span className="bot-phase__hint">{f.hint}</span>
-                      </div>
-                      <span className={"bot-phase__badge" + (pronto ? " bot-phase__badge--ready" : "")}>
-                        {pronto ? "Pronto" : "Vazio"}
-                      </span>
-                    </header>
-                    <div className="bot-phase__body">
-                      <textarea
-                        className="field-dark bot-phase__field"
-                        value={valor}
-                        onFocus={e => { setActiveStep(String(f.key)); setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; }}
-                        onChange={e => { setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; setCfgForm(prev => ({ ...prev, [f.key]: e.target.value })); }}
-                        placeholder="Escreva a mensagem desta fase…"
-                      />
-                      <div className="bot-phase__tools">
-                        <button
-                          type="button"
-                          className="btn-ghost bot-phase__var-btn"
-                          title="Inserir variável nesta mensagem"
-                          onClick={() => abrirVariaveis(f.key, activeFieldRef.current)}
-                        >
-                          <I d={ICONS.bolt} size={12} /> Variáveis
-                        </button>
-                      </div>
-                      {grupo && (
-                        <div className="bot-phase__buttons">
-                          <BotButtonsEditor
-                            buttons={botoes}
-                            actionCatalog={acoesDisponiveis}
-                            canUseOfficialButtons={canUseOfficialButtons}
-                            label={grupo === "welcomeButtons" ? "Botões de boas-vindas" : "Botões do menu"}
-                            hint={grupo === "welcomeButtons" ? "aparecem na primeira mensagem" : "opções do menu"}
-                            onChange={next => setCfgBotoesGrupo(grupo, next)}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-
-            {/* DIREITA: organograma vivo (deriva de configVivo) */}
-            <div className="bot-split__right">
-              <BotFlowCanvas config={configVivo} activeStep={activeStep} />
-            </div>
-          </div>
-        )
-      )}
-
-      {/* ── Aba Configurações (3 tipos) ── */}
-      {tab === 1 && (
-        <div className="work" style={{ flex: 1, overflowY: "auto" }}>
-          {/* Seletor de tipo */}
-          <section className="panel">
-            <div className="panel-head">
-              <h2>Tipo de bot</h2>
-            </div>
-            <div className="bot-cfg-tipo-row">
-              {(["atendimento", "recovery", "prospeccao"] as BotTypeName[]).map(t => (
+          <div className="bot-montagem">
+            {/* Switcher de modo (segmented control): Tabuleiro · Trilha · Bandeja */}
+            <div className="bot-modos" role="tablist" aria-label="Modo de montagem">
+              {MONTAGEM_MODOS.map(m => (
                 <button
-                  key={t}
-                  className={"bot-cfg-tipo-btn" + (cfgTipo === t ? " on" : "")}
-                  onClick={() => selecionarTipo(t)}
-                  disabled={cfgBusy}
+                  key={m.key}
+                  role="tab"
+                  type="button"
+                  aria-selected={montagemModo === m.key}
+                  className={"bot-modo" + (montagemModo === m.key ? " on" : "")}
+                  title={m.hint}
+                  onClick={() => setMontagemModo(m.key)}
                 >
-                  {TYPE_LABEL[t]}
+                  <I d={ICONS[m.icon] || ICONS.dash} size={14} />
+                  <span className="bot-modo__name">{m.label}</span>
                 </button>
               ))}
-              <span className="bot-cfg-tipo-desc">{TYPE_DESC[cfgTipo]}</span>
+              <span className="bot-modo__hint">{MONTAGEM_MODOS.find(m => m.key === montagemModo)?.hint}</span>
             </div>
-          </section>
 
-          {cfgErro ? (
-            <div className="bot-load-error" role="alert">
-              <strong className="bot-load-error__title">Não deu pra carregar o bot</strong>
-              <p className="bot-load-error__msg">{cfgErro}</p>
-              <button className="btn-teal" onClick={recarregar} disabled={cfgBusy}>
-                {cfgBusy ? "Carregando…" : "Tentar de novo"}
-              </button>
-            </div>
-          ) : (
-          <React.Fragment>
-          {/* Mensagens */}
-          <section className="panel">
-            <div className="panel-head">
-              <h2>Mensagens do bot — {TYPE_LABEL[cfgTipo]}</h2>
-              <div className="meta">
-                <button className="btn-teal" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar alterações"}</button>
-              </div>
-            </div>
-            <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              {BOT_MSG_FIELDS.map(f => (
-                <div key={String(f.key)} style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{f.label} <span style={{ fontWeight: 600, opacity: 0.7 }}>· {f.hint}</span></label>
-                  <textarea className="field-dark" rows={3} style={{ resize: "vertical", padding: "9px 12px", minHeight: 72 }}
-                    value={cfgValue(f.key)}
-                    onFocus={e => { setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; }}
-                    onChange={e => { setActiveFieldKey(f.key); activeFieldRef.current = e.currentTarget; setCfgForm(prev => ({ ...prev, [f.key]: e.target.value })); }} />
+            {/* ── MODO TABULEIRO: organograma é o herói, GRANDE e central ── */}
+            {montagemModo === "tabuleiro" && (
+              <div className="bot-modo-view bot-modo-view--tabuleiro">
+                <BotFlowCanvas config={configVivo} activeStep={activeStep} onPickNode={k => abrirPeca(k as EditorKey)} />
+                {cfgTipo === "atendimento" && (
                   <button
                     type="button"
-                    className="btn-ghost bot-phase__var-btn"
-                    title="Inserir variável nesta mensagem"
-                    style={{ justifySelf: "start" }}
-                    onClick={() => abrirVariaveis(f.key, activeFieldRef.current)}
+                    className={"bot-board-settings" + (editorKey === "ajustes" ? " on" : "")}
+                    onClick={() => abrirPeca("ajustes")}
+                    title="Regras gerais do bot"
                   >
-                    <I d={ICONS.bolt} size={12} /> Variáveis
+                    <span className="bot-board-settings__icon"><I d={ICONS.config} size={14} /></span>
+                    <span className="bot-board-settings__txt">Ajustes</span>
+                    <span className={"bot-board-settings__dot" + (ruleValue("globalBotEnabled") ? " on" : "")} aria-hidden="true" />
                   </button>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Botões */}
-          <section className="panel">
-            <div className="panel-head"><h2>Botões do bot — {TYPE_LABEL[cfgTipo]}</h2></div>
-            <div style={{ padding: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              {BOT_BTN_GROUPS.map(g => (
-                <BotButtonsEditor
-                  key={g.key}
-                  buttons={botoesDe(g.key)}
-                  actionCatalog={acoesDisponiveis}
-                  canUseOfficialButtons={canUseOfficialButtons}
-                  label={g.label}
-                  hint={g.hint}
-                  onChange={next => setCfgBotoesGrupo(g.key, next)}
-                />
-              ))}
-            </div>
-            <div style={{ padding: "0 18px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
-              As alterações valem após &quot;Salvar alterações&quot;.
-            </div>
-          </section>
-
-          {/* Regras de roteamento (só Atendimento tem essas opções) */}
-          {cfgTipo === "atendimento" && (
-            <section className="panel">
-              <div className="panel-head"><h2>Regras de roteamento</h2></div>
-              <div style={{ padding: "6px 18px 14px" }}>
-                {BOT_RULES.map(r => (
-                  <div className="setting" key={String(r.key)}>
-                    <div style={{ flex: 1 }}>
-                      <strong>{r.label}</strong>
-                      <small>{r.hint}</small>
-                    </div>
-                    <button className={"sw" + (ruleValue(r.key) ? " on" : "")} role="switch" aria-checked={ruleValue(r.key)}
-                      onClick={() => setCfgRules(prev => ({ ...prev, [r.key]: !ruleValue(r.key) }))}><i></i></button>
-                  </div>
-                ))}
+                )}
               </div>
-            </section>
-          )}
-          </React.Fragment>
-          )}
-        </div>
-      )}
+            )}
 
-      {/* ── Abas em breve ── */}
-      {tab >= 2 && (() => {
-        const slots: Record<number, { icon: string[]; title: string; desc: string; color: string }> = {
-          2: { icon: ICONS.scrape, title: "Conecte suas ferramentas", desc: "Zapier, webhooks, API própria e muito mais — disponível na fase técnica.", color: "var(--hbx-info)" },
-          3: { icon: ICONS.send,   title: "Publique com controle total", desc: "Ambientes, versionamento e rollback instantâneo do bot — chegando em breve.", color: "var(--hbx-brand)" },
-          4: { icon: ICONS.relat,  title: "Veja o bot em ação", desc: "Taxa de conclusão, pontos de abandono e funil de conversão em tempo real.", color: "var(--hbx-success)" },
-        };
-        const s = slots[tab];
-        if (!s) return null;
-        return (
-          <div className="bot-empty">
-            <div className="bot-empty-ring" style={{ "--ec": s.color } as React.CSSProperties}>
-              <span className="bicon" style={{ background: s.color }}><I d={s.icon} size={26} /></span>
-            </div>
-            <strong className="bot-empty-title">{s.title}</strong>
-            <p className="bot-empty-desc">{s.desc}</p>
-            <span className="bot-empty-badge">Em breve</span>
+            {/* ── MODO TRILHA: passos numerados verticais que ACENDEM ── */}
+            {montagemModo === "trilha" && (
+              <div className="bot-modo-view bot-modo-view--trilha">
+                <ol className="bot-trail">
+                  {pecas.map((p, i) => {
+                    const pronto = pecaPronta(p);
+                    const aberto = editorKey === p.key;
+                    return (
+                      <li key={String(p.key)} className={"bot-trail__step" + (pronto ? " is-done" : "") + (aberto ? " is-open" : "")}>
+                        <span className="bot-trail__rail" aria-hidden="true" />
+                        <span className="bot-trail__num" style={{ ["--bot-phase-color" as string]: p.tone }}>
+                          {pronto ? <I d={ICONS.check} size={13} /> : i + 1}
+                        </span>
+                        <button type="button" className="bot-trail__card" onClick={() => abrirPeca(p.key)}>
+                          <span className="bot-trail__icon" style={{ ["--bot-phase-color" as string]: p.tone }}>
+                            <I d={ICONS[p.icon] || ICONS.msg} size={15} />
+                          </span>
+                          <span className="bot-trail__titles">
+                            <span className="bot-trail__name">{p.label}</span>
+                            <span className="bot-trail__hint">{p.hint}</span>
+                          </span>
+                          <span className={"bot-trail__badge" + (pronto ? " bot-trail__badge--ready" : "")}>
+                            {pronto ? "Pronto" : "Montar"}
+                          </span>
+                          <span className="bot-trail__chev" aria-hidden="true"><I d={ICONS.arrow} size={12} /></span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            )}
+
+            {/* ── MODO BANDEJA: arrasta peça da bandeja → área de montagem ── */}
+            {montagemModo === "bandeja" && (
+              <div className="bot-modo-view bot-modo-view--bandeja">
+                <div className="bot-tray">
+                  <span className="bot-tray__title">Peças disponíveis</span>
+                  <span className="bot-tray__sub">Arraste para a área ao lado (ou clique) para montar</span>
+                  <div className="bot-tray__chips">
+                    {pecas.map(p => {
+                      const pronto = pecaPronta(p);
+                      return (
+                        <button
+                          key={String(p.key)}
+                          type="button"
+                          className={"bot-chip" + (pronto ? " is-done" : "")}
+                          draggable
+                          onDragStart={e => { e.dataTransfer.setData("text/plain", String(p.key)); e.dataTransfer.effectAllowed = "move"; }}
+                          onClick={() => abrirPeca(p.key)}
+                          title={pronto ? "Editar peça" : "Arraste pra montar ou clique"}
+                        >
+                          <span className="bot-chip__icon" style={{ ["--bot-phase-color" as string]: p.tone }}>
+                            <I d={ICONS[p.icon] || ICONS.msg} size={13} />
+                          </span>
+                          <span className="bot-chip__name">{p.label}</span>
+                          {pronto && <span className="bot-chip__done" aria-hidden="true"><I d={ICONS.check} size={11} /></span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div
+                  className={"bot-drop" + (dragOver ? " is-over" : "")}
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (!dragOver) setDragOver(true); }}
+                  onDragLeave={e => { if (e.target === e.currentTarget) setDragOver(false); }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const k = e.dataTransfer.getData("text/plain");
+                    if (k) abrirPeca(k as EditorKey);
+                  }}
+                >
+                  <div className="bot-drop__inner">
+                    <span className="bot-drop__icon"><I d={ICONS.plus} size={22} /></span>
+                    <strong className="bot-drop__title">Solte a peça aqui</strong>
+                    <span className="bot-drop__hint">Arraste uma peça da bandeja para começar a preenchê-la</span>
+                    <div className="bot-drop__progress">
+                      <span className="bot-drop__count">{pecasProntas} de {pecas.length} peças · {pecasPct}%</span>
+                      <span className="bot-drop__track"><span className="bot-drop__fill" style={{ width: `${pecasPct}%` }} /></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-        );
-      })()}
+        )}
+      </div>
 
-      {/* Gaveta de variáveis (castelo deslizante da direita) + painel de teste */}
+      {/* Gaveta de variáveis + editor de peça (deslizam da direita) + painel de teste */}
       {variablesDrawer}
+      {phaseEditor}
       {testDrawer}
     </React.Fragment>
   );

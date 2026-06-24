@@ -33,6 +33,9 @@ type BotConfigLike = {
 export type BotFlowCanvasProps = {
   config: BotConfigLike;
   activeStep?: string; // chave da fase em foco (ex.: 'mainMenuPrompt')
+  // Clicar num nó → abre o editor deslizante daquela peça (modo Tabuleiro).
+  // Opcional: sem ele o canvas continua só-leitura (mobile / legado).
+  onPickNode?: (key: string) => void;
 };
 
 // ─── Definição estática das fases (nós) ───────────────────────────────────────
@@ -105,7 +108,7 @@ type EdgeGeo = {
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function BotFlowCanvas(props: BotFlowCanvasProps): React.ReactElement {
-  const { config, activeStep } = props;
+  const { config, activeStep, onPickNode } = props;
 
   // índice por key p/ resolver nextNodeId
   const byKey = useMemo(() => {
@@ -120,6 +123,15 @@ export function BotFlowCanvas(props: BotFlowCanvasProps): React.ReactElement {
     for (const p of PHASES) m.set(String(p.key), isLit(config, p));
     return m;
   }, [config]);
+
+  // progresso: quantas fases já estão "prontas" (acesas) do total
+  const litCount = useMemo(() => {
+    let n = 0;
+    for (const v of litMap.values()) if (v) n += 1;
+    return n;
+  }, [litMap]);
+  const total = PHASES.length;
+  const pct = total > 0 ? Math.round((litCount / total) * 100) : 0;
 
   // arestas derivadas dos botões → nextNodeId
   const edges = useMemo<EdgeGeo[]>(() => {
@@ -160,6 +172,17 @@ export function BotFlowCanvas(props: BotFlowCanvasProps): React.ReactElement {
 
   return (
     <div className="bfc" role="group" aria-label="Organograma do bot">
+      {/* Barra de progresso da montagem: "X de N peças · Y%" */}
+      <div className="bfc-progress" aria-label={`${litCount} de ${total} peças prontas, ${pct}%`}>
+        <div className="bfc-progress-info">
+          <strong className="bfc-progress-count">{litCount} de {total} peças</strong>
+          <span className="bfc-progress-pct">{pct}%</span>
+        </div>
+        <div className="bfc-progress-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <span className={"bfc-progress-fill" + (pct >= 100 ? " bfc-progress-fill--full" : "")} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
       <div className="bfc-legend" aria-hidden="true">
         <span className="bfc-legend-item"><span className="bfc-legend-dot bfc-legend-dot--lit" /> Pronto</span>
         <span className="bfc-legend-item"><span className="bfc-legend-dot bfc-legend-dot--ghost" /> Vazio</span>
@@ -196,18 +219,15 @@ export function BotFlowCanvas(props: BotFlowCanvasProps): React.ReactElement {
           const active = activeStep === String(def.key);
           const btns = buttonsOf(config, def);
           const msg = config[def.key];
+          const clickable = typeof onPickNode === "function";
           const cls =
             "bfc-node " +
             (lit ? "bfc-node--lit" : "bfc-node--ghost") +
-            (active ? " bfc-node--active" : "");
+            (active ? " bfc-node--active" : "") +
+            (clickable ? " bfc-node--clickable" : "");
           const iconName = ICONS[def.icon] ? def.icon : "msg";
-          return (
-            <article
-              key={String(def.key)}
-              className={cls}
-              style={{ left: nodeX(def.col), top: nodeY(def.row), ["--bfc-node-color" as string]: def.color }}
-              aria-label={def.label + (lit ? " — pronto" : " — vazio")}
-            >
+          const inner = (
+            <>
               <div className="bfc-node-head">
                 <span className="bfc-node-icon"><I d={ICONS[iconName]} size={16} /></span>
                 <strong>{def.label}</strong>
@@ -222,7 +242,37 @@ export function BotFlowCanvas(props: BotFlowCanvasProps): React.ReactElement {
                     {btns.length} <I d={ICONS.arrow} size={10} />
                   </span>
                 )}
+                {clickable && !lit && (
+                  <span className="bfc-node-add" aria-hidden="true">
+                    <I d={ICONS.plus} size={11} /> montar
+                  </span>
+                )}
               </div>
+            </>
+          );
+          const nodeStyle = { left: nodeX(def.col), top: nodeY(def.row), ["--bfc-node-color" as string]: def.color };
+          if (clickable) {
+            return (
+              <button
+                key={String(def.key)}
+                type="button"
+                className={cls}
+                style={nodeStyle}
+                aria-label={(lit ? "Editar peça: " : "Montar peça: ") + def.label}
+                onClick={() => onPickNode!(String(def.key))}
+              >
+                {inner}
+              </button>
+            );
+          }
+          return (
+            <article
+              key={String(def.key)}
+              className={cls}
+              style={nodeStyle}
+              aria-label={def.label + (lit ? " — pronto" : " — vazio")}
+            >
+              {inner}
             </article>
           );
         })}

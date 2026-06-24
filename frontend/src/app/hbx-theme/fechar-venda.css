@@ -1,0 +1,261 @@
+/* ────────────────────────────────────────────────────────────────────────────
+ * fechar-venda.css — Modal cinematográfico "Fechar venda" (Atendimento + Vendas)
+ *
+ * É AQUI QUE FECHA. O vendedor que falou com o cliente no WhatsApp gera o link de
+ * contratação, fecha o valor combinado e o card amarra a comissão no nome dele.
+ * O passo-a-passo abaixo existe pra ele ENTENDER, na hora, quanto vai ganhar.
+ *
+ * Visual autorizado pelo dono (night mode 24/06) a sair das 5 Leis — gradientes
+ * cinematográficos. Por isso o bloco pele-allow. Reversível: ao assentar, tokenizar.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* pele-allow: modal premium de fechamento de venda — gradientes autorizados 24/06 */
+
+.fv-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: radial-gradient(120% 120% at 50% 0%, rgba(64, 38, 160, 0.42), rgba(8, 6, 22, 0.66));
+  backdrop-filter: blur(9px) saturate(118%);
+  -webkit-backdrop-filter: blur(9px) saturate(118%);
+  animation: fv-veil-in 0.26s ease both;
+}
+@keyframes fv-veil-in { from { opacity: 0 } to { opacity: 1 } }
+
+.fv-modal {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 94vh;
+  overflow: hidden auto;
+  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid rgba(124, 92, 255, 0.16);
+  box-shadow:
+    0 40px 90px -28px rgba(82, 44, 210, 0.55),
+    0 12px 36px rgba(20, 12, 50, 0.18);
+  color: #221b3a;
+  animation: fv-modal-in 0.46s cubic-bezier(.18,.92,.24,1) both;
+  scrollbar-width: thin;
+}
+@keyframes fv-modal-in {
+  from { opacity: 0; transform: translateY(22px) scale(.955) }
+  to   { opacity: 1; transform: none }
+}
+
+/* ── Cabeçalho com faixa de marca ───────────────────────────────────────────── */
+.fv-head {
+  position: relative;
+  padding: 20px 22px 18px;
+  background: linear-gradient(120deg, #6d4bf6 0%, #5b6bf0 42%, #18b9c9 100%);
+  color: #fff;
+  overflow: hidden;
+}
+.fv-head::after {
+  content: "";
+  position: absolute;
+  right: -40px; top: -60px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(255,255,255,0.30), transparent 62%);
+  pointer-events: none;
+}
+.fv-head-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fv-eyebrow {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255,255,255,0.86);
+}
+.fv-eyebrow .fv-spark { display: inline-grid; place-items: center; animation: fv-spin 6s linear infinite; }
+@keyframes fv-spin { to { transform: rotate(360deg) } }
+.fv-title {
+  margin: 9px 0 2px;
+  font-family: var(--font-display, inherit);
+  font-size: 1.28rem; font-weight: 850; line-height: 1.15; letter-spacing: -.01em;
+}
+.fv-sub { margin: 0; font-size: 0.76rem; font-weight: 600; color: rgba(255,255,255,0.9); }
+.fv-x {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; font-size: 1rem; font-weight: 600;
+  color: #fff; background: rgba(255,255,255,0.16); border: none;
+  transition: background .16s, transform .16s;
+}
+.fv-x:hover { background: rgba(255,255,255,0.30); transform: rotate(90deg); }
+
+/* ── Trilha de 3 passos ─────────────────────────────────────────────────────── */
+.fv-rail { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.fv-step { flex: 1; display: grid; gap: 6px; justify-items: center; text-align: center; opacity: .55; transition: opacity .3s; }
+.fv-step.is-active, .fv-step.is-done { opacity: 1; }
+.fv-step-dot {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 0.72rem; font-weight: 800;
+  color: #fff; background: rgba(255,255,255,0.22); border: 2px solid rgba(255,255,255,0.5);
+  transition: background .3s, transform .3s, border-color .3s;
+}
+.fv-step.is-active .fv-step-dot { background: #fff; color: #6d4bf6; transform: scale(1.12); border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,0.22); }
+.fv-step.is-done .fv-step-dot { background: #25e0b0; border-color: #25e0b0; color: #08361f; }
+.fv-step-lbl { font-size: 0.62rem; font-weight: 700; color: rgba(255,255,255,0.92); letter-spacing: .02em; }
+.fv-rail-line { width: 16px; height: 2px; border-radius: 2px; background: rgba(255,255,255,0.4); }
+
+/* ── Corpo ──────────────────────────────────────────────────────────────────── */
+.fv-body { padding: 18px 22px 22px; display: grid; gap: 16px; }
+
+.fv-field { display: grid; gap: 6px; }
+.fv-label { font-size: 0.7rem; font-weight: 800; letter-spacing: .02em; color: #5a5478; text-transform: uppercase; }
+.fv-hint { font-size: 0.68rem; line-height: 1.5; color: #7b7596; }
+.fv-warn { font-size: 0.7rem; line-height: 1.5; font-weight: 600; color: #b4790a; }
+
+.fv-input, .fv-select {
+  width: 100%; box-sizing: border-box;
+  padding: 11px 13px; border-radius: 13px;
+  font-size: 0.92rem; font-weight: 600; color: #221b3a;
+  background: #f6f5ff; border: 1.5px solid #e6e2fb;
+  transition: border-color .16s, box-shadow .16s, background .16s;
+  outline: none;
+}
+.fv-input::placeholder { color: #b3aecd; font-weight: 500; }
+.fv-input:focus, .fv-select:focus { border-color: #7c5cff; background: #fff; box-shadow: 0 0 0 4px rgba(124, 92, 255, 0.14); }
+.fv-input-money { position: relative; }
+.fv-input-money .fv-currency {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  font-size: 0.86rem; font-weight: 800; color: #8a83ad; pointer-events: none;
+}
+.fv-input-money .fv-input { padding-left: 38px; font-variant-numeric: tabular-nums; }
+
+/* Vitrine de planos (referência) */
+.fv-plans { border: 1px dashed #ddd7f7; border-radius: 14px; padding: 12px 14px; background: linear-gradient(180deg, #faf9ff, #f4f2ff); display: grid; gap: 8px; }
+.fv-plans-h { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #8079a3; }
+.fv-plan-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.82rem; }
+.fv-plan-name { font-weight: 700; color: #4a4470; }
+.fv-plan-price { font-weight: 800; color: #6d4bf6; font-variant-numeric: tabular-nums; }
+
+/* ── Holofote da comissão ───────────────────────────────────────────────────── */
+.fv-spot {
+  position: relative; overflow: hidden;
+  border-radius: 18px; padding: 16px 18px;
+  background: linear-gradient(135deg, #12103a 0%, #2a1d63 55%, #0f3d4a 100%);
+  color: #fff;
+  box-shadow: 0 16px 40px -16px rgba(45, 24, 120, 0.6);
+}
+.fv-spot::before {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(120% 120% at 0% 0%, rgba(124,92,255,0.45), transparent 55%),
+              radial-gradient(120% 120% at 100% 100%, rgba(37,224,176,0.32), transparent 55%);
+  pointer-events: none;
+}
+.fv-spot-h { position: relative; display: flex; align-items: center; gap: 8px; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; color: rgba(255,255,255,0.78); }
+.fv-spot-coin { display: inline-grid; place-items: center; color: #ffd56b; filter: drop-shadow(0 2px 6px rgba(255,180,40,0.5)); animation: fv-coin 3.2s ease-in-out infinite; }
+@keyframes fv-coin { 0%,100% { transform: translateY(0) rotate(0) } 50% { transform: translateY(-3px) rotate(-8deg) } }
+.fv-spot-amount { position: relative; margin: 8px 0 2px; font-family: var(--font-display, inherit); font-weight: 850; font-size: 2.05rem; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.fv-spot-amount .fv-per { font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); margin-left: 4px; }
+.fv-spot-amount.fv-pop { animation: fv-pop .42s cubic-bezier(.2,1.4,.4,1) both; }
+@keyframes fv-pop { from { transform: scale(.7); opacity: .3 } to { transform: scale(1); opacity: 1 } }
+.fv-spot-meta { position: relative; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 0.72rem; }
+.fv-spot-meta b { color: #fff; font-weight: 800; font-variant-numeric: tabular-nums; }
+.fv-spot-meta span { color: rgba(255,255,255,0.72); }
+.fv-spot-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; padding: 5px 10px; border-radius: 999px; font-size: 0.66rem; font-weight: 800; background: rgba(37, 224, 176, 0.18); color: #6cf3cb; border: 1px solid rgba(37,224,176,0.4); }
+.fv-spot-zero { position: relative; margin-top: 8px; font-size: 0.72rem; line-height: 1.5; color: #ffd9a0; }
+
+/* ── Como funciona a comissão (passo-a-passo) ───────────────────────────────── */
+.fv-how { display: grid; gap: 9px; }
+.fv-how-h { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6d4bf6; }
+.fv-how-item { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; opacity: 0; transform: translateY(6px); animation: fv-rise .5s ease forwards; }
+.fv-how-item:nth-child(2) { animation-delay: .05s }
+.fv-how-item:nth-child(3) { animation-delay: .12s }
+.fv-how-item:nth-child(4) { animation-delay: .19s }
+.fv-how-item:nth-child(5) { animation-delay: .26s }
+@keyframes fv-rise { to { opacity: 1; transform: none } }
+.fv-how-num { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; font-size: 0.72rem; font-weight: 850; color: #fff; background: linear-gradient(140deg, #7c5cff, #18b9c9); }
+.fv-how-txt { font-size: 0.78rem; line-height: 1.45; color: #463f63; padding-top: 2px; }
+.fv-how-txt b { color: #221b3a; font-weight: 800; }
+
+/* ── Botões ─────────────────────────────────────────────────────────────────── */
+.fv-actions { display: grid; gap: 9px; }
+.fv-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px 16px; border-radius: 14px; cursor: pointer;
+  font-size: 0.86rem; font-weight: 800; letter-spacing: .01em; border: none;
+  transition: transform .14s, box-shadow .2s, filter .2s, background .2s; outline: none;
+}
+.fv-btn:disabled { opacity: .55; cursor: not-allowed; }
+.fv-btn-primary {
+  color: #fff;
+  background: linear-gradient(120deg, #6d4bf6 0%, #5b6bf0 45%, #18b9c9 100%);
+  background-size: 180% 100%;
+  box-shadow: 0 14px 30px -10px rgba(96, 60, 230, 0.6);
+}
+.fv-btn-primary:not(:disabled):hover { transform: translateY(-1px); background-position: 100% 0; box-shadow: 0 18px 38px -10px rgba(96, 60, 230, 0.7); }
+.fv-btn-primary:not(:disabled):active { transform: translateY(0) scale(.99); }
+.fv-btn-wa { color: #fff; background: linear-gradient(120deg, #1faf54, #25d366); box-shadow: 0 12px 26px -10px rgba(37, 211, 102, 0.6); }
+.fv-btn-wa:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.04); }
+.fv-btn-ghost { color: #5a4fae; background: #f1eefe; border: 1.5px solid #e3ddfb; }
+.fv-btn-ghost:not(:disabled):hover { background: #e9e3ff; }
+.fv-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.fv-foot-note { margin: 2px 0 0; font-size: 0.66rem; line-height: 1.55; color: #8e88a8; text-align: center; }
+.fv-error { font-size: 0.74rem; font-weight: 700; color: #d23b4e; background: #fdeef0; border: 1px solid #f7ccd3; padding: 9px 12px; border-radius: 11px; }
+
+/* ── Estado de sucesso (link gerado) ───────────────────────────────────────── */
+.fv-success-burst { position: relative; text-align: center; padding: 6px 0 2px; }
+.fv-badge {
+  width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 50%;
+  display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, #25d39a, #18b9c9);
+  box-shadow: 0 14px 34px -10px rgba(24, 185, 201, 0.7);
+  animation: fv-badge-in .5s cubic-bezier(.2,1.5,.4,1) both;
+}
+@keyframes fv-badge-in { from { transform: scale(.2) rotate(-25deg); opacity: 0 } to { transform: none; opacity: 1 } }
+.fv-success-title { margin: 0; font-family: var(--font-display, inherit); font-weight: 850; font-size: 1.12rem; color: #1b1635; }
+.fv-success-sub { margin: 4px 0 0; font-size: 0.76rem; color: #6f6991; line-height: 1.5; }
+
+.fv-linkbox { display: grid; gap: 4px; padding: 12px 14px; border-radius: 13px; background: #f6f5ff; border: 1.5px dashed #cdc4f5; }
+.fv-linkbox-h { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #8079a3; }
+.fv-linkbox-url { font-size: 0.74rem; line-height: 1.5; color: #4a3fb0; word-break: break-all; font-weight: 600; }
+
+/* confete leve no sucesso */
+.fv-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.fv-confetti i { position: absolute; top: -12px; width: 8px; height: 12px; border-radius: 2px; opacity: 0; animation: fv-fall 1.5s ease-in forwards; }
+.fv-confetti i:nth-child(1){ left: 12%; background: #7c5cff; animation-delay: .02s }
+.fv-confetti i:nth-child(2){ left: 26%; background: #25d39a; animation-delay: .12s }
+.fv-confetti i:nth-child(3){ left: 40%; background: #ffd56b; animation-delay: .06s }
+.fv-confetti i:nth-child(4){ left: 54%; background: #18b9c9; animation-delay: .18s }
+.fv-confetti i:nth-child(5){ left: 68%; background: #ff7eb3; animation-delay: .09s }
+.fv-confetti i:nth-child(6){ left: 82%; background: #7c5cff; animation-delay: .15s }
+.fv-confetti i:nth-child(7){ left: 92%; background: #ffd56b; animation-delay: .04s }
+@keyframes fv-fall { 0% { transform: translateY(0) rotate(0); opacity: 0 } 12% { opacity: 1 } 100% { transform: translateY(360px) rotate(420deg); opacity: 0 } }
+
+/* ── CTA que abre o modal (herói do card de Atendimento / Vendas) ──────────── */
+.fv-open-cta {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; border-radius: 15px; cursor: pointer; border: none; text-align: left;
+  color: #fff;
+  background: linear-gradient(120deg, #6d4bf6 0%, #5b6bf0 45%, #18b9c9 100%);
+  background-size: 180% 100%;
+  box-shadow: 0 14px 30px -12px rgba(96, 60, 230, 0.6);
+  transition: transform .15s, box-shadow .2s, background-position .3s;
+}
+.fv-open-cta:hover { transform: translateY(-1px); background-position: 100% 0; box-shadow: 0 18px 38px -12px rgba(96, 60, 230, 0.72); }
+.fv-open-cta:active { transform: translateY(0) scale(.99); }
+.fv-open-cta-ic {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center;
+  background: rgba(255,255,255,0.20); color: #fff;
+}
+.fv-open-cta-txt { flex: 1; display: grid; gap: 1px; line-height: 1.15; }
+.fv-open-cta-txt b { font-size: 0.9rem; font-weight: 850; }
+.fv-open-cta-txt small { font-size: 0.66rem; font-weight: 600; color: rgba(255,255,255,0.86); }
+
+/* respeita quem prefere menos movimento */
+@media (prefers-reduced-motion: reduce) {
+  .fv-veil, .fv-modal, .fv-spot-amount.fv-pop, .fv-how-item, .fv-badge, .fv-confetti i,
+  .fv-spot-coin, .fv-eyebrow .fv-spark { animation: none !important; }
+  .fv-how-item { opacity: 1; transform: none; }
+}
+
+/* mobile */
+@media (max-width: 560px) {
+  .fv-title { font-size: 1.12rem; }
+  .fv-spot-amount { font-size: 1.7rem; }
+  .fv-step-lbl { display: none; }
+}
+
+/* pele-allow-end */

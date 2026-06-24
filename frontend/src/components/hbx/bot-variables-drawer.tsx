@@ -53,14 +53,18 @@ export function BotVariablesDrawer({
   // `closing` mantém o componente montado durante a animação de saída.
   const [closing, setClosing] = useState(false);
 
+  // Busca no catálogo (dezenas de variáveis não cabem numa lista rolável).
+  const [query, setQuery] = useState("");
+
   // Reset SEM effect e SEM ler ref no render: guarda o `open` anterior em STATE e
   // ajusta durante o render (padrão React p/ "resetar estado quando prop muda" —
   // o setState no render re-renderiza na hora, sem commit intermediário). Ao reabrir,
-  // zera o estado de saída pra animação de entrada rodar limpa.
+  // zera o estado de saída pra animação de entrada rodar limpa + limpa a busca.
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open && closing) setClosing(false);
+    setQuery("");
   }
 
   // Fecha de verdade: ZERA o `closing` (senão o componente fica preso montado, com
@@ -123,12 +127,19 @@ export function BotVariablesDrawer({
   }, [open]);
 
   // Agrupa por scope na ordem fixa; só mostra grupos que têm variáveis.
+  // Filtra pela busca (label, chave, token e descrição).
   const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const match = (v: VarDef) =>
+      !q ||
+      v.label.toLowerCase().includes(q) ||
+      v.key.toLowerCase().includes(q) ||
+      (v.description || "").toLowerCase().includes(q);
     return SCOPE_ORDER.map(scope => ({
       scope,
-      items: variableCatalog.filter(v => v.scope === scope),
+      items: variableCatalog.filter(v => v.scope === scope && match(v)),
     })).filter(g => g.items.length > 0);
-  }, [variableCatalog]);
+  }, [variableCatalog, query]);
 
   // Mantém montado enquanto fecha (`closing`) para a animação de saída rodar.
   if (!open && !closing) return null;
@@ -166,9 +177,22 @@ export function BotVariablesDrawer({
           Clique numa variável para inserir no campo selecionado.
         </p>
 
+        <div className="bot-vars-search">
+          <input
+            className="field-dark"
+            type="search"
+            placeholder="Buscar variável…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            aria-label="Buscar variável"
+          />
+        </div>
+
         <div className="bot-vars-scroll" style={{ flex: 1, overflowY: "auto" }}>
           {groups.length === 0 ? (
-            <p className="bot-vars-empty">Nenhuma variável disponível.</p>
+            <p className="bot-vars-empty">
+              {query.trim() ? "Nenhuma variável encontrada." : "Nenhuma variável disponível."}
+            </p>
           ) : (
             groups.map(group => (
               <section key={group.scope} className="bot-vars-group">

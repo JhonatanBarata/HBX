@@ -24,6 +24,44 @@
   transform-origin: top left;
 }
 
+/* ---- Barra de progresso da montagem ("X de N peças · Y%") ---- */
+.bfc-progress {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.bfc-progress-info {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.bfc-progress-count { font-family: var(--font-display); font-size: 0.74rem; font-weight: 800; color: var(--text-strong); }
+.bfc-progress-pct { font-size: 0.72rem; font-weight: 700; color: var(--hbx-brand-strong); }
+.bfc-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hbx-surface-raised);
+  overflow: hidden;
+}
+.bfc-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--hbx-brand);
+  transition: width var(--motion-slow) var(--ease-out-quint);
+}
+.bfc-progress-fill--full {
+  background: var(--hbx-success);
+}
+
 /* ---- Camada de fios (SVG) ---- */
 .bfc-wires {
   position: absolute;
@@ -79,6 +117,27 @@
     transform var(--motion-base);
 }
 
+/* nó clicável (modo Tabuleiro): reseta o <button> e ganha juice no hover */
+.bfc-node--clickable {
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  padding: 0;
+  display: block;
+}
+.bfc-node--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--login-accent);
+}
+.bfc-node--clickable:focus-visible {
+  outline: none;
+  border-color: var(--login-accent);
+  box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in srgb, var(--login-accent) 18%, transparent);
+}
+.bfc-node--clickable.bfc-node--ghost:hover { opacity: 0.85; }
+
 /* fantasma: fase ainda vazia — entra apagado, pronto pra "acender" */
 .bfc-node--ghost {
   opacity: 0.42;
@@ -86,10 +145,30 @@
 }
 .bfc-node--ghost .bfc-node-icon { opacity: 0.7; }
 
-/* aceso: a fase ganhou conteúdo — efeito "quebra-cabeça/jogo" */
+/* afordância "montar" no rodapé do nó vazio (modo Tabuleiro) */
+.bfc-node-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.bfc-node--clickable:hover .bfc-node-add {
+  border-color: var(--login-accent);
+  color: var(--hbx-brand-strong);
+}
+
+/* aceso: a fase ganhou conteúdo — encaixa com scale-bounce + glow ("jogo") */
 .bfc-node--lit {
   opacity: 1;
-  animation: bfc-node-light-up var(--motion-base);
+  border-color: color-mix(in srgb, var(--bfc-node-color, var(--hbx-brand)) 45%, var(--border-hairline));
+  animation: bfc-node-light-up var(--motion-base) var(--ease-out-quint);
 }
 .bfc-node--lit .bfc-node-icon { animation: bfc-node-pulse 2.8s ease-in-out infinite; will-change: transform; }
 
@@ -168,8 +247,8 @@
 /* ---- Legenda ---- */
 .bfc-legend {
   position: sticky;
-  top: 12px;
-  margin-left: 12px;
+  top: 56px;
+  margin: 12px 0 0 12px;
   width: fit-content;
   display: flex;
   gap: 12px;
@@ -195,9 +274,9 @@
 
 /* ---- Animações ---- */
 @keyframes bfc-node-light-up {
-  0%   { opacity: 0.42; transform: scale(0.94); }
-  55%  { transform: scale(1.04); }
-  100% { opacity: 1; transform: scale(1); }
+  0%   { opacity: 0.42; transform: scale(0.92); box-shadow: var(--shadow-sm); }
+  55%  { transform: scale(1.05); box-shadow: var(--shadow-md), 0 0 0 5px color-mix(in srgb, var(--bfc-node-color, var(--hbx-brand)) 24%, transparent); }
+  100% { opacity: 1; transform: scale(1); box-shadow: var(--shadow-sm); }
 }
 @keyframes bfc-node-pulse {
   0%, 100% { transform: scale(1); }

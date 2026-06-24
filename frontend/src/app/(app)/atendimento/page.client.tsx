@@ -30,6 +30,7 @@ import { Av, ConfirmDialog, I, ICONS, KpiRow, PhotoLightbox, WhatsAppMark, useCu
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
@@ -514,6 +515,10 @@ export function AtendimentoClient() {
   const [card, setCard] = useState<StatusCard | null>(null);
   const [obsDraft, setObsDraft] = useState("");
   const [obsBusy, setObsBusy] = useState(false);
+
+  // "Fechar venda" direto do Atendimento — é aqui que fecha. Gera o link de
+  // contratação e amarra a comissão ao vendedor que falou com o cliente.
+  const [fecharOpen, setFecharOpen] = useState(false);
 
   // ações rápidas do painel: mover etapa + agendar retorno (criar tarefa)
   const [moverOpen, setMoverOpen] = useState(false);
@@ -2092,6 +2097,15 @@ export function AtendimentoClient() {
               title="Detalhes do lead"
               actions={convo ? (
                 <div style={{ display: "grid", gap: 8 }}>
+                  {/* É AQUI QUE FECHA — herói do card de atendimento */}
+                  <button className="fv-open-cta" onClick={() => setFecharOpen(true)} data-tut="atend-fechar">
+                    <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
+                    <span className="fv-open-cta-txt">
+                      <b>Fechar venda</b>
+                      <small>Gere o link e garanta sua comissão</small>
+                    </span>
+                    <I d={ICONS.arrow} size={16} />
+                  </button>
                   {!card?.lead?.leadIntelligence?.enrichedAt && card?.lead?.id && (
                     <button className="dn-enrich-cta" disabled={enrichBusy} onClick={enriquecerLead}>
                       <I d={ICONS.bolt} size={15} /> {enrichBusy ? "Enriquecendo…" : "Enriquecer lead"}
@@ -2133,6 +2147,16 @@ export function AtendimentoClient() {
             />
           </aside>
         </div>
+
+      {selId && fecharOpen && (
+        <FecharVendaModal
+          onClose={() => setFecharOpen(false)}
+          mode={{ kind: "conversation", conversationId: selId }}
+          leadName={card?.lead?.name || (convo ? convName(convo) : null)}
+          phone={convo ? (phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || null) : null}
+          onDone={() => { if (selId) loadCard(selId); loadConvs(); }}
+        />
+      )}
 
       <WhatsAppConnectModal
         open={waModalOpen}

@@ -1925,6 +1925,66 @@ export class VendasService {
     };
   }
 
+  // Amarra o card a quem FECHA quando ele esta sem vendedor. Quem prospectou (card
+  // ja com assignedUserId) MANTEM a comissao — esta funcao nunca rouba carteira. O
+  // master de plataforma (isSystemMaster) nunca vira vendedor comissionado.
+  private async resolveCloserAssignmentPatch(
+    context: VendasUserContext,
+    existing: any,
+  ): Promise<{ assignedUserId?: number; assignedByUserId?: number | null; assignedAt?: Date; commissionPercentSnapshot?: number }> {
+    const currentAssigned = Math.trunc(Number(existing?.assignedUserId || 0));
+    if (currentAssigned > 0) return {};
+    const closer = await this.prisma.user.findFirst({
+      where: { id: context.userId, companyId: context.companyId, isActive: true, isSystemMaster: false },
+      select: { id: true, commissionPercent: true },
+    }).catch(() => null);
+    if (!closer) return {};
+    return {
+      assignedUserId: closer.id,
+      assignedByUserId: null,
+      assignedAt: new Date(),
+      commissionPercentSnapshot: Math.max(0, Math.min(100, Number(closer.commissionPercent || 0) || 0)),
+    };
+  }
+
+  // Preview do ganho do vendedor para o passo-a-passo do fechamento. Resolve o % do
+  // mesmo jeito que a engine (produto > snapshot do card > % do dono) e aplica os
+  // tetos do vendedor — o numero do popup bate com o que ele vai receber de fato.
+  private async buildHandoffCommissionPreview(
+    mergedRow: any,
+    input: { companyId: number; planLabel: string; planKey: string; monthlyBase: number; setupValue: number },
+  ) {
+    const monthlyBase = this.normalizeCurrencyAmount(input.monthlyBase);
+    const setupValue = this.normalizeCurrencyAmount(input.setupValue);
+    const percent = await this.resolveCommissionPercentForLead(mergedRow);
+    const caps = await this.resolveSellerCapsForLead(mergedRow);
+    const ownerUserId = Math.trunc(Number(mergedRow?.assignedUserId || 0)) || null;
+    let ownerName: string | null = null;
+    if (ownerUserId) {
+      const owner = await this.prisma.user
+        .findFirst({ where: { id: ownerUserId, companyId: input.companyId }, select: { name: true, email: true } })
+        .catch(() => null);
+      ownerName = this.normalizeText(owner?.name) || this.normalizeText(owner?.email) || null;
+    }
+    const monthlyCommission = applyCommissionCap(this.calculateCommissionAmount(monthlyBase, percent), caps.monthlyCap);
+    const setupCommission = applyCommissionCap(this.calculateCommissionAmount(setupValue, percent), caps.setupCap);
+    const dueBusinessDays = await this.resolveCommissionDueBusinessDays(input.companyId);
+    return {
+      hasOwner: Boolean(ownerUserId),
+      ownerName,
+      planLabel: input.planLabel,
+      planKey: input.planKey,
+      percent,
+      monthlyBase,
+      monthlyCommission,
+      setupValue,
+      setupCommission,
+      firstYearCommission: this.normalizeCurrencyAmount(monthlyCommission * 12 + setupCommission),
+      recurring: true,
+      dueBusinessDays,
+    };
+  }
+
   private async attachLeadOwners(rows: any[], companyId: number) {
     const ownerIds = Array.from(new Set(
       (Array.isArray(rows) ? rows : [])
@@ -8385,6 +8445,21 @@ export class VendasService {
     const planAmount = productPriceCents
       ? this.normalizeCurrencyAmount(productPriceCents / 100)
       : this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey));
+    // Valor REAL combinado no fechamento tem prioridade sobre o preco de tabela —
+    // "a comissao e calculada sobre o valor real" (copy do proprio fechamento).
+    const explicitSaleValue = this.hasDtoField(dto, 'saleValue')
+      ? this.normalizeCurrencyAmount(dto.saleValue)
+      : 0;
+    const baseSaleValue = explicitSaleValue > 0 ? explicitSaleValue : planAmount;
+    const explicitSetupValue = this.hasDtoField(dto, 'setupValue')
+      ? this.normalizeCurrencyAmount(dto.setupValue)
+      : this.normalizeCurrencyAmount(existing.setupValue);
+
+    // DONO da comissao: card sem vendedor amarra a quem fecha (quem prospectou MANTEM
+    // o seu — nunca rouba carteira). Snapshot do % trava o ganho no fechamento.
+    const closerAssignment = await this.resolveCloserAssignmentPatch(context, existing);
+    const mergedRowForCommission = { ...existing, ...(productPatch?.data || {}), ...closerAssignment };
+
     const registerPath = `/register?plan=${encodeURIComponent(planKey)}&hbxLead=${encodeURIComponent(existing.id)}`;
     const publicOrigin = this.normalizePublicOrigin(dto?.origin);
     const registerUrl = publicOrigin ? `${publicOrigin}${registerPath}` : registerPath;
@@ -8396,12 +8471,23 @@ export class VendasService {
       `Depois do cadastro, eu acompanho a implantacao do ${leadName} pelo HBX.`,
     ].join('\n');
 
-    const saleCommissionPatch = await this.buildSaleCommissionPatch({ ...existing, ...(productPatch?.data || {}) }, {
+    const saleCommissionPatch = await this.buildSaleCommissionPatch(mergedRowForCommission, {
       saleStatus: 'activation_pending',
       salePlanKey: planKey,
-      saleValue: planAmount,
+      saleValue: baseSaleValue,
+      setupValue: explicitSetupValue,
       commissionNote: `Link de contratacao gerado para ${planLabel}.`,
     }, context.userId, { allowAutomaticSaleStatus: true });
+
+    // Preview da comissao para o passo-a-passo do vendedor (o quanto ele ganha quando
+    // o cliente ativar). Espelha exatamente a engine: produto > snapshot > % do dono.
+    const commissionPreview = await this.buildHandoffCommissionPreview(mergedRowForCommission, {
+      companyId: context.companyId,
+      planLabel,
+      planKey,
+      monthlyBase: baseSaleValue,
+      setupValue: explicitSetupValue,
+    });
 
     const timelineEvents: TimelineEventRecord[] = [];
     if (saleCommissionPatch.event) timelineEvents.push(saleCommissionPatch.event);
@@ -8453,6 +8539,7 @@ export class VendasService {
           attemptCount: Math.max(existingAttemptCount + 1, existingAttemptCount),
           lastResult: 'Link HBX enviado',
           ...(productPatch?.data || {}),
+          ...closerAssignment,
           ...saleCommissionPatch.data,
         },
       });
@@ -8488,9 +8575,42 @@ export class VendasService {
       registerPath,
       registerUrl,
       message,
+      leadId: String(updated.id),
+      commissionPreview,
       lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
       commercialUseDebit,
     };
+  }
+
+  // % e tetos de comissao do proprio vendedor (estimativa ao vivo no fechamento).
+  // Card sem dono ainda -> assume o proprio usuario como futuro dono (e o que o
+  // fechamento vai amarrar). Master de plataforma nao tem comissao.
+  async getMyCommissionProfileForUser(user: any) {
+    const context = await this.resolveVendasUserContext(user);
+    const me = await this.prisma.user
+      .findFirst({
+        where: { id: context.userId, companyId: context.companyId },
+        select: { commissionPercent: true, commissionMonthlyCap: true, setupCommissionCap: true, isSystemMaster: true },
+      })
+      .catch(() => null);
+    const isSystemMaster = Boolean(me?.isSystemMaster);
+    return {
+      commissionPercent: isSystemMaster ? 0 : Math.max(0, Math.min(100, Number(me?.commissionPercent || 0) || 0)),
+      monthlyCap: Math.max(0, Number(me?.commissionMonthlyCap || 0) || 0),
+      setupCap: Math.max(0, Number(me?.setupCommissionCap || 0) || 0),
+      dueBusinessDays: await this.resolveCommissionDueBusinessDays(context.companyId),
+      sellsHbxPlans: await this.resolveSellsHbxPlans(context.companyId),
+    };
+  }
+
+  // Fechamento iniciado pelo ATENDIMENTO: a conversa do WhatsApp vira (ou reusa) um
+  // card de Vendas e segue o MESMO handoff — link de contratacao + comissao amarrada
+  // ao vendedor. O cliente "fica amarrado" a quem fechou (assignedUserId no card).
+  async createHbxSalesHandoffFromConversationForUser(user: any, conversationId: number | string, dto: CreateHbxSalesHandoffDto) {
+    const normalizedConversationId = Math.trunc(Number(conversationId || 0));
+    if (!normalizedConversationId) throw new BadRequestException('Conversa invalida.');
+    const { leadId } = await this.inboxService.ensureVendasLeadForConversation(user, normalizedConversationId);
+    return this.createHbxSalesHandoffForUser(user, leadId, dto || {});
   }
 
   async createHbxAssistedSignupForUser(user: any, leadId: string, dto: CreateHbxAssistedSignupDto) {

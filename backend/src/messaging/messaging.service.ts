@@ -4151,10 +4151,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         input.recoveryCustomer?.name ||
         input.phone,
     ).trim();
+    const nomeBase = customerName || 'cliente';
     return {
-      cliente: customerName || 'cliente',
+      cliente: nomeBase,
+      // primeiro nome do contato (primeira palavra do nome) — sempre derivável.
+      primeiro_nome: nomeBase.split(/\s+/)[0] || nomeBase,
       empresa: String(input.companyName || 'HBX Solutions').trim() || 'HBX Solutions',
       funcionario: String(metadata.funcionario || '').trim(),
+      // telefone do contato (o número da conversa) — sempre presente.
+      telefone: String(input.phone || '').trim(),
       valor_formatado: this.formatCurrencyBRL(Number(input.recoveryCustomer?.openAmount || 0)),
       agenda_nome: String(input.agendaGroup?.title || '').trim(),
       agenda_slots: String(input.agendaPreview || '').trim(),

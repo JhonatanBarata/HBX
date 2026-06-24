@@ -257,6 +257,22 @@ const DEFAULT_VARIABLE_CATALOG: AtendimentoBotVariableDefinition[] = [
     required: true,
   },
   {
+    key: 'primeiro_nome',
+    label: 'Primeiro nome',
+    example: 'Maria',
+    description: 'Primeira palavra do nome do contato, para cumprimentos naturais.',
+    scope: 'shared',
+    required: false,
+  },
+  {
+    key: 'telefone',
+    label: 'Telefone do contato',
+    example: '(11) 99999-0000',
+    description: 'Numero de WhatsApp da conversa atual.',
+    scope: 'shared',
+    required: false,
+  },
+  {
     key: 'empresa',
     label: 'Nome da empresa',
     example: 'Colsani Ar Condicionado',
