@@ -490,10 +490,10 @@ $("#btn-clean-junk").addEventListener("click", cleanJunkLeads);
    - Enviar pro VPS: manda lote filtrado usando o caminho export-all existente
 ================================================================ */
 
-const CK_PAGE_SIZE = 100;
+const CK_CHUNK = 100;       // mostra 100 por vez; rolar pra baixo carrega +100
 let ckAllLeads = [];        // todas as linhas carregadas
 let ckFiltered = [];        // após filtro + sort
-let ckPage = 1;
+let ckVisible = CK_CHUNK;   // quantas linhas estão renderizadas agora
 let ckSortCol = "createdAt";
 let ckSortDir = -1;         // -1 = desc, 1 = asc
 let ckEnrichJobId = null;
@@ -643,8 +643,7 @@ function ckRenderTable() {
 
   // Corpo
   tbody.innerHTML = "";
-  const start = (ckPage - 1) * CK_PAGE_SIZE;
-  const page = ckFiltered.slice(start, start + CK_PAGE_SIZE);
+  const page = ckFiltered.slice(0, ckVisible);
   if (!page.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
@@ -670,15 +669,16 @@ function ckRenderTable() {
 
 function ckRenderPagination() {
   const total = ckFiltered.length;
-  const pages = Math.max(1, Math.ceil(total / CK_PAGE_SIZE));
+  const shown = Math.min(ckVisible, total);
   const info = $("#ck-page-info");
   const prev = $("#btn-ck-prev");
   const next = $("#btn-ck-next");
   const pag = $("#cockpit-pagination");
-  if (info) info.textContent = `Página ${ckPage} de ${pages} · ${total.toLocaleString("pt-BR")} leads`;
-  if (prev) prev.disabled = ckPage <= 1;
-  if (next) next.disabled = ckPage >= pages;
-  if (pag) pag.style.display = total > CK_PAGE_SIZE ? "" : "none";
+  // Scroll infinito: sem botões de página, só um contador.
+  if (info) info.textContent = `mostrando ${shown.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} leads${shown < total ? " · rola pra carregar mais" : ""}`;
+  if (prev) prev.style.display = "none";
+  if (next) next.style.display = "none";
+  if (pag) pag.style.display = total > 0 ? "" : "none";
 }
 
 function ckUpdateActionButtons() {
@@ -693,10 +693,22 @@ function ckUpdateActionButtons() {
 
 function ckRefresh() {
   ckFiltered = ckApplySort(ckApplyFilters(ckAllLeads));
-  ckPage = 1;
+  ckVisible = CK_CHUNK;
+  const wrap = $("#cockpit-table-wrap");
+  if (wrap) wrap.scrollTop = 0;
   ckRenderTable();
   ckRenderPagination();
   ckUpdateActionButtons();
+}
+
+// Rolou perto do fim do quadro → revela mais 100.
+function ckMaybeLoadMore(wrap) {
+  if (!wrap || ckVisible >= ckFiltered.length) return;
+  if (wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 140) {
+    ckVisible += CK_CHUNK;
+    ckRenderTable();
+    ckRenderPagination();
+  }
 }
 
 async function loadCockpit() {
@@ -711,12 +723,12 @@ async function loadCockpit() {
   ckAllLeads = [];
   ckFiltered = [];
 
-  // Carrega todas as páginas de 500 (max 5000 leads)
-  const limit = 500;
+  // Carrega o banco inteiro, de 1000 em 1000 (teto de segurança 50k)
+  const limit = 1000;
   let page = 1;
   let totalLoaded = 0;
   try {
-    while (totalLoaded < 5000) {
+    while (totalLoaded < 50000) {
       const r = await api("GET", `/owner/radar/cards?limit=${limit}&page=${page}`);
       if (!r.ok || !r.data) {
         if (st) { st.textContent = r.reason || "erro ao carregar"; st.className = "pill pill-bad"; }
@@ -883,29 +895,36 @@ async function ckPollEnrichOnce() {
 }
 
 async function ckStartEnrich() {
-  const rows = ckFiltered.filter((r) => r.website || r.instagramUrl);
+  // O crawler visita SITE (website). Junta os sites dos leads filtrados e manda pro Lab.
+  const websites = ckFiltered.map((r) => r.website).filter(Boolean);
+  const rows = ckFiltered.filter((r) => r.website);
   const fb = $("#el-feedback");
-  if (!rows.length) {
-    if (fb) { fb.textContent = "Nenhum lead filtrado tem site ou Instagram — nada pra enriquecer."; fb.className = "delta"; }
+  const enrichRow = $("#cockpit-enrich-row");
+  if (enrichRow) enrichRow.style.display = "";   // revela já, pra qualquer aviso ficar visível
+  if (!websites.length) {
+    const msg = `Nenhum dos ${ckFiltered.length.toLocaleString("pt-BR")} leads filtrados tem website pra visitar — o enriquecimento abre o site do lead pra achar o e-mail. Leads só com telefone/Instagram entram na próxima fase (descobrir o site).`;
+    if (fb) { fb.textContent = msg; fb.className = "delta"; }
+    const exp = $("#export-feedback");
+    if (exp) { exp.textContent = msg; exp.className = "delta"; }
+    pushFeed("Enriquecimento: nenhum lead filtrado tem website pra visitar.", "warn");
     return;
   }
-  const enrichRow = $("#cockpit-enrich-row");
-  if (enrichRow) enrichRow.style.display = "";
-  if (fb) { fb.textContent = `iniciando enriquecimento de ${rows.length} leads com URL…`; fb.className = "delta"; }
+  if (fb) { fb.textContent = `iniciando enriquecimento de ${websites.length.toLocaleString("pt-BR")} sites…`; fb.className = "delta"; }
   const enrichBtn = $("#btn-cockpit-enrich");
   const cancelBtn = $("#btn-el-cancel");
   if (enrichBtn) enrichBtn.disabled = true;
 
-  // Usa o primeiro lead como "semente" de segmento/cidade para o job do Lab
-  const seed = rows[0];
+  // Semente de segmento/cidade (informativa) + os sites reais pra visitar.
+  const seed = rows[0] || {};
   try {
     const r = await api("POST", "/owner/export", {
       scope: "local",
       segment: seed.segment || "geral",
       city: seed.city || "",
       state: seed.state || "",
-      targetEmails: Math.min(rows.length, 500),
+      targetEmails: Math.min(websites.length, 1000),
       mode: "enrich_missing_email",
+      websites,
     });
     if (!r.ok || !r.jobId) {
       if (fb) { fb.textContent = r.message || r.reason || "Não consegui iniciar (Lab ligado?)"; fb.className = "delta"; }
@@ -916,7 +935,7 @@ async function ckStartEnrich() {
     ckEnrichRunning = true;
     if (fb) { fb.textContent = `enriquecendo… (job ${r.jobId})`; fb.className = "delta up"; }
     if (cancelBtn) cancelBtn.disabled = false;
-    pushFeed(`Enriquecimento iniciado: job ${r.jobId} · ${rows.length} leads com URL.`, "info");
+    pushFeed(`Enriquecimento iniciado: job ${r.jobId} · ${websites.length} sites pra visitar.`, "info");
     ckStopEnrichPoll();
     ckPollEnrichOnce();
     ckEnrichPollTimer = setInterval(ckPollEnrichOnce, 3000);
@@ -965,16 +984,15 @@ async function ckCancelEnrich() {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
     ckRefresh();
   });
-  if (prevBtn) prevBtn.addEventListener("click", () => { if (ckPage > 1) { ckPage -= 1; ckRenderTable(); ckRenderPagination(); } });
-  if (nextBtn) nextBtn.addEventListener("click", () => {
-    const pages = Math.ceil(ckFiltered.length / CK_PAGE_SIZE);
-    if (ckPage < pages) { ckPage += 1; ckRenderTable(); ckRenderPagination(); }
-  });
+  // Scroll infinito: rolar o quadro perto do fim revela mais 100.
+  const tableWrap = $("#cockpit-table-wrap");
+  if (tableWrap) tableWrap.addEventListener("scroll", () => ckMaybeLoadMore(tableWrap));
+  void prevBtn; void nextBtn; // botões de página aposentados (scroll infinito)
 
   // Filtros
   for (const id of FILTER_KEYS) {
     const input = $(`#${id}`);
-    if (input) input.addEventListener("input", () => { ckPage = 1; ckRefresh(); });
+    if (input) input.addEventListener("input", () => ckRefresh());
   }
 })();
 

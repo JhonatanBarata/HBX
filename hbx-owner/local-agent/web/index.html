@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HBX Owner</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20260625" />
 </head>
 <body>
   <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
@@ -124,65 +124,78 @@
       </div>
     </div>
 
-    <!-- ============ COCKPIT DE LEADS ============ -->
-    <div class="card" id="cockpit-card">
-      <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
-        <span class="label" style="margin:0;">Cockpit de Leads</span>
-        <span id="cockpit-status" class="pill pill-muted">carregando…</span>
-        <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
-          <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
-          <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ Exportar CSV</button>
-          <button id="btn-cockpit-enrich" class="btn btn-sm btn-blue" disabled>✦ Enriquecer</button>
-          <button id="btn-cockpit-vps" class="btn btn-sm btn-green" disabled>▲ Enviar pro VPS</button>
-          <button id="btn-clean-junk" class="btn btn-sm btn-amber">✕ Limpar lixo</button>
+    <!-- ============ COCKPIT DE LEADS (full-bleed) ============ -->
+    <div class="cockpit-fullbleed" id="cockpit-card">
+      <div class="cockpit-inner">
+        <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
+          <span class="label" style="margin:0;">Cockpit de Leads</span>
+          <span id="cockpit-status" class="pill pill-muted">carregando…</span>
+
+          <!-- Guias Local / VPS -->
+          <div class="ck-tabs" style="margin-left:8px;">
+            <button id="tab-local" class="ck-tab is-active" data-tab="local">Sua máquina (local)</button>
+            <button id="tab-vps" class="ck-tab" data-tab="vps">VPS</button>
+          </div>
+
+          <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
+            <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
+            <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ Exportar CSV</button>
+            <button id="btn-cockpit-enrich" class="btn btn-sm btn-blue" disabled>✦ Enriquecer</button>
+            <button id="btn-cockpit-vps" class="btn btn-sm btn-green" disabled>▲ Mover tudo pro VPS</button>
+            <button id="btn-clean-junk" class="btn btn-sm btn-amber">✕ Limpar lixo</button>
+          </div>
         </div>
-      </div>
-      <p class="delta" id="cockpit-enrich-note" style="margin:4px 0 10px;">Enriquece só leads com site ou Instagram — visita a página e extrai e-mail. Descoberta de site é fase 2.</p>
+        <p class="delta" id="cockpit-enrich-note" style="margin:4px 0 10px;">Enriquece leads que têm website — visita o site e extrai o e-mail. Instagram-only e descobrir o site de quem só tem telefone são próximas fases.</p>
 
-      <!-- Barra de progresso do enriquecimento -->
-      <div id="cockpit-enrich-row" style="display:none;margin-bottom:10px;">
-        <div class="grid-3" style="margin-bottom:6px;">
-          <div class="metric"><span class="label">Sites visitados</span><strong id="el-sites">—</strong></div>
-          <div class="metric"><span class="label">E-mails achados</span><strong id="el-found">—</strong></div>
-          <div class="metric"><span class="label">Aceitos</span><strong id="el-accepted">—</strong></div>
+        <!-- Barra de progresso do enriquecimento -->
+        <div id="cockpit-enrich-row" style="display:none;margin-bottom:10px;">
+          <div class="grid-3" style="margin-bottom:6px;">
+            <div class="metric"><span class="label">Sites visitados</span><strong id="el-sites">—</strong></div>
+            <div class="metric"><span class="label">E-mails achados</span><strong id="el-found">—</strong></div>
+            <div class="metric"><span class="label">Aceitos</span><strong id="el-accepted">—</strong></div>
+          </div>
+          <p id="el-summary" class="delta">Sem caça iniciada.</p>
+          <div class="btn-row" style="margin-top:6px;">
+            <button id="btn-el-cancel" class="btn btn-amber btn-sm" disabled>Cancelar</button>
+            <span id="el-feedback" class="delta"></span>
+          </div>
         </div>
-        <p id="el-summary" class="delta">Sem caça iniciada.</p>
-        <div class="btn-row" style="margin-top:6px;">
-          <button id="btn-el-cancel" class="btn btn-amber btn-sm" disabled>Cancelar</button>
-          <span id="el-feedback" class="delta"></span>
+
+        <!-- Filtros por coluna + toggles rápidos -->
+        <div id="cockpit-filters" class="cockpit-filter-row" style="display:none;">
+          <input id="cf-name" class="cf-input" placeholder="Nome" />
+          <input id="cf-city" class="cf-input" placeholder="Cidade" />
+          <input id="cf-state" class="cf-input" placeholder="UF" maxlength="2" style="width:50px;" />
+          <input id="cf-segment" class="cf-input" placeholder="Segmento" />
+          <input id="cf-phone" class="cf-input" placeholder="Telefone" />
+          <input id="cf-email" class="cf-input" placeholder="E-mail" />
+          <input id="cf-channel" class="cf-input" placeholder="Canal" />
+          <input id="cf-status" class="cf-input" placeholder="Status" />
+          <label class="cf-toggle" title="Leads sem e-mail ou com status missing/none"><input type="checkbox" id="cf-not-enriched" /> Não enriquecidos</label>
+          <label class="cf-toggle" title="Leads com website"><input type="checkbox" id="cf-has-site" /> Com site</label>
+          <label class="cf-toggle" title="Leads com WhatsApp confirmado"><input type="checkbox" id="cf-has-whatsapp" /> Com WhatsApp</label>
+          <label class="cf-toggle" title="Esconde colunas onde todas as linhas filtradas estão vazias"><input type="checkbox" id="cf-hide-empty-cols" /> Esconder vazias</label>
+          <button id="btn-cockpit-clear" class="btn btn-sm btn-amber">Limpar filtros</button>
         </div>
-      </div>
 
-      <!-- Filtros por coluna -->
-      <div id="cockpit-filters" class="cockpit-filter-row" style="display:none;">
-        <input id="cf-name" class="cf-input" placeholder="Nome" />
-        <input id="cf-city" class="cf-input" placeholder="Cidade" />
-        <input id="cf-state" class="cf-input" placeholder="UF" maxlength="2" style="width:50px;" />
-        <input id="cf-segment" class="cf-input" placeholder="Segmento" />
-        <input id="cf-phone" class="cf-input" placeholder="Telefone" />
-        <input id="cf-email" class="cf-input" placeholder="E-mail" />
-        <input id="cf-channel" class="cf-input" placeholder="Canal" />
-        <input id="cf-status" class="cf-input" placeholder="Status" />
-        <button id="btn-cockpit-clear" class="btn btn-sm btn-amber">Limpar filtros</button>
-      </div>
+        <!-- Tabela -->
+        <div id="cockpit-table-wrap" style="overflow-x:auto;display:none;">
+          <table class="cockpit-table" id="cockpit-table">
+            <thead id="cockpit-thead"></thead>
+            <tbody id="cockpit-tbody"></tbody>
+          </table>
+        </div>
 
-      <!-- Tabela -->
-      <div id="cockpit-table-wrap" style="overflow-x:auto;display:none;">
-        <table class="cockpit-table" id="cockpit-table">
-          <thead id="cockpit-thead"></thead>
-          <tbody id="cockpit-tbody"></tbody>
-        </table>
-      </div>
+        <!-- Paginação -->
+        <div id="cockpit-pagination" class="cockpit-pagination" style="display:none;">
+          <button id="btn-ck-prev" class="btn btn-sm btn-blue">← Anterior</button>
+          <span id="ck-page-info" class="delta" style="margin:0 8px;"></span>
+          <button id="btn-ck-next" class="btn btn-sm btn-blue">Próxima →</button>
+        </div>
 
-      <!-- Paginação -->
-      <div id="cockpit-pagination" class="cockpit-pagination" style="display:none;">
-        <button id="btn-ck-prev" class="btn btn-sm btn-blue">← Anterior</button>
-        <span id="ck-page-info" class="delta" style="margin:0 8px;"></span>
-        <button id="btn-ck-next" class="btn btn-sm btn-blue">Próxima →</button>
+        <span id="export-feedback" class="delta" style="display:block;margin-top:6px;"></span>
+        <span id="export-status" style="display:none;"></span>
       </div>
-
-      <span id="export-feedback" class="delta" style="display:block;margin-top:6px;"></span>
-      <span id="export-status" style="display:none;"></span>
     </div>
 
     <!-- ============ FEED HONESTO ============ -->
@@ -207,6 +220,6 @@
 
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260625"></script>
 </body>
 </html>

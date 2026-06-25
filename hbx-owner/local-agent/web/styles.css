@@ -101,7 +101,7 @@ body {
 .tab:hover { color: var(--text); }
 .tab.is-active { color: var(--brand); border-bottom-color: var(--brand); }
 
-/* Content */
+/* Content — largura normal para os cards de sistema */
 .content { padding: 24px; max-width: 1180px; margin: 0 auto; }
 .panel { display: none; }
 .panel.is-active { display: block; animation: fade .18s ease; }
@@ -322,23 +322,164 @@ body {
 .infra-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .infra-table tr:last-child td { border-bottom: none; }
 
-/* Cockpit de Leads */
+/* ================================================================
+   COCKPIT DE LEADS — FULL BLEED + VISÃO PLANILHA
+================================================================ */
+
+/* Bloco que sai da caixa de .content e ocupa 100% da viewport */
+.cockpit-fullbleed {
+  /* Sai da margem do .content (max-width 1180px centrado) */
+  margin-left: calc(-50vw + 50%);
+  margin-right: calc(-50vw + 50%);
+  width: 100vw;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  /* sem border-radius: planilha vai de ponta a ponta */
+}
+
+/* Padding interno do cockpit (conteúdo fica respirando) */
+.cockpit-inner {
+  padding: 16px 24px 12px;
+}
+
+/* Guias Local / VPS */
+.ck-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px;
+}
+.ck-tab {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: .8rem;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.ck-tab:hover { color: var(--text); }
+.ck-tab.is-active {
+  background: var(--surface);
+  color: var(--brand);
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+/* Filtros */
 .cockpit-filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
 .cf-input { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; font-size: .8rem; color: var(--text); min-width: 80px; }
 .cf-input:focus { outline: none; border-color: var(--brand); }
-.cockpit-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
-.cockpit-table th { text-align: left; padding: 6px 8px; color: var(--text-muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; border-bottom: 2px solid var(--border); background: var(--surface-2); cursor: pointer; white-space: nowrap; user-select: none; }
+
+/* Toggle de filtro rápido */
+.cf-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  user-select: none;
+  white-space: nowrap;
+}
+.cf-toggle:hover { border-color: var(--brand); color: var(--text); }
+.cf-toggle input[type="checkbox"] { accent-color: var(--brand); width: 13px; height: 13px; margin: 0; cursor: pointer; }
+
+/* Wrapper da tabela: altura máxima para scroll + cabeçalho fixo */
+#cockpit-table-wrap {
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* *** VISÃO PLANILHA *** */
+/* Todas as células têm borda fina em todos os lados — tipo Excel */
+.cockpit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  /* sem min-width fixo; deixa o full-bleed trabalhar */
+}
+
+/* Cabeçalho: fundo levemente diferente, bordas em todos os lados */
+.cockpit-table th {
+  text-align: left;
+  padding: 5px 7px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  /* Cabeçalho fixo */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  /* Gridlines Excel: borda em todos os lados */
+  border: 1px solid var(--border);
+}
 .cockpit-table th:hover { color: var(--brand); }
-.cockpit-table th.sort-asc::after { content: " ▲"; font-size: 10px; color: var(--brand); }
-.cockpit-table th.sort-desc::after { content: " ▼"; font-size: 10px; color: var(--brand); }
-.cockpit-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.cockpit-table tr:last-child td { border-bottom: none; }
-.cockpit-table tr:hover td { background: var(--surface-2); }
+
+/* Setas de ordenação CLARAS */
+.cockpit-table th.sort-asc::after  { content: " ▲"; font-size: 10px; color: var(--brand); font-weight: 900; }
+.cockpit-table th.sort-desc::after { content: " ▼"; font-size: 10px; color: var(--brand); font-weight: 900; }
+
+/* Células com bordas em TODOS os lados (gridlines verticais + horizontais) */
+.cockpit-table td {
+  padding: 3px 7px;
+  /* Gridlines: borda em todos os lados */
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  /* Linha compacta */
+  line-height: 1.35;
+  height: 24px;
+}
+
+/* Linha zebra suave (sem cor poluindo — só superfície 2) */
+.cockpit-table tbody tr:nth-child(even) td { background: var(--surface-2); }
+.cockpit-table tbody tr:hover td { background: rgba(14, 164, 114, .06); }
+
+/* Links */
 .cockpit-table td a { color: var(--brand); text-decoration: none; }
 .cockpit-table td a:hover { text-decoration: underline; }
+
+/* Pills dentro das células */
 .ck-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
-.ck-pill.ok { background: rgba(22,163,74,.12); color: var(--green); }
+.ck-pill.ok   { background: rgba(22,163,74,.12); color: var(--green); }
 .ck-pill.warn { background: rgba(217,119,6,.12); color: var(--amber); }
-.ck-pill.bad { background: rgba(220,38,38,.10); color: var(--red); }
+.ck-pill.bad  { background: rgba(220,38,38,.10); color: var(--red); }
 .ck-pill.muted { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+
 .cockpit-pagination { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* Aviso da guia VPS indisponível */
+.ck-vps-unavail {
+  padding: 20px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  color: var(--text-muted);
+  font-size: .85rem;
+  text-align: center;
+  margin: 8px 0;
+}

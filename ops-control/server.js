@@ -406,9 +406,18 @@ function normalizeEmailLabJobPayload(body = {}) {
   const segment = compactText(body.segment, 180);
   const mode = normalizeEmailLabMode(body.mode);
   const targetEmails = clampInteger(body.targetEmails, 50, 1, 10000);
-  if (!/^[A-Z]{2}$/.test(state)) throw createHttpError(400, 'Informe o Estado com UF de 2 letras.');
-  if (city.length < 2) throw createHttpError(400, 'Informe a cidade do Email Lab.');
-  if (segment.length < 2) throw createHttpError(400, 'Informe o segmento do Email Lab.');
+  const sanitizeUrlList = (arr) => (Array.isArray(arr) ? arr : [])
+    .map((u) => compactText(u, 500)).filter(Boolean).slice(0, 5000);
+  const websites = sanitizeUrlList(body.websites);
+  const candidates = sanitizeUrlList(body.candidates);
+  const hasSeedUrls = websites.length > 0 || candidates.length > 0;
+  // Com URLs explícitas (enriquecer leads do banco) o crawler visita exatamente esses
+  // sites, então UF/cidade/segmento viram opcionais. Sem URLs, o job precisa do escopo.
+  if (!hasSeedUrls) {
+    if (!/^[A-Z]{2}$/.test(state)) throw createHttpError(400, 'Informe o Estado com UF de 2 letras.');
+    if (city.length < 2) throw createHttpError(400, 'Informe a cidade do Email Lab.');
+    if (segment.length < 2) throw createHttpError(400, 'Informe o segmento do Email Lab.');
+  }
 
   const localTargetEmails = scope === 'both' ? Math.max(1, Math.ceil(targetEmails / 2)) : targetEmails;
   return {
@@ -425,6 +434,8 @@ function normalizeEmailLabJobPayload(body = {}) {
       targetEmails: localTargetEmails,
       mode,
       providers: providersForEmailLabMode(mode),
+      websites,
+      candidates,
       requestedBy: 'ops-control-email-lab',
     },
   };
@@ -1208,7 +1219,29 @@ async function getContainersForEnvironment(environment) {
   };
 }
 
-// Snapshot leve de pressão do host em UMA conexao SSH (free + df + loadavg + nproc +
+// Uso REAL de CPU a partir de DUAS leituras de /proc/stat (delta busy/total). load != CPU:
+// load conta processos em iowait/runnable e o "steal" do hypervisor compartilhado, então
+// load/cores inflava (mostrava 100% com a CPU real ~50%, divergindo do painel da Hostinger).
+function parseProcStatCpu(line) {
+  const parts = String(line || '').trim().split(/\s+/);
+  if (parts[0] !== 'cpu') return null;
+  const nums = parts.slice(1).map(Number).filter((n) => Number.isFinite(n));
+  if (nums.length < 4) return null;
+  const idle = (nums[3] || 0) + (nums[4] || 0); // idle + iowait
+  const total = nums.reduce((sum, value) => sum + value, 0);
+  return { idle, total };
+}
+function computeCpuUsedPct(lineA, lineB) {
+  const a = parseProcStatCpu(lineA);
+  const b = parseProcStatCpu(lineB);
+  if (!a || !b) return null;
+  const deltaTotal = b.total - a.total;
+  const deltaIdle = b.idle - a.idle;
+  if (!(deltaTotal > 0)) return null;
+  return Math.max(0, Math.min(100, Math.round(((deltaTotal - deltaIdle) / deltaTotal) * 100)));
+}
+
+// Snapshot leve de pressão do host em UMA conexao SSH (free + df + loadavg + nproc + /proc/stat +
 // docker ps sem stats). Bem mais confiavel que /api/overview (8 conexoes) sob carga.
 async function collectHostSnapshot(environment) {
   if (!['vps', 'localhost'].includes(environment)) {
@@ -1225,6 +1258,12 @@ async function collectHostSnapshot(environment) {
     'cat /proc/loadavg',
     "echo '@@CORES@@'",
     'nproc',
+    // Duas amostras de /proc/stat com 1s entre elas → uso REAL de CPU (delta), não load.
+    "echo '@@CPUA@@'",
+    "grep '^cpu ' /proc/stat",
+    'sleep 1',
+    "echo '@@CPUB@@'",
+    "grep '^cpu ' /proc/stat",
     "echo '@@PS@@'",
     // docker pode estar lento sob carga: timeout curto pra NAO travar as leituras de
     // pressao (free/df/loadavg/nproc ja vieram). Sem container e melhor que snapshot vazio.
@@ -1242,6 +1281,7 @@ async function collectHostSnapshot(environment) {
   };
   const memBlock = out.split('@@DF@@')[0] || '';
   const cores = Number(String(section('CORES')).trim().split(/\s+/)[0]);
+  const cpuUsedPct = computeCpuUsedPct(section('CPUA'), section('CPUB'));
   const containers = section('PS').split('\n').filter(Boolean).map((line) => {
     const [name, state, status] = line.split('\t');
     return { name, state, status };
@@ -1256,6 +1296,7 @@ async function collectHostSnapshot(environment) {
     disk: parseDisk(section('DF')),
     load: section('LOAD'),
     cores: Number.isFinite(cores) ? cores : null,
+    cpuUsedPct,
     containers,
     errors: result.ok ? [] : [result.stderr || 'Snapshot SSH falhou.'],
   };
@@ -1967,12 +2008,20 @@ for (const action of dockerActions) {
     const from = Number(req.body.from);
     const to = Number(req.body.to);
     if (!validateRange(from, to)) return res.status(400).json({ error: 'Intervalo invalido. Use from/to entre 1 e 200, com no maximo 50 por chamada.' });
+    // Parar/Ligar faixa: avisa o BACKEND ANTES do docker (grava manualPaused durável). Sem isso o
+    // docker stop cru era re-ligado pela elástica/governor em ~30s e o painel mentia "ok". Backend
+    // primeiro garante que o governor honre a parada do dono em vez de desfazer.
+    let backendSync = null;
+    if (action === 'stop' || action === 'start') {
+      backendSync = await callBackendForEnvironment('vps', 'vps', 'POST', `/modules/owner/radar/engines/${action}-range`, { from, to })
+        .catch((error) => ({ ok: false, error: String(error?.message || error) }));
+    }
     const results = [];
     for (let index = from; index <= to; index += 1) {
       const name = `hbx-engine-${index}`;
       results.push({ name, action, ...(await dockerAction(name, action)) });
     }
-    res.json({ from, to, action, results });
+    res.json({ from, to, action, results, backendSync });
   });
 }
 
@@ -2234,6 +2283,27 @@ app.get('/api/email-lab/vps/imports/:id', async (req, res) => {
     });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar importacao VPS.' });
+  }
+});
+
+// Proxy read-only para cards do banco de leads da VPS (consumido pela guia VPS do cockpit do Owner).
+// Contrato: GET /api/radar/vps/database-cards?limit=N&page=N
+// Resposta: { ok: true, data: { items: [...], ... } }
+app.get('/api/radar/vps/database-cards', async (req, res) => {
+  try {
+    const limit = clampInteger(req.query.limit, 50, 1, 200);
+    const page = clampInteger(req.query.page, 1, 1, 10000);
+    const route = `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`;
+    const result = await callBackendForEnvironment('vps', 'vps', 'GET', route);
+    if (!result.ok) {
+      return res.status(result.statusCode || 502).json({
+        ok: false,
+        error: result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      });
+    }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao consultar cards VPS.' });
   }
 });
 

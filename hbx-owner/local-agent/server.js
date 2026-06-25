@@ -691,14 +691,19 @@ function buildVpsResult({ ramPct, diskPct, ramTotalGb, diskFreeGb, diskTotalGb, 
   };
 }
 
-// Caminho preferido: snapshot leve (1 conexao SSH) com nproc → CPU% real.
+// Caminho preferido: snapshot leve (1 conexao SSH) com /proc/stat → CPU% REAL (delta de uso).
 function mapSnapshot(data) {
   const mem = data.memory || {};
   const disk = data.disk || {};
   const load = parseLoadTriplet(data.load);
   const cores = Number.isFinite(Number(data.cores)) && Number(data.cores) > 0 ? Number(data.cores) : null;
   const ramPct = Number.isFinite(Number(mem.usedPercent)) ? Math.round(Number(mem.usedPercent)) : null;
-  const cpuPct = cores && Number.isFinite(load.load1) ? Math.min(100, Math.round((load.load1 / cores) * 100)) : null;
+  // CPU% = uso REAL vindo do snapshot (/proc/stat). Só cai no load/cores se o snapshot for antigo
+  // (sem cpuUsedPct) — load/cores inflava (mostrava 100% com CPU real ~50%, divergindo da Hostinger).
+  const realCpu = Number(data.cpuUsedPct);
+  const cpuPct = Number.isFinite(realCpu)
+    ? Math.max(0, Math.min(100, Math.round(realCpu)))
+    : (cores && Number.isFinite(load.load1) ? Math.min(100, Math.round((load.load1 / cores) * 100)) : null);
   const { engines, containers } = vpsContainersFrom(data.containers);
   const containersAvailable = Array.isArray(data.containers) && data.containers.length > 0;
   return buildVpsResult({
@@ -1151,7 +1156,7 @@ async function route(req, res) {
     }
     const validLeads = leads
       .filter((l) => l && String(l.externalId || "").trim() && String(l.name || "").trim())
-      .slice(0, 5000);
+      .slice(0, 50000);
     if (!validLeads.length) {
       sendJson(res, 400, { ok: false, reason: "Nenhum lead válido (sem id ou nome)." });
       return;
@@ -1283,6 +1288,9 @@ async function route(req, res) {
     const body = await readBody(req);
     const scope = OPS_SCOPES.has(String(body.scope || "local").toLowerCase()) ? String(body.scope).toLowerCase() : "local";
     const mode = EMAIL_LAB_MODES.has(String(body.mode || "")) ? String(body.mode) : "email_first";
+    // URLs dos leads a enriquecer (o crawler visita exatamente esses sites).
+    const sanitizeUrlList = (arr) => (Array.isArray(arr) ? arr : [])
+      .map((u) => safeText(u, 500)).filter(Boolean).slice(0, 2000);
     const payload = {
       scope,
       segment: safeText(body.segment, 180),
@@ -1290,6 +1298,8 @@ async function route(req, res) {
       state: safeText(body.state, 2).toUpperCase(),
       targetEmails: clampInt(body.targetEmails, 50, 1, 2000),
       mode,
+      websites: sanitizeUrlList(body.websites),
+      candidates: sanitizeUrlList(body.candidates),
     };
     const response = await opsRequest("POST", "/api/email-lab/local/jobs", payload, 30000);
     if (!response.configured) {
@@ -1431,7 +1441,8 @@ async function route(req, res) {
   // --- Guia de cards: lista navegável ---
   if (req.method === "GET" && url.pathname === "/owner/radar/cards") {
     if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 200);
+    // Backend (database-cards) aceita até 2000; o cockpit pagina de 1000 em 1000.
+    const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 2000);
     const page = clampInt(url.searchParams.get("page"), 1, 1, 10000);
     const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
     if (!r.ok) {

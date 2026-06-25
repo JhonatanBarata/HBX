@@ -1396,6 +1396,34 @@ export class MasterWebscrapingController {
     return this.webscrapingService.getMasterMassDataControl(req.user);
   }
 
+  // "Parar/Ligar faixa" do painel do dono → parada MANUAL durável (manualPaused) que o governor
+  // honra e a elástica NÃO desfaz. Substitui o docker stop cru (ops-control) que o governor re-ligava.
+  @Post('engines/stop-range')
+  async stopMasterEngineRange(@Req() _req: any, @Body() dto: { from?: number; to?: number }) {
+    const { from, to } = this.normalizeMasterEngineRange(dto);
+    const result = await this.hbxEnginePool.setEnginesManualStopped(this.buildMasterEngineIdRange(from, to));
+    return { ok: true, action: 'stop', from, to, affected: result.affected, ids: result.ids, status: await this.hbxEnginePool.getDashboardEngineStatus() };
+  }
+
+  @Post('engines/start-range')
+  async startMasterEngineRange(@Req() _req: any, @Body() dto: { from?: number; to?: number }) {
+    const { from, to } = this.normalizeMasterEngineRange(dto);
+    const result = await this.hbxEnginePool.setEnginesManualResumed(this.buildMasterEngineIdRange(from, to));
+    return { ok: true, action: 'start', from, to, affected: result.affected, ids: result.ids, status: await this.hbxEnginePool.getDashboardEngineStatus() };
+  }
+
+  private normalizeMasterEngineRange(dto: { from?: number; to?: number }) {
+    const from = Math.max(1, Math.trunc(Number(dto?.from || 1)));
+    const to = Math.min(Math.max(from, Math.trunc(Number(dto?.to || from))), from + 49);
+    return { from, to };
+  }
+
+  private buildMasterEngineIdRange(from: number, to: number) {
+    const ids: string[] = [];
+    for (let index = from; index <= to; index += 1) ids.push(`hbx-engine-${index}`);
+    return ids;
+  }
+
   @Post('mass-data/:id/pause')
   pauseMassDataCampaign(@Param('id') id: string) {
     return this.webscrapingService.pauseRadarCampaignByMaster(id);

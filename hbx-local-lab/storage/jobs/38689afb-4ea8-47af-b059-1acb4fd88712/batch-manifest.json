@@ -1,0 +1,31 @@
+{
+  "batchId": "local-lab-38689afb-4ea8-47af-b059-1acb4fd88712",
+  "sourceMode": "local_lab",
+  "sourceName": "HBX Local Lab",
+  "createdAt": "2026-06-25T06:38:29.820Z",
+  "requestedBy": "ops-control-email-lab",
+  "city": "Belem",
+  "state": "PA",
+  "segment": "engenharia",
+  "targetEmails": 3,
+  "providers": [
+    "site_crawl",
+    "directory_probe"
+  ],
+  "stats": {
+    "sitesVisited": 11,
+    "emailsFound": 20,
+    "emailsAccepted": 0,
+    "leads": 1,
+    "pacing": {
+      "fetches": 40,
+      "blocks": 0,
+      "backoffMs": 0,
+      "minDelayMs": 1500,
+      "maxDelayMs": 4000,
+      "blockBackoffMs": 60000
+    },
+    "providers": 2,
+    "emails": 2
+  }
+}

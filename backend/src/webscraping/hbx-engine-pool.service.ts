@@ -1094,7 +1094,7 @@ export class HbxEnginePoolService implements OnModuleInit {
     return this.getDashboardEngineStatus();
   }
 
-  async stopEngine(engineId: string, options: { force?: boolean; seconds?: number | null } = {}) {
+  async stopEngine(engineId: string, options: { force?: boolean; seconds?: number | null; manual?: boolean } = {}) {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return this.getDashboardEngineStatus();
     const id = this.normalizeEngineId(engineId);
     if (!id) return this.getDashboardEngineStatus();
@@ -1111,11 +1111,15 @@ export class HbxEnginePoolService implements OnModuleInit {
       await this.requeueActiveLeaseForEngine(id, 'Lease devolvida para fila por parada forçada do motor.');
     }
 
+    // manual=true (dono mandou parar no painel): status='stopped' + manualPaused=true é a ÚNICA
+    // combinação que FICA — o governor para o container (desiredState=stopped) E a elástica NÃO
+    // re-promove (applyElasticDesiredStates pula isEnginePaused). Sem isso, a parada do dono era
+    // desfeita pelo elastic em ~30s (e o docker stop cru do painel nem chegava no banco).
     await (this.prisma as any).hbxEngineLock.updateMany({
       where: { id },
       data: {
         status: 'stopped',
-        manualPaused: false,
+        manualPaused: Boolean(options.manual),
         pausedUntil: null,
         cooldownUntil: null,
         lockedRunId: null,
@@ -1123,12 +1127,63 @@ export class HbxEnginePoolService implements OnModuleInit {
         lockedUserId: null,
         lockedAt: null,
         lockedUntil: null,
-        lastError: locked && options.force
-          ? 'Motor parado apos devolver lease ativa para a fila.'
-          : 'Motor aguardando parada fisica pelo governor.',
+        lastError: options.manual
+          ? 'Parado manualmente pelo dono no painel (fica parado ate religar).'
+          : locked && options.force
+            ? 'Motor parado apos devolver lease ativa para a fila.'
+            : 'Motor aguardando parada fisica pelo governor.',
       },
     }).catch(() => null);
     return this.getDashboardEngineStatus();
+  }
+
+  // Parada/religamento MANUAL por FAIXA (o "Parar/Ligar faixa" do painel do dono). Grava o estado
+  // durável que o sistema honra sozinho: status='stopped' + manualPaused=true — o governor para o
+  // container (desiredState=stopped) E a elástica NÃO re-promove (applyElasticDesiredStates pula
+  // isEnginePaused). É o que faz o "Parar" OBEDECER e FICAR, sem o docker stop cru que o governor desfazia.
+  async setEnginesManualStopped(engineIds: string[]): Promise<{ affected: number; ids: string[] }> {
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) return { affected: 0, ids: [] };
+    const ids = Array.from(new Set(engineIds.map((id) => this.normalizeEngineId(id)).filter(Boolean))) as string[];
+    if (!ids.length) return { affected: 0, ids: [] };
+    // devolve qualquer tarefa em andamento pra fila (não perde trabalho ao parar)
+    await (this.prisma as any).webscrapingCampaignTask?.updateMany?.({
+      where: { lockedByEngineId: { in: ids }, status: 'running' },
+      data: { status: 'queued', lockedByEngineId: null, lockedUntil: null, lastError: 'Motor parado manualmente pelo dono.' },
+    }).catch(() => null);
+    const result = await (this.prisma as any).hbxEngineLock.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        status: 'stopped',
+        manualPaused: true,
+        pausedUntil: null,
+        cooldownUntil: null,
+        lockedRunId: null,
+        lockedCompanyId: null,
+        lockedUserId: null,
+        lockedAt: null,
+        lockedUntil: null,
+        lastError: 'Parado manualmente pelo dono no painel (fica parado ate religar).',
+      },
+    }).catch(() => ({ count: 0 }));
+    return { affected: Number(result?.count || 0), ids };
+  }
+
+  async setEnginesManualResumed(engineIds: string[]): Promise<{ affected: number; ids: string[] }> {
+    if (!(await this.prisma.hasTable('HbxEngineLock'))) return { affected: 0, ids: [] };
+    const ids = Array.from(new Set(engineIds.map((id) => this.normalizeEngineId(id)).filter(Boolean))) as string[];
+    if (!ids.length) return { affected: 0, ids: [] };
+    const result = await (this.prisma as any).hbxEngineLock.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        status: 'standby',
+        manualPaused: false,
+        pausedUntil: null,
+        cooldownUntil: null,
+        failureCount: 0,
+        lastError: null,
+      },
+    }).catch(() => ({ count: 0 }));
+    return { affected: Number(result?.count || 0), ids };
   }
 
   async drainFactoryEngines(options: { force?: boolean; seconds?: number | null; reason?: string } = {}) {
