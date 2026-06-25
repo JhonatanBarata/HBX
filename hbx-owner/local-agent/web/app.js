@@ -217,6 +217,22 @@ async function refreshVpsBank(force) {
 }
 
 /* ---------- Sua máquina (pressão + motores + veredito) ---------- */
+let turboActive = false;
+
+function paintTurboButtons(active) {
+  turboActive = active;
+  const btnOn  = $("#btn-turbo-on");
+  const btnOff = $("#btn-turbo-off");
+  if (!btnOn || !btnOff) return;
+  if (active) {
+    btnOn.style.display  = "none";
+    btnOff.style.display = "";
+  } else {
+    btnOn.style.display  = "";
+    btnOff.style.display = "none";
+  }
+}
+
 async function renderSistema() {
   const bankPromise = renderLocalBank();
   refreshVpsBank();
@@ -248,6 +264,7 @@ async function renderSistema() {
     paintChk("#chk-elastic", cap.elastic);
     paintChk("#chk-factory", !cap.factoryStopped);
     paintChk("#chk-turbo", cap.turboActive);
+    paintTurboButtons(Boolean(cap.turboActive));
   } else {
     $("#sys-engines-big").textContent = "—";
     $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "sem token do backend";
@@ -344,6 +361,44 @@ async function localEngines(action) {
 $("#btn-engines-local-start").addEventListener("click", () => localEngines("start"));
 $("#btn-engines-local-stop").addEventListener("click", () => localEngines("stop"));
 
+/* ---------- Turbo LOCAL ---------- */
+async function turboOn() {
+  const fb = $("#engines-local-feedback");
+  fb.textContent = "ligando turbo local…"; fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/ops/turbo", { scope: "local" });
+    if (r.ok) {
+      fb.textContent = "turbo ligado ✓"; fb.className = "delta up";
+      paintTurboButtons(true);
+      paintChk("#chk-turbo", true);
+      pushFeed("Turbo local ligado — scraping agressivo.", "ok");
+    } else {
+      fb.textContent = r.message || r.reason || "falhou";
+    }
+  } catch (err) {
+    fb.textContent = err.message;
+  }
+}
+async function turboOff() {
+  const fb = $("#engines-local-feedback");
+  fb.textContent = "desligando turbo local…"; fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/ops/cancel", { scope: "local", confirm: true });
+    if (r.ok) {
+      fb.textContent = "turbo desligado"; fb.className = "delta up";
+      paintTurboButtons(false);
+      paintChk("#chk-turbo", false);
+      pushFeed("Turbo local desligado.", "warn");
+    } else {
+      fb.textContent = r.message || r.reason || "falhou";
+    }
+  } catch (err) {
+    fb.textContent = err.message;
+  }
+}
+$("#btn-turbo-on").addEventListener("click", turboOn);
+$("#btn-turbo-off").addEventListener("click", turboOff);
+
 /* ---------- Local Lab on/off ---------- */
 async function labStatus() {
   try { return await api("GET", "/local-lab/status"); }
@@ -393,44 +448,7 @@ async function labStop() {
 $("#btn-lab-toggle-start").addEventListener("click", labStartClick);
 $("#btn-lab-toggle-stop").addEventListener("click", labStop);
 
-/* ---------- Exportar TODOS os leads locais → VPS + limpar ---------- */
-async function exportAllLeads() {
-  const fb = $("#export-feedback");
-  const st = $("#export-status");
-  const btn = $("#btn-export-all");
-  fb.className = "delta";
-  fb.textContent = "conferindo o banco local…";
-  st.textContent = "—"; st.className = "pill pill-muted";
-  try {
-    const prev = await api("POST", "/owner/export-all-leads", {});
-    if (prev.empty || !prev.count) { fb.textContent = prev.message || "Nenhum lead local pra exportar."; return; }
-    const ok = confirm(`Exportar ${prev.count} leads locais pro VPS e LIMPAR o banco local?\n\nOs e-mails ficam no PC. Não dá pra desfazer.`);
-    if (!ok) { fb.textContent = "cancelado."; return; }
-    if (btn) btn.disabled = true;
-    st.textContent = "enviando…"; st.className = "pill pill-muted";
-    fb.textContent = `mandando ${prev.count} leads pro VPS…`;
-    pushFeed(`Export: mandando ${prev.count} leads locais pro VPS…`, "info");
-    const r = await api("POST", "/owner/export-all-leads", { confirm: true });
-    if (r.ok) {
-      fb.textContent = `pronto: ${r.exported} enviados pro VPS, ${r.cleared} limpos do local.`;
-      fb.className = "delta up";
-      st.textContent = "enviado"; st.className = "pill pill-ok";
-      pushFeed(`Export concluído: ${r.exported} pro VPS, ${r.cleared} limpos do local.`, "ok");
-      renderLocalBank();
-      refreshVpsBank(true);
-    } else {
-      fb.textContent = r.message || r.reason || "falha ao exportar.";
-      st.textContent = "falhou"; st.className = "pill pill-bad";
-      pushFeed(`Export falhou: ${r.reason || r.message || "erro"}.`, "warn");
-    }
-  } catch (err) {
-    fb.textContent = err.message;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-$("#btn-export-all").addEventListener("click", exportAllLeads);
-
+/* ---------- Limpar lixo do banco (mantido no Cockpit) ---------- */
 async function cleanJunkLeads() {
   const fb = $("#export-feedback");
   const btn = $("#btn-clean-junk");
@@ -450,6 +468,7 @@ async function cleanJunkLeads() {
       fb.className = "delta up";
       pushFeed(`Limpeza concluída: ${r.cleared} cards-lixo fora do banco local.`, "ok");
       renderLocalBank();
+      loadCockpit();
     } else {
       fb.textContent = r.message || r.reason || "falha ao limpar.";
     }
@@ -460,6 +479,504 @@ async function cleanJunkLeads() {
   }
 }
 $("#btn-clean-junk").addEventListener("click", cleanJunkLeads);
+
+/* ================================================================
+   COCKPIT DE LEADS
+   - Carrega TODAS as linhas de uma vez via /owner/radar/cards (paginado 500/p, max 5k)
+   - Filtra + ordena no cliente
+   - Pagina 100 por página
+   - Exporta CSV das linhas filtradas
+   - Enriquecer: inicia job do Lab alimentando leads com website/instagramUrl filtrados
+   - Enviar pro VPS: manda lote filtrado usando o caminho export-all existente
+================================================================ */
+
+const CK_PAGE_SIZE = 100;
+let ckAllLeads = [];        // todas as linhas carregadas
+let ckFiltered = [];        // após filtro + sort
+let ckPage = 1;
+let ckSortCol = "createdAt";
+let ckSortDir = -1;         // -1 = desc, 1 = asc
+let ckEnrichJobId = null;
+let ckEnrichPollTimer = null;
+let ckEnrichRunning = false;
+
+const CK_COLS = [
+  { key: "name",               label: "Nome",            w: 160 },
+  { key: "_cityState",         label: "Cidade/UF",       w: 120 },
+  { key: "segment",            label: "Segmento",        w: 120 },
+  { key: "phone",              label: "Telefone",        w: 110 },
+  { key: "_whatsapp",          label: "WhatsApp",        w: 90  },
+  { key: "website",            label: "Website",         w: 130 },
+  { key: "email",              label: "E-mail",          w: 140 },
+  { key: "instagramUrl",       label: "Instagram",       w: 110 },
+  { key: "facebookUrl",        label: "Facebook",        w: 110 },
+  { key: "recommendedChannel", label: "Canal",           w: 90  },
+  { key: "painType",           label: "Dor",             w: 80  },
+  { key: "status",             label: "Status",          w: 90  },
+  { key: "createdAt",          label: "Criado em",       w: 110 },
+];
+
+const FILTER_KEYS = ["cf-name", "cf-city", "cf-state", "cf-segment", "cf-phone", "cf-email", "cf-channel", "cf-status"];
+
+function ckGetFilters() {
+  return {
+    name:    ($("#cf-name")    || {}).value || "",
+    city:    ($("#cf-city")    || {}).value || "",
+    state:   ($("#cf-state")   || {}).value || "",
+    segment: ($("#cf-segment") || {}).value || "",
+    phone:   ($("#cf-phone")   || {}).value || "",
+    email:   ($("#cf-email")   || {}).value || "",
+    channel: ($("#cf-channel") || {}).value || "",
+    status:  ($("#cf-status")  || {}).value || "",
+  };
+}
+
+function ckGetValue(row, key) {
+  if (key === "_cityState") return [row.city, row.state].filter(Boolean).join("/");
+  if (key === "_whatsapp") {
+    const ws = row.whatsappStatus || row.whatsappCheckStatus || "";
+    const phone = row.phone || row.phoneDigits || "";
+    if (!phone) return "";
+    return ws === "valid" || ws === "confirmed" ? phone : "";
+  }
+  if (key === "website") return row.website || "";
+  if (key === "email") return row.email || "";
+  if (key === "instagramUrl") return row.instagramUrl || "";
+  if (key === "facebookUrl") return row.facebookUrl || "";
+  return row[key] != null ? String(row[key]) : "";
+}
+
+function ckApplyFilters(rows) {
+  const f = ckGetFilters();
+  return rows.filter((row) => {
+    const cityState = ckGetValue(row, "_cityState").toLowerCase();
+    if (f.name    && !String(row.name    || "").toLowerCase().includes(f.name.toLowerCase()))    return false;
+    if (f.city    && !cityState.includes(f.city.toLowerCase()))                                  return false;
+    if (f.state   && !String(row.state   || "").toLowerCase().startsWith(f.state.toLowerCase())) return false;
+    if (f.segment && !String(row.segment || "").toLowerCase().includes(f.segment.toLowerCase())) return false;
+    if (f.phone   && !String(row.phone   || row.phoneDigits || "").includes(f.phone))            return false;
+    if (f.email   && !String(row.email   || "").toLowerCase().includes(f.email.toLowerCase()))   return false;
+    if (f.channel && !String(row.recommendedChannel || "").toLowerCase().includes(f.channel.toLowerCase())) return false;
+    if (f.status  && !String(row.status  || "").toLowerCase().includes(f.status.toLowerCase()))  return false;
+    return true;
+  });
+}
+
+function ckApplySort(rows) {
+  const col = ckSortCol;
+  return [...rows].sort((a, b) => {
+    const av = ckGetValue(a, col);
+    const bv = ckGetValue(b, col);
+    if (av < bv) return -ckSortDir;
+    if (av > bv) return  ckSortDir;
+    return 0;
+  });
+}
+
+function ckCellHtml(row, key) {
+  const v = ckGetValue(row, key);
+  if (!v) return '<span style="color:var(--text-muted);">—</span>';
+
+  if (key === "website") {
+    const ws = row.websiteStatus || "";
+    const cls = ws === "active" || ws === "ok" ? "ok" : ws === "inactive" || ws === "bad" ? "bad" : "muted";
+    const label = ws && ws !== "none" ? ` <span class="ck-pill ${cls}">${esc(ws)}</span>` : "";
+    return `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v.replace(/^https?:\/\//, "").slice(0, 28))}</a>${label}`;
+  }
+  if (key === "email") {
+    const es = row.emailStatus || "";
+    const cls = es === "found_on_site" || es === "confirmed" ? "ok" : es === "missing" || es === "invalid" ? "bad" : "warn";
+    const label = es && es !== "missing" ? ` <span class="ck-pill ${cls}">${esc(es)}</span>` : "";
+    return `${esc(v)}${label}`;
+  }
+  if (key === "instagramUrl" || key === "facebookUrl") {
+    const short = v.replace(/^https?:\/\/(www\.)?/, "").slice(0, 26);
+    return `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(short)}</a>`;
+  }
+  if (key === "_whatsapp" && v) {
+    return `<span class="ck-pill ok">✓ ${esc(v)}</span>`;
+  }
+  if (key === "status") {
+    const cls = v === "clean" || v === "available" ? "ok" : v === "sent_to_vendas" || v === "in_attendance" ? "warn" : "muted";
+    return `<span class="ck-pill ${cls}">${esc(v)}</span>`;
+  }
+  if (key === "recommendedChannel") {
+    return `<span class="ck-pill muted">${esc(v)}</span>`;
+  }
+  if (key === "createdAt") {
+    try {
+      const d = new Date(v);
+      return esc(d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+    } catch { return esc(v); }
+  }
+  return esc(v);
+}
+
+function ckRenderTable() {
+  const thead = $("#cockpit-thead");
+  const tbody = $("#cockpit-tbody");
+  if (!thead || !tbody) return;
+
+  // Cabeçalho (uma vez se já renderizado)
+  if (!thead.dataset.built) {
+    thead.dataset.built = "1";
+    const tr = document.createElement("tr");
+    for (const col of CK_COLS) {
+      const th = document.createElement("th");
+      th.dataset.key = col.key;
+      th.style.minWidth = col.w + "px";
+      th.textContent = col.label;
+      th.addEventListener("click", () => {
+        if (ckSortCol === col.key) ckSortDir *= -1;
+        else { ckSortCol = col.key; ckSortDir = col.key === "createdAt" ? -1 : 1; }
+        ckRefresh();
+      });
+      tr.appendChild(th);
+    }
+    thead.appendChild(tr);
+  }
+
+  // Atualiza marcadores de sort
+  for (const th of thead.querySelectorAll("th")) {
+    th.className = th.dataset.key === ckSortCol ? (ckSortDir === 1 ? "sort-asc" : "sort-desc") : "";
+  }
+
+  // Corpo
+  tbody.innerHTML = "";
+  const start = (ckPage - 1) * CK_PAGE_SIZE;
+  const page = ckFiltered.slice(start, start + CK_PAGE_SIZE);
+  if (!page.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = CK_COLS.length;
+    td.textContent = "Nenhum lead para exibir.";
+    td.style.color = "var(--text-muted)";
+    td.style.padding = "16px 8px";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const row of page) {
+    const tr = document.createElement("tr");
+    for (const col of CK_COLS) {
+      const td = document.createElement("td");
+      td.title = ckGetValue(row, col.key);
+      td.innerHTML = ckCellHtml(row, col.key);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+function ckRenderPagination() {
+  const total = ckFiltered.length;
+  const pages = Math.max(1, Math.ceil(total / CK_PAGE_SIZE));
+  const info = $("#ck-page-info");
+  const prev = $("#btn-ck-prev");
+  const next = $("#btn-ck-next");
+  const pag = $("#cockpit-pagination");
+  if (info) info.textContent = `Página ${ckPage} de ${pages} · ${total.toLocaleString("pt-BR")} leads`;
+  if (prev) prev.disabled = ckPage <= 1;
+  if (next) next.disabled = ckPage >= pages;
+  if (pag) pag.style.display = total > CK_PAGE_SIZE ? "" : "none";
+}
+
+function ckUpdateActionButtons() {
+  const total = ckFiltered.length;
+  const csvBtn = $("#btn-cockpit-csv");
+  const vpsBtn = $("#btn-cockpit-vps");
+  const enrichBtn = $("#btn-cockpit-enrich");
+  if (csvBtn) csvBtn.disabled = total === 0;
+  if (vpsBtn) vpsBtn.disabled = total === 0 || ckEnrichRunning;
+  if (enrichBtn) enrichBtn.disabled = total === 0 || ckEnrichRunning;
+}
+
+function ckRefresh() {
+  ckFiltered = ckApplySort(ckApplyFilters(ckAllLeads));
+  ckPage = 1;
+  ckRenderTable();
+  ckRenderPagination();
+  ckUpdateActionButtons();
+}
+
+async function loadCockpit() {
+  const st = $("#cockpit-status");
+  const wrap = $("#cockpit-table-wrap");
+  const filt = $("#cockpit-filters");
+  const note = $("#cockpit-enrich-note");
+  if (st) { st.textContent = "carregando leads…"; st.className = "pill pill-muted"; }
+  if (wrap) wrap.style.display = "none";
+  if (filt) filt.style.display = "none";
+  if (note) note.style.display = "";
+  ckAllLeads = [];
+  ckFiltered = [];
+
+  // Carrega todas as páginas de 500 (max 5000 leads)
+  const limit = 500;
+  let page = 1;
+  let totalLoaded = 0;
+  try {
+    while (totalLoaded < 5000) {
+      const r = await api("GET", `/owner/radar/cards?limit=${limit}&page=${page}`);
+      if (!r.ok || !r.data) {
+        if (st) { st.textContent = r.reason || "erro ao carregar"; st.className = "pill pill-bad"; }
+        return;
+      }
+      const items = Array.isArray(r.data.items) ? r.data.items : [];
+      if (!items.length) break;
+      ckAllLeads = ckAllLeads.concat(items);
+      totalLoaded += items.length;
+      if (st) { st.textContent = `${totalLoaded.toLocaleString("pt-BR")} leads carregados…`; }
+      if (items.length < limit) break;
+      page += 1;
+    }
+    if (st) {
+      st.textContent = `${ckAllLeads.length.toLocaleString("pt-BR")} leads`;
+      st.className = "pill pill-ok";
+    }
+    if (wrap) wrap.style.display = "";
+    if (filt) filt.style.display = "";
+    ckRefresh();
+  } catch (err) {
+    if (st) { st.textContent = `erro: ${err.message}`; st.className = "pill pill-bad"; }
+  }
+}
+
+/* ---------- CSV export ---------- */
+function ckExportCsv() {
+  const rows = ckFiltered;
+  if (!rows.length) return;
+  const CSV_COLS = [
+    { key: "name",               label: "Nome" },
+    { key: "city",               label: "Cidade" },
+    { key: "state",              label: "UF" },
+    { key: "segment",            label: "Segmento" },
+    { key: "phone",              label: "Telefone" },
+    { key: "phoneDigits",        label: "Telefone (digits)" },
+    { key: "email",              label: "E-mail" },
+    { key: "emailStatus",        label: "Status e-mail" },
+    { key: "emailSource",        label: "Fonte e-mail" },
+    { key: "website",            label: "Website" },
+    { key: "websiteStatus",      label: "Status website" },
+    { key: "instagramUrl",       label: "Instagram" },
+    { key: "facebookUrl",        label: "Facebook" },
+    { key: "socialStatus",       label: "Status social" },
+    { key: "recommendedChannel", label: "Canal recomendado" },
+    { key: "painType",           label: "Tipo de dor" },
+    { key: "status",             label: "Status" },
+    { key: "createdAt",          label: "Criado em" },
+    { key: "lastEnrichedAt",     label: "Último enriquecimento" },
+    { key: "enrichmentVersion",  label: "Versão enriquecimento" },
+  ];
+
+  function csvCell(v) {
+    const s = v == null ? "" : String(v);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  const bom = "﻿";
+  const header = CSV_COLS.map((c) => csvCell(c.label)).join(",");
+  const lines = rows.map((row) => CSV_COLS.map((c) => csvCell(row[c.key])).join(","));
+  const csv = bom + [header, ...lines].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const ts = new Date().toISOString().slice(0, 10);
+  a.download = `leads_hbx_${ts}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  pushFeed(`CSV exportado: ${rows.length} leads filtrados.`, "ok");
+}
+
+/* ---------- Enviar pro VPS (lote filtrado) ---------- */
+async function ckSendToVps() {
+  const rows = ckFiltered;
+  if (!rows.length) return;
+  const fb = $("#export-feedback");
+  if (!confirm(`Enviar ${rows.length} leads filtrados pro VPS (produção)?\n\nO banco local NÃO é limpo nesta operação — isso é diferente do "Exportar todos" antigo.`)) return;
+  fb.textContent = `enviando ${rows.length} leads pro VPS…`; fb.className = "delta";
+  const btn = $("#btn-cockpit-vps");
+  if (btn) btn.disabled = true;
+  pushFeed(`Cockpit: enviando ${rows.length} leads filtrados pro VPS…`, "info");
+
+  // Monta o payload no mesmo formato que readLocalCardsForExport usa
+  const leads = rows.map((row) => ({
+    externalId: String(row.id || ""),
+    name: String(row.name || "").slice(0, 300),
+    phone: row.phone || row.phoneDigits || null,
+    website: row.website || null,
+    email: row.email || null,
+    emailStatus: row.emailStatus || (row.email ? "found_on_site" : "missing"),
+    city: row.city || null,
+    state: row.state || null,
+    segment: row.segment || null,
+    sourceProvider: "cockpit_owner",
+    sourceUrl: row.website || row.sourceUrl || `radar:${row.id}`,
+    sourceMode: "local_lab",
+    evidence: { method: "cockpit_export", origin: "local_radar_pool" },
+  })).filter((l) => l.externalId && l.name);
+
+  try {
+    const r = await api("POST", "/owner/cockpit/send-to-vps", { leads });
+    if (r.ok) {
+      fb.textContent = `pronto: ${r.imported || leads.length} enviados pro VPS.`; fb.className = "delta up";
+      pushFeed(`Cockpit: ${r.imported || leads.length} leads enviados pro VPS.`, "ok");
+      refreshVpsBank(true);
+    } else {
+      fb.textContent = r.reason || r.message || "falha ao enviar."; fb.className = "delta";
+      pushFeed(`Cockpit VPS falhou: ${r.reason || r.message || "erro"}.`, "warn");
+    }
+  } catch (err) {
+    fb.textContent = err.message; fb.className = "delta";
+  } finally {
+    ckUpdateActionButtons();
+  }
+}
+
+/* ---------- Enriquecer (Email Lab) ---------- */
+const EL_TERMINAL_SET = new Set(["done", "completed", "finished", "failed", "error", "cancelled", "canceled"]);
+
+function ckPaintJob(job) {
+  const m = (job && job.metrics) || {};
+  const s = (e) => { const el = $(e); if (el) el.textContent = m[e.slice(1)] != null ? m[e.slice(1)] : "—"; };
+  const sites = $("#el-sites");
+  const found = $("#el-found");
+  const accepted = $("#el-accepted");
+  const summary = $("#el-summary");
+  if (sites) sites.textContent = m.sitesVisited != null ? m.sitesVisited : "—";
+  if (found) found.textContent = m.emailsFound != null ? m.emailsFound : "—";
+  if (accepted) accepted.textContent = m.emailsAccepted != null ? m.emailsAccepted : "—";
+  const status = String((job && job.status) || "").toLowerCase();
+  if (summary) summary.textContent = job && job.id ? `job ${job.id} · ${status || "—"}` : "Sem enriquecimento iniciado.";
+  return { status, terminal: EL_TERMINAL_SET.has(status) };
+}
+
+function ckStopEnrichPoll() {
+  if (ckEnrichPollTimer) { clearInterval(ckEnrichPollTimer); ckEnrichPollTimer = null; }
+  ckEnrichRunning = false;
+}
+
+async function ckPollEnrichOnce() {
+  if (!ckEnrichJobId) return;
+  try {
+    const r = await api("GET", `/owner/export/status/${encodeURIComponent(ckEnrichJobId)}`);
+    if (!r.ok || !r.job) return;
+    const st = ckPaintJob(r.job);
+    if (st.terminal) {
+      ckStopEnrichPoll();
+      const enrichBtn = $("#btn-cockpit-enrich");
+      const cancelBtn = $("#btn-el-cancel");
+      const fb = $("#el-feedback");
+      if (cancelBtn) cancelBtn.disabled = true;
+      if (enrichBtn) enrichBtn.disabled = false;
+      if (fb) { fb.textContent = st.status === "failed" || st.status === "error" ? "enriquecimento falhou." : "enriquecimento concluído."; fb.className = "delta" + (st.status === "failed" || st.status === "error" ? "" : " up"); }
+      pushFeed(`Enriquecimento: ${st.status}.`, st.status === "failed" || st.status === "error" ? "warn" : "ok");
+      ckUpdateActionButtons();
+      // recarrega dados depois de enriquecer
+      setTimeout(loadCockpit, 1500);
+    }
+  } catch { /* mantém poll */ }
+}
+
+async function ckStartEnrich() {
+  const rows = ckFiltered.filter((r) => r.website || r.instagramUrl);
+  const fb = $("#el-feedback");
+  if (!rows.length) {
+    if (fb) { fb.textContent = "Nenhum lead filtrado tem site ou Instagram — nada pra enriquecer."; fb.className = "delta"; }
+    return;
+  }
+  const enrichRow = $("#cockpit-enrich-row");
+  if (enrichRow) enrichRow.style.display = "";
+  if (fb) { fb.textContent = `iniciando enriquecimento de ${rows.length} leads com URL…`; fb.className = "delta"; }
+  const enrichBtn = $("#btn-cockpit-enrich");
+  const cancelBtn = $("#btn-el-cancel");
+  if (enrichBtn) enrichBtn.disabled = true;
+
+  // Usa o primeiro lead como "semente" de segmento/cidade para o job do Lab
+  const seed = rows[0];
+  try {
+    const r = await api("POST", "/owner/export", {
+      scope: "local",
+      segment: seed.segment || "geral",
+      city: seed.city || "",
+      state: seed.state || "",
+      targetEmails: Math.min(rows.length, 500),
+      mode: "enrich_missing_email",
+    });
+    if (!r.ok || !r.jobId) {
+      if (fb) { fb.textContent = r.message || r.reason || "Não consegui iniciar (Lab ligado?)"; fb.className = "delta"; }
+      if (enrichBtn) enrichBtn.disabled = false;
+      return;
+    }
+    ckEnrichJobId = r.jobId;
+    ckEnrichRunning = true;
+    if (fb) { fb.textContent = `enriquecendo… (job ${r.jobId})`; fb.className = "delta up"; }
+    if (cancelBtn) cancelBtn.disabled = false;
+    pushFeed(`Enriquecimento iniciado: job ${r.jobId} · ${rows.length} leads com URL.`, "info");
+    ckStopEnrichPoll();
+    ckPollEnrichOnce();
+    ckEnrichPollTimer = setInterval(ckPollEnrichOnce, 3000);
+    ckUpdateActionButtons();
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+    if (enrichBtn) enrichBtn.disabled = false;
+  }
+}
+
+async function ckCancelEnrich() {
+  if (!ckEnrichJobId) return;
+  const fb = $("#el-feedback");
+  try {
+    await api("POST", "/owner/export/cancel", { jobId: ckEnrichJobId });
+    ckStopEnrichPoll();
+    if (fb) { fb.textContent = "enriquecimento cancelado."; fb.className = "delta"; }
+    const cancelBtn = $("#btn-el-cancel");
+    const enrichBtn = $("#btn-cockpit-enrich");
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (enrichBtn) enrichBtn.disabled = false;
+    pushFeed("Enriquecimento cancelado.", "warn");
+    ckUpdateActionButtons();
+  } catch (err) {
+    if (fb) fb.textContent = err.message;
+  }
+}
+
+/* ---------- Wire-up cockpit ---------- */
+(function wireupCockpit() {
+  const reloadBtn = $("#btn-cockpit-reload");
+  const csvBtn    = $("#btn-cockpit-csv");
+  const vpsBtn    = $("#btn-cockpit-vps");
+  const enrichBtn = $("#btn-cockpit-enrich");
+  const prevBtn   = $("#btn-ck-prev");
+  const nextBtn   = $("#btn-ck-next");
+  const clearBtn  = $("#btn-cockpit-clear");
+  const cancelBtn = $("#btn-el-cancel");
+
+  if (reloadBtn) reloadBtn.addEventListener("click", loadCockpit);
+  if (csvBtn)    csvBtn.addEventListener("click", ckExportCsv);
+  if (vpsBtn)    vpsBtn.addEventListener("click", ckSendToVps);
+  if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
+  if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
+  if (clearBtn)  clearBtn.addEventListener("click", () => {
+    for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
+    ckRefresh();
+  });
+  if (prevBtn) prevBtn.addEventListener("click", () => { if (ckPage > 1) { ckPage -= 1; ckRenderTable(); ckRenderPagination(); } });
+  if (nextBtn) nextBtn.addEventListener("click", () => {
+    const pages = Math.ceil(ckFiltered.length / CK_PAGE_SIZE);
+    if (ckPage < pages) { ckPage += 1; ckRenderTable(); ckRenderPagination(); }
+  });
+
+  // Filtros
+  for (const id of FILTER_KEYS) {
+    const input = $(`#${id}`);
+    if (input) input.addEventListener("input", () => { ckPage = 1; ckRefresh(); });
+  }
+})();
 
 /* ---------- Controles da VPS ---------- */
 function vpsRange() {
@@ -495,210 +1012,6 @@ $("#btn-vps-cancel").addEventListener("click", () => {
   vpsAction("cancelar busca", "/owner/vps/cancel", { confirm: true }, "Cancelar a busca forçada na VPS agora?");
 });
 
-/* ---------- Radar ao vivo (Local × VPS): o que cada ambiente raspa agora ---------- */
-function fillRadarEnv(prefix, env) {
-  const status = $(`#rad-${prefix}-status`);
-  const now = $(`#rad-${prefix}-now`);
-  const query = $(`#rad-${prefix}-query`);
-  const engines = $(`#rad-${prefix}-engines`);
-  const decision = $(`#rad-${prefix}-decision`);
-  if (!env || env.available === false) {
-    if (status) { status.textContent = "indisponível"; status.className = "pill pill-muted"; }
-    if (now) now.textContent = "—";
-    if (query) query.textContent = (env && env.message) || "sem leitura";
-    if (engines) engines.textContent = "motores —";
-    if (decision) decision.textContent = "—";
-    return;
-  }
-  const work = env.workingNow || {};
-  const running = env.engineSummary ? env.engineSummary.running : 0;
-  const total = env.engineSummary ? env.engineSummary.total : 0;
-  const active = Boolean(work.title);
-  if (status) { status.textContent = active ? "raspando" : "parado"; status.className = "pill " + (active ? "pill-ok" : "pill-muted"); }
-  if (now) now.textContent = work.title || "Sem scraping ativo";
-  if (query) query.textContent = work.query || work.subtitle || "—";
-  if (engines) engines.textContent = `motores ${running}/${total}`;
-  if (decision) decision.textContent = env.decision || "—";
-}
-async function renderRadar(force) {
-  ["local", "vps"].forEach((p) => { const s = $(`#rad-${p}-status`); if (s) { s.textContent = "lendo…"; s.className = "pill pill-muted"; } });
-  try {
-    const r = await api("GET", `/owner/radar-cockpit${force ? "?force=1" : ""}`);
-    if (!r.ok) {
-      const msg = r.configured === false ? "configure o Ops Control" : (r.reason || "indisponível");
-      fillRadarEnv("local", { available: false, message: msg });
-      fillRadarEnv("vps", { available: false, message: msg });
-      return;
-    }
-    fillRadarEnv("local", r.environments && r.environments.localhost);
-    fillRadarEnv("vps", r.environments && r.environments.vps);
-  } catch (err) {
-    fillRadarEnv("local", { available: false, message: err.message });
-    fillRadarEnv("vps", { available: false, message: err.message });
-  }
-}
-function radScope() { return $("#rad-scope").value || "both"; }
-function radChannel() { return $("#rad-channel").value || ""; }
-function radScopeLabel(s) { return s === "local" ? "sua máquina" : s === "vps" ? "VPS" : "sua máquina + VPS"; }
-async function radAction(label, route, body, confirmMsg) {
-  if (confirmMsg && !confirm(confirmMsg)) return;
-  const fb = $("#rad-feedback");
-  fb.textContent = `${label}…`; fb.className = "delta";
-  try {
-    const r = await api("POST", route, body);
-    if (r.ok) { fb.textContent = `${label}: ok`; fb.className = "delta up"; pushFeed(`Você acionou: ${label} (${radScopeLabel(body.scope || "both")}).`, "info"); }
-    else { fb.textContent = `${label}: ${r.message || r.reason || "falhou"}`; fb.className = "delta"; }
-  } catch (err) { fb.textContent = `${label}: ${err.message}`; }
-  setTimeout(() => renderRadar(true), 2500);
-}
-$("#btn-rad-refresh").addEventListener("click", () => renderRadar(true));
-$("#btn-rad-turbo").addEventListener("click", () => {
-  const scope = radScope(); const channel = radChannel();
-  const cMsg = scope !== "local" ? `Ligar Turbo na VPS (produção)${channel ? ` com filtro ${channel}` : ""}? É scraping agressivo.` : null;
-  radAction("turbo", "/owner/ops/turbo", { scope, channel: channel || undefined }, cMsg);
-});
-$("#btn-rad-force").addEventListener("click", () => {
-  const scope = radScope(); const channel = radChannel();
-  if (!channel) { const fb = $("#rad-feedback"); fb.textContent = "escolha um canal pra forçar o filtro."; fb.className = "delta"; return; }
-  const cMsg = scope !== "local" ? `Forçar filtro "${channel}" na VPS (produção)?` : null;
-  radAction("forçar filtro", "/owner/ops/force-filter", { scope, channel }, cMsg);
-});
-$("#btn-rad-cancel").addEventListener("click", () => {
-  const scope = radScope();
-  radAction("cancelar scraping", "/owner/ops/cancel", { scope, confirm: true }, `Cancelar o scraping forçado (${radScopeLabel(scope)}) agora?`);
-});
-
-/* ---------- Caçar e-mail (Email Lab) ---------- */
-const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
-function fillUfSelects() {
-  document.querySelectorAll("select.select-uf").forEach((sel) => {
-    if (sel.dataset.filled) return;
-    sel.dataset.filled = "1";
-    sel.innerHTML = ['<option value="">UF</option>'].concat(UFS.map((u) => `<option value="${u}">${u}</option>`)).join("");
-  });
-}
-
-let elJobId = null;
-let elPollTimer = null;
-const EL_TERMINAL = new Set(["done", "completed", "finished", "failed", "error", "cancelled", "canceled"]);
-
-async function renderEmailLabStatus() {
-  const pill = $("#el-status");
-  if (!pill) return;
-  try {
-    const s = await api("GET", "/owner/email-lab/status");
-    if (s.configured === false) { pill.textContent = "config Ops"; pill.className = "pill pill-muted"; return; }
-    const labOk = Boolean(s.localLab && s.localLab.available);
-    const vpsOk = Boolean(s.vpsImport && s.vpsImport.configured);
-    pill.textContent = `Lab ${labOk ? "✓" : "off"} · VPS ${vpsOk ? "✓" : "off"}`;
-    pill.className = "pill " + (labOk ? "pill-ok" : "pill-muted");
-  } catch {
-    pill.textContent = "—"; pill.className = "pill pill-muted";
-  }
-}
-
-function paintJob(job) {
-  const m = (job && job.metrics) || {};
-  $("#el-sites").textContent = m.sitesVisited != null ? m.sitesVisited : "—";
-  $("#el-found").textContent = m.emailsFound != null ? m.emailsFound : "—";
-  $("#el-accepted").textContent = m.emailsAccepted != null ? m.emailsAccepted : "—";
-  const status = String((job && job.status) || "").toLowerCase();
-  const ready = Boolean(job && (job.exportReady || EL_TERMINAL.has(status)));
-  $("#el-summary").textContent = job && job.id ? `job ${job.id} · ${status || "—"}${ready ? " · export pronto" : ""}` : "Sem caça iniciada.";
-  return { status, terminal: EL_TERMINAL.has(status), ready };
-}
-
-function stopPoll() { if (elPollTimer) { clearInterval(elPollTimer); elPollTimer = null; } }
-
-async function pollJobOnce() {
-  if (!elJobId) return;
-  try {
-    const r = await api("GET", `/owner/export/status/${encodeURIComponent(elJobId)}`);
-    if (!r.ok || !r.job) return;
-    const st = paintJob(r.job);
-    if (st.ready) $("#btn-el-import").disabled = false;
-    if (st.terminal) {
-      stopPoll();
-      $("#btn-el-cancel").disabled = true;
-      $("#btn-el-hunt").disabled = false;
-      const bad = st.status === "failed" || st.status === "error";
-      const fb = $("#el-feedback");
-      fb.textContent = bad ? "caça falhou." : "caça concluída.";
-      fb.className = "delta" + (bad ? "" : " up");
-      pushFeed(`Caça de e-mail: ${st.status}.`, bad ? "warn" : "ok");
-    }
-  } catch { /* mantém o poll */ }
-}
-
-async function huntEmail() {
-  const segment = $("#el-segment").value.trim();
-  const state = $("#el-state").value.trim();
-  const city = $("#el-city").value.trim();
-  const target = Number($("#el-target").value) || 50;
-  const mode = $("#el-mode").value;
-  const fb = $("#el-feedback");
-  if (!segment || !city || state.length !== 2) { fb.textContent = "preencha segmento, UF e cidade."; fb.className = "delta"; return; }
-  fb.textContent = "iniciando caça no Local Lab…"; fb.className = "delta";
-  $("#btn-el-hunt").disabled = true;
-  $("#btn-el-import").disabled = true;
-  try {
-    const r = await api("POST", "/owner/export", { scope: "local", segment, city, state, targetEmails: target, mode });
-    if (!r.ok || !r.jobId) {
-      fb.textContent = r.message || r.reason || "não consegui iniciar (o Local Lab está ligado?).";
-      $("#btn-el-hunt").disabled = false;
-      return;
-    }
-    elJobId = r.jobId;
-    fb.textContent = `caçando… (job ${r.jobId})`; fb.className = "delta up";
-    pushFeed(`Caça de e-mail iniciada: ${segment} · ${city}/${state}.`, "info");
-    $("#btn-el-cancel").disabled = false;
-    stopPoll();
-    pollJobOnce();
-    elPollTimer = setInterval(pollJobOnce, 3000);
-  } catch (err) {
-    fb.textContent = err.message;
-    $("#btn-el-hunt").disabled = false;
-  }
-}
-
-async function importEmailLabToVps() {
-  if (!elJobId) return;
-  const fb = $("#el-feedback");
-  if (!confirm(`Importar os e-mails da caça (job ${elJobId}) pra VPS (produção)?`)) return;
-  fb.textContent = "importando pra VPS…"; fb.className = "delta";
-  $("#btn-el-import").disabled = true;
-  try {
-    const r = await api("POST", "/owner/export/import", { jobId: elJobId });
-    if (r.ok) {
-      fb.textContent = "importado pra VPS ✓"; fb.className = "delta up";
-      pushFeed("Caça de e-mail importada pra VPS.", "ok");
-      refreshVpsBank(true);
-    } else {
-      fb.textContent = r.message || r.reason || "falha ao importar.";
-      $("#btn-el-import").disabled = false;
-    }
-  } catch (err) {
-    fb.textContent = err.message;
-    $("#btn-el-import").disabled = false;
-  }
-}
-
-async function cancelHunt() {
-  if (!elJobId) return;
-  const fb = $("#el-feedback");
-  try {
-    await api("POST", "/owner/export/cancel", { jobId: elJobId });
-    stopPoll();
-    fb.textContent = "caça cancelada."; fb.className = "delta";
-    $("#btn-el-cancel").disabled = true;
-    $("#btn-el-hunt").disabled = false;
-    pushFeed("Caça de e-mail cancelada.", "warn");
-  } catch (err) { fb.textContent = err.message; }
-}
-
-$("#btn-el-hunt").addEventListener("click", huntEmail);
-$("#btn-el-import").addEventListener("click", importEmailLabToVps);
-$("#btn-el-cancel").addEventListener("click", cancelHunt);
 
 /* ---------- Containers + logs + Top processos (recolhido) ---------- */
 let infraLoaded = false;
@@ -797,269 +1110,12 @@ async function renderInfra() {
 const infraDetails = $("#infra-details");
 if (infraDetails) infraDetails.addEventListener("toggle", () => { if (infraDetails.open) renderInfra(); });
 
-/* ---------- Motor Radar — P2 ---------- */
-
-async function renderRadarAudit() {
-  const pill = $("#radar-audit-pill");
-  const errBox = $("#radar-audit-error");
-  if (pill) { pill.textContent = "lendo…"; pill.className = "pill pill-muted"; }
-  if (errBox) errBox.style.display = "none";
-  try {
-    const r = await api("GET", "/owner/radar/audit");
-    const d = r.data || {};
-    const setVal = (id, val) => { const e = $(id); if (e) e.textContent = val != null ? Number(val).toLocaleString("pt-BR") : "—"; };
-    setVal("#rad-total",    d.total        ?? d.totalCards     ?? null);
-    setVal("#rad-today",    d.today        ?? d.deltaToday     ?? null);
-    setVal("#rad-10min",    d.last10min    ?? d.recent10min    ?? null);
-    setVal("#rad-sent",     d.sentToSales  ?? d.distributed    ?? null);
-    setVal("#rad-negative", d.negativated  ?? d.negative       ?? null);
-    const eng = d.enginesOnline ?? (d.engines && d.engines.running) ?? null;
-    setVal("#rad-engines-online", eng);
-    if (pill) { pill.textContent = r.ok ? "auditoria ok" : "sem dados"; pill.className = r.ok ? "pill pill-ok" : "pill pill-muted"; }
-  } catch (err) {
-    if (pill) { pill.textContent = "erro"; pill.className = "pill pill-bad"; }
-    if (errBox) { errBox.textContent = `Auditoria: ${err.message}`; errBox.style.display = ""; }
-  }
-}
-
-async function radarEngineAction(action) {
-  const id = ($("#radar-engine-id").value || "").trim();
-  const fb = $("#radar-engine-feedback");
-  if (!id) { fb.textContent = "informe o ID do motor."; fb.className = "delta"; return; }
-  const minutes = Number($("#radar-engine-minutes").value) || 30;
-  const destructive = action === "stop" || action === "drain";
-  if (destructive && !confirm(`${action === "stop" ? "Parar" : "Drenar"} o motor "${id}"?`)) return;
-  fb.textContent = `${action}…`; fb.className = "delta";
-  try {
-    const body = action === "pause" ? { minutes } : (action === "drain" ? { confirm: true } : (action === "stop" ? { confirm: true } : {}));
-    const r = await api("POST", `/owner/radar/engines/${encodeURIComponent(id)}/${action}`, body);
-    if (r.ok) { fb.textContent = `motor ${id}: ${action} ok`; fb.className = "delta up"; pushFeed(`Motor ${id}: ${action}.`, "info"); }
-    else { fb.textContent = `${action}: ${r.reason || r.data?.message || "falhou"}`; }
-  } catch (err) { fb.textContent = err.message; }
-}
-
-if ($("#btn-radar-engine-pause"))  $("#btn-radar-engine-pause").addEventListener("click",  () => radarEngineAction("pause"));
-if ($("#btn-radar-engine-resume")) $("#btn-radar-engine-resume").addEventListener("click", () => radarEngineAction("resume"));
-if ($("#btn-radar-engine-drain"))  $("#btn-radar-engine-drain").addEventListener("click",  () => radarEngineAction("drain"));
-if ($("#btn-radar-engine-stop"))   $("#btn-radar-engine-stop").addEventListener("click",   () => radarEngineAction("stop"));
-
-async function loadRadarCards() {
-  const limit = Number($("#radar-cards-limit").value) || 20;
-  const page  = Number($("#radar-cards-page").value)  || 1;
-  const fb = $("#radar-cards-feedback");
-  const body = $("#radar-cards-body");
-  fb.textContent = "carregando…"; fb.className = "delta";
-  try {
-    const r = await api("GET", `/owner/radar/cards?limit=${limit}&page=${page}`);
-    const items = r.data?.items || [];
-    const total = r.data?.total ?? items.length;
-    fb.textContent = `${items.length} de ${total} cards (pág. ${page})`;
-    if (!items.length) { body.innerHTML = `<p class="delta">Nenhum card nesta página.</p>`; return; }
-    let html = `<table class="infra-table"><thead><tr><th>#</th><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Segmento</th><th>Score</th></tr></thead><tbody>`;
-    const start = (page - 1) * limit + 1;
-    items.forEach((c, i) => {
-      html += `<tr><td>${start + i}</td><td>${esc(c.name || c.companyName || "—")}</td><td>${esc(c.phone || c.phoneDigits || "—")}</td><td>${esc(c.city || "—")}</td><td>${esc(c.segment || "—")}</td><td>${esc(c.opportunityScore != null ? c.opportunityScore : "—")}</td></tr>`;
-    });
-    html += `</tbody></table>`;
-    body.innerHTML = html;
-  } catch (err) { fb.textContent = err.message; body.innerHTML = ""; }
-}
-
-if ($("#btn-radar-cards-load")) $("#btn-radar-cards-load").addEventListener("click", loadRadarCards);
-
-async function loadRadarDistribution() {
-  const fb = $("#radar-dist-feedback");
-  const pre = $("#radar-dist-body");
-  fb.textContent = "lendo…"; fb.className = "delta";
-  try {
-    const r = await api("GET", "/owner/radar/distribution");
-    pre.textContent = JSON.stringify(r.data, null, 2);
-    pre.style.display = "";
-    fb.textContent = r.ok ? "configuração carregada" : (r.reason || "sem dados"); fb.className = r.ok ? "delta up" : "delta";
-  } catch (err) { fb.textContent = err.message; }
-}
-
-async function runRadarDistribution() {
-  const fb = $("#radar-dist-feedback");
-  if (!confirm("Rodar a distribuição automática de cards agora?")) return;
-  fb.textContent = "rodando…"; fb.className = "delta";
-  try {
-    const r = await api("POST", "/owner/radar/distribution/run", {});
-    fb.textContent = r.ok ? "distribuição concluída ✓" : (r.reason || r.data?.message || "falhou");
-    fb.className = r.ok ? "delta up" : "delta";
-    if (r.ok) pushFeed("Distribuição automática de cards rodou agora.", "ok");
-  } catch (err) { fb.textContent = err.message; }
-}
-
-if ($("#btn-radar-dist-load")) $("#btn-radar-dist-load").addEventListener("click", loadRadarDistribution);
-if ($("#btn-radar-dist-run"))  $("#btn-radar-dist-run").addEventListener("click",  runRadarDistribution);
-
-async function loadRadarCampaigns() {
-  const fb = $("#radar-campaign-feedback");
-  const body = $("#radar-campaigns-body");
-  fb.textContent = "carregando…"; fb.className = "delta";
-  try {
-    const r = await api("GET", "/owner/radar/mass-data");
-    const campaigns = Array.isArray(r.data) ? r.data : (r.data?.items || r.data?.campaigns || []);
-    fb.textContent = `${campaigns.length} campanha(s)`;
-    if (!campaigns.length) { body.innerHTML = `<p class="delta">Nenhuma campanha encontrada.</p>`; return; }
-    let html = `<table class="infra-table"><thead><tr><th>ID</th><th>Status</th><th>Segmento</th><th>Cards</th><th>Ações</th></tr></thead><tbody>`;
-    for (const c of campaigns) {
-      const id = c.id || c.campaignId || "?";
-      const st = c.status || c.state || "?";
-      const stCls = ["active","running","processing"].includes(String(st).toLowerCase()) ? "pill-ok" : "pill-muted";
-      html += `<tr>
-        <td style="font-family:monospace;font-size:11px;">${esc(id)}</td>
-        <td><span class="pill ${stCls}" style="font-size:11px;">${esc(st)}</span></td>
-        <td>${esc(c.segment || "—")}</td>
-        <td>${esc(c.total ?? c.count ?? "—")}</td>
-        <td>
-          <button class="btn btn-sm btn-amber" data-campaign-action="pause" data-campaign-id="${esc(id)}">⏸</button>
-          <button class="btn btn-sm btn-green" data-campaign-action="resume" data-campaign-id="${esc(id)}">▶</button>
-          <button class="btn btn-sm btn-red" data-campaign-action="cancel" data-campaign-id="${esc(id)}">✕</button>
-        </td>
-      </tr>`;
-    }
-    html += `</tbody></table>`;
-    body.innerHTML = html;
-    body.querySelectorAll("[data-campaign-action]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const action = btn.dataset.campaignAction;
-        const cid = btn.dataset.campaignId;
-        const fb2 = $("#radar-campaign-feedback");
-        if (action === "cancel" && !confirm(`Cancelar a campanha ${cid}?`)) return;
-        fb2.textContent = `${action} campanha ${cid}…`; fb2.className = "delta";
-        try {
-          const r = await api("POST", `/owner/radar/mass-data/${encodeURIComponent(cid)}/${action}`, action === "cancel" ? { confirm: true } : {});
-          fb2.textContent = r.ok ? `${action} ok` : (r.reason || r.data?.message || "falhou");
-          fb2.className = r.ok ? "delta up" : "delta";
-          if (r.ok) pushFeed(`Campanha ${cid}: ${action}.`, "info");
-          await loadRadarCampaigns();
-        } catch (err) { fb2.textContent = err.message; }
-      });
-    });
-  } catch (err) { fb.textContent = err.message; body.innerHTML = ""; }
-}
-
-if ($("#btn-radar-campaigns-load")) $("#btn-radar-campaigns-load").addEventListener("click", loadRadarCampaigns);
-if ($("#btn-radar-refresh"))        $("#btn-radar-refresh").addEventListener("click", renderRadarAudit);
-
-const radarDetailsEl = $("#radar-details");
-if (radarDetailsEl) {
-  if (radarDetailsEl.open) renderRadarAudit();
-  radarDetailsEl.addEventListener("toggle", () => { if (radarDetailsEl.open) renderRadarAudit(); });
-}
-
-/* ---------- Night Factory — P3 ---------- */
-
-async function renderNightFactoryStatus() {
-  const pill = $("#nf-status-pill");
-  if (pill) { pill.textContent = "lendo…"; pill.className = "pill pill-muted"; }
-  try {
-    const r = await api("GET", "/owner/night-factory/status");
-    const d = r.data || {};
-    const stateEl = $("#nf-state");
-    const runningEl = $("#nf-running");
-    const lastRunEl = $("#nf-last-run");
-    const detailEl = $("#nf-status-detail");
-    const state = d.status || d.state || (r.ok ? "ok" : "—");
-    if (stateEl) stateEl.textContent = state;
-    if (runningEl) runningEl.textContent = d.isRunning != null ? (d.isRunning ? "sim" : "não") : "—";
-    if (lastRunEl) {
-      const ts = d.lastRunAt || d.lastRun || d.startedAt;
-      lastRunEl.textContent = ts ? new Date(ts).toLocaleString("pt-BR") : "—";
-    }
-    if (detailEl) detailEl.textContent = d.message || d.detail || "";
-    if (pill) {
-      const isActive = ["running","active","processing"].includes(String(state).toLowerCase());
-      pill.textContent = state; pill.className = "pill " + (isActive ? "pill-ok" : "pill-muted");
-    }
-    // Pre-preenche config se vier no status
-    const cfg = d.config || d.configuration || {};
-    if (cfg.window && $("#nf-window")) $("#nf-window").value = cfg.window;
-    if (cfg.maxConcurrency && $("#nf-max-concurrency")) $("#nf-max-concurrency").value = cfg.maxConcurrency;
-    if (cfg.maxLeadsPerNight && $("#nf-max-leads")) $("#nf-max-leads").value = cfg.maxLeadsPerNight;
-    if (cfg.allowRecoveryRevival != null && $("#nf-allow-recovery")) $("#nf-allow-recovery").checked = Boolean(cfg.allowRecoveryRevival);
-  } catch (err) {
-    if (pill) { pill.textContent = "erro"; pill.className = "pill pill-bad"; }
-  }
-}
-
-async function nfControl(action) {
-  const fb = $("#nf-control-feedback");
-  if (action === "run-now" && !confirm("Rodar a Night Factory agora?")) return;
-  fb.textContent = `${action}…`; fb.className = "delta";
-  try {
-    const body = action === "run-now" ? { confirm: true } : {};
-    const r = await api("POST", `/owner/night-factory/${action}`, body);
-    if (r.ok) {
-      fb.textContent = `${action}: ok`; fb.className = "delta up";
-      pushFeed(`Night Factory: ${action}.`, "info");
-      renderNightFactoryStatus();
-    } else {
-      fb.textContent = r.reason || r.data?.message || "falhou";
-    }
-  } catch (err) { fb.textContent = err.message; }
-}
-
-if ($("#btn-nf-run-now")) $("#btn-nf-run-now").addEventListener("click", () => nfControl("run-now"));
-if ($("#btn-nf-pause"))   $("#btn-nf-pause").addEventListener("click",   () => nfControl("pause"));
-if ($("#btn-nf-resume"))  $("#btn-nf-resume").addEventListener("click",  () => nfControl("resume"));
-
-async function saveNightFactoryConfig() {
-  const fb = $("#nf-config-feedback");
-  const window_ = ($("#nf-window").value || "").trim() || undefined;
-  const maxConcurrency = Number($("#nf-max-concurrency").value) || undefined;
-  const maxLeadsPerNight = Number($("#nf-max-leads").value) || undefined;
-  const allowRecoveryRevival = $("#nf-allow-recovery").checked;
-  const body = {};
-  if (window_) body.window = window_;
-  if (maxConcurrency) body.maxConcurrency = maxConcurrency;
-  if (maxLeadsPerNight) body.maxLeadsPerNight = maxLeadsPerNight;
-  body.allowRecoveryRevival = allowRecoveryRevival;
-  fb.textContent = "salvando…"; fb.className = "delta";
-  try {
-    const r = await api("POST", "/owner/night-factory/config", body);
-    fb.textContent = r.ok ? "configuração salva ✓" : (r.reason || r.data?.message || "falhou");
-    fb.className = r.ok ? "delta up" : "delta";
-    if (r.ok) pushFeed("Night Factory config salva.", "ok");
-  } catch (err) { fb.textContent = err.message; }
-}
-
-if ($("#btn-nf-save-config")) $("#btn-nf-save-config").addEventListener("click", saveNightFactoryConfig);
-if ($("#btn-nf-refresh"))     $("#btn-nf-refresh").addEventListener("click", renderNightFactoryStatus);
-
-async function loadNightFactoryData(endpoint, label) {
-  const pre = $("#nf-report-body");
-  const fb = $("#nf-config-feedback");
-  if (pre) { pre.textContent = "carregando…"; pre.style.display = ""; }
-  try {
-    const r = await api("GET", `/owner/night-factory/${endpoint}`);
-    if (pre) pre.textContent = JSON.stringify(r.data, null, 2);
-    if (fb) { fb.textContent = `${label} carregado`; fb.className = "delta up"; }
-  } catch (err) {
-    if (pre) pre.textContent = `Erro: ${err.message}`;
-    if (fb)  { fb.textContent = err.message; fb.className = "delta"; }
-  }
-}
-
-if ($("#btn-nf-report"))   $("#btn-nf-report").addEventListener("click",   () => loadNightFactoryData("daily-report",           "Relatório diário"));
-if ($("#btn-nf-top"))      $("#btn-nf-top").addEventListener("click",       () => loadNightFactoryData("top-opportunities",      "Top oportunidades"));
-if ($("#btn-nf-segments")) $("#btn-nf-segments").addEventListener("click",  () => loadNightFactoryData("segments",               "Segmentos"));
-if ($("#btn-nf-cities"))   $("#btn-nf-cities").addEventListener("click",    () => loadNightFactoryData("cities",                 "Cidades"));
-if ($("#btn-nf-recovery")) $("#btn-nf-recovery").addEventListener("click",  () => loadNightFactoryData("recovery-opportunities", "Recovery"));
-
-const nfDetailsEl = $("#nf-details");
-if (nfDetailsEl) nfDetailsEl.addEventListener("toggle", () => { if (nfDetailsEl.open) renderNightFactoryStatus(); });
-
 /* ---------- Boot ---------- */
-fillUfSelects();
 pingStatus();
 refreshLabState();
-renderEmailLabStatus();
 renderSistema();
 renderVps();
-renderRadar();
 renderFeed(false);
+loadCockpit();
 setInterval(renderSistema, 5000);
 setInterval(pingStatus, 20000);

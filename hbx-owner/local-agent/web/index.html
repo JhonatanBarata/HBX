@@ -84,6 +84,8 @@
             <button id="btn-engines-local-stop" class="btn btn-red btn-sm">Parar motores</button>
             <button id="btn-lab-toggle-start" class="btn btn-blue btn-sm">Ligar Lab</button>
             <button id="btn-lab-toggle-stop" class="btn btn-amber btn-sm">Desligar Lab</button>
+            <button id="btn-turbo-on" class="btn btn-green btn-sm">Ligar Turbo</button>
+            <button id="btn-turbo-off" class="btn btn-amber btn-sm" style="display:none;">Desligar Turbo</button>
           </div>
           <span id="engines-local-feedback" class="delta"></span>
         </div>
@@ -113,182 +115,6 @@
       </section>
     </div>
 
-    <!-- ============ RADAR AO VIVO: o que cada ambiente raspa AGORA ============ -->
-    <div class="card">
-      <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
-        <span class="label" style="margin:0;">Radar ao vivo — controle de scraping</span>
-        <button id="btn-rad-refresh" class="icon-btn" title="Reler o radar (SSH, ~30s)">⟳</button>
-      </div>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Alvo<select id="rad-scope">
-          <option value="both">Sua máquina + VPS</option>
-          <option value="local">Só sua máquina</option>
-          <option value="vps">Só VPS</option>
-        </select></label>
-        <label>Filtro de canal<select id="rad-channel">
-          <option value="">Sem filtro</option>
-          <option value="email">E-mail</option>
-          <option value="whatsapp">WhatsApp</option>
-          <option value="instagram">Instagram</option>
-          <option value="website">Site</option>
-          <option value="phone">Telefone</option>
-          <option value="facebook">Facebook</option>
-        </select></label>
-      </div>
-      <div class="btn-row" style="margin-top:12px;">
-        <button id="btn-rad-turbo" class="btn btn-green btn-sm">Turbo</button>
-        <button id="btn-rad-force" class="btn btn-blue btn-sm">Forçar filtro</button>
-        <button id="btn-rad-cancel" class="btn btn-red btn-sm">Cancelar scraping</button>
-        <span id="rad-feedback" class="delta"></span>
-      </div>
-    </div>
-
-    <div class="sys-cols">
-      <section class="env-col" data-env="local">
-        <div class="card">
-          <div class="focus-row"><span class="label" style="margin:0;">Raspando agora · sua máquina</span><span id="rad-local-status" class="pill pill-muted">—</span></div>
-          <strong id="rad-local-now" class="big">—</strong>
-          <p id="rad-local-query" class="delta" style="margin-top:4px;">—</p>
-          <div class="bar-legend" style="margin-top:8px;"><span id="rad-local-engines">motores —</span></div>
-          <p id="rad-local-decision" class="verdict-detail" style="margin-top:10px;">—</p>
-        </div>
-      </section>
-      <section class="env-col env-vps" data-env="vps">
-        <div class="card">
-          <div class="focus-row"><span class="label" style="margin:0;">Raspando agora · VPS</span><span id="rad-vps-status" class="pill pill-muted">—</span></div>
-          <strong id="rad-vps-now" class="big">—</strong>
-          <p id="rad-vps-query" class="delta" style="margin-top:4px;">—</p>
-          <div class="bar-legend" style="margin-top:8px;"><span id="rad-vps-engines">motores —</span></div>
-          <p id="rad-vps-decision" class="verdict-detail" style="margin-top:10px;">—</p>
-        </div>
-      </section>
-    </div>
-
-    <!-- ============ MOTOR RADAR — Auditoria + Guia de Cards + Distribuição + Campanhas ============ -->
-    <details id="radar-details" class="card" open>
-      <summary class="infra-summary">
-        <span class="label" style="margin:0;">Motor Radar</span>
-        <span id="radar-audit-pill" class="pill pill-muted">clique para carregar</span>
-        <button id="btn-radar-refresh" class="icon-btn" title="Reler auditoria" style="margin-left:8px;">⟳</button>
-      </summary>
-      <div id="radar-body" style="margin-top:14px;">
-
-        <!-- Auditoria -->
-        <h3 class="infra-h3">Auditoria do banco</h3>
-        <div class="grid-3" id="radar-audit-grid" style="margin-top:8px;">
-          <div class="card metric"><span class="label">No banco</span><strong id="rad-total">—</strong></div>
-          <div class="card metric"><span class="label">Hoje</span><strong id="rad-today">—</strong></div>
-          <div class="card metric"><span class="label">Última 10 min</span><strong id="rad-10min">—</strong></div>
-          <div class="card metric"><span class="label">Enviados ao Vendas</span><strong id="rad-sent">—</strong></div>
-          <div class="card metric"><span class="label">Negativados</span><strong id="rad-negative">—</strong></div>
-          <div class="card metric"><span class="label">Motores online</span><strong id="rad-engines-online">—</strong></div>
-        </div>
-        <p id="radar-audit-error" class="delta" style="display:none;color:var(--color-warn,#c47700);margin-top:4px;"></p>
-
-        <!-- Controles por-motor -->
-        <h3 class="infra-h3" style="margin-top:18px;">Controles por motor individual</h3>
-        <div class="form-grid" style="margin-top:8px;">
-          <label>ID do motor<input id="radar-engine-id" placeholder="ex.: hbx-engine-1 ou uuid" /></label>
-          <label>Minutos (pausa)<input id="radar-engine-minutes" type="number" min="1" max="1440" value="30" /></label>
-        </div>
-        <div class="btn-row" style="margin-top:10px;">
-          <button id="btn-radar-engine-pause" class="btn btn-amber btn-sm">Pausar motor</button>
-          <button id="btn-radar-engine-resume" class="btn btn-green btn-sm">Retomar motor</button>
-          <button id="btn-radar-engine-drain" class="btn btn-blue btn-sm">Drenar motor</button>
-          <button id="btn-radar-engine-stop" class="btn btn-red btn-sm">Parar motor</button>
-          <span id="radar-engine-feedback" class="delta"></span>
-        </div>
-
-        <!-- Guia de Cards -->
-        <h3 class="infra-h3" style="margin-top:18px;">Guia de cards no banco</h3>
-        <div class="form-grid" style="margin-top:8px;">
-          <label>Itens por página<input id="radar-cards-limit" type="number" min="5" max="200" value="20" /></label>
-          <label>Página<input id="radar-cards-page" type="number" min="1" value="1" /></label>
-        </div>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btn-radar-cards-load" class="btn btn-blue btn-sm">Carregar cards</button>
-          <span id="radar-cards-feedback" class="delta"></span>
-        </div>
-        <div id="radar-cards-body" style="margin-top:10px;"></div>
-
-        <!-- Distribuição automática -->
-        <h3 class="infra-h3" style="margin-top:18px;">Distribuição automática</h3>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btn-radar-dist-load" class="btn btn-blue btn-sm">Ver configuração</button>
-          <button id="btn-radar-dist-run" class="btn btn-green btn-sm">Rodar distribuição agora</button>
-          <span id="radar-dist-feedback" class="delta"></span>
-        </div>
-        <pre id="radar-dist-body" style="font-size:11px;background:var(--color-bg-alt,#f5f5f5);padding:10px;border-radius:6px;margin-top:8px;max-height:200px;overflow:auto;white-space:pre-wrap;display:none;"></pre>
-
-        <!-- Campanhas mass-data -->
-        <h3 class="infra-h3" style="margin-top:18px;">Campanhas (mass-data)</h3>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btn-radar-campaigns-load" class="btn btn-blue btn-sm">Listar campanhas</button>
-          <span id="radar-campaign-feedback" class="delta"></span>
-        </div>
-        <div id="radar-campaigns-body" style="margin-top:10px;"></div>
-
-      </div>
-    </details>
-
-    <!-- ============ NIGHT FACTORY ============ -->
-    <details id="nf-details" class="card">
-      <summary class="infra-summary">
-        <span class="label" style="margin:0;">Night Factory</span>
-        <span id="nf-status-pill" class="pill pill-muted">clique para carregar</span>
-        <button id="btn-nf-refresh" class="icon-btn" title="Reler status" style="margin-left:8px;">⟳</button>
-      </summary>
-      <div id="nf-body" style="margin-top:14px;">
-
-        <!-- Status + Controles -->
-        <div class="sys-cols">
-          <section class="env-col" data-env="local">
-            <h3 class="infra-h3">Status</h3>
-            <div class="grid-3" style="margin-top:8px;">
-              <div class="card metric"><span class="label">Estado</span><strong id="nf-state">—</strong></div>
-              <div class="card metric"><span class="label">Rodando</span><strong id="nf-running">—</strong></div>
-              <div class="card metric"><span class="label">Última execução</span><strong id="nf-last-run">—</strong></div>
-            </div>
-            <p id="nf-status-detail" class="delta" style="margin-top:6px;"></p>
-          </section>
-          <section class="env-col env-vps" data-env="vps">
-            <h3 class="infra-h3">Controles</h3>
-            <div class="btn-row" style="margin-top:8px;">
-              <button id="btn-nf-run-now" class="btn btn-green btn-sm">Rodar agora</button>
-              <button id="btn-nf-pause" class="btn btn-amber btn-sm">Pausar</button>
-              <button id="btn-nf-resume" class="btn btn-blue btn-sm">Retomar</button>
-            </div>
-            <span id="nf-control-feedback" class="delta"></span>
-          </section>
-        </div>
-
-        <!-- Config -->
-        <h3 class="infra-h3" style="margin-top:18px;">Configuração</h3>
-        <div class="form-grid" style="margin-top:8px;">
-          <label>Janela (cron ou HH:MM–HH:MM)<input id="nf-window" placeholder="ex.: 22:00–06:00" /></label>
-          <label>Max concorrência<input id="nf-max-concurrency" type="number" min="1" max="50" /></label>
-          <label>Max leads/noite<input id="nf-max-leads" type="number" min="1" max="100000" /></label>
-          <label style="display:flex;align-items:center;gap:8px;"><input id="nf-allow-recovery" type="checkbox" /><span>Permitir recovery revival</span></label>
-        </div>
-        <div class="btn-row" style="margin-top:10px;">
-          <button id="btn-nf-save-config" class="btn btn-green btn-sm">Salvar configuração</button>
-          <span id="nf-config-feedback" class="delta"></span>
-        </div>
-
-        <!-- Relatório diário -->
-        <h3 class="infra-h3" style="margin-top:18px;">Relatório diário + Top oportunidades</h3>
-        <div class="btn-row" style="margin-top:8px;">
-          <button id="btn-nf-report" class="btn btn-blue btn-sm">Carregar relatório</button>
-          <button id="btn-nf-top" class="btn btn-blue btn-sm">Top oportunidades</button>
-          <button id="btn-nf-segments" class="btn btn-blue btn-sm">Segmentos</button>
-          <button id="btn-nf-cities" class="btn btn-blue btn-sm">Cidades</button>
-          <button id="btn-nf-recovery" class="btn btn-blue btn-sm">Recovery</button>
-        </div>
-        <pre id="nf-report-body" style="font-size:11px;background:var(--color-bg-alt,#f5f5f5);padding:10px;border-radius:6px;margin-top:8px;max-height:280px;overflow:auto;white-space:pre-wrap;display:none;"></pre>
-
-      </div>
-    </details>
-
     <!-- ============ LEADS ============ -->
     <div class="card">
       <span class="label">Banco de leads</span>
@@ -298,49 +124,65 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="focus-row">
-        <span class="label" style="margin:0;">Exportar leads → VPS</span>
-        <span id="export-status" class="pill pill-muted">sua máquina → produção</span>
-      </div>
-      <p class="delta" style="margin:6px 0 12px;">Manda <strong>todos os leads locais</strong> pro VPS (dedup por telefone) e <strong>limpa o banco local</strong>. Os e-mails ficam no PC.</p>
-      <div class="btn-row" style="margin-top:4px;">
-        <button id="btn-export-all" class="btn btn-green">Exportar todos os leads → VPS</button>
-        <button id="btn-clean-junk" class="btn btn-amber">Limpar lixo do banco</button>
-        <span id="export-feedback" class="delta"></span>
-      </div>
-    </div>
-
-    <!-- ============ CAÇAR E-MAIL (Email Lab) ============ -->
-    <div class="card">
+    <!-- ============ COCKPIT DE LEADS ============ -->
+    <div class="card" id="cockpit-card">
       <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
-        <span class="label" style="margin:0;">Caçar e-mail (Email Lab)</span>
-        <span id="el-status" class="pill pill-muted">verificando…</span>
+        <span class="label" style="margin:0;">Cockpit de Leads</span>
+        <span id="cockpit-status" class="pill pill-muted">carregando…</span>
+        <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
+          <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
+          <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ Exportar CSV</button>
+          <button id="btn-cockpit-enrich" class="btn btn-sm btn-blue" disabled>✦ Enriquecer</button>
+          <button id="btn-cockpit-vps" class="btn btn-sm btn-green" disabled>▲ Enviar pro VPS</button>
+          <button id="btn-clean-junk" class="btn btn-sm btn-amber">✕ Limpar lixo</button>
+        </div>
       </div>
-      <p class="delta" style="margin:6px 0 10px;">Roda no Local Lab: visita sites e extrai e-mails. Acompanhe as métricas; quando terminar, mande pra VPS.</p>
-      <div class="form-grid">
-        <label>Segmento<input id="el-segment" placeholder="ex.: clínica odontológica" /></label>
-        <label>UF<select id="el-state" class="select-uf"></select></label>
-        <label>Cidade<input id="el-city" placeholder="ex.: São Paulo" /></label>
-        <label>Meta de e-mails<input id="el-target" type="number" min="1" max="2000" value="50" /></label>
-        <label>Modo<select id="el-mode">
-          <option value="email_first">Priorizar e-mail</option>
-          <option value="public_email_only">Só e-mail público</option>
-          <option value="enrich_missing_email">Enriquecer sem e-mail</option>
-        </select></label>
+      <p class="delta" id="cockpit-enrich-note" style="margin:4px 0 10px;">Enriquece só leads com site ou Instagram — visita a página e extrai e-mail. Descoberta de site é fase 2.</p>
+
+      <!-- Barra de progresso do enriquecimento -->
+      <div id="cockpit-enrich-row" style="display:none;margin-bottom:10px;">
+        <div class="grid-3" style="margin-bottom:6px;">
+          <div class="metric"><span class="label">Sites visitados</span><strong id="el-sites">—</strong></div>
+          <div class="metric"><span class="label">E-mails achados</span><strong id="el-found">—</strong></div>
+          <div class="metric"><span class="label">Aceitos</span><strong id="el-accepted">—</strong></div>
+        </div>
+        <p id="el-summary" class="delta">Sem caça iniciada.</p>
+        <div class="btn-row" style="margin-top:6px;">
+          <button id="btn-el-cancel" class="btn btn-amber btn-sm" disabled>Cancelar</button>
+          <span id="el-feedback" class="delta"></span>
+        </div>
       </div>
-      <div class="btn-row" style="margin-top:12px;">
-        <button id="btn-el-hunt" class="btn btn-green btn-sm">Caçar e-mail</button>
-        <button id="btn-el-import" class="btn btn-blue btn-sm" disabled>Importar pra VPS</button>
-        <button id="btn-el-cancel" class="btn btn-amber btn-sm" disabled>Cancelar caça</button>
-        <span id="el-feedback" class="delta"></span>
+
+      <!-- Filtros por coluna -->
+      <div id="cockpit-filters" class="cockpit-filter-row" style="display:none;">
+        <input id="cf-name" class="cf-input" placeholder="Nome" />
+        <input id="cf-city" class="cf-input" placeholder="Cidade" />
+        <input id="cf-state" class="cf-input" placeholder="UF" maxlength="2" style="width:50px;" />
+        <input id="cf-segment" class="cf-input" placeholder="Segmento" />
+        <input id="cf-phone" class="cf-input" placeholder="Telefone" />
+        <input id="cf-email" class="cf-input" placeholder="E-mail" />
+        <input id="cf-channel" class="cf-input" placeholder="Canal" />
+        <input id="cf-status" class="cf-input" placeholder="Status" />
+        <button id="btn-cockpit-clear" class="btn btn-sm btn-amber">Limpar filtros</button>
       </div>
-      <div class="grid-3" style="margin-top:12px;">
-        <div class="metric"><span class="label">Sites visitados</span><strong id="el-sites">—</strong></div>
-        <div class="metric"><span class="label">E-mails achados</span><strong id="el-found">—</strong></div>
-        <div class="metric"><span class="label">Aceitos</span><strong id="el-accepted">—</strong></div>
+
+      <!-- Tabela -->
+      <div id="cockpit-table-wrap" style="overflow-x:auto;display:none;">
+        <table class="cockpit-table" id="cockpit-table">
+          <thead id="cockpit-thead"></thead>
+          <tbody id="cockpit-tbody"></tbody>
+        </table>
       </div>
-      <p id="el-summary" class="delta" style="margin-top:8px;">Sem caça iniciada.</p>
+
+      <!-- Paginação -->
+      <div id="cockpit-pagination" class="cockpit-pagination" style="display:none;">
+        <button id="btn-ck-prev" class="btn btn-sm btn-blue">← Anterior</button>
+        <span id="ck-page-info" class="delta" style="margin:0 8px;"></span>
+        <button id="btn-ck-next" class="btn btn-sm btn-blue">Próxima →</button>
+      </div>
+
+      <span id="export-feedback" class="delta" style="display:block;margin-top:6px;"></span>
+      <span id="export-status" style="display:none;"></span>
     </div>
 
     <!-- ============ FEED HONESTO ============ -->

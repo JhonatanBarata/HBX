@@ -321,3 +321,24 @@ body {
 .infra-table th { text-align: left; padding: 4px 8px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); }
 .infra-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .infra-table tr:last-child td { border-bottom: none; }
+
+/* Cockpit de Leads */
+.cockpit-filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
+.cf-input { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; font-size: .8rem; color: var(--text); min-width: 80px; }
+.cf-input:focus { outline: none; border-color: var(--brand); }
+.cockpit-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
+.cockpit-table th { text-align: left; padding: 6px 8px; color: var(--text-muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; border-bottom: 2px solid var(--border); background: var(--surface-2); cursor: pointer; white-space: nowrap; user-select: none; }
+.cockpit-table th:hover { color: var(--brand); }
+.cockpit-table th.sort-asc::after { content: " ▲"; font-size: 10px; color: var(--brand); }
+.cockpit-table th.sort-desc::after { content: " ▼"; font-size: 10px; color: var(--brand); }
+.cockpit-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cockpit-table tr:last-child td { border-bottom: none; }
+.cockpit-table tr:hover td { background: var(--surface-2); }
+.cockpit-table td a { color: var(--brand); text-decoration: none; }
+.cockpit-table td a:hover { text-decoration: underline; }
+.ck-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.ck-pill.ok { background: rgba(22,163,74,.12); color: var(--green); }
+.ck-pill.warn { background: rgba(217,119,6,.12); color: var(--amber); }
+.ck-pill.bad { background: rgba(220,38,38,.10); color: var(--red); }
+.ck-pill.muted { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+.cockpit-pagination { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }

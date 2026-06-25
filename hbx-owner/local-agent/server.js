@@ -1141,6 +1141,35 @@ async function route(req, res) {
     return;
   }
 
+  // Cockpit: enviar lote filtrado pro VPS (sem limpar o banco local).
+  if (req.method === "POST" && url.pathname === "/owner/cockpit/send-to-vps") {
+    const body = await readBody(req);
+    const leads = Array.isArray(body.leads) ? body.leads : [];
+    if (!leads.length) {
+      sendJson(res, 400, { ok: false, reason: "Nenhum lead no payload." });
+      return;
+    }
+    const validLeads = leads
+      .filter((l) => l && String(l.externalId || "").trim() && String(l.name || "").trim())
+      .slice(0, 5000);
+    if (!validLeads.length) {
+      sendJson(res, 400, { ok: false, reason: "Nenhum lead válido (sem id ou nome)." });
+      return;
+    }
+    const imp = await opsRequest("POST", "/api/email-lab/vps/import", { leads: validLeads, sourceMode: "imported_lab", requestedBy: "hbx-cockpit-export" });
+    if (!imp.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    if (!imp.ok || !(imp.data && imp.data.ok)) {
+      sendJson(res, 502, { ok: false, count: validLeads.length, reason: imp.reason || imp.data?.error || imp.data?.message || "falha ao importar na VPS", import: imp.data });
+      return;
+    }
+    vpsLeadsCache = { at: 0, data: null };
+    sendJson(res, 200, { ok: true, count: validLeads.length, imported: imp.data?.imported ?? validLeads.length, import: imp.data });
+    return;
+  }
+
   // Parar/Ligar frota numerada hbx-engine-N na VPS (o "parar motor" do dono).
   const vpsEngineMatch = url.pathname.match(/^\/owner\/vps\/engines\/(stop|start)$/);
   if (req.method === "POST" && vpsEngineMatch) {
