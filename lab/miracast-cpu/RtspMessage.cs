@@ -86,6 +86,8 @@ internal sealed class RtspConnection : IAsyncDisposable
 {
     private readonly NetworkStream _stream;
     private readonly StreamWriter _log;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly SemaphoreSlim _logLock = new(1, 1);
 
     public RtspConnection(NetworkStream stream, string logPath)
     {
@@ -102,8 +104,16 @@ internal sealed class RtspConnection : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var bytes = message.Serialize();
-        await _stream.WriteAsync(bytes, cancellationToken);
-        await _stream.FlushAsync(cancellationToken);
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            await _stream.WriteAsync(bytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
         await LogAsync(">>>", Encoding.ASCII.GetString(bytes));
     }
 
@@ -171,12 +181,22 @@ internal sealed class RtspConnection : IAsyncDisposable
         var block =
             $"[{DateTimeOffset.Now:O}] {direction}\n{text.TrimEnd()}\n\n";
         Console.WriteLine($"{direction} {text.Split("\r\n", 2)[0]}");
-        await _log.WriteAsync(block);
+        await _logLock.WaitAsync();
+        try
+        {
+            await _log.WriteAsync(block);
+        }
+        finally
+        {
+            _logLock.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         await _log.DisposeAsync();
+        _writeLock.Dispose();
+        _logLock.Dispose();
     }
 }
 

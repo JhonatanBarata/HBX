@@ -67,7 +67,43 @@ internal sealed partial class WfdSession : IAsyncDisposable
             Console.WriteLine("PLAY recebido; probe concluído sem vídeo.");
         }
 
-        await ServiceLoopAsync(cancellationToken);
+        using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        var keepAlive = KeepAliveLoopAsync(sessionCts.Token);
+        try
+        {
+            await ServiceLoopAsync(sessionCts.Token);
+        }
+        finally
+        {
+            sessionCts.Cancel();
+            await keepAlive;
+        }
+    }
+
+    private async Task KeepAliveLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(
+                    TimeSpan.FromSeconds(25),
+                    cancellationToken);
+                var keepAlive = RtspMessage.Request(
+                    "GET_PARAMETER",
+                    WfdUri,
+                    _cseq++);
+                keepAlive.Headers["Session"] = _sessionId;
+                await _rtsp.SendAsync(keepAlive, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (IOException)
+        {
+        }
     }
 
     private async Task ExchangeM1M2Async(
@@ -259,8 +295,11 @@ internal sealed partial class WfdSession : IAsyncDisposable
     {
         if (!response.StartLine.Contains(" 200 ", StringComparison.Ordinal))
         {
+            var detail = string.IsNullOrWhiteSpace(response.Body)
+                ? ""
+                : $"\nCorpo da resposta:\n{response.Body.Trim()}";
             throw new InvalidDataException(
-                $"{stage} rejeitado: {response.StartLine}");
+                $"{stage} rejeitado: {response.StartLine}{detail}");
         }
     }
 

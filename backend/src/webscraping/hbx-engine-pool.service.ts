@@ -419,10 +419,26 @@ export class HbxEnginePoolService implements OnModuleInit {
   async refreshEngineRegistryFromEnv() {
     if (!(await this.prisma.hasTable('HbxEngineLock'))) return [];
     const urls = await this.getConfiguredEngineUrls();
+    const ids = urls.map((_, index) => `hbx-engine-${index + 1}`);
+    const existingRows: EngineRegistryRow[] = await (this.prisma as any).hbxEngineLock
+      .findMany({ where: { id: { in: ids } } })
+      .catch(() => [] as EngineRegistryRow[]);
+    const existingById = new Map<string, EngineRegistryRow>(
+      existingRows.map((row) => [String(row.id), row]),
+    );
     const rows: EngineRegistryRow[] = [];
 
     for (const [index, url] of urls.entries()) {
       const id = `hbx-engine-${index + 1}`;
+      const current = existingById.get(id);
+      // Caminho quente: as URLs vêm do env e são ESTÁTICAS. Um upsert incondicional aqui
+      // reescrevia as 20 linhas a cada chamada (acquire/healthcheck/painel) → ~66 writes/s
+      // e 8M+ dead tuples no HbxEngineLock, pregando Postgres+backend em 100% de CPU.
+      // Só grava em create (linha nova) ou drift real de engineIndex/url; estado-firme = 0 write.
+      if (current && Number(current.engineIndex) === index && String(current.url || '') === url) {
+        rows.push(current);
+        continue;
+      }
       const row = await (this.prisma as any).hbxEngineLock.upsert({
         where: { id },
         create: {
@@ -435,8 +451,8 @@ export class HbxEnginePoolService implements OnModuleInit {
           engineIndex: index,
           url,
         },
-      });
-      rows.push(row);
+      }).catch(() => current || null);
+      if (row) rows.push(row);
     }
 
     await (this.prisma as any).hbxEngineLock.updateMany({
