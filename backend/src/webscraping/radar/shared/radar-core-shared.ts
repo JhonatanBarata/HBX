@@ -575,41 +575,59 @@ const NEIGHBOR_SEGMENT_LABELS: Record<string, string> = {
   'advocacia': 'escritórios de advocacia',
 };
 
-function prettifyNeighborSegment(token: string) {
-  const key = normalizeLookupValue(token);
-  if (NEIGHBOR_SEGMENT_LABELS[key]) return NEIGHBOR_SEGMENT_LABELS[key];
-  return String(token || '').replace(/\s+/g, ' ').trim();
+// Chaves de SEGMENT_ALIASES que são GUARDA-CHUVA (categorias amplas), não segmentos irmãos —
+// não sugerir "alimentação" pra quem pediu "padaria"; sugerir os IRMÃOS concretos do grupo.
+const NEIGHBOR_UMBRELLA_KEYS = new Set([
+  'alimentacao', 'beleza', 'automotivo', 'saude', 'clinica',
+]);
+
+// Raiz para casar singular/plural ("barbearias" do dropdown vs "barbearia" do alias).
+function neighborStem(value: string) {
+  return normalizeLookupValue(value).replace(/s$/, '');
 }
 
 // Dado o segmento pedido (uma ou várias frases separadas por vírgula), devolve até `limit`
 // segmentos vizinhos rotulados pro vendedor — terminologia humana, sem repetir o que ele pediu.
+// Só surge membro com rótulo humano conhecido (NEIGHBOR_SEGMENT_LABELS) — sem variantes cruas
+// de busca tipo "pizzaiolo"/"odontologico".
 export function buildRadarNeighborSegments(segment: string | null | undefined, limit = 4): string[] {
   const requestedRaw = String(segment || '')
     .split(',')
     .map((item) => item.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
   if (!requestedRaw.length) return [];
-  const requestedKeys = new Set(requestedRaw.map((item) => normalizeLookupValue(item)));
-  const neighborKeys = new Set<string>();
+  const requestedStems = new Set(requestedRaw.map((item) => neighborStem(item)));
+  const seenLabelStems = new Set<string>();
   const ordered: string[] = [];
   const pushNeighbor = (token: string) => {
     const key = normalizeLookupValue(token);
-    if (!key || requestedKeys.has(key) || neighborKeys.has(key)) return;
-    neighborKeys.add(key);
-    ordered.push(prettifyNeighborSegment(token));
+    if (!key || NEIGHBOR_UMBRELLA_KEYS.has(key)) return;
+    // Só termos com rótulo humano conhecido — corta variantes cruas de busca.
+    const label = NEIGHBOR_SEGMENT_LABELS[key];
+    if (!label) return;
+    const labelStem = neighborStem(label);
+    if (requestedStems.has(labelStem) || requestedStems.has(neighborStem(token))) return; // já pedido
+    if (seenLabelStems.has(labelStem)) return; // já sugerido (singular/plural/variante)
+    seenLabelStems.add(labelStem);
+    ordered.push(label);
   };
   for (const requested of requestedRaw) {
     const requestedKey = normalizeLookupValue(requested);
+    const requestedStem = neighborStem(requested);
     for (const [groupKey, members] of Object.entries(SEGMENT_ALIASES)) {
       const groupMembers = [groupKey, ...members];
       const groupKeys = groupMembers.map((item) => normalizeLookupValue(item));
+      const groupStems = groupMembers.map((item) => neighborStem(item));
       const belongsToGroup = groupKeys.includes(requestedKey)
-        || groupKeys.some((item) => item && (requestedKey.includes(item) || item.includes(requestedKey)));
+        || groupStems.includes(requestedStem)
+        || groupKeys.some((item) => item && item.length >= 4 && requestedKey.length >= 4
+          && (requestedKey.includes(item) || item.includes(requestedKey)));
       if (!belongsToGroup) continue;
-      for (const member of groupMembers) pushNeighbor(member);
+      // Sugerir só os IRMÃOS concretos (members), nunca a chave guarda-chuva do grupo.
+      for (const member of members) pushNeighbor(member);
     }
   }
-  // De-dup por rótulo final também (vários tokens normalizam pro mesmo label humano).
+  // De-dup por rótulo final (já garantido por seenLabelStems, mas defensivo).
   const seenLabels = new Set<string>();
   const deduped = ordered.filter((label) => {
     const key = normalizeLookupValue(label);

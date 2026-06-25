@@ -7,6 +7,7 @@ import type {
   NormalizedRadarFilters,
   RadarChannelFilter,
   RadarChannelMatchMode,
+  RadarExpansionSuggestion,
   SearchSource,
   WebscrapingEngine,
   WebscrapingSearchRunItemStatus,
@@ -29,6 +30,10 @@ export type RadarRunPresenterHost = {
   getHbxRunBatchLimit: (targetQuantity: number) => number;
   getHbxRunMaxAttempts: (targetQuantity: number, batchLimit: number) => number;
   buildSearchRunInsufficientMessage: (foundCount: number, attempts: number) => string;
+  buildRadarNeighborSegments: (segment: string | null | undefined, limit?: number) => string[];
+  buildExpansionSuggestionHeadline: (city: string, segment: string, deliveredCount: number) => string;
+  buildExpansionWidenReachLabel: (nextRadiusKm: number | null) => string | null;
+  buildExpansionWidenSegmentLabel: (neighborSegments: string[]) => string | null;
   resolveRadarRunOperationalState: (
     run: any,
     status: WebscrapingSearchRunStatus,
@@ -133,6 +138,57 @@ export class RadarRunPresenterService {
       return `Entreguei ${deliveredCount} de ${requestedQuantity} card(s). Radar trabalhando para completar a pesquisa.`;
     }
     return rawMessage || 'Busca criada. O Radar esta preparando os primeiros cards.';
+  }
+
+  // Próximo nível de alcance que a UI já oferece (Só a cidade=0 → 25 → 50 → 100 km).
+  private nextReachRadiusKm(currentRadiusKm: number): number | null {
+    const ladder = [25, 50, 100];
+    const current = Math.max(0, Math.trunc(Number(currentRadiusKm) || 0));
+    for (const step of ladder) {
+      if (step > current) return step;
+    }
+    return null;
+  }
+
+  // Esgotou a OFERTA (cidade/segmento secaram e entregou menos que o pedido) — NÃO é cota.
+  // Devolve a sugestão de expansão (ampliar alcance / incluir segmentos parecidos) ou null.
+  private buildExpansionSuggestion(
+    run: any,
+    operationalState: string,
+    deliveredCount: number,
+    requestedQuantity: number,
+    currentRadiusKm: number,
+    host: RadarRunPresenterHost,
+  ): RadarExpansionSuggestion | null {
+    // Só no estado terminal "parado" (completed_insufficient_results / partial_error).
+    // "pausado" = cota cheia (mensagem própria, já existe) — nunca sugerir expansão aqui.
+    if (operationalState !== 'parado') return null;
+    const status = host.normalizeSearchRunStatus(run?.status);
+    if (status !== 'completed_insufficient_results' && status !== 'partial_error') return null;
+    // Entregou algo, mas menos que o pedido = oferta secou. Zero entregue cai noutro fluxo.
+    if (deliveredCount <= 0 || deliveredCount >= requestedQuantity) return null;
+
+    const city = String(run?.city || '').trim();
+    const state = String(run?.state || '').trim().toUpperCase() || null;
+    const segment = String(run?.segment || '').trim();
+    const nextRadiusKm = this.nextReachRadiusKm(currentRadiusKm);
+    const neighborSegments = host.buildRadarNeighborSegments(segment, 4);
+    // Sem NENHUMA expansão possível (já no raio máximo e sem segmentos vizinhos) = nada a oferecer.
+    if (!nextRadiusKm && neighborSegments.length === 0) return null;
+
+    return {
+      city,
+      state,
+      segment,
+      deliveredCount,
+      requestedQuantity,
+      currentRadiusKm: Math.max(0, Math.trunc(Number(currentRadiusKm) || 0)),
+      nextRadiusKm,
+      neighborSegments,
+      headline: host.buildExpansionSuggestionHeadline(city, segment, deliveredCount),
+      widenReachLabel: host.buildExpansionWidenReachLabel(nextRadiusKm),
+      widenSegmentLabel: host.buildExpansionWidenSegmentLabel(neighborSegments),
+    };
   }
 
   mapRunItemToContact(item: any, host: RadarRunPresenterHost): WebscrapingContactResult {
@@ -259,6 +315,16 @@ export class RadarRunPresenterService {
         ? host.buildSearchRunInsufficientMessage(foundCount, attemptCount)
         : rawMessage || null;
     const operational = host.resolveRadarRunOperationalState(run, status, guardedMessage);
+    // "Achou 12, tchau brigado" → quando a oferta esgota, oferecer expansão em 1 toque.
+    // deliveredCount = cards realmente entregues (deliverableFoundItems), não o foundCount cru.
+    const expansionSuggestion = this.buildExpansionSuggestion(
+      run,
+      operational.state,
+      deliverableFoundItems.length,
+      query.quantity,
+      query.filters.radiusKm,
+      host,
+    );
     return {
       id: run.id,
       runId: run.id,
@@ -317,6 +383,7 @@ export class RadarRunPresenterService {
         operationalState: operational.state as any,
         operationalReason: operational.reason,
         operationalMessage: operational.message,
+        expansionSuggestion,
         attempts: attemptCount,
         requiredChannels,
         channelMatchMode,

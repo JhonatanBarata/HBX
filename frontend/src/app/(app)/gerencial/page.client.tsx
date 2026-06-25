@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
+import { TeamPolicyEditor } from "@/components/hbx/team-policy-editor";
 import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { useTabIndex, useTabParam } from "@/lib/use-tab-param";
@@ -305,8 +306,10 @@ export function GerencialClient() {
   const [teamMsg, setTeamMsg] = useState<string | null>(null);
   const [novoParam, setNovoParam] = useTabParam<string>("novo", "");
   const [membroParam, setMembroParam] = useTabParam<string>("membro", "");
+  const [acessoParam, setAcessoParam] = useTabParam<string>("acesso", "");
   const novoAcessoOpen = novoParam === "1";
   const gerirMembro = (team || []).find(m => String(m.id) === membroParam) || null;
+  const acessoMembro = (team || []).find(m => String(m.id) === acessoParam) || null;
 
   function abrirNovoAcesso() {
     try { localStorage.removeItem("hbx:novo-acesso-draft"); } catch { /* sem storage */ }
@@ -315,7 +318,13 @@ export function GerencialClient() {
   }
   function abrirGerir(m: TeamMember) {
     setNovoParam("");
+    setAcessoParam("");
     setMembroParam(String(m.id));
+  }
+  function abrirAcessos(m: TeamMember) {
+    setNovoParam("");
+    setMembroParam("");
+    setAcessoParam(String(m.id));
   }
   function recarregarEquipe() {
     return apiFetch<TeamMember[]>("/users/company")
@@ -791,8 +800,12 @@ export function GerencialClient() {
                                 <td>{m.email || "—"}</td>
                                 <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{ehAdmin ? "Administrador" : "Vendas"}</span></td>
                                 <td>
-                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
-                                    onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
+                                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
+                                      onClick={() => { setTeamMsg(null); abrirAcessos(m); }}>Acessos</button>
+                                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
+                                      onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -825,6 +838,27 @@ export function GerencialClient() {
           onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
           onRequestExcluir={m => setExcluirAlvo(m as TeamMember)}
         />
+      )}
+
+      {acessoMembro && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setAcessoParam(""); }}>
+          <div className="hbx-modal tp-modal" style={{ width: "min(880px, 100%)", display: "grid", gridTemplateRows: "auto 1fr", gap: 14, padding: 24 }}>
+            <div className="tp-modal-head">
+              <div className="tp-modal-titles">
+                <h3>Acessos de {acessoMembro.name || acessoMembro.username || acessoMembro.email || `Usuário ${acessoMembro.id}`}</h3>
+                <p>Admin &gt; Gerente &gt; Vendedor: Administrador e Gerente herdam tudo. Aqui você ajusta o que esta pessoa pode fazer — cada módulo com todos os seus acessos.</p>
+              </div>
+              <button type="button" className="btn-ghost btn-xs" style={{ minHeight: 30 }} onClick={() => setAcessoParam("")}>Fechar</button>
+            </div>
+            <div className="tp-modal-body">
+              <TeamPolicyEditor
+                userId={acessoMembro.id}
+                sellers={team || []}
+                isSelf={ehProprioUsuario(acessoMembro)}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {excluirAlvo && (

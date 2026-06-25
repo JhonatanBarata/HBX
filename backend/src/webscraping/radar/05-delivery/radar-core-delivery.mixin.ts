@@ -45,6 +45,7 @@ import {
   SEGMENT_STOPWORDS,
   SEGMENT_ALIASES,
   HBX_CATEGORY_SEGMENTS,
+  buildRadarNeighborSegments,
   GENERIC_DIRECTORY_NAMES,
   GENERIC_DIRECTORY_PREFIXES,
   GENERIC_DIRECTORY_CONTAINS,
@@ -307,7 +308,7 @@ export class RadarCoreDeliveryMixin {
     return this.getRadarVendasSyncService().summarizeAutoImportFailures(failures);
   }
 
-  private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
+  private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any, options?: { skipClaim?: boolean }) {
     if (!(await this.supportsRadarPersistence())) return;
     const normalized = await this.applyTeamPolicyRadarFilters(context, this.normalizeSearchInput({
       city: String(run?.city || ''),
@@ -374,6 +375,11 @@ export class RadarCoreDeliveryMixin {
       }
     }
 
+    // Com "Auto" (standing order) OFF no caminho do vendedor, NÃO reservamos os cards
+    // pra empresa: reservar seta ownerCompanyId e a vitrine ("Disponíveis") só lista
+    // cards SEM dono. Persistimos no pool (rows existem, ownerCompanyId=null) e deixamos
+    // o vendedor puxar manualmente. Auto ON / admin / fábrica seguem reservando (comportamento atual).
+    if (options?.skipClaim) return;
     const rowsInRun = await this.findRadarPoolRowsForRunItems(
       context.companyId,
       foundItems,
@@ -795,6 +801,57 @@ export class RadarCoreDeliveryMixin {
     };
   }
 
+  // Próximo nível de alcance que a UI já oferece (Só a cidade=0 → 25 → 50 → 100 km).
+  private nextRadarReachRadiusKm(currentRadiusKm: number): number | null {
+    const ladder = [25, 50, 100];
+    const current = Math.max(0, Math.trunc(Number(currentRadiusKm) || 0));
+    for (const step of ladder) {
+      if (step > current) return step;
+    }
+    return null;
+  }
+
+  // Esgotou a OFERTA (cidade/segmento secaram e entregou menos que o pedido) — NÃO é cota.
+  // Devolve a sugestão de expansão (ampliar alcance / incluir segmentos vizinhos) ou null.
+  // Só em estado terminal "parado"; "pausado" (cota) tem mensagem própria e não cai aqui.
+  private buildRadarRunExpansionSuggestion(
+    filters: NormalizedRadarFilters,
+    deliveredCount: number,
+    requestedQuantity: number,
+    operationalState: string,
+    status: string,
+  ) {
+    if (operationalState !== 'parado') return null;
+    if (status !== 'completed_insufficient_results' && status !== 'partial_error') return null;
+    const delivered = Math.max(0, safeInteger(deliveredCount));
+    const requested = Math.max(1, safeInteger(requestedQuantity));
+    if (delivered <= 0 || delivered >= requested) return null;
+
+    const city = String(filters?.city || '').trim();
+    const state = String(filters?.state || '').trim().toUpperCase() || null;
+    const segment = String(filters?.segment || '').trim();
+    if (!segment) return null;
+    const currentRadiusKm = Math.max(0, Math.trunc(Number(filters?.radiusKm) || 0));
+    const nextRadiusKm = this.nextRadarReachRadiusKm(currentRadiusKm);
+    const neighborSegments = buildRadarNeighborSegments(segment, 4);
+    if (!nextRadiusKm && neighborSegments.length === 0) return null;
+
+    const config = this.getRadarSearchRunConfig();
+    return {
+      city,
+      state,
+      segment,
+      deliveredCount: delivered,
+      requestedQuantity: requested,
+      currentRadiusKm,
+      nextRadiusKm,
+      neighborSegments,
+      headline: config.buildExpansionSuggestionHeadline(city, segment, delivered),
+      widenReachLabel: config.buildExpansionWidenReachLabel(nextRadiusKm),
+      widenSegmentLabel: config.buildExpansionWidenSegmentLabel(neighborSegments),
+    };
+  }
+
   private async buildRadarSearchRunResponse(user: any, runId: string, options?: { skipAutoImport?: boolean }) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
@@ -813,8 +870,11 @@ export class RadarCoreDeliveryMixin {
     });
     if (!run) throw new NotFoundException('Pesquisa do Radar nao encontrada.');
 
+    // Vendedor com "Auto" OFF: persiste no pool mas NÃO reserva (cards ficam sem dono
+    // pra aparecer na vitrine "Disponíveis"). Auto ON / admin reservam normalmente.
+    const skipClaimForVitrine = !(await this.shouldAutoImportRadarRunToVendas(user));
     if (this.normalizeSearchRunStatus(run.status) !== 'canceled' && !this.isSearchRunPausedByLimit(run)) {
-      await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
+      await this.syncRadarSearchRunItemsToPool(context, run, { skipClaim: skipClaimForVitrine }).catch((error: any) => {
         this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
       });
     }
@@ -895,6 +955,13 @@ export class RadarCoreDeliveryMixin {
           operationalState: 'parado' as RadarOperationalState,
           operationalReason: lastBatchStatus || 'auto_import_blocked',
           operationalMessage: message,
+          expansionSuggestion: this.buildRadarRunExpansionSuggestion(
+            filters,
+            primaryFoundItems.length,
+            requestedQuantity,
+            'parado',
+            status,
+          ),
           status,
           runId: effectiveRun.id,
           nextRetryAt: null,
@@ -962,6 +1029,13 @@ export class RadarCoreDeliveryMixin {
           operationalState: 'parado' as RadarOperationalState,
           operationalReason: 'auto_import_blocked',
           operationalMessage: message,
+          expansionSuggestion: this.buildRadarRunExpansionSuggestion(
+            filters,
+            primaryFoundItems.length,
+            requestedQuantity,
+            'parado',
+            'completed_insufficient_results',
+          ),
           status: 'completed_insufficient_results',
           runId: effectiveRun.id,
           nextRetryAt: null,
@@ -1089,6 +1163,13 @@ export class RadarCoreDeliveryMixin {
         operationalState: operational.state,
         operationalReason: operational.reason,
         operationalMessage: operational.message,
+        expansionSuggestion: this.buildRadarRunExpansionSuggestion(
+          filters,
+          Math.max(deliveredCount, primaryFoundItems.length),
+          requestedQuantity,
+          operational.state,
+          status,
+        ),
         status,
         runId: effectiveRun.id,
         nextRetryAt: effectiveRun.nextRetryAt instanceof Date ? effectiveRun.nextRetryAt.toISOString() : null,

@@ -86,6 +86,7 @@ import {
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
   RADAR_PROTECTED_STATUSES,
+  buildRadarNeighborSegments,
   RuntimeStatus,
   ExternalRuntimeStatus,
   SearchSource,
@@ -565,6 +566,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       getHbxRunBatchLimit: (targetQuantity) => this.getHbxRunBatchLimit(targetQuantity),
       getHbxRunMaxAttempts: (targetQuantity, batchLimit) => this.getHbxRunMaxAttempts(targetQuantity, batchLimit),
       buildSearchRunInsufficientMessage: (foundCount, attempts) => this.buildSearchRunInsufficientMessage(foundCount, attempts),
+      buildRadarNeighborSegments: (segment, limit) => buildRadarNeighborSegments(segment, limit),
+      buildExpansionSuggestionHeadline: (city, segment, deliveredCount) => this.getRadarSearchRunConfig().buildExpansionSuggestionHeadline(city, segment, deliveredCount),
+      buildExpansionWidenReachLabel: (nextRadiusKm) => this.getRadarSearchRunConfig().buildExpansionWidenReachLabel(nextRadiusKm),
+      buildExpansionWidenSegmentLabel: (neighborSegments) => this.getRadarSearchRunConfig().buildExpansionWidenSegmentLabel(neighborSegments),
       resolveRadarRunOperationalState: (run, status, message) => this.resolveRadarRunOperationalState(run, status, message),
     };
   }

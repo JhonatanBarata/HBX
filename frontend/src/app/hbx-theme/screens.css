@@ -486,6 +486,33 @@ html, body { height: 100%; }
 .tp-acc .lab .flag { font-size: 0.58rem; font-weight: 800; color: var(--hbx-warning); }
 .tp-acc input[type="checkbox"] { margin-top: 2px; accent-color: var(--login-accent); flex: 0 0 auto; }
 
+/* Acessos granulares — restauração 24/06: cabeçalho, busca, grupos colapsáveis,
+   selo de risco completo (baixo/médio/sensível/crítico) e override "padrão". */
+.tp-acchead { display: grid; gap: 3px; }
+.tp-acchead > h4 { margin: 0; font-family: var(--font-display); font-size: 0.84rem; font-weight: 800; }
+.tp-groups .tp-group-wide { grid-column: 1 / -1; }
+.tp-grouphead { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; width: 100%; padding: 2px 0 6px; background: transparent; border: none; border-bottom: 1px solid var(--border-hairline); cursor: pointer; text-align: left; color: inherit; font-family: inherit; }
+.tp-grouphead .hd { display: grid; gap: 1px; min-width: 0; }
+.tp-grouphead .hd b { font-size: 0.78rem; font-weight: 800; }
+.tp-grouphead .hd small { font-size: 0.6rem; color: var(--text-muted); line-height: 1.35; }
+.tp-grouphead .meta { display: inline-flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.tp-grouphead .meta .car { font-size: 0.7rem; color: var(--text-muted); }
+.tp-acc .lab .hdr { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tp-acc .lab .hdr b { font-size: 0.72rem; font-weight: 600; }
+.tp-acc-meta { font-family: var(--font-mono); opacity: 0.8; }
+.tp-acc-ctl { display: inline-flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.tp-resetbtn { font-size: 0.58rem; font-weight: 800; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-muted); cursor: pointer; }
+.tp-resetbtn:hover { color: var(--text-body); border-color: var(--login-accent); }
+.tag.ok { color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); border-color: color-mix(in srgb, var(--hbx-brand) 24%, transparent); }
+
+/* Modal do painel granular por pessoa (Gerencial → Equipe → Acessos) */
+.tp-modal { max-height: min(90vh, 880px); overflow: hidden; }
+.tp-modal-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.tp-modal-titles { display: grid; gap: 4px; min-width: 0; }
+.tp-modal-titles > h3 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; }
+.tp-modal-titles > p { margin: 0; font-size: 0.7rem; line-height: 1.45; color: var(--text-muted); }
+.tp-modal-body { overflow-y: auto; min-height: 0; padding-right: 4px; }
+
 /* Limites — modo + valor por linha */
 .tp-lim { display: grid; grid-template-columns: 1fr 130px 96px; gap: 8px; align-items: center; }
 .tp-lim .nm { display: grid; gap: 1px; min-width: 0; }
@@ -1274,6 +1301,15 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar2-live--pausado .dot { background: var(--hbx-warning); }
 @keyframes radar2-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .radar2-live .dot { animation: none; } }
+
+/* Sugestão de expansão quando a oferta esgota (não cota): ampliar alcance / segmentos vizinhos */
+.radar-expand { display: flex; flex-direction: column; gap: 10px; margin: 12px 16px 0; padding: 13px 15px; border-radius: var(--radius-md); background: var(--hbx-brand-soft); border: 1px solid var(--border-hairline); border-left: 3px solid var(--hbx-brand-strong); }
+.radar-expand__head { display: flex; align-items: flex-start; gap: 9px; }
+.radar-expand__icon { font-size: 1.05rem; line-height: 1.2; }
+.radar-expand__headline { margin: 0; font-size: 0.82rem; font-weight: 700; color: var(--text-strong); }
+.radar-expand__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.radar-expand__btn { font-size: 0.74rem; }
+.radar-expand__hint { margin: 0; font-size: 0.68rem; color: var(--text-muted); }
 .radar2-locked { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.68rem; }
 .radar2-empty { text-align: center; color: var(--text-muted); padding: 30px 12px; font-size: 0.8rem; }
 .radar2-sel-all { padding: 8px 16px 0; }

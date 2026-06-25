@@ -77,6 +77,21 @@ type LeadsResponse = {
   };
 };
 
+// Sugestão de expansão quando a oferta esgota (cidade/segmento secaram, não cota).
+type ExpansionSuggestion = {
+  city: string;
+  state: string | null;
+  segment: string;
+  deliveredCount: number;
+  requestedQuantity: number;
+  currentRadiusKm: number;
+  nextRadiusKm: number | null;
+  neighborSegments: string[];
+  headline: string;
+  widenReachLabel: string | null;
+  widenSegmentLabel: string | null;
+};
+
 // operationalState vem dentro de meta no run
 type RunResponse = {
   id?: string;
@@ -90,6 +105,7 @@ type RunResponse = {
     operationalState?: string;
     operationalReason?: string;
     operationalMessage?: string;
+    expansionSuggestion?: ExpansionSuggestion | null;
   };
 } | null;
 
@@ -553,6 +569,25 @@ export function LeadsClient() {
     }
   }
 
+  function limparFiltros() {
+    setUf("");
+    setCity("");
+    setSegment("");
+    setAlcance("");
+    setQuantos(5);
+    setRun(null);
+    setSearchMsg(null);
+    setPullMsg(null);
+    setSelected(new Set());
+    setSelLead(null);
+    setCanalAtivos(new Set());
+    setForcarCanais(false);
+    setPage(1);
+    setTab("shelf");
+    try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
+    loadList("shelf", { page: 1, quantosOverride: 5 });
+  }
+
   // operationalState atual (do run mais recente)
   const opState = getOpState(run);
 
@@ -565,6 +600,11 @@ export function LeadsClient() {
   );
   const runPaused = opState === "pausado"; // descansando — não bloqueia Play
   const runProgress = run?.meta?.progress;
+  // "Achou 12, tchau brigado" → o backend manda a sugestão quando a oferta esgota (não cota).
+  // Só aparece em "parado" e quando há alguma expansão possível.
+  const runExpansion = (!runActive && opState === "parado")
+    ? (run?.meta?.expansionSuggestion ?? null)
+    : null;
 
   // P5/EFEITO: anima chips saindo do disco do radar e voando pra aba Minha carteira
   function triggerFlyEffect(importedCount: number, _run: RunResponse) {
@@ -624,10 +664,11 @@ export function LeadsClient() {
   }
 
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
-  function validarCamposOuPopup(): boolean {
+  function validarCamposOuPopup(effSegment?: string): boolean {
+    const segToCheck = effSegment != null ? effSegment : segment;
     const faltando: string[] = [];
     if (!city.trim() && !geo) faltando.push("Cidade");
-    if (!segment.trim()) faltando.push("Segmento");
+    if (!segToCheck.trim()) faltando.push("Segmento");
     if (faltando.length > 0) {
       setMissingModal(faltando);
       return false;
@@ -635,16 +676,21 @@ export function LeadsClient() {
     return true;
   }
 
-  async function executarBusca() {
+  // override: re-disparo da MESMA busca já expandida (ampliar alcance / incluir segmentos).
+  // Quando vem override, os filtros visíveis também sobem (segment/alcance) pra refletir.
+  async function executarBusca(override?: { segment?: string; radiusKm?: number }) {
     // P8b: "pausado" não bloqueia — pode iniciar nova busca; só bloqueia se funcionando AGORA
     if (runBusy || runActive) return;
-    // P4: valida e abre popup se faltando
-    if (!validarCamposOuPopup()) return;
+    const effSegment = override?.segment != null ? override.segment : segment;
+    const effRadius = override?.radiusKm != null ? override.radiusKm : (alcance ? Number(alcance) : 0);
+    // P4: valida e abre popup se faltando (usa o segmento efetivo)
+    if (!validarCamposOuPopup(effSegment)) return;
     setSearchMsg(null);
     setRunBusy(true);
     try {
       // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400)
-      const body: Record<string, unknown> = { city, state: uf || undefined, segment, quantity: quantos };
+      const body: Record<string, unknown> = { city, state: uf || undefined, segment: effSegment, quantity: quantos };
+      if (effRadius > 0) body.radiusKm = effRadius;
       if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
       if (forcarCanais && canalAtivos.size > 0) {
         body.requiredChannels = Array.from(canalAtivos);
@@ -654,6 +700,9 @@ export function LeadsClient() {
         method: "POST",
         body: JSON.stringify(body),
       });
+      // Reflete a expansão nos filtros visíveis (sem mexer quando é busca normal).
+      if (override?.segment != null) setSegment(effSegment);
+      if (override?.radiusKm != null) setAlcance(String(override.radiusKm));
       setRun(res);
       if (res?.message) setSearchMsg(res.message);
     } catch (err) {
@@ -661,6 +710,21 @@ export function LeadsClient() {
     } finally {
       setRunBusy(false);
     }
+  }
+
+  // Botões da sugestão de expansão (1 toque): re-dispara a busca já ampliada.
+  function ampliarAlcance(sug: ExpansionSuggestion) {
+    if (!sug.nextRadiusKm) return;
+    void executarBusca({ radiusKm: sug.nextRadiusKm });
+  }
+  function incluirSegmentosVizinhos(sug: ExpansionSuggestion) {
+    if (!sug.neighborSegments.length) return;
+    // junta o pedido original + vizinhos numa string com vírgula (o motor já separa por vírgula).
+    const combined = [sug.segment, ...sug.neighborSegments]
+      .map((s) => String(s || "").trim())
+      .filter(Boolean)
+      .join(", ");
+    void executarBusca({ segment: combined });
   }
 
   async function pararBusca() {
@@ -1106,25 +1170,23 @@ export function LeadsClient() {
           </div>
         </div>
 
-        {/* Ações: Play/STOP + Automático */}
+        {/* Ações: Play/STOP + Limpar */}
         <div className="radar-actions">
           {runActive ? (
             <button className="btn-ghost" onClick={pararBusca}>
               ◼ STOP
             </button>
           ) : (
-            <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>
+            <button className="btn-teal" onClick={() => executarBusca()} disabled={runBusy || runActive}>
               {runBusy ? "Iniciando…" : runPaused ? "▶ Retomar" : "▶ Buscar"}
             </button>
           )}
           <button
-            className={"radar-auto " + (standingOrder?.active ? "btn-teal radar-auto--on" : "btn-ghost")}
-            onClick={toggleAutomatico}
-            disabled={autoBusy}
-            aria-pressed={standingOrder?.active}
-            title="Automático — repõe sua lista de Vendas sozinho"
+            className="btn-ghost"
+            onClick={limparFiltros}
+            title="Limpar todos os filtros e pesquisas"
           >
-            {standingOrder?.active ? "◉ Auto" : "◎ Auto"}
+            Limpar
           </button>
         </div>
 
@@ -1400,16 +1462,14 @@ export function LeadsClient() {
                   </select>
                 </div>
                 {/* P4 mobile: botão Buscar usa validação com popup */}
-                <button className="btn-teal" onClick={executarBusca} disabled={runBusy || runActive}>
+                <button className="btn-teal" onClick={() => executarBusca()} disabled={runBusy || runActive}>
                   {runActive ? "Varrendo…" : "Buscar (motor)"}
                 </button>
                 <button
-                  className={"btn-teal radar2-auto" + (standingOrder?.active ? " radar2-auto--on" : "")}
-                  onClick={toggleAutomatico}
-                  disabled={autoBusy}
-                  aria-pressed={standingOrder?.active}
+                  className="btn-ghost"
+                  onClick={limparFiltros}
                 >
-                  {standingOrder?.active ? "◉ Automático" : "◎ Automático"}
+                  Limpar
                 </button>
                 {searchMsg && <p className="hint">{searchMsg}</p>}
               </div>
@@ -1439,6 +1499,43 @@ export function LeadsClient() {
               {runPaused && (
                 <div className="radar2-live radar2-live--pausado">
                   <span className="dot" /> Descansando — retoma sozinho
+                </div>
+              )}
+
+              {/* Oferta esgotou (não cota): sugere expandir em 1 toque */}
+              {runExpansion && (runExpansion.nextRadiusKm || runExpansion.neighborSegments.length > 0) && (
+                <div className="radar-expand" role="status">
+                  <div className="radar-expand__head">
+                    <span className="radar-expand__icon" aria-hidden>🔎</span>
+                    <p className="radar-expand__headline">{runExpansion.headline}</p>
+                  </div>
+                  <div className="radar-expand__actions">
+                    {runExpansion.nextRadiusKm && runExpansion.widenReachLabel && (
+                      <button
+                        type="button"
+                        className="btn-teal radar-expand__btn"
+                        onClick={() => ampliarAlcance(runExpansion)}
+                        disabled={runBusy || runActive}
+                      >
+                        {runExpansion.widenReachLabel}
+                      </button>
+                    )}
+                    {runExpansion.neighborSegments.length > 0 && runExpansion.widenSegmentLabel && (
+                      <button
+                        type="button"
+                        className="btn-ghost radar-expand__btn"
+                        onClick={() => incluirSegmentosVizinhos(runExpansion)}
+                        disabled={runBusy || runActive}
+                      >
+                        {runExpansion.widenSegmentLabel}
+                      </button>
+                    )}
+                  </div>
+                  {runExpansion.neighborSegments.length > 0 && (
+                    <p className="radar-expand__hint">
+                      Parecidos: {runExpansion.neighborSegments.join(" · ")}
+                    </p>
+                  )}
                 </div>
               )}
 

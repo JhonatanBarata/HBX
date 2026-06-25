@@ -13,6 +13,22 @@ export type WebscrapingSearchRunStatus =
   | 'failed'
   | 'canceled';
 export type RadarOperationalState = 'funcionando' | 'pausado' | 'parado';
+
+// Sugestão de expansão quando a oferta esgota (cidade/segmento secaram, não cota).
+export type RadarExpansionSuggestion = {
+  city: string;
+  state: string | null;
+  segment: string;
+  deliveredCount: number;
+  requestedQuantity: number;
+  currentRadiusKm: number;
+  nextRadiusKm: number | null;
+  neighborSegments: string[];
+  headline: string;
+  widenReachLabel: string | null;
+  widenSegmentLabel: string | null;
+};
+
 export type WebscrapingSearchRunItemStatus = 'found' | 'duplicate' | 'skipped' | 'invalid';
 
 export type RadarWebsiteStatus = 'none' | 'present' | 'social_only' | 'weak' | 'unreachable' | 'unknown';

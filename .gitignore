@@ -7,6 +7,7 @@ node_modules/
 dist_electron/
 **/coverage/
 postgres-data/
+db-cleanup-backup/
 .orchestrator/
 .vscode/*
 !.vscode/tasks.json
