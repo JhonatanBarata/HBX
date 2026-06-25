@@ -2193,6 +2193,29 @@ app.post('/api/opscontrol/elastic/stop-all', async (req, res) => {
   }
 });
 
+// Enriquecimento CNPJ→dono (L4/BrasilAPI). Proxia pro backend escoped por scope/auth,
+// mesmo padrao de /api/opscontrol/elastic/* e /api/opscontrol/turbo.
+app.post('/api/opscontrol/cnpj-backfill', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const limit = clampInteger(req.body?.limit, 200, 1, 2000);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      `/modules/owner/radar/cnpj-backfill?limit=${limit}`,
+      () => ({}),
+    );
+    res.json({
+      action: 'cnpj-backfill',
+      message: 'Enriquecimento CNPJ→dono solicitado ao backend configurado.',
+      limit,
+      ...result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao solicitar enriquecimento CNPJ.' });
+  }
+});
+
 app.get('/api/radar-cockpit', async (req, res) => {
   try {
     res.json(await collectRadarCockpit());

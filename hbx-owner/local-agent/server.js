@@ -1643,6 +1643,17 @@ async function route(req, res) {
     return;
   }
 
+  // Enriquecimento CNPJ→dono (L4/BrasilAPI) via Ops Control. Mesmo padrao de /owner/ops/elastic/*.
+  if (req.method === "POST" && url.pathname === "/owner/ops/cnpj-backfill") {
+    const body = await readBody(req);
+    const scope = OPS_SCOPES.has(String(body.scope || "vps").toLowerCase()) ? String(body.scope).toLowerCase() : "vps";
+    const limit = clampInt(body.limit, 200, 1, 2000);
+    const response = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope, limit }, 60000);
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, limit, ops: response.data, reason: response.reason || response.data?.error });
+    return;
+  }
+
   sendError(res, 404, "Endpoint nao encontrado.");
 }
 

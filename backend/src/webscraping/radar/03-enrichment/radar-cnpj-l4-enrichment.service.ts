@@ -64,6 +64,32 @@ export type CnpjL4Result = {
 export class RadarCnpjL4EnrichmentService {
   private static readonly brasilApiCache = new Map<string, CnpjL4Result>();
 
+  // --- Throttle global da BrasilAPI ---
+  // Garante: 1 chamada em voo por vez + intervalo mínimo de 700 ms entre disparos.
+  // Todas as chamadas entram numa fila promise-chain única (estática = compartilhada
+  // entre instâncias do serviço).
+  private static readonly BRASILAPI_MIN_INTERVAL_MS = 700;
+  private static _brasilApiQueue: Promise<void> = Promise.resolve();
+  private static _brasilApiLastCallAt = 0;
+
+  private static enqueueThrottled<T>(fn: () => Promise<T>): Promise<T> {
+    const queued = RadarCnpjL4EnrichmentService._brasilApiQueue.then(async () => {
+      const now = Date.now();
+      const elapsed = now - RadarCnpjL4EnrichmentService._brasilApiLastCallAt;
+      const wait = RadarCnpjL4EnrichmentService.BRASILAPI_MIN_INTERVAL_MS - elapsed;
+      if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+      RadarCnpjL4EnrichmentService._brasilApiLastCallAt = Date.now();
+      return fn();
+    });
+    // A fila só avança quando a chamada anterior terminar (sucesso ou erro).
+    // Usamos .then(noop, noop) para que um erro num item não quebre a fila.
+    RadarCnpjL4EnrichmentService._brasilApiQueue = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
+  }
+
   /**
    * Lookup by CNPJ: dataset local primeiro (bulk, instantâneo), depois BrasilAPI
    * (pública e GRÁTIS) que complementa com o quadro de sócios — o nome do dono que
@@ -132,6 +158,17 @@ export class RadarCnpjL4EnrichmentService {
     if (!this.brasilApiEnabled()) return null;
     const cached = RadarCnpjL4EnrichmentService.brasilApiCache.get(cnpj);
     if (cached) return cached;
+    // Throttle: entra na fila global (1 chamada em voo + 700 ms entre disparos).
+    return RadarCnpjL4EnrichmentService.enqueueThrottled(() =>
+      this._fetchBrasilApi(cnpj),
+    );
+  }
+
+  /** Chamada de rede isolada (executada dentro do throttle). */
+  private async _fetchBrasilApi(cnpj: string): Promise<CnpjL4Result | null> {
+    // Checar cache novamente — outro item da fila pode ter populado enquanto esperava.
+    const cached = RadarCnpjL4EnrichmentService.brasilApiCache.get(cnpj);
+    if (cached) return cached;
     try {
       const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
         headers: {
@@ -141,6 +178,8 @@ export class RadarCnpjL4EnrichmentService {
         },
         signal: AbortSignal.timeout(8000),
       });
+      // 429 Too Many Requests: backoff gracioso — devolve null sem cachear o erro.
+      if (resp.status === 429) return null;
       if (!resp.ok) return null;
       const data: any = await resp.json();
       const qsa: any[] = Array.isArray(data?.qsa) ? data.qsa : [];

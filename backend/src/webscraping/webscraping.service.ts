@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
   forwardRef,
 } from '@nestjs/common';
+import { RadarCnpjL4EnrichmentService } from './radar/03-enrichment/radar-cnpj-l4-enrichment.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
 import { MasterContextService } from '../master-context/master-context.service';
@@ -407,5 +408,57 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     const parsed = Number(process.env[name]);
     const value = Number.isFinite(parsed) ? parsed : fallback;
     return Math.max(min, Math.min(max, value));
+  }
+
+  /**
+   * Backfill L4 CNPJ para o master: percorre RadarLeadPool com CNPJ mas sem
+   * ownerName/razaoSocial e chama enrichRow em cada um (throttle incluso no serviço).
+   * Parâmetros: limit (default 200). Devolve { scanned, enriched, errors }.
+   */
+  async cnpjBackfillForMaster(opts: { limit?: number } = {}): Promise<{ scanned: number; enriched: number; errors: number }> {
+    const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 200, 2000));
+    const prisma = this.internalPrisma as any;
+
+    // Busca leads que têm cnpj no metadataJson mas podem estar sem razaoSocial/ownerName.
+    // Filtra em memória porque o campo é JSON serializado — não dá pra filtrar no DB de forma segura.
+    const candidates = await prisma.radarLeadPool.findMany({
+      where: {
+        metadataJson: { contains: '"cnpj"' },
+      },
+      select: { id: true, metadataJson: true, evidenceJson: true, cnpj: true },
+      orderBy: { createdAt: 'desc' },
+      take: limit * 5, // busca mais pra compensar os que já têm os dados
+    });
+
+    // Filtra em memória: descarta quem já tem ownerName E razaoSocial
+    const pending = candidates.filter((row: any) => {
+      try {
+        const meta = row.metadataJson
+          ? typeof row.metadataJson === 'object'
+            ? row.metadataJson
+            : JSON.parse(row.metadataJson)
+          : {};
+        const hasCnpj = Boolean(meta?.cnpj);
+        const alreadyComplete = Boolean(meta?.ownerName) && Boolean(meta?.razaoSocial);
+        return hasCnpj && !alreadyComplete;
+      } catch {
+        return false;
+      }
+    }).slice(0, limit);
+
+    const enricher = new RadarCnpjL4EnrichmentService();
+    let enriched = 0;
+    let errors = 0;
+
+    for (const row of pending) {
+      try {
+        const result = await enricher.enrichRow(prisma, row);
+        if (result !== null) enriched += 1;
+      } catch {
+        errors += 1;
+      }
+    }
+
+    return { scanned: pending.length, enriched, errors };
   }
 }

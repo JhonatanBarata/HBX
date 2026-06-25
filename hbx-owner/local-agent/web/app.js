@@ -1021,21 +1021,46 @@ async function ckCancelEnrich() {
   }
 }
 
+/* ---------- Enriquecer CNPJ→dono (L4/BrasilAPI) ---------- */
+async function ckCnpjBackfill() {
+  const btn = $("#btn-cnpj-backfill");
+  const fb  = $("#export-feedback");
+  if (btn) btn.disabled = true;
+  if (fb)  { fb.textContent = "solicitando enriquecimento CNPJ→dono…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/ops/cnpj-backfill", { scope: "vps", limit: 200 });
+    const results = (r.ops && r.ops.results) || [];
+    const summary = results.map((item) => {
+      const d = item.data || {};
+      if (!item.ok) return `${item.label || item.environment}: falhou`;
+      return `${item.label || item.environment}: ${d.scanned ?? "?"}↗ ${d.enriched ?? "?"}✓ ${d.errors ?? "?"}✗`;
+    }).join(" · ") || (r.reason || "resposta vazia");
+    if (fb) { fb.textContent = r.ok ? `CNPJ→dono: ${summary}` : `Erro: ${r.reason || summary}`; fb.className = r.ok ? "delta up" : "delta"; }
+    pushFeed(`CNPJ→dono: ${summary}`, r.ok ? "ok" : "warn");
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
-  const reloadBtn = $("#btn-cockpit-reload");
-  const csvBtn    = $("#btn-cockpit-csv");
-  const vpsBtn    = $("#btn-cockpit-vps");
-  const enrichBtn = $("#btn-cockpit-enrich");
-  const prevBtn   = $("#btn-ck-prev");
-  const nextBtn   = $("#btn-ck-next");
-  const clearBtn  = $("#btn-cockpit-clear");
-  const cancelBtn = $("#btn-el-cancel");
+  const reloadBtn      = $("#btn-cockpit-reload");
+  const csvBtn         = $("#btn-cockpit-csv");
+  const vpsBtn         = $("#btn-cockpit-vps");
+  const enrichBtn      = $("#btn-cockpit-enrich");
+  const cnpjBackfillBtn = $("#btn-cnpj-backfill");
+  const prevBtn        = $("#btn-ck-prev");
+  const nextBtn        = $("#btn-ck-next");
+  const clearBtn       = $("#btn-cockpit-clear");
+  const cancelBtn      = $("#btn-el-cancel");
 
   if (reloadBtn) reloadBtn.addEventListener("click", loadCockpit);
   if (csvBtn)    csvBtn.addEventListener("click", ckExportCsv);
   if (vpsBtn)    vpsBtn.addEventListener("click", ckSendToVps);
   if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
+  if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }

@@ -569,15 +569,6 @@ class MasterMassDataDto extends MasterTurboConfigDto {
   targetTotal?: number;
 }
 
-class MasterEnginePauseDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(1440)
-  minutes?: number;
-}
-
 class MasterEngineDrainDto {
   @IsOptional()
   @Type(() => Number)
@@ -1301,16 +1292,6 @@ export class MasterWebscrapingController {
     return this.webscrapingService.getRadarFactoryStatus(req.user);
   }
 
-  @Get('elastic/status')
-  getElasticStatus(@Req() req: any) {
-    return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Post('factory/start')
-  startFactory(@Req() req: any) {
-    return this.webscrapingService.startRadarFactory(req.user);
-  }
-
   @Post('elastic/force-night')
   forceNightFactory(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
     return this.webscrapingService.forceNightRadarFactory(req.user, dto || {});
@@ -1326,11 +1307,6 @@ export class MasterWebscrapingController {
     return this.webscrapingService.stopRadarFactory(req.user);
   }
 
-  @Post('factory/stop-now')
-  stopFactoryNow(@Req() req: any) {
-    return this.webscrapingService.stopFactoryNow(req.user);
-  }
-
   @Post('factory/resume-schedule')
   resumeFactorySchedule(@Req() req: any) {
     return this.webscrapingService.resumeFactorySchedule(req.user);
@@ -1341,19 +1317,9 @@ export class MasterWebscrapingController {
     return this.webscrapingService.forceNextRadarFactoryMission(req.user);
   }
 
-  @Post('factory/reset-cursor')
-  resetFactoryCursor(@Req() req: any) {
-    return this.webscrapingService.resetRadarFactoryCursor(req.user);
-  }
-
   @Get('mass-data')
   getMassDataControl(@Req() req: any) {
     return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Put('turbo-noturno')
-  saveTurboNoturno(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
-    return this.webscrapingService.saveMasterTurboConfig(req.user, dto || {});
   }
 
   @Post('turbo-noturno/force-now')
@@ -1364,36 +1330,6 @@ export class MasterWebscrapingController {
   @Post('mass-data')
   createMassDataCampaign(@Req() req: any, @Body() dto: MasterMassDataDto) {
     return this.webscrapingService.createMasterMassDataCampaign(req.user, dto || ({} as any));
-  }
-
-  @Post('engines/:id/pause')
-  async pauseMasterEngine(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEnginePauseDto) {
-    await this.hbxEnginePool.pauseEngine(id, { minutes: dto?.minutes });
-    return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Post('engines/:id/resume')
-  async resumeMasterEngine(@Req() req: any, @Param('id') id: string) {
-    await this.hbxEnginePool.resumeEngine(id);
-    return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Post('engines/:id/drain')
-  async drainMasterEngine(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEngineDrainDto) {
-    await this.hbxEnginePool.drainEngine(id, { seconds: dto?.seconds });
-    return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Post('engines/:id/stop')
-  async stopMasterEngine(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEngineStopDto) {
-    await this.hbxEnginePool.stopEngine(id, { force: Boolean(dto?.force), seconds: dto?.seconds });
-    return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Post('engines/:id/stop-container')
-  async stopMasterEngineContainer(@Req() req: any, @Param('id') id: string, @Body() dto: MasterEngineStopDto) {
-    await this.hbxEnginePool.stopEngine(id, { force: Boolean(dto?.force), seconds: dto?.seconds });
-    return this.webscrapingService.getMasterMassDataControl(req.user);
   }
 
   // "Parar/Ligar faixa" do painel do dono → parada MANUAL durável (manualPaused) que o governor
@@ -1460,5 +1396,18 @@ export class MasterWebscrapingController {
   @Post('elastic/stop-all')
   async stopAllEngines() {
     return this.hbxEnginePool.stopAllEnginesDurable();
+  }
+
+  /**
+   * POST /modules/owner/radar/cnpj-backfill?limit=200
+   * Popula razaoSocial/ownerName nos leads que já têm CNPJ via BrasilAPI (grátis, throttled).
+   * Devolve { scanned, enriched, errors }.
+   */
+  @Post('cnpj-backfill')
+  cnpjBackfill(@Query('limit') limit?: string) {
+    const parsed = limit ? Number(limit) : undefined;
+    return this.webscrapingService.cnpjBackfillForMaster({
+      limit: Number.isFinite(parsed) ? parsed : 200,
+    });
   }
 }
