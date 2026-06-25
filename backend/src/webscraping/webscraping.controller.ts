@@ -1400,8 +1400,8 @@ export class MasterWebscrapingController {
 
   /**
    * POST /modules/owner/radar/cnpj-backfill?limit=200
-   * Popula razaoSocial/ownerName nos leads que já têm CNPJ via BrasilAPI (grátis, throttled).
-   * Devolve { scanned, enriched, errors }.
+   * Cadeia grátis completa por lead: (a) web-enrichment/Brave L3, (b) L4 CNPJ vault, (c) L1 sinais.
+   * NÃO inclui L5 (whatsapp-check). Devolve { scanned, enriched, errors, sitesFound, cnpjsFound }.
    */
   @Post('cnpj-backfill')
   cnpjBackfill(@Query('limit') limit?: string) {

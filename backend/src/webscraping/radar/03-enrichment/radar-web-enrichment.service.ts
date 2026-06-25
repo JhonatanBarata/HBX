@@ -420,6 +420,30 @@ function withWebEnrichmentPipeline(result: WebscrapingContactResult, attempts: W
   } as WebscrapingContactResult;
 }
 
+/**
+ * Extracts the first valid 14-digit CNPJ from a free-text string.
+ * Matches patterns like 12.345.678/0001-90 or 12345678000190.
+ */
+function extractCnpjFromText(text: string): string | null {
+  const matches = text.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g);
+  if (!matches) return null;
+  for (const raw of matches) {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 14) return digits;
+  }
+  return null;
+}
+
+/**
+ * Builds a Brave-optimised query to discover a CNPJ for a lead that has no website.
+ * Format: "<name> <city> CNPJ"
+ */
+function buildCnpjDiscoveryQuery(lead: WebscrapingContactResult, input: NormalizedSearchInput): string {
+  const name = compactText(lead.name).replace(/"/g, '');
+  const city = compactText(input.city || (lead as any).city).replace(/"/g, '');
+  return `"${name}" "${city}" CNPJ`.replace(/\s+/g, ' ').trim();
+}
+
 function buildSearchQuery(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
   const name = compactText(lead.name).replace(/"/g, '');
   const city = compactText(input.city).replace(/"/g, '');
@@ -607,6 +631,21 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
   }
 
   if (!website && !instagramUrl && !facebookUrl) return { result: null, accepted, rejected };
+
+  // Extract CNPJ from accepted candidate text if the lead doesn't already have one.
+  const existingCnpj = String((lead as any).cnpj || '').replace(/\D/g, '');
+  let discoveredCnpj: string | null = null;
+  if (!existingCnpj) {
+    for (const c of accepted) {
+      const found = extractCnpjFromText(`${c.title} ${c.snippet} ${c.url}`);
+      if (found) { discoveredCnpj = found; break; }
+    }
+  }
+
+  const existingMeta = (typeof (lead as any).metadataJson === 'object' && (lead as any).metadataJson)
+    ? (lead as any).metadataJson
+    : {};
+
   return {
     result: {
       ...lead,
@@ -616,6 +655,8 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
       socialStatus: instagramUrl || facebookUrl ? 'candidate_review' : (lead as any).socialStatus,
       source: 'radar_web_enrichment',
       sourceEngine: 'radar_web_enrichment',
+      ...(discoveredCnpj ? { cnpj: discoveredCnpj } : {}),
+      ...(discoveredCnpj ? { metadataJson: { ...existingMeta, cnpj: existingMeta.cnpj || discoveredCnpj } } : {}),
       evidenceJson: {
         ...((typeof (lead as any).evidenceJson === 'object' && (lead as any).evidenceJson) ? (lead as any).evidenceJson : {}),
         radarWebEnrichment: {
@@ -736,6 +777,37 @@ export class RadarWebEnrichmentService {
             continue;
           }
         }
+        // --- CNPJ discovery via Brave for site-less leads ---
+        // When the lead still has no site and no CNPJ, ask Brave for "<name> <city> CNPJ".
+        // The CNPJ found here will be written to the result so L4 can fire on the next pass.
+        if (fetcher && process.env.BRAVE_SEARCH_API_KEY) {
+          const leadForCnpj = merged.result || bestResult || fallbackLead;
+          const missingCnpj = !String((leadForCnpj as any)?.cnpj || '').replace(/\D/g, '');
+          const missingSite = !isOwnWebsite((leadForCnpj as any)?.website);
+          if (missingSite && missingCnpj) {
+            const cnpjQuery = buildCnpjDiscoveryQuery(lead, input.normalized);
+            const cnpjCandidates = await this.searchBrave(fetcher, cnpjQuery, timeoutMs).catch(() => [] as WebCandidate[]);
+            if (cnpjCandidates.length) {
+              const allText = cnpjCandidates.map((c) => `${c.title} ${c.snippet} ${c.url}`).join(' ');
+              const discoveredCnpj = extractCnpjFromText(allText);
+              if (discoveredCnpj) {
+                const baseLead = merged.result || bestResult || fallbackLead;
+                const existingMeta = typeof (baseLead as any).metadataJson === 'object'
+                  ? ((baseLead as any).metadataJson || {})
+                  : {};
+                (baseLead as any).cnpj = (baseLead as any).cnpj || discoveredCnpj;
+                (baseLead as any).metadataJson = {
+                  ...existingMeta,
+                  cnpj: existingMeta.cnpj || discoveredCnpj,
+                };
+                if (merged.result) merged = { ...merged, result: baseLead as WebscrapingContactResult };
+                else if (bestResult) bestResult = baseLead as WebscrapingContactResult;
+              }
+              fallbackFoundCount += cnpjCandidates.length;
+            }
+          }
+        }
+
         foundCount += fallbackFoundCount;
         attempts.push({
           source: 'fallback_web',
@@ -877,7 +949,76 @@ export class RadarWebEnrichmentService {
     };
   }
 
+  // --- Brave Search API throttle (free tier ≈ 1 req/s) ---
+  // 1 in-flight at a time + minimum 1100 ms between dispatches.
+  // Static = shared across all instances (same process).
+  private static readonly BRAVE_MIN_INTERVAL_MS = 1100;
+  private static _braveQueue: Promise<void> = Promise.resolve();
+  private static _braveLastCallAt = 0;
+  private static readonly _braveCache = new Map<string, WebCandidate[]>();
+
+  private static _enqueueThrottledBrave<T>(fn: () => Promise<T>): Promise<T> {
+    const queued = RadarWebEnrichmentService._braveQueue.then(async () => {
+      const now = Date.now();
+      const elapsed = now - RadarWebEnrichmentService._braveLastCallAt;
+      const wait = RadarWebEnrichmentService.BRAVE_MIN_INTERVAL_MS - elapsed;
+      if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+      RadarWebEnrichmentService._braveLastCallAt = Date.now();
+      return fn();
+    });
+    // Prevent errors from breaking the queue.
+    RadarWebEnrichmentService._braveQueue = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
+  }
+
+  private async searchBrave(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
+    const key = process.env.BRAVE_SEARCH_API_KEY;
+    if (!key) return [];
+    const cached = RadarWebEnrichmentService._braveCache.get(query);
+    if (cached) return cached;
+    return RadarWebEnrichmentService._enqueueThrottledBrave(async () => {
+      // Double-check cache after queue wait — another item may have populated it.
+      const inCache = RadarWebEnrichmentService._braveCache.get(query);
+      if (inCache) return inCache;
+      try {
+        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&country=br&search_lang=pt&count=10`;
+        const response = await fetcher(url, {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': key,
+          },
+          signal: AbortSignal.timeout(Math.min(timeoutMs, 8000)),
+        });
+        // 429 = rate-limit: return empty without caching so next call can retry.
+        if (response.status === 429) return [];
+        if (!response.ok) return [];
+        const data: any = await response.json();
+        const results: WebCandidate[] = (Array.isArray(data?.web?.results) ? data.web.results : [])
+          .map((r: any) => ({
+            url: String(r?.url || '').trim(),
+            title: String(r?.title || '').trim(),
+            snippet: String(r?.description || '').trim(),
+          }))
+          .filter((c: WebCandidate) => c.url);
+        if (results.length) {
+          RadarWebEnrichmentService._braveCache.set(query, results);
+        }
+        return results;
+      } catch {
+        return [];
+      }
+    });
+  }
+
   private async searchWeb(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
+    if (process.env.BRAVE_SEARCH_API_KEY) {
+      const brave = await this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
+      if (brave.length) return brave;
+    }
     const bing = await this.searchBing(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
     if (bing.length) return bing;
     return this.searchDuckDuckGo(fetcher, query, timeoutMs);

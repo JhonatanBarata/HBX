@@ -1044,6 +1044,39 @@ async function ckCnpjBackfill() {
   }
 }
 
+/* ---------- Descobrir site + CNPJ (cadeia grátis L1→L4) ---------- */
+async function ckStartDiscover() {
+  const btn = $("#btn-cockpit-discover");
+  const fb  = $("#el-feedback");
+  const enrichRow = $("#cockpit-enrich-row");
+  if (enrichRow) enrichRow.style.display = "";
+  if (btn) btn.disabled = true;
+  if (fb)  { fb.textContent = "descobrindo site + CNPJ da base… (cadeia grátis)"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/ops/cnpj-backfill", { scope: "local", limit: 500 });
+    const scanned   = r.scanned   ?? r.data?.scanned   ?? "?";
+    const sitesFound = r.sitesFound ?? r.data?.sitesFound ?? 0;
+    const cnpjsFound = r.cnpjsFound ?? r.data?.cnpjsFound ?? 0;
+    const enriched  = r.enriched  ?? r.data?.enriched  ?? "?";
+    const errors    = r.errors    ?? r.data?.errors    ?? 0;
+    if (r.ok !== false) {
+      const summary = `${scanned} varridos · ${sitesFound} sites · ${cnpjsFound} CNPJ · ${enriched} enriquecidos`;
+      if (fb) { fb.textContent = summary; fb.className = "delta up"; }
+      pushFeed(`Descoberta grátis: ${summary}`, errors > 0 ? "warn" : "ok");
+    } else {
+      const msg = r.message || r.reason || "falha ao descobrir";
+      if (fb) { fb.textContent = msg; fb.className = "delta"; }
+      pushFeed(`Descoberta grátis: ${msg}`, "warn");
+    }
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+    pushFeed(`Descoberta grátis: ${err.message}`, "warn");
+  } finally {
+    if (btn) btn.disabled = false;
+    setTimeout(loadCockpit, 1500);
+  }
+}
+
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
   const reloadBtn      = $("#btn-cockpit-reload");
@@ -1051,6 +1084,7 @@ async function ckCnpjBackfill() {
   const vpsBtn         = $("#btn-cockpit-vps");
   const enrichBtn      = $("#btn-cockpit-enrich");
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
+  const discoverBtn    = $("#btn-cockpit-discover");
   const prevBtn        = $("#btn-ck-prev");
   const nextBtn        = $("#btn-ck-next");
   const clearBtn       = $("#btn-cockpit-clear");
@@ -1060,6 +1094,7 @@ async function ckCnpjBackfill() {
   if (csvBtn)    csvBtn.addEventListener("click", ckExportCsv);
   if (vpsBtn)    vpsBtn.addEventListener("click", ckSendToVps);
   if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
+  if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
   if (clearBtn)  clearBtn.addEventListener("click", () => {

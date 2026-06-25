@@ -34,6 +34,31 @@ Providers (`radar/providers/`):
 - CLI: `python -m app.cli --city "X" --state "SP" --segment "y" --limit 10 --fresh`
   com `--target-type pj | pf | agenda_pf`.
 
+## Organograma do enriquecimento (L0→L5 · grátis primeiro · captura TUDO · cadeado por plano)
+
+Regra do dono: enriquecer = rodar TUDO que é de graça e **ACUMULAR**; só PARA de subir quando já tem
+o alvo; só paga pro que o grátis comprovadamente não alcança. Nunca descarta ouro (CNPJ). Sem forçar
+rede social. O **PLANO decide o que o usuário VÊ** (cadeado), não o que se enche. Um botão = um pipeline.
+
+| Camada | O que faz | Onde mora (backend) | Estado |
+|---|---|---|---|
+| L0 · busca | capta tudo no crawl (nome/tel + CNPJ/CNAE/razão do rodapé) | motor Python `01-search` | no ar |
+| L1 · parse | DDD/região · provável-WhatsApp · dor (do segmento) | `03-enrichment/radar-public-data` + `lead-signals.util` | no ar |
+| L2 · crawl do site | abre o site → email · IG · FB · CNPJ rodapé · razão | `03-enrichment/radar-web-enrichment` | no ar |
+| L3 · descoberta | acha SITE e CNPJ por nome+cidade p/ quem só tem telefone | `radar-web-enrichment.searchWeb` | **Brave (grátis)** |
+| L4 · cofre CNPJ | CNPJ → razão/CNAE/**sócio**/endereço/situação (dataset local + BrasilAPI/qsa) | `03-enrichment/radar-cnpj-l4-enrichment` | no ar |
+| L5 · whatsapp-check | número tem WhatsApp? (motor interno) | `applyRadarWhatsappCheck` (05-delivery) | no ar · **risco ban → NÃO mexer na reconexão** |
+| 🔒 gate | `canSeeLeadIntelligence = tier !== 'list'`; card borra+cadeado p/ List | `commercial-plans` + `DetalhesNegocio` | no ar |
+
+**L3 = Brave Search API (grátis, IP-safe).** Substitui o scrape de Bing/DuckDuckGo (risco de bloqueio
+de IP). `BRAVE_SEARCH_API_KEY` no `.env` do **backend** — sem chave, cai no Bing/DDG. **Nunca reservar
+API paga** (decisão do dono 25/06): Brave cobre o L3. Pago (P1 dados pessoais do sócio / P2 social
+premium) só pro **ALÉM** e só quando ligado por env (`HBX_ENRICH_ALLOW_PAID/PREMIUM`, default off).
+
+**Controle = HBX Owner** (o master saiu do controle do motor, 25/06): backfill da cadeia inteira pelo
+cockpit → owner agent (`/owner/ops/cnpj-backfill`) → ops-control (`/api/opscontrol/cnpj-backfill`) →
+backend (`/modules/owner/radar/cnpj-backfill`). O backfill roda L1→L4 grátis (NÃO inclui L5 no lote).
+
 ## Legado e laboratório
 
 - `webscraping/`: app Streamlit legado (Google Places API ou `MOCK_MODE=1`). Não evoluir.
