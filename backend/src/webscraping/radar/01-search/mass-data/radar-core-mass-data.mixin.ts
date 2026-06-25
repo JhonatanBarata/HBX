@@ -1188,6 +1188,25 @@ export class RadarCoreMassDataMixin {
       if (maxParallel <= 0) {
         this.logger.log(`[factory-scheduler] automaticAllowed=0 reason=${scheduler?.factory?.reason || 'protected'}; campaign pump will not acquire mass_data engines`);
       }
+      // Backoff anti-spin: se há demanda mas NENHUM motor livre (os N estão todos busy), varrer as
+      // campanhas só queima CPU — cada uma faz writes + acquireEngine pesado e leva 0 lease. Conta os
+      // motores livres UMA vez; se 0, pula o ciclo inteiro e reagenda. Era isto que punha o backend em
+      // burst de CPU com a fila empilhada (85 campanhas × "leased 0"). Erro na contagem → segue como antes.
+      if (maxParallel > 0) {
+        const freeEngines = await (this.prisma as any).hbxEngineLock.count({
+          where: {
+            engineIndex: { lt: getConfiguredHbxEngineCount() },
+            status: { in: ['online', 'standby'] },
+            manualPaused: false,
+            OR: [{ lockedRunId: null }, { lockedUntil: { lt: new Date() } }],
+          },
+        }).catch(() => -1);
+        if (freeEngines === 0) {
+          this.logger.log('[factoryPump] sem motor livre (todos busy) — ciclo pulado p/ evitar spin de CPU; reagendando em 8s');
+          this.scheduleRadarCampaignPump(8_000);
+          return;
+        }
+      }
       const due = await (this.prisma as any).webscrapingCampaign.findMany({
         where: {
           OR: [
