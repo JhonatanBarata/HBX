@@ -42,6 +42,7 @@ import {
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
   RADAR_PROTECTED_STATUSES,
+  isGlobalBlockStatus,
   SEGMENT_STOPWORDS,
   SEGMENT_ALIASES,
   HBX_CATEGORY_SEGMENTS,
@@ -2025,14 +2026,16 @@ export class RadarCoreDistributionMixin {
     };
   }
 
-  // Recusa DURA = o contato é ruim pra TODO MUNDO (número não existe/não atende,
-  // sem WhatsApp, número inválido, opt-out, reclamação, bloqueio) → o lead some da
+  // Recusa DURA = o contato é ruim pra TODO MUNDO (número não existe, sem WhatsApp,
+  // número inválido, CAIXA POSTAL, opt-out, reclamação, bloqueio) → o lead some da
   // lagoa pra todas as empresas. Recusa LEVE ("sem interesse", recusou a oferta,
-  // descartou, escondeu) é só desta empresa → o lead VOLTA pra lagoa pros outros.
-  // Dono 14/06: "pode não querer refrigerante mas topar a ligação da cerveja".
+  // descartou, escondeu, NÃO ATENDEU) é só desta empresa → o lead VOLTA pra lagoa pros
+  // outros. Dono 14/06: "pode não querer refrigerante mas topar a ligação da cerveja".
+  // DERIVA da fonte única `radar-disposition-rules.ts` (matriz do dono PR24062026):
+  //   - `no_answer` ("não atendeu") agora é LEVE (saiu do bloqueio global).
+  //   - `voicemail` ("caixa postal") agora é DURA (entrou no bloqueio global).
   private isRadarGlobalKillStatus(status: string): boolean {
-    return ['no_whatsapp', 'invalid_whatsapp', 'invalid_phone', 'no_answer', 'opt_out', 'do_not_contact', 'complaint', 'blocked']
-      .includes(String(status || '').trim().toLowerCase());
+    return isGlobalBlockStatus(status);
   }
 
   async markRadarLeadNegativeForUser(user: any, radarLeadId: string, input: { status?: string; reason?: string; privateNotes?: string } = {}) {
@@ -2061,6 +2064,10 @@ export class RadarCoreDistributionMixin {
         ? 'discarded'
         : normalizedStatus === 'blocked' || normalizedStatus === 'bloqueado'
           ? 'blocked'
+          // caixa postal (voicemail) = único kill de LIGAÇÃO → status próprio, protegido,
+          // bloqueia global (matriz do dono PR24062026). 'voicemail' ∈ RADAR_PROTECTED_STATUSES.
+          : normalizedStatus === 'voicemail' || normalizedStatus === 'caixa_postal'
+            ? 'voicemail'
           : normalizedStatus === 'opt_out' || normalizedStatus === 'optout' || normalizedStatus === 'do_not_contact' || normalizedStatus === 'nao_quer_contato' || normalizedStatus === 'não_quer_contato'
             ? 'opt_out'
             : normalizedStatus === 'no_whatsapp'

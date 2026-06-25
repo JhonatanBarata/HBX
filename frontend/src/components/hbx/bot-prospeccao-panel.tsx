@@ -10,13 +10,11 @@
 // (--bot-phase-color). Estilo em hbx-theme/bot-prospeccao.css; o tutofig
 // (sobreposição de 3 colunas) em hbx-theme/bot-tutofig.css.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { I, ICONS, subscribeToThemeMode } from "@/components/hbx/shell";
+import { I, ICONS } from "@/components/hbx/shell";
 import { BotTutofig } from "@/components/hbx/bot-tutofig";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
-import { FutureBotBuilder } from "@/components/hbx/future-bot-builder";
-import { DEFAULT_PELE, getActivePele } from "@/components/hbx/theme-attributes";
 import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import {
   useProspectingConfig,
@@ -37,9 +35,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const [tutofigOpen, setTutofigOpen] = useState(false);
   const autoOpenedRef = useRef(false); // só auto-abre 1x por montagem
   const dismissedRef = useRef(false);  // pulou/fechou → não reabre sozinho
-
-  // Pele ativa: quando "future", monta FutureBotBuilder no lugar do BotTutofig.
-  const activePele = useSyncExternalStore(subscribeToThemeMode, getActivePele, () => DEFAULT_PELE);
 
   // Gate de Termos antes de INICIAR — estado controlado por handlers (não effect).
   const [termsOpen, setTermsOpen] = useState(false);
@@ -247,21 +242,13 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
       {/* ── Editor deslizante da peça (gaveta) ── */}
       <ProspEditorDrawer piece={openPiece} onClose={() => setOpenPiece(null)} h={helpers} />
 
-      {/* ── TutoFig / FutureBotBuilder: gated pela pele ativa ── */}
-      {activePele === "future" ? (
-        <FutureBotBuilder
-          open={tutofigOpen}
-          onClose={() => { dismissedRef.current = true; setTutofigOpen(false); }}
-          onFinish={() => onSavedRef.current?.()}
-        />
-      ) : (
-        <BotTutofig
-          open={tutofigOpen}
-          cfg={cfg}
-          onClose={() => { dismissedRef.current = true; setTutofigOpen(false); }}
-          onSaved={() => onSavedRef.current?.()}
-        />
-      )}
+      {/* ── TutoFig ── */}
+      <BotTutofig
+        open={tutofigOpen}
+        cfg={cfg}
+        onClose={() => { dismissedRef.current = true; setTutofigOpen(false); }}
+        onSaved={() => onSavedRef.current?.()}
+      />
 
       {/* ── Gate de Termos antes de INICIAR ── */}
       {termsOpen && (

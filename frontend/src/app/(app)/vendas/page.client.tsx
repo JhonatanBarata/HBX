@@ -278,13 +278,19 @@ export function VendasClient() {
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const [semInteresseMotivo, setSemInteresseMotivo] = useState<string>("");
 
-  // Excluir card: devolve ao pool sem edições. POST /vendas/leads/:id/delete
+  // Excluir card: devolve ao pool COM MOTIVO (matriz de disposição PR24062026).
+  // "só excluir" (excluir) → card reaparece na vitrine da própria empresa; "resultado
+  // não satisfatório" (unsatisfactory) → some pra você, volta pros outros.
+  // POST /vendas/leads/:id/delete { reason }.
   const [deleteBusy, setDeleteBusy] = useState(false);
-  async function deletarCard() {
+  // Modal de motivo da exclusão (unitária OU em massa). alvo='card' → exclusão do card
+  // selecionado; alvo='bulk' → exclusão dos selecionados.
+  const [excluirMotivoOpen, setExcluirMotivoOpen] = useState<null | "card" | "bulk">(null);
+  async function deletarCard(reason: string) {
     if (!sel?.id || deleteBusy) return;
     setDeleteBusy(true);
     try {
-      await apiFetch(`/vendas/leads/${encodeURIComponent(sel.id)}/delete`, { method: "POST", body: JSON.stringify({}) });
+      await apiFetch(`/vendas/leads/${encodeURIComponent(sel.id)}/delete`, { method: "POST", body: JSON.stringify({ reason }) });
       setSel(null);
       await loadBoard();
     } catch (err) {
@@ -299,11 +305,9 @@ export function VendasClient() {
   // ao pool (mesmo efeito do delete unitário) e responde { deletedCount }.
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
-  const [bulkDeleteArm, setBulkDeleteArm] = useState(false); // confirma em 2 cliques (padrão do kit)
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   function toggleSelecionado(id: string) {
-    setBulkDeleteArm(false);
     setSelecionados(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -311,7 +315,7 @@ export function VendasClient() {
     });
   }
 
-  async function excluirSelecionados() {
+  async function excluirSelecionados(reason: string) {
     const ids = Array.from(selecionados);
     if (ids.length === 0 || bulkDeleteBusy) return;
     setBulkDeleteBusy(true);
@@ -319,7 +323,7 @@ export function VendasClient() {
     try {
       const res = await apiFetch<{ deletedCount?: number }>("/vendas/leads/delete-bulk", {
         method: "POST",
-        body: JSON.stringify({ leadIds: ids }),
+        body: JSON.stringify({ leadIds: ids, reason }),
       });
       const n = res?.deletedCount ?? ids.length;
       if (sel && ids.includes(sel.id)) setSel(null);
@@ -330,7 +334,7 @@ export function VendasClient() {
       setBulkMsg(err instanceof Error ? err.message : "Não foi possível excluir os cards.");
     } finally {
       setBulkDeleteBusy(false);
-      setBulkDeleteArm(false);
+      setExcluirMotivoOpen(null);
     }
   }
 
@@ -673,7 +677,6 @@ export function VendasClient() {
   // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
   const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
   function toggleTodos() {
-    setBulkDeleteArm(false);
     setSelecionados(todosSelecionados ? new Set() : new Set(flatLeads.map(c => c.id)));
   }
 
@@ -861,15 +864,12 @@ export function VendasClient() {
                         <span className="sub2">{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</span>
                         <button
                           className="btn-ghost danger btn-xs"
-                          onClick={() => (bulkDeleteArm ? excluirSelecionados() : setBulkDeleteArm(true))}
+                          onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }}
                           disabled={bulkDeleteBusy}
                         >
                           <I d={ICONS.trash} size={13} />{" "}
-                          {bulkDeleteBusy ? "Excluindo…" : bulkDeleteArm ? `Confirmar exclusão (${selecionados.size})` : "Excluir selecionados"}
+                          {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
                         </button>
-                        {bulkDeleteArm && !bulkDeleteBusy && (
-                          <button className="btn-ghost btn-xs" onClick={() => setBulkDeleteArm(false)}>Cancelar</button>
-                        )}
                       </>
                     )}
                     {bulkMsg && <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span>}
@@ -1009,7 +1009,7 @@ export function VendasClient() {
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
                 waQrActive={waQrActive}
                 waCanInternal={canAtendimento}
-                onDelete={deal ? () => deletarCard() : undefined}
+                onDelete={deal ? () => { setAcaoMsg(null); setExcluirMotivoOpen("card"); } : undefined}
                 actions={deal ? (
                   <div className="dn-cockpit">
                     {/* TIER 1 — Fechar venda (herói bonito, mesmo do Atendimento) */}
@@ -1057,7 +1057,7 @@ export function VendasClient() {
               onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
               waQrActive={waQrActive}
               waCanInternal={canAtendimento}
-              onDelete={() => { setMobileDetailOpen(false); deletarCard(); }}
+              onDelete={() => { setMobileDetailOpen(false); setAcaoMsg(null); setExcluirMotivoOpen("card"); }}
               actions={
                 <div className="dn-cockpit">
                   {/* TIER 1 — Fechar venda (herói bonito, mesmo do Atendimento) */}
@@ -1319,6 +1319,45 @@ export function VendasClient() {
                 <button className="btn-teal" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>
                   {acaoBusy ? "Agendando…" : "Confirmar"}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup: motivo da exclusão (unitária OU em massa) — matriz de disposição.
+          "Só excluir" devolve o card pra vitrine da própria empresa; "Resultado não
+          satisfatório" some pra você e volta pros outros. */}
+      {excluirMotivoOpen && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setExcluirMotivoOpen(null); }}>
+          <div className="hbx-modal vnd-popup" onClick={e => e.stopPropagation()}>
+            <div className="vnd-popup__head">
+              <span className="vnd-popup__title">
+                {excluirMotivoOpen === "bulk" ? `Excluir ${selecionados.size} card${selecionados.size === 1 ? "" : "s"}` : "Excluir card"}
+              </span>
+              <button className="vnd-popup__close" onClick={() => setExcluirMotivoOpen(null)} aria-label="Fechar">✕</button>
+            </div>
+            <div className="vnd-popup__body">
+              <p className="sub2">Por que está excluindo?</p>
+              {(excluirMotivoOpen === "bulk" ? bulkMsg : acaoMsg) && (
+                <div className={"ctx-msg err"}>{excluirMotivoOpen === "bulk" ? bulkMsg : acaoMsg}</div>
+              )}
+              <div className="vnd-si-opts">
+                <button type="button" className="vnd-si-opt"
+                  onClick={() => (excluirMotivoOpen === "bulk" ? excluirSelecionados("excluir") : deletarCard("excluir"))}
+                  disabled={bulkDeleteBusy || deleteBusy}>
+                  Só excluir
+                  <span className="vnd-si-opt__hint">volta pra sua vitrine</span>
+                </button>
+                <button type="button" className="vnd-si-opt"
+                  onClick={() => (excluirMotivoOpen === "bulk" ? excluirSelecionados("unsatisfactory") : deletarCard("unsatisfactory"))}
+                  disabled={bulkDeleteBusy || deleteBusy}>
+                  Resultado não satisfatório
+                  <span className="vnd-si-opt__hint">some pra você, libera pros outros</span>
+                </button>
+              </div>
+              <div className="vnd-popup__foot">
+                <button className="btn-ghost" onClick={() => setExcluirMotivoOpen(null)}>Cancelar</button>
               </div>
             </div>
           </div>

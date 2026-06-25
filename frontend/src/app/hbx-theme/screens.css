@@ -627,6 +627,9 @@ html, body { height: 100%; }
 .vnd-si-opt:hover { background: var(--hbx-surface-raised); }
 .vnd-si-opt.is-sel { border-color: var(--login-accent); color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); font-weight: 700; }
 .vnd-si-opt:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Opção com sub-rótulo (modal de motivo da exclusão): empilha título + dica. */
+.vnd-si-opt:has(.vnd-si-opt__hint) { flex-direction: column; align-items: flex-start; gap: 2px; }
+.vnd-si-opt__hint { font-size: 0.7rem; font-weight: 400; color: var(--text-muted); }
 
 /* provisioning wizard (multi-step) */
 .prov-step { font-size: 0.64rem; font-weight: 400; color: var(--text-muted); }

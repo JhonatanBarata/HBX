@@ -1,0 +1,36 @@
+# SearXNG settings — HBX local self-hosted
+# Gerado pelo worker de turbinamento de descoberta (2026-06-24).
+# NÃO sobir ao VPS sem revisar (o VPS usa SearXNG diferente ou nenhum).
+
+use_default_settings: true
+
+server:
+  # Troque por qualquer string longa e aleatória; não precisa ser secreta no localhost.
+  secret_key: "hbx-searxng-local-secret-2026-nao-usar-no-vps"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  # json é OBRIGATÓRIO — sem isso o motor recebe 400 em /search?format=json
+  formats:
+    - html
+    - json
+
+engines:
+  - name: google
+    engine: google
+    language: pt-br
+    region: br
+    use_mobile_ui: false
+    weight: 1
+  - name: bing
+    engine: bing
+    weight: 0.8
+  - name: duckduckgo
+    engine: duckduckgo
+    weight: 0.8
+
+outgoing:
+  request_timeout: 10.0
+  useragent_suffix: "HBX-SearXNG/0.1"

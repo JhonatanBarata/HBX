@@ -40,13 +40,6 @@ borda, sombra, fonte ou radius solto em tela; tema só troca tokens; `check-pele
 reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/Rules/FRONTEND.md).
 **Refatorar aparência/peles está AUTORIZADO — não usar as Leis pra recusar trabalho de aparência.**
 
-## Sem legado (ordem do dono 17/06)
-Código morto não fica. Tela/rota/feature substituída → a antiga sai **no mesmo passo**: apagada
-ou **alias que só redireciona** (`redirect("/canônica")` na `page.tsx`; ex.: `/workspace`→`/dashboard`,
-`/webscraping`→`/leads`). Junto vão botões/links, a entrada no `app-shell.tsx` (META) e o CSS
-(`screens.css`) que só ela usava. Duas coisas vivas pra mesma função = proibido. Antes de editar
-uma tela, confirme que é a CANÔNICA (a do menu). (O dono raramente reverte CÓDIGO; o que se
-versiona/reverte é REGRA.)
 
 ## Checks mínimos (menor conjunto relevante ao que foi tocado)
 - Frontend: `cd frontend && npm run lint` → `npm run build`
@@ -75,21 +68,6 @@ Planos vivem em `docs/PLANEJAMENTOS/`, sempre com **UMA** pasta de dia ativa (`P
 - Pasta do dia não existe? Cria, migra o que sobreviveu do dia anterior (não-concluído) e apaga a antiga.
 - Lê a pasta toda; deleta o que já estiver concluído.
 - Nunca cria `.md` de assunto que já existe — injeta no plano existente. Um plano por assunto, não por edição.
-Depois de limpar, sobra só **`testar.md`** (testes que têm que passar antes de subir qualquer branch). Nunca deletar esse arquivo.
-- **`testar.md` é PRA O DONO testar, não pra mim.** Escreve pra leigo: **zero termo técnico** (nada de endpoint, status, código, nome de arquivo/campo/comando, sigla). Bem curto. Formato sempre **"Entre em X → faça Y → tem que ver Z"** (entre aqui, clique ali, veja isso). Se não dá pra explicar sem jargão, simplifica até dar — ou deixa o detalhe técnico no plano, não aqui. Todo teste novo entra nesse formato; ao tocar no `testar.md`, mantém tudo nesse padrão.
-
-## Projetos noturnos (modo autônomo) — "flui sem mim"
-Gatilhos: "faça sem perguntar", "iniciar projeto noturno", "refatoração noturna", "não vou estar no pc".
-O PC fica ligado trabalhando enquanto o dono dorme. **Não espero o dono pra nada de código.**
-Esta seção sobrepõe as outras (inclusive "escala pro dono" do orquestrador):
-- Branch **`trabalho noturno`** (isolada; o dono revisa de manhã).
-- Aplico o que está nos `.md` da pasta do dia e decido no feeling + pesquisa de mercado.
-  **Não pergunto nada** — a hora de perguntar era na injeção.
-- Faço **de qualquer jeito** o que for código. Worker quebrou? Tento outro caminho, documento e sigo.
-- Fecho com `RISCOS.md` na pasta do dia: o que mudei, riscos, o que testar, como reverter cada bloco.
-  De manhã o dono testa — gostou segue, não gostou `git revert`.
-- Único não-faço: disparar ação live que escapa do localhost (ver Guardrails) — git não desfaz.
-- Termina tudo, depois desliga o PC. não importa se ficou algo pra trás o pc tem q ser desligado.
 
 ## Webwhats / Motor WhatsApp (regras duras — custaram chips banidos em jun/26)
 `Webwhats/` é projeto separado (Evolution API/Baileys). Leia `Webwhats/AGENTS.md` antes de tocar. No VPS roda como systemd

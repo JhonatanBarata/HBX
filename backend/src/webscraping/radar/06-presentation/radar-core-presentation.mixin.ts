@@ -98,6 +98,7 @@ import {
   formatCityWithState,
   buildRadarStageSnapshot,
 } from '../radar-core-method-imports';
+import { resolveEnrichmentPaidFlags } from '../../enrichment-cost/enrichment-paid-policy';
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
 import { confirmedSegments } from '../../../users/segment-affinity.util';
@@ -1248,7 +1249,7 @@ export class RadarCorePresentationMixin {
     if (normalized === 'optout' || normalized === 'do_not_contact') return 'opt_out';
     if (normalized === 'lost' || normalized === 'sem_interesse') return 'negative';
     if (normalized === 'descartado') return 'discarded';
-    if (['clean', 'new', 'reserved', 'delivered', 'approved', 'in_attendance', 'interested', 'positive', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
+    if (['clean', 'new', 'reserved', 'delivered', 'approved', 'in_attendance', 'interested', 'positive', 'converted', 'denied', 'negative', 'blocked', 'opt_out', 'discarded', 'complaint', 'no_answer', 'voicemail', 'no_whatsapp', 'invalid_whatsapp', 'duplicate', 'rejected', 'hidden'].includes(normalized)) {
       return normalized as RadarLeadStatus;
     }
     return 'clean';
@@ -2865,6 +2866,7 @@ export class RadarCorePresentationMixin {
         preferredChannels: ['instagram', 'facebook', 'website', 'email'],
         requiredChannels: [],
         timeBudgetSeconds: 24,
+        ...resolveEnrichmentPaidFlags(),
       };
       await this.recordVendasRadarEnrichmentStatus(context, row, 'processing', {
         website: body.website || null,

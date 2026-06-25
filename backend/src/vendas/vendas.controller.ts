@@ -318,8 +318,8 @@ export class VendasController {
   }
 
   @Post('leads/:leadId/delete')
-  deleteLead(@Req() req: any, @Param('leadId') leadId: string) {
-    return this.vendasService.deleteLeadForUser(req.user, leadId);
+  deleteLead(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: { reason?: string }) {
+    return this.vendasService.deleteLeadForUser(req.user, leadId, body?.reason);
   }
 
   // Negativar com MOTIVO (dono 14/06): leve volta pra lagoa, dura some pra todos.

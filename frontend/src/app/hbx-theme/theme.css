@@ -19,6 +19,11 @@
 @import "tailwindcss/theme" layer(theme);
 @import "tailwindcss/utilities" layer(utilities);
 
+/* Exclui pasta de assets estáticos (PNGs/imagens) do scan do Tailwind v4 —
+   bytes binários em imagens podem formar sequências que o oxide interpreta
+   como class names arbitrárias, gerando CSS inválido. */
+@source not "../../../public/**";
+
 @theme {
   /* apaga o universo default do Tailwind — só o contrato HBX existe */
   --color-*: initial;

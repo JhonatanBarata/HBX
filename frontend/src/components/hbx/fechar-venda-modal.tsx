@@ -168,11 +168,14 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
   const showSetup = preview ? preview.setupCommission : estSetup;
   const showPercent = preview ? preview.percent : percent;
   const showBase = preview ? preview.monthlyBase : valorNum;
-  const dueDays = preview?.dueBusinessDays ?? profile?.dueBusinessDays ?? 3;
   const hasCommission = showPercent > 0 && showMonthly > 0;
 
   const planosComPreco = useMemo(() => (planos || []).filter(p => p.monthlyPrice != null && p.monthlyPrice > 0), [planos]);
-  const podeGerar = !busy && valorNum > 0 && (!sellsHbx || Boolean(planSel));
+  // Fechar venda = o lead vira CLIENTE da empresa → cadastro OBRIGATÓRIO (matriz de
+  // disposição PR24062026, motivo `won`). Identidade mínima pra registrar o cliente:
+  // nome + telefone. E-mail/CPF seguem opcionais (o cliente completa no link/cartão).
+  const cadastroOk = cliName.trim().length >= 2 && cliPhone.replace(/\D/g, "").length >= 10;
+  const podeGerar = !busy && cadastroOk && valorNum > 0 && (!sellsHbx || Boolean(planSel));
 
   // Grava o pré-cadastro (CustomerProfile, linka por telefone): persiste e-mail/CPF
   // do cliente ANTES de gerar o link, pra o prefill do checkout puxar. Não bloqueia
@@ -290,14 +293,9 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
         {/* ── Cabeçalho ───────────────────────────────────────────────── */}
         <div className="fv-head">
           <div className="fv-head-top">
-            <span className="fv-eyebrow">
-              <span className="fv-spark"><I d={ICONS.bolt} size={13} /></span>
-              É aqui que fecha
-            </span>
+            <h2 className="fv-title">Fechar venda{leadName ? ` — ${leadName}` : ""}</h2>
             <button className="fv-x" onClick={onClose} aria-label="Fechar">✕</button>
           </div>
-          <h2 className="fv-title">Fechar venda{leadName ? ` — ${leadName}` : ""}</h2>
-          <p className="fv-sub">Feche o valor combinado e a comissão entra no seu nome.</p>
 
           <div className="fv-rail" aria-hidden="true">
             <div className={"fv-step" + (step > 1 ? " is-done" : " is-active")}>
@@ -325,8 +323,8 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
             <React.Fragment>
               {/* Pré-cadastro do cliente — confere/completa; alimenta o prefill do link */}
               <div className="fv-field">
-                <label className="fv-label">Dados do cliente</label>
-                <span className="fv-hint">Confira e complete — isto já pré-preenche o cadastro e o cartão do cliente no link.</span>
+                <label className="fv-label">Dados do cliente <span className="fv-req">obrigatório</span></label>
+                <span className="fv-hint">O cliente vira da sua empresa — nome e telefone são obrigatórios pra fechar. E-mail e CPF o cliente completa no cartão.</span>
                 <input className="fv-input" placeholder="Nome do cliente" value={cliName} onChange={e => setCliName(e.target.value)} />
                 <input className="fv-input" placeholder="Telefone com DDD" value={cliPhone} onChange={e => setCliPhone(e.target.value)} inputMode="tel" />
                 <input className="fv-input" type="email" placeholder="E-mail (opcional)" value={cliEmail} onChange={e => setCliEmail(e.target.value)} />
@@ -379,7 +377,6 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
                   <input className="fv-input" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0,00"
                     value={valor} onChange={e => setValor(e.target.value)} autoFocus />
                 </div>
-                <span className="fv-hint">É sobre este valor real que sua comissão é calculada.</span>
               </div>
 
               <div className="fv-field">
@@ -389,7 +386,6 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
                   <input className="fv-input" type="number" min={0} step="0.01" inputMode="decimal" placeholder="0,00"
                     value={setupValor} onChange={e => setSetupValor(e.target.value)} />
                 </div>
-                <span className="fv-hint">Valor único da instalação — também gera comissão pra você.</span>
               </div>
             </React.Fragment>
           )}
@@ -435,32 +431,11 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
             )}
           </div>
 
-          {/* ── Como funciona a comissão (passo-a-passo) ───────────────── */}
-          <div className="fv-how">
-            <span className="fv-how-h">Como a sua comissão funciona</span>
-            <div className="fv-how-item">
-              <span className="fv-how-num">1</span>
-              <span className="fv-how-txt">Você fecha o <b>valor combinado</b> com o cliente aqui — sem digitar status na mão.</span>
-            </div>
-            <div className="fv-how-item">
-              <span className="fv-how-num">2</span>
-              <span className="fv-how-txt">Gera o link e manda no WhatsApp. O <b>cliente ativa sozinho</b> e fica amarrado a você.</span>
-            </div>
-            <div className="fv-how-item">
-              <span className="fv-how-num">3</span>
-              <span className="fv-how-txt">Quando o cliente paga, sua comissão de <b>{showPercent > 0 ? `${showPercent}%` : "X%"}</b> entra <b>automática</b> no card.</span>
-            </div>
-            <div className="fv-how-item">
-              <span className="fv-how-num">4</span>
-              <span className="fv-how-txt">É <b>recorrente</b>: enquanto ele pagar, você ganha todo mês. Cai em <b>{dueDays} dia{dueDays === 1 ? "" : "s"} útil{dueDays === 1 ? "" : "eis"}</b> após o pagamento.</span>
-            </div>
-          </div>
-
           {/* ── Ações ──────────────────────────────────────────────────── */}
           {!link ? (
             <div className="fv-actions">
               <button className="fv-btn fv-btn-primary" onClick={gerarLink} disabled={!podeGerar}>
-                {busy ? "Gerando link…" : sellsHbx && !planSel ? "Escolha o plano acima" : valorNum <= 0 ? "Informe o valor combinado" : (<>Gerar link de contratação <I d={ICONS.arrow} size={15} /></>)}
+                {busy ? "Gerando link…" : !cadastroOk ? "Preencha nome e telefone do cliente" : sellsHbx && !planSel ? "Escolha o plano acima" : valorNum <= 0 ? "Informe o valor combinado" : (<>Gerar link de contratação <I d={ICONS.arrow} size={15} /></>)}
               </button>
               {mode.kind === "lead" && (
                 <button className="fv-btn fv-btn-ghost" onClick={salvarNoCard} disabled={busy}>
@@ -468,7 +443,6 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
                 </button>
               )}
               {savedMsg && <p className="fv-foot-note">{savedMsg}</p>}
-              <p className="fv-foot-note">Transparência total: a venda confirma sozinha quando o cliente ativa, com a comissão sobre o valor real.</p>
             </div>
           ) : (
             <div className="fv-actions">

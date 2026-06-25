@@ -62,19 +62,11 @@
   pointer-events: none;
 }
 .fv-head-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.fv-eyebrow {
-  display: inline-flex; align-items: center; gap: 7px;
-  font-size: 0.66rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
-  color: rgba(255,255,255,0.86);
-}
-.fv-eyebrow .fv-spark { display: inline-grid; place-items: center; animation: fv-spin 6s linear infinite; }
-@keyframes fv-spin { to { transform: rotate(360deg) } }
 .fv-title {
-  margin: 9px 0 2px;
+  margin: 0;
   font-family: var(--font-display, inherit);
   font-size: 1.28rem; font-weight: 850; line-height: 1.15; letter-spacing: -.01em;
 }
-.fv-sub { margin: 0; font-size: 0.76rem; font-weight: 600; color: rgba(255,255,255,0.9); }
 .fv-x {
   flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
   display: grid; place-items: center; cursor: pointer; font-size: 1rem; font-weight: 600;
@@ -103,6 +95,7 @@
 
 .fv-field { display: grid; gap: 6px; }
 .fv-label { font-size: 0.7rem; font-weight: 800; letter-spacing: .02em; color: #5a5478; text-transform: uppercase; }
+.fv-req { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 0.6rem; font-weight: 700; letter-spacing: .03em; color: #b4790a; background: #fbe7c6; }
 .fv-hint { font-size: 0.68rem; line-height: 1.5; color: #7b7596; }
 .fv-warn { font-size: 0.7rem; line-height: 1.5; font-weight: 600; color: #b4790a; }
 
@@ -156,19 +149,6 @@
 .fv-spot-meta span { color: rgba(255,255,255,0.72); }
 .fv-spot-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; padding: 5px 10px; border-radius: 999px; font-size: 0.66rem; font-weight: 800; background: rgba(37, 224, 176, 0.18); color: #6cf3cb; border: 1px solid rgba(37,224,176,0.4); }
 .fv-spot-zero { position: relative; margin-top: 8px; font-size: 0.72rem; line-height: 1.5; color: #ffd9a0; }
-
-/* ── Como funciona a comissão (passo-a-passo) ───────────────────────────────── */
-.fv-how { display: grid; gap: 9px; }
-.fv-how-h { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #6d4bf6; }
-.fv-how-item { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; opacity: 0; transform: translateY(6px); animation: fv-rise .5s ease forwards; }
-.fv-how-item:nth-child(2) { animation-delay: .05s }
-.fv-how-item:nth-child(3) { animation-delay: .12s }
-.fv-how-item:nth-child(4) { animation-delay: .19s }
-.fv-how-item:nth-child(5) { animation-delay: .26s }
-@keyframes fv-rise { to { opacity: 1; transform: none } }
-.fv-how-num { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; font-size: 0.72rem; font-weight: 850; color: #fff; background: linear-gradient(140deg, #7c5cff, #18b9c9); }
-.fv-how-txt { font-size: 0.78rem; line-height: 1.45; color: #463f63; padding-top: 2px; }
-.fv-how-txt b { color: #221b3a; font-weight: 800; }
 
 /* ── Botões ─────────────────────────────────────────────────────────────────── */
 .fv-actions { display: grid; gap: 9px; }
@@ -246,9 +226,8 @@
 
 /* respeita quem prefere menos movimento */
 @media (prefers-reduced-motion: reduce) {
-  .fv-veil, .fv-modal, .fv-spot-amount.fv-pop, .fv-how-item, .fv-badge, .fv-confetti i,
-  .fv-spot-coin, .fv-eyebrow .fv-spark { animation: none !important; }
-  .fv-how-item { opacity: 1; transform: none; }
+  .fv-veil, .fv-modal, .fv-spot-amount.fv-pop, .fv-badge, .fv-confetti i,
+  .fv-spot-coin { animation: none !important; }
 }
 
 /* mobile */

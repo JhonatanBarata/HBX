@@ -30,6 +30,12 @@ import {
 import { COMPANY_KIND_PLATFORM_INFRA, isTenantCompany } from '../common/company-kind';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
+  isGlobalBlockStatus,
+  resolvePoolBlockStatus,
+  resolveDisposition,
+  resolveDispositionReason,
+} from '../webscraping/radar/shared/radar-disposition-rules';
+import {
   BulkDeleteVendasLeadsDto,
   CancelCommissionPayoutDto,
   CreateCommissionPayoutDto,
@@ -5100,6 +5106,7 @@ export class VendasService {
       },
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
+    await this.hydrateRowsWithRadarPoolEnrichment([lead]);
 
     const usageResult = await this.commercialUsageLimits.recordLeadEnrichmentUseOnce(companyId, userId, {
       source: 'vendas_manual_enrichment',
@@ -5786,6 +5793,105 @@ export class VendasService {
     const raw = String(value || '').trim();
     const match = raw.match(/^radar:([^:\s]+)$/i);
     return match?.[1] || null;
+  }
+
+  // Campos de enriquecimento que vivem no RadarLeadPool e o VendasLead NAO armazena
+  // em coluna propria. Sem isso o card de Vendas chega cru (sem instagram/social/dor/canal).
+  private static readonly RADAR_POOL_ENRICHMENT_FIELDS = [
+    'instagramUrl',
+    'facebookUrl',
+    'socialStatus',
+    'socialConfidence',
+    'recommendedChannel',
+    'painType',
+    'painLabel',
+    'painPitch',
+    'opportunityReason',
+    'emailStatus',
+    'emailSource',
+    'emailConfidence',
+    'websiteStatus',
+    'businessCategory',
+    'googleMapsUrl',
+    'visibilityTier',
+    'deliveryProduct',
+    'qualityReason',
+    'enrichmentJson',
+    'metadataJson',
+  ] as const;
+
+  // Re-lê o RadarLeadPool (fonte única) pelos ids carimbados em sourceHistoryId
+  // (`radar:<poolId>`) e hidrata cada row IN-MEMORY com o enriquecimento, só
+  // preenchendo lacunas (nunca sobrescreve valor já presente no VendasLead).
+  // Batelado por findMany para evitar N+1. Pool ausente (deletado) = ignora sem quebrar.
+  private async hydrateRowsWithRadarPoolEnrichment<T extends Record<string, any>>(rows: T[]): Promise<T[]> {
+    if (!Array.isArray(rows) || !rows.length) return rows;
+    const poolIdByRowIndex = new Map<number, string>();
+    const poolIds = new Set<string>();
+    rows.forEach((row, index) => {
+      const poolId = this.extractRadarLeadId(row?.sourceHistoryId);
+      if (poolId) {
+        poolIdByRowIndex.set(index, poolId);
+        poolIds.add(poolId);
+      }
+    });
+    if (!poolIds.size) return rows;
+
+    let pools: any[] = [];
+    try {
+      pools = await this.prisma.radarLeadPool.findMany({
+        where: { id: { in: Array.from(poolIds) } },
+        select: {
+          id: true,
+          instagramUrl: true,
+          facebookUrl: true,
+          socialStatus: true,
+          socialConfidence: true,
+          recommendedChannel: true,
+          painType: true,
+          painLabel: true,
+          painPitch: true,
+          opportunityReason: true,
+          opportunityScore: true,
+          enrichmentScore: true,
+          emailStatus: true,
+          emailSource: true,
+          emailConfidence: true,
+          websiteStatus: true,
+          businessCategory: true,
+          googleMapsUrl: true,
+          visibilityTier: true,
+          deliveryProduct: true,
+          qualityReason: true,
+          enrichmentJson: true,
+          metadataJson: true,
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[vendas-enrichment] Falha ao reler RadarLeadPool para hidratar cards: ${String(error?.message || error)}`);
+      return rows;
+    }
+
+    const poolById = new Map<string, any>(pools.map((pool) => [String(pool.id), pool]));
+    const isEmpty = (value: unknown) => value == null || (typeof value === 'string' && value.trim() === '');
+
+    poolIdByRowIndex.forEach((poolId, index) => {
+      const pool = poolById.get(poolId);
+      const row = rows[index];
+      if (!pool || !row) return;
+      for (const field of VendasService.RADAR_POOL_ENRICHMENT_FIELDS) {
+        if (isEmpty((row as any)[field]) && !isEmpty(pool[field])) {
+          (row as any)[field] = pool[field];
+        }
+      }
+      // opportunityScore: VendasLead já tem coluna; só preenche se vier vazio/zero do lead.
+      if (isEmpty((row as any).opportunityScore) || Number((row as any).opportunityScore || 0) === 0) {
+        const poolScore = Number(pool.opportunityScore || pool.enrichmentScore || 0) || 0;
+        if (poolScore > 0) (row as any).opportunityScore = poolScore;
+      }
+    });
+
+    return rows;
   }
 
   private isProtectedRadarStatus(value: unknown) {
@@ -7350,6 +7456,7 @@ export class VendasService {
       });
     }
     rows = await this.attachLeadOwners(rows, context.companyId);
+    rows = await this.hydrateRowsWithRadarPoolEnrichment(rows);
     const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
       context.companyId,
       context.userId,
@@ -8407,6 +8514,7 @@ export class VendasService {
       }
     }
 
+    await this.hydrateRowsWithRadarPoolEnrichment([updated]);
     return {
       ok: true,
       lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
@@ -8600,6 +8708,7 @@ export class VendasService {
       }).catch(() => { /* best-effort: aviso nunca derruba o fechamento */ });
     }
 
+    await this.hydrateRowsWithRadarPoolEnrichment([updated]);
     return {
       ok: true,
       planKey,
@@ -8976,6 +9085,7 @@ export class VendasService {
     const status = String(signupResult?.status || '').trim() || 'pending_email_confirmation';
     const requiresEmailConfirmation = status === 'pending_email_confirmation' || !signupResult?.access_token;
     const deliveryFailed = Boolean(signupResult?.delivery?.failed);
+    await this.hydrateRowsWithRadarPoolEnrichment([updated]);
     return {
       ok: true,
       status,
@@ -9134,9 +9244,29 @@ export class VendasService {
     const radarLeadId = await this.resolveRadarLeadIdForDeletedVendasRow(row);
     if (!radarLeadId) return;
     const now = new Date();
-    const status = options.status === 'complaint' ? 'complaint' : 'discarded';
     const reason = this.normalizeText(options.reason);
     const privateNotes = this.normalizeText(row?.shortNote);
+
+    // ── FONTE ÚNICA da disposição (PR24062026 / radar-disposition-rules.ts) ──
+    // options.status carrega o motivo cru (discarded/complaint/no_answer/voicemail/
+    // released/won/...). A matriz decide os 3 eixos. SEM listas hardcoded aqui.
+    const dispositionReason = resolveDispositionReason(options.status);
+    const rule = resolveDisposition(options.status);
+    const isComplaint = dispositionReason === 'complaint';
+
+    // companyState.status: 'release' → reaparece pra própria empresa ('released');
+    // 'customer' → vira cliente ('won'); 'hide' → escondido (mantém 'complaint' pra
+    // reclamação, senão 'discarded'). Status protegidos somem da vitrine da própria empresa.
+    const companyStatus =
+      rule.ownCompany === 'release'
+        ? 'released'
+        : rule.ownCompany === 'customer'
+        ? 'won'
+        : isComplaint
+        ? 'complaint'
+        : 'discarded';
+    const isHiddenOwn = rule.ownCompany === 'hide';
+
     const poolRow = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: radarLeadId },
       select: { id: true, status: true, ownerCompanyId: true },
@@ -9154,18 +9284,19 @@ export class VendasService {
         companyId: context.companyId,
         radarLeadId,
         vendasLeadId: null,
-        status,
+        status: companyStatus,
         lastActionAt: now,
-        negativeReason: status === 'discarded' ? reason : null,
-        complaintReason: status === 'complaint' ? reason : null,
+        negativeReason: isHiddenOwn && !isComplaint ? reason : null,
+        complaintReason: isComplaint ? reason : null,
         privateNotes,
       },
       update: {
         vendasLeadId: null,
-        status,
+        status: companyStatus,
         lastActionAt: now,
-        negativeReason: status === 'discarded' ? reason : undefined,
-        complaintReason: status === 'complaint' ? reason : undefined,
+        // 'release' limpa o motivo negativo (card volta limpo); preserva histórico/eventos.
+        negativeReason: isHiddenOwn && !isComplaint ? reason : null,
+        complaintReason: isComplaint ? reason : null,
         privateNotes,
       },
     }).catch((error: any) => {
@@ -9174,20 +9305,11 @@ export class VendasService {
 
     if (poolRow) {
       const ownerCompanyId = Math.trunc(Number(poolRow.ownerCompanyId || 0)) || 0;
-      // Recusa LEVE (sem interesse / não quer o produto) → libera pra lagoa (clean):
-      // a empresa atual não vê mais (RadarLeadCompanyState=discarded), mas outras
-      // empresas podem pegar. Recusa DURA (não atende/caixa postal/sem WhatsApp/
-      // opt-out/reclamação) → status global protegido = some pra TODAS as empresas.
-      // ATENÇÃO: usa options.status (raw) para o globalKill, não o status normalizado
-      // do CompanyState (que seria sempre 'discarded'/'complaint').
-      const globalKillStatuses = ['no_whatsapp', 'invalid_whatsapp', 'invalid_phone', 'no_answer', 'voicemail', 'opt_out', 'do_not_contact', 'complaint', 'blocked'];
-      // Mapa raw→status do pool: 'voicemail' não é valor reconhecido pelo RADAR_PROTECTED_STATUSES
-      // então normaliza para 'no_answer' (semanticamente igual: não atendeu/caixa postal).
-      const POOL_STATUS_MAP: Record<string, string> = { voicemail: 'no_answer' };
-      const resolvedRawStatus = POOL_STATUS_MAP[options.status] ?? options.status;
-      const globalKill = globalKillStatuses.includes(resolvedRawStatus) || globalKillStatuses.includes(status);
-      // Para globalKill, usa o status resolvido; para status normalizado 'complaint' usa 'complaint'.
-      const poolKillStatus = globalKillStatuses.includes(resolvedRawStatus) ? resolvedRawStatus : (status === 'complaint' ? 'complaint' : 'no_answer');
+      // pool: 'blocked' (caixa postal / automáticos do bot / reclamação) → status global
+      // protegido = some pra TODAS as empresas. pool: 'clean' (só excluir / não satisfatório /
+      // não atendeu / não quer produto / fechou venda) → volta pra lagoa pros outros.
+      const globalKill = isGlobalBlockStatus(options.status);
+      const poolKillStatus = resolvePoolBlockStatus(options.status) || 'blocked';
       await (this.prisma as any).radarLeadPool.update({
         where: { id: radarLeadId },
         data: {
@@ -9203,14 +9325,30 @@ export class VendasService {
     }
 
     if (hasEvent) {
+      const eventType =
+        rule.ownCompany === 'customer'
+          ? 'won'
+          : rule.ownCompany === 'release'
+          ? 'released'
+          : isComplaint
+          ? 'complaint'
+          : 'discarded';
       await (this.prisma as any).radarLeadEvent.create({
         data: {
           leadId: radarLeadId,
           companyId: context.companyId,
-          eventType: status === 'complaint' ? 'complaint' : 'discarded',
-          note: reason || (status === 'complaint' ? 'Card reportado com erro no Vendas.' : 'Card excluido do Vendas.'),
+          eventType,
+          note:
+            reason ||
+            (isComplaint
+              ? 'Card reportado com erro no Vendas.'
+              : rule.ownCompany === 'release'
+              ? 'Card liberado do Vendas (volta pra vitrine).'
+              : rule.ownCompany === 'customer'
+              ? 'Venda fechada — cliente da empresa.'
+              : 'Card excluido do Vendas.'),
           statusFrom: previousStatus,
-          statusTo: status,
+          statusTo: companyStatus,
           createdByUserId: context.userId,
         },
       }).catch(() => null);
@@ -9289,15 +9427,44 @@ export class VendasService {
   }
 
   async deleteLeadsBulkForUser(user: any, dto: BulkDeleteVendasLeadsDto) {
-    const result = await this.deleteVendasRowsForUser(user, dto || {});
+    // Motivo da exclusão em massa → motivo canônico da matriz (só excluir / não satisfatório
+    // / ...). Default conservador (unsatisfactory) quando vazio, definido na fonte única.
+    const reason = resolveDispositionReason((dto as any)?.reason);
+    const result = await this.deleteVendasRowsForUser(user, dto || {}, {
+      radarStatus: reason,
+      radarReason: this.buildDispositionReasonNote(reason),
+    });
     return { ok: true, deletedCount: result.deletedCount };
   }
 
-  async deleteLeadForUser(user: any, leadId: string) {
+  async deleteLeadForUser(user: any, leadId: string, reasonInput?: string | null) {
+    const reason = resolveDispositionReason(reasonInput);
     const result = await this.deleteVendasRowsForUser(user, {
       leadIds: [String(leadId || '').trim()],
+    }, {
+      radarStatus: reason,
+      radarReason: this.buildDispositionReasonNote(reason),
     });
     return { ok: true, deletedCount: result.deletedCount };
+  }
+
+  // Nota humana padrão por motivo (vai pro RadarLeadEvent.note / negativeReason).
+  private buildDispositionReasonNote(reason: string): string {
+    switch (reason) {
+      case 'excluir':
+        return 'Card excluido (volta pra vitrine da empresa).';
+      case 'no_answer':
+        return 'Nao atendeu.';
+      case 'voicemail':
+        return 'Caixa postal.';
+      case 'not_interested':
+        return 'Nao quer o produto.';
+      case 'won':
+        return 'Venda fechada — cliente da empresa.';
+      case 'unsatisfactory':
+      default:
+        return 'Resultado nao satisfatorio.';
+    }
   }
 
   // Negativar lead do Vendas COM MOTIVO (dono 14/06): tira o card da carteira e
@@ -9305,23 +9472,22 @@ export class VendasService {
   // pros outros; DURA ("não atende/número não existe/sem WhatsApp/opt-out/reclamou")
   // → some pra todas as empresas. Quem negativou nunca mais vê (estado por empresa).
   async negativarLeadForUser(user: any, leadId: string, dto: { status?: string; note?: string } = {}) {
-    // motivos globais: lead some pra TODAS as empresas (pool fica com status protegido)
-    // motivos de empresa: lead sai da carteira mas volta pra lagoa pras outras empresas
-    const globalKillStatuses = ['no_answer', 'voicemail', 'no_whatsapp', 'opt_out', 'complaint'];
-    const companyKillStatuses = ['negative', 'not_interested_product'];
-    const allowed = [...globalKillStatuses, ...companyKillStatuses];
-    const status = String(dto?.status || '').trim().toLowerCase();
-    if (!allowed.includes(status)) {
+    // Finalização do vendedor (não atendeu / caixa postal / não quer produto). O destino
+    // na lagoa vem da FONTE ÚNICA da disposição — sem listas hardcoded aqui. 'hard'
+    // (some pra todas) = pool bloqueado (hoje: só caixa postal entre os do vendedor).
+    const rawStatus = String(dto?.status || '').trim().toLowerCase();
+    if (!rawStatus) {
       throw new BadRequestException('Motivo de negativacao invalido.');
     }
-    const reason = this.normalizeText(dto?.note) || null;
+    const status = resolveDispositionReason(rawStatus);
+    const reason = this.normalizeText(dto?.note) || this.buildDispositionReasonNote(status);
     const result = await this.deleteVendasRowsForUser(user, {
       leadIds: [String(leadId || '').trim()],
     }, {
       radarStatus: status,
       radarReason: reason,
     });
-    const hard = globalKillStatuses.includes(status);
+    const hard = isGlobalBlockStatus(status);
     return {
       ok: true,
       deletedCount: result.deletedCount,
@@ -9432,6 +9598,7 @@ export class VendasService {
       });
     });
 
+    await this.hydrateRowsWithRadarPoolEnrichment([updated]);
     return {
       ok: true,
       lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),

@@ -2,6 +2,13 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import type { WebscrapingRuntimeDiagnostic } from '../../../modules/webscraping-runtime.util';
 import { buildLocalHbxEngineUrls, type HbxEnginePurpose } from '../../hbx-engine-pool.service';
 import type { LeadQualityV2, LeadQualityV2SalesProfile } from '../../lead-quality-v2';
+import { BLOCK_GLOBAL_POOL_STATUSES } from './radar-disposition-rules';
+
+// Reexporta a FONTE ÚNICA de disposição de card pra quem importa o barrel shared
+// (distribution mixin, e vendas.service.ts via worker C). O mapa mestre + helpers
+// (resolveDisposition, isGlobalBlockStatus, isOwnHideStatus, listas derivadas) vivem
+// em radar-disposition-rules.ts.
+export * from './radar-disposition-rules';
 
 export const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 export const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -205,22 +212,30 @@ export const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
 export const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 export const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
 export const RADAR_REGION_MAX_RADIUS_KM = 250;
-export const RADAR_PROTECTED_STATUSES = [
+// Status que somem da VITRINE do Radar (usado em `notIn`/`in` de queries de pool e
+// companyState). DERIVA da fonte única `radar-disposition-rules.ts`:
+//   - BLOCK_GLOBAL_POOL_STATUSES = motivos que bloqueiam GLOBAL (some pra todas as
+//     empresas) → hoje: voicemail, no_whatsapp, invalid_whatsapp, invalid_phone,
+//     opt_out, do_not_contact, complaint, blocked. (`no_answer` SAIU; `voicemail` ENTROU.)
+//   - OWN_HIDE_ONLY_STATUSES = marcadores de companyState que escondem o card só da
+//     PRÓPRIA empresa (recusa leve: descartou/escondeu/negativou) — não bloqueiam global,
+//     mas continuam protegidos pra não ressuscitar pra quem dispôs.
+// `optout` (sem underscore) fica como alias defensivo de dados legados.
+const OWN_HIDE_ONLY_STATUSES = [
   'negative',
   'denied',
-  'blocked',
-  'opt_out',
-  'optout',
-  'do_not_contact',
-  'complaint',
   'discarded',
   'hidden',
   'lost',
-  'no_answer',
-  'no_whatsapp',
-  'invalid_whatsapp',
-  'invalid_phone',
+  'optout',
 ] as const;
+
+export const RADAR_PROTECTED_STATUSES = Array.from(
+  new Set<string>([
+    ...BLOCK_GLOBAL_POOL_STATUSES,
+    ...OWN_HIDE_ONLY_STATUSES,
+  ]),
+) as readonly string[];
 
 export type RuntimeStatus = 'online' | 'degraded';
 export type ExternalRuntimeStatus = 'online' | 'offline';
@@ -1261,6 +1276,7 @@ export type RadarLeadStatus =
   | 'discarded'
   | 'complaint'
   | 'no_answer'
+  | 'voicemail'
   | 'no_whatsapp'
   | 'invalid_whatsapp'
   | 'duplicate'

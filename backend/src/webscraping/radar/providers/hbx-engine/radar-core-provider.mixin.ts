@@ -97,6 +97,8 @@ import {
   formatCityWithState,
 } from '../../radar-core-method-imports';
 
+import { resolveEnrichmentPaidFlags } from '../../../enrichment-cost/enrichment-paid-policy';
+
 import type {
   AutonomousMassDataCandidate,
   AutonomousMassDataStrategyMode,
@@ -403,6 +405,7 @@ export class RadarCoreProviderMixin {
             preferredChannels: ['instagram'],
             requiredChannels: [],
             timeBudgetSeconds: budgetSeconds,
+            ...resolveEnrichmentPaidFlags(),
           }),
           signal: AbortSignal.timeout(timeoutMs),
         });

@@ -240,30 +240,74 @@ function buildDirectSocialSlugs(lead: WebscrapingContactResult, input: Normalize
   const parts = socialSlugTokens(lead);
   const city = slugLookupValue(input.city || (lead as any).city);
   const state = slugLookupValue(input.state || (lead as any).state);
+
+  // Abreviação de cidade: primeiros 3+ chars, útil em slugs como "salaosp", "clinicabh"
+  const cityAbbrev = city.length >= 6 ? city.slice(0, 3) : '';
+  // Nome condensado sem vogais (padrão comum de slug BR: "prfluciana", "clfernanda")
+  const compactDistinctive = parts.distinctive.join('').replace(/[aeiou]/g, '').slice(0, 8);
+
   const bases = [
+    // Combinações completas
     parts.tokens,
     parts.withoutStops,
     parts.withoutPrefixes,
     [...parts.distinctive, ...parts.service.slice(0, 1)],
     parts.distinctive,
+    // Nome colado + serviço (muito comum em IG BR: "anapaula_beleza", "aninhacabelos")
+    parts.withoutPrefixes.length >= 2 ? [parts.withoutPrefixes[0]] : [],
+    // Somente os 2 primeiros tokens distintos (apelido curto)
+    parts.distinctive.slice(0, 2),
+    // Todos os tokens sem serviço mas em ordem original
+    parts.withoutStops.slice(0, 3),
   ]
     .map((tokens) => tokens.join(''))
-    .filter((value) => value.length >= 5);
+    .filter((value) => value.length >= 4);
+
   const suffixes = [
     '',
     'rc',
     city,
     state,
+    cityAbbrev,
     'oficial',
     'beleza',
     'salao',
+    'studio',
     'cabelos',
     'cabeleireiro',
+    'cabeleireira',
     'makeup',
     'manicure',
     'unhas',
     'sobrancelhas',
-  ].filter(Boolean);
+    'estetica',
+    'esmalteria',
+    'clinica',
+    'barbearia',
+    'tattoo',
+    'nutrição',
+    'nutri',
+    // Sufixos city+state juntos para slugs tipo "salao_sjc_sp"
+    city && state ? `${city}${state}` : '',
+    city && cityAbbrev ? cityAbbrev : '',
+  ].filter(Boolean).filter((suffix, index, list) => list.indexOf(suffix) === index);
+
+  // Também tenta bases com primeiro token + cidade (ex: "espaçoana" → "anasjc")
+  const firstDistinctive = parts.distinctive[0] || '';
+  const secondDistinctive = parts.distinctive[1] || '';
+  const extraBases: string[] = [];
+  if (firstDistinctive && city) {
+    extraBases.push(`${firstDistinctive}${city}`);
+    extraBases.push(`${firstDistinctive}_${city}`);
+  }
+  if (firstDistinctive && secondDistinctive) {
+    // Iniciais + sobrenome (ex: "mariasantos", "mtsantos")
+    extraBases.push(`${firstDistinctive[0]}${secondDistinctive}`);
+  }
+  if (compactDistinctive.length >= 4) {
+    extraBases.push(compactDistinctive);
+  }
+
   const candidates = new Set<string>();
   for (const base of bases) {
     candidates.add(base);
@@ -273,9 +317,15 @@ function buildDirectSocialSlugs(lead: WebscrapingContactResult, input: Normalize
       candidates.add(`${base}_${suffix}`);
     }
   }
+  for (const extra of extraBases) {
+    if (extra.length >= 5) candidates.add(extra);
+  }
+
+  // Respeita o teto de profiles sondados (HBX_RADAR_WEB_ENRICHMENT_DIRECT_SOCIAL_MAX_PROFILES, default 10)
+  // — o slice final é feito em probeDirectSocialProfiles; aqui mandamos um pool maior mas razoável
   return Array.from(candidates)
-    .filter((slug) => slug.length >= 5 && slug.length <= 40)
-    .slice(0, 18);
+    .filter((slug) => slug.length >= 4 && slug.length <= 40)
+    .slice(0, 30);
 }
 
 function candidateEvidence(candidate: WebCandidate) {

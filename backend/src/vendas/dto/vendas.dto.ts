@@ -380,6 +380,22 @@ export class BulkDeleteVendasLeadsDto {
     return value;
   })
   all?: boolean;
+
+  // Motivo da exclusão (matriz de disposição PR24062026): 'excluir' (só excluir, volta
+  // pra própria empresa) ou 'unsatisfactory' (resultado não satisfatório, some pra você).
+  // Vazio = default conservador na fonte única (unsatisfactory). Validação de vocabulário
+  // acontece no resolveDispositionReason — aceita variantes/PT.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  reason?: string;
+}
+
+export class DeleteVendasLeadDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  reason?: string;
 }
 
 export class ReportVendasLeadDto {

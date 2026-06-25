@@ -19,6 +19,7 @@ x-hbx-engine-common: &hbx-engine-common
     HBX_WEB_SEARCH_TIMEOUT_SECONDS: ${HBX_WEB_SEARCH_TIMEOUT_SECONDS:-30}
     HBX_WEB_SEARCH_CONCURRENCY: ${HBX_WEB_SEARCH_CONCURRENCY:-1}
     HBX_GOOGLE_HTML_ENABLED: ${HBX_GOOGLE_HTML_ENABLED:-false}
+    HBX_SEARXNG_URL: ${HBX_SEARXNG_URL:-http://searxng:8080}
     BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
     SERPER_API_KEY: ${SERPER_API_KEY:-}
     SCRAPINGDOG_API_KEY: ${SCRAPINGDOG_API_KEY:-}
@@ -154,6 +155,7 @@ services:
       HBX_WEB_SEARCH_TIMEOUT_SECONDS: ${HBX_WEB_SEARCH_TIMEOUT_SECONDS:-30}
       HBX_WEB_SEARCH_CONCURRENCY: ${HBX_WEB_SEARCH_CONCURRENCY:-1}
       HBX_GOOGLE_HTML_ENABLED: ${HBX_GOOGLE_HTML_ENABLED:-false}
+      HBX_SEARXNG_URL: ${HBX_SEARXNG_URL:-http://searxng:8080}
       BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
       SERPER_API_KEY: ${SERPER_API_KEY:-}
       SCRAPINGDOG_API_KEY: ${SCRAPINGDOG_API_KEY:-}
@@ -287,6 +289,16 @@ services:
     container_name: hbx-engine-20
     volumes:
       - ./hbx-scraping-engine/data-20:/app/data
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    profiles: ["hbx-engines"]
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks:
+      - hbx_net
 
 volumes:
   backend_node_modules:
