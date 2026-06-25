@@ -197,6 +197,12 @@ export type HbxEngineCapacityConfig = {
   warmMin: number;
   governorEnabled: boolean;
   factoryStopped: boolean;
+  // Campos do teto dinâmico (elástica pura)
+  elasticEnabled: boolean;
+  running: number;
+  physicalMax: number;
+  memoryPressurePercent: number;
+  memoryHeadroomEngines: number;
 };
 
 export type HbxEngineDashboardStatus = {
@@ -405,6 +411,12 @@ export class HbxEnginePoolService implements OnModuleInit {
   private lastHighEngineAcquireAt = 0;
   private lastHighEngineDiagnosticAt = 0;
   private acquireCursorByPurpose = new Map<HbxEnginePurpose, number>();
+
+  // Histerese para o teto dinâmico de RAM (evita flap)
+  // Sobe quando pressão < soft; desce quando pressão >= hard
+  // Cooldown: nunca age mais rápido que HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS (120s)
+  private memoryHeadroomLastActionAt = 0;
+  private memoryHeadroomCurrent: number | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -651,19 +663,35 @@ export class HbxEnginePoolService implements OnModuleInit {
     return result;
   }
 
-  private buildEngineCapacityConfig(operationalConfig?: any): HbxEngineCapacityConfig {
+  private buildEngineCapacityConfig(operationalConfig?: any, rows?: EngineRegistryRow[]): HbxEngineCapacityConfig {
     const metaStop = operationalConfig
       ? this.parseOperationalMetadata(operationalConfig.metadataJson).emergencyStop
       : false;
     const factoryStopped = Boolean(metaStop) || this.readBooleanEnv('HBX_FACTORY_EMERGENCY_STOP', false);
+    const physicalMax = getConfiguredHbxEngineCount();
+    const memoryPressurePercent = this.resolveMemoryPressurePercent(operationalConfig);
+    const memoryHeadroomEngines = this.resolveMemoryHeadroomEngineCount(operationalConfig);
+    const elasticEnabled = this.parseElasticEnabledFromMetadata(operationalConfig?.metadataJson);
+    // Contagem de motores efetivamente rodando (não parados/inativos/offline)
+    const running = rows
+      ? rows.filter((r) => {
+          const s = String(r.status || '').trim().toLowerCase();
+          return !['stopped', 'inactive', 'offline', 'missing', 'paused', 'draining', 'cooldown'].includes(s) && !this.isEnginePaused(r);
+        }).length
+      : 0;
     return {
-      configuredCount: getConfiguredHbxEngineCount(),
+      configuredCount: physicalMax,
       maxCount: getConfiguredHbxEngineMaxCount(),
       warmMin: this.resolveElasticWarmMinEngines(),
       governorEnabled: ['1', 'true', 'yes', 'sim', 'on'].includes(
         String(process.env.HBX_ENGINE_GOVERNOR_ENABLED || '').trim().toLowerCase(),
       ),
       factoryStopped,
+      elasticEnabled,
+      running,
+      physicalMax,
+      memoryPressurePercent,
+      memoryHeadroomEngines,
     };
   }
 
@@ -715,7 +743,7 @@ export class HbxEnginePoolService implements OnModuleInit {
       engines,
       enginePanels: this.buildDashboardEnginePanels(engines, capacity),
       diagnostics: this.buildDashboardEngineDiagnostics(rows, configuredUrls, capacity),
-      capacityConfig: this.buildEngineCapacityConfig(operationalConfig),
+      capacityConfig: this.buildEngineCapacityConfig(operationalConfig, rows),
     };
   }
 
@@ -1231,6 +1259,189 @@ export class HbxEnginePoolService implements OnModuleInit {
     return parseIntegerEnv('HBX_GOOGLE_EMERGENCY_MAX_PER_RUN', 20);
   }
 
+  /**
+   * Teto dinâmico por RAM: quantidade máxima de motores que a pressão de memória permite.
+   * Histerese: só sobe quando pressão < soft; só desce quando pressão >= hard.
+   * Cooldown: não aplica mudança mais rápido que governorCooldownMs (padrão 120s).
+   */
+  resolveMemoryHeadroomEngineCount(operationalConfig?: any): number {
+    const physical = getConfiguredHbxEngineCount();
+    const warm = this.resolveElasticWarmMinEngines(physical);
+    const pressure = this.resolveMemoryPressurePercent(operationalConfig);
+    const soft = this.factoryMemorySoftPressurePercent();    // 82
+    const hard = this.factoryMemoryHardPressurePercent(soft); // 85
+    const panic = this.factoryMemoryPanicPressurePercent(hard); // 88
+
+    // Decide o novo teto pelo nível de pressão
+    let candidate: number;
+    if (pressure >= panic) {
+      candidate = warm; // Pânico: cai pro warm imediatamente (ignora cooldown)
+    } else if (pressure >= hard) {
+      candidate = Math.max(warm, Math.floor(physical * 0.25)); // Forte redução
+    } else if (pressure >= soft) {
+      candidate = Math.max(warm, Math.floor(physical * 0.6)); // Redução gradual
+    } else {
+      candidate = physical; // Abaixo de soft: permite tudo
+    }
+
+    const nowMs = Date.now();
+    const current = this.memoryHeadroomCurrent ?? physical;
+    const cooldownMs = this.governorHeadroomCooldownMs();
+
+    // Pânico ignora cooldown e histerese
+    if (pressure >= panic) {
+      if (current !== candidate) {
+        this.memoryHeadroomCurrent = candidate;
+        this.memoryHeadroomLastActionAt = nowMs;
+      }
+      return candidate;
+    }
+
+    // Histerese: sobe apenas quando < soft; desce apenas quando >= hard
+    const wantsGrow = candidate > current && pressure < soft;
+    const wantsShrink = candidate < current && pressure >= hard;
+
+    if (!wantsGrow && !wantsShrink) {
+      return current;
+    }
+
+    // Respeita cooldown antes de agir
+    if (this.memoryHeadroomLastActionAt > 0 && nowMs - this.memoryHeadroomLastActionAt < cooldownMs) {
+      return current;
+    }
+
+    this.memoryHeadroomCurrent = candidate;
+    this.memoryHeadroomLastActionAt = nowMs;
+    return candidate;
+  }
+
+  private governorHeadroomCooldownMs(): number {
+    const raw = Number(String(process.env.HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS || '').trim());
+    const seconds = Number.isFinite(raw) && raw >= 0 ? raw : 120;
+    return Math.min(Math.max(Math.trunc(seconds), 0), 1800) * 1000;
+  }
+
+  /**
+   * Lê o flag `elasticEnabled` do metadataJson da config operacional.
+   * Default: true (se não estiver gravado, elástica está ligada).
+   */
+  async getElasticEnabledFlag(): Promise<boolean> {
+    const config = await this.getOperationalConfig().catch(() => null);
+    return this.parseElasticEnabledFromMetadata(config?.metadataJson);
+  }
+
+  private parseElasticEnabledFromMetadata(metadataJson: unknown): boolean {
+    try {
+      const parsed = JSON.parse(String(metadataJson || '{}'));
+      if (parsed && typeof parsed === 'object' && 'elasticEnabled' in parsed) {
+        return this.parseMetadataBoolean(parsed.elasticEnabled, true);
+      }
+    } catch {
+      // ignore
+    }
+    return true; // default: elástica ligada
+  }
+
+  /**
+   * Salva o flag `elasticEnabled` no metadataJson da config operacional,
+   * preservando todos os outros campos existentes.
+   */
+  async setElasticEnabled(enabled: boolean): Promise<{ ok: boolean; elasticEnabled: boolean }> {
+    if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) {
+      // Fallback sem DB: só registra em memória (será lido em getElasticEnabledFlag)
+      return { ok: true, elasticEnabled: enabled };
+    }
+    const current = await (this.prisma as any).webscrapingOperationalConfig.findUnique({
+      where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
+    }).catch(() => null);
+    // Preserva todo o JSON existente e apenas sobrescreve o flag
+    let existingMetaRaw: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(String(current?.metadataJson || '{}'));
+      if (parsed && typeof parsed === 'object') existingMetaRaw = parsed as Record<string, unknown>;
+    } catch {
+      // ignore
+    }
+    const newMeta = { ...existingMetaRaw, elasticEnabled: enabled };
+    await (this.prisma as any).webscrapingOperationalConfig.upsert({
+      where: { key: TURBO_OPERATIONAL_CONFIG_KEY },
+      create: {
+        key: TURBO_OPERATIONAL_CONFIG_KEY,
+        enabled: current?.enabled ?? true,
+        preset: current?.preset ?? TURBO_OPERATIONAL_CONFIG_KEY,
+        startHour: current?.startHour ?? 20,
+        startMinute: current?.startMinute ?? 0,
+        endHour: current?.endHour ?? 8,
+        endMinute: current?.endMinute ?? 0,
+        engineCount: current?.engineCount ?? getConfiguredHbxEngineCount(),
+        intensity: current?.intensity ?? 'turbo',
+        memoryTargetGb: current?.memoryTargetGb ?? 16,
+        batchSize: current?.batchSize ?? 20,
+        maxAttemptsPerTask: current?.maxAttemptsPerTask ?? 3,
+        engineUrlsJson: current?.engineUrlsJson ?? '[]',
+        metadataJson: JSON.stringify(newMeta),
+      },
+      update: {
+        metadataJson: JSON.stringify(newMeta),
+      },
+    }).catch(() => null);
+    return { ok: true, elasticEnabled: enabled };
+  }
+
+  /**
+   * Parada DURÁVEL de todos os motores: status=stopped + manualPaused=true (o governor NÃO re-promove).
+   * Também desativa a elástica (elasticEnabled=false) para que não reconecte.
+   */
+  async stopAllEnginesDurable(): Promise<{ ok: boolean; stopped: number }> {
+    if (!(await this.prisma.hasTable('HbxEngineLock').catch(() => false))) {
+      await this.setElasticEnabled(false).catch(() => null);
+      return { ok: true, stopped: 0 };
+    }
+
+    // Devolve tarefas em andamento para a fila
+    await (this.prisma as any).webscrapingCampaignTask?.updateMany?.({
+      where: { status: 'running' },
+      data: {
+        status: 'queued',
+        lockedByEngineId: null,
+        lockedUntil: null,
+        lastError: 'Todos os motores parados pelo dono via stop-all.',
+      },
+    }).catch(() => null);
+
+    await (this.prisma as any).webscrapingSearchRun?.updateMany?.({
+      where: { status: { in: ['queued', 'running'] }, assignedEngineId: { not: null } },
+      data: {
+        status: 'queued',
+        assignedEngineId: null,
+        assignedEngineUrl: null,
+        assignedEngineIndex: null,
+        nextRetryAt: new Date(),
+        lastBatchStatus: 'queued_wait',
+        lastBatchError: 'Todos os motores parados pelo dono via stop-all.',
+      },
+    }).catch(() => null);
+
+    const result = await (this.prisma as any).hbxEngineLock.updateMany({
+      where: { status: { notIn: ['inactive'] } },
+      data: {
+        status: 'stopped',
+        manualPaused: true,
+        pausedUntil: null,
+        cooldownUntil: null,
+        lockedRunId: null,
+        lockedCompanyId: null,
+        lockedUserId: null,
+        lockedAt: null,
+        lockedUntil: null,
+        lastError: 'Todos os motores parados manualmente pelo dono (stop-all).',
+      },
+    }).catch(() => ({ count: 0 }));
+
+    await this.setElasticEnabled(false).catch(() => null);
+    return { ok: true, stopped: Number(result?.count || 0) };
+  }
+
   async getSchedulerStatus() {
     const capacity = await this.getCurrentCapacityLevel().catch(() => null);
     return this.buildSchedulerStatus(capacity || undefined);
@@ -1249,13 +1460,43 @@ export class HbxEnginePoolService implements OnModuleInit {
       };
     }
 
+    // Kill-switch legado por ENV
+    const governorEnabledEnv = ['1', 'true', 'yes', 'sim', 'on'].includes(
+      String(process.env.HBX_ENGINE_GOVERNOR_ENABLED || '').trim().toLowerCase(),
+    );
+    if (!governorEnabledEnv) {
+      return {
+        synced: false,
+        configuredEngineCount,
+        desiredRunningCount: this.resolveElasticWarmMinEngines(configuredEngineCount),
+        updatedRunningCount: 0,
+        updatedStoppingCount: 0,
+        scheduler: null,
+      };
+    }
+
+    // Runtime flag: quando elasticEnabled=false, segura no warm sem crescer
+    const elasticEnabled = await this.getElasticEnabledFlag().catch(() => true);
+    if (!elasticEnabled) {
+      const warmMin = this.resolveElasticWarmMinEngines(configuredEngineCount);
+      return {
+        synced: false,
+        configuredEngineCount,
+        desiredRunningCount: warmMin,
+        updatedRunningCount: 0,
+        updatedStoppingCount: 0,
+        scheduler: null,
+      };
+    }
+
     await this.cleanupExpiredLocks();
+    const operationalConfig = await this.getOperationalConfig().catch(() => null);
     const [capacity, rows] = await Promise.all([
       this.getCurrentCapacityLevel(),
       this.healthCheckEngines(),
     ]);
     const scheduler = await this.buildSchedulerStatus(capacity, rows).catch(() => capacity.scheduler || null);
-    const desiredRunningCount = this.resolveElasticDesiredRunningCount(capacity, scheduler);
+    const desiredRunningCount = this.resolveElasticDesiredRunningCount(capacity, scheduler, operationalConfig);
     const result = await this.applyElasticDesiredStates(rows, desiredRunningCount);
 
     return {
@@ -1306,6 +1547,7 @@ export class HbxEnginePoolService implements OnModuleInit {
   private resolveElasticDesiredRunningCount(
     capacity?: CapacityLevel | null,
     scheduler?: HbxEngineSchedulerStatus | null,
+    operationalConfig?: any,
   ) {
     const configuredCount = getConfiguredHbxEngineCount();
     const warmMin = this.resolveElasticWarmMinEngines(configuredCount);
@@ -1317,9 +1559,13 @@ export class HbxEnginePoolService implements OnModuleInit {
     const demandTarget = scheduler?.manualDemandActive
       ? Math.max(manualReserve, Math.min(activeTarget, configuredCount))
       : 0;
+    // Teto dinâmico por RAM: min(demanda, headroomRAM, físico)
+    const headroomRAM = this.resolveMemoryHeadroomEngineCount(operationalConfig);
+    const demandBasedTarget = Math.max(warmMin, automaticTarget, demandTarget);
     return Math.min(
       configuredCount,
-      Math.max(warmMin, automaticTarget, demandTarget),
+      headroomRAM,
+      demandBasedTarget,
     );
   }
 

@@ -1,0 +1,33 @@
+{
+  "id": "59238b42-9c91-4839-bb31-c8aa809afc80",
+  "batchId": "local-lab-59238b42-9c91-4839-bb31-c8aa809afc80",
+  "status": "running",
+  "city": "Porto Alegre",
+  "state": "RS",
+  "segment": "ótica",
+  "targetEmails": 309,
+  "mode": "enrich_missing_email",
+  "aggressive": false,
+  "providers": [
+    "site_crawl",
+    "directory_probe"
+  ],
+  "maxCandidates": 500,
+  "maxPagesPerSite": 40,
+  "maxDiscoveredLinks": 80,
+  "minDelayMs": 1500,
+  "maxDelayMs": 4000,
+  "blockBackoffMs": 60000,
+  "metrics": {
+    "sitesVisited": 0,
+    "emailsFound": 0,
+    "emailsAccepted": 0,
+    "leads": 0
+  },
+  "warnings": [],
+  "error": null,
+  "exportReady": false,
+  "createdAt": "2026-06-25T15:49:38.029Z",
+  "startedAt": "2026-06-25T15:49:38.034Z",
+  "finishedAt": null
+}

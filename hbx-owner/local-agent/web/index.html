@@ -100,14 +100,11 @@
             <span id="chk-vps-elastic" class="chk">Elasticidade</span>
             <span id="chk-vps-factory" class="chk">Fábrica</span>
           </div>
-          <div class="form-grid" style="margin-top:14px;">
-            <label>De (motor nº)<input id="vps-from" type="number" min="1" max="200" value="1" /></label>
-            <label>Até (motor nº)<input id="vps-to" type="number" min="1" max="200" value="3" /></label>
-          </div>
+          <p id="vps-elastic-line" class="delta" style="margin:8px 0 4px;">rodando agora: — · RAM —%</p>
           <div class="btn-row" style="margin-top:12px;">
-            <button id="btn-vps-engines-start" class="btn btn-green btn-sm">Ligar faixa</button>
-            <button id="btn-vps-engines-stop" class="btn btn-red btn-sm">Parar faixa</button>
-            <button id="btn-vps-motor-stop" class="btn btn-amber btn-sm">Parar motor base</button>
+            <button id="btn-vps-elastic-enable" class="btn btn-green btn-sm">Ligar elástica</button>
+            <button id="btn-vps-elastic-disable" class="btn btn-amber btn-sm">Desligar elástica</button>
+            <button id="btn-vps-elastic-stop-all" class="btn btn-red btn-sm">Parar tudo</button>
             <button id="btn-vps-cancel" class="btn btn-red btn-sm">Cancelar busca</button>
           </div>
           <span id="vps-feedback" class="delta"></span>

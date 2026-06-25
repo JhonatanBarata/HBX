@@ -203,14 +203,44 @@ async function refreshVpsBank(force) {
       const stt = String(d.factoryStatus || "").toLowerCase();
       const facActive = Boolean(stt) && !["paused", "stopped", "idle", "off"].includes(stt);
       paintChk("#chk-vps-factory", facActive);
-      paintChk("#chk-vps-elastic", facActive && Boolean(d.engines && d.engines.total > 1));
+      // Chip Elasticidade VPS — verdade:
+      // radar-audit devolve engineSummary{total,running}. Sem elasticEnabled explícito nessa rota,
+      // usamos: fábrica ativa E motores registrados > 1 → elástica parece ON; heurística honesta.
+      // O worker A do backend vai passar elasticEnabled no status quando implantado — quando vier,
+      // o chip deve preferir esse campo. Por ora, "pending" (warn) se não tiver fábrica ativa.
+      const engTotal = d.engines ? Number(d.engines.total || 0) : 0;
+      const engRunning = d.engines ? Number(d.engines.running || 0) : 0;
+      // Verde: fábrica ativa E tem capacidade registrada (total > 0) → elasticidade funcional.
+      // Vermelho: fábrica parada/desconhecida → elástica off de fato.
+      // Pending (warn): não conseguimos determinar.
+      const elasticOn = facActive && engTotal > 0;
+      const elasticPending = !stt; // sem factoryStatus = painel cego
+      paintChk("#chk-vps-elastic", elasticOn, elasticPending);
+      // Linha de leitura: "rodando agora: N · sobe sozinho até P (RAM X%)"
+      const elasticLine = $("#vps-elastic-line");
+      if (elasticLine) {
+        if (elasticPending) {
+          elasticLine.textContent = "rodando agora: — · painel cego (Ops Control não respondeu)";
+        } else if (!facActive) {
+          elasticLine.textContent = `rodando agora: ${engRunning} · elástica off — sobe sozinha quando fábrica ligar`;
+        } else {
+          elasticLine.textContent = `rodando agora: ${engRunning} · sobe sozinho na demanda, trava na RAM`;
+        }
+      }
       vpsBankAt = Date.now();
     } else {
       $("#sys-bank-vps").textContent = d.configured === false ? "config Ops" : "—";
       if (delta) delta.textContent = d.reason || "VPS indisponível";
+      // Chip indeterminado quando sem leitura
+      paintChk("#chk-vps-elastic", false, true);
+      const elasticLine = $("#vps-elastic-line");
+      if (elasticLine) elasticLine.textContent = "rodando agora: — · painel cego (sem Ops Control)";
     }
   } catch {
     if (delta) delta.textContent = "erro lendo VPS";
+    paintChk("#chk-vps-elastic", false, true);
+    const elasticLine = $("#vps-elastic-line");
+    if (elasticLine) elasticLine.textContent = "rodando agora: — · erro ao ler VPS";
   } finally {
     vpsBankLoading = false;
   }
@@ -337,6 +367,16 @@ async function renderVps() {
   const total = v.engines ? v.engines.total : 0;
   $("#vps-engines-big").textContent = v.containersAvailable ? `${running}/${total}` : "—";
   $("#vps-engines").textContent = v.containersAvailable ? `${running} de ${total} rodando` : "containers sob carga";
+  // Chip Elasticidade VPS — fala a verdade:
+  // verde quando a elástica está ON (elasticEnabled) e há margem pra crescer (physicalMax > running)
+  // vermelho só quando: explicitamente off OU não conseguiu ler a VPS (painel cego)
+  // O campo elasticEnabled vem do backend via /webscraping/engines/status (worker A); se ausente
+  // do snapshot de containers, cai pra heurística: factory ativa com mais de 1 container registrado.
+  // OBS: v aqui é o snapshot da VPS (pressão/containers), não o status de motores do backend.
+  // Não temos elasticEnabled direto no snapshot VPS — usamos heurística honesta:
+  // "desconhecido" (pending) quando só temos containers; a fonte real chega via refreshVpsBank
+  // que já acessa o radar-audit com engineSummary. Mantemos o pending até saber de verdade.
+  paintChk("#chk-vps-elastic", false, true); // pending até refreshVpsBank atualizar
 }
 
 /* ---------- Frota LOCAL de motores ---------- */
@@ -1036,9 +1076,6 @@ async function ckCancelEnrich() {
 })();
 
 /* ---------- Controles da VPS ---------- */
-function vpsRange() {
-  return { from: Number($("#vps-from").value) || 1, to: Number($("#vps-to").value) || 1 };
-}
 async function vpsAction(label, route, body, confirmMsg) {
   if (confirmMsg && !confirm(confirmMsg)) return;
   const fb = $("#vps-feedback");
@@ -1054,16 +1091,17 @@ async function vpsAction(label, route, body, confirmMsg) {
   setTimeout(renderVps, 1500);
 }
 $("#btn-vps-refresh").addEventListener("click", () => { renderVps(); refreshVpsBank(true); });
-$("#btn-vps-engines-start").addEventListener("click", () => {
-  const { from, to } = vpsRange();
-  vpsAction("ligar faixa", "/owner/vps/engines/start", { from, to });
+/* Elástica VPS — 3 botões */
+$("#btn-vps-elastic-enable").addEventListener("click", () => {
+  vpsAction("ligar elástica", "/owner/ops/elastic/enable", { scope: "vps" });
 });
-$("#btn-vps-engines-stop").addEventListener("click", () => {
-  const { from, to } = vpsRange();
-  vpsAction("parar faixa", "/owner/vps/engines/stop", { from, to, confirm: true }, `Parar a faixa de motores hbx-engine-${from} a ${to} na VPS?`);
+$("#btn-vps-elastic-disable").addEventListener("click", () => {
+  vpsAction("desligar elástica", "/owner/ops/elastic/disable", { scope: "vps" },
+    "Desligar a elasticidade VPS? Os motores param de subir/descer automaticamente.");
 });
-$("#btn-vps-motor-stop").addEventListener("click", () => {
-  vpsAction("parar motor base", "/owner/vps/quick/scrapingEngine/stop", { confirm: true }, "Parar o motor base (hbx-scraping-engine) na VPS?");
+$("#btn-vps-elastic-stop-all").addEventListener("click", () => {
+  vpsAction("parar todos os motores VPS", "/owner/ops/elastic/stop-all", { scope: "vps", confirm: true },
+    "PARAR TODOS os motores da VPS agora? O governor não re-promove enquanto a elástica estiver off.");
 });
 $("#btn-vps-cancel").addEventListener("click", () => {
   vpsAction("cancelar busca", "/owner/vps/cancel", { confirm: true }, "Cancelar a busca forçada na VPS agora?");

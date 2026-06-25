@@ -2003,6 +2003,9 @@ for (const action of dockerActions) {
   });
 }
 
+// DEPRECATED como CONTROLE exposto ao painel. O caminho novo é /api/opscontrol/elastic/*.
+// Mantido porque ainda é chamado internamente (docker stop/start por índice). Não expor
+// no painel Owner; não criar novos callers externos.
 for (const action of dockerActions) {
   app.post(`/api/engines/${action}-range`, async (req, res) => {
     const from = Number(req.body.from);
@@ -2138,6 +2141,55 @@ app.post('/api/opscontrol/cancel', async (req, res) => {
     });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao cancelar scraping.' });
+  }
+});
+
+// --- Elasticidade pura (25/06) — único controle de frota exposto ao painel Owner ---
+// Cada rota recebe {scope} e proxia para o backend via runScopedBackendAction, o mesmo
+// padrão de /api/opscontrol/turbo e /api/opscontrol/cancel.
+
+app.post('/api/opscontrol/elastic/enable', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/owner/radar/elastic/enable',
+      () => ({}),
+    );
+    res.json({ action: 'elastic/enable', message: 'Elasticidade ligada no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao ligar elasticidade.' });
+  }
+});
+
+app.post('/api/opscontrol/elastic/disable', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/owner/radar/elastic/disable',
+      () => ({}),
+    );
+    res.json({ action: 'elastic/disable', message: 'Elasticidade desligada no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao desligar elasticidade.' });
+  }
+});
+
+app.post('/api/opscontrol/elastic/stop-all', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/owner/radar/elastic/stop-all',
+      () => ({}),
+    );
+    res.json({ action: 'elastic/stop-all', message: 'Parada total dos motores solicitada ao backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao parar todos os motores.' });
   }
 });
 

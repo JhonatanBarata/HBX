@@ -501,7 +501,14 @@ async function readEngineCapacity() {
   // Turbo (modo agressivo) vem no MESMO payload do dashboard de motores — só surfaçar.
   const turboEnabled = Boolean(data.isTurboEnabled);
   const turboActive = Boolean(data.isTurboWindowActive || data.isTurboForcedNow);
-  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, turboEnabled, turboActive, reason };
+  // Campos novos do contrato Elástica Pura (25/06): elasticEnabled, running, physicalMax,
+  // memoryPressurePercent, memoryHeadroomEngines.
+  const elasticEnabled = data.elasticEnabled != null ? Boolean(data.elasticEnabled) : governorOn;
+  const running = data.running != null ? Math.trunc(Number(data.running)) : alive;
+  const physicalMax = data.physicalMax != null ? Math.trunc(Number(data.physicalMax)) : ceiling;
+  const memoryPressurePercent = data.memoryPressurePercent != null ? Math.round(Number(data.memoryPressurePercent)) : null;
+  const memoryHeadroomEngines = data.memoryHeadroomEngines != null ? Math.trunc(Number(data.memoryHeadroomEngines)) : null;
+  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, turboEnabled, turboActive, reason, elasticEnabled, running, physicalMax, memoryPressurePercent, memoryHeadroomEngines };
 }
 
 function buildCapacityVerdict(pressure, capacity) {
@@ -1230,6 +1237,24 @@ async function route(req, res) {
       return;
     }
     sendJson(res, response.ok ? 200 : 502, { ok: response.ok, ops: response.data, reason: response.reason });
+    return;
+  }
+
+  // Elasticidade VPS — ligar / desligar / parar tudo (via Ops Control).
+  // Espelha POST /api/opscontrol/elastic/{enable|disable|stop-all} {scope}.
+  const elasticMatch = url.pathname.match(/^\/owner\/ops\/elastic\/(enable|disable|stop-all)$/);
+  if (req.method === "POST" && elasticMatch) {
+    const action = elasticMatch[1];
+    const body = await readBody(req);
+    const scope = String(body.scope || "vps").toLowerCase();
+    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
+    if (action === "stop-all" && body.confirm !== true) {
+      sendError(res, 400, "Confirmacao obrigatoria para parar todos os motores.");
+      return;
+    }
+    const response = await opsRequest("POST", `/api/opscontrol/elastic/${action}`, { scope });
+    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action, scope, ops: response.data, reason: response.reason || response.data?.error });
     return;
   }
 

@@ -1438,4 +1438,27 @@ export class MasterWebscrapingController {
   cancelMassDataCampaign(@Param('id') id: string) {
     return this.webscrapingService.cancelRadarCampaignByMaster(id);
   }
+
+  // --- Elástica pura (contrato fixo: Worker A) ---
+
+  /** Liga a elástica em runtime. A frota volta a escalar pela demanda × RAM. */
+  @Post('elastic/enable')
+  enableElastic() {
+    return this.hbxEnginePool.setElasticEnabled(true);
+  }
+
+  /** Desliga a elástica em runtime. Governor segura o desired no warm e NÃO cresce. */
+  @Post('elastic/disable')
+  disableElastic() {
+    return this.hbxEnginePool.setElasticEnabled(false);
+  }
+
+  /**
+   * Parada DURÁVEL de todos os motores: status=stopped + manualPaused=true.
+   * O governor não re-promove. Também desativa a elástica.
+   */
+  @Post('elastic/stop-all')
+  async stopAllEngines() {
+    return this.hbxEnginePool.stopAllEnginesDurable();
+  }
 }
