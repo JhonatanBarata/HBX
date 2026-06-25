@@ -1567,6 +1567,14 @@ export function AtendimentoClient() {
     return sellerFull(sessionMap.get(numberFilter));
   })();
 
+  // Selo de conexão do Atendimento (fix 25/06): pra ADMIN/dono em visão-empresa o selo
+  // reflete a EQUIPE — verde quando QUALQUER vendedor está com a linha no ar (sessionList) —
+  // e não o número PESSOAL do admin (que pode estar caído sem derrubar o time). Vendedor e
+  // os demais casos seguem o status pessoal (waStatus) exatamente como antes. Usa só sinais
+  // que a tela já carrega de /inbox/whatsapp-session; nada novo de backend/motor.
+  const inboxWaStatus =
+    souAdmin && waMode === "company" && sessionList.length > 0 ? "connected" : waStatus;
+
   // reações: agrupa as mensagens-reação pelo alvo e tira-as do fluxo principal
   const reactionsByKey = new Map<string, string[]>();
   for (const m of thread) {
@@ -1726,11 +1734,11 @@ export function AtendimentoClient() {
                     )}
                   </div>
                   <div className="row">
-                    <button className={"tag" + whatsappPillVariant(waStatus)}
+                    <button className={"tag" + whatsappPillVariant(inboxWaStatus)}
                       style={{ cursor: "pointer" }}
                       data-tut="atend-whatsapp"
                       onClick={() => setWaModalOpen(true)} title="Conexão WhatsApp">
-                      ● WhatsApp: {whatsappPillLabel(waStatus)}
+                      ● WhatsApp: {whatsappPillLabel(inboxWaStatus)}
                     </button>
                     {souAdmin && (
                       <button
@@ -1770,11 +1778,11 @@ export function AtendimentoClient() {
                   {filtered.length === 0 && (
                     <div style={{ padding: "18px 14px", display: "grid", gap: 10, justifyItems: "start" }}>
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-                        {loadError || (waStatus === "connected"
+                        {loadError || (inboxWaStatus === "connected"
                           ? "Nenhuma conversa ainda — as mensagens aparecem aqui."
                           : "WhatsApp ainda não conectado. Vincule o número para receber e responder no Atendimento.")}
                       </span>
-                      {!loadError && waStatus !== "connected" && (
+                      {!loadError && inboxWaStatus !== "connected" && (
                         <button className="btn-teal" onClick={() => setWaModalOpen(true)}>
                           <WhatsAppMark size={14} /> Conectar WhatsApp
                         </button>
