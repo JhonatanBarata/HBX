@@ -2217,6 +2217,7 @@ export class RadarCorePresentationMixin {
       channelMatchMode: 'prefer',
       salesProfile: null,
     } as NormalizedRadarFilters;
+    const meta = this.parseMaybeJsonObject(row?.metadataJson) || {};
     const publicLead = {
       id: String(row?.id || ''),
       placeId: row?.placeId || null,
@@ -2229,6 +2230,9 @@ export class RadarCorePresentationMixin {
       city: row?.city || null,
       state: row?.state || null,
       segment: row?.segment || null,
+      cnpj: (meta as any)?.cnpj || row?.cnpj || null,
+      cnae: (meta as any)?.cnae || row?.cnae || null,
+      razaoSocial: (meta as any)?.razaoSocial || (meta as any)?.legalName || row?.legalName || null,
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,
       ...smartFields,

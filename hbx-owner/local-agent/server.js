@@ -1453,6 +1453,18 @@ async function route(req, res) {
     return;
   }
 
+  // Guia VPS do cockpit: lê os cards da VPS via Ops Control (não junta com o local).
+  if (req.method === "GET" && url.pathname === "/owner/vps/radar/cards") {
+    const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 2000);
+    const page = clampInt(url.searchParams.get("page"), 1, 1, 10000);
+    const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=${limit}&page=${page}`, null, 30000);
+    if (!r.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente (configure HBX_OWNER_OPS_TOKEN)" }); return; }
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.reason || (r.data && r.data.error) || "VPS indisponível (rebuild do ops-control pendente)" }); return; }
+    const data = r.data && r.data.data ? r.data.data : r.data;
+    sendJson(res, 200, { ok: true, data });
+    return;
+  }
+
   // --- Controles por-motor: pausar/retomar/drenar/parar individual ---
   const radarEngineMatch = url.pathname.match(/^\/owner\/radar\/engines\/([^/]+)\/(pause|resume|drain|stop)$/);
   if (req.method === "POST" && radarEngineMatch) {

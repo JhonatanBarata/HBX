@@ -61,7 +61,7 @@ def test_contact_result_allows_business_email() -> None:
     assert result.email == "contato@oficinarica.com.br"
 
 
-def test_contact_result_forbids_removed_and_document_fields() -> None:
+def test_contact_result_captures_located_registry_data() -> None:
     base = {
         "name": "Maria Silva",
         "phone": "(19) 99999-9999",
@@ -74,9 +74,12 @@ def test_contact_result_forbids_removed_and_document_fields() -> None:
         "score": 72,
     }
 
-    for field in ("probableWhatsApp", "googleMapsUrl", "cpf", "cnpj", "document"):
-        with pytest.raises(ValueError):
-            ContactResult.model_validate({**base, field: "bloqueado"})
+    # O contrato agora CAPTURA tudo que for localizado (cnpj/cnae/etc.) — nada é descartado.
+    enriched = ContactResult.model_validate({**base, "cnpj": "12.345.678/0001-90", "cnae": "6201-5/01"})
+    assert enriched.cnpj == "12.345.678/0001-90"
+    assert enriched.cnae == "6201-5/01"
+    extra = ContactResult.model_validate({**base, "document": "doc-x"})
+    assert extra.model_dump().get("document") == "doc-x"
 
 
 def test_pf_result_does_not_require_rating_site_or_address() -> None:

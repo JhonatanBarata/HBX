@@ -496,6 +496,9 @@ let ckFiltered = [];        // após filtro + sort
 let ckVisible = CK_CHUNK;   // quantas linhas estão renderizadas agora
 let ckSortCol = "createdAt";
 let ckSortDir = -1;         // -1 = desc, 1 = asc
+let ckSource = "local";     // guia ativa: "local" | "vps"
+let ckHideEmptyCols = false;// esconder colunas 100% vazias
+let ckActiveCols = null;    // colunas efetivamente renderizadas (subset de CK_COLS)
 let ckEnrichJobId = null;
 let ckEnrichPollTimer = null;
 let ckEnrichRunning = false;
@@ -504,6 +507,7 @@ const CK_COLS = [
   { key: "name",               label: "Nome",            w: 160 },
   { key: "_cityState",         label: "Cidade/UF",       w: 120 },
   { key: "segment",            label: "Segmento",        w: 120 },
+  { key: "cnpj",               label: "CNPJ",            w: 130 },
   { key: "phone",              label: "Telefone",        w: 110 },
   { key: "_whatsapp",          label: "WhatsApp",        w: 90  },
   { key: "website",            label: "Website",         w: 130 },
@@ -528,6 +532,9 @@ function ckGetFilters() {
     email:   ($("#cf-email")   || {}).value || "",
     channel: ($("#cf-channel") || {}).value || "",
     status:  ($("#cf-status")  || {}).value || "",
+    notEnriched: !!(($("#cf-not-enriched") || {}).checked),
+    hasSite:     !!(($("#cf-has-site") || {}).checked),
+    hasWhats:    !!(($("#cf-has-whatsapp") || {}).checked),
   };
 }
 
@@ -558,8 +565,26 @@ function ckApplyFilters(rows) {
     if (f.email   && !String(row.email   || "").toLowerCase().includes(f.email.toLowerCase()))   return false;
     if (f.channel && !String(row.recommendedChannel || "").toLowerCase().includes(f.channel.toLowerCase())) return false;
     if (f.status  && !String(row.status  || "").toLowerCase().includes(f.status.toLowerCase()))  return false;
+    // Toggles rápidos
+    if (f.notEnriched) {
+      const es = String(row.emailStatus || "").toLowerCase();
+      const enriched = !!String(row.email || "").trim() && es !== "missing" && es !== "invalid" && es !== "none";
+      if (enriched) return false;
+    }
+    if (f.hasSite && !String(row.website || "").trim()) return false;
+    if (f.hasWhats) {
+      const ws = String(row.whatsappStatus || row.whatsappCheckStatus || "").toLowerCase();
+      if (ws !== "valid" && ws !== "confirmed") return false;
+    }
     return true;
   });
+}
+
+// Esconder colunas vazias: mantém só colunas com ao menos 1 valor nas linhas filtradas.
+function ckComputeActiveCols() {
+  if (!ckHideEmptyCols) { ckActiveCols = CK_COLS; return; }
+  ckActiveCols = CK_COLS.filter((col) => ckFiltered.some((row) => ckGetValue(row, col.key) !== ""));
+  if (!ckActiveCols.length) ckActiveCols = CK_COLS;
 }
 
 function ckApplySort(rows) {
@@ -616,30 +641,26 @@ function ckRenderTable() {
   const thead = $("#cockpit-thead");
   const tbody = $("#cockpit-tbody");
   if (!thead || !tbody) return;
+  const cols = ckActiveCols || CK_COLS;
 
-  // Cabeçalho (uma vez se já renderizado)
-  if (!thead.dataset.built) {
-    thead.dataset.built = "1";
-    const tr = document.createElement("tr");
-    for (const col of CK_COLS) {
-      const th = document.createElement("th");
-      th.dataset.key = col.key;
-      th.style.minWidth = col.w + "px";
-      th.textContent = col.label;
-      th.addEventListener("click", () => {
-        if (ckSortCol === col.key) ckSortDir *= -1;
-        else { ckSortCol = col.key; ckSortDir = col.key === "createdAt" ? -1 : 1; }
-        ckRefresh();
-      });
-      tr.appendChild(th);
-    }
-    thead.appendChild(tr);
+  // Cabeçalho (reconstrói sempre — colunas mudam com "esconder vazias" / troca de guia)
+  thead.innerHTML = "";
+  const trh = document.createElement("tr");
+  for (const col of cols) {
+    const th = document.createElement("th");
+    th.dataset.key = col.key;
+    th.style.minWidth = col.w + "px";
+    th.textContent = col.label;
+    th.className = col.key === ckSortCol ? (ckSortDir === 1 ? "sort-asc" : "sort-desc") : "";
+    th.title = "Clique pra ordenar A→Z / Z→A";
+    th.addEventListener("click", () => {
+      if (ckSortCol === col.key) ckSortDir *= -1;
+      else { ckSortCol = col.key; ckSortDir = col.key === "createdAt" ? -1 : 1; }
+      ckRefresh();
+    });
+    trh.appendChild(th);
   }
-
-  // Atualiza marcadores de sort
-  for (const th of thead.querySelectorAll("th")) {
-    th.className = th.dataset.key === ckSortCol ? (ckSortDir === 1 ? "sort-asc" : "sort-desc") : "";
-  }
+  thead.appendChild(trh);
 
   // Corpo
   tbody.innerHTML = "";
@@ -647,7 +668,7 @@ function ckRenderTable() {
   if (!page.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = CK_COLS.length;
+    td.colSpan = cols.length;
     td.textContent = "Nenhum lead para exibir.";
     td.style.color = "var(--text-muted)";
     td.style.padding = "16px 8px";
@@ -657,7 +678,7 @@ function ckRenderTable() {
   }
   for (const row of page) {
     const tr = document.createElement("tr");
-    for (const col of CK_COLS) {
+    for (const col of cols) {
       const td = document.createElement("td");
       td.title = ckGetValue(row, col.key);
       td.innerHTML = ckCellHtml(row, col.key);
@@ -683,16 +704,21 @@ function ckRenderPagination() {
 
 function ckUpdateActionButtons() {
   const total = ckFiltered.length;
+  const isLocal = ckSource === "local";
   const csvBtn = $("#btn-cockpit-csv");
   const vpsBtn = $("#btn-cockpit-vps");
   const enrichBtn = $("#btn-cockpit-enrich");
+  const cleanBtn = $("#btn-clean-junk");
+  // CSV vale nas duas guias; enriquecer/mover/limpar agem no LOCAL.
   if (csvBtn) csvBtn.disabled = total === 0;
-  if (vpsBtn) vpsBtn.disabled = total === 0 || ckEnrichRunning;
-  if (enrichBtn) enrichBtn.disabled = total === 0 || ckEnrichRunning;
+  if (vpsBtn) vpsBtn.disabled = !isLocal || ckAllLeads.length === 0 || ckEnrichRunning;
+  if (enrichBtn) enrichBtn.disabled = !isLocal || total === 0 || ckEnrichRunning;
+  if (cleanBtn) cleanBtn.disabled = !isLocal;
 }
 
 function ckRefresh() {
   ckFiltered = ckApplySort(ckApplyFilters(ckAllLeads));
+  ckComputeActiveCols();
   ckVisible = CK_CHUNK;
   const wrap = $("#cockpit-table-wrap");
   if (wrap) wrap.scrollTop = 0;
@@ -716,22 +742,24 @@ async function loadCockpit() {
   const wrap = $("#cockpit-table-wrap");
   const filt = $("#cockpit-filters");
   const note = $("#cockpit-enrich-note");
-  if (st) { st.textContent = "carregando leads…"; st.className = "pill pill-muted"; }
+  const isVps = ckSource === "vps";
+  if (st) { st.textContent = `carregando leads (${isVps ? "VPS" : "local"})…`; st.className = "pill pill-muted"; }
   if (wrap) wrap.style.display = "none";
   if (filt) filt.style.display = "none";
-  if (note) note.style.display = "";
+  if (note) note.style.display = isVps ? "none" : "";
   ckAllLeads = [];
   ckFiltered = [];
 
   // Carrega o banco inteiro, de 1000 em 1000 (teto de segurança 50k)
+  const endpoint = isVps ? "/owner/vps/radar/cards" : "/owner/radar/cards";
   const limit = 1000;
   let page = 1;
   let totalLoaded = 0;
   try {
     while (totalLoaded < 50000) {
-      const r = await api("GET", `/owner/radar/cards?limit=${limit}&page=${page}`);
+      const r = await api("GET", `${endpoint}?limit=${limit}&page=${page}`);
       if (!r.ok || !r.data) {
-        if (st) { st.textContent = r.reason || "erro ao carregar"; st.className = "pill pill-bad"; }
+        if (st) { st.textContent = r.reason || (isVps ? "VPS indisponível" : "erro ao carregar"); st.className = "pill pill-bad"; }
         return;
       }
       const items = Array.isArray(r.data.items) ? r.data.items : [];
@@ -763,6 +791,7 @@ function ckExportCsv() {
     { key: "city",               label: "Cidade" },
     { key: "state",              label: "UF" },
     { key: "segment",            label: "Segmento" },
+    { key: "cnpj",               label: "CNPJ" },
     { key: "phone",              label: "Telefone" },
     { key: "phoneDigits",        label: "Telefone (digits)" },
     { key: "email",              label: "E-mail" },
@@ -781,15 +810,16 @@ function ckExportCsv() {
     { key: "enrichmentVersion",  label: "Versão enriquecimento" },
   ];
 
+  // Excel pt-BR usa ";" como separador — vírgula joga tudo numa coluna só.
   function csvCell(v) {
     const s = v == null ? "" : String(v);
-    if (s.includes(",") || s.includes('"') || s.includes("\n")) return '"' + s.replace(/"/g, '""') + '"';
+    if (s.includes(";") || s.includes('"') || s.includes("\n")) return '"' + s.replace(/"/g, '""') + '"';
     return s;
   }
 
   const bom = "﻿";
-  const header = CSV_COLS.map((c) => csvCell(c.label)).join(",");
-  const lines = rows.map((row) => CSV_COLS.map((c) => csvCell(row[c.key])).join(","));
+  const header = CSV_COLS.map((c) => csvCell(c.label)).join(";");
+  const lines = rows.map((row) => CSV_COLS.map((c) => csvCell(row[c.key])).join(";"));
   const csv = bom + [header, ...lines].join("\r\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -804,47 +834,34 @@ function ckExportCsv() {
   pushFeed(`CSV exportado: ${rows.length} leads filtrados.`, "ok");
 }
 
-/* ---------- Enviar pro VPS (lote filtrado) ---------- */
+/* ---------- Mover TUDO pro VPS (envia tudo + limpa o local; SEM cópia) ---------- */
 async function ckSendToVps() {
-  const rows = ckFiltered;
-  if (!rows.length) return;
   const fb = $("#export-feedback");
-  if (!confirm(`Enviar ${rows.length} leads filtrados pro VPS (produção)?\n\nO banco local NÃO é limpo nesta operação — isso é diferente do "Exportar todos" antigo.`)) return;
-  fb.textContent = `enviando ${rows.length} leads pro VPS…`; fb.className = "delta";
+  if (ckSource !== "local") return; // só move o banco local
+  if (!confirm(`MOVER todo o banco local pro VPS (produção) e LIMPAR o local?\n\nEnvia TUDO e apaga a cópia local — sem duplicar. Os leads aparecem na guia VPS.`)) return;
+  fb.textContent = "movendo todo o banco local pro VPS…"; fb.className = "delta";
   const btn = $("#btn-cockpit-vps");
   if (btn) btn.disabled = true;
-  pushFeed(`Cockpit: enviando ${rows.length} leads filtrados pro VPS…`, "info");
-
-  // Monta o payload no mesmo formato que readLocalCardsForExport usa
-  const leads = rows.map((row) => ({
-    externalId: String(row.id || ""),
-    name: String(row.name || "").slice(0, 300),
-    phone: row.phone || row.phoneDigits || null,
-    website: row.website || null,
-    email: row.email || null,
-    emailStatus: row.emailStatus || (row.email ? "found_on_site" : "missing"),
-    city: row.city || null,
-    state: row.state || null,
-    segment: row.segment || null,
-    sourceProvider: "cockpit_owner",
-    sourceUrl: row.website || row.sourceUrl || `radar:${row.id}`,
-    sourceMode: "local_lab",
-    evidence: { method: "cockpit_export", origin: "local_radar_pool" },
-  })).filter((l) => l.externalId && l.name);
-
+  pushFeed("Cockpit: movendo TODO o banco local pro VPS (envia + limpa)…", "info");
   try {
-    const r = await api("POST", "/owner/cockpit/send-to-vps", { leads });
-    if (r.ok) {
-      fb.textContent = `pronto: ${r.imported || leads.length} enviados pro VPS.`; fb.className = "delta up";
-      pushFeed(`Cockpit: ${r.imported || leads.length} leads enviados pro VPS.`, "ok");
-      refreshVpsBank(true);
+    // /owner/export-all-leads envia todos e limpa o local por leadIds após o import OK.
+    const r = await api("POST", "/owner/export-all-leads", { confirm: true });
+    if (r.ok && !r.empty) {
+      fb.textContent = `pronto: ${r.exported || 0} movidos pro VPS · ${r.cleared || 0} limpos do local.`; fb.className = "delta up";
+      pushFeed(`Cockpit: ${r.exported || 0} leads movidos pro VPS (local limpo).`, "ok");
+      if (typeof refreshVpsBank === "function") refreshVpsBank(true);
+      if (typeof renderLocalBank === "function") renderLocalBank();
+      loadCockpit();
+    } else if (r.empty) {
+      fb.textContent = "nada pra mover (banco local vazio)."; fb.className = "delta";
     } else {
-      fb.textContent = r.reason || r.message || "falha ao enviar."; fb.className = "delta";
-      pushFeed(`Cockpit VPS falhou: ${r.reason || r.message || "erro"}.`, "warn");
+      fb.textContent = r.reason || r.message || "falha ao mover."; fb.className = "delta";
+      pushFeed(`Cockpit mover pro VPS falhou: ${r.reason || r.message || "erro"}.`, "warn");
     }
   } catch (err) {
     fb.textContent = err.message; fb.className = "delta";
   } finally {
+    if (btn) btn.disabled = false;
     ckUpdateActionButtons();
   }
 }
@@ -982,6 +999,7 @@ async function ckCancelEnrich() {
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
+    for (const id of ["cf-not-enriched", "cf-has-site", "cf-has-whatsapp"]) { const el = $(`#${id}`); if (el) el.checked = false; }
     ckRefresh();
   });
   // Scroll infinito: rolar o quadro perto do fim revela mais 100.
@@ -989,11 +1007,32 @@ async function ckCancelEnrich() {
   if (tableWrap) tableWrap.addEventListener("scroll", () => ckMaybeLoadMore(tableWrap));
   void prevBtn; void nextBtn; // botões de página aposentados (scroll infinito)
 
-  // Filtros
+  // Filtros de texto
   for (const id of FILTER_KEYS) {
     const input = $(`#${id}`);
     if (input) input.addEventListener("input", () => ckRefresh());
   }
+  // Toggles rápidos
+  for (const id of ["cf-not-enriched", "cf-has-site", "cf-has-whatsapp"]) {
+    const el = $(`#${id}`);
+    if (el) el.addEventListener("change", () => ckRefresh());
+  }
+  // Esconder colunas vazias
+  const hideEmpty = $("#cf-hide-empty-cols");
+  if (hideEmpty) hideEmpty.addEventListener("change", () => { ckHideEmptyCols = !!hideEmpty.checked; ckRefresh(); });
+
+  // Guias Local / VPS (não junta as listas — recarrega a fonte ativa)
+  const tabLocal = $("#tab-local");
+  const tabVps = $("#tab-vps");
+  function setTab(src) {
+    if (ckSource === src) return;
+    ckSource = src;
+    if (tabLocal) tabLocal.classList.toggle("is-active", src === "local");
+    if (tabVps) tabVps.classList.toggle("is-active", src === "vps");
+    loadCockpit();
+  }
+  if (tabLocal) tabLocal.addEventListener("click", () => setTab("local"));
+  if (tabVps) tabVps.addEventListener("click", () => setTab("vps"));
 })();
 
 /* ---------- Controles da VPS ---------- */

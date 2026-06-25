@@ -26,7 +26,11 @@ Providers (`radar/providers/`):
 - Isolado: não usa Google Places API, não altera backend/frontend, não grava no banco HBX.
 - Contrato de resultado — obrigatórios: `name`, `phone`, `phoneDigits`.
   Opcionais retornam `null`: `rating`, `reviews`, `address`, `website`, `score`, `source`.
-  Removidos (NUNCA emitir): `probableWhatsApp`, `googleMapsUrl`, `cpf`, `cnpj`, `document`, `CNAE`.
+  **CAPTURA tudo que for localizado** (`ContactResult` é `extra="allow"`): `cnpj`, `cnae`,
+  `razaoSocial` e quaisquer outros sinais públicos NÃO são descartados — dado de graça não se
+  joga fora (decisão do dono 25/06). **Exibir é decisão de quem consome**: o SaaS do cliente
+  NÃO expõe dado pessoal sensível por padrão; o cockpit Owner mostra CNPJ. (Antes a regra
+  proibia emitir cnpj/cpf/document/CNAE — revogada; captura ≠ exposição.)
 - CLI: `python -m app.cli --city "X" --state "SP" --segment "y" --limit 10 --fresh`
   com `--target-type pj | pf | agenda_pf`.
 

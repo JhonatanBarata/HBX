@@ -261,7 +261,10 @@ class QueryPayload(BaseModel):
 
 
 class ContactResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # "allow": captura TODO dado localizado (cnpj, cnae, razão social, etc.) — nada é
+    # descartado na origem. Exibir é decisão de quem consome (o sistema não expõe o
+    # sensível por padrão). Decisão do dono 25/06: dado de graça não se joga fora.
+    model_config = ConfigDict(extra="allow")
 
     name: str
     phone: str
@@ -289,6 +292,10 @@ class ContactResult(BaseModel):
     visibilityTier: str | None = None
     deliveryProduct: str | None = None
     recommendedChannel: str | None = None
+    # Dados de registro público (Receita/CNPJ) — capturados quando localizados.
+    cnpj: str | None = None
+    cnae: str | None = None
+    razaoSocial: str | None = None
 
 
 class EnrichLeadRequest(BaseModel):

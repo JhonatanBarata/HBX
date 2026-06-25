@@ -2291,7 +2291,7 @@ app.get('/api/email-lab/vps/imports/:id', async (req, res) => {
 // Resposta: { ok: true, data: { items: [...], ... } }
 app.get('/api/radar/vps/database-cards', async (req, res) => {
   try {
-    const limit = clampInteger(req.query.limit, 50, 1, 200);
+    const limit = clampInteger(req.query.limit, 1000, 1, 2000);
     const page = clampInteger(req.query.page, 1, 1, 10000);
     const route = `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`;
     const result = await callBackendForEnvironment('vps', 'vps', 'GET', route);
