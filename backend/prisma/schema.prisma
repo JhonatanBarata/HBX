@@ -2045,6 +2045,10 @@ model WebscrapingCampaignTask {
   @@index([campaignId, status, updatedAt])
   @@index([status, lockedUntil])
   @@index([campaignId, city, status])
+  // Lookup de dedup CROSS-campanha (state+city+segment+targetType, SEM campaignId): a fábrica
+  // consultava isto a cada ciclo e, sem este índice, fazia Seq Scan de ~19k linhas em loop →
+  // Postgres preso em ~120% de CPU. Os índices acima começam por campaignId e não servem.
+  @@index([state, city, segment, targetType])
 }
 
 model WebscrapingOperationalConfig {

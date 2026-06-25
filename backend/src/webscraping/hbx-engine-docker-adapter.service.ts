@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { request as httpRequest } from 'http';
+import { execFile } from 'child_process';
 import { URL } from 'url';
 
 export type HbxDockerEngineInspect = {
@@ -19,10 +20,15 @@ export function isAllowedHbxEngineContainerName(name: unknown) {
   return /^hbx-engine-\d+$/.test(String(name || '').trim());
 }
 
-// Gerência de container do motor vai pela porta CERTA da arquitetura: o ops-control
-// (único serviço com acesso ao Docker, socket montado de propósito). O backend NÃO
-// chama `docker` direto (em container ele nem tem o binário/socket → spawn ENOENT).
-// Contrato público idêntico ao adapter antigo — governor/telemetria/pool não mudam.
+// Gerência de container do motor tem DOIS caminhos:
+//  1) ops-control (HTTP, OPS_CONTROL_TOKEN) — caminho "remoto" original.
+//  2) docker LOCAL (socket /var/run/docker.sock + binário) — quando o backend roda no MESMO host
+//     com o socket montado (caso da VPS). Preferimos ops-control SE houver token; senão caímos no
+//     docker local. Sem token e sem socket, degrada (igual antes: governor só loga falha).
+// Motivo do fallback: na VPS o OPS_CONTROL_TOKEN nunca foi setado → todo start/stop/inspect falhava
+// ("OPS_CONTROL_TOKEN ausente"), o governor ficava CEGO (spam de start) e o "Parar" do painel não
+// parava nada. O backend roda como root com o socket montado, então o docker local resolve.
+// Contrato público idêntico — governor/telemetria/pool não mudam.
 @Injectable()
 export class HbxEngineDockerAdapterService {
   private readonly logger = new Logger(HbxEngineDockerAdapterService.name);
@@ -33,10 +39,33 @@ export class HbxEngineDockerAdapterService {
     return { url, token };
   }
 
+  private localDockerCliPath() {
+    return String(process.env.HBX_ENGINE_DOCKER_CLI_PATH || '').trim();
+  }
+
+  // Usa docker local quando NÃO há token de ops-control mas há um CLI de docker configurado
+  // (socket montado). Com token, mantém o caminho remoto original.
+  private useLocalDocker() {
+    return !this.opsConfig().token && Boolean(this.localDockerCliPath());
+  }
+
   private assertAllowedEngineName(name: string) {
     if (!isAllowedHbxEngineContainerName(name)) {
       throw new Error(`Container fora do escopo HBX: ${name}`);
     }
+  }
+
+  private runDockerLocal(args: string[], timeoutMs = 20_000): Promise<string> {
+    const cli = this.localDockerCliPath() || 'docker';
+    return new Promise<string>((resolve, reject) => {
+      execFile(cli, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`docker ${args.join(' ')} -> ${String(stderr || error.message).slice(0, 180)}`));
+          return;
+        }
+        resolve(String(stdout || ''));
+      });
+    });
   }
 
   private opsRequest<T = any>(method: 'GET' | 'POST', path: string, timeoutMs = 15_000): Promise<T> {
@@ -78,7 +107,7 @@ export class HbxEngineDockerAdapterService {
     });
   }
 
-  private async fetchContainers(): Promise<Map<string, any>> {
+  private async fetchContainersOps(): Promise<Map<string, any>> {
     const data = await this.opsRequest<{ containers?: any[] }>('GET', '/api/containers', 20_000);
     const list = Array.isArray(data?.containers) ? data.containers : [];
     const byName = new Map<string, any>();
@@ -87,6 +116,25 @@ export class HbxEngineDockerAdapterService {
       if (name) byName.set(name, item);
     }
     return byName;
+  }
+
+  // docker ps -a → mesma forma {name, state, status} que o ops-control devolve (memUsage ausente →
+  // memória fica null, tratada pelo guard de memória, igual ao caminho ops em erro).
+  private async fetchContainersLocal(): Promise<Map<string, any>> {
+    const out = await this.runDockerLocal(['ps', '-a', '--no-trunc', '--format', '{{.Names}}\t{{.State}}\t{{.Status}}'], 20_000);
+    const byName = new Map<string, any>();
+    for (const line of out.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const [name, state, status] = trimmed.split('\t');
+      const cleanName = String(name || '').replace(/^\//, '').trim();
+      if (cleanName) byName.set(cleanName, { name: cleanName, state: String(state || '').trim(), status: String(status || '').trim() });
+    }
+    return byName;
+  }
+
+  private fetchContainers(): Promise<Map<string, any>> {
+    return this.useLocalDocker() ? this.fetchContainersLocal() : this.fetchContainersOps();
   }
 
   private mapContainer(name: string, container: any): HbxDockerEngineInspect {
@@ -169,16 +217,28 @@ export class HbxEngineDockerAdapterService {
 
   async startEngine(name: string) {
     this.assertAllowedEngineName(name);
+    if (this.useLocalDocker()) {
+      await this.runDockerLocal(['start', name], 20_000);
+      return;
+    }
     await this.opsRequest('POST', `/api/containers/${encodeURIComponent(name)}/start`, 20_000);
   }
 
   async stopEngine(name: string) {
     this.assertAllowedEngineName(name);
+    if (this.useLocalDocker()) {
+      await this.runDockerLocal(['stop', name], 30_000);
+      return;
+    }
     await this.opsRequest('POST', `/api/containers/${encodeURIComponent(name)}/stop`, 30_000);
   }
 
   async restartEngine(name: string) {
     this.assertAllowedEngineName(name);
+    if (this.useLocalDocker()) {
+      await this.runDockerLocal(['restart', name], 30_000);
+      return;
+    }
     await this.opsRequest('POST', `/api/containers/${encodeURIComponent(name)}/restart`, 30_000);
   }
 
