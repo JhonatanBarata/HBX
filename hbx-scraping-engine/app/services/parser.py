@@ -10,6 +10,13 @@ from .normalizer import clean_name, extract_phone_from_url, fallback_name, forma
 from .social import extract_social_links_from_html, is_valid_social_profile_url, normalize_social_url, social_field_for_url
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(\d{2}\)|\d{2}[\s.-]+)\s*9?\d{4}[-.\s]+\d{4}(?!\d)")
+# CNPJ: 14 dígitos no formato XX.XXX.XXX/YYYY-ZZ (pontuação opcional)
+CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
+# Razão social próxima ao CNPJ — ex.: "Razão Social: Foo Bar Ltda", "Empresa: Foo Bar ME"
+_RAZAO_RE = re.compile(
+    r"(?:raz[aã]o\s+social|empresa|denominação|denominacao)\s*[:\-–]\s*([^\n\r\|]{4,80})",
+    re.I,
+)
 
 
 def _as_list(value) -> list:
@@ -81,6 +88,47 @@ def is_directory_url(url: str) -> bool:
 
 def is_directory_listing_page(url: str) -> bool:
     return is_directory_listing_url(url)
+
+
+def _validate_cnpj_digits(raw: str) -> bool:
+    """Valida os dois dígitos verificadores do CNPJ (proteção anti-falso-positivo)."""
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) != 14:
+        return False
+    if len(set(digits)) == 1:
+        return False  # sequência tipo 00000000000000
+
+    def _check(d: str, n: int) -> bool:
+        weights = list(range(n - 7, 1, -1)) + list(range(9, 1, -1))
+        total = sum(int(d[i]) * weights[i] for i in range(n - 1))
+        remainder = total % 11
+        expected = 0 if remainder < 2 else 11 - remainder
+        return int(d[n - 1]) == expected
+
+    return _check(digits, 13) and _check(digits, 14)
+
+
+def _extract_cnpj_and_razao(text: str) -> tuple[str | None, str | None]:
+    """Extrai o primeiro CNPJ válido e, se presente, a razão social próxima."""
+    cnpj: str | None = None
+    razao: str | None = None
+    for match in CNPJ_RE.finditer(text):
+        raw = match.group(0)
+        if not _validate_cnpj_digits(raw):
+            continue
+        cnpj = raw
+        # Procura razão social numa janela de ±300 chars ao redor do CNPJ
+        start = max(0, match.start() - 300)
+        end = min(len(text), match.end() + 300)
+        window = text[start:end]
+        razao_match = _RAZAO_RE.search(window)
+        if razao_match:
+            candidate = razao_match.group(1).strip().strip(".,;:")
+            # Descarta se a "razão" é obviamente lixo (número de telefone, URL etc.)
+            if candidate and not re.search(r"https?://|@|\d{9,}", candidate):
+                razao = candidate[:120]
+        break  # primeiro CNPJ válido é suficiente
+    return cnpj, razao
 
 
 def _apply_social_links(contact: dict, links: dict[str, str]) -> dict:
@@ -231,5 +279,15 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
         if social_field:
             contact[social_field] = normalize_social_url(url) or url.rstrip("/")
         contacts.append(_apply_social_links(contact, social_links))
+
+    # L2: extrair CNPJ + razão social do texto visível da página (rodapé incluído).
+    # Só tenta em páginas PJ (não é PF/agenda).  Não descarta contato por ausência.
+    if contacts and target_type == "pj":
+        page_cnpj, page_razao = _extract_cnpj_and_razao(visible_text)
+        if page_cnpj:
+            for contact in contacts:
+                contact.setdefault("cnpj", page_cnpj)
+                if page_razao:
+                    contact.setdefault("razaoSocial", page_razao)
 
     return contacts, visible_text

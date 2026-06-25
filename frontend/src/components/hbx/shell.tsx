@@ -357,6 +357,10 @@ type PlanMe = {
     accessState?: string | null;
     // NEUTRO (sobrevive p/ vendedor): empresa não pode operar.
     accessPaused?: boolean | null;
+    // Tier de inteligência de lead (additive 25/06)
+    tier?: 'list' | 'lead' | 'full' | null;
+    canSeeLeadIntelligence?: boolean | null;
+    canSeeCompanyData?: boolean | null;
   };
   plans?: Array<{ key: string; title?: string | null; monthlyPrice?: number | null }>;
 } | null;
@@ -385,20 +389,43 @@ export function clearPlanMeCache() {
 }
 
 export function useEntitlements() {
-  const [state, setState] = useState<{ loaded: boolean; planKey: string | null; entitlements: Entitlements }>({
+  const [state, setState] = useState<{
+    loaded: boolean;
+    planKey: string | null;
+    entitlements: Entitlements;
+    tier: 'list' | 'lead' | 'full';
+    canSeeLeadIntelligence: boolean;
+    canSeeCompanyData: boolean;
+  }>({
     loaded: false,
     planKey: null,
     entitlements: {},
+    tier: 'lead',
+    canSeeLeadIntelligence: true,
+    canSeeCompanyData: false,
   });
   useEffect(() => {
     let alive = true;
     if (!getToken()) return;
     fetchPlanMeCached().then(res => {
       if (!alive) return;
+      const cur = res?.current;
+      // Deriva tier do campo explícito (additive 25/06) ou do planKey legado.
+      // Antes do backend estar atualizado, planKey=null → assume 'lead' (não trava ninguém).
+      let tier: 'list' | 'lead' | 'full' = (cur?.tier as 'list' | 'lead' | 'full' | null | undefined) || 'lead';
+      if (!cur?.tier) {
+        const pk = cur?.planKey || '';
+        if (pk === 'hbx_lite') tier = 'list';
+        else if (pk === 'hbx_pro' || pk === 'hbx_melhor') tier = 'full';
+        else tier = 'lead';
+      }
       setState({
         loaded: true,
-        planKey: res?.current?.planKey || null,
-        entitlements: res?.current?.entitlements || {},
+        planKey: cur?.planKey || null,
+        entitlements: cur?.entitlements || {},
+        tier,
+        canSeeLeadIntelligence: cur?.canSeeLeadIntelligence != null ? Boolean(cur.canSeeLeadIntelligence) : tier !== 'list',
+        canSeeCompanyData: cur?.canSeeCompanyData != null ? Boolean(cur.canSeeCompanyData) : tier === 'full',
       });
     });
     return () => { alive = false; };

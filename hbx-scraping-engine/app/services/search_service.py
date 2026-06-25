@@ -1973,6 +1973,7 @@ class SearchService:
             "instagramUrl", "facebookUrl", "socialStatus", "socialConfidence",
             "source", "sourceEngine", "sourceUrl", "score", "evidenceJson", "enrichmentJson",
             "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct", "recommendedChannel",
+            "cnpj", "cnae", "razaoSocial",
         }
         public_items = [{key: value for key, value in item.items() if key in allowed_fields} for item in candidates[: request.limit]]
         valid = [ContactResult.model_validate(item).model_dump(exclude_none=True) for item in public_items]
@@ -2924,6 +2925,7 @@ class SearchService:
             "socialStatus", "socialConfidence",
             "evidenceJson", "rejectReasons", "qualityReason", "visibilityTier", "deliveryProduct",
             "recommendedChannel", "enrichmentJson",
+            "cnpj", "cnae", "razaoSocial",
         }
         min_score = 0 if request.targetType == "pf" else 50
         public_items: list[dict] = []

@@ -536,6 +536,10 @@ export class RadarCoreProviderMixin {
       sourceUrl: String(item?.sourceUrl || item?._pageUrl || '').trim() || null,
       source,
       score,
+      // CNPJ fields from HBX motor Python (parser.py extracts from page footer)
+      cnpj: String(item?.cnpj || '').replace(/\D/g, '').padStart(1, '') || null,
+      razaoSocial: String(item?.razaoSocial || item?.legalName || '').trim() || null,
+      cnae: String(item?.cnae || '').trim() || null,
     };
   }
 

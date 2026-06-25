@@ -167,8 +167,14 @@ import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyAccessAllowed,
 } from '../../../team/team-policy-persistence';
+import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enrichment.service';
 
 export class RadarCoreDeliveryMixin {
+  private _cnpjL4Enrichment: RadarCnpjL4EnrichmentService | null = null;
+  private getCnpjL4Enrichment(): RadarCnpjL4EnrichmentService {
+    if (!this._cnpjL4Enrichment) this._cnpjL4Enrichment = new RadarCnpjL4EnrichmentService();
+    return this._cnpjL4Enrichment;
+  }
   [key: string]: any;
   private async getTeamPolicyRequiredRadarChannels(userIdRaw: unknown): Promise<RadarChannelFilter[]> {
     const userId = Math.trunc(Number(userIdRaw || 0));
@@ -2658,6 +2664,11 @@ export class RadarCoreDeliveryMixin {
           lastSourceEngine: sourceEngine,
           quality,
           delivery,
+          // Preserve CNPJ fields from motor (never overwrite existing non-null value with null)
+          ...(((result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj) ? { cnpj: (result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj } : {}),
+          ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),
+          ...(((result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription) ? { cnaeDescription: (result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription } : {}),
+          ...(((result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial) ? { razaoSocial: (result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial } : {}),
         }),
         lastSeenAt: now,
       };
@@ -2724,6 +2735,11 @@ export class RadarCoreDeliveryMixin {
           lastSourceEngine: sourceEngine,
           quality,
           delivery: finalDelivery,
+          // Preserve CNPJ fields (never overwrite existing non-null with null)
+          ...(((result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj) ? { cnpj: (result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj } : {}),
+          ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),
+          ...(((result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription) ? { cnaeDescription: (result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription } : {}),
+          ...(((result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial) ? { razaoSocial: (result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial } : {}),
         }),
         enrichmentJson: JSON.stringify({ ...enrichmentJson, signals: preservedSignals, quality, delivery: finalDelivery }),
         enrichmentScore: enrichment.enrichmentScore,
@@ -2731,18 +2747,28 @@ export class RadarCoreDeliveryMixin {
         lastEnrichedAt: enrichment.lastEnrichedAt,
         enrichmentVersion: enrichment.enrichmentVersion,
       });
+      let savedId: string | null = existing?.id || null;
       if (existing?.id) {
         await delegate.update({
           where: { id: existing.id },
           data,
         }).catch(() => null);
+        savedId = existing.id;
       } else {
-        await delegate.create({
+        const created = await delegate.create({
           data: {
             ...data,
             firstSeenAt: now,
           },
+          select: { id: true },
         }).catch(() => null);
+        if (created?.id) savedId = created.id;
+      }
+      // L4 fire-and-forget: enrich CNPJ when available (grátis, BrasilAPI)
+      const savedCnpj = String((result as any).cnpj || this.parseMaybeJsonObject(data.metadataJson)?.cnpj || '').replace(/\D/g, '');
+      if (savedId && savedCnpj.length >= 14) {
+        const l4Row = { id: savedId, metadataJson: data.metadataJson, evidenceJson: data.evidenceJson, cnpj: savedCnpj };
+        this.getCnpjL4Enrichment().enrichRow(this.prisma, l4Row).catch(() => null);
       }
       counts.savedCount += 1;
     }

@@ -1,4 +1,4 @@
-from app.services.parser import parse_page
+from app.services.parser import _validate_cnpj_digits, _extract_cnpj_and_razao, parse_page
 
 
 def test_parse_jsonld_local_business() -> None:
@@ -167,6 +167,68 @@ def test_parse_blocks_generic_name() -> None:
     contacts, _ = parse_page(html, "https://oficinagenerica.example.com.br")
 
     assert contacts == []
+
+
+def test_validate_cnpj_digits_valid() -> None:
+    # CNPJ com dígitos verificadores corretos calculados
+    assert _validate_cnpj_digits("11.222.333/0001-65") is True
+
+
+def test_validate_cnpj_digits_invalid_checksum() -> None:
+    assert _validate_cnpj_digits("11.222.333/0001-99") is False
+
+
+def test_validate_cnpj_digits_all_same() -> None:
+    assert _validate_cnpj_digits("11.111.111/1111-11") is False
+
+
+def test_extract_cnpj_no_cnpj() -> None:
+    cnpj, razao = _extract_cnpj_and_razao("Texto sem nenhum CNPJ aqui.")
+    assert cnpj is None
+    assert razao is None
+
+
+def test_extract_cnpj_with_razao() -> None:
+    text = "Razão Social: Empresa Teste ME CNPJ: 11.222.333/0001-65 Todos os direitos reservados."
+    cnpj, razao = _extract_cnpj_and_razao(text)
+    assert cnpj == "11.222.333/0001-65"
+    assert razao is not None
+    assert "Empresa Teste" in razao
+
+
+def test_parse_page_extracts_cnpj_from_footer() -> None:
+    html = """
+    <html>
+      <head><title>Oficina Boa</title></head>
+      <body>
+        <h1>Oficina Boa</h1>
+        <a href="tel:+551934611234">Ligar</a>
+        <footer>
+          Razão Social: Oficina Boa Ltda &nbsp; CNPJ: 11.222.333/0001-65
+        </footer>
+      </body>
+    </html>
+    """
+    contacts, _ = parse_page(html, "https://oficinaboa.example.com.br")
+    assert len(contacts) >= 1
+    assert contacts[0].get("cnpj") == "11.222.333/0001-65"
+    assert contacts[0].get("razaoSocial") is not None
+    assert "Oficina Boa" in str(contacts[0].get("razaoSocial", ""))
+
+
+def test_parse_page_no_cnpj_does_not_fail() -> None:
+    html = """
+    <html>
+      <head><title>Loja Sem CNPJ</title></head>
+      <body>
+        <h1>Loja Sem CNPJ</h1>
+        <a href="tel:+551934611234">Ligar</a>
+      </body>
+    </html>
+    """
+    contacts, _ = parse_page(html, "https://lojatest.example.com.br")
+    assert len(contacts) >= 1
+    assert contacts[0].get("cnpj") is None
 
 
 def test_parse_blocks_directory_listing_title_as_generic_name() -> None:

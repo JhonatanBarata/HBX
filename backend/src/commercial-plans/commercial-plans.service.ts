@@ -29,6 +29,8 @@ import {
   type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
   type CommercialPlanKey,
+  getCommercialPlanTier,
+  type CommercialPlanTier,
 } from './commercial-plan-catalog';
 import {
   computeCompanySeatBillingSnapshot,
@@ -65,6 +67,12 @@ type CommercialCurrentState = {
     completedAt: string | null;
     message: string | null;
   };
+  // Tier de inteligência de lead: list | lead | full.
+  // Additive (25/06): exposto para o front gate o cadeado por tier sem
+  // precisar re-derivar do planKey no cliente.
+  tier: CommercialPlanTier;
+  canSeeLeadIntelligence: boolean;
+  canSeeCompanyData: boolean;
 };
 
 type CommercialBillingBreakdown = {
@@ -341,6 +349,14 @@ export class CommercialPlansService {
         : 'pending'
       : 'not_required';
 
+    // Tier de inteligência de lead — derivado do planKey real (não entitlements).
+    const resolvedTierPlanKey = platformInfra
+      ? COMMERCIAL_PLAN_KEYS.MELHOR
+      : planKey ?? COMMERCIAL_PLAN_KEYS.PADRAO;
+    const tier = getCommercialPlanTier(resolvedTierPlanKey);
+    const canSeeLeadIntelligence = tier !== 'list';
+    const canSeeCompanyData = tier === 'full';
+
     return {
       planKey,
       entitlements,
@@ -372,6 +388,9 @@ export class CommercialPlansService {
             ? 'Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.'
             : null,
       },
+      tier,
+      canSeeLeadIntelligence,
+      canSeeCompanyData,
     };
   }
 

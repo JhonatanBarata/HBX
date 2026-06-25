@@ -120,7 +120,9 @@ def test_blocks_generic_names_and_bad_domains() -> None:
     assert not is_pf_technical_blocked_domain("https://exame.com/noticia")
 
 
-def test_schema_forbids_removed_fields() -> None:
+def test_schema_extra_fields_are_stored() -> None:
+    # ContactResult usa extra="allow" (decisão 25/06): qualquer campo extra é aceito,
+    # não descartado — dado de graça não se joga fora.
     payload = {
         "name": "Oficina A",
         "phone": "(19) 99999-9999",
@@ -133,10 +135,7 @@ def test_schema_forbids_removed_fields() -> None:
         "score": 72,
         "probableWhatsApp": True,
     }
-
-    try:
-        ContactResult.model_validate(payload)
-    except Exception as error:
-        assert "probableWhatsApp" in str(error)
-    else:
-        raise AssertionError("schema aceitou campo removido")
+    result = ContactResult.model_validate(payload)
+    assert result.name == "Oficina A"
+    # campos extras aceitos (extra="allow")
+    assert getattr(result, "probableWhatsApp", None) is True

@@ -1151,3 +1151,253 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   background: color-mix(in srgb, var(--hbx-info) 10%, transparent);
   border-color: color-mix(in srgb, var(--hbx-info) 28%, transparent);
 }
+
+/* ============================================================
+   DETALHES NEGÓCIO — classes das 2 ZONAS + score ring + cadeado
+   Geradas 25/06 (reset de git apagou; reconstituídas do markup real).
+   ESTRUTURA aqui; TODA cor via token — zero hex.
+   ============================================================ */
+
+/* ── Zonas do card (Quem é / O que fazer) ──────────────────────────────── */
+
+/* Cada zona é um bloco com respiro interno e gap entre seus filhos. */
+.dn-zone {
+  display: grid;
+  gap: 12px;
+}
+
+/* Zona 1 "Quem é": ligeiramente mais apertada (header + inteligência + contatos). */
+.dn-zone--1 {
+  gap: 10px;
+}
+
+/* Zona 2 "O que fazer": ações + KVs + obs empilhados. */
+.dn-zone--2 {
+  gap: 12px;
+  padding-top: 4px;
+}
+
+/* Sub-bloco da zona 1 que agrupa score ring + teaser de oportunidade lado a lado. */
+.dn-zone1-intel {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* Costura visual entre as zonas: linha com rótulo central "O que fazer". */
+.dn-zone-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dn-zone-sep::before,
+.dn-zone-sep::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-hairline);
+}
+.dn-zone-sep__label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ── Score ring circular ────────────────────────────────────────────────── */
+
+/* Container: posicionamento relativo para que label flutue sobre o SVG. */
+.dn-score-ring-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  flex: 0 0 auto;
+}
+
+/* SVG preenche o wrap; rotação -90° feita inline no círculo fill (no TSX). */
+.dn-score-ring-svg {
+  display: block;
+  width: 54px;
+  height: 54px;
+}
+
+/* Trilha de fundo do anel — fina, muted. */
+.dn-score-ring-bg {
+  fill: none;
+  stroke: var(--border-hairline);
+  stroke-width: 4;
+}
+
+/* Arco preenchido — acende com a cor de destaque da pele. */
+.dn-score-ring-fill {
+  fill: none;
+  stroke: var(--hbx-brand-strong);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Rótulo numérico centralizado sobre o SVG — posição absoluta sobre o wrap. */
+.dn-score-ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.dn-score-ring-num {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.02em;
+}
+
+.dn-score-ring-sub {
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ── Score inline (label ao lado do ring) ───────────────────────────────── */
+
+/* Envolve o ring + label em linha horizontal compacta. */
+.dn-score-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dn-score-inline-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  line-height: 1.3;
+  max-width: 80px;
+}
+
+/* ── Teaser de oportunidade (ícone + frase) ─────────────────────────────── */
+
+/* Bloco compacto com ícone emoji e texto de 1-2 linhas. */
+.dn-opportunity-teaser {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+
+.dn-opportunity-teaser__icon {
+  flex: 0 0 auto;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.dn-opportunity-teaser__text {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-body);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* ── Badge "WhatsApp verificado" ────────────────────────────────────────── */
+
+/* Sinal verde discreto — mesmo padrão das .tag teal. */
+.dn-wa-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: var(--hbx-brand-strong);
+  background: color-mix(in srgb, var(--hbx-brand) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent);
+  width: fit-content;
+}
+
+/* ── "Sem telefone" no card ─────────────────────────────────────────────── */
+
+/* Nota muted de campo vazio — mantém a linha mas não grita. */
+.dn-no-phone {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ── Gate de plano — cadeado (blur + overlay) ───────────────────────────── */
+
+/* Wrapper: contém o conteúdo borrado + o overlay. Relative para o overlay absolute. */
+.dn-locked {
+  position: relative;
+  filter: blur(4px);
+  pointer-events: none;
+  user-select: none;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* Overlay: flutua sobre o conteúdo borrado, traz ícone + CTA legíveis. */
+.dn-lock-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--hbx-surface) 72%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  pointer-events: auto;
+  filter: none; /* cancela blur herdado do pai */
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.dn-lock-overlay__icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+/* CTA de upgrade — mesma hierarquia do .plan-card button.plan-card__upgrade. */
+.dn-lock-overlay__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--control-radius);
+  background: var(--login-accent);
+  color: var(--hbx-action-ink);
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: center;
+  transition: filter var(--motion-fast);
+}
+.dn-lock-overlay__cta:hover { filter: brightness(1.06); }

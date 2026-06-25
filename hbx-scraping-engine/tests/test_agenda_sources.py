@@ -169,7 +169,10 @@ def test_agenda_pf_falls_back_to_web_when_abc_is_empty(monkeypatch) -> None:
     assert response.results[0].score == 0
 
 
-def test_agenda_result_forbids_removed_fields() -> None:
+def test_agenda_result_accepts_registry_and_extra_fields() -> None:
+    # ContactResult usa extra="allow" e tem cnpj/razaoSocial como campos explícitos
+    # (decisão 25/06: dado de graça não se descarta). Campos como cpf/document/probableWhatsApp
+    # também são aceitos via extra="allow" — captura ≠ exposição.
     payload = {
         "name": "Maria",
         "phone": "(19) 99999-1234",
@@ -181,6 +184,9 @@ def test_agenda_result_forbids_removed_fields() -> None:
         "source": "hbx_agenda:abctelefonos",
         "score": 80,
     }
-    for field in ("cpf", "cnpj", "document", "probableWhatsApp", "googleMapsUrl"):
-        with pytest.raises(ValueError):
-            ContactResult.model_validate({**payload, field: "bloqueado"})
+    # cnpj é campo explícito
+    result = ContactResult.model_validate({**payload, "cnpj": "11.222.333/0001-65"})
+    assert result.cnpj == "11.222.333/0001-65"
+    # campos extras genéricos também aceitos
+    result2 = ContactResult.model_validate({**payload, "probableWhatsApp": True})
+    assert result2.name == "Maria"
