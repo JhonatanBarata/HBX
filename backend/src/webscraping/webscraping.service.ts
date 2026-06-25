@@ -429,7 +429,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     //   (B) leads sem site (website nulo/vazio) e sem CNPJ no metadataJson (candidatos L3→L4)
     // Pega um lote maior e filtra em memória (campos JSON não são filtráveis no DB de forma segura).
     const candidates = await prisma.radarLeadPool.findMany({
-      select: { id: true, name: true, city: true, state: true, segment: true, website: true, metadataJson: true, evidenceJson: true, signalsJson: true, cnpj: true },
+      select: { id: true, name: true, city: true, state: true, segment: true, website: true, metadataJson: true, evidenceJson: true, signalsJson: true },
       orderBy: { createdAt: 'desc' },
       take: limit * 6,
     });

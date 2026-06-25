@@ -894,6 +894,30 @@ async function readLocalCardsForExport(maxLeads = 5000) {
   return { leads: leads.slice(0, maxLeads), ids: ids.slice(0, maxLeads) };
 }
 
+// Mapeia um card (database-cards, mesmo shape local e VPS) -> lead do lead-harvest.
+function mapCardToHarvestLead(row, sourceMode, method) {
+  const id = String(row.id || row.externalId || "").trim();
+  const name = safeText(row.name || row.companyName, 300);
+  if (!id || !name) return null;
+  const website = row.website || null;
+  return {
+    externalId: id,
+    name,
+    phone: row.phone || row.phoneDigits || null,
+    whatsapp: row.whatsapp || null,
+    website,
+    email: row.email || null,
+    emailStatus: row.emailStatus || (row.email ? "found_on_site" : "missing"),
+    city: row.city || null,
+    state: row.state || null,
+    segment: row.segment || null,
+    sourceProvider: safeText(row.source, 60) || "vps_radar",
+    sourceUrl: website || row.sourceUrl || row.mapsUrl || `radar:${id}`,
+    sourceMode,
+    evidence: { method, origin: "vps_radar_pool" },
+  };
+}
+
 function clampEngineRange(body) {
   const from = clampInt(body.from, 1, 1, 200);
   const to = clampInt(body.to, from, 1, 200);
@@ -1179,6 +1203,66 @@ async function route(req, res) {
     }
     vpsLeadsCache = { at: 0, data: null };
     sendJson(res, 200, { ok: true, count: validLeads.length, imported: imp.data?.imported ?? validLeads.length, import: imp.data });
+    return;
+  }
+
+  // TUDO OU NADA — Trazer tudo do VPS pro local (cópia; não apaga o VPS).
+  // O backend da VPS LIMITA a página a 20 e usa skip=(page-1)*limit. Se a gente pede
+  // limit grande, ele pula 1000/2000 mas só pega 20 → buracos e para cedo. Por isso
+  // paginamos de 20 em 20 (o tamanho que o VPS honra) e vamos até o `total`.
+  if (req.method === "POST" && url.pathname === "/owner/import-all-from-vps") {
+    const body = await readBody(req);
+    const pageSize = 20; // cap real do backend VPS; pedir mais cria buracos
+    const maxPages = clampInt(body.maxPages, 1000, 1, 5000);
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    let pulled = 0, imported = 0, errors = 0, total = null;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=${pageSize}&page=${page}`, null, 30000);
+      if (!r.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+      if (!r.ok) {
+        if (page === 1) { sendJson(res, 200, { ok: false, reason: r.reason || (r.data && r.data.error) || "VPS indisponível" }); return; }
+        break;
+      }
+      const data = r.data && r.data.data ? r.data.data : r.data;
+      const items = Array.isArray(data && data.items) ? data.items : [];
+      if (data && typeof data.total === "number") total = data.total;
+      if (!items.length) break;
+      pulled += items.length;
+      const leads = items.map((row) => mapCardToHarvestLead(row, "imported_lab", "owner_import_all")).filter(Boolean);
+      if (leads.length) {
+        const batch = {
+          batchId: `vps-pull-${Date.now()}-${page}`,
+          sourceMode: "imported_lab",
+          sourceName: "VPS Radar (trazer tudo)",
+          createdAt: new Date().toISOString(),
+          requestedBy: "hbx-owner-import-all",
+          providers: ["vps_radar"],
+          leads,
+          emails: [],
+        };
+        const imp = await backendRequest("POST", "/webscraping/lead-harvest/import", batch, { timeoutMs: 60000 });
+        if (imp.ok) imported += Number(imp.data?.accepted ?? leads.length) || 0;
+        else errors += leads.length;
+      }
+      if (total != null && pulled >= total) break; // já trouxe tudo
+    }
+    sendJson(res, 200, { ok: true, pulled, imported, errors, total });
+    return;
+  }
+
+  // TUDO OU NADA — Mandar tudo do local pro VPS (cópia; não apaga o local).
+  if (req.method === "POST" && url.pathname === "/owner/push-all-to-vps") {
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    const { leads } = await readLocalCardsForExport(50000);
+    if (!leads.length) { sendJson(res, 200, { ok: true, empty: true, count: 0, message: "Nada local pra enviar." }); return; }
+    const imp = await opsRequest("POST", "/api/email-lab/vps/import", { leads, sourceMode: "imported_lab", requestedBy: "hbx-owner-push-all" });
+    if (!imp.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    if (!imp.ok || !(imp.data && imp.data.ok)) {
+      sendJson(res, 502, { ok: false, count: leads.length, reason: imp.reason || imp.data?.error || imp.data?.message || "falha ao importar na VPS" });
+      return;
+    }
+    vpsLeadsCache = { at: 0, data: null };
+    sendJson(res, 200, { ok: true, count: leads.length, imported: imp.data?.imported ?? leads.length });
     return;
   }
 
@@ -1643,14 +1727,40 @@ async function route(req, res) {
     return;
   }
 
-  // Enriquecimento CNPJ→dono (L4/BrasilAPI) via Ops Control. Mesmo padrao de /owner/ops/elastic/*.
+  // Enriquecimento CNPJ→dono (cadeia gratis L1/L3/L4) — DIRETO no backend, mesmo caminho
+  // do /modules/owner/radar/database-cards (que ja funciona). A ops-control nao precisa
+  // estar configurada: o owner-agent ja autentica como system-master via SYSTEM_MASTER_*
+  // do backend/.env (backendRequest faz refresh de token no 401). O HBX Owner e dono do
+  // motor, entao aciona o backfill sozinho — sem depender do proxy ops-control (que dava 502).
   if (req.method === "POST" && url.pathname === "/owner/ops/cnpj-backfill") {
     const body = await readBody(req);
     const scope = OPS_SCOPES.has(String(body.scope || "vps").toLowerCase()) ? String(body.scope).toLowerCase() : "vps";
     const limit = clampInt(body.limit, 200, 1, 2000);
-    const response = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope, limit }, 60000);
-    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, limit, ops: response.data, reason: response.reason || response.data?.error });
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, scope, limit, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env (ou HBX_OWNER_BACKEND_TOKEN)." });
+      return;
+    }
+    const response = await backendRequest("POST", `/modules/owner/radar/cnpj-backfill?limit=${limit}`, {}, { timeoutMs: 170000 });
+    const data = (response && response.data) || {};
+    const ok = Boolean(response && response.ok);
+    const reason = ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`);
+    sendJson(res, ok ? 200 : 502, {
+      ok,
+      scope,
+      limit,
+      // formato plano — o botao "Descobrir site + CNPJ" (ckStartDiscover) le daqui
+      scanned: data.scanned,
+      enriched: data.enriched,
+      errors: data.errors,
+      sitesFound: data.sitesFound,
+      cnpjsFound: data.cnpjsFound,
+      data,
+      // compat: o botao "Enriquecer CNPJ->dono" (ckCnpjBackfill) le ops.results[]
+      ops: { results: [{ ok, environment: "backend", label: "backend", data }] },
+      reason,
+      message: reason,
+    });
     return;
   }
 

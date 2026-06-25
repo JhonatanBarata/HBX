@@ -116,8 +116,8 @@
     <div class="card">
       <span class="label">Banco de leads</span>
       <div class="grid-2" style="margin-top:6px;">
-        <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local" class="big">—</strong><small id="sys-bank-local-delta" class="delta"></small></div>
-        <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps" class="big">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
+        <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local" class="big">—</strong><small id="sys-bank-local-delta" class="delta"></small><button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;margin-top:8px;width:100%;" title="Copia TODOS os leads locais pro VPS (não apaga o local)">⬆ Mandar tudo pro VPS</button></div>
+        <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps" class="big">—</strong><small id="sys-bank-vps-delta" class="delta"></small><button id="btn-pull-vps" class="btn btn-sm btn-blue" style="display:block;margin-top:8px;width:100%;" title="Copia TODOS os leads do VPS pro local (não apaga o VPS)">⬇ Trazer tudo pro local</button></div>
       </div>
     </div>
 
@@ -139,7 +139,6 @@
             <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ Exportar CSV</button>
             <button id="btn-cockpit-enrich" class="btn btn-sm btn-blue" disabled>✦ Enriquecer</button>
             <button id="btn-cockpit-discover" class="btn btn-sm btn-blue" title="Descobre site + CNPJ → razão/CNAE/sócio nos leads sem website (cadeia grátis L1→L4)">✦ Descobrir site + CNPJ (grátis)</button>
-            <button id="btn-cockpit-vps" class="btn btn-sm btn-green" disabled>▲ Mover tudo pro VPS</button>
             <button id="btn-clean-junk" class="btn btn-sm btn-amber">✕ Limpar lixo</button>
             <button id="btn-cnpj-backfill" class="btn btn-sm btn-blue">✦ Enriquecer CNPJ→dono</button>
           </div>

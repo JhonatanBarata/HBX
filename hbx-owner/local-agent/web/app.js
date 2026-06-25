@@ -1077,14 +1077,63 @@ async function ckStartDiscover() {
   }
 }
 
+/* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) ---------- */
+async function ckPullAllFromVps() {
+  const btn = $("#btn-pull-vps");
+  const fb  = $("#export-feedback");
+  if (btn) btn.disabled = true;
+  if (fb)  { fb.textContent = "trazendo TUDO do VPS pro local…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/import-all-from-vps", {});
+    if (r.ok) {
+      const msg = `VPS→local: ${r.pulled} lidos · ${r.imported} importados${r.errors ? ` · ${r.errors} erros` : ""}`;
+      if (fb) { fb.textContent = msg; fb.className = "delta up"; }
+      pushFeed(msg, r.errors ? "warn" : "ok");
+    } else {
+      const msg = r.message || r.reason || "falha ao trazer do VPS";
+      if (fb) { fb.textContent = msg; fb.className = "delta"; }
+      pushFeed(`VPS→local: ${msg}`, "warn");
+    }
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+    setTimeout(loadCockpit, 1500);
+  }
+}
+
+async function ckPushAllToVps() {
+  const btn = $("#btn-push-vps");
+  const fb  = $("#export-feedback");
+  if (btn) btn.disabled = true;
+  if (fb)  { fb.textContent = "mandando TUDO do local pro VPS…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/push-all-to-vps", {});
+    if (r.ok) {
+      const msg = r.empty ? "Nada local pra enviar." : `local→VPS: ${r.count} enviados`;
+      if (fb) { fb.textContent = msg; fb.className = "delta up"; }
+      pushFeed(msg, "ok");
+    } else {
+      const msg = r.message || r.reason || "falha ao mandar pro VPS";
+      if (fb) { fb.textContent = msg; fb.className = "delta"; }
+      pushFeed(`local→VPS: ${msg}`, "warn");
+    }
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
   const reloadBtn      = $("#btn-cockpit-reload");
   const csvBtn         = $("#btn-cockpit-csv");
-  const vpsBtn         = $("#btn-cockpit-vps");
   const enrichBtn      = $("#btn-cockpit-enrich");
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
   const discoverBtn    = $("#btn-cockpit-discover");
+  const pullVpsBtn     = $("#btn-pull-vps");
+  const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
   const nextBtn        = $("#btn-ck-next");
   const clearBtn       = $("#btn-cockpit-clear");
@@ -1092,10 +1141,11 @@ async function ckStartDiscover() {
 
   if (reloadBtn) reloadBtn.addEventListener("click", loadCockpit);
   if (csvBtn)    csvBtn.addEventListener("click", ckExportCsv);
-  if (vpsBtn)    vpsBtn.addEventListener("click", ckSendToVps);
   if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
   if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
+  if (pullVpsBtn) pullVpsBtn.addEventListener("click", ckPullAllFromVps);
+  if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
