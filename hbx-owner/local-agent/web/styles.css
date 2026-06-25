@@ -102,7 +102,7 @@ body {
 .tab.is-active { color: var(--brand); border-bottom-color: var(--brand); }
 
 /* Content — largura normal para os cards de sistema */
-.content { padding: 24px; max-width: 1180px; margin: 0 auto; }
+.content { padding: 24px; max-width: 1680px; margin: 0 auto; }
 .panel { display: none; }
 .panel.is-active { display: block; animation: fade .18s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -211,6 +211,48 @@ body {
 .env-head .resumo { order: 3; flex-basis: 100%; margin: 0; }
 .env-vps { border-left: 2px solid var(--border); padding-left: 20px; }
 @media (max-width: 980px) { .env-vps { border-left: none; padding-left: 0; } }
+
+/* ================================================================
+   COCKPIT SHELL — moldura: rail esquerda | centro | rail direita
+   Aproveita o espaço lateral das telas largas: o dado central
+   (pressão + motores) fica emoldurado por dois painéis —
+   atividade ao vivo à esquerda, banco de leads à direita.
+================================================================ */
+.cockpit-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-areas: "left center right";
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 16px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+.shell-center { grid-area: center; min-width: 0; }
+.shell-rail { min-width: 0; }
+.rail-left { grid-area: left; }
+.rail-right { grid-area: right; }
+
+/* Rail esquerda: feed mais alto, vira "linha do tempo" lateral */
+.rail-left .feed { max-height: 560px; }
+
+/* Rail direita: banco de leads empilhado (números um sobre o outro) */
+.rail-right .grid-2 { grid-template-columns: 1fr; gap: 12px; }
+
+/* Telas estreitas: desmonta a moldura e empilha como antes (centro, feed, leads) */
+@media (max-width: 1280px) {
+  .cockpit-shell {
+    grid-template-columns: 1fr;
+    grid-template-areas: "center" "left" "right";
+    background: none;
+    border: none;
+    padding: 0;
+    gap: 16px;
+  }
+  .rail-left .feed { max-height: 300px; }
+}
 
 /* Sistema */
 .resumo {

@@ -216,6 +216,7 @@ async function refreshVpsBank(force) {
       const elasticOn = facActive && engTotal > 0;
       const elasticPending = !stt; // sem factoryStatus = painel cego
       paintChk("#chk-vps-elastic", elasticOn, elasticPending);
+      paintVpsElastic(elasticOn && !elasticPending); // verde só com leitura confirmando ON
       // Linha de leitura: "rodando agora: N · sobe sozinho até P (RAM X%)"
       const elasticLine = $("#vps-elastic-line");
       if (elasticLine) {
@@ -233,12 +234,14 @@ async function refreshVpsBank(force) {
       if (delta) delta.textContent = d.reason || "VPS indisponível";
       // Chip indeterminado quando sem leitura
       paintChk("#chk-vps-elastic", false, true);
+      paintVpsElastic(false);
       const elasticLine = $("#vps-elastic-line");
       if (elasticLine) elasticLine.textContent = "rodando agora: — · painel cego (sem Ops Control)";
     }
   } catch {
     if (delta) delta.textContent = "erro lendo VPS";
     paintChk("#chk-vps-elastic", false, true);
+    paintVpsElastic(false);
     const elasticLine = $("#vps-elastic-line");
     if (elasticLine) elasticLine.textContent = "rodando agora: — · erro ao ler VPS";
   } finally {
@@ -246,22 +249,36 @@ async function refreshVpsBank(force) {
   }
 }
 
-/* ---------- Sua máquina (pressão + motores + veredito) ---------- */
-let turboActive = false;
+/* ---------- Botões-interruptor (motores / Lab / Turbo) ----------
+   1 botão por função. A COR é o estado REAL que o front entrega (verde = ligado,
+   vermelho = desligado) e o texto é a ação oposta (Ligar ↔ Desligar). Enquanto a
+   ação está no ar o botão fica âmbar + desabilitado; assim que a leitura volta, o
+   estado real reassume — nada de estado fake. */
+const toggleBusy = { engines: false, lab: false, turbo: false, factory: false, vpsElastic: false };
+const toggleOn   = { engines: false, lab: false, turbo: false, factory: false, vpsElastic: false };
 
-function paintTurboButtons(active) {
-  turboActive = active;
-  const btnOn  = $("#btn-turbo-on");
-  const btnOff = $("#btn-turbo-off");
-  if (!btnOn || !btnOff) return;
-  if (active) {
-    btnOn.style.display  = "none";
-    btnOff.style.display = "";
-  } else {
-    btnOn.style.display  = "";
-    btnOff.style.display = "none";
-  }
+function paintToggle(sel, key, on, labels) {
+  const b = $(sel);
+  if (!b) return;
+  toggleOn[key] = on;            // lembra o estado real mesmo durante uma ação
+  if (toggleBusy[key]) return;   // não pisca por cima de quem está ligando/desligando
+  b.disabled = false;
+  b.className = "btn btn-sm " + (on ? "btn-green" : "btn-red");
+  b.textContent = on ? labels.on : labels.off;
 }
+function paintToggleBusy(sel, key, text) {
+  const b = $(sel);
+  if (!b) return;
+  toggleBusy[key] = true;
+  b.disabled = true;
+  b.className = "btn btn-sm btn-amber";
+  b.textContent = text;
+}
+function paintEngines(on)   { paintToggle("#btn-engines-local", "engines", on, { on: "Desligar motores", off: "Ligar motores" }); }
+function paintTurbo(on)     { paintToggle("#btn-turbo",         "turbo",   on, { on: "Desligar Turbo",   off: "Ligar Turbo"   }); }
+function paintLabToggle(on) { paintToggle("#btn-lab-toggle",    "lab",     on, { on: "Desligar Lab",     off: "Ligar Lab"     }); }
+function paintFactory(on)   { paintToggle("#btn-factory",       "factory", on, { on: "⏹ Parar fábrica",   off: "▶ Ligar fábrica" }); }
+function paintVpsElastic(on){ paintToggle("#btn-vps-elastic",   "vpsElastic", on, { on: "Desligar elástica", off: "Ligar elástica" }); }
 
 async function renderSistema() {
   const bankPromise = renderLocalBank();
@@ -294,13 +311,18 @@ async function renderSistema() {
     paintChk("#chk-elastic", cap.elastic);
     paintChk("#chk-factory", !cap.factoryStopped);
     paintChk("#chk-turbo", cap.turboActive);
-    paintTurboButtons(Boolean(cap.turboActive));
+    paintEngines(cap.alive > 0);            // verde se há motor vivo, vermelho se zero
+    paintTurbo(Boolean(cap.turboActive));
+    paintFactory(!cap.factoryStopped);      // verde rodando, vermelho parada
   } else {
     $("#sys-engines-big").textContent = "—";
     $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "sem token do backend";
     paintChk("#chk-elastic", false);
     paintChk("#chk-factory", false);
     paintChk("#chk-turbo", false);
+    paintEngines(false);
+    paintTurbo(false);
+    paintFactory(false);
   }
 
   const bank = await bankPromise.catch(() => ({ total: null }));
@@ -398,8 +420,14 @@ async function localEngines(action) {
     fb.textContent = err.message;
   }
 }
-$("#btn-engines-local-start").addEventListener("click", () => localEngines("start"));
-$("#btn-engines-local-stop").addEventListener("click", () => localEngines("stop"));
+async function toggleEngines() {
+  if (toggleBusy.engines) return;
+  const turnOn = !toggleOn.engines;
+  paintToggleBusy("#btn-engines-local", "engines", turnOn ? "ligando motores…" : "parando motores…");
+  try { await localEngines(turnOn ? "start" : "stop"); }
+  finally { toggleBusy.engines = false; renderSistema(); }
+}
+$("#btn-engines-local").addEventListener("click", toggleEngines);
 
 /* ---------- Turbo LOCAL ---------- */
 async function turboOn() {
@@ -409,7 +437,6 @@ async function turboOn() {
     const r = await api("POST", "/owner/ops/turbo", { scope: "local" });
     if (r.ok) {
       fb.textContent = "turbo ligado ✓"; fb.className = "delta up";
-      paintTurboButtons(true);
       paintChk("#chk-turbo", true);
       pushFeed("Turbo local ligado — scraping agressivo.", "ok");
     } else {
@@ -426,7 +453,6 @@ async function turboOff() {
     const r = await api("POST", "/owner/ops/cancel", { scope: "local", confirm: true });
     if (r.ok) {
       fb.textContent = "turbo desligado"; fb.className = "delta up";
-      paintTurboButtons(false);
       paintChk("#chk-turbo", false);
       pushFeed("Turbo local desligado.", "warn");
     } else {
@@ -436,8 +462,50 @@ async function turboOff() {
     fb.textContent = err.message;
   }
 }
-$("#btn-turbo-on").addEventListener("click", turboOn);
-$("#btn-turbo-off").addEventListener("click", turboOff);
+async function toggleTurbo() {
+  if (toggleBusy.turbo) return;
+  const turnOn = !toggleOn.turbo;
+  paintToggleBusy("#btn-turbo", "turbo", turnOn ? "ligando turbo…" : "desligando turbo…");
+  try { await (turnOn ? turboOn() : turboOff()); }
+  finally { toggleBusy.turbo = false; renderSistema(); }
+}
+$("#btn-turbo").addEventListener("click", toggleTurbo);
+
+/* ---------- Fábrica LOCAL: parar/ligar DE VERDADE (emergencyStop, durável) ---------- */
+async function factoryStop() {
+  const fb = $("#engines-local-feedback");
+  if (fb) { fb.textContent = "parando a fábrica de leads…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/factory/stop", {});
+    if (r.ok) {
+      if (fb) { fb.textContent = "Fábrica PARADA ✓ — fica parada até você ligar."; fb.className = "delta up"; }
+      paintChk("#chk-factory", false);
+      pushFeed("Você parou a fábrica de leads — produção zerada.", "warn");
+    } else if (fb) { fb.textContent = r.message || r.reason || "falhou"; }
+  } catch (err) { if (fb) fb.textContent = err.message; }
+}
+async function factoryResume() {
+  const fb = $("#engines-local-feedback");
+  if (fb) { fb.textContent = "religando a fábrica…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/factory/resume", {});
+    if (r.ok) {
+      if (fb) { fb.textContent = "Fábrica LIGADA ✓"; fb.className = "delta up"; }
+      paintChk("#chk-factory", true);
+      pushFeed("Você religou a fábrica de leads.", "ok");
+    } else if (fb) { fb.textContent = r.message || r.reason || "falhou"; }
+  } catch (err) { if (fb) fb.textContent = err.message; }
+}
+async function toggleFactory() {
+  if (toggleBusy.factory) return;
+  const turnOn = !toggleOn.factory;       // ligar fábrica = resume; desligar = stop
+  paintToggleBusy("#btn-factory", "factory", turnOn ? "ligando fábrica…" : "parando fábrica…");
+  try { await (turnOn ? factoryResume() : factoryStop()); }
+  finally { toggleBusy.factory = false; renderSistema(); }
+}
+{
+  const fb = $("#btn-factory"); if (fb) fb.addEventListener("click", toggleFactory);
+}
 
 /* ---------- Local Lab on/off ---------- */
 async function labStatus() {
@@ -458,8 +526,10 @@ function paintLab(up, busy) {
 }
 async function refreshLabState() {
   const s = await labStatus();
-  paintLab(Boolean(s.up), false);
-  return Boolean(s.up);
+  const up = Boolean(s.up);
+  if (!toggleBusy.lab) paintLab(up, false);
+  paintLabToggle(up);
+  return up;
 }
 async function ensureLabUp() {
   let s = await labStatus();
@@ -485,8 +555,14 @@ async function labStop() {
   const up = await refreshLabState();
   pushFeed(up ? "Lab ainda no ar." : "Lab de leads desligado.", up ? "warn" : "ok");
 }
-$("#btn-lab-toggle-start").addEventListener("click", labStartClick);
-$("#btn-lab-toggle-stop").addEventListener("click", labStop);
+async function toggleLab() {
+  if (toggleBusy.lab) return;
+  const turnOn = !toggleOn.lab;
+  paintToggleBusy("#btn-lab-toggle", "lab", turnOn ? "ligando Lab…" : "desligando Lab…");
+  try { if (turnOn) await labStartClick(); else await labStop(); }
+  finally { toggleBusy.lab = false; await refreshLabState(); }
+}
+$("#btn-lab-toggle").addEventListener("click", toggleLab);
 
 /* ---------- Limpar lixo do banco (mantido no Cockpit) ---------- */
 async function cleanJunkLeads() {
@@ -1077,53 +1153,89 @@ async function ckStartDiscover() {
   }
 }
 
-/* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) ---------- */
-async function ckPullAllFromVps() {
-  const btn = $("#btn-pull-vps");
-  const fb  = $("#export-feedback");
-  if (btn) btn.disabled = true;
-  if (fb)  { fb.textContent = "trazendo TUDO do VPS pro local…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/import-all-from-vps", {});
-    if (r.ok) {
-      const msg = `VPS→local: ${r.pulled} lidos · ${r.imported} importados${r.errors ? ` · ${r.errors} erros` : ""}`;
-      if (fb) { fb.textContent = msg; fb.className = "delta up"; }
-      pushFeed(msg, r.errors ? "warn" : "ok");
+/* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) com progresso vivo ---------- */
+let transferPollTimer = null;
+
+function setBankButtonsDisabled(v) {
+  const a = $("#btn-pull-vps"); const b = $("#btn-push-vps");
+  if (a) a.disabled = v;
+  if (b) b.disabled = v;
+}
+
+function paintTransfer(st) {
+  const box = $("#transfer-box");
+  const statusEl = $("#transfer-status");
+  const bar = $("#transfer-bar");
+  if (box) box.style.display = "";
+  const dirLabel = st.direction === "push" ? "Mandando pro VPS" : "Trazendo pro local";
+  const total = Number(st.total || 0);
+  let pct = 0;
+  let line = "";
+  if (st.direction === "pull") {
+    const done = Number(st.pulled || 0);
+    pct = total ? Math.min(100, Math.round((done / total) * 100)) : (st.running ? 5 : 0);
+    line = `${dirLabel}: ${done.toLocaleString("pt-BR")}${total ? " / " + total.toLocaleString("pt-BR") : ""} · ${Number(st.imported || 0).toLocaleString("pt-BR")} importados`;
+  } else {
+    pct = st.done ? 100 : (st.running ? 50 : 0);
+    line = total ? `${dirLabel}: ${Number(st.sent || total).toLocaleString("pt-BR")} leads` : `${dirLabel}…`;
+  }
+  if (st.phase && !st.done) line += ` (${st.phase})`;
+  if (st.done) {
+    if (st.ok) {
+      pct = 100;
+      line = st.direction === "push"
+        ? `✓ Enviados ${Number(st.sent || 0).toLocaleString("pt-BR")} leads pro VPS`
+        : `✓ Trazidos ${Number(st.pulled || 0).toLocaleString("pt-BR")} · ${Number(st.imported || 0).toLocaleString("pt-BR")} importados`;
     } else {
-      const msg = r.message || r.reason || "falha ao trazer do VPS";
-      if (fb) { fb.textContent = msg; fb.className = "delta"; }
-      pushFeed(`VPS→local: ${msg}`, "warn");
+      line = `✕ ${st.error || "falhou"}`;
     }
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
-  } finally {
-    if (btn) btn.disabled = false;
-    setTimeout(loadCockpit, 1500);
+  }
+  if (statusEl) { statusEl.textContent = line; statusEl.className = "delta" + (st.done && !st.ok ? "" : " up"); }
+  if (bar) { bar.style.width = pct + "%"; bar.style.background = (st.done && !st.ok) ? "#e5534b" : "#39d98a"; }
+}
+
+async function pollTransferOnce() {
+  let st;
+  try { st = await api("GET", "/owner/transfer/status"); }
+  catch { return; }
+  paintTransfer(st);
+  if (st.done || !st.running) {
+    if (transferPollTimer) { clearInterval(transferPollTimer); transferPollTimer = null; }
+    setBankButtonsDisabled(false);
+    if (st.ok) {
+      pushFeed(st.direction === "push" ? `Enviados ${st.sent} leads pro VPS.` : `Trazidos ${st.pulled} do VPS (${st.imported} importados).`, "ok");
+    } else if (st.error) {
+      pushFeed(`Transferência: ${st.error}`, "warn");
+    }
+    renderLocalBank();
+    refreshVpsBank(true);
   }
 }
 
-async function ckPushAllToVps() {
-  const btn = $("#btn-push-vps");
-  const fb  = $("#export-feedback");
-  if (btn) btn.disabled = true;
-  if (fb)  { fb.textContent = "mandando TUDO do local pro VPS…"; fb.className = "delta"; }
+async function startTransfer(route) {
+  setBankButtonsDisabled(true);
+  const box = $("#transfer-box"); if (box) box.style.display = "";
+  const statusEl = $("#transfer-status"); if (statusEl) { statusEl.textContent = "iniciando…"; statusEl.className = "delta up"; }
+  const bar = $("#transfer-bar"); if (bar) { bar.style.width = "0%"; bar.style.background = "#39d98a"; }
   try {
-    const r = await api("POST", "/owner/push-all-to-vps", {});
-    if (r.ok) {
-      const msg = r.empty ? "Nada local pra enviar." : `local→VPS: ${r.count} enviados`;
-      if (fb) { fb.textContent = msg; fb.className = "delta up"; }
-      pushFeed(msg, "ok");
-    } else {
-      const msg = r.message || r.reason || "falha ao mandar pro VPS";
-      if (fb) { fb.textContent = msg; fb.className = "delta"; }
-      pushFeed(`local→VPS: ${msg}`, "warn");
+    const r = await api("POST", route, {});
+    if (!r.ok && !r.started) {
+      if (statusEl) { statusEl.textContent = r.reason || r.message || "não iniciou"; statusEl.className = "delta"; }
+      setBankButtonsDisabled(false);
+      return;
     }
   } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
-  } finally {
-    if (btn) btn.disabled = false;
+    if (statusEl) { statusEl.textContent = err.message; statusEl.className = "delta"; }
+    setBankButtonsDisabled(false);
+    return;
   }
+  if (transferPollTimer) clearInterval(transferPollTimer);
+  pollTransferOnce();
+  transferPollTimer = setInterval(pollTransferOnce, 1200);
 }
+
+function ckPullAllFromVps() { startTransfer("/owner/import-all-from-vps"); }
+function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
 
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
@@ -1201,14 +1313,22 @@ async function vpsAction(label, route, body, confirmMsg) {
   setTimeout(renderVps, 1500);
 }
 $("#btn-vps-refresh").addEventListener("click", () => { renderVps(); refreshVpsBank(true); });
-/* Elástica VPS — 3 botões */
-$("#btn-vps-elastic-enable").addEventListener("click", () => {
-  vpsAction("ligar elástica", "/owner/ops/elastic/enable", { scope: "vps" });
-});
-$("#btn-vps-elastic-disable").addEventListener("click", () => {
-  vpsAction("desligar elástica", "/owner/ops/elastic/disable", { scope: "vps" },
-    "Desligar a elasticidade VPS? Os motores param de subir/descer automaticamente.");
-});
+/* Elástica VPS — 1 interruptor (cor = estado real) + Parar tudo / Cancelar busca */
+async function toggleVpsElastic() {
+  if (toggleBusy.vpsElastic) return;
+  const turnOn = !toggleOn.vpsElastic;
+  if (!turnOn && !confirm("Desligar a elasticidade VPS? Os motores param de subir/descer automaticamente.")) return;
+  paintToggleBusy("#btn-vps-elastic", "vpsElastic", turnOn ? "ligando elástica…" : "desligando elástica…");
+  try {
+    await vpsAction(turnOn ? "ligar elástica" : "desligar elástica",
+      turnOn ? "/owner/ops/elastic/enable" : "/owner/ops/elastic/disable",
+      { scope: "vps" });
+  } finally {
+    toggleBusy.vpsElastic = false;
+    refreshVpsBank(true); // releitura forçada → o estado real reassume o botão
+  }
+}
+$("#btn-vps-elastic").addEventListener("click", toggleVpsElastic);
 $("#btn-vps-elastic-stop-all").addEventListener("click", () => {
   vpsAction("parar todos os motores VPS", "/owner/ops/elastic/stop-all", { scope: "vps", confirm: true },
     "PARAR TODOS os motores da VPS agora? O governor não re-promove enquanto a elástica estiver off.");
@@ -1323,4 +1443,5 @@ renderVps();
 renderFeed(false);
 loadCockpit();
 setInterval(renderSistema, 5000);
+setInterval(refreshLabState, 5000);
 setInterval(pingStatus, 20000);
