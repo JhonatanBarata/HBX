@@ -110,6 +110,7 @@
       <section class="env-col env-vps" data-env="vps">
         <div class="card">
           <div class="focus-row"><span class="label" style="margin:0;">Motores · VPS</span><strong id="vps-engines-big" class="big">—</strong></div>
+          <div class="bar"><div id="vps-bar-alive" class="bar-fill"></div></div>
           <div class="bar-legend"><span id="vps-engines">—</span><span id="vps-leads-falling"></span></div>
           <div class="chk-row">
             <span id="chk-vps-elastic" class="chk">Elasticidade</span>
@@ -117,9 +118,10 @@
           </div>
           <p id="vps-elastic-line" class="delta" style="margin:8px 0 4px;">rodando agora: — · RAM —%</p>
           <div class="btn-row" style="margin-top:12px;">
+            <button id="btn-vps-factory" class="btn btn-red btn-sm" title="Liga/desliga a FÁBRICA de leads da VPS — cor = estado real (verde ligado, vermelho desligado)">Ligar fábrica</button>
+            <button id="btn-vps-engines" class="btn btn-red btn-sm" title="Liga/desliga a frota de motores da VPS — cor = estado real (verde ligado, vermelho desligado)">Ligar motores</button>
             <button id="btn-vps-elastic" class="btn btn-red btn-sm" title="Liga/desliga a elasticidade da VPS — cor = estado real (verde ligado, vermelho desligado)">Ligar elástica</button>
-            <button id="btn-vps-elastic-stop-all" class="btn btn-red btn-sm">Parar tudo</button>
-            <button id="btn-vps-cancel" class="btn btn-red btn-sm">Cancelar busca</button>
+            <button id="btn-vps-cancel" class="btn btn-amber btn-sm" title="Ação pontual: cancela o scraping forçado da VPS agora">Cancelar busca</button>
           </div>
           <span id="vps-feedback" class="delta"></span>
         </div>
@@ -137,7 +139,10 @@
             <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps" class="big">—</strong><small id="sys-bank-vps-delta" class="delta"></small><button id="btn-pull-vps" class="btn btn-sm btn-blue" style="display:block;margin-top:8px;width:100%;" title="Copia TODOS os leads do VPS pro local (não apaga o VPS)">⬇ Trazer tudo pro local</button></div>
           </div>
           <div id="transfer-box" style="display:none;margin-top:12px;">
-            <div id="transfer-status" class="delta" style="margin-bottom:6px;font-weight:600;">—</div>
+            <div class="focus-row" style="align-items:baseline;margin-bottom:6px;gap:8px;">
+              <span id="transfer-status" class="delta" style="font-weight:600;">—</span>
+              <strong id="transfer-pct" class="big" style="margin-left:auto;font-size:18px;line-height:1;">0%</strong>
+            </div>
             <div style="height:12px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;">
               <div id="transfer-bar" style="height:100%;width:0%;background:#39d98a;transition:width .35s ease;"></div>
             </div>
@@ -235,6 +240,6 @@
 
   </main>
 
-  <script src="/app.js?v=20260625e"></script>
+  <script src="/app.js?v=20260625h"></script>
 </body>
 </html>

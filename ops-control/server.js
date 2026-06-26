@@ -2193,6 +2193,52 @@ app.post('/api/opscontrol/elastic/stop-all', async (req, res) => {
   }
 });
 
+// Estado REAL da frota (read-only) do backend configurado — mesma verdade que a coluna LOCAL
+// já lê de /webscraping/engines/status, agora exposta para a coluna VPS do HBX Owner. Sem isso o
+// painel adivinhava a elasticidade por heurística (fábrica∧motores>0) e mentia o estado.
+app.get('/api/opscontrol/engines/status', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.query?.scope || 'vps');
+    const environments = environmentsForScope(scope);
+    const results = await Promise.all(environments.map((environment) => (
+      callBackendForEnvironment(environment, scope, 'GET', '/modules/owner/radar/engines/status')
+    )));
+    const primary = results.find((item) => item.ok && item.data) || results[0] || null;
+    res.json({
+      action: 'engines/status',
+      scope,
+      ok: Boolean(primary && primary.ok),
+      data: primary && primary.ok ? primary.data : null,
+      reason: primary && primary.ok ? null : (primary?.error || primary?.reason || primary?.data?.message || 'sem leitura do backend'),
+      results,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao ler estado da frota.' });
+  }
+});
+
+// Fábrica de leads — ligar/desligar DE VERDADE (emergencyStop durável) no backend configurado.
+// Espelha o que a coluna LOCAL faz direto no backend; aqui escoped (vps/local/both) via Ops Control.
+app.post('/api/opscontrol/factory/stop', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(scope, 'POST', '/modules/owner/radar/factory/stop', () => ({}));
+    res.json({ action: 'factory/stop', message: 'Fábrica de leads parada no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao parar a fábrica.' });
+  }
+});
+
+app.post('/api/opscontrol/factory/resume', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(scope, 'POST', '/modules/owner/radar/factory/resume-schedule', () => ({}));
+    res.json({ action: 'factory/resume', message: 'Fábrica de leads religada no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao religar a fábrica.' });
+  }
+});
+
 // Enriquecimento CNPJ→dono (L4/BrasilAPI). Proxia pro backend escoped por scope/auth,
 // mesmo padrao de /api/opscontrol/elastic/* e /api/opscontrol/turbo.
 app.post('/api/opscontrol/cnpj-backfill', async (req, res) => {

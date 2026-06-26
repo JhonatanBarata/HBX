@@ -1,34 +1,29 @@
 # stop-hbx-engines.ps1
-# Stops local HBX engine containers. App, database and fallback scraping engine stay untouched.
+# Stops ALL local HBX engine containers (hbx-engine-*). App, database and fallback scraping engine
+# stay untouched. Descobre os motores pelo nome do container vivo — NÃO depende de contagem/env, então
+# "Desligar motores" derruba a frota inteira (1..N), não só os 3 primeiros (bug do default Count=3).
 
 param(
-	[int]$Count = 0
+	[int]$Count = 0  # mantido por compatibilidade; ignorado — paramos TODOS os hbx-engine-* vivos
 )
 
-$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$composeFile = Join-Path $scriptRoot "..\docker-compose.yml"
 $ErrorActionPreference = 'Stop'
 
-function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string]$failureMessage) {
-	& $filePath @arguments
-	if ($LASTEXITCODE -ne 0) {
-		throw "$failureMessage Exit code: $LASTEXITCODE."
-	}
+# Lista todo container de motor vivo por prefixo de nome (independe de quantos a frota tem).
+$names = & docker ps --filter 'name=hbx-engine-' --format '{{.Names}}'
+if ($LASTEXITCODE -ne 0) {
+	throw "Failed to list HBX local engines. Exit code: $LASTEXITCODE."
+}
+$engines = @($names | Where-Object { $_ -and ($_ -match 'hbx-engine-') })
+
+if ($engines.Count -eq 0) {
+	Write-Host "No HBX local engines running."
+	exit 0
 }
 
-function Resolve-EngineCount([int]$requested) {
-	if ($requested -gt 0) { return [Math]::Min([Math]::Max($requested, 1), 50) }
-	$fromEnv = [string]$env:HBX_LOCAL_ENGINE_COUNT
-	$parsed = 0
-	if ([int]::TryParse($fromEnv, [ref]$parsed) -and $parsed -gt 0) {
-		return [Math]::Min([Math]::Max($parsed, 1), 50)
-	}
-	return 3
+Write-Host "Stopping ALL HBX local engines ($($engines.Count)): $($engines -join ', ')"
+& docker stop @engines | Out-Null
+if ($LASTEXITCODE -ne 0) {
+	throw "Failed to stop HBX local engines. Exit code: $LASTEXITCODE."
 }
-
-$resolvedCount = Resolve-EngineCount $Count
-$services = 1..$resolvedCount | ForEach-Object { "hbx-engine-$_" }
-
-Write-Host "Stopping HBX local engines: $($services -join ', ')"
-Invoke-ExternalOrThrow -filePath 'docker' -arguments (@('compose', '-f', $composeFile, 'stop') + $services) -failureMessage 'Failed to stop HBX local engines.'
-Write-Host "HBX local engines stopped."
+Write-Host "HBX local engines stopped: $($engines.Count)."

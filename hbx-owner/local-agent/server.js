@@ -23,10 +23,55 @@ const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1
 let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
 let backendTokenRefreshPromise = null;
 // Transferência VPS<->local em segundo plano (1 por vez) + progresso vivo pra UI.
+// processed/total = a % honesta (quantos leads já passaram ÷ total real do banco).
 let transferJob = {
-  running: false, direction: null, phase: "", pulled: 0, imported: 0, sent: 0,
-  total: null, page: 0, done: false, ok: null, error: null, startedAt: 0, finishedAt: 0,
+  running: false, direction: null, phase: "",
+  processed: 0, total: null, page: 0, errors: 0, failed: 0, lastError: null,
+  pulled: 0, imported: 0, sent: 0,
+  done: false, ok: null, error: null, startedAt: 0, finishedAt: 0,
 };
+
+function freshTransferJob(direction) {
+  return {
+    running: true, direction, phase: "iniciando",
+    processed: 0, total: null, page: 0, errors: 0, failed: 0, lastError: null,
+    pulled: 0, imported: 0, sent: 0,
+    done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
+  };
+}
+
+// Tenta de novo UMA vez quando o predicado de sucesso falha (timeout/blip de rede),
+// pra a transferência não morrer por causa de um soluço passageiro do SSH/backend.
+async function withRetry(fn, isOk, tries = 2, gapMs = 800) {
+  let last;
+  for (let i = 0; i < tries; i += 1) {
+    last = await fn();
+    if (isOk(last)) return last;
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, gapMs));
+  }
+  return last;
+}
+
+// O import `/webscraping/lead-harvest/import` é PROXIADO pro motor legado, cujo body-parser corta
+// bem cedo: sondei ao vivo (25/06) → ~22KB(50 leads)=200, ~36KB(80 leads)=413. Tetо real ~25KB.
+// Aqui quebra a lista em sub-lotes ≤15KB (folga sob o teto, aguenta lead gordo) — nunca toma 413.
+function chunkLeadsBySize(leads, maxBytes = 15000, maxCount = 30) {
+  const chunks = [];
+  let cur = [];
+  let curBytes = 2; // "[]"
+  for (const lead of leads) {
+    const bytes = Buffer.byteLength(JSON.stringify(lead), "utf8") + 1;
+    if (cur.length && (curBytes + bytes > maxBytes || cur.length >= maxCount)) {
+      chunks.push(cur);
+      cur = [];
+      curBytes = 2;
+    }
+    cur.push(lead);
+    curBytes += bytes;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
 // Ops Control = ponte JÁ pronta pra VPS (SSH + controles). Reaproveitamos por proxy:
 // a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
@@ -480,7 +525,25 @@ async function readEngineCapacity() {
   if (!response.ok || !response.data) {
     return { ok: false, configured: Boolean(backendToken), reason: response.error || `http_${response.statusCode || "?"}` };
   }
-  const data = response.data;
+  return { ok: true, ...parseEngineCapacity(response.data) };
+}
+
+// VPS: MESMA verdade da frota, lida pelo Ops Control (→ backend da VPS /modules/owner/radar/engines/status).
+// É a fonte que pinta os botões/chips da coluna VPS — antes era heurística (mentia o estado).
+async function readVpsEngineCapacity() {
+  if (!opsToken) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  const r = await opsRequest("GET", "/api/opscontrol/engines/status?scope=vps", null, 30000);
+  if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  const body = r.data || {};
+  if (!r.ok || !body.ok || !body.data) {
+    return { ok: false, configured: true, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` };
+  }
+  return { ok: true, configured: true, ...parseEngineCapacity(body.data) };
+}
+
+// Parser puro do payload /engines/status (sem rede). Recebe o JSON do dashboard de motores e
+// devolve o estado normalizado — reaproveitado pelo LOCAL e pelo VPS pra pintar igual.
+function parseEngineCapacity(data) {
   const engines = Array.isArray(data.engines) ? data.engines : [];
   const config = data.capacityConfig || {};
   const aliveStates = new Set(["online", "standby", "busy", "running", "active"]);
@@ -864,8 +927,9 @@ function isJunkLead(row) {
 async function readLocalCardsForExport(maxLeads = 5000) {
   const leads = [];
   const ids = [];
-  const limit = 500;
-  for (let page = 1; page <= 12 && leads.length < maxLeads; page += 1) {
+  const limit = 1000;
+  // Pagina o banco INTEIRO (guarda alta) — antes parava em 12 páginas e cortava silenciosamente em 6k.
+  for (let page = 1; page <= 200 && leads.length < maxLeads; page += 1) {
     // maxBytes alto: cada card é JSON gordo (80+ campos); o default de 200KB truncava e quebrava o parse.
     const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
     if (!r.ok || !r.data) break;
@@ -900,7 +964,11 @@ async function readLocalCardsForExport(maxLeads = 5000) {
 }
 
 // Mapeia um card (database-cards, mesmo shape local e VPS) -> lead do lead-harvest.
-function mapCardToHarvestLead(row, sourceMode, method) {
+function mapCardToHarvestLead(row, opts = {}) {
+  const sourceMode = opts.sourceMode || "imported_lab";
+  const method = opts.method || "owner_transfer";
+  const origin = opts.origin || "transfer_pool";
+  const provider = opts.provider || "owner_transfer";
   const id = String(row.id || row.externalId || "").trim();
   const name = safeText(row.name || row.companyName, 300);
   if (!id || !name) return null;
@@ -916,27 +984,34 @@ function mapCardToHarvestLead(row, sourceMode, method) {
     city: row.city || null,
     state: row.state || null,
     segment: row.segment || null,
-    sourceProvider: safeText(row.source, 60) || "vps_radar",
+    sourceProvider: safeText(row.source, 60) || provider,
     sourceUrl: website || row.sourceUrl || row.mapsUrl || `radar:${id}`,
     sourceMode,
-    evidence: { method, origin: "vps_radar_pool" },
+    evidence: { method, origin },
   };
 }
 
-// Roda em segundo plano: traz TUDO do VPS pro local, paginando de 20 em 20 (cap do VPS)
-// e atualiza transferJob pra UI mostrar progresso vivo.
+// Roda em segundo plano: traz TUDO do VPS pro local em PÁGINAS (stream), gravando cada
+// página assim que chega. % honesta = pulled ÷ total real do banco da VPS. O proxy do
+// Ops Control aceita até 2000/página; 500 = poucos round-trips e JSON seguro.
 async function runTransferPull() {
-  const pageSize = 20; // cap real do backend VPS; pedir mais cria buracos
-  const maxPages = 5000;
+  const pageSize = 500;
+  const maxPages = 2000;
+  let chunkSeq = 0;
+  let consecutiveFails = 0;
   if (!backendToken) await refreshBackendToken().catch(() => null);
   try {
     for (let page = 1; page <= maxPages; page += 1) {
       transferJob.page = page;
       transferJob.phase = "lendo VPS";
-      const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=${pageSize}&page=${page}`, null, 30000);
+      const r = await withRetry(
+        () => opsRequest("GET", `/api/radar/vps/database-cards?limit=${pageSize}&page=${page}`, null, 45000),
+        (resp) => resp && resp.ok,
+      );
       if (!r.configured) { transferJob.error = "Configure HBX_OWNER_OPS_TOKEN."; break; }
       if (!r.ok) {
-        if (page === 1) { transferJob.error = r.reason || (r.data && r.data.error) || "VPS indisponível"; }
+        transferJob.error = r.reason || (r.data && r.data.error)
+          || (page === 1 ? "VPS indisponível" : "VPS parou de responder no meio da transferência");
         break;
       }
       const data = r.data && r.data.data ? r.data.data : r.data;
@@ -944,23 +1019,45 @@ async function runTransferPull() {
       if (data && typeof data.total === "number") transferJob.total = data.total;
       if (!items.length) break;
       transferJob.pulled += items.length;
-      const leads = items.map((row) => mapCardToHarvestLead(row, "imported_lab", "owner_import_all")).filter(Boolean);
-      if (leads.length) {
+      transferJob.processed = transferJob.pulled;
+      const leads = items
+        .map((row) => mapCardToHarvestLead(row, { sourceMode: "imported_lab", method: "owner_import_all", origin: "vps_radar_pool", provider: "vps_radar" }))
+        .filter(Boolean);
+      // Grava em sub-lotes que cabem no body-parser do backend local (senão 413).
+      for (const sub of chunkLeadsBySize(leads)) {
         transferJob.phase = "gravando no local";
         const batch = {
-          batchId: `vps-pull-${Date.now()}-${page}`,
+          batchId: `vps-pull-${transferJob.startedAt}-${page}-${chunkSeq++}`,
           sourceMode: "imported_lab",
           sourceName: "VPS Radar (trazer tudo)",
           createdAt: new Date().toISOString(),
           requestedBy: "hbx-owner-import-all",
           providers: ["vps_radar"],
-          leads,
+          leads: sub,
           emails: [],
         };
-        const imp = await backendRequest("POST", "/webscraping/lead-harvest/import", batch, { timeoutMs: 60000 });
-        if (imp.ok) transferJob.imported += Number(imp.data?.accepted ?? leads.length) || 0;
+        const imp = await withRetry(
+          () => backendRequest("POST", "/webscraping/lead-harvest/import", batch, { timeoutMs: 60000 }),
+          (resp) => resp && resp.ok,
+          4, 1500,
+        );
+        if (imp.ok) {
+          transferJob.imported += Number(imp.data?.accepted ?? 0) || 0;
+          consecutiveFails = 0;
+        } else {
+          // Lote travou após retries → pula e segue (idempotente: reclicar completa os buracos).
+          transferJob.failed += sub.length;
+          transferJob.lastError = imp.error || imp.data?.message || "falha ao gravar no local";
+          consecutiveFails += 1;
+          if (consecutiveFails >= 5) {
+            transferJob.error = `Backend local instável (${transferJob.lastError}) — parei em ${transferJob.imported} gravados; reclica pra continuar.`;
+            break;
+          }
+        }
       }
+      if (transferJob.error) break;
       if (transferJob.total != null && transferJob.pulled >= transferJob.total) break;
+      if (items.length < pageSize) break;
     }
     transferJob.ok = !transferJob.error;
   } catch (err) {
@@ -974,33 +1071,75 @@ async function runTransferPull() {
   }
 }
 
-// Roda em segundo plano: manda TUDO do local pro VPS (cópia; não apaga o local).
+// Roda em segundo plano: manda TUDO do local pro VPS (cópia; não apaga o local), em PÁGINAS.
+// Cada página vira um import próprio na VPS → progresso real e nada de request gigante que estoura.
+// % honesta = sent ÷ total real do banco local.
 async function runTransferPush() {
+  const pageSize = 500;
+  const maxPages = 2000;
+  let chunkSeq = 0;
+  let consecutiveFails = 0;
   if (!backendToken) await refreshBackendToken().catch(() => null);
   try {
-    transferJob.phase = "lendo local";
-    const { leads } = await readLocalCardsForExport(50000);
-    transferJob.total = leads.length;
-    if (!leads.length) { transferJob.ok = true; return; }
-    transferJob.phase = "enviando pro VPS";
-    // O import da VPS (buildEmailLabImportPayload) EXIGE batchId — sem ele dá 400 "Export sem batchId".
-    const imp = await opsRequest("POST", "/api/email-lab/vps/import", {
-      batchId: `owner-push-${Date.now()}`,
-      sourceName: "HBX Owner (mandar tudo)",
-      leads,
-      sourceMode: "imported_lab",
-      requestedBy: "hbx-owner-push-all",
-    });
-    if (!imp.configured) { transferJob.error = "Configure HBX_OWNER_OPS_TOKEN."; transferJob.ok = false; return; }
-    if (!imp.ok || !(imp.data && imp.data.ok)) {
-      transferJob.error = imp.reason || imp.data?.error || imp.data?.message || "falha ao importar na VPS";
-      transferJob.ok = false;
-      return;
+    for (let page = 1; page <= maxPages; page += 1) {
+      transferJob.page = page;
+      transferJob.phase = "lendo local";
+      const r = await withRetry(
+        () => backendRequest("GET", `/modules/owner/radar/database-cards?limit=${pageSize}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 }),
+        (resp) => resp && resp.ok && resp.data,
+      );
+      if (!r.ok || !r.data) {
+        transferJob.error = r.error || r.data?.message
+          || (page === 1 ? `backend local indisponível (http_${r.statusCode || "?"})` : "backend local parou de responder no meio");
+        break;
+      }
+      if (typeof r.data.total === "number") transferJob.total = r.data.total;
+      const items = Array.isArray(r.data.items) ? r.data.items : [];
+      if (!items.length) break;
+      const leads = items
+        .map((row) => mapCardToHarvestLead(row, { sourceMode: "imported_lab", method: "owner_push_all", origin: "local_radar_pool", provider: "local_lab" }))
+        .filter(Boolean);
+      // Manda em sub-lotes que cabem no body-parser do backend da VPS (senão 413 "entity too large").
+      for (const sub of chunkLeadsBySize(leads)) {
+        transferJob.phase = "enviando pro VPS";
+        // O import da VPS (buildEmailLabImportPayload) EXIGE batchId — sem ele dá 400 "Export sem batchId".
+        // 4 tentativas com backoff: a VPS pisca ("fetch failed") sob carga — um blip não pode matar a transferência.
+        const imp = await withRetry(
+          () => opsRequest("POST", "/api/email-lab/vps/import", {
+            batchId: `owner-push-${transferJob.startedAt}-${page}-${chunkSeq++}`,
+            sourceName: "HBX Owner (mandar tudo)",
+            leads: sub,
+            sourceMode: "imported_lab",
+            requestedBy: "hbx-owner-push-all",
+          }, 90000),
+          (resp) => resp && resp.ok && resp.data && resp.data.ok,
+          4, 1500,
+        );
+        if (!imp.configured) { transferJob.error = "Configure HBX_OWNER_OPS_TOKEN."; break; }
+        if (imp.ok && imp.data && imp.data.ok) {
+          // Contagem real de novos no VPS (counts.accepted do backend), não o tamanho do lote.
+          const accepted = imp.data?.import?.data?.counts?.accepted ?? imp.data?.import?.data?.result?.accepted ?? 0;
+          transferJob.sent += sub.length;
+          transferJob.imported += Number(accepted) || 0;
+          transferJob.processed = transferJob.sent;
+          consecutiveFails = 0;
+        } else {
+          // Lote travou mesmo após retries → pula e segue (import é idempotente: reclicar completa os buracos).
+          transferJob.failed += sub.length;
+          transferJob.lastError = imp.reason || imp.data?.error || imp.data?.message || "falha no lote";
+          consecutiveFails += 1;
+          if (consecutiveFails >= 5) {
+            transferJob.error = `VPS instável (${transferJob.lastError}) — parei em ${transferJob.sent} enviados; reclica pra continuar.`;
+            break;
+          }
+        }
+      }
+      if (transferJob.error) break;
+      if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
+      if (items.length < pageSize) break;
     }
-    transferJob.sent = leads.length;
-    transferJob.imported = Number(imp.data?.imported ?? leads.length) || leads.length;
-    transferJob.ok = true;
-    vpsLeadsCache = { at: 0, data: null };
+    transferJob.ok = !transferJob.error;
+    if (transferJob.sent > 0) vpsLeadsCache = { at: 0, data: null };
   } catch (err) {
     transferJob.error = err.message || "falha na transferência";
     transferJob.ok = false;
@@ -1188,6 +1327,25 @@ async function route(req, res) {
     return;
   }
 
+  // Estado REAL da frota VPS (elástica/fábrica/motores) — pinta os botões da coluna VPS com a
+  // verdade do backend, não por heurística. Mesmo shape do LOCAL (/owner/system → capacity).
+  if (req.method === "GET" && url.pathname === "/owner/vps/engines-status") {
+    sendJson(res, 200, await readVpsEngineCapacity());
+    return;
+  }
+
+  // Fábrica de leads VPS — ligar/desligar de verdade (via Ops Control → backend da VPS).
+  if (req.method === "POST" && (url.pathname === "/owner/vps/factory/stop" || url.pathname === "/owner/vps/factory/resume")) {
+    const action = url.pathname.endsWith("/stop") ? "stop" : "resume";
+    const response = await opsRequest("POST", `/api/opscontrol/factory/${action}`, { scope: "vps" });
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action, ops: response.data, reason: response.reason || response.data?.error });
+    return;
+  }
+
   // Cockpit Radar Local×VPS: o que cada ambiente raspa AGORA + decisão. Cacheado (SSH pesado).
   if (req.method === "GET" && url.pathname === "/owner/radar-cockpit") {
     sendJson(res, 200, await readRadarCockpit(url.searchParams.get("force") === "1"));
@@ -1308,11 +1466,7 @@ async function route(req, res) {
       sendJson(res, 200, { ok: false, running: true, reason: "Já tem uma transferência rodando — espera terminar." });
       return;
     }
-    transferJob = {
-      running: true, direction: isPull ? "pull" : "push", phase: "iniciando",
-      pulled: 0, imported: 0, sent: 0, total: null, page: 0,
-      done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
-    };
+    transferJob = freshTransferJob(isPull ? "pull" : "push");
     (isPull ? runTransferPull() : runTransferPush()).catch((err) => {
       transferJob.error = err?.message || "falha";
       transferJob.ok = false; transferJob.done = true;

@@ -184,6 +184,9 @@ async function renderLocalBank() {
 
 let vpsBankLoading = false;
 let vpsBankAt = 0;
+// true quando /owner/vps/engines-status trouxe a verdade da frota (elástica/fábrica/motores).
+// Enquanto for true, refreshVpsBank NÃO mexe nos chips/botões — quem manda é renderVpsEngines.
+let vpsEnginesReal = false;
 async function refreshVpsBank(force) {
   if (vpsBankLoading) return;
   if (!force && vpsBankAt && Date.now() - vpsBankAt < 60000) return;
@@ -200,85 +203,160 @@ async function refreshVpsBank(force) {
       }
       const lf = $("#vps-leads-falling");
       if (lf) lf.textContent = d.today != null ? `▲ +${d.today} em 24h` : "";
-      const stt = String(d.factoryStatus || "").toLowerCase();
-      const facActive = Boolean(stt) && !["paused", "stopped", "idle", "off"].includes(stt);
-      paintChk("#chk-vps-factory", facActive);
-      // Chip Elasticidade VPS — verdade:
-      // radar-audit devolve engineSummary{total,running}. Sem elasticEnabled explícito nessa rota,
-      // usamos: fábrica ativa E motores registrados > 1 → elástica parece ON; heurística honesta.
-      // O worker A do backend vai passar elasticEnabled no status quando implantado — quando vier,
-      // o chip deve preferir esse campo. Por ora, "pending" (warn) se não tiver fábrica ativa.
-      const engTotal = d.engines ? Number(d.engines.total || 0) : 0;
-      const engRunning = d.engines ? Number(d.engines.running || 0) : 0;
-      // Verde: fábrica ativa E tem capacidade registrada (total > 0) → elasticidade funcional.
-      // Vermelho: fábrica parada/desconhecida → elástica off de fato.
-      // Pending (warn): não conseguimos determinar.
-      const elasticOn = facActive && engTotal > 0;
-      const elasticPending = !stt; // sem factoryStatus = painel cego
-      paintChk("#chk-vps-elastic", elasticOn, elasticPending);
-      paintVpsElastic(elasticOn && !elasticPending); // verde só com leitura confirmando ON
-      // Linha de leitura: "rodando agora: N · sobe sozinho até P (RAM X%)"
-      const elasticLine = $("#vps-elastic-line");
-      if (elasticLine) {
-        if (elasticPending) {
-          elasticLine.textContent = "rodando agora: — · painel cego (Ops Control não respondeu)";
-        } else if (!facActive) {
-          elasticLine.textContent = `rodando agora: ${engRunning} · elástica off — sobe sozinha quando fábrica ligar`;
-        } else {
-          elasticLine.textContent = `rodando agora: ${engRunning} · sobe sozinho na demanda, trava na RAM`;
-        }
-      }
       vpsBankAt = Date.now();
     } else {
       $("#sys-bank-vps").textContent = d.configured === false ? "config Ops" : "—";
       if (delta) delta.textContent = d.reason || "VPS indisponível";
-      // Chip indeterminado quando sem leitura
-      paintChk("#chk-vps-elastic", false, true);
-      paintVpsElastic(false);
-      const elasticLine = $("#vps-elastic-line");
-      if (elasticLine) elasticLine.textContent = "rodando agora: — · painel cego (sem Ops Control)";
     }
   } catch {
     if (delta) delta.textContent = "erro lendo VPS";
-    paintChk("#chk-vps-elastic", false, true);
-    paintVpsElastic(false);
-    const elasticLine = $("#vps-elastic-line");
-    if (elasticLine) elasticLine.textContent = "rodando agora: — · erro ao ler VPS";
   } finally {
     vpsBankLoading = false;
   }
 }
 
-/* ---------- Botões-interruptor (motores / Lab / Turbo) ----------
-   1 botão por função. A COR é o estado REAL que o front entrega (verde = ligado,
-   vermelho = desligado) e o texto é a ação oposta (Ligar ↔ Desligar). Enquanto a
-   ação está no ar o botão fica âmbar + desabilitado; assim que a leitura volta, o
-   estado real reassume — nada de estado fake. */
-const toggleBusy = { engines: false, lab: false, turbo: false, factory: false, vpsElastic: false };
-const toggleOn   = { engines: false, lab: false, turbo: false, factory: false, vpsElastic: false };
+/* ---------- Frota VPS: estado REAL (elástica · fábrica · motores) ----------
+   Mesma verdade que a coluna LOCAL: /owner/vps/engines-status devolve elasticEnabled,
+   factoryStopped, running e physicalMax (lidos do backend da VPS via Ops Control). Pinta os
+   3 botões-interruptor (verde ligado / vermelho desligado), os chips e a linha de leitura.
+   Sem leitura real → marca indeterminado (não inventa "desligado"). É a ÚNICA fonte da frota VPS. */
+async function renderVpsEngines() {
+  let c;
+  try { c = await api("GET", "/owner/vps/engines-status"); }
+  catch (err) { c = { ok: false, reason: err.message }; }
 
-function paintToggle(sel, key, on, labels) {
-  const b = $(sel);
+  const big = $("#vps-engines-big");
+  const bar = $("#vps-bar-alive");
+  const line = $("#vps-elastic-line");
+  const legend = $("#vps-engines");
+
+  if (c && c.ok) {
+    vpsEnginesReal = true;
+    const running = Number(c.running != null ? c.running : (c.alive || 0));
+    const ceiling = Number(c.physicalMax || c.ceiling || Math.max(running, 1));
+    const elasticOn = Boolean(c.elasticEnabled);
+    const factoryOn = !c.factoryStopped;
+    if (big) big.textContent = `${running}/${ceiling}`;
+    if (legend) legend.textContent = `${running} rodando · teto ${ceiling}`;
+    if (bar) {
+      const pct = ceiling > 0 ? Math.round((running / ceiling) * 100) : 0;
+      bar.style.width = `${Math.max(5, Math.min(100, pct))}%`;
+      bar.className = "bar-fill";
+    }
+    paintChk("#chk-vps-elastic", elasticOn);
+    paintChk("#chk-vps-factory", factoryOn);
+    paintVpsElastic(elasticOn);
+    paintVpsFactory(factoryOn);
+    paintVpsEngines(running > 0);   // verde se há motor vivo, vermelho se zero
+    if (line) {
+      line.textContent = !factoryOn
+        ? `rodando agora: ${running} · fábrica parada — religue pra subir motores`
+        : elasticOn
+          ? `rodando agora: ${running} · sobe sozinho até ${ceiling} na demanda`
+          : `rodando agora: ${running} · elástica off — capacidade fixa`;
+    }
+    return true;
+  }
+
+  // Sem leitura real: mantém o último estado real e marca indeterminado (não clica às cegas).
+  vpsEnginesReal = false;
+  const notConfigured = c && c.configured === false;
+  paintChk("#chk-vps-elastic", false, true);
+  paintChk("#chk-vps-factory", false, true);
+  markToggleUnknown("vpsElastic");
+  markToggleUnknown("vpsFactory");
+  markToggleUnknown("vpsEngines");
+  if (line) {
+    line.textContent = notConfigured
+      ? "rodando agora: — · configure o Ops Control (HBX_OWNER_OPS_TOKEN)"
+      : `rodando agora: — · sem leitura da frota VPS${c && c.reason ? ` (${c.reason})` : ""}`;
+  }
+  return false;
+}
+
+/* ---------- Botões-interruptor (motores / Lab / Turbo / fábrica) ----------
+   1 botão por função. A COR é SEMPRE o estado REAL que o front entrega (verde = ligado,
+   vermelho = desligado) e o texto é a ação oposta (Ligar ↔ Desligar).
+
+   O problema antigo: clicava, disparava a ação e relia na hora — mas o backend ainda não
+   tinha refletido (motor leva ~1 min pra subir, turbo/fábrica levam um instante), então o
+   botão "voltava" pro estado velho e parecia que o clique não fez nada. Aqui cada botão
+   guarda uma INTENÇÃO ({desired, deadline}) ao ser clicado: fica âmbar "aplicando…" até o
+   FRONT entregar o novo estado (real === desired) — aí solta e mostra a verdade. Se estourar
+   o prazo sem o front confirmar, volta a mostrar o estado real honesto (sem mentir/fixar). */
+const TOGGLE = {
+  engines:    { sel: "#btn-engines-local", on: "Desligar motores",  off: "Ligar motores",   window: 95000 },
+  lab:        { sel: "#btn-lab-toggle",    on: "Desligar Lab",      off: "Ligar Lab",       window: 18000 },
+  turbo:      { sel: "#btn-turbo",         on: "Desligar Turbo",    off: "Ligar Turbo",     window: 20000 },
+  factory:    { sel: "#btn-factory",       on: "⏹ Parar fábrica",    off: "▶ Ligar fábrica", window: 20000 },
+  vpsElastic: { sel: "#btn-vps-elastic",   on: "Desligar elástica", off: "Ligar elástica",  window: 25000 },
+  vpsFactory: { sel: "#btn-vps-factory",   on: "Desligar fábrica",  off: "Ligar fábrica",   window: 25000 },
+  vpsEngines: { sel: "#btn-vps-engines",   on: "Desligar motores",  off: "Ligar motores",   window: 25000 },
+};
+const APPLY_TEXT = { // texto âmbar enquanto o front não confirma
+  engines:    (d) => d ? "ligando motores…"  : "parando motores…",
+  lab:        (d) => d ? "ligando Lab…"       : "desligando Lab…",
+  turbo:      (d) => d ? "ligando Turbo…"     : "desligando Turbo…",
+  factory:    (d) => d ? "ligando fábrica…"   : "parando fábrica…",
+  vpsElastic: (d) => d ? "ligando elástica…"  : "desligando elástica…",
+  vpsFactory: (d) => d ? "ligando fábrica…"   : "parando fábrica…",
+  vpsEngines: (d) => d ? "ligando motores…"   : "parando motores…",
+};
+const toggleReal = {};   // key -> último estado REAL entregue pelo front (true/false), ou undefined
+const toggleIntent = {}; // key -> { desired, deadline } enquanto aplica, ou null
+
+function renderToggle(key) {
+  const cfg = TOGGLE[key];
+  const b = $(cfg.sel);
   if (!b) return;
-  toggleOn[key] = on;            // lembra o estado real mesmo durante uma ação
-  if (toggleBusy[key]) return;   // não pisca por cima de quem está ligando/desligando
+  const intent = toggleIntent[key];
+  const real = toggleReal[key];
+  if (intent) {
+    if (real === intent.desired) {
+      toggleIntent[key] = null;            // o FRONT confirmou → solta o âmbar e mostra a verdade
+    } else if (Date.now() < intent.deadline) {
+      b.disabled = true;                    // ainda aplicando: âmbar travado esperando o front entregar
+      b.className = "btn btn-sm btn-amber";
+      b.textContent = APPLY_TEXT[key](intent.desired);
+      return;
+    } else {
+      toggleIntent[key] = null;            // estourou o prazo sem confirmar → volta pra verdade honesta
+    }
+  }
+  if (real == null) { b.disabled = true; return; } // nunca tivemos leitura real: trava, não chuta cor
   b.disabled = false;
-  b.className = "btn btn-sm " + (on ? "btn-green" : "btn-red");
-  b.textContent = on ? labels.on : labels.off;
+  b.className = "btn btn-sm " + (real ? "btn-green" : "btn-red");
+  b.textContent = real ? cfg.on : cfg.off;
 }
-function paintToggleBusy(sel, key, text) {
-  const b = $(sel);
+
+// O front entregou o estado real → registra e repinta (confirma a intenção se bateu).
+function setToggleReal(key, on) {
+  toggleReal[key] = Boolean(on);
+  renderToggle(key);
+}
+// Clique: alterna a partir da última verdade, arma a intenção e mostra âmbar na hora.
+function beginToggle(key) {
+  const desired = !toggleReal[key];
+  toggleIntent[key] = { desired, deadline: Date.now() + TOGGLE[key].window };
+  renderToggle(key);
+  return desired;
+}
+function toggleApplying(key) { return Boolean(toggleIntent[key]); }
+// Leitura caiu (agent respondeu mas o :3000/ops falhou): NÃO inventa "desligado". Se há intenção em
+// curso, mantém o âmbar; senão trava no último real (cor/texto preservados) só pra não clicar às cegas.
+function markToggleUnknown(key) {
+  const b = $(TOGGLE[key].sel);
   if (!b) return;
-  toggleBusy[key] = true;
+  if (toggleIntent[key]) { renderToggle(key); return; }
   b.disabled = true;
-  b.className = "btn btn-sm btn-amber";
-  b.textContent = text;
 }
-function paintEngines(on)   { paintToggle("#btn-engines-local", "engines", on, { on: "Desligar motores", off: "Ligar motores" }); }
-function paintTurbo(on)     { paintToggle("#btn-turbo",         "turbo",   on, { on: "Desligar Turbo",   off: "Ligar Turbo"   }); }
-function paintLabToggle(on) { paintToggle("#btn-lab-toggle",    "lab",     on, { on: "Desligar Lab",     off: "Ligar Lab"     }); }
-function paintFactory(on)   { paintToggle("#btn-factory",       "factory", on, { on: "⏹ Parar fábrica",   off: "▶ Ligar fábrica" }); }
-function paintVpsElastic(on){ paintToggle("#btn-vps-elastic",   "vpsElastic", on, { on: "Desligar elástica", off: "Ligar elástica" }); }
+function paintEngines(on)   { setToggleReal("engines", on); }
+function paintTurbo(on)     { setToggleReal("turbo", on); }
+function paintLabToggle(on) { setToggleReal("lab", on); }
+function paintFactory(on)   { setToggleReal("factory", on); }
+function paintVpsElastic(on){ setToggleReal("vpsElastic", on); }
+function paintVpsFactory(on){ setToggleReal("vpsFactory", on); }
+function paintVpsEngines(on){ setToggleReal("vpsEngines", on); }
 
 async function renderSistema() {
   const bankPromise = renderLocalBank();
@@ -320,9 +398,10 @@ async function renderSistema() {
     paintChk("#chk-elastic", false);
     paintChk("#chk-factory", false);
     paintChk("#chk-turbo", false);
-    paintEngines(false);
-    paintTurbo(false);
-    paintFactory(false);
+    // Sem leitura confiável: não flipa pra "Ligar" (isso invertia o próximo clique). Segura o último real.
+    markToggleUnknown("engines");
+    markToggleUnknown("turbo");
+    markToggleUnknown("factory");
   }
 
   const bank = await bankPromise.catch(() => ({ total: null }));
@@ -337,9 +416,8 @@ async function renderVps() {
   status.textContent = "lendo a VPS…";
   status.className = "resumo";
   $("#vps-leads-falling").textContent = "lendo VPS…";
-  paintChk("#chk-vps-elastic", false, true);
-  paintChk("#chk-vps-factory", false, true);
   refreshVpsBank();
+  renderVpsEngines();   // frota VPS (elástica/fábrica/motores) = verdade real, independente da pressão
   let v;
   try {
     v = await api("GET", "/owner/vps/system");
@@ -354,8 +432,6 @@ async function renderVps() {
     status.textContent = v.configured === false ? "configure o Ops Control" : (v.message || v.reason || "VPS indisponível");
     status.className = "resumo warn";
     paintPill("#st-vps", v.configured === false ? "config ops" : "vps off", v.configured === false ? "muted" : "bad");
-    paintChk("#chk-vps-elastic", false, true);
-    paintChk("#chk-vps-factory", false, true);
     return;
   }
 
@@ -384,21 +460,8 @@ async function renderVps() {
   $("#vps-ram-limit").textContent = ram == null ? "sem leitura" : (v.pressure.ram.totalGb ? `${v.pressure.ram.totalGb} GB` : "");
   $("#vps-disk-limit").textContent = disk == null ? "sem leitura" : (v.pressure.disk.freeGb != null ? `${v.pressure.disk.freeGb} GB livres` : "");
   paintVerdict("vps", v.verdict);
-
-  const running = v.engines ? v.engines.running : 0;
-  const total = v.engines ? v.engines.total : 0;
-  $("#vps-engines-big").textContent = v.containersAvailable ? `${running}/${total}` : "—";
-  $("#vps-engines").textContent = v.containersAvailable ? `${running} de ${total} rodando` : "containers sob carga";
-  // Chip Elasticidade VPS — fala a verdade:
-  // verde quando a elástica está ON (elasticEnabled) e há margem pra crescer (physicalMax > running)
-  // vermelho só quando: explicitamente off OU não conseguiu ler a VPS (painel cego)
-  // O campo elasticEnabled vem do backend via /webscraping/engines/status (worker A); se ausente
-  // do snapshot de containers, cai pra heurística: factory ativa com mais de 1 container registrado.
-  // OBS: v aqui é o snapshot da VPS (pressão/containers), não o status de motores do backend.
-  // Não temos elasticEnabled direto no snapshot VPS — usamos heurística honesta:
-  // "desconhecido" (pending) quando só temos containers; a fonte real chega via refreshVpsBank
-  // que já acessa o radar-audit com engineSummary. Mantemos o pending até saber de verdade.
-  paintChk("#chk-vps-elastic", false, true); // pending até refreshVpsBank atualizar
+  // Frota (motores/elástica/fábrica) NÃO sai daqui: renderVpsEngines() já leu o estado REAL do
+  // backend da VPS (chamado no topo). O snapshot de containers é só pressão de host.
 }
 
 /* ---------- Frota LOCAL de motores ---------- */
@@ -421,11 +484,10 @@ async function localEngines(action) {
   }
 }
 async function toggleEngines() {
-  if (toggleBusy.engines) return;
-  const turnOn = !toggleOn.engines;
-  paintToggleBusy("#btn-engines-local", "engines", turnOn ? "ligando motores…" : "parando motores…");
+  if (toggleApplying("engines")) return;
+  const turnOn = beginToggle("engines");   // âmbar "aplicando…" até o front entregar alive>0/0
   try { await localEngines(turnOn ? "start" : "stop"); }
-  finally { toggleBusy.engines = false; renderSistema(); }
+  finally { renderSistema(); }             // releitura imediata; a intenção segura o botão até confirmar
 }
 $("#btn-engines-local").addEventListener("click", toggleEngines);
 
@@ -463,11 +525,10 @@ async function turboOff() {
   }
 }
 async function toggleTurbo() {
-  if (toggleBusy.turbo) return;
-  const turnOn = !toggleOn.turbo;
-  paintToggleBusy("#btn-turbo", "turbo", turnOn ? "ligando turbo…" : "desligando turbo…");
+  if (toggleApplying("turbo")) return;
+  const turnOn = beginToggle("turbo");
   try { await (turnOn ? turboOn() : turboOff()); }
-  finally { toggleBusy.turbo = false; renderSistema(); }
+  finally { renderSistema(); }
 }
 $("#btn-turbo").addEventListener("click", toggleTurbo);
 
@@ -497,11 +558,10 @@ async function factoryResume() {
   } catch (err) { if (fb) fb.textContent = err.message; }
 }
 async function toggleFactory() {
-  if (toggleBusy.factory) return;
-  const turnOn = !toggleOn.factory;       // ligar fábrica = resume; desligar = stop
-  paintToggleBusy("#btn-factory", "factory", turnOn ? "ligando fábrica…" : "parando fábrica…");
+  if (toggleApplying("factory")) return;
+  const turnOn = beginToggle("factory");  // ligar fábrica = resume; desligar = stop
   try { await (turnOn ? factoryResume() : factoryStop()); }
-  finally { toggleBusy.factory = false; renderSistema(); }
+  finally { renderSistema(); }
 }
 {
   const fb = $("#btn-factory"); if (fb) fb.addEventListener("click", toggleFactory);
@@ -527,7 +587,7 @@ function paintLab(up, busy) {
 async function refreshLabState() {
   const s = await labStatus();
   const up = Boolean(s.up);
-  if (!toggleBusy.lab) paintLab(up, false);
+  if (!toggleApplying("lab")) paintLab(up, false);
   paintLabToggle(up);
   return up;
 }
@@ -556,11 +616,10 @@ async function labStop() {
   pushFeed(up ? "Lab ainda no ar." : "Lab de leads desligado.", up ? "warn" : "ok");
 }
 async function toggleLab() {
-  if (toggleBusy.lab) return;
-  const turnOn = !toggleOn.lab;
-  paintToggleBusy("#btn-lab-toggle", "lab", turnOn ? "ligando Lab…" : "desligando Lab…");
+  if (toggleApplying("lab")) return;
+  const turnOn = beginToggle("lab");
   try { if (turnOn) await labStartClick(); else await labStop(); }
-  finally { toggleBusy.lab = false; await refreshLabState(); }
+  finally { await refreshLabState(); }
 }
 $("#btn-lab-toggle").addEventListener("click", toggleLab);
 
@@ -1166,32 +1225,39 @@ function paintTransfer(st) {
   const box = $("#transfer-box");
   const statusEl = $("#transfer-status");
   const bar = $("#transfer-bar");
+  const pctEl = $("#transfer-pct");
   if (box) box.style.display = "";
   const dirLabel = st.direction === "push" ? "Mandando pro VPS" : "Trazendo pro local";
   const total = Number(st.total || 0);
-  let pct = 0;
-  let line = "";
-  if (st.direction === "pull") {
-    const done = Number(st.pulled || 0);
-    pct = total ? Math.min(100, Math.round((done / total) * 100)) : (st.running ? 5 : 0);
-    line = `${dirLabel}: ${done.toLocaleString("pt-BR")}${total ? " / " + total.toLocaleString("pt-BR") : ""} · ${Number(st.imported || 0).toLocaleString("pt-BR")} importados`;
-  } else {
-    pct = st.done ? 100 : (st.running ? 50 : 0);
-    line = total ? `${dirLabel}: ${Number(st.sent || total).toLocaleString("pt-BR")} leads` : `${dirLabel}…`;
-  }
-  if (st.phase && !st.done) line += ` (${st.phase})`;
+  // processed = leads que JÁ passaram (stream real dos dois lados); fallback pros contadores de detalhe.
+  const processed = Number(st.processed != null ? st.processed : (st.direction === "push" ? st.sent : st.pulled) || 0);
+  // % honesta: processed ÷ total real do banco. Sem total ainda, mostra um fiapo só pra indicar "iniciou".
+  let pct = total ? Math.min(100, Math.round((processed / total) * 100)) : (st.running ? 3 : 0);
+  let line = total
+    ? `${dirLabel}: ${processed.toLocaleString("pt-BR")} / ${total.toLocaleString("pt-BR")}`
+    : `${dirLabel}…`;
+  if (st.phase && !st.done) line += ` · ${st.phase}`;
+  const failed = Number(st.failed || 0);
   if (st.done) {
-    if (st.ok) {
+    if (st.ok && failed === 0) {
       pct = 100;
       line = st.direction === "push"
-        ? `✓ Enviados ${Number(st.sent || 0).toLocaleString("pt-BR")} leads pro VPS`
-        : `✓ Trazidos ${Number(st.pulled || 0).toLocaleString("pt-BR")} · ${Number(st.imported || 0).toLocaleString("pt-BR")} importados`;
+        ? `✓ ${Number(st.sent || 0).toLocaleString("pt-BR")} enviados pro VPS`
+        : `✓ ${Number(st.pulled || 0).toLocaleString("pt-BR")} trazidos · ${Number(st.imported || 0).toLocaleString("pt-BR")} novos no local`;
+    } else if (st.ok && failed > 0) {
+      // Concluiu mas alguns lotes piscaram — honesto: mostra quanto faltou e que reclicar completa.
+      line = st.direction === "push"
+        ? `⚠ ${Number(st.sent || 0).toLocaleString("pt-BR")} enviados · ${failed.toLocaleString("pt-BR")} piscaram — reclica pra completar`
+        : `⚠ ${Number(st.imported || 0).toLocaleString("pt-BR")} no local · ${failed.toLocaleString("pt-BR")} piscaram — reclica pra completar`;
     } else {
-      line = `✕ ${st.error || "falhou"}`;
+      // Erro fatal: mantém a barra onde parou — não mente 100%.
+      line = `✕ ${st.error || "falhou"}${processed ? ` (parou em ${processed.toLocaleString("pt-BR")})` : ""}`;
     }
   }
+  const warnPartial = st.done && st.ok && failed > 0;
   if (statusEl) { statusEl.textContent = line; statusEl.className = "delta" + (st.done && !st.ok ? "" : " up"); }
-  if (bar) { bar.style.width = pct + "%"; bar.style.background = (st.done && !st.ok) ? "#e5534b" : "#39d98a"; }
+  if (bar) { bar.style.width = pct + "%"; bar.style.background = (st.done && !st.ok) ? "#e5534b" : warnPartial ? "#f0a93b" : "#39d98a"; }
+  if (pctEl) pctEl.textContent = (st.done && !st.ok) ? "—" : pct + "%";
 }
 
 async function pollTransferOnce() {
@@ -1313,26 +1379,58 @@ async function vpsAction(label, route, body, confirmMsg) {
   setTimeout(renderVps, 1500);
 }
 $("#btn-vps-refresh").addEventListener("click", () => { renderVps(); refreshVpsBank(true); });
-/* Elástica VPS — 1 interruptor (cor = estado real) + Parar tudo / Cancelar busca */
+
+/* VPS — 3 interruptores (cor = estado REAL que /engines-status entrega) + Cancelar busca (ação).
+   Cada toggle dispara a ação oposta ao estado atual; ao terminar, renderVpsEngines() relê o real
+   e o botão reassume a verdade (verde ligado / vermelho desligado). */
+
+// Elástica (governor que sobe/desce motores sozinho): enable ↔ disable.
 async function toggleVpsElastic() {
-  if (toggleBusy.vpsElastic) return;
-  const turnOn = !toggleOn.vpsElastic;
+  if (toggleApplying("vpsElastic")) return;
+  const turnOn = !toggleReal.vpsElastic;
   if (!turnOn && !confirm("Desligar a elasticidade VPS? Os motores param de subir/descer automaticamente.")) return;
-  paintToggleBusy("#btn-vps-elastic", "vpsElastic", turnOn ? "ligando elástica…" : "desligando elástica…");
+  beginToggle("vpsElastic");                // âmbar até /engines-status entregar o novo estado
   try {
     await vpsAction(turnOn ? "ligar elástica" : "desligar elástica",
       turnOn ? "/owner/ops/elastic/enable" : "/owner/ops/elastic/disable",
       { scope: "vps" });
   } finally {
-    toggleBusy.vpsElastic = false;
-    refreshVpsBank(true); // releitura forçada → o estado real reassume o botão
+    setTimeout(renderVpsEngines, 1200); // releitura real → o botão reassume o estado verdadeiro
   }
 }
 $("#btn-vps-elastic").addEventListener("click", toggleVpsElastic);
-$("#btn-vps-elastic-stop-all").addEventListener("click", () => {
-  vpsAction("parar todos os motores VPS", "/owner/ops/elastic/stop-all", { scope: "vps", confirm: true },
-    "PARAR TODOS os motores da VPS agora? O governor não re-promove enquanto a elástica estiver off.");
-});
+
+// Fábrica de leads VPS: ligar (resume) ↔ desligar (stop, freio durável).
+async function toggleVpsFactory() {
+  if (toggleApplying("vpsFactory")) return;
+  const turnOn = !toggleReal.vpsFactory;
+  if (!turnOn && !confirm("Parar a FÁBRICA de leads da VPS? Para de produzir até você religar.")) return;
+  beginToggle("vpsFactory");
+  try {
+    await vpsAction(turnOn ? "ligar fábrica VPS" : "parar fábrica VPS",
+      turnOn ? "/owner/vps/factory/resume" : "/owner/vps/factory/stop", {});
+  } finally {
+    setTimeout(renderVpsEngines, 1200);
+  }
+}
+$("#btn-vps-factory").addEventListener("click", toggleVpsFactory);
+
+// Motores VPS (a frota em si): ligar = liga a elástica pra subir; desligar = parar TODOS agora.
+async function toggleVpsEngines() {
+  if (toggleApplying("vpsEngines")) return;
+  const turnOn = !toggleReal.vpsEngines;
+  if (!turnOn && !confirm("Desligar TODOS os motores da VPS agora? (parada total — o governor não re-promove enquanto a elástica estiver off.)")) return;
+  beginToggle("vpsEngines");
+  try {
+    if (turnOn) await vpsAction("ligar motores VPS", "/owner/ops/elastic/enable", { scope: "vps" });
+    else await vpsAction("parar motores VPS", "/owner/ops/elastic/stop-all", { scope: "vps", confirm: true });
+  } finally {
+    setTimeout(renderVpsEngines, 1200);
+  }
+}
+$("#btn-vps-engines").addEventListener("click", toggleVpsEngines);
+
+// Cancelar busca: ação pontual (não é estado on/off) — cancela o scraping forçado agora.
 $("#btn-vps-cancel").addEventListener("click", () => {
   vpsAction("cancelar busca", "/owner/vps/cancel", { confirm: true }, "Cancelar a busca forçada na VPS agora?");
 });
@@ -1440,8 +1538,10 @@ pingStatus();
 refreshLabState();
 renderSistema();
 renderVps();
+renderVpsEngines();
 renderFeed(false);
 loadCockpit();
 setInterval(renderSistema, 5000);
 setInterval(refreshLabState, 5000);
+setInterval(renderVpsEngines, 15000);  // mantém os interruptores da VPS no estado real, ao vivo
 setInterval(pingStatus, 20000);
