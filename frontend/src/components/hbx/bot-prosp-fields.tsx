@@ -5,6 +5,9 @@
 // controles, mesma lógica de leitura/escrita (via helpers do useProspectingConfig).
 // Pintura SÓ via tokens/classes centrais (bot-prospeccao.css).
 
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
 import { I, ICONS } from "@/components/hbx/shell";
 import {
   ABSOLUTE_DAILY_SEND_CAP,
@@ -12,6 +15,7 @@ import {
   type PieceKey,
   type ProspCfg,
 } from "@/lib/use-prospecting-config";
+import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 
 // Helpers de leitura/escrita que vêm do hook (mesma assinatura).
 export type ProspFieldHelpers = {
@@ -21,6 +25,7 @@ export type ProspFieldHelpers = {
   listVal: (k: keyof ProspCfg) => string[];
   setField: <K extends keyof ProspCfg>(k: K, v: ProspCfg[K]) => void;
   setNum: (k: keyof ProspCfg, raw: string, min: number, max: number) => void;
+  variableCatalog?: VarDef[];
 };
 
 // ── Corpo da peça (os controles) — o switch que estava na gaveta ──
@@ -106,7 +111,7 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
           </button>
         </div>
         {boolVal("preMessageEnabled") && (
-          <VariantListEditor label="Variantes do aquecimento" hint="Mensagens curtas de abertura — o motor reveza." max={20} items={listVal("preMessageVariants")} onChange={items => setField("preMessageVariants", items)} />
+          <VariantListEditor label="Variantes do aquecimento" hint="Mensagens curtas de abertura — o motor reveza." max={20} items={listVal("preMessageVariants")} onChange={items => setField("preMessageVariants", items)} variableCatalog={h.variableCatalog} />
         )}
         {VARIANT_LISTS.map(v => (
           <VariantListEditor
@@ -116,6 +121,7 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
             max={v.max}
             items={listVal(v.key)}
             onChange={items => setField(v.key, items as never)}
+            variableCatalog={h.variableCatalog}
           />
         ))}
       </>
@@ -125,9 +131,12 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
   if (piece === "palavras") {
     return (
       <>
-        <p className="bot-prosp-field__note">Palavras que ajudam o motor a classificar a resposta do lead. Opcional — sem isto, ele usa as palavras padrão.</p>
-        <VariantListEditor single label="Sinais de interesse (positivas)" hint="Ex.: quero, tenho interesse, me explica." max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
-        <VariantListEditor single label="Sinais de recusa (negativas)" hint="Ex.: não quero, pare, remova." max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
+        <p className="bot-prosp-field__note">Palavras que ajudam o motor a classificar a resposta do lead e decidir o próximo passo. Opcional — o que você adiciona entra <strong>por cima</strong> das palavras padrão do motor (nunca as apaga).</p>
+        <VariantListEditor single label="Demonstra interesse" hint="O lead topou ouvir. Ex.: quero, tenho interesse, pode mandar, quanto custa." max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
+        <VariantListEditor single label="Demonstra dúvida" hint="O lead quer entender melhor antes de decidir. Ex.: o que é, como funciona, não entendi, me explica melhor." max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra falar depois" hint="Adiamento, não recusa. Ex.: depois, mais tarde, amanhã, semana que vem, agora não." max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra parar / não contatar" hint="Recusa firme — vira opt-out. Ex.: não quero, pare, remova, spam, bloqueia." max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra falar com humano" hint="Quer atendimento de gente. Ex.: humano, atendente, consultor, me liga, pode ligar." max={40} items={listVal("humanHandoffIntentKeywords")} onChange={items => setField("humanHandoffIntentKeywords", items)} />
       </>
     );
   }
@@ -137,11 +146,41 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
 
 // ── Campos reaproveitáveis ──
 export function NumberField({ label, hint, value, min, max, onChange }: { label: string; hint?: string; value: number; min: number; max: number; onChange: (v: string) => void }) {
+  // Estado local da string exibida: permite apagar tudo sem o campo pular pro min.
+  // Só chama onChange quando há dígitos; no blur restaura se vazio.
+  const [raw, setRaw] = useState(String(value));
+  const focused = useRef(false);
+
+  // Sincroniza quando o valor externo muda E o campo não está em foco
+  // (ex: reload do poll). Usa comparação com lastProp pra não usar useEffect.
+  const [lastProp, setLastProp] = useState(value);
+  if (!focused.current && value !== lastProp) {
+    setLastProp(value);
+    setRaw(String(value));
+  }
+
   return (
     <div className="bot-prosp-field">
       <label className="bot-prosp-field__label">{label}</label>
       {hint && <span className="bot-prosp-field__hint">{hint}</span>}
-      <input className="field-dark bot-prosp-field__num" type="number" inputMode="numeric" value={String(value)} min={min} max={max} onChange={e => onChange(e.target.value)} />
+      <input
+        className="field-dark bot-prosp-field__num"
+        type="number"
+        inputMode="numeric"
+        value={raw}
+        min={min}
+        max={max}
+        onFocus={() => { focused.current = true; }}
+        onBlur={() => {
+          focused.current = false;
+          if (raw.trim() === "") setRaw(String(value)); // restaura se vazio
+          else onChange(raw); // comita o valor final
+        }}
+        onChange={e => {
+          setRaw(e.target.value);
+          if (e.target.value.trim() !== "") onChange(e.target.value);
+        }}
+      />
     </div>
   );
 }
@@ -155,7 +194,24 @@ export function TimeField({ label, value, onChange }: { label: string; value: st
   );
 }
 
-export function VariantListEditor({ label, hint, max, items, onChange, single }: { label: string; hint?: string; max: number; items: string[]; onChange: (next: string[]) => void; single?: boolean }) {
+export function VariantListEditor({ label, hint, max, items, onChange, single, variableCatalog }: { label: string; hint?: string; max: number; items: string[]; onChange: (next: string[]) => void; single?: boolean; variableCatalog?: VarDef[] }) {
+  const [varPopup, setVarPopup] = useState(false);
+  const [popupPos, setPopupPos] = useState<{ bottom: number; right: number } | null>(null);
+  const lastFocused = useRef<{ index: number; selStart: number; selEnd: number } | null>(null);
+  const fieldRefs = useRef<(HTMLTextAreaElement | HTMLInputElement | null)[]>([]);
+  const varBtnRef = useRef<HTMLButtonElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!varPopup) return;
+    const handle = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!varBtnRef.current?.contains(t) && !popupRef.current?.contains(t)) setVarPopup(false);
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [varPopup]);
+
   function update(i: number, text: string) {
     const next = items.slice();
     next[i] = text;
@@ -163,6 +219,37 @@ export function VariantListEditor({ label, hint, max, items, onChange, single }:
   }
   function remove(i: number) { onChange(items.filter((_, idx) => idx !== i)); }
   function add() { if (items.length < max) onChange([...items, ""]); }
+
+  function trackCursor(i: number, el: HTMLTextAreaElement | HTMLInputElement) {
+    lastFocused.current = { index: i, selStart: el.selectionStart ?? el.value.length, selEnd: el.selectionEnd ?? el.value.length };
+  }
+
+  function insertVariable(token: string) {
+    const lf = lastFocused.current;
+    setVarPopup(false);
+    if (!lf || lf.index >= items.length) return;
+    const text = items[lf.index] ?? "";
+    const newText = text.slice(0, lf.selStart) + token + text.slice(lf.selEnd);
+    const next = items.slice();
+    next[lf.index] = newText;
+    onChange(next);
+    const newPos = lf.selStart + token.length;
+    setTimeout(() => {
+      const el = fieldRefs.current[lf.index];
+      el?.focus();
+      el?.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
+  const showVarBtn = !single && variableCatalog && variableCatalog.length > 0;
+
+  function openVarPopup() {
+    if (!varPopup && varBtnRef.current) {
+      const r = varBtnRef.current.getBoundingClientRect();
+      setPopupPos({ bottom: window.innerHeight - r.top + 6, right: window.innerWidth - r.right });
+    }
+    setVarPopup(v => !v);
+  }
 
   return (
     <div className="bot-prosp-vlist">
@@ -175,18 +262,65 @@ export function VariantListEditor({ label, hint, max, items, onChange, single }:
       {items.map((it, i) => (
         <div className="bot-prosp-vlist__item" key={i}>
           {single ? (
-            <input className="field-dark bot-prosp-vlist__field" value={it} onChange={e => update(i, e.target.value)} placeholder="palavra ou frase curta" />
+            <input
+              className="field-dark bot-prosp-vlist__field"
+              value={it}
+              ref={el => { fieldRefs.current[i] = el; }}
+              onFocus={e => trackCursor(i, e.target as HTMLInputElement)}
+              onClick={e => trackCursor(i, e.target as HTMLInputElement)}
+              onKeyUp={e => trackCursor(i, e.target as HTMLInputElement)}
+              onChange={e => update(i, e.target.value)}
+              placeholder="palavra ou frase curta"
+            />
           ) : (
-            <textarea className="field-dark bot-prosp-vlist__field bot-prosp-vlist__field--multi" value={it} onChange={e => update(i, e.target.value)} placeholder="escreva uma variante…" />
+            <textarea
+              className="field-dark bot-prosp-vlist__field bot-prosp-vlist__field--multi"
+              value={it}
+              ref={el => { fieldRefs.current[i] = el as HTMLTextAreaElement; }}
+              onFocus={e => trackCursor(i, e.target as HTMLTextAreaElement)}
+              onClick={e => trackCursor(i, e.target as HTMLTextAreaElement)}
+              onKeyUp={e => trackCursor(i, e.target as HTMLTextAreaElement)}
+              onChange={e => update(i, e.target.value)}
+              placeholder="escreva uma variante…"
+            />
           )}
           <button type="button" className="icon-ghost bot-prosp-vlist__del" title="Remover" aria-label="Remover" onClick={() => remove(i)}>
             <I d={ICONS.trash} size={13} />
           </button>
         </div>
       ))}
-      <button type="button" className="btn-ghost bot-prosp-vlist__add" onClick={add} disabled={items.length >= max}>
-        <I d={ICONS.plus} size={12} /> Adicionar {single ? "palavra" : "variante"}
-      </button>
+      <div className="bot-prosp-vlist__footer">
+        <button type="button" className="btn-ghost bot-prosp-vlist__add" onClick={add} disabled={items.length >= max}>
+          <I d={ICONS.plus} size={12} /> Adicionar {single ? "palavra" : "variante"}
+        </button>
+        {showVarBtn && (
+          <button ref={varBtnRef} type="button" className="btn-ghost bot-prosp-vlist__add" onClick={openVarPopup}>
+            <I d={ICONS.bolt} size={12} /> Adicionar variável
+          </button>
+        )}
+      </div>
+      {showVarBtn && varPopup && popupPos && createPortal(
+        <div
+          ref={popupRef}
+          className="bot-prosp-var-popup hbx-pop"
+          role="listbox"
+          aria-label="Variáveis disponíveis"
+          style={{ position: "fixed", bottom: popupPos.bottom, right: popupPos.right }}
+        >
+          {variableCatalog!.map(v => (
+            <button
+              key={v.key}
+              type="button"
+              className="bot-prosp-var-popup__item"
+              onMouseDown={e => { e.preventDefault(); insertVariable(`{{${v.key}}}`); }}
+            >
+              <span className="bot-prosp-var-popup__label">{v.label}</span>
+              <code className="bot-prosp-var-popup__token">{`{{${v.key}}}`}</code>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

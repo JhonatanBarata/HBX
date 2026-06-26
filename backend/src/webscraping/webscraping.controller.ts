@@ -1399,15 +1399,30 @@ export class MasterWebscrapingController {
   }
 
   /**
-   * POST /modules/owner/radar/cnpj-backfill?limit=200
-   * Cadeia grátis completa por lead: (a) web-enrichment/Brave L3, (b) L4 CNPJ vault, (c) L1 sinais.
-   * NÃO inclui L5 (whatsapp-check). Devolve { scanned, enriched, errors, sitesFound, cnpjsFound }.
+   * POST /modules/owner/radar/cnpj-backfill?limit=200&socials=1
+   * Worker 1 "CNPJ → dono". Cadeia grátis por lead: (a) web-enrichment/Brave L3 (site+CNPJ),
+   * (b) L4 CNPJ vault → razão/CNAE/sócio/situação + TELEFONE do dono, (b2) sociais DO DONO
+   * (Instagram/Facebook pessoais via busca web), (c) L1 sinais. NÃO inclui L5 (whatsapp-check).
+   * `socials=0` desliga a etapa social. Devolve
+   * { scanned, enriched, errors, sitesFound, cnpjsFound, phonesFound, socialsFound }.
    */
   @Post('cnpj-backfill')
-  cnpjBackfill(@Query('limit') limit?: string) {
+  cnpjBackfill(@Query('limit') limit?: string, @Query('socials') socials?: string) {
     const parsed = limit ? Number(limit) : undefined;
     return this.webscrapingService.cnpjBackfillForMaster({
       limit: Number.isFinite(parsed) ? parsed : 200,
+      socials: socials === '0' || socials === 'false' ? false : true,
     });
+  }
+
+  /**
+   * POST /modules/owner/radar/apply-contacts
+   * Worker 2 "Email finder": aplica nos cards o que o Local Lab achou (e-mail/CNPJ/redes),
+   * casando por `id`. ADITIVO — só preenche campo vazio. Body: { items: [{ id, email?, cnpj?,
+   * instagramUrl?, facebookUrl? }] }. Devolve { requested, updated, emails, cnpjs, socials, errors }.
+   */
+  @Post('apply-contacts')
+  applyContacts(@Body() body: { items?: Array<{ id?: string; email?: string; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> }) {
+    return this.webscrapingService.applyDiscoveredContactsForMaster(body?.items || []);
   }
 }

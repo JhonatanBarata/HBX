@@ -818,6 +818,18 @@ export class UpdateVendasProspectingConfigDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  callbackIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  humanHandoffIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
   firstContactVariants?: string[];

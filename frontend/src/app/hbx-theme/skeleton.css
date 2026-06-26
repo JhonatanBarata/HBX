@@ -77,6 +77,13 @@
   --wa-composer: #1F2C33;      /* barra do composer dentro do telefone */
   --wa-quick: #1F2C33;         /* botão de resposta rápida */
   --wa-quick-ink: #53BDEB;     /* texto do botão de resposta rápida */
+  --wa-status-bar: #054940;    /* barra de status (acima do header) */
+  --wa-frame-edge: rgba(255,255,255,0.07); /* reflexo da borda do frame */
+  --wa-frame-side: #0D1317;    /* cor lateral do frame (volume buttons) */
+  --wa-island: #111B21;        /* ilha dinâmica (pill no topo) */
+  --wa-composer-input: #2A3942; /* campo de texto no composer */
+  --wa-home-bar: rgba(255,255,255,0.28); /* indicador home */
+  --wa-icon-btn: rgba(255,255,255,0.12); /* hover dos icon buttons */
 
   /* ---- Texto ------------------------------------------------------------ */
   --hbx-foreground: #1A1A1A;

@@ -2958,12 +2958,35 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'entendi',
       'ok',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+    const callbackKeywords = this.readJsonTextList(filters.callbackIntentKeywords, [
+      'depois',
+      'mais tarde',
+      'outro horario',
+      'outro dia',
+      'amanha',
+      'semana que vem',
+      'pode ligar depois',
+      'me chama depois',
+      'manda depois',
+      'agora nao',
+    ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+    const humanHandoffKeywords = this.readJsonTextList(filters.humanHandoffIntentKeywords, [
+      'humano',
+      'atendente',
+      'consultor',
+      'ligar',
+      'me liga',
+      'me chama',
+      'pode ligar',
+    ]).map((item) => this.normalizeVendasAutomationIntentText(item));
     const intent = classifyProspectingIntent({
       text: input.text,
       positiveKeywords,
       negativeKeywords,
       whatIsItKeywords,
       neutralKeywords,
+      callbackKeywords,
+      humanHandoffKeywords,
     });
     const autoReplyClassification = classifyProspectingAutoReply(input.text);
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);

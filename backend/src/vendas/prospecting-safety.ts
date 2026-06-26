@@ -170,6 +170,11 @@ export function classifyProspectingIntent(input: {
   negativeKeywords: string[];
   whatIsItKeywords: string[];
   neutralKeywords: string[];
+  // "Falar depois" e "falar com humano" também aceitam palavras do dono — as
+  // listas custom entram POR CIMA dos defaults do motor (nunca substituem, pra
+  // não perder os gatilhos básicos). Opcionais: chamadas antigas seguem valendo.
+  callbackKeywords?: string[];
+  humanHandoffKeywords?: string[];
 }) {
   const text = String(input.text || '');
   const normalized = normalizeIntentText(text);
@@ -196,8 +201,14 @@ export function classifyProspectingIntent(input: {
     ...DEFAULT_DOUBT_INTENT_KEYWORDS,
   ]);
   const positive = containsIntentKeyword(text, input.positiveKeywords);
-  const delay = containsIntentKeyword(text, DEFAULT_DELAY_INTENT_KEYWORDS);
-  const humanHandoff = containsIntentKeyword(text, DEFAULT_HUMAN_HANDOFF_INTENT_KEYWORDS);
+  const delay = containsIntentKeyword(text, [
+    ...(input.callbackKeywords ?? []),
+    ...DEFAULT_DELAY_INTENT_KEYWORDS,
+  ]);
+  const humanHandoff = containsIntentKeyword(text, [
+    ...(input.humanHandoffKeywords ?? []),
+    ...DEFAULT_HUMAN_HANDOFF_INTENT_KEYWORDS,
+  ]);
   const neutral = containsIntentKeyword(text, input.neutralKeywords);
   const signals = { positive, negative, optOut, whatIsIt, delay, humanHandoff, neutral };
   const reasons = Object.entries(signals)

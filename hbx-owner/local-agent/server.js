@@ -335,6 +335,129 @@ function stopLocalLab() {
   return processes.length;
 }
 
+// Chamada HTTP genérica ao Local Lab (3098) — DIRETO, sem passar por Ops Control/VPS.
+// É a fiação "localhost apenas" do Email Finder: o crawl agressivo sai do IP local.
+function localLabRequest(method, route, payload, timeoutMs = 20000, maxBytes = 8_000_000) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(`${localLabUrl}${route}`);
+    } catch (error) {
+      resolve({ ok: false, error: `URL local-lab invalida: ${error.message}` });
+      return;
+    }
+    const data = payload ? Buffer.from(JSON.stringify(payload)) : null;
+    const headers = { Accept: "application/json" };
+    if (data) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = data.length;
+    }
+    const req = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: timeoutMs },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => { if (body.length < maxBytes) body += chunk.toString("utf8"); });
+        response.on("end", () => {
+          let parsed = null;
+          try { parsed = body ? JSON.parse(body) : null; } catch { parsed = null; }
+          resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, statusCode: response.statusCode, data: parsed, raw: body });
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => resolve({ ok: false, error: error.message }));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+// Garante o Local Lab no ar (sobe se preciso) e espera o /health responder.
+async function ensureLocalLabUp(maxWaitMs = 6000) {
+  let health = await requestLocalLabHealth();
+  if (health.ok) return true;
+  try { startLocalLab(); } catch { return false; }
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500));
+    health = await requestLocalLabHealth();
+    if (health.ok) return true;
+  }
+  return false;
+}
+
+// Domínio "limpo" pra casar lead-do-crawl ↔ card-de-origem (mesma régua dos dois lados).
+function cardDomain(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return raw.replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0];
+  }
+}
+
+// Domínios que NÃO são site oficial (rede social/diretório) → não viram alvo de crawl de e-mail.
+const NON_SITE_DOMAINS = new Set([
+  "instagram.com", "facebook.com", "fb.com", "wa.me", "whatsapp.com", "linktr.ee",
+  "google.com", "maps.app.goo.gl", "goo.gl", "bit.ly", "linkedin.com", "youtube.com",
+]);
+function isCrawlableSite(website) {
+  const d = cardDomain(website);
+  return Boolean(d) && d.includes(".") && !NON_SITE_DOMAINS.has(d);
+}
+
+// ----- Email Finder (Worker 2, high-risk, localhost-only) --------------------
+// Estado vivo de UMA caça por vez. `domainToCardId` casa o lead-do-crawl com o card de
+// origem (o Local Lab descarta o id; casamos por domínio na hora de aplicar).
+let emailFinderJob = {
+  running: false, jobId: null, phase: "", startedAt: 0, finishedAt: 0,
+  scope: null, candidates: 0, scannedCards: 0, error: null, lastStatus: null,
+  applied: null, domainToCardId: {},
+};
+
+// Monta a lista de candidatos (sites dos cards locais) pra mandar pro Local Lab.
+// `onlyMissingEmail` foca em quem ainda não tem e-mail; sempre exige site crawlável.
+async function buildEmailFinderCandidates(opts = {}) {
+  const onlyMissingEmail = opts.onlyMissingEmail !== false; // default: só sem e-mail
+  const maxCandidates = clampInt(opts.maxCandidates, 800, 1, 5000);
+  const pageSize = 500;
+  const maxPages = 40;
+  if (!backendToken) await refreshBackendToken().catch(() => null);
+
+  const seeds = [];
+  const domainToCardId = {};
+  let scannedCards = 0;
+  for (let page = 1; page <= maxPages; page += 1) {
+    const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${pageSize}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
+    if (!r.ok || !r.data) break;
+    const data = r.data.data ? r.data.data : r.data;
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) break;
+    scannedCards += items.length;
+    for (const row of items) {
+      const website = row.website || null;
+      if (!isCrawlableSite(website)) continue;
+      if (onlyMissingEmail && String(row.email || "").trim()) continue;
+      const domain = cardDomain(website);
+      if (!domain || domainToCardId[domain]) continue; // 1 site por domínio
+      domainToCardId[domain] = String(row.id || "");
+      seeds.push({
+        name: safeText(row.name, 300),
+        city: safeText(row.city, 120),
+        state: safeText(row.state, 2).toUpperCase(),
+        segment: safeText(row.segment, 180),
+        website,
+        cnpj: String(row.cnpj || "").replace(/\D/g, "") || undefined,
+      });
+      if (seeds.length >= maxCandidates) break;
+    }
+    if (seeds.length >= maxCandidates) break;
+    if (items.length < pageSize) break;
+  }
+  return { seeds, domainToCardId, scannedCards };
+}
+
 // ---------- Backend bridge (Banco de Leads + import) ----------
 function backendRequestOnce(method, route, payload, token, options = {}) {
   return new Promise((resolve) => {
@@ -1740,6 +1863,146 @@ async function route(req, res) {
     return;
   }
 
+  // ================================================================
+  // EMAIL FINDER (Worker 2) — high-risk, LOCALHOST ONLY.
+  // Fala DIRETO com o Local Lab (3098); o crawl agressivo sai do IP local,
+  // nunca do IP de produção da VPS. Não passa por Ops Control.
+  // ================================================================
+
+  // Status da caça atual (proxy do Local Lab + contexto do agent). Sempre responde.
+  if (req.method === "GET" && url.pathname === "/owner/email-finder/status") {
+    const lab = await readLocalLabStatus();
+    let job = null;
+    if (emailFinderJob.jobId) {
+      const r = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(emailFinderJob.jobId)}`, null, 10000);
+      if (r.ok && r.data) {
+        job = r.data;
+        emailFinderJob.lastStatus = job.status || null;
+        if (["completed", "failed", "canceled"].includes(String(job.status))) {
+          emailFinderJob.running = false;
+          if (!emailFinderJob.finishedAt) emailFinderJob.finishedAt = Date.now();
+        }
+      }
+    }
+    sendJson(res, 200, {
+      ok: true,
+      labUp: Boolean(lab.up),
+      running: emailFinderJob.running,
+      jobId: emailFinderJob.jobId,
+      scope: emailFinderJob.scope,
+      candidates: emailFinderJob.candidates,
+      scannedCards: emailFinderJob.scannedCards,
+      phase: emailFinderJob.phase,
+      error: emailFinderJob.error,
+      applied: emailFinderJob.applied,
+      job,
+    });
+    return;
+  }
+
+  // Inicia a caça: monta candidatos dos cards locais → manda pro Local Lab (modo agressivo).
+  if (req.method === "POST" && url.pathname === "/owner/email-finder/start") {
+    if (emailFinderJob.running) { sendJson(res, 200, { ok: false, reason: "ja_rodando", message: "Já existe uma caça em andamento.", jobId: emailFinderJob.jobId }); return; }
+    const body = await readBody(req);
+    const onlyMissingEmail = body.onlyMissingEmail !== false;
+    const aggressive = body.aggressive === true;
+    const maxCandidates = clampInt(body.maxCandidates, 800, 1, 5000);
+    const targetEmails = clampInt(body.targetEmails, Math.min(maxCandidates, 1000), 1, 10000);
+
+    emailFinderJob = { running: true, jobId: null, phase: "montando candidatos", startedAt: Date.now(), finishedAt: 0, scope: { onlyMissingEmail, aggressive, maxCandidates }, candidates: 0, scannedCards: 0, error: null, lastStatus: null, applied: null, domainToCardId: {} };
+
+    let built;
+    try {
+      built = await buildEmailFinderCandidates({ onlyMissingEmail, maxCandidates });
+    } catch (error) {
+      emailFinderJob.running = false; emailFinderJob.error = String(error && error.message || error);
+      sendJson(res, 200, { ok: false, reason: "falha_montar_candidatos", message: emailFinderJob.error });
+      return;
+    }
+    emailFinderJob.candidates = built.seeds.length;
+    emailFinderJob.scannedCards = built.scannedCards;
+    emailFinderJob.domainToCardId = built.domainToCardId;
+    if (!built.seeds.length) {
+      emailFinderJob.running = false;
+      sendJson(res, 200, { ok: false, reason: "sem_candidatos", message: "Nenhum card com site crawlável" + (onlyMissingEmail ? " e sem e-mail." : "."), scannedCards: built.scannedCards });
+      return;
+    }
+
+    emailFinderJob.phase = "subindo Local Lab";
+    const up = await ensureLocalLabUp();
+    if (!up) {
+      emailFinderJob.running = false; emailFinderJob.error = "local_lab_offline";
+      sendJson(res, 200, { ok: false, reason: "local_lab_offline", message: "Não consegui subir o Local Lab (3098)." });
+      return;
+    }
+
+    emailFinderJob.phase = "caçando";
+    const r = await localLabRequest("POST", "/local-lab/jobs", {
+      mode: aggressive ? "max_public" : "email_first",
+      aggressive,
+      providers: ["site_crawl"],
+      websites: built.seeds,
+      maxCandidates: built.seeds.length,
+      targetEmails,
+      requestedBy: "hbx-owner-email-finder",
+    }, 30000);
+    if (!r.ok || !r.data || !(r.data.id || r.data.jobId)) {
+      emailFinderJob.running = false; emailFinderJob.error = r.error || `http_${r.statusCode || "?"}`;
+      sendJson(res, 502, { ok: false, reason: "local_lab_recusou", message: emailFinderJob.error, raw: r.data });
+      return;
+    }
+    emailFinderJob.jobId = String(r.data.id || r.data.jobId);
+    emailFinderJob.lastStatus = r.data.status || "queued";
+    sendJson(res, 200, {
+      ok: true,
+      jobId: emailFinderJob.jobId,
+      candidates: emailFinderJob.candidates,
+      scannedCards: emailFinderJob.scannedCards,
+      message: `Caçando e-mail em ${emailFinderJob.candidates} sites no Local Lab (IP local).`,
+    });
+    return;
+  }
+
+  // Cancela a caça atual.
+  if (req.method === "POST" && url.pathname === "/owner/email-finder/cancel") {
+    if (!emailFinderJob.jobId) { sendJson(res, 200, { ok: false, reason: "sem_caca", message: "Nenhuma caça ativa." }); return; }
+    const r = await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(emailFinderJob.jobId)}/cancel`, {}, 10000);
+    emailFinderJob.running = false;
+    if (!emailFinderJob.finishedAt) emailFinderJob.finishedAt = Date.now();
+    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, job: r.data, reason: r.error });
+    return;
+  }
+
+  // Aplica nos cards o que a caça achou (e-mail/CNPJ/redes), casando por domínio → id.
+  if (req.method === "POST" && url.pathname === "/owner/email-finder/apply") {
+    if (!emailFinderJob.jobId) { sendError(res, 400, "Nenhuma caça pra aplicar."); return; }
+    const r = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(emailFinderJob.jobId)}/export?file=batch`, null, 30000, 32_000_000);
+    if (!r.ok || !r.data) { sendJson(res, 200, { ok: false, reason: "export_indisponivel", message: r.error || `http_${r.statusCode || "?"}` }); return; }
+    const batch = r.data.batch || r.data;
+    const leads = Array.isArray(batch.leads) ? batch.leads : [];
+    const map = emailFinderJob.domainToCardId || {};
+    const byCard = new Map();
+    for (const lead of leads) {
+      const domain = cardDomain(lead.website || lead.sourceUrl);
+      const id = map[domain];
+      if (!id) continue;
+      const prev = byCard.get(id) || { id };
+      if (lead.email && !prev.email) prev.email = lead.email;
+      if (lead.cnpj && !prev.cnpj) prev.cnpj = String(lead.cnpj).replace(/\D/g, "");
+      if (lead.instagramUrl && !prev.instagramUrl) prev.instagramUrl = lead.instagramUrl;
+      if (lead.facebookUrl && !prev.facebookUrl) prev.facebookUrl = lead.facebookUrl;
+      byCard.set(id, prev);
+    }
+    const items = Array.from(byCard.values()).filter((it) => it.email || it.cnpj || it.instagramUrl || it.facebookUrl);
+    if (!items.length) { emailFinderJob.applied = { requested: 0, updated: 0, emails: 0, cnpjs: 0, socials: 0 }; sendJson(res, 200, { ok: true, applied: emailFinderJob.applied, message: "Nada novo pra aplicar (sem casamento site→card)." }); return; }
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    const apply = await backendRequest("POST", "/modules/owner/radar/apply-contacts", { items }, { timeoutMs: 60000 });
+    if (!apply.ok) { sendJson(res, 200, { ok: false, reason: apply.error || `http_${apply.statusCode || "?"}`, items: items.length }); return; }
+    emailFinderJob.applied = apply.data || null;
+    sendJson(res, 200, { ok: true, applied: apply.data, message: `Aplicado em ${apply.data?.updated || 0} card(s).` });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
       ok: true,
@@ -2076,6 +2339,8 @@ async function route(req, res) {
       errors: data.errors,
       sitesFound: data.sitesFound,
       cnpjsFound: data.cnpjsFound,
+      phonesFound: data.phonesFound,
+      socialsFound: data.socialsFound,
       data,
       // compat: o botao "Enriquecer CNPJ->dono" (ckCnpjBackfill) le ops.results[]
       ops: { results: [{ ok, environment: "backend", label: "backend", data }] },

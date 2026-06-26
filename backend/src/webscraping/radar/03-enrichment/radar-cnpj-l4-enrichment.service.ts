@@ -57,6 +57,7 @@ export type CnpjL4Result = {
   ownerName: string | null;
   ownerNames: string[];
   email: string | null;
+  phone: string | null;
   website: string | null;
 };
 
@@ -117,6 +118,7 @@ export class RadarCnpjL4EnrichmentService {
             ownerName,
             ownerNames,
             email: row.email || null,
+            phone: row.phone || null,
             website: row.website || null,
           };
         }
@@ -143,6 +145,7 @@ export class RadarCnpjL4EnrichmentService {
           local.companySituation = local.companySituation || api.companySituation;
           local.address = local.address || api.address;
           local.email = local.email || api.email;
+          local.phone = local.phone || api.phone;
         }
       }
     }
@@ -193,6 +196,9 @@ export class RadarCnpjL4EnrichmentService {
         .map((p) => String(p || '').trim())
         .filter(Boolean)
         .join(', ') || null;
+      // Telefone do registro público (DDD + número). BrasilAPI manda em `ddd_telefone_1/2`.
+      const phoneDigits = String(data?.ddd_telefone_1 || data?.ddd_telefone_2 || '').replace(/\D/g, '');
+      const phone = phoneDigits.length >= 10 ? phoneDigits : null;
       const result: CnpjL4Result = {
         found: true,
         cnpj,
@@ -204,6 +210,7 @@ export class RadarCnpjL4EnrichmentService {
         ownerName: ownerNames[0] || null,
         ownerNames,
         email: String(data?.email || '').trim().toLowerCase() || null,
+        phone,
         website: null,
       };
       if (result.razaoSocial) {
@@ -274,6 +281,7 @@ export class RadarCnpjL4EnrichmentService {
     if (l4.ownerNames?.length && !meta?.ownerNames?.length) patch.ownerNames = l4.ownerNames;
     if (l4.address && !row?.address && !meta?.l4Address) patch.l4Address = l4.address;
     if (l4.email && !row?.email && !meta?.l4Email) patch.l4Email = l4.email;
+    if (l4.phone && !meta?.ownerPhone) patch.ownerPhone = l4.phone;
 
     const nextMetadataJson = JSON.stringify(patch);
     if (!row?.id || !prisma?.radarLeadPool?.update) return nextMetadataJson;

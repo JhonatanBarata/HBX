@@ -109,6 +109,37 @@ function isBlockedEmail(value) {
   return BAD_EMAIL_LOCAL_PARTS.has(local) || BAD_EMAIL_DOMAINS.has(domain) || BAD_EMAIL_TLDS.has(tld);
 }
 
+// --- CNPJ no HTML (rodapé/contato dos sites brasileiros) -------------------
+// Valida os 2 dígitos verificadores pra não capturar qualquer sequência de 14 números.
+function isValidCnpj(digits) {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (d.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(d)) return false; // todos iguais
+  const calc = (len) => {
+    let sum = 0;
+    let pos = len - 7;
+    for (let i = len; i >= 1; i -= 1) {
+      sum += Number(d[len - i]) * pos;
+      pos -= 1;
+      if (pos < 2) pos = 9;
+    }
+    const r = sum % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
+}
+
+// Devolve o 1º CNPJ válido achado no texto (14 dígitos, formatado ou não), ou null.
+function extractCnpjFromText(text) {
+  const raw = String(text || '');
+  const matches = raw.matchAll(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g);
+  for (const match of matches) {
+    const digits = match[0].replace(/\D/g, '');
+    if (isValidCnpj(digits)) return digits;
+  }
+  return null;
+}
+
 function extractEmailsFromText(text, context = {}) {
   const sourceUrl = normalizeUrl(context.sourceUrl);
   const provider = compactText(context.provider || 'site_crawl', 120);
@@ -153,8 +184,10 @@ module.exports = {
   BAD_EMAIL_DOMAINS,
   compactText,
   deobfuscateText,
+  extractCnpjFromText,
   extractEmailsFromText,
   isBlockedEmail,
+  isValidCnpj,
   normalizeDomain,
   normalizeEmail,
   normalizePhoneDigits,

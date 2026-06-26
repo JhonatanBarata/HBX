@@ -38,6 +38,9 @@ export type ProspCfg = {
   neutralHandoffVariants: string[];
   positiveIntentKeywords: string[];
   negativeIntentKeywords: string[];
+  whatIsItIntentKeywords: string[];
+  callbackIntentKeywords: string[];
+  humanHandoffIntentKeywords: string[];
 };
 
 export type ProspCampaign = Partial<ProspCfg> & { id?: number; status?: string };
@@ -82,6 +85,9 @@ export const PROSP_DEFAULTS: ProspCfg = {
   neutralHandoffVariants: [],
   positiveIntentKeywords: [],
   negativeIntentKeywords: [],
+  whatIsItIntentKeywords: [],
+  callbackIntentKeywords: [],
+  humanHandoffIntentKeywords: [],
 };
 
 export const ABSOLUTE_DAILY_SEND_CAP = 80;
@@ -285,9 +291,13 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
         return n > 0 ? `${n} variante(s) de 1º contato` : "mensagens padrão do motor";
       }
       case "palavras": {
-        const p = listVal("positiveIntentKeywords").length;
-        const neg = listVal("negativeIntentKeywords").length;
-        return `${p} positiva(s) · ${neg} negativa(s)`;
+        const total =
+          listVal("positiveIntentKeywords").length +
+          listVal("whatIsItIntentKeywords").length +
+          listVal("callbackIntentKeywords").length +
+          listVal("negativeIntentKeywords").length +
+          listVal("humanHandoffIntentKeywords").length;
+        return total > 0 ? `${total} palavra(s) em 5 categorias` : "palavras padrão do motor";
       }
       default:
         return "";

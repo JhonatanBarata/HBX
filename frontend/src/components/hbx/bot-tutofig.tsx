@@ -227,15 +227,21 @@ export function BotTutofig({
   const activeDef = PIECES.find(p => p.key === activeKey)!;
   const isLast = activeIndex >= STEP_KEYS.length - 1;
 
+  // ref estável pra onClose: evita que o effect re-dispare (e roube o foco do
+  // input) a cada render causado pelo pai recriar a arrow function onClose.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
   // ── Esc fecha + foco inicial (só no fluxo) ──
+  // onClose não entra nas deps — usa a ref; o focus só dispara quando open/phase muda.
   useEffect(() => {
     if (!open || phase !== "flow") return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onCloseRef.current(); } };
     document.addEventListener("keydown", onKey);
     const node = dialogRef.current;
     if (node) node.focus();
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, phase, onClose]);
+  }, [open, phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Prévia ao vivo: rotaciona as variantes de 1º contato com "digitando…" ──
   // (todos os setState ficam em setTimeout/cleanup — nunca síncronos no effect).

@@ -1,16 +1,8 @@
 "use client";
 
-// <WhatsAppPreview> — o preview padrão do sistema: cara FIEL de WhatsApp
-// (moldura de celular, cabeçalho verde, wallpaper escuro, balões com rabicho,
-// ✓✓ azul de lido, "digitando…"). Pintura SÓ via tokens var(--wa-*) (skeleton.css);
-// estilo em hbx-theme/whatsapp.css. ZERO cor/hex inline (5 Leis).
-//
-// Estado vazio (pedido do dono): sem mensagens E sem "digitando" → placeholder
-// discreto, nenhum balão. O preview só popula quando há conteúdo.
-//
-// Props extras além do display (messages/typing/header): quickReplies + footer
-// são opcionais — servem ao "Testar bot" (composer dentro do telefone). O tutofig
-// usa só o display (read-only), passando nada disso.
+// <WhatsAppPreview> — frame de celular pixel-perfect + chat FIEL ao WhatsApp.
+// Pintura SÓ via tokens var(--wa-*) (skeleton.css). Zero hex inline (5 Leis).
+// Estrutura: ilha dinâmica → status bar → header completo → body → composer estático → home bar.
 
 import type React from "react";
 
@@ -31,14 +23,10 @@ export type WhatsAppPreviewProps = {
   messages: WAMessage[];
   typing?: boolean;
   header?: WAHeader;
-  /** Texto do placeholder quando vazio. */
   emptyHint?: string;
-  /** Respostas rápidas (botões de menu do bot), renderizadas após o último balão. */
   quickReplies?: string[];
   onQuickReply?: (q: string) => void;
-  /** Composer opcional dentro do telefone (caso "Testar bot"). */
   footer?: React.ReactNode;
-  /** ref do contêiner rolável (pra auto-scroll). */
   bodyRef?: React.Ref<HTMLDivElement>;
   className?: string;
 };
@@ -48,6 +36,11 @@ function initials(name: string): string {
   if (parts.length === 0) return "•";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function currentTime(): string {
+  const now = new Date();
+  return now.getHours().toString().padStart(2, "0") + ":" + now.getMinutes().toString().padStart(2, "0");
 }
 
 export function WhatsAppPreview({
@@ -67,29 +60,91 @@ export function WhatsAppPreview({
 
   return (
     <div className={"wa-phone" + (className ? " " + className : "")}>
+      {/* Ilha dinâmica */}
+      <div className="wa-phone__island" aria-hidden="true" />
+
       <div className="wa-phone__screen">
-        {/* Cabeçalho verde */}
+
+        {/* Barra de status */}
+        <div className="wa-status" aria-hidden="true">
+          <span className="wa-status__time">{currentTime()}</span>
+          <div className="wa-status__icons">
+            {/* Sinal de rede */}
+            <svg width="14" height="10" viewBox="0 0 14 10" fill="currentColor" aria-hidden="true">
+              <rect x="0"  y="6" width="2.5" height="4" rx="0.8" opacity="1"/>
+              <rect x="3.5" y="4" width="2.5" height="6" rx="0.8" opacity="1"/>
+              <rect x="7"  y="2" width="2.5" height="8" rx="0.8" opacity="1"/>
+              <rect x="10.5" y="0" width="2.5" height="10" rx="0.8" opacity="0.35"/>
+            </svg>
+            {/* Wi-Fi */}
+            <svg width="13" height="10" viewBox="0 0 13 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M1 3.5 C3.5 1 9.5 1 12 3.5" opacity="0.35"/>
+              <path d="M2.8 5.3 C4.2 3.8 8.8 3.8 10.2 5.3"/>
+              <path d="M4.6 7.1 C5.3 6.4 7.7 6.4 8.4 7.1"/>
+              <circle cx="6.5" cy="9" r="0.8" fill="currentColor" stroke="none"/>
+            </svg>
+            {/* Bateria */}
+            <svg width="22" height="11" viewBox="0 0 22 11" fill="none" aria-hidden="true">
+              <rect x="0.5" y="0.5" width="18" height="10" rx="2.5" stroke="currentColor" strokeOpacity="0.55"/>
+              <rect x="1.5" y="1.5" width="15" height="8" rx="1.5" fill="currentColor"/>
+              <path d="M19.5 3.5 C20.8 3.5 21.5 4 21.5 5.5 C21.5 7 20.8 7.5 19.5 7.5 L19.5 3.5Z" fill="currentColor" opacity="0.55"/>
+            </svg>
+          </div>
+        </div>
+
+        {/* Cabeçalho do WhatsApp */}
         <div className="wa-head">
-          <span className="wa-head__avatar" aria-hidden="true">
+          {/* Seta voltar */}
+          <button type="button" className="wa-head__back" aria-label="Voltar" tabIndex={-1}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M19 12H5M5 12l7 7M5 12l7-7"/>
+            </svg>
+          </button>
+
+          {/* Avatar */}
+          <span className="wa-head__avatar">
             {header?.avatar
-              // avatar minúsculo no preview (pode ser data URL) — next/image é exagero aqui
               // eslint-disable-next-line @next/next/no-img-element
               ? <img src={header.avatar} alt="" />
               : initials(name)}
           </span>
+
+          {/* Nome e status */}
           <span className="wa-head__id">
             <span className="wa-head__name">{name}</span>
             <span className="wa-head__status">{headerStatus}</span>
           </span>
+
+          {/* Ações direita */}
+          <div className="wa-head__actions" aria-hidden="true">
+            <button type="button" className="wa-head__action" tabIndex={-1} aria-label="Chamada de vídeo">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 10l4.553-2.276A1 1 0 0121 8.723v6.554a1 1 0 01-1.447.894L15 14"/>
+                <rect x="3" y="7" width="12" height="10" rx="2"/>
+              </svg>
+            </button>
+            <button type="button" className="wa-head__action" tabIndex={-1} aria-label="Ligar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.79 19.79 0 012.12 4.18 2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+              </svg>
+            </button>
+            <button type="button" className="wa-head__action" tabIndex={-1} aria-label="Mais opções">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5"  r="1.5"/>
+                <circle cx="12" cy="12" r="1.5"/>
+                <circle cx="12" cy="19" r="1.5"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Corpo / wallpaper */}
+        {/* Corpo / mensagens */}
         <div className="wa-body" ref={bodyRef}>
           {isEmpty ? (
             <div className="wa-empty">
               <span className="wa-empty__icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5Z" />
+                  <path d="M21 11.5a8.38 8.38 0 01-8.5 8.5 8.5 8.5 0 01-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1121 11.5z"/>
                 </svg>
               </span>
               {emptyHint}
@@ -131,8 +186,41 @@ export function WhatsAppPreview({
           )}
         </div>
 
+        {/* Composer estático (visual) */}
+        {!footer && (
+          <div className="wa-compose" aria-hidden="true">
+            <button type="button" className="wa-compose__icon-btn" tabIndex={-1}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                <line x1="9" y1="9" x2="9.01" y2="9"/>
+                <line x1="15" y1="9" x2="15.01" y2="9"/>
+              </svg>
+            </button>
+            <div className="wa-compose__field">
+              <span className="wa-compose__placeholder">Mensagem</span>
+              <button type="button" className="wa-compose__icon-btn wa-compose__attach" tabIndex={-1}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+            </div>
+            <button type="button" className="wa-compose__mic-btn" tabIndex={-1}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+                <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        )}
+
         {footer && <div className="wa-foot">{footer}</div>}
       </div>
+
+      {/* Indicador de home */}
+      <div className="wa-phone__home" aria-hidden="true" />
     </div>
   );
 }

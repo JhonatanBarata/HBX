@@ -1024,6 +1024,78 @@ export class RadarWebEnrichmentService {
     return this.searchDuckDuckGo(fetcher, query, timeoutMs);
   }
 
+  /**
+   * Worker 1 — sociais DO DONO. Dado o nome do sócio/dono (vindo do L4/qsa),
+   * procura o perfil PESSOAL dele no Instagram/Facebook via busca web (Brave→Bing→DDG).
+   * Best-effort e baixa confiança (nome de pessoa é ambíguo) → devolve candidatos pra revisão.
+   * Nunca joga erro; sem resultado confiável → tudo null.
+   */
+  async findOwnerSocials(
+    fetcher: typeof fetch,
+    ownerName: string,
+    hint: { city?: string | null; state?: string | null; segment?: string | null; companyName?: string | null } = {},
+    timeoutMs = 8000,
+  ): Promise<{
+    instagramUrl: string | null;
+    facebookUrl: string | null;
+    candidates: Array<{ url: string; network: 'instagram' | 'facebook'; title: string }>;
+  }> {
+    const name = String(ownerName || '').trim();
+    const empty = {
+      instagramUrl: null,
+      facebookUrl: null,
+      candidates: [] as Array<{ url: string; network: 'instagram' | 'facebook'; title: string }>,
+    };
+    if (name.length < 4 || typeof fetcher !== 'function') return empty;
+    const loc = [hint.city, hint.state].map((p) => String(p || '').trim()).filter(Boolean).join(' ');
+    const ctx = [hint.segment, hint.companyName].map((p) => String(p || '').trim()).filter(Boolean).join(' ');
+    const queries = [
+      `"${name}" ${loc} instagram`.trim(),
+      `"${name}" ${ctx} instagram`.trim(),
+      `"${name}" ${loc} facebook`.trim(),
+    ].filter((q, i, arr) => q && arr.indexOf(q) === i);
+
+    const candidates: Array<{ url: string; network: 'instagram' | 'facebook'; title: string }> = [];
+    for (const q of queries) {
+      const results = await this.searchWeb(fetcher, q, timeoutMs).catch(() => [] as WebCandidate[]);
+      for (const r of results) {
+        const network = this.classifyOwnerSocialUrl(r.url);
+        if (!network) continue;
+        if (candidates.some((c) => c.url === r.url)) continue;
+        candidates.push({ url: r.url, network, title: r.title || '' });
+      }
+      const hasIg = candidates.some((c) => c.network === 'instagram');
+      const hasFb = candidates.some((c) => c.network === 'facebook');
+      if (hasIg && hasFb) break;
+    }
+    return {
+      instagramUrl: candidates.find((c) => c.network === 'instagram')?.url || null,
+      facebookUrl: candidates.find((c) => c.network === 'facebook')?.url || null,
+      candidates: candidates.slice(0, 8),
+    };
+  }
+
+  /** Aceita só URL de PERFIL do Instagram/Facebook; rejeita posts, login, páginas de sistema. */
+  private classifyOwnerSocialUrl(raw: string): 'instagram' | 'facebook' | null {
+    try {
+      const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      const host = u.hostname.replace(/^www\./, '').toLowerCase();
+      const path = u.pathname.replace(/^\/+|\/+$/g, '');
+      if (!path) return null; // só o domínio, sem perfil
+      if (host === 'instagram.com') {
+        if (/^(p|reel|reels|explore|stories|accounts|directory)(\/|$)/i.test(path)) return null;
+        return 'instagram';
+      }
+      if (host === 'facebook.com' || host === 'fb.com') {
+        if (/^(sharer|login|help|watch|events|groups|marketplace|pages\/category)(\/|$)/i.test(path)) return null;
+        return 'facebook';
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private async searchBing(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
     const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=pt-BR`;
     const response = await fetcher(url, {

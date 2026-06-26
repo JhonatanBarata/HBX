@@ -347,7 +347,10 @@ export function BotClient() {
   // (é do atendimento); o <BotProspeccaoPanel> carrega sozinho via live-status.
   function selecionarTipo(tipo: BotTypeName) {
     setCfgTipo(tipo);
-    setEditorKey(null); // fecha qualquer peça aberta da guia anterior
+    setEditorKey(null);
+    setChat([]);
+    setStep(0);
+    setDraft("");
     if (tipo === "prospeccao") {
       setCfgErro(null);
       setCfgMsg(null);
@@ -464,6 +467,22 @@ export function BotClient() {
     }
     return base;
   }, [cfgData, cfgForm, cfgBotoes]);
+
+  // ── Prévia ao vivo do Tabuleiro (Atendimento/Recovery): deriva a conversa da
+  // config (boas-vindas + menu). Atualiza enquanto edita. Read-only — o teste
+  // interativo continua no drawer "Testar bot". ──
+  const boardPreviewMessages = useMemo<WAMessage[]>(() => {
+    const out: WAMessage[] = [];
+    const wc = typeof configVivo.welcomeMessage === "string" ? configVivo.welcomeMessage.trim() : "";
+    if (wc) out.push({ dir: "in", text: wc, time: "agora" });
+    const mm = typeof configVivo.mainMenuPrompt === "string" ? configVivo.mainMenuPrompt.trim() : "";
+    if (mm) out.push({ dir: "in", text: mm, time: "agora" });
+    return out;
+  }, [configVivo]);
+  const boardQuick = useMemo<string[]>(() => {
+    const grp = (configVivo.mainMenuButtons?.length ? configVivo.mainMenuButtons : configVivo.welcomeButtons) || [];
+    return grp.map(b => b.title).filter(Boolean);
+  }, [configVivo]);
 
   // PATCH full-replace: parte da config completa + sobrepõe edições
   function buildBody(overrides?: { globalBotEnabled?: boolean }): Record<string, unknown> {
@@ -928,22 +947,54 @@ export function BotClient() {
               <span className="bot-modo__hint">{MONTAGEM_MODOS.find(m => m.key === montagemModo)?.hint}</span>
             </div>
 
-            {/* ── MODO TABULEIRO: organograma é o herói, GRANDE e central ── */}
+            {/* ── MODO TABULEIRO: organograma à esquerda + prévia encaixada à direita ── */}
             {montagemModo === "tabuleiro" && (
               <div className="bot-modo-view bot-modo-view--tabuleiro">
-                <BotFlowCanvas config={configVivo} activeStep={activeStep} onPickNode={k => abrirPeca(k as EditorKey)} />
-                {cfgTipo === "atendimento" && (
-                  <button
-                    type="button"
-                    className={"bot-board-settings" + (editorKey === "ajustes" ? " on" : "")}
-                    onClick={() => abrirPeca("ajustes")}
-                    title="Regras gerais do bot"
-                  >
-                    <span className="bot-board-settings__icon"><I d={ICONS.config} size={14} /></span>
-                    <span className="bot-board-settings__txt">Ajustes</span>
-                    <span className={"bot-board-settings__dot" + (ruleValue("globalBotEnabled") ? " on" : "")} aria-hidden="true" />
+                <div className="bot-board-canvas">
+                  <BotFlowCanvas config={configVivo} activeStep={activeStep} onPickNode={k => abrirPeca(k as EditorKey)} />
+                  {cfgTipo === "atendimento" && (
+                    <button
+                      type="button"
+                      className={"bot-board-settings" + (editorKey === "ajustes" ? " on" : "")}
+                      onClick={() => abrirPeca("ajustes")}
+                      title="Regras gerais do bot"
+                    >
+                      <span className="bot-board-settings__icon"><I d={ICONS.config} size={14} /></span>
+                      <span className="bot-board-settings__txt">Ajustes</span>
+                      <span className={"bot-board-settings__dot" + (ruleValue("globalBotEnabled") ? " on" : "")} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+                <aside className="bot-preview-dock">
+                  <button type="button" className="bot-preview-reset" title="Reiniciar conversa" onClick={resetChat}>
+                    <I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={12} />
                   </button>
-                )}
+                  <WhatsAppPreview
+                    messages={previewMessages}
+                    header={{ name: "HBX Bot", status: "online" }}
+                    quickReplies={lastQuick ? quickOptions : undefined}
+                    onQuickReply={reply}
+                    bodyRef={endRef}
+                    footer={(
+                      <div className="wa-composer-row">
+                        <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Emoji" onClick={addEmoji}>
+                          <I d={ICONS.smile} size={16} />
+                        </button>
+                        <input
+                          className="field-dark wa-composer-input"
+                          placeholder="Digite sua mensagem..."
+                          value={draft}
+                          onChange={e => setDraft(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && send()}
+                        />
+                        <button className="send" onClick={send}>
+                          <I d={ICONS.send} size={15} />
+                        </button>
+                      </div>
+                    )}
+                    emptyHint="A prévia aparece quando você escrever a Boas-vindas"
+                  />
+                </aside>
               </div>
             )}
 

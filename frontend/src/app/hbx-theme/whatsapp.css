@@ -1,88 +1,225 @@
 /* ============================================================
-   <WhatsAppPreview> — moldura de celular + chat FIEL ao WhatsApp.
-   Pintura SÓ via var(--wa-*) (definidos no skeleton.css); estrutura
-   segue o ritmo do bloco "Chat" do kit.css. Reaproveita o keyframe
-   hbx-typing (kit.css) pro "digitando…". Importado no globals.css.
+   <WhatsAppPreview> — moldura de celular pixel-perfect + chat FIEL.
+   Tokens em skeleton.css (--wa-*). Zero hex inline (5 Leis).
    ============================================================ */
 
-/* Moldura do celular */
+/* ── Frame externo (corpo do celular) ── */
 .wa-phone {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 340px;
+  max-width: 300px;
   margin: 0 auto;
-  border-radius: 28px;
+  border-radius: 46px;
   background: var(--wa-frame);
-  padding: 8px;
-  box-shadow: 0 18px 50px -18px var(--hbx-shadow);
-  overflow: hidden;
+  padding: 14px 11px 18px;
+  box-shadow:
+    inset 0 1px 0 var(--wa-frame-edge),
+    inset 0 -1px 0 rgba(0,0,0,0.5),
+    0 32px 72px -18px rgba(0,0,0,0.65),
+    0 8px 28px -8px rgba(0,0,0,0.45);
 }
+
+/* Botões de volume (lado esquerdo — decorativo) */
+.wa-phone::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 96px;
+  width: 3px;
+  height: 60px;
+  border-radius: 3px 0 0 3px;
+  background: var(--wa-frame-side);
+  box-shadow: 0 30px 0 var(--wa-frame-side), 0 58px 0 var(--wa-frame-side);
+}
+
+/* Botão power (lado direito — decorativo) */
+.wa-phone::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: 116px;
+  width: 3px;
+  height: 52px;
+  border-radius: 0 3px 3px 0;
+  background: var(--wa-frame-side);
+}
+
+/* ── Tela (área interna arredondada) ── */
 .wa-phone__screen {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  border-radius: 20px;
+  border-radius: 34px;
   overflow: hidden;
   background: var(--wa-wallpaper);
+  isolation: isolate;
 }
 
-/* Cabeçalho verde */
+/* ── Ilha dinâmica (pill no topo da tela) ── */
+.wa-phone__island {
+  position: absolute;
+  top: 21px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 82px;
+  height: 28px;
+  border-radius: 20px;
+  background: var(--wa-island);
+  z-index: 10;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+
+/* Câmera frontal (ponto na ilha) */
+.wa-phone__island::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #1C1C1E;
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,0.06), inset 0 0 4px rgba(100,180,255,0.15);
+}
+
+/* ── Barra de status (clock + battery) ── */
+.wa-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32px 18px 4px;
+  background: var(--wa-status-bar);
+  color: var(--wa-header-ink);
+  height: 52px;
+  flex: 0 0 auto;
+}
+.wa-status__time {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--wa-header-ink);
+}
+.wa-status__icons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--wa-header-ink);
+}
+
+/* ── Cabeçalho verde ── */
 .wa-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 6px 10px 8px 4px;
   background: var(--wa-header);
   color: var(--wa-header-ink);
+  flex: 0 0 auto;
 }
+.wa-head__back {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--wa-header-ink);
+  cursor: default;
+  border-radius: 50%;
+  padding: 0;
+}
+.wa-head__back:hover { background: var(--wa-icon-btn); }
 .wa-head__avatar {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
   border-radius: 999px;
   background: var(--wa-avatar);
   color: var(--wa-header-ink);
-  font-size: 0.82rem;
+  font-size: 0.73rem;
   font-weight: 700;
   overflow: hidden;
+  border: 1.5px solid rgba(255,255,255,0.15);
 }
 .wa-head__avatar img { width: 100%; height: 100%; object-fit: cover; }
-.wa-head__id { display: grid; min-width: 0; line-height: 1.2; }
+.wa-head__id {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
 .wa-head__name {
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wa-head__status { font-size: 0.66rem; color: var(--wa-header-sub); }
+.wa-head__status { font-size: 0.64rem; color: var(--wa-header-sub); }
+.wa-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 0 0 auto;
+}
+.wa-head__action {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--wa-header-ink);
+  cursor: default;
+  border-radius: 50%;
+  padding: 0;
+}
+.wa-head__action:hover { background: var(--wa-icon-btn); }
 
-/* Corpo / wallpaper escuro */
+/* ── Corpo / wallpaper ── */
 .wa-body {
   flex: 1;
-  min-height: 220px;
-  max-height: 460px;
+  min-height: 200px;
+  max-height: 400px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 12px;
+  gap: 6px;
+  padding: 10px 10px 8px;
   background:
-    radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--wa-header) 7%, transparent), transparent 40%),
+    radial-gradient(ellipse at 15% 0%, color-mix(in srgb, var(--wa-header) 9%, transparent) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 100%, color-mix(in srgb, var(--wa-header) 5%, transparent) 0%, transparent 50%),
     var(--wa-wallpaper);
+  scrollbar-width: none;
+}
+.wa-body::-webkit-scrollbar { display: none; }
+
+/* Data separadora no chat */
+.wa-date-sep {
+  align-self: center;
+  font-size: 0.6rem;
+  color: var(--wa-text-sub);
+  background: color-mix(in srgb, var(--wa-bubble-in) 90%, transparent);
+  padding: 3px 10px;
+  border-radius: 8px;
+  margin: 2px 0;
 }
 
-/* Estado vazio (pedido do dono): nada de balões sem conteúdo */
+/* ── Estado vazio ── */
 .wa-empty {
   margin: auto;
-  max-width: 220px;
+  max-width: 200px;
   text-align: center;
-  font-size: 0.74rem;
-  line-height: 1.5;
+  font-size: 0.7rem;
+  line-height: 1.55;
   color: var(--wa-text-sub);
 }
 .wa-empty__icon {
@@ -96,33 +233,32 @@
   color: var(--wa-text-sub);
 }
 
-/* Balões */
-.wa-msg { display: flex; max-width: 82%; }
-.wa-msg--in { align-self: flex-start; }
+/* ── Balões ── */
+.wa-msg { display: flex; max-width: 85%; }
+.wa-msg--in  { align-self: flex-start; }
 .wa-msg--out { align-self: flex-end; }
 .wa-bubble {
   position: relative;
-  padding: 6px 9px 4px;
+  padding: 5px 8px 3px;
   border-radius: 8px;
-  font-size: 0.8rem;
+  font-size: 0.77rem;
   line-height: 1.45;
   color: var(--wa-text);
   background: var(--wa-bubble-in);
-  box-shadow: 0 1px 1px -1px var(--hbx-shadow);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
 }
 .wa-msg--out .wa-bubble { background: var(--wa-bubble-out); }
 .wa-bubble__text { white-space: pre-line; word-break: break-word; }
 
-/* Rabicho do balão (triângulo no canto de cima) */
+/* Rabicho (triângulo no canto superior) */
 .wa-bubble::before {
   content: "";
   position: absolute;
   top: 0;
-  width: 0;
-  height: 0;
+  width: 0; height: 0;
   border-style: solid;
 }
-.wa-msg--in .wa-bubble { border-top-left-radius: 0; }
+.wa-msg--in .wa-bubble  { border-top-left-radius: 0; }
 .wa-msg--in .wa-bubble::before {
   left: -7px;
   border-width: 0 8px 8px 0;
@@ -135,20 +271,20 @@
   border-color: transparent transparent transparent var(--wa-bubble-out);
 }
 
-/* Hora + ✓✓ */
+/* Hora + ticks */
 .wa-bubble__meta {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
-  margin-top: 2px;
-  font-size: 0.58rem;
+  margin-top: 1px;
+  font-size: 0.56rem;
   color: var(--wa-text-sub);
 }
-.wa-tick { color: var(--wa-tick); letter-spacing: -2px; font-size: 0.62rem; }
+.wa-tick { color: var(--wa-tick); letter-spacing: -2px; font-size: 0.6rem; }
 .wa-tick--read { color: var(--wa-tick-read); }
 
-/* Digitando… (reusa o keyframe hbx-typing do kit.css) */
+/* ── Digitando… ── */
 .wa-typing-row { align-self: flex-start; }
 .wa-typing {
   display: inline-flex;
@@ -157,18 +293,18 @@
   padding: 9px 12px;
   border-radius: 8px 8px 8px 0;
   background: var(--wa-bubble-in);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
 }
 .wa-typing i {
-  width: 6px;
-  height: 6px;
+  width: 6px; height: 6px;
   border-radius: 999px;
   background: var(--wa-text-sub);
   animation: hbx-typing 1.2s infinite ease-in-out;
 }
 .wa-typing i:nth-child(2) { animation-delay: 0.15s; }
-.wa-typing i:nth-child(3) { animation-delay: 0.3s; }
+.wa-typing i:nth-child(3) { animation-delay: 0.30s; }
 
-/* Respostas rápidas (botões de menu do bot) */
+/* ── Respostas rápidas ── */
 .wa-quick {
   display: grid;
   gap: 6px;
@@ -185,17 +321,92 @@
   background: var(--wa-quick);
   color: var(--wa-quick-ink);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
   text-align: center;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
 }
-.wa-quick__btn:hover { filter: brightness(1.12); }
+.wa-quick__btn:hover { filter: brightness(1.15); }
 
-/* Rodapé / composer (slot opcional dentro do telefone) */
-.wa-foot { background: var(--wa-composer); padding: 8px 10px; }
+/* ── Composer estático (barra inferior decorativa) ── */
+.wa-compose {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--wa-composer);
+  flex: 0 0 auto;
+}
+.wa-compose__icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--wa-text-sub);
+  border-radius: 50%;
+  cursor: default;
+  padding: 0;
+}
+.wa-compose__field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 20px;
+  background: var(--wa-composer-input);
+  gap: 6px;
+}
+.wa-compose__placeholder {
+  flex: 1;
+  font-size: 0.72rem;
+  color: var(--wa-text-sub);
+  user-select: none;
+}
+.wa-compose__attach {
+  width: 22px !important;
+  height: 22px !important;
+}
+.wa-compose__mic-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 50%;
+  background: var(--wa-bubble-out);
+  color: var(--wa-header-ink);
+  cursor: default;
+  padding: 0;
+}
+
+/* ── Rodapé: slot do composer real (Testar bot) ── */
+.wa-foot { background: var(--wa-composer); padding: 6px 8px; }
 .wa-composer-row { display: flex; gap: 8px; align-items: center; }
 .wa-composer-input { flex: 1; min-width: 0; }
+
+/* ── Indicador home ── */
+.wa-phone__home {
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: 6px;
+}
+.wa-phone__home::after {
+  content: "";
+  width: 88px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--wa-home-bar);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .wa-typing i { animation: none; }

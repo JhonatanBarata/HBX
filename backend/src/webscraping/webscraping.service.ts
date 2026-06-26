@@ -420,8 +420,12 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
    * NÃO inclui L5/whatsapp-check (risco de ban).
    * Parâmetros: limit (default 200). Devolve { scanned, enriched, errors, sitesFound, cnpjsFound }.
    */
-  async cnpjBackfillForMaster(opts: { limit?: number } = {}): Promise<{ scanned: number; enriched: number; errors: number; sitesFound: number; cnpjsFound: number }> {
+  async cnpjBackfillForMaster(opts: { limit?: number; socials?: boolean } = {}): Promise<{ scanned: number; enriched: number; errors: number; sitesFound: number; cnpjsFound: number; phonesFound: number; socialsFound: number }> {
     const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 200, 2000));
+    // Worker 1 "CNPJ → dono": por padrão também caça as redes sociais DO DONO.
+    // Cap por execução pra não martelar o buscador (cada lookup faz buscas web sequenciais).
+    const withSocials = opts.socials !== false;
+    let socialBudget = withSocials ? 80 : 0;
     const prisma = this.internalPrisma as any;
 
     // Passo 1 — busca leads pendentes:
@@ -459,6 +463,8 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     let errors = 0;
     let sitesFound = 0;
     let cnpjsFound = 0;
+    let phonesFound = 0;
+    let socialsFound = 0;
 
     for (const row of pending) {
       try {
@@ -550,14 +556,46 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           }
         }
 
-        // (b) L4 enrichment: CNPJ → razão/CNAE/sócio/situação
+        // (b) L4 enrichment: CNPJ → razão/CNAE/sócio/situação/telefone do dono
+        const hadPhoneBefore = Boolean(metaBefore?.ownerPhone);
         const l4Result = await l4Enricher.enrichRow(prisma, row);
         if (l4Result !== null) {
           enriched += 1;
-          const newCnpjFromL4 = String(parseMeta({ metadataJson: l4Result })?.cnpj || '').replace(/\D/g, '');
+          const metaAfterL4 = parseMeta({ metadataJson: l4Result });
+          const newCnpjFromL4 = String(metaAfterL4?.cnpj || '').replace(/\D/g, '');
           if (newCnpjFromL4.length >= 14 && !hasCnpjBefore) cnpjsFound += 1;
+          if (metaAfterL4?.ownerPhone && !hadPhoneBefore) phonesFound += 1;
           // Update in-memory metadataJson so L1 sees the fresh data
           row.metadataJson = l4Result;
+        }
+
+        // (b2) Sociais DO DONO: com o nome do sócio em mãos, caça o perfil pessoal dele.
+        // Best-effort, gasta orçamento por execução; não bloqueia a cadeia se falhar.
+        const metaForSocial = parseMeta(row);
+        const ownerForSocial = String(metaForSocial?.ownerName || (Array.isArray(metaForSocial?.ownerNames) ? metaForSocial.ownerNames[0] : '') || '').trim();
+        const alreadyHasOwnerSocial = Boolean(metaForSocial?.ownerInstagram || metaForSocial?.ownerFacebook);
+        if (socialBudget > 0 && ownerForSocial.length >= 4 && !alreadyHasOwnerSocial) {
+          socialBudget -= 1;
+          const social = await webEnrichService.findOwnerSocials(globalThis.fetch, ownerForSocial, {
+            city: String(row.city || '').trim() || null,
+            state: String(row.state || '').trim() || null,
+            segment: String(row.segment || '').trim() || null,
+            companyName: String(metaForSocial?.razaoSocial || row.name || '').trim() || null,
+          }).catch(() => null);
+          if (social && (social.instagramUrl || social.facebookUrl)) {
+            const patchedMeta = {
+              ...metaForSocial,
+              ...(social.instagramUrl ? { ownerInstagram: social.instagramUrl } : {}),
+              ...(social.facebookUrl ? { ownerFacebook: social.facebookUrl } : {}),
+              ...(social.candidates.length ? { ownerSocialCandidates: social.candidates } : {}),
+            };
+            await prisma.radarLeadPool.update({
+              where: { id: row.id },
+              data: { metadataJson: JSON.stringify(patchedMeta) },
+            }).catch(() => null);
+            row.metadataJson = patchedMeta;
+            socialsFound += 1;
+          }
         }
 
         // (c) L1 signals: DDD/região/sinais derivados do metadataJson atualizado
@@ -567,6 +605,80 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       }
     }
 
-    return { scanned: pending.length, enriched, errors, sitesFound, cnpjsFound };
+    return { scanned: pending.length, enriched, errors, sitesFound, cnpjsFound, phonesFound, socialsFound };
+  }
+
+  /**
+   * Worker 2 "Email finder" — aplica nos cards EXISTENTES o que o Local Lab achou (e-mail/CNPJ/
+   * redes), casando por `id`. ADITIVO: só preenche campo vazio, nunca sobrescreve dado já bom.
+   * E-mail → coluna email; CNPJ/razão → metadataJson; instagram/facebook → colunas próprias.
+   */
+  async applyDiscoveredContactsForMaster(
+    items: Array<{ id?: string; email?: string; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> = [],
+  ): Promise<{ requested: number; updated: number; emails: number; cnpjs: number; socials: number; errors: number }> {
+    const prisma = this.internalPrisma as any;
+    const list = Array.isArray(items) ? items.slice(0, 5000) : [];
+    let updated = 0;
+    let emails = 0;
+    let cnpjs = 0;
+    let socials = 0;
+    let errors = 0;
+
+    const parseMeta = (row: any): Record<string, any> => {
+      try {
+        const v = row?.metadataJson;
+        if (!v) return {};
+        return typeof v === 'object' ? v : JSON.parse(v);
+      } catch { return {}; }
+    };
+    const cleanEmail = (v: unknown) => {
+      const m = String(v || '').trim().toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+      return m ? m[0] : '';
+    };
+
+    for (const item of list) {
+      const id = String(item?.id || '').trim();
+      if (!id) { errors += 1; continue; }
+      try {
+        const row = await prisma.radarLeadPool.findUnique({
+          where: { id },
+          select: { id: true, email: true, instagramUrl: true, facebookUrl: true, metadataJson: true },
+        });
+        if (!row) { errors += 1; continue; }
+        const meta = parseMeta(row);
+        const data: Record<string, any> = {};
+        let metaChanged = false;
+
+        const email = cleanEmail(item?.email);
+        if (email && !String(row.email || '').trim()) {
+          data.email = email;
+          data.emailStatus = 'found_on_site';
+          if (!meta.discoveredEmail) { meta.discoveredEmail = email; metaChanged = true; }
+          emails += 1;
+        }
+
+        const cnpj = String(item?.cnpj || '').replace(/\D/g, '');
+        if (cnpj.length === 14 && !String(meta.cnpj || '').replace(/\D/g, '')) {
+          meta.cnpj = cnpj;
+          metaChanged = true;
+          cnpjs += 1;
+        }
+
+        const ig = String(item?.instagramUrl || '').trim();
+        if (ig && !String(row.instagramUrl || '').trim()) { data.instagramUrl = ig; socials += 1; }
+        const fb = String(item?.facebookUrl || '').trim();
+        if (fb && !String(row.facebookUrl || '').trim()) { data.facebookUrl = fb; socials += 1; }
+
+        if (metaChanged) data.metadataJson = JSON.stringify(meta);
+        if (Object.keys(data).length) {
+          await prisma.radarLeadPool.update({ where: { id }, data }).catch(() => { errors += 1; });
+          updated += 1;
+        }
+      } catch {
+        errors += 1;
+      }
+    }
+
+    return { requested: list.length, updated, emails, cnpjs, socials, errors };
   }
 }

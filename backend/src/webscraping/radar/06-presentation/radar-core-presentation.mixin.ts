@@ -2236,6 +2236,11 @@ export class RadarCorePresentationMixin {
       cnaeDescription: (meta as any)?.cnaeDescription || null,
       ownerName: (meta as any)?.ownerName || null,
       ownerNames: Array.isArray((meta as any)?.ownerNames) ? (meta as any).ownerNames : [],
+      // Worker 1 "CNPJ → dono": telefone + redes sociais PESSOAIS do dono (do metadataJson).
+      ownerPhone: (meta as any)?.ownerPhone || null,
+      ownerInstagram: (meta as any)?.ownerInstagram || null,
+      ownerFacebook: (meta as any)?.ownerFacebook || null,
+      ownerSocialCandidates: Array.isArray((meta as any)?.ownerSocialCandidates) ? (meta as any).ownerSocialCandidates : [],
       companySituation: (meta as any)?.companySituation || null,
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,

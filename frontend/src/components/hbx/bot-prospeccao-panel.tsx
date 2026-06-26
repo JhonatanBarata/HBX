@@ -16,6 +16,9 @@ import { I, ICONS } from "@/components/hbx/shell";
 import { BotTutofig } from "@/components/hbx/bot-tutofig";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
+import type { VarDef } from "@/components/hbx/bot-variables-drawer";
+import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+import { apiFetch } from "@/lib/api";
 import {
   useProspectingConfig,
   isProspConfigComplete,
@@ -31,6 +34,13 @@ import {
 
 export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const [openPiece, setOpenPiece] = useState<PieceKey | null>(null);
+  const [variableCatalog, setVariableCatalog] = useState<VarDef[]>([]);
+
+  useEffect(() => {
+    apiFetch<{ variableCatalog?: VarDef[] }>("/inbox/bot-config")
+      .then(data => { if (data?.variableCatalog?.length) setVariableCatalog(data.variableCatalog); })
+      .catch(() => {});
+  }, []);
   // tutofig (config acompanhada) — abre sozinho quando a config está incompleta.
   const [tutofigOpen, setTutofigOpen] = useState(false);
   const autoOpenedRef = useRef(false); // só auto-abre 1x por montagem
@@ -61,6 +71,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const helpers: ProspFieldHelpers = {
     numVal: cfg.numVal, boolVal: cfg.boolVal, strVal: cfg.strVal, listVal: cfg.listVal,
     setField: cfg.setField, setNum: cfg.setNum,
+    variableCatalog,
   };
 
   async function handleSalvar() {
@@ -120,6 +131,13 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const nextWhen = fmtWhen(live?.nextScheduledAt);
   const campaignStatus = campaign?.status;
 
+  // Prévia ao vivo: a 1ª variante de contato frio como o lead recebe (read-only).
+  const prospPreviewMessages: WAMessage[] = (() => {
+    const variants = cfg.listVal("firstContactVariants").map(s => s.trim()).filter(Boolean);
+    if (!variants.length) return [];
+    return [{ dir: "out", text: variants[0], time: "agora", status: "read" }];
+  })();
+
   // ── Erro de carregamento (não armado / sem plano / falha) ──
   if (loadErr && !live) {
     return (
@@ -135,25 +153,26 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
 
   return (
     <div className="bot-prosp">
-      {/* ── ESQUERDA: peças de configuração que abrem ao clicar ── */}
-      <div className="bot-prosp__main">
-        <div className="bot-prosp__toolbar">
-          <div className="bot-prosp__toolbar-info">
-            <strong className="bot-prosp__toolbar-title">Motor de disparo frio</strong>
-            <span className="bot-prosp__toolbar-hint">Toque numa peça pra ajustar. O ritmo e o limite são a proteção do número.</span>
-          </div>
-          <div className="bot-prosp__toolbar-actions">
-            {saveMsg && (
-              <span className={"bot-prosp__msg" + (saveMsg.startsWith("✓") ? " is-ok" : " is-err")}>{saveMsg}</span>
-            )}
-            <button className="btn-ghost" onClick={() => { dismissedRef.current = false; setTutofigOpen(true); }} disabled={busy}>
-              <I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda
-            </button>
-            <button className="btn-ghost" onClick={() => loadLive()} disabled={busy} title="Recarregar">⟳</button>
-            <button className="btn-teal" onClick={handleSalvar} disabled={!canSave}>{busy ? "Salvando…" : "Salvar disparo"}</button>
-          </div>
+      {/* ── TOOLBAR: barra superior, largura total ── */}
+      <div className="bot-prosp__toolbar">
+        <div className="bot-prosp__toolbar-info">
+          <strong className="bot-prosp__toolbar-title">Motor de disparo frio</strong>
+          <span className="bot-prosp__toolbar-hint">Toque numa peça pra ajustar. O ritmo e o limite são a proteção do número.</span>
         </div>
+        <div className="bot-prosp__toolbar-actions">
+          {saveMsg && (
+            <span className={"bot-prosp__msg" + (saveMsg.startsWith("✓") ? " is-ok" : " is-err")}>{saveMsg}</span>
+          )}
+          <button className="btn-ghost" onClick={() => { dismissedRef.current = false; setTutofigOpen(true); }} disabled={busy}>
+            <I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda
+          </button>
+          <button className="btn-ghost" onClick={() => loadLive()} disabled={busy} title="Recarregar">⟳</button>
+          <button className="btn-teal" onClick={handleSalvar} disabled={!canSave}>{busy ? "Salvando…" : "Salvar disparo"}</button>
+        </div>
+      </div>
 
+      {/* ── ESQUERDA: 6 peças em coluna única ── */}
+      <div className="bot-prosp__main">
         <div className="bot-prosp__pieces">
           {PIECES.map(p => {
             const edited = p.key === "mensagens"
@@ -184,63 +203,75 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         </div>
       </div>
 
-      {/* ── DIREITA: resumo do disparo ao vivo ── */}
-      <aside className="bot-prosp__summary">
-        <div className="bot-prosp-sum__head">
-          <span className={"bot-prosp-sum__badge bot-prosp-sum__badge--" + statusKey}>{statusLabel}</span>
-          {live?.cooldownActive && <span className="bot-prosp-sum__cooldown">em pausa de segurança</span>}
-        </div>
-        {live?.text && <p className="bot-prosp-sum__text">{live.text}</p>}
-
-        <div className="bot-prosp-sum__stats">
-          <div className="bot-prosp-stat">
-            <span className="bot-prosp-stat__num">{sentToday}</span>
-            <span className="bot-prosp-stat__label">enviadas hoje</span>
-          </div>
-          <div className="bot-prosp-stat">
-            <span className="bot-prosp-stat__num">{remainingToday}</span>
-            <span className="bot-prosp-stat__label">restam hoje</span>
-          </div>
-          <div className="bot-prosp-stat">
-            <span className="bot-prosp-stat__num">{liveDaily}</span>
-            <span className="bot-prosp-stat__label">limite/dia</span>
-          </div>
-        </div>
-
-        <div className="bot-prosp-sum__rows">
-          <div className="bot-prosp-sum__row">
-            <span className="bot-prosp-sum__row-k">Próximo envio</span>
-            <span className="bot-prosp-sum__row-v">{nextWhen || "—"}</span>
-          </div>
-          {live?.nextEligibleLeadName && (
-            <div className="bot-prosp-sum__row">
-              <span className="bot-prosp-sum__row-k">Próximo lead</span>
-              <span className="bot-prosp-sum__row-v">{live.nextEligibleLeadName}</span>
+      {/* ── CENTRO: editor inline ao selecionar peça, resumo ao vivo quando nada selecionado ── */}
+      <div className="bot-prosp__center">
+        {openPiece ? (
+          <ProspEditorInline key={openPiece} piece={openPiece} onClose={() => setOpenPiece(null)} h={helpers} />
+        ) : (
+          <aside className="bot-prosp__summary app-page">
+            <div className="bot-prosp-sum__head">
+              <span className={"bot-prosp-sum__badge bot-prosp-sum__badge--" + statusKey}>{statusLabel}</span>
+              {live?.cooldownActive && <span className="bot-prosp-sum__cooldown">em pausa de segurança</span>}
             </div>
-          )}
-        </div>
+            {live?.text && <p className="bot-prosp-sum__text">{live.text}</p>}
 
-        <div className="bot-prosp-sum__note">
-          <I d={ICONS.bell} size={12} /> Teto fixo de {ABSOLUTE_DAILY_SEND_CAP}/dia. Nos primeiros dias a rampa de aquecimento limita ainda mais — é o que protege o número.
-        </div>
+            <div className="bot-prosp-sum__stats">
+              <div className="bot-prosp-stat">
+                <span className="bot-prosp-stat__num">{sentToday}</span>
+                <span className="bot-prosp-stat__label">enviadas hoje</span>
+              </div>
+              <div className="bot-prosp-stat">
+                <span className="bot-prosp-stat__num">{remainingToday}</span>
+                <span className="bot-prosp-stat__label">restam hoje</span>
+              </div>
+              <div className="bot-prosp-stat">
+                <span className="bot-prosp-stat__num">{liveDaily}</span>
+                <span className="bot-prosp-stat__label">limite/dia</span>
+              </div>
+            </div>
 
-        {/* Ciclo da campanha (opcional) */}
-        <div className="bot-prosp-controls">
-          {campaignStatus === "running" ? (
-            <button className="btn-ghost" onClick={() => handleCiclo("pause")} disabled={busy}><I d={ICONS.pause} size={12} /> Pausar</button>
-          ) : (
-            <button className="btn-ghost" onClick={() => handleCiclo(campaignStatus === "paused" ? "resume" : "start")} disabled={busy}>
-              <I d={ICONS.play} size={12} /> {campaignStatus === "paused" ? "Retomar" : "Iniciar"}
-            </button>
-          )}
-          {campaign && campaignStatus !== "canceled" && campaignStatus !== "done" && (
-            <button className="btn-ghost bot-prosp-controls__danger" onClick={() => handleCiclo("cancel")} disabled={busy}><I d={ICONS.stop} size={12} /> Cancelar</button>
-          )}
-        </div>
+            <div className="bot-prosp-sum__rows">
+              <div className="bot-prosp-sum__row">
+                <span className="bot-prosp-sum__row-k">Próximo envio</span>
+                <span className="bot-prosp-sum__row-v">{nextWhen || "—"}</span>
+              </div>
+              {live?.nextEligibleLeadName && (
+                <div className="bot-prosp-sum__row">
+                  <span className="bot-prosp-sum__row-k">Próximo lead</span>
+                  <span className="bot-prosp-sum__row-v">{live.nextEligibleLeadName}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="bot-prosp-sum__note">
+              <I d={ICONS.bell} size={12} /> Teto fixo de {ABSOLUTE_DAILY_SEND_CAP}/dia. Nos primeiros dias a rampa de aquecimento limita ainda mais — é o que protege o número.
+            </div>
+
+            <div className="bot-prosp-controls">
+              {campaignStatus === "running" ? (
+                <button className="btn-ghost" onClick={() => handleCiclo("pause")} disabled={busy}><I d={ICONS.pause} size={12} /> Pausar</button>
+              ) : (
+                <button className="btn-ghost" onClick={() => handleCiclo(campaignStatus === "paused" ? "resume" : "start")} disabled={busy}>
+                  <I d={ICONS.play} size={12} /> {campaignStatus === "paused" ? "Retomar" : "Iniciar"}
+                </button>
+              )}
+              {campaign && campaignStatus !== "canceled" && campaignStatus !== "done" && (
+                <button className="btn-ghost bot-prosp-controls__danger" onClick={() => handleCiclo("cancel")} disabled={busy}><I d={ICONS.stop} size={12} /> Cancelar</button>
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
+
+      {/* ── DIREITA (dock): prévia de como o lead vê — mesmo dock do Tabuleiro ── */}
+      <aside className="bot-preview-dock">
+        <span className="bot-preview-dock__title">Como o lead vê</span>
+        <WhatsAppPreview
+          messages={prospPreviewMessages}
+          header={{ name: "Lead", status: "online" }}
+          emptyHint={'A prévia aparece quando você escrever a 1ª mensagem (peça “Mensagens alternadas”).'}
+        />
       </aside>
-
-      {/* ── Editor deslizante da peça (gaveta) ── */}
-      <ProspEditorDrawer piece={openPiece} onClose={() => setOpenPiece(null)} h={helpers} />
 
       {/* ── TutoFig ── */}
       <BotTutofig
@@ -274,77 +305,36 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   );
 }
 
-// ── Editor deslizante (espelha o padrão closing/finishClose do BotPhaseEditor) ──
-function ProspEditorDrawer({ piece, onClose, h }: { piece: PieceKey | null; onClose: () => void; h: ProspFieldHelpers }): React.JSX.Element | null {
-  const open = piece !== null;
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [closing, setClosing] = useState(false);
+// ── Editor inline da peça (substitui o drawer modal — aparece no centro) ──
+function ProspEditorInline({ piece, onClose, h }: { piece: PieceKey; onClose: () => void; h: ProspFieldHelpers }): React.JSX.Element {
+  const def = PIECES.find(p => p.key === piece);
 
-  // reset SEM effect (mesmo padrão do BotPhaseEditor)
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open && closing) setClosing(false);
-  }
-
-  const finishClose = useCallback(() => {
-    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-    setClosing(false);
-    onClose();
-  }, [onClose]);
-
-  const requestClose = useCallback(() => {
-    setClosing(true);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(finishClose, 360);
-  }, [finishClose]);
-
-  const handleAnimEnd = useCallback(() => { if (closing) finishClose(); }, [closing, finishClose]);
-
-  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); requestClose(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, requestClose]);
-
-  if (!open && !closing) return null;
-  const def = piece ? PIECES.find(p => p.key === piece) : null;
+  }, [onClose]);
 
   return (
-    <div
-      className={`hbx-veil to-right${closing ? " bot-prosp-veil--closing" : ""}`}
-      onClick={e => { if (e.target === e.currentTarget) requestClose(); }}
-    >
-      <div
-        className={`hbx-drawer bot-prosp-editor${closing ? " bot-prosp-editor--closing" : ""}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Editar: ${def?.label || ""}`}
-        onAnimationEnd={handleAnimEnd}
-      >
-        <header className="bot-prosp-editor__head">
-          <span className="bot-prosp-editor__icon" style={{ ["--bot-phase-color" as string]: def?.tone || "var(--hbx-brand)" }}>
-            <I d={ICONS[def?.icon || "config"] || ICONS.config} size={16} />
-          </span>
-          <span className="bot-prosp-editor__titles">
-            <span className="bot-prosp-editor__title">{def?.label}</span>
-            <span className="bot-prosp-editor__hint">{def?.hint}</span>
-          </span>
-          <button type="button" className="bot-prosp-editor__close" aria-label="Fechar" title="Fechar" onClick={requestClose}>✕</button>
-        </header>
-
-        <div className="bot-prosp-editor__body">
-          {piece && <ProspPieceBody piece={piece} h={h} />}
-        </div>
-
-        <footer className="bot-prosp-editor__foot">
-          <button type="button" className="btn-teal bot-prosp-editor__done" onClick={requestClose}>
-            <I d={ICONS.check} size={13} /> Concluir
-          </button>
-        </footer>
+    <div className="bot-prosp-editor-inline app-page">
+      <header className="bot-prosp-editor__head">
+        <span className="bot-prosp-editor__icon" style={{ ["--bot-phase-color" as string]: def?.tone || "var(--hbx-brand)" }}>
+          <I d={ICONS[def?.icon || "config"] || ICONS.config} size={16} />
+        </span>
+        <span className="bot-prosp-editor__titles">
+          <span className="bot-prosp-editor__title">{def?.label}</span>
+          <span className="bot-prosp-editor__hint">{def?.hint}</span>
+        </span>
+        <button type="button" className="bot-prosp-editor__close" aria-label="Fechar" title="Fechar" onClick={onClose}>✕</button>
+      </header>
+      <div className="bot-prosp-editor__body">
+        <ProspPieceBody piece={piece} h={h} />
       </div>
+      <footer className="bot-prosp-editor__foot">
+        <button type="button" className="btn-teal bot-prosp-editor__done" onClick={onClose}>
+          <I d={ICONS.check} size={13} /> Concluir
+        </button>
+      </footer>
     </div>
   );
 }

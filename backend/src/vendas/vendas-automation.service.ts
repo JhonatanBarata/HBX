@@ -47,6 +47,8 @@ type ProspectingSceneRules = {
   negativeIntentKeywords: string[];
   whatIsItIntentKeywords: string[];
   neutralIntentKeywords: string[];
+  callbackIntentKeywords: string[];
+  humanHandoffIntentKeywords: string[];
   scheduledReplyVariants: string[];
   optOutMessage: string;
   optOutReplyEnabled: boolean;
@@ -106,6 +108,11 @@ const OPT_OUT_INTENT_KEYWORDS = ['remover', 'pare', 'spam', 'nao me chame', 'nã
 const HUMAN_HANDOFF_INTENT_KEYWORDS = ['humano', 'atendente', 'ligar', 'me chama'];
 const WHAT_IS_IT_INTENT_KEYWORDS = ['o que é', 'oque é', 'sobre o que', 'como funciona', 'me explica', 'explica melhor', 'do que se trata'];
 const DEFAULT_NEUTRAL_KEYWORDS = ['vou ver', 'mais tarde', 'depois', 'manda depois', 'me chama depois', 'entendi', 'ok'];
+// "Falar depois" (callback) e "falar com humano" (handoff): defaults espelham os
+// do classificador (prospecting-safety). O dono pode acrescentar palavras na UI —
+// elas entram POR CIMA destes, nunca os apagam.
+const DEFAULT_CALLBACK_KEYWORDS = ['depois', 'mais tarde', 'outro horario', 'outro dia', 'amanha', 'semana que vem', 'pode ligar depois', 'me chama depois', 'manda depois', 'agora nao'];
+const DEFAULT_HUMAN_HANDOFF_KEYWORDS = ['humano', 'atendente', 'consultor', 'ligar', 'me liga', 'me chama', 'pode ligar'];
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_INTERVAL_VARIANCE_MINUTES = 30;
 const DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT = 0;
@@ -1245,6 +1252,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       ),
       whatIsItIntentKeywords: normalizeTextList(metadata.whatIsItIntentKeywords, WHAT_IS_IT_INTENT_KEYWORDS),
       neutralIntentKeywords: normalizeTextList(metadata.neutralIntentKeywords, DEFAULT_NEUTRAL_KEYWORDS),
+      callbackIntentKeywords: normalizeTextList(metadata.callbackIntentKeywords, DEFAULT_CALLBACK_KEYWORDS),
+      humanHandoffIntentKeywords: normalizeTextList(metadata.humanHandoffIntentKeywords, DEFAULT_HUMAN_HANDOFF_KEYWORDS),
       scheduledReplyVariants: normalizeVariantList(metadata.scheduledReplyVariants, DEFAULT_SCHEDULED_REPLY_VARIANTS),
       optOutMessage: trimOrNull(metadata.optOutMessage) || DEFAULT_OPT_OUT_MESSAGE,
       optOutReplyEnabled: metadata.optOutReplyEnabled === true,
@@ -1322,6 +1331,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       neutralIntentKeywords: normalizeTextList(
         hasOwnValue(payload, 'neutralIntentKeywords') ? (payload as any)?.neutralIntentKeywords : filters.neutralIntentKeywords,
         normalizeTextList((parseJsonObject(existing?.filtersJson) as any).neutralIntentKeywords, scene.neutralIntentKeywords),
+      ),
+      callbackIntentKeywords: normalizeTextList(
+        hasOwnValue(payload, 'callbackIntentKeywords') ? (payload as any)?.callbackIntentKeywords : filters.callbackIntentKeywords,
+        normalizeTextList((parseJsonObject(existing?.filtersJson) as any).callbackIntentKeywords, scene.callbackIntentKeywords),
+      ),
+      humanHandoffIntentKeywords: normalizeTextList(
+        hasOwnValue(payload, 'humanHandoffIntentKeywords') ? (payload as any)?.humanHandoffIntentKeywords : filters.humanHandoffIntentKeywords,
+        normalizeTextList((parseJsonObject(existing?.filtersJson) as any).humanHandoffIntentKeywords, scene.humanHandoffIntentKeywords),
       ),
     };
     const minLeadBuffer = clampInteger(payload?.minLeadBuffer, existing?.minLeadBuffer ?? DEFAULT_DAILY_LIMIT, 1, 500);
@@ -1679,6 +1696,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       negativeIntentKeywords: parseJsonList(campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS),
       whatIsItIntentKeywords: normalizeTextList(filtersJson.whatIsItIntentKeywords, WHAT_IS_IT_INTENT_KEYWORDS),
       neutralIntentKeywords: normalizeTextList(filtersJson.neutralIntentKeywords, DEFAULT_NEUTRAL_KEYWORDS),
+      callbackIntentKeywords: normalizeTextList(filtersJson.callbackIntentKeywords, DEFAULT_CALLBACK_KEYWORDS),
+      humanHandoffIntentKeywords: normalizeTextList(filtersJson.humanHandoffIntentKeywords, DEFAULT_HUMAN_HANDOFF_KEYWORDS),
       firstContactVariants: normalizeVariantList(filtersJson.firstContactVariants, DEFAULT_FIRST_CONTACT_VARIANTS),
       positiveReplyVariants: normalizeVariantList(filtersJson.positiveReplyVariants, DEFAULT_POSITIVE_REPLY_VARIANTS),
       whatIsItReplyVariants: normalizeVariantList(filtersJson.whatIsItReplyVariants, DEFAULT_WHAT_IS_IT_REPLY_VARIANTS),
@@ -4233,12 +4252,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const filtersJson = parseJsonObject(job.campaign.filtersJson);
     const whatIsItKeywords = normalizeTextList(filtersJson.whatIsItIntentKeywords, WHAT_IS_IT_INTENT_KEYWORDS).map(normalizeKey);
     const neutralKeywords = normalizeTextList(filtersJson.neutralIntentKeywords, DEFAULT_NEUTRAL_KEYWORDS).map(normalizeKey);
+    const callbackKeywords = normalizeTextList(filtersJson.callbackIntentKeywords, DEFAULT_CALLBACK_KEYWORDS).map(normalizeKey);
+    const humanHandoffKeywords = normalizeTextList(filtersJson.humanHandoffIntentKeywords, DEFAULT_HUMAN_HANDOFF_KEYWORDS).map(normalizeKey);
     const intent = classifyProspectingIntent({
       text: input.text,
       positiveKeywords: positives,
       negativeKeywords: negatives,
       whatIsItKeywords,
       neutralKeywords,
+      callbackKeywords,
+      humanHandoffKeywords,
     });
     const autoReplyClassification = classifyProspectingAutoReply(input.text);
     const terminalStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived'];

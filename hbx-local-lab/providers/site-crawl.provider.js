@@ -1,6 +1,6 @@
 'use strict';
 
-const { extractEmailsFromText, normalizeDomain, normalizePhoneDigits, normalizeUrl, compactText } = require('../extractors/email.extractor');
+const { extractCnpjFromText, extractEmailsFromText, normalizeDomain, normalizePhoneDigits, normalizeUrl, compactText } = require('../extractors/email.extractor');
 const { buildContactUrls, extractLikelyCompanyName, extractPublicLinks, extractSocialUrls } = require('../extractors/contact-page.extractor');
 
 const MAX_PAGE_BYTES = 350_000;
@@ -70,6 +70,7 @@ function normalizeSeedCandidate(seed, job) {
     state: compactText(seed.state || job.state || '', 2).toUpperCase() || null,
     segment: compactText(seed.segment || job.segment || '', 180) || null,
     website,
+    cnpj: String(seed.cnpj || '').replace(/\D/g, '').slice(0, 14) || null,
     phone: seed.phone || null,
     whatsapp: seed.whatsapp || null,
     instagramUrl: normalizeUrl(seed.instagramUrl) || null,
@@ -160,6 +161,7 @@ function buildLeadFromCandidate(candidate, emails, pages, job) {
     state: candidate.state || job.state || null,
     segment: candidate.segment || job.segment || null,
     website: candidate.website || null,
+    cnpj: candidate.cnpj || null,
     phone: normalizePhoneDigits(candidate.phone) || null,
     whatsapp: normalizePhoneDigits(candidate.whatsapp) || null,
     email: firstEmail?.email || null,
@@ -211,6 +213,7 @@ async function runSiteCrawlProvider(job, context = {}) {
       const socialLinks = extractSocialUrls(page.html, page.url);
       if (!candidate.instagramUrl) candidate.instagramUrl = socialLinks.find((link) => /instagram\.com/i.test(link)) || null;
       if (!candidate.facebookUrl) candidate.facebookUrl = socialLinks.find((link) => /facebook\.com/i.test(link)) || null;
+      if (!candidate.cnpj) candidate.cnpj = extractCnpjFromText(page.html);
       const found = extractEmailsFromText(page.html, {
         sourceUrl: page.url,
         website: candidate.website,
@@ -228,6 +231,7 @@ async function runSiteCrawlProvider(job, context = {}) {
       pages.push(page);
       if (!page.ok) continue;
       stats.pagesVisited += 1;
+      if (!candidate.cnpj) candidate.cnpj = extractCnpjFromText(page.html);
       const found = extractEmailsFromText(page.html, {
         sourceUrl: page.url,
         website: candidate.website,

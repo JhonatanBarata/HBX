@@ -165,10 +165,10 @@
             <button id="btn-cockpit-enrich" class="btn btn-sm btn-blue" disabled>✦ Enriquecer</button>
             <button id="btn-cockpit-discover" class="btn btn-sm btn-blue" title="Descobre site + CNPJ → razão/CNAE/sócio nos leads sem website (cadeia grátis L1→L4)">✦ Descobrir site + CNPJ (grátis)</button>
             <button id="btn-clean-junk" class="btn btn-sm btn-amber">✕ Limpar lixo</button>
-            <button id="btn-cnpj-backfill" class="btn btn-sm btn-blue">✦ Enriquecer CNPJ→dono</button>
+            <button id="btn-cnpj-backfill" class="btn btn-sm btn-blue" title="Por CNPJ (sem filtro de segmento): nome do dono + telefone + redes sociais do dono">✦ CNPJ → dono + tel + sociais</button>
           </div>
         </div>
-        <p class="delta" id="cockpit-enrich-note" style="margin:4px 0 10px;">Enriquece leads que têm website — visita o site e extrai o e-mail. Instagram-only e descobrir o site de quem só tem telefone são próximas fases.</p>
+        <p class="delta" id="cockpit-enrich-note" style="margin:4px 0 10px;">Dois workers: <strong>CNPJ → dono</strong> (grátis: nome do dono + telefone + redes sociais do dono, por CNPJ) e <strong>Email finder</strong> (high-risk, abaixo: visita o site e extrai e-mail + CNPJ, só do seu IP local).</p>
 
         <!-- Barra de progresso do enriquecimento -->
         <div id="cockpit-enrich-row" style="display:none;margin-bottom:10px;">
@@ -182,6 +182,29 @@
             <button id="btn-el-cancel" class="btn btn-amber btn-sm" disabled>Cancelar</button>
             <span id="el-feedback" class="delta"></span>
           </div>
+        </div>
+
+        <!-- ====== EMAIL FINDER (Worker 2) — high risk, LOCALHOST ONLY ====== -->
+        <div id="email-finder" style="border:1px solid var(--border,#2a3344);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+          <div class="focus-row" style="flex-wrap:wrap;gap:8px;margin:0;">
+            <span class="label" style="margin:0;">🔎 Email finder</span>
+            <span class="pill pill-amber" title="Crawl agressivo — roda só da sua máquina">high risk · local</span>
+            <span id="ef-status" class="pill pill-muted">parado</span>
+            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;align-items:center;">
+              <label class="cf-toggle" title="Só cards que ainda não têm e-mail"><input type="checkbox" id="ef-only-missing" checked /> Só sem e-mail</label>
+              <label class="cf-toggle" title="Visita mais páginas por site (mais e-mails, mais lento, mais exposto)"><input type="checkbox" id="ef-aggressive" /> Agressivo</label>
+              <button id="btn-ef-start" class="btn btn-sm btn-green">▶ Caçar e-mail</button>
+              <button id="btn-ef-cancel" class="btn btn-sm btn-amber" disabled>Cancelar</button>
+              <button id="btn-ef-apply" class="btn btn-sm btn-blue" disabled>Aplicar nos cards</button>
+            </div>
+          </div>
+          <p class="delta" style="margin:4px 0 8px;">Visita os sites dos cards locais pra achar <strong>e-mail + CNPJ</strong>. Sai do <strong>SEU IP</strong> (Local Lab 3098), nunca do VPS. Ritmo lento + backoff protegem o IP.</p>
+          <div class="grid-3" style="margin-bottom:6px;">
+            <div class="metric"><span class="label">Sites na fila</span><strong id="ef-cands">—</strong></div>
+            <div class="metric"><span class="label">Sites visitados</span><strong id="ef-sites">—</strong></div>
+            <div class="metric"><span class="label">E-mails achados</span><strong id="ef-found">—</strong></div>
+          </div>
+          <p id="ef-feedback" class="delta">Sem caça iniciada.</p>
         </div>
 
         <!-- Filtros por coluna + toggles rápidos -->

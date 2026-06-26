@@ -1168,7 +1168,7 @@ async function ckCnpjBackfill() {
     const summary = results.map((item) => {
       const d = item.data || {};
       if (!item.ok) return `${item.label || item.environment}: falhou`;
-      return `${item.label || item.environment}: ${d.scanned ?? "?"}↗ ${d.enriched ?? "?"}✓ ${d.errors ?? "?"}✗`;
+      return `${item.label || item.environment}: ${d.scanned ?? "?"}↗ ${d.enriched ?? "?"}✓ ${d.phonesFound ?? 0}tel ${d.socialsFound ?? 0}redes ${d.errors ?? "?"}✗`;
     }).join(" · ") || (r.reason || "resposta vazia");
     if (fb) { fb.textContent = r.ok ? `CNPJ→dono: ${summary}` : `Erro: ${r.reason || summary}`; fb.className = r.ok ? "delta up" : "delta"; }
     pushFeed(`CNPJ→dono: ${summary}`, r.ok ? "ok" : "warn");
@@ -1192,10 +1192,12 @@ async function ckStartDiscover() {
     const scanned   = r.scanned   ?? r.data?.scanned   ?? "?";
     const sitesFound = r.sitesFound ?? r.data?.sitesFound ?? 0;
     const cnpjsFound = r.cnpjsFound ?? r.data?.cnpjsFound ?? 0;
+    const phonesFound = r.phonesFound ?? r.data?.phonesFound ?? 0;
+    const socialsFound = r.socialsFound ?? r.data?.socialsFound ?? 0;
     const enriched  = r.enriched  ?? r.data?.enriched  ?? "?";
     const errors    = r.errors    ?? r.data?.errors    ?? 0;
     if (r.ok !== false) {
-      const summary = `${scanned} varridos · ${sitesFound} sites · ${cnpjsFound} CNPJ · ${enriched} enriquecidos`;
+      const summary = `${scanned} varridos · ${sitesFound} sites · ${cnpjsFound} CNPJ · ${phonesFound} tel · ${socialsFound} redes · ${enriched} enriquecidos`;
       if (fb) { fb.textContent = summary; fb.className = "delta up"; }
       pushFeed(`Descoberta grátis: ${summary}`, errors > 0 ? "warn" : "ok");
     } else {
@@ -1209,6 +1211,122 @@ async function ckStartDiscover() {
   } finally {
     if (btn) btn.disabled = false;
     setTimeout(loadCockpit, 1500);
+  }
+}
+
+/* ---------- Email Finder (Worker 2) — high risk, localhost only ---------- */
+let efPollTimer = null;
+
+function efSetStatus(text, kind) {
+  const s = $("#ef-status");
+  if (!s) return;
+  const cls = kind === "run" ? "pill-amber" : kind === "done" ? "pill-ok" : kind === "warn" ? "pill-bad" : "pill-muted";
+  s.textContent = text;
+  s.className = "pill " + cls;
+}
+
+function efPaint(state) {
+  const job = state && state.job;
+  const m = (job && job.metrics) || {};
+  const sites = $("#ef-sites"), found = $("#ef-found"), cands = $("#ef-cands");
+  if (cands && state.candidates != null) cands.textContent = Number(state.candidates).toLocaleString("pt-BR");
+  if (sites) sites.textContent = m.sitesVisited != null ? Number(m.sitesVisited).toLocaleString("pt-BR") : "—";
+  if (found) found.textContent = m.emailsFound != null ? Number(m.emailsFound).toLocaleString("pt-BR") : "—";
+  const startBtn = $("#btn-ef-start"), cancelBtn = $("#btn-ef-cancel"), applyBtn = $("#btn-ef-apply");
+  const st = job && job.status;
+  const terminal = ["completed", "failed", "canceled"].includes(st);
+  if (state.running && !terminal) {
+    efSetStatus("caçando…", "run");
+    if (startBtn) startBtn.disabled = true;
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (applyBtn) applyBtn.disabled = true;
+  } else {
+    if (startBtn) startBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (applyBtn) applyBtn.disabled = st !== "completed";
+    efSetStatus(st === "completed" ? "concluído" : st === "failed" ? "falhou" : st === "canceled" ? "cancelado" : "parado",
+      st === "completed" ? "done" : (st === "failed" || st === "canceled") ? "warn" : "idle");
+  }
+  return { terminal, status: st };
+}
+
+function efStopPoll() { if (efPollTimer) { clearInterval(efPollTimer); efPollTimer = null; } }
+
+async function efPollOnce() {
+  try {
+    const r = await api("GET", "/owner/email-finder/status");
+    const res = efPaint(r);
+    if (res.terminal) {
+      efStopPoll();
+      const fb = $("#ef-feedback");
+      if (res.status === "completed") {
+        const m = (r.job && r.job.metrics) || {};
+        if (fb) { fb.textContent = `Caça concluída: ${m.sitesVisited || 0} sites · ${m.emailsFound || 0} e-mails. Clique "Aplicar nos cards".`; fb.className = "delta up"; }
+        pushFeed(`Email finder concluído: ${m.emailsFound || 0} e-mails.`, "ok");
+      } else if (fb) {
+        fb.textContent = `Caça ${res.status}.`; fb.className = "delta";
+      }
+    }
+  } catch { /* mantém poll */ }
+}
+
+async function efStart() {
+  const startBtn = $("#btn-ef-start"), fb = $("#ef-feedback");
+  const onlyMissingEmail = !!($("#ef-only-missing") && $("#ef-only-missing").checked);
+  const aggressive = !!($("#ef-aggressive") && $("#ef-aggressive").checked);
+  if (startBtn) startBtn.disabled = true;
+  if (fb) { fb.textContent = "montando candidatos + subindo Local Lab…"; fb.className = "delta"; }
+  efSetStatus("iniciando…", "run");
+  try {
+    const r = await api("POST", "/owner/email-finder/start", { onlyMissingEmail, aggressive });
+    if (!r.ok) {
+      if (fb) { fb.textContent = r.message || r.reason || "não consegui iniciar."; fb.className = "delta"; }
+      efSetStatus("parado", "idle");
+      if (startBtn) startBtn.disabled = false;
+      return;
+    }
+    const cands = $("#ef-cands"); if (cands) cands.textContent = Number(r.candidates || 0).toLocaleString("pt-BR");
+    if (fb) { fb.textContent = r.message || `caçando ${r.candidates} sites…`; fb.className = "delta up"; }
+    pushFeed(`Email finder iniciado: ${r.candidates} sites (IP local).`, "info");
+    const cancelBtn = $("#btn-ef-cancel"); if (cancelBtn) cancelBtn.disabled = false;
+    efSetStatus("caçando…", "run");
+    efStopPoll(); efPollOnce(); efPollTimer = setInterval(efPollOnce, 3000);
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+    efSetStatus("parado", "idle");
+    if (startBtn) startBtn.disabled = false;
+  }
+}
+
+async function efCancel() {
+  const fb = $("#ef-feedback");
+  try {
+    await api("POST", "/owner/email-finder/cancel", {});
+    efStopPoll();
+    if (fb) { fb.textContent = "caça cancelada."; fb.className = "delta"; }
+    efSetStatus("cancelado", "warn");
+    const startBtn = $("#btn-ef-start"), cancelBtn = $("#btn-ef-cancel");
+    if (startBtn) startBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = true;
+    pushFeed("Email finder cancelado.", "warn");
+  } catch (err) { if (fb) fb.textContent = err.message; }
+}
+
+async function efApply() {
+  const applyBtn = $("#btn-ef-apply"), fb = $("#ef-feedback");
+  if (applyBtn) applyBtn.disabled = true;
+  if (fb) { fb.textContent = "aplicando nos cards…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/email-finder/apply", {});
+    if (!r.ok) { if (fb) { fb.textContent = r.reason || r.message || "falha ao aplicar."; fb.className = "delta"; } if (applyBtn) applyBtn.disabled = false; return; }
+    const a = r.applied || {};
+    const msg = `Aplicado: ${a.updated || 0} cards · ${a.emails || 0} e-mails · ${a.cnpjs || 0} CNPJ · ${a.socials || 0} redes.`;
+    if (fb) { fb.textContent = msg; fb.className = "delta up"; }
+    pushFeed(`Email finder: ${msg}`, "ok");
+    setTimeout(loadCockpit, 1500);
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+    if (applyBtn) applyBtn.disabled = false;
   }
 }
 
@@ -1341,6 +1459,12 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
+
+  // Email Finder (Worker 2)
+  const efStartBtn = $("#btn-ef-start"); if (efStartBtn) efStartBtn.addEventListener("click", efStart);
+  const efCancelBtn = $("#btn-ef-cancel"); if (efCancelBtn) efCancelBtn.addEventListener("click", efCancel);
+  const efApplyBtn = $("#btn-ef-apply"); if (efApplyBtn) efApplyBtn.addEventListener("click", efApply);
+  efPollOnce(); // sincroniza estado se já houver caça rodando
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
     for (const id of ["cf-not-enriched", "cf-has-site", "cf-has-whatsapp"]) { const el = $(`#${id}`); if (el) el.checked = false; }
