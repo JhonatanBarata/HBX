@@ -1207,6 +1207,222 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
+  private parseWebwhatsUserIdFromTenantKey(tenantKey: string | null, companyId: number) {
+    const match = String(tenantKey || '').trim().match(/^company-(\d+)-user-(\d+)$/i);
+    if (!match?.[1] || !match?.[2]) return null;
+    if (Number(match[1]) !== Number(companyId)) return null;
+    const userId = Number(match[2]);
+    return Number.isFinite(userId) && userId > 0 ? Math.floor(userId) : null;
+  }
+
+  private firstWebwhatsString(...values: unknown[]) {
+    for (const value of values) {
+      const normalized = String(value || '').trim();
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
+  private normalizeWebwhatsSessionPhone(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    const digits = normalized.split('@')[0].replace(/\D/g, '');
+    return digits.length >= 8 ? digits : null;
+  }
+
+  private parseWebwhatsSessionMetadata(value: unknown) {
+    if (!value) return {};
+    try {
+      const parsed = JSON.parse(String(value));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private getWebwhatsConnectionState(payload: any) {
+    return this.firstWebwhatsString(
+      payload?.data?.state,
+      payload?.data?.status,
+      payload?.data?.connectionStatus,
+      payload?.instance?.state,
+      payload?.instance?.status,
+      payload?.instance?.connectionStatus,
+      payload?.state,
+      payload?.status,
+      payload?.connectionStatus,
+    )?.toLowerCase() || null;
+  }
+
+  private getWebwhatsConnectionPhone(payload: any) {
+    return this.firstWebwhatsString(
+      payload?.data?.wuid,
+      payload?.data?.ownerJid,
+      payload?.data?.owner,
+      payload?.data?.phone,
+      payload?.data?.phoneNumber,
+      payload?.data?.number,
+      payload?.data?.sender,
+      payload?.instance?.ownerJid,
+      payload?.instance?.owner,
+      payload?.instance?.phone,
+      payload?.instance?.phoneNumber,
+      payload?.instance?.number,
+      payload?.ownerJid,
+      payload?.owner,
+      payload?.phone,
+      payload?.phoneNumber,
+      payload?.number,
+      payload?.sender,
+    );
+  }
+
+  private isWebwhatsConnectedState(state: string | null) {
+    return Boolean(state && ['connected', 'open', 'ready', 'active', 'authenticated', 'logged_in', 'online'].includes(state));
+  }
+
+  private isWebwhatsDisconnectedState(eventName: string, state: string | null) {
+    const normalizedEvent = String(eventName || '').trim().toLowerCase();
+    return (
+      normalizedEvent === 'logout_instance' ||
+      Boolean(state && ['disconnected', 'close', 'closed', 'stopped', 'logged_out', 'terminated', 'offline', 'not_connected'].includes(state))
+    );
+  }
+
+  private async reconcileWebwhatsConnectionWebhook(input: {
+    companyId: number;
+    tenantKey: string | null;
+    eventName: string;
+    payload: any;
+  }) {
+    const companyId = Number(input.companyId || 0);
+    const tenantKey = String(input.tenantKey || '').trim();
+    if (!companyId || !tenantKey) return null;
+
+    const state = this.getWebwhatsConnectionState(input.payload);
+    const connected = this.isWebwhatsConnectedState(state);
+    const disconnected = this.isWebwhatsDisconnectedState(input.eventName, state);
+    if (!connected && !disconnected) return null;
+
+    const now = new Date();
+    const userId = this.parseWebwhatsUserIdFromTenantKey(tenantKey, companyId);
+    const rawPhone = this.getWebwhatsConnectionPhone(input.payload);
+    const phoneNormalized = this.normalizeWebwhatsSessionPhone(rawPhone);
+    const displayPhone = rawPhone || (phoneNormalized ? `${phoneNormalized}@s.whatsapp.net` : null);
+
+    if (disconnected) {
+      const result = await this.prisma.whatsAppConnectionSession.updateMany({
+        where: {
+          companyId,
+          provider: 'webwhats',
+          tenantKey,
+          status: 'active',
+        },
+        data: {
+          status: 'disconnected',
+          disconnectedAt: now,
+        },
+      });
+      return { action: 'disconnected', count: result.count };
+    }
+
+    const buildMeta = (prev?: unknown) =>
+      JSON.stringify({
+        ...this.parseWebwhatsSessionMetadata(prev),
+        source: 'webhook_connection_update',
+        eventName: input.eventName,
+        rawStatus: state,
+        profileName: this.firstWebwhatsString(input.payload?.data?.profileName, input.payload?.profileName),
+        recordedAt: now.toISOString(),
+      });
+
+    const currentActive = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { companyId, provider: 'webwhats', tenantKey, status: 'active' },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true, phoneNormalized: true, displayPhone: true, metadataJson: true, userId: true },
+    });
+
+    const byPhone = phoneNormalized
+      ? await this.prisma.whatsAppConnectionSession.findFirst({
+          where: { companyId, provider: 'webwhats', tenantKey, phoneNormalized },
+          orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, displayPhone: true, metadataJson: true, userId: true },
+        })
+      : null;
+
+    let session: { id: string };
+    if (byPhone?.id) {
+      const data: any = {
+        tenantKey,
+        status: 'active',
+        connectedAt: now,
+        disconnectedAt: null,
+        wipedAt: null,
+        metadataJson: buildMeta(byPhone.metadataJson),
+      };
+      if (displayPhone && !byPhone.displayPhone) data.displayPhone = displayPhone;
+      if (userId && !byPhone.userId) data.userId = userId;
+      session = await this.prisma.whatsAppConnectionSession.update({
+        where: { id: String(byPhone.id) },
+        data,
+        select: { id: true },
+      });
+    } else if (currentActive?.id && (!currentActive.phoneNormalized || !phoneNormalized)) {
+      const data: any = {
+        tenantKey,
+        status: 'active',
+        connectedAt: now,
+        disconnectedAt: null,
+        wipedAt: null,
+        metadataJson: buildMeta(currentActive.metadataJson),
+      };
+      if (phoneNormalized && !currentActive.phoneNormalized) data.phoneNormalized = phoneNormalized;
+      if (displayPhone && !currentActive.displayPhone) data.displayPhone = displayPhone;
+      if (userId && !currentActive.userId) data.userId = userId;
+      session = await this.prisma.whatsAppConnectionSession.update({
+        where: { id: String(currentActive.id) },
+        data,
+        select: { id: true },
+      });
+    } else {
+      session = await this.prisma.whatsAppConnectionSession.create({
+        data: {
+          companyId,
+          provider: 'webwhats',
+          tenantKey,
+          phoneNormalized,
+          displayPhone,
+          status: 'active',
+          connectedAt: now,
+          metadataJson: buildMeta(),
+          userId,
+        },
+        select: { id: true },
+      });
+    }
+
+    await this.prisma.whatsAppConnectionSession.updateMany({
+      where: {
+        companyId,
+        provider: 'webwhats',
+        tenantKey,
+        status: 'active',
+        NOT: { id: String(session.id) },
+      },
+      data: {
+        status: 'disconnected',
+        disconnectedAt: now,
+      },
+    });
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { currentWhatsappConnectionSessionId: String(session.id) },
+    });
+
+    return { action: 'active', sessionId: String(session.id), phoneNormalized };
+  }
+
   private normalizeWebwhatsJid(value: unknown) {
     const normalized = String(value || '').trim();
     if (!normalized) return null;
@@ -8202,6 +8418,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    // POR USUÁRIO: extraído antes dos handlers para que o evento, status e mensagem usem o
+    // tenantKey cru do webhook (`company-{id}-user-{n}`), nunca a sessão genérica da empresa.
+    const webwhatsTenantKey = this.findWebwhatsTenantKey(payload, opts.query);
+    const connectionReconcileResult = await this.reconcileWebwhatsConnectionWebhook({
+      companyId: Number(company.id),
+      tenantKey: webwhatsTenantKey,
+      eventName,
+      payload,
+    });
+
     const messages = this.extractWebwhatsMessageCandidates(payload);
     const statuses = this.extractWebwhatsStatusCandidates(payload);
     await this.logWhatsAppEvent({
@@ -8213,6 +8439,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       extra: {
         eventName,
         companyResolution: resolved.source,
+        tenantKey: webwhatsTenantKey,
+        connectionReconcileResult,
         messageCandidates: messages.length,
         statusCandidates: statuses.length,
       },
@@ -8221,11 +8449,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     let statusesHandled = 0;
     let messagesHandled = 0;
     let failures = 0;
-
-    // POR USUÁRIO: extraído antes do loop de status para que o casamento de id use o
-    // tenantKey cru do webhook (`company-{id}-user-{n}`), que é o mesmo prefixo com que
-    // o providerMessageId das OUTBOUNDs foi salvo em `buildProviderMessageId`.
-    const webwhatsTenantKey = this.findWebwhatsTenantKey(payload, opts.query);
 
     for (const status of statuses) {
       try {
@@ -8329,6 +8552,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       ok: failures === 0,
       eventName,
       companyId: company.id,
+      connectionReconcileResult,
       messagesHandled,
       statusesHandled,
       failures,

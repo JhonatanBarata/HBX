@@ -614,10 +614,16 @@ export class WhatsAppModalService {
     // STATUS HONESTO (Trilha 1 — Fundação de confiança):
     // Quando há userId, a FONTE DE VERDADE é a sessão `WhatsAppConnectionSession` do
     // usuário (lida por `buildUserStoredSnapshot`). Se a sessão já diz disconnected/offline,
-    // NÃO consultamos o motor — evitamos que uma instância zumbi (delete falhou no motor)
-    // ou o campo legado `company.whatsappModalStatus` (que persistSnapshot com userId
-    // NÃO atualiza) reporte "Conectado" para um número já desconectado pelo vendedor.
+    // só reativamos quando o motor confirma `open`; isso cobre pairing-code/restart sem
+    // transformar instância ausente/zumbi em conectado.
     if (userId && (storedSnapshot.status === 'disconnected' || storedSnapshot.status === 'offline')) {
+      const recoveredSnapshot = await this.recoverUserSessionIfProviderOpen(company, storedSnapshot, userId);
+      if (recoveredSnapshot?.status === 'connected') {
+        return this.buildResponse(baseCompany, recoveredSnapshot, {
+          success: true,
+          providerHealth: 'healthy',
+        });
+      }
       return this.buildResponse(baseCompany, storedSnapshot, {
         success: true,
         providerHealth: 'healthy',
@@ -635,6 +641,28 @@ export class WhatsAppModalService {
         return this.buildTransientFailureResponse(baseCompany, storedSnapshot, error, { success: true });
       }
       return this.buildFailureResponse(baseCompany, storedSnapshot, error, 'Falha ao consultar o Modal WhatsApp.');
+    }
+  }
+
+  private async recoverUserSessionIfProviderOpen(
+    company: CompanyModalFields,
+    fallback: ModalSnapshot,
+    userId: number,
+  ): Promise<ModalSnapshot | null> {
+    const tenantKey = this.resolveOperationalTenantKey(company);
+    try {
+      const payload = await this.fetchProviderConnectionStateForPairing(tenantKey);
+      if (!payload || this.isMissingInstancePayload(payload)) return null;
+      const snapshot = this.reconcileTransientSnapshot(tenantKey, await this.extractSnapshot(payload, fallback));
+      if (snapshot.status !== 'connected') return null;
+      await this.persistSnapshot(company, snapshot, 'status_self_heal', userId);
+      return snapshot;
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      this.logger.warn(
+        `Modal WhatsApp status self-heal skipped for company ${company.id} tenant=${tenantKey}: ${providerError.message}`,
+      );
+      return null;
     }
   }
 
