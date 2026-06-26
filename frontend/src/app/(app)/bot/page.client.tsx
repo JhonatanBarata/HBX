@@ -710,7 +710,7 @@ export function BotClient() {
       value={pecaAtual.settings ? "" : cfgValue(pecaAtual.key as keyof BotConfig)}
       onChange={next => { if (!pecaAtual.settings) setCfgForm(prev => ({ ...prev, [pecaAtual.key as string]: next })); }}
       onFocusField={el => { if (!pecaAtual.settings) { setActiveFieldKey(pecaAtual.key as keyof BotConfig); activeFieldRef.current = el; } }}
-      onOpenVariables={el => { if (!pecaAtual.settings) abrirVariaveis(pecaAtual.key as keyof BotConfig, el); }}
+      variableCatalog={cfgData?.variableCatalog ?? []}
       showButtons={Boolean(pecaAtual.buttonsKey)}
       buttons={pecaAtual.buttonsKey ? botoesDe(pecaAtual.buttonsKey) : []}
       actionCatalog={acoesDisponiveis}

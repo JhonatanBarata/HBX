@@ -3,8 +3,8 @@
 // BotPhaseEditor — editor DESLIZANTE compartilhado pelos 3 modos de montagem
 // (Tabuleiro / Trilha / Bandeja) do Construtor de Bot. Desliza da DIREITA e
 // edita UMA peça (fase do bot) por vez: título + textarea da mensagem + botão
-// "Variáveis" + <BotButtonsEditor> (quando a peça emite botões). Para a peça
-// "Ajustes" mostra os toggles de regras (BOT_RULES).
+// "Variáveis" (expande picker inline) + <BotButtonsEditor> (quando a peça emite botões).
+// Para a peça "Ajustes" mostra os toggles de regras (BOT_RULES).
 //
 // Casca/animação vêm das classes CENTRAIS do kit (.hbx-veil.to-right + .hbx-drawer);
 // o visual do conteúdo mora em hbx-theme/bot-builder.css (zero hex/inline color).
@@ -14,10 +14,11 @@
 // ANTES de onClose, onAnimationEnd + timeout de fallback, e
 // `if (!open && !closing) return null` pra DESMONTAR ao fechar).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotButtonsEditor, type BotButton, type BotAction } from "@/components/hbx/bot-buttons-editor";
+import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 
 // Espelha o tipo de regra da página (chave + label + hint).
 export type PhaseRuleDef = {
@@ -39,7 +40,9 @@ export type BotPhaseEditorProps = {
   value: string;
   onChange: (next: string) => void;
   onFocusField: (el: HTMLTextAreaElement | null) => void;
-  onOpenVariables: (el: HTMLTextAreaElement | null) => void;
+  onOpenVariables?: (el: HTMLTextAreaElement | null) => void;
+  // catálogo de variáveis para o picker inline (quando presente, substitui o drawer externo)
+  variableCatalog?: VarDef[];
   // botões (opcional — só quando a peça os emite)
   showButtons: boolean;
   buttons: BotButton[];
@@ -68,6 +71,7 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
     onChange,
     onFocusField,
     onOpenVariables,
+    variableCatalog = [],
     showButtons,
     buttons,
     actionCatalog,
@@ -84,6 +88,37 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Picker inline de variáveis ────────────────────────────────────────────
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+
+  const filteredVars = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    if (!q) return variableCatalog;
+    return variableCatalog.filter(v =>
+      v.label.toLowerCase().includes(q) ||
+      v.key.toLowerCase().includes(q) ||
+      (v.description || "").toLowerCase().includes(q)
+    );
+  }, [variableCatalog, pickerQuery]);
+
+  function handleInsertVar(token: string) {
+    const el = fieldRef.current;
+    const start = el ? el.selectionStart ?? value.length : value.length;
+    const end = el ? el.selectionEnd ?? value.length : value.length;
+    const novo = value.slice(0, start) + token + value.slice(end);
+    onChange(novo);
+    const caret = start + token.length;
+    requestAnimationFrame(() => {
+      const node = fieldRef.current;
+      if (node) {
+        node.focus();
+        try { node.setSelectionRange(caret, caret); } catch { /* noop */ }
+      }
+    });
+    setPickerOpen(false);
+  }
 
   // `closing` mantém o componente montado durante a animação de saída.
   const [closing, setClosing] = useState(false);
@@ -226,13 +261,56 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
               <div className="bot-phase-editor__tools">
                 <button
                   type="button"
-                  className="btn-ghost bot-phase-editor__var-btn"
+                  className={"btn-ghost bot-phase-editor__var-btn" + (pickerOpen ? " is-active" : "")}
                   title="Inserir variável nesta mensagem"
-                  onClick={() => onOpenVariables(fieldRef.current)}
+                  onClick={() => {
+                    if (variableCatalog.length > 0) {
+                      setPickerOpen(v => !v);
+                    } else {
+                      onOpenVariables?.(fieldRef.current);
+                    }
+                  }}
                 >
                   <I d={ICONS.bolt} size={12} /> Variáveis
                 </button>
               </div>
+
+              {/* Picker inline de variáveis — expande abaixo do textarea */}
+              {variableCatalog.length > 0 && (
+                <div className={"bot-phase-vars" + (pickerOpen ? " is-open" : "")} aria-hidden={!pickerOpen}>
+                  <div className="bot-phase-vars__inner">
+                    <div className="bot-phase-vars__content">
+                      <input
+                        className="field-dark bot-phase-vars__search"
+                        type="search"
+                        placeholder="Buscar variável…"
+                        value={pickerQuery}
+                        onChange={e => setPickerQuery(e.target.value)}
+                        tabIndex={pickerOpen ? 0 : -1}
+                        aria-label="Buscar variável"
+                      />
+                      {filteredVars.length === 0 ? (
+                        <p className="bot-phase-vars__empty">Nenhuma variável encontrada.</p>
+                      ) : (
+                        <div className="bot-phase-vars__list">
+                          {filteredVars.map(v => (
+                            <button
+                              key={v.key}
+                              type="button"
+                              className="bot-phase-vars__item"
+                              tabIndex={pickerOpen ? 0 : -1}
+                              onClick={() => handleInsertVar(`{{${v.key}}}`)}
+                            >
+                              <span className="bot-phase-vars__name">{v.label}</span>
+                              <code className="bot-phase-vars__token">{`{{${v.key}}}`}</code>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {showButtons && (
                 <div className="bot-phase-editor__buttons">

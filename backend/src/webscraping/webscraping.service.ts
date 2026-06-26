@@ -614,7 +614,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
    * E-mail → coluna email; CNPJ/razão → metadataJson; instagram/facebook → colunas próprias.
    */
   async applyDiscoveredContactsForMaster(
-    items: Array<{ id?: string; email?: string; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> = [],
+    items: Array<{ id?: string; email?: string; emails?: string[]; phones?: string[]; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> = [],
   ): Promise<{ requested: number; updated: number; emails: number; cnpjs: number; socials: number; errors: number }> {
     const prisma = this.internalPrisma as any;
     const list = Array.isArray(items) ? items.slice(0, 5000) : [];
@@ -635,6 +635,15 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       const m = String(v || '').trim().toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
       return m ? m[0] : '';
     };
+    const cleanPhone = (v: unknown) => {
+      const d = String(v || '').replace(/\D/g, '');
+      return d.length === 10 || d.length === 11 ? d : '';
+    };
+    const mergeCapped = (existing: unknown, incoming: string[], cap = 3) => {
+      const out: string[] = Array.isArray(existing) ? existing.filter(Boolean).map(String) : [];
+      for (const v of incoming) { if (v && !out.includes(v) && out.length < cap) out.push(v); }
+      return out;
+    };
 
     for (const item of list) {
       const id = String(item?.id || '').trim();
@@ -642,19 +651,35 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       try {
         const row = await prisma.radarLeadPool.findUnique({
           where: { id },
-          select: { id: true, email: true, instagramUrl: true, facebookUrl: true, metadataJson: true },
+          select: { id: true, email: true, phone: true, instagramUrl: true, facebookUrl: true, metadataJson: true },
         });
         if (!row) { errors += 1; continue; }
         const meta = parseMeta(row);
         const data: Record<string, any> = {};
         let metaChanged = false;
 
-        const email = cleanEmail(item?.email);
-        if (email && !String(row.email || '').trim()) {
-          data.email = email;
-          data.emailStatus = 'found_on_site';
-          if (!meta.discoveredEmail) { meta.discoveredEmail = email; metaChanged = true; }
+        // E-mails 1/2/3 — aceita item.email (1) e/ou item.emails[] (vários do crawl).
+        const incomingEmails = [item?.email, ...(Array.isArray(item?.emails) ? item!.emails! : [])]
+          .map(cleanEmail).filter(Boolean);
+        if (incomingEmails.length) {
+          const before = Array.isArray(meta.emails) ? meta.emails.length : 0;
+          meta.emails = mergeCapped(meta.emails, incomingEmails);
+          if (meta.emails.length !== before) metaChanged = true;
+          if (!String(row.email || '').trim() && meta.emails[0]) {
+            data.email = meta.emails[0];
+            data.emailStatus = 'found_on_site';
+          }
+          if (!meta.discoveredEmail && meta.emails[0]) { meta.discoveredEmail = meta.emails[0]; metaChanged = true; }
           emails += 1;
+        }
+
+        // Telefones 1/2/3 — do crawl (item.phones[]); guarda extras no metadataJson.
+        const incomingPhones = (Array.isArray(item?.phones) ? item!.phones! : []).map(cleanPhone).filter(Boolean);
+        if (incomingPhones.length) {
+          const before = Array.isArray(meta.phones) ? meta.phones.length : 0;
+          meta.phones = mergeCapped(meta.phones, incomingPhones);
+          if (meta.phones.length !== before) metaChanged = true;
+          if (!String(row.phone || '').trim() && meta.phones[0]) data.phone = meta.phones[0];
         }
 
         const cnpj = String(item?.cnpj || '').replace(/\D/g, '');

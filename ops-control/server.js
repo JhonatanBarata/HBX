@@ -2403,6 +2403,26 @@ app.get('/api/radar/vps/database-cards', async (req, res) => {
   }
 });
 
+// Worker "Enriquecedor de Cards" (HBX Owner): aplica IN-PLACE no VPS o que o crawl local achou
+// (e-mail/telefone/CNPJ/redes), casando por id. Aditivo — o backend só preenche campo vazio.
+// Contrato: POST /api/radar/vps/apply-contacts  { items: [{ id, email?, emails?, phones?, cnpj?, ... }] }
+app.post('/api/radar/vps/apply-contacts', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 5000) : [];
+    if (!items.length) return res.json({ ok: true, data: { requested: 0, updated: 0, emails: 0, cnpjs: 0, socials: 0, errors: 0 } });
+    const result = await callBackendForEnvironment('vps', 'vps', 'POST', '/modules/owner/radar/apply-contacts', { items });
+    if (!result.ok) {
+      return res.status(result.statusCode || 502).json({
+        ok: false,
+        error: result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      });
+    }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao aplicar contatos no VPS.' });
+  }
+});
+
 app.listen(port, '0.0.0.0', () => {
   const target = targetMode === 'ssh' ? `${sshConfig.username}@${sshConfig.host}:${sshConfig.port}` : 'local';
   console.log(`HBX Ops Control em http://127.0.0.1:${port} controlando ${target}`);

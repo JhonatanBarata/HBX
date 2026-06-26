@@ -1,6 +1,6 @@
 'use strict';
 
-const { extractCnpjFromText, extractEmailsFromText, normalizeDomain, normalizePhoneDigits, normalizeUrl, compactText } = require('../extractors/email.extractor');
+const { extractCnpjFromText, extractEmailsFromText, extractPhonesFromText, normalizeDomain, normalizePhoneDigits, normalizeUrl, compactText } = require('../extractors/email.extractor');
 const { buildContactUrls, extractLikelyCompanyName, extractPublicLinks, extractSocialUrls } = require('../extractors/contact-page.extractor');
 
 const MAX_PAGE_BYTES = 350_000;
@@ -112,8 +112,10 @@ async function fetchPublicPage(url, signal, fetcher = globalThis.fetch) {
       redirect: 'follow',
       signal,
       headers: {
-        accept: 'text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.2',
-        'user-agent': 'HBX-Local-Lab/0.1 public-contact-check',
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        // UA de navegador: muitos sites devolvem 403 pra UA de bot e a gente perdia o e-mail.
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       },
     });
     if (!response.ok) {
@@ -149,8 +151,21 @@ async function fetchPublicPage(url, signal, fetcher = globalThis.fetch) {
   return page;
 }
 
-function buildLeadFromCandidate(candidate, emails, pages, job) {
+function buildLeadFromCandidate(candidate, emails, pages, job, phonesFound = []) {
   const firstPage = pages.find((page) => page.ok);
+  // Multi e-mail: o dono quer 1/2/3 — o crawl achava vários e eu só guardava o 1º.
+  // Ordena por confiança (mailto/domínio oficial primeiro), dedup, teto 3.
+  const emailsList = [];
+  for (const e of [...emails].sort((a, b) => (b.confidence || 0) - (a.confidence || 0))) {
+    if (e && e.email && !emailsList.includes(e.email)) emailsList.push(e.email);
+    if (emailsList.length >= 3) break;
+  }
+  // Multi telefone: telefone do card primeiro, depois os achados no site. Teto 3.
+  const phonesList = [];
+  for (const p of [normalizePhoneDigits(candidate.phone), ...phonesFound]) {
+    if (p && (p.length === 10 || p.length === 11) && !phonesList.includes(p)) phonesList.push(p);
+    if (phonesList.length >= 3) break;
+  }
   const firstEmail = emails[0] || null;
   const name = compactText(candidate.name || extractLikelyCompanyName(firstPage?.html || '', ''), 300);
   if (!name) return null;
@@ -162,10 +177,12 @@ function buildLeadFromCandidate(candidate, emails, pages, job) {
     segment: candidate.segment || job.segment || null,
     website: candidate.website || null,
     cnpj: candidate.cnpj || null,
-    phone: normalizePhoneDigits(candidate.phone) || null,
+    phone: phonesList[0] || normalizePhoneDigits(candidate.phone) || null,
+    phones: phonesList,
     whatsapp: normalizePhoneDigits(candidate.whatsapp) || null,
-    email: firstEmail?.email || null,
-    emailStatus: firstEmail ? firstEmail.status === 'probable' ? 'probable' : 'found_on_site' : 'missing',
+    email: emailsList[0] || null,
+    emails: emailsList,
+    emailStatus: emailsList.length ? (firstEmail && firstEmail.status === 'probable' ? 'probable' : 'found_on_site') : 'missing',
     emailConfidence: firstEmail?.confidence || 0,
     instagramUrl: candidate.instagramUrl || null,
     facebookUrl: candidate.facebookUrl || null,
@@ -201,7 +218,13 @@ async function runSiteCrawlProvider(job, context = {}) {
     const maxDiscoveredLinks = Math.max(0, Math.min(1000, Number(job.maxDiscoveredLinks || 80) || 80));
     const contactUrls = buildContactUrls(candidate.website).slice(0, maxPagesPerSite);
     const pages = [];
+    const candidatePhones = [];
     const discoveredLinks = new Set();
+    const collectPhones = (html) => {
+      for (const ph of extractPhonesFromText(html)) {
+        if (!candidatePhones.includes(ph) && candidatePhones.length < 6) candidatePhones.push(ph);
+      }
+    };
     for (const url of contactUrls) {
       if (context.isCanceled && context.isCanceled()) break;
       if (pages.length >= maxPagesPerSite) break;
@@ -214,6 +237,7 @@ async function runSiteCrawlProvider(job, context = {}) {
       if (!candidate.instagramUrl) candidate.instagramUrl = socialLinks.find((link) => /instagram\.com/i.test(link)) || null;
       if (!candidate.facebookUrl) candidate.facebookUrl = socialLinks.find((link) => /facebook\.com/i.test(link)) || null;
       if (!candidate.cnpj) candidate.cnpj = extractCnpjFromText(page.html);
+      collectPhones(page.html);
       const found = extractEmailsFromText(page.html, {
         sourceUrl: page.url,
         website: candidate.website,
@@ -232,6 +256,7 @@ async function runSiteCrawlProvider(job, context = {}) {
       if (!page.ok) continue;
       stats.pagesVisited += 1;
       if (!candidate.cnpj) candidate.cnpj = extractCnpjFromText(page.html);
+      collectPhones(page.html);
       const found = extractEmailsFromText(page.html, {
         sourceUrl: page.url,
         website: candidate.website,
@@ -243,7 +268,7 @@ async function runSiteCrawlProvider(job, context = {}) {
     }
 
     const leadEmails = emails.filter((email) => normalizeDomain(email.website || email.email) === normalizeDomain(candidate.website));
-    const lead = buildLeadFromCandidate(candidate, leadEmails, pages, job);
+    const lead = buildLeadFromCandidate(candidate, leadEmails, pages, job, candidatePhones);
     if (lead) leads.push(lead);
   }
 

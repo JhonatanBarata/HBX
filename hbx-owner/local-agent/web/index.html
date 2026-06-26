@@ -184,27 +184,31 @@
           </div>
         </div>
 
-        <!-- ====== EMAIL FINDER (Worker 2) — high risk, LOCALHOST ONLY ====== -->
-        <div id="email-finder" style="border:1px solid var(--border,#2a3344);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+        <!-- ====== ENRIQUECEDOR DE CARDS (1 worker contínuo) ====== -->
+        <div id="enricher" style="border:1px solid var(--border,#2a3344);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
           <div class="focus-row" style="flex-wrap:wrap;gap:8px;margin:0;">
-            <span class="label" style="margin:0;">🔎 Email finder</span>
-            <span class="pill pill-amber" title="Crawl agressivo — roda só da sua máquina">high risk · local</span>
-            <span id="ef-status" class="pill pill-muted">parado</span>
-            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;align-items:center;">
-              <label class="cf-toggle" title="Só cards que ainda não têm e-mail"><input type="checkbox" id="ef-only-missing" checked /> Só sem e-mail</label>
-              <label class="cf-toggle" title="Visita mais páginas por site (mais e-mails, mais lento, mais exposto)"><input type="checkbox" id="ef-aggressive" /> Agressivo</label>
-              <button id="btn-ef-start" class="btn btn-sm btn-green">▶ Caçar e-mail</button>
-              <button id="btn-ef-cancel" class="btn btn-sm btn-amber" disabled>Cancelar</button>
-              <button id="btn-ef-apply" class="btn btn-sm btn-blue" disabled>Aplicar nos cards</button>
+            <span class="label" style="margin:0;">⚙️ Enriquecedor de Cards</span>
+            <span class="pill pill-muted" title="Lê os cards do VPS e grava de volta no VPS">fonte: VPS</span>
+            <span id="enr-status" class="pill pill-muted">parado</span>
+            <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;align-items:center;">
+              <label class="cf-toggle" title="CNPJ→dono + telefone + redes sociais do dono. Grátis, roda no VPS."><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
+              <label class="cf-toggle" title="Crawl do site → e-mail 1/2/3 + telefone 1/2/3 + CNPJ. Roda do SEU IP local."><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · scraper <span class="pill pill-amber">local</span></label>
+              <label class="cf-toggle" title="Visita mais páginas por site (mais e-mail, mais lento)"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
+              <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
             </div>
           </div>
-          <p class="delta" style="margin:4px 0 8px;">Visita os sites dos cards locais pra achar <strong>e-mail + CNPJ</strong>. Sai do <strong>SEU IP</strong> (Local Lab 3098), nunca do VPS. Ritmo lento + backoff protegem o IP.</p>
+          <p class="delta" style="margin:4px 0 8px;">Fica rodando <strong>enquanto o PC estiver ligado</strong>: lê os cards do VPS, enriquece e grava de volta — sem copiar pro local. Tipo 2 crawleia do <strong>seu IP</strong> (IP-safe). Cursor de retomada.</p>
           <div class="grid-3" style="margin-bottom:6px;">
-            <div class="metric"><span class="label">Sites na fila</span><strong id="ef-cands">—</strong></div>
-            <div class="metric"><span class="label">Sites visitados</span><strong id="ef-sites">—</strong></div>
-            <div class="metric"><span class="label">E-mails achados</span><strong id="ef-found">—</strong></div>
+            <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
+            <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
+            <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
           </div>
-          <p id="ef-feedback" class="delta">Sem caça iniciada.</p>
+          <div class="grid-3" style="margin-bottom:6px;">
+            <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
+            <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
+            <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
+          </div>
+          <p id="enr-feedback" class="delta">Desligado.</p>
         </div>
 
         <!-- Filtros por coluna + toggles rápidos -->
@@ -257,6 +261,6 @@
 
   </main>
 
-  <script src="/app.js?v=20260626a"></script>
+  <script src="/app.js?v=20260626b"></script>
 </body>
 </html>

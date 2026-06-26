@@ -2241,6 +2241,9 @@ export class RadarCorePresentationMixin {
       ownerInstagram: (meta as any)?.ownerInstagram || null,
       ownerFacebook: (meta as any)?.ownerFacebook || null,
       ownerSocialCandidates: Array.isArray((meta as any)?.ownerSocialCandidates) ? (meta as any).ownerSocialCandidates : [],
+      // Worker 2 "Email finder": e-mails 1/2/3 e telefones 1/2/3 achados no crawl (teto 3).
+      emails: Array.isArray((meta as any)?.emails) ? (meta as any).emails.slice(0, 3) : [],
+      phones: Array.isArray((meta as any)?.phones) ? (meta as any).phones.slice(0, 3) : [],
       companySituation: (meta as any)?.companySituation || null,
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,

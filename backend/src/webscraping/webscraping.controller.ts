@@ -1422,7 +1422,7 @@ export class MasterWebscrapingController {
    * instagramUrl?, facebookUrl? }] }. Devolve { requested, updated, emails, cnpjs, socials, errors }.
    */
   @Post('apply-contacts')
-  applyContacts(@Body() body: { items?: Array<{ id?: string; email?: string; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> }) {
+  applyContacts(@Body() body: { items?: Array<{ id?: string; email?: string; emails?: string[]; phones?: string[]; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> }) {
     return this.webscrapingService.applyDiscoveredContactsForMaster(body?.items || []);
   }
 }

@@ -722,7 +722,8 @@ function ckGetValue(row, key) {
     return ws === "valid" || ws === "confirmed" ? phone : "";
   }
   if (key === "website") return row.website || "";
-  if (key === "email") return row.email || "";
+  if (key === "email") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(", ");
+  if (key === "phone") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(", ");
   if (key === "instagramUrl") return row.instagramUrl || "";
   if (key === "facebookUrl") return row.facebookUrl || "";
   return row[key] != null ? String(row[key]) : "";
@@ -774,6 +775,22 @@ function ckApplySort(rows) {
 }
 
 function ckCellHtml(row, key) {
+  // E-mail e Telefone: mostram até 3 (dos arrays emails[]/phones[] achados no scraper).
+  if (key === "email" || key === "phone") {
+    const arr = key === "email"
+      ? (Array.isArray(row.emails) && row.emails.length ? row.emails : (row.email ? [row.email] : []))
+      : (Array.isArray(row.phones) && row.phones.length ? row.phones : (row.phone || row.phoneDigits ? [row.phone || row.phoneDigits] : []));
+    const list = arr.filter(Boolean).slice(0, 3);
+    if (!list.length) return '<span style="color:var(--text-muted);">—</span>';
+    let head = "";
+    if (key === "email") {
+      const es = row.emailStatus || "";
+      const cls = es === "found_on_site" || es === "confirmed" ? "ok" : es === "missing" || es === "invalid" ? "bad" : "warn";
+      head = es && es !== "missing" ? ` <span class="ck-pill ${cls}">${esc(es)}</span>` : "";
+    }
+    return list.map((x, i) => `${esc(x)}${i === 0 ? head : ""}`).join("<br>");
+  }
+
   const v = ckGetValue(row, key);
   if (!v) return '<span style="color:var(--text-muted);">—</span>';
 
@@ -782,12 +799,6 @@ function ckCellHtml(row, key) {
     const cls = ws === "active" || ws === "ok" ? "ok" : ws === "inactive" || ws === "bad" ? "bad" : "muted";
     const label = ws && ws !== "none" ? ` <span class="ck-pill ${cls}">${esc(ws)}</span>` : "";
     return `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v.replace(/^https?:\/\//, "").slice(0, 28))}</a>${label}`;
-  }
-  if (key === "email") {
-    const es = row.emailStatus || "";
-    const cls = es === "found_on_site" || es === "confirmed" ? "ok" : es === "missing" || es === "invalid" ? "bad" : "warn";
-    const label = es && es !== "missing" ? ` <span class="ck-pill ${cls}">${esc(es)}</span>` : "";
-    return `${esc(v)}${label}`;
   }
   if (key === "instagramUrl" || key === "facebookUrl") {
     const short = v.replace(/^https?:\/\/(www\.)?/, "").slice(0, 26);
@@ -1214,120 +1225,68 @@ async function ckStartDiscover() {
   }
 }
 
-/* ---------- Email Finder (Worker 2) — high risk, localhost only ---------- */
-let efPollTimer = null;
+/* ---------- Enriquecedor de Cards (1 worker contínuo) ---------- */
+let enrPollTimer = null;
+let enrRunning = false;
 
-function efSetStatus(text, kind) {
-  const s = $("#ef-status");
-  if (!s) return;
+function enrSetStatus(text, kind) {
+  const s = $("#enr-status"); if (!s) return;
   const cls = kind === "run" ? "pill-amber" : kind === "done" ? "pill-ok" : kind === "warn" ? "pill-bad" : "pill-muted";
-  s.textContent = text;
-  s.className = "pill " + cls;
+  s.textContent = text; s.className = "pill " + cls;
 }
 
-function efPaint(state) {
-  const job = state && state.job;
-  const m = (job && job.metrics) || {};
-  const sites = $("#ef-sites"), found = $("#ef-found"), cands = $("#ef-cands");
-  if (cands && state.candidates != null) cands.textContent = Number(state.candidates).toLocaleString("pt-BR");
-  if (sites) sites.textContent = m.sitesVisited != null ? Number(m.sitesVisited).toLocaleString("pt-BR") : "—";
-  if (found) found.textContent = m.emailsFound != null ? Number(m.emailsFound).toLocaleString("pt-BR") : "—";
-  const startBtn = $("#btn-ef-start"), cancelBtn = $("#btn-ef-cancel"), applyBtn = $("#btn-ef-apply");
-  const st = job && job.status;
-  const terminal = ["completed", "failed", "canceled"].includes(st);
-  if (state.running && !terminal) {
-    efSetStatus("caçando…", "run");
-    if (startBtn) startBtn.disabled = true;
-    if (cancelBtn) cancelBtn.disabled = false;
-    if (applyBtn) applyBtn.disabled = true;
+function enrPaint(r) {
+  enrRunning = !!(r && r.running);
+  const m = (r && r.metrics) || {};
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = (v != null ? Number(v).toLocaleString("pt-BR") : "—"); };
+  set("#enr-scanned", m.cardsScanned);
+  set("#enr-sites", m.sitesCrawled);
+  set("#enr-emails", m.emailsFound);
+  set("#enr-phones", m.phonesFound);
+  set("#enr-cnpjs", m.cnpjsFound);
+  set("#enr-applied", m.applied);
+  const toggle = $("#btn-enr-toggle");
+  if (enrRunning) {
+    enrSetStatus(r.labUp ? "ligado" : "ligado (lab subindo)", "run");
+    if (toggle) { toggle.textContent = "■ Desligar"; toggle.className = "btn btn-sm btn-amber"; }
   } else {
-    if (startBtn) startBtn.disabled = false;
-    if (cancelBtn) cancelBtn.disabled = true;
-    if (applyBtn) applyBtn.disabled = st !== "completed";
-    efSetStatus(st === "completed" ? "concluído" : st === "failed" ? "falhou" : st === "canceled" ? "cancelado" : "parado",
-      st === "completed" ? "done" : (st === "failed" || st === "canceled") ? "warn" : "idle");
+    enrSetStatus("parado", r && r.error ? "warn" : "idle");
+    if (toggle) { toggle.textContent = "▶ Ligar"; toggle.className = "btn btn-sm btn-green"; }
   }
-  return { terminal, status: st };
-}
-
-function efStopPoll() { if (efPollTimer) { clearInterval(efPollTimer); efPollTimer = null; } }
-
-async function efPollOnce() {
-  try {
-    const r = await api("GET", "/owner/email-finder/status");
-    const res = efPaint(r);
-    if (res.terminal) {
-      efStopPoll();
-      const fb = $("#ef-feedback");
-      if (res.status === "completed") {
-        const m = (r.job && r.job.metrics) || {};
-        if (fb) { fb.textContent = `Caça concluída: ${m.sitesVisited || 0} sites · ${m.emailsFound || 0} e-mails. Clique "Aplicar nos cards".`; fb.className = "delta up"; }
-        pushFeed(`Email finder concluído: ${m.emailsFound || 0} e-mails.`, "ok");
-      } else if (fb) {
-        fb.textContent = `Caça ${res.status}.`; fb.className = "delta";
-      }
+  const fb = $("#enr-feedback");
+  if (fb) {
+    if (enrRunning) {
+      const t1 = m.tipo1Runs ? ` · Tipo1 ${m.tipo1Runs}×` : "";
+      fb.textContent = `${(r && r.phase) || "rodando"}${t1}` + (r && r.error ? ` · ⚠ ${r.error}` : "");
+      fb.className = "delta up";
+    } else {
+      fb.textContent = r && r.error ? `Parado · ⚠ ${r.error}` : "Desligado.";
+      fb.className = "delta";
     }
-  } catch { /* mantém poll */ }
+  }
 }
 
-async function efStart() {
-  const startBtn = $("#btn-ef-start"), fb = $("#ef-feedback");
-  const onlyMissingEmail = !!($("#ef-only-missing") && $("#ef-only-missing").checked);
-  const aggressive = !!($("#ef-aggressive") && $("#ef-aggressive").checked);
-  if (startBtn) startBtn.disabled = true;
-  if (fb) { fb.textContent = "montando candidatos + subindo Local Lab…"; fb.className = "delta"; }
-  efSetStatus("iniciando…", "run");
+async function enrPollOnce() {
+  try { enrPaint(await api("GET", "/owner/enricher/status")); } catch { /* mantém */ }
+}
+
+async function enrToggle() {
+  const fb = $("#enr-feedback");
   try {
-    const r = await api("POST", "/owner/email-finder/start", { onlyMissingEmail, aggressive });
-    if (!r.ok) {
-      if (fb) { fb.textContent = r.message || r.reason || "não consegui iniciar."; fb.className = "delta"; }
-      efSetStatus("parado", "idle");
-      if (startBtn) startBtn.disabled = false;
-      return;
+    if (enrRunning) {
+      await api("POST", "/owner/enricher/stop", {});
+      pushFeed("Enriquecedor desligado.", "warn");
+    } else {
+      const identity = !!($("#enr-identity") && $("#enr-identity").checked);
+      const scraper = !!($("#enr-scraper") && $("#enr-scraper").checked);
+      const aggressive = !!($("#enr-aggressive") && $("#enr-aggressive").checked);
+      const r = await api("POST", "/owner/enricher/start", { identity, scraper, aggressive });
+      if (!r.ok) { if (fb) { fb.textContent = r.message || r.reason || "não consegui ligar."; fb.className = "delta"; } return; }
+      pushFeed("Enriquecedor ligado — roda enquanto o PC ficar ligado.", "info");
+      enrSetStatus("ligado", "run");
     }
-    const cands = $("#ef-cands"); if (cands) cands.textContent = Number(r.candidates || 0).toLocaleString("pt-BR");
-    if (fb) { fb.textContent = r.message || `caçando ${r.candidates} sites…`; fb.className = "delta up"; }
-    pushFeed(`Email finder iniciado: ${r.candidates} sites (IP local).`, "info");
-    const cancelBtn = $("#btn-ef-cancel"); if (cancelBtn) cancelBtn.disabled = false;
-    efSetStatus("caçando…", "run");
-    efStopPoll(); efPollOnce(); efPollTimer = setInterval(efPollOnce, 3000);
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
-    efSetStatus("parado", "idle");
-    if (startBtn) startBtn.disabled = false;
-  }
-}
-
-async function efCancel() {
-  const fb = $("#ef-feedback");
-  try {
-    await api("POST", "/owner/email-finder/cancel", {});
-    efStopPoll();
-    if (fb) { fb.textContent = "caça cancelada."; fb.className = "delta"; }
-    efSetStatus("cancelado", "warn");
-    const startBtn = $("#btn-ef-start"), cancelBtn = $("#btn-ef-cancel");
-    if (startBtn) startBtn.disabled = false;
-    if (cancelBtn) cancelBtn.disabled = true;
-    pushFeed("Email finder cancelado.", "warn");
-  } catch (err) { if (fb) fb.textContent = err.message; }
-}
-
-async function efApply() {
-  const applyBtn = $("#btn-ef-apply"), fb = $("#ef-feedback");
-  if (applyBtn) applyBtn.disabled = true;
-  if (fb) { fb.textContent = "aplicando nos cards…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/email-finder/apply", {});
-    if (!r.ok) { if (fb) { fb.textContent = r.reason || r.message || "falha ao aplicar."; fb.className = "delta"; } if (applyBtn) applyBtn.disabled = false; return; }
-    const a = r.applied || {};
-    const msg = `Aplicado: ${a.updated || 0} cards · ${a.emails || 0} e-mails · ${a.cnpjs || 0} CNPJ · ${a.socials || 0} redes.`;
-    if (fb) { fb.textContent = msg; fb.className = "delta up"; }
-    pushFeed(`Email finder: ${msg}`, "ok");
-    setTimeout(loadCockpit, 1500);
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
-    if (applyBtn) applyBtn.disabled = false;
-  }
+    enrPollOnce();
+  } catch (err) { if (fb) { fb.textContent = err.message; fb.className = "delta"; } }
 }
 
 /* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) com progresso vivo ---------- */
@@ -1460,11 +1419,10 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 
-  // Email Finder (Worker 2)
-  const efStartBtn = $("#btn-ef-start"); if (efStartBtn) efStartBtn.addEventListener("click", efStart);
-  const efCancelBtn = $("#btn-ef-cancel"); if (efCancelBtn) efCancelBtn.addEventListener("click", efCancel);
-  const efApplyBtn = $("#btn-ef-apply"); if (efApplyBtn) efApplyBtn.addEventListener("click", efApply);
-  efPollOnce(); // sincroniza estado se já houver caça rodando
+  // Enriquecedor de Cards (1 worker contínuo)
+  const enrToggleBtn = $("#btn-enr-toggle"); if (enrToggleBtn) enrToggleBtn.addEventListener("click", enrToggle);
+  enrPollOnce();
+  if (!enrPollTimer) enrPollTimer = setInterval(enrPollOnce, 5000);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
     for (const id of ["cf-not-enriched", "cf-has-site", "cf-has-whatsapp"]) { const el = $(`#${id}`); if (el) el.checked = false; }

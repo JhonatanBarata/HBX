@@ -140,6 +140,29 @@ function extractCnpjFromText(text) {
   return null;
 }
 
+// --- Telefones no HTML (BR) ------------------------------------------------
+// Acha telefones fixos/celulares brasileiros no texto, devolve só dígitos (DDD+numero),
+// dedup e no máximo `max`. Ignora sequências curtas/longas demais (CEP, CNPJ, etc.).
+function extractPhonesFromText(text, max = 6) {
+  const raw = String(text || '');
+  const out = [];
+  const seen = new Set();
+  // tel: links (mais confiáveis) + padrão visual (xx) xxxxx-xxxx
+  const telLinks = [...raw.matchAll(/tel:\+?(\d[\d\s().-]{8,16}\d)/gi)].map((m) => m[1]);
+  const visual = [...raw.matchAll(/\(?\b\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}\b/g)].map((m) => m[0]);
+  for (const candidate of [...telLinks, ...visual]) {
+    const digits = normalizePhoneDigits(candidate);
+    if (digits.length !== 10 && digits.length !== 11) continue;       // fixo(10) ou celular(11)
+    if (/^(\d)\1+$/.test(digits)) continue;                            // 0000000000 etc.
+    if (digits[2] === '0' && digits.length === 11) continue;          // celular não começa com 0
+    if (seen.has(digits)) continue;
+    seen.add(digits);
+    out.push(digits);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function extractEmailsFromText(text, context = {}) {
   const sourceUrl = normalizeUrl(context.sourceUrl);
   const provider = compactText(context.provider || 'site_crawl', 120);
@@ -186,6 +209,7 @@ module.exports = {
   deobfuscateText,
   extractCnpjFromText,
   extractEmailsFromText,
+  extractPhonesFromText,
   isBlockedEmail,
   isValidCnpj,
   normalizeDomain,

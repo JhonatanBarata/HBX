@@ -1,0 +1,40 @@
+{
+  "id": "f0772b0b-5f5d-4980-8501-78523e2dc7ab",
+  "batchId": "local-lab-f0772b0b-5f5d-4980-8501-78523e2dc7ab",
+  "status": "canceled",
+  "city": "",
+  "state": "",
+  "segment": "",
+  "targetEmails": 20,
+  "mode": "max_public",
+  "aggressive": true,
+  "providers": [
+    "site_crawl"
+  ],
+  "maxCandidates": 3,
+  "maxPagesPerSite": 250,
+  "maxDiscoveredLinks": 1000,
+  "minDelayMs": 1500,
+  "maxDelayMs": 4000,
+  "blockBackoffMs": 60000,
+  "metrics": {
+    "sitesVisited": 12,
+    "emailsFound": 8,
+    "emailsAccepted": 0,
+    "leads": 0,
+    "pacing": {
+      "fetches": 83,
+      "blocks": 0,
+      "backoffMs": 0,
+      "minDelayMs": 1500,
+      "maxDelayMs": 4000,
+      "blockBackoffMs": 60000
+    }
+  },
+  "warnings": [],
+  "error": null,
+  "exportReady": false,
+  "createdAt": "2026-06-26T05:45:36.454Z",
+  "startedAt": "2026-06-26T05:45:36.456Z",
+  "finishedAt": "2026-06-26T05:50:02.510Z"
+}

@@ -407,56 +407,153 @@ function isCrawlableSite(website) {
   return Boolean(d) && d.includes(".") && !NON_SITE_DOMAINS.has(d);
 }
 
-// ----- Email Finder (Worker 2, high-risk, localhost-only) --------------------
-// Estado vivo de UMA caça por vez. `domainToCardId` casa o lead-do-crawl com o card de
-// origem (o Local Lab descarta o id; casamos por domínio na hora de aplicar).
-let emailFinderJob = {
-  running: false, jobId: null, phase: "", startedAt: 0, finishedAt: 0,
-  scope: null, candidates: 0, scannedCards: 0, error: null, lastStatus: null,
-  applied: null, domainToCardId: {},
+// ===== ENRIQUECEDOR DE CARDS (1 worker, contínuo) ===========================
+// Roda enquanto o PC estiver ligado (toggle on/off). Fonte = cards do VPS (cockpit),
+// in-place: lê do VPS → enriquece → grava de volta no VPS. SEM copiar pro local.
+//   • Tipo 1 (identidade): roda SERVER-SIDE no VPS (cnpj→dono, telefone, sociais). IP-safe.
+//   • Tipo 2 (scraper e-mail): crawl agressivo do SEU IP local (Local Lab 3098) → e-mail/tel/CNPJ.
+// Cursor de retomada + pacing/backoff (o Local Lab já tem o freio por site).
+let enricherJob = {
+  running: false, startedAt: 0, stoppedAt: 0, phase: "parado",
+  types: { identity: true, scraper: true }, aggressive: false,
+  cursorPage: 1, cycle: 0, vpsTotal: null,
+  cardsScanned: 0, sitesCrawled: 0, emailsFound: 0, phonesFound: 0, cnpjsFound: 0, applied: 0,
+  tipo1: null, tipo1Runs: 0, localLabJobId: null, lastError: null, lastCycleAt: 0,
 };
+function enricherSleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-// Monta a lista de candidatos (sites dos cards locais) pra mandar pro Local Lab.
-// `onlyMissingEmail` foca em quem ainda não tem e-mail; sempre exige site crawlável.
-async function buildEmailFinderCandidates(opts = {}) {
-  const onlyMissingEmail = opts.onlyMissingEmail !== false; // default: só sem e-mail
-  const maxCandidates = clampInt(opts.maxCandidates, 800, 1, 5000);
-  const pageSize = 500;
-  const maxPages = 40;
-  if (!backendToken) await refreshBackendToken().catch(() => null);
+// Um ciclo: dispara Tipo 1 no VPS (a cada N ciclos) + crawleia 1 página de cards (Tipo 2).
+async function enricherCycle() {
+  enricherJob.cycle += 1;
+  enricherJob.lastCycleAt = Date.now();
 
-  const seeds = [];
-  const domainToCardId = {};
-  let scannedCards = 0;
-  for (let page = 1; page <= maxPages; page += 1) {
-    const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${pageSize}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
-    if (!r.ok || !r.data) break;
-    const data = r.data.data ? r.data.data : r.data;
+  // Tipo 1 — identidade no VPS (server-side). 1º ciclo + a cada 5 (é pesado, throttle BrasilAPI).
+  if (enricherJob.types.identity && (enricherJob.cycle === 1 || enricherJob.cycle % 5 === 0)) {
+    enricherJob.phase = "Tipo 1 (identidade) no VPS";
+    const t1 = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope: "vps", limit: 500 }, 180000);
+    if (t1.ok) {
+      enricherJob.tipo1Runs += 1;
+      enricherJob.tipo1 = (t1.data && (t1.data.results?.[0]?.data || t1.data.data || t1.data)) || null;
+    } else if (t1.configured !== false) {
+      enricherJob.lastError = "Tipo1: " + (t1.reason || `http_${t1.statusCode || "?"}`);
+    }
+  }
+  if (!enricherJob.running) return;
+
+  // Tipo 2 — crawl local de 1 página de cards do VPS.
+  if (enricherJob.types.scraper) {
+    enricherJob.phase = "lendo VPS p/ crawl";
+    const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=500&page=${enricherJob.cursorPage}`, null, 60000);
+    const data = (r.data && (r.data.data || r.data)) || {};
     const items = Array.isArray(data.items) ? data.items : [];
-    if (!items.length) break;
-    scannedCards += items.length;
+    if (typeof data.total === "number") enricherJob.vpsTotal = data.total;
+    if (!items.length) { enricherJob.cursorPage = 1; return; } // fim da base → recomeça a varredura
+    enricherJob.cardsScanned += items.length;
+
+    const seeds = [];
+    const map = {};
     for (const row of items) {
-      const website = row.website || null;
-      if (!isCrawlableSite(website)) continue;
-      if (onlyMissingEmail && String(row.email || "").trim()) continue;
-      const domain = cardDomain(website);
-      if (!domain || domainToCardId[domain]) continue; // 1 site por domínio
-      domainToCardId[domain] = String(row.id || "");
+      if (seeds.length >= 50) break; // teto por ciclo (responsivo ao stop + métricas frequentes)
+      if (!isCrawlableSite(row.website)) continue;
+      const haveEmails = Array.isArray(row.emails) ? row.emails.length : 0;
+      if (String(row.email || "").trim() && haveEmails >= 3) continue; // já tem e-mail suficiente
+      const domain = cardDomain(row.website);
+      if (!domain || map[domain]) continue;
+      map[domain] = String(row.id || "");
       seeds.push({
         name: safeText(row.name, 300),
         city: safeText(row.city, 120),
         state: safeText(row.state, 2).toUpperCase(),
         segment: safeText(row.segment, 180),
-        website,
+        website: row.website,
         cnpj: String(row.cnpj || "").replace(/\D/g, "") || undefined,
       });
-      if (seeds.length >= maxCandidates) break;
     }
-    if (seeds.length >= maxCandidates) break;
-    if (items.length < pageSize) break;
+    enricherJob.cursorPage += 1;
+    if (seeds.length) await runEnricherCrawl(seeds, map);
   }
-  return { seeds, domainToCardId, scannedCards };
 }
+
+// Crawl de um lote de sites no Local Lab (IP local) e aplica o resultado de volta no VPS.
+async function runEnricherCrawl(seeds, map) {
+  enricherJob.phase = `subindo Local Lab (${seeds.length} sites)`;
+  if (!(await ensureLocalLabUp())) { enricherJob.lastError = "Local Lab offline"; return; }
+  const start = await localLabRequest("POST", "/local-lab/jobs", {
+    mode: enricherJob.aggressive ? "max_public" : "email_first",
+    aggressive: enricherJob.aggressive,
+    providers: ["site_crawl"],
+    websites: seeds,
+    maxCandidates: seeds.length,
+    targetEmails: seeds.length * 3,
+    requestedBy: "hbx-owner-enricher",
+  }, 30000);
+  const jobId = start.data && (start.data.id || start.data.jobId);
+  if (!start.ok || !jobId) { enricherJob.lastError = "Local Lab recusou: " + (start.error || `http_${start.statusCode || "?"}`); return; }
+  enricherJob.localLabJobId = jobId;
+
+  let job = null;
+  for (;;) {
+    await enricherSleep(3000);
+    if (!enricherJob.running) { await localLabRequest("POST", `/local-lab/jobs/${jobId}/cancel`, {}, 8000).catch(() => {}); break; }
+    const s = await localLabRequest("GET", `/local-lab/jobs/${jobId}`, null, 10000);
+    if (s.ok && s.data) {
+      job = s.data;
+      const m = job.metrics || {};
+      enricherJob.phase = `caçando (IP local): ${m.sitesVisited || 0} sites · ${m.emailsFound || 0} e-mails`;
+      if (["completed", "failed", "canceled"].includes(job.status)) break;
+    }
+  }
+  enricherJob.localLabJobId = null;
+  if (!job || job.status !== "completed") return;
+
+  const ex = await localLabRequest("GET", `/local-lab/jobs/${jobId}/export?file=batch`, null, 30000, 32_000_000);
+  const batch = ex.data && (ex.data.batch || ex.data);
+  const leads = batch && Array.isArray(batch.leads) ? batch.leads : [];
+  const items = [];
+  for (const lead of leads) {
+    const id = map[cardDomain(lead.website || lead.sourceUrl)];
+    if (!id) continue;
+    const emails = Array.isArray(lead.emails) ? lead.emails.filter(Boolean).slice(0, 3) : (lead.email ? [lead.email] : []);
+    const phones = Array.isArray(lead.phones) ? lead.phones.filter(Boolean).slice(0, 3) : [];
+    const cnpj = lead.cnpj ? String(lead.cnpj).replace(/\D/g, "") : undefined;
+    if (!emails.length && !phones.length && !cnpj && !lead.instagramUrl && !lead.facebookUrl) continue;
+    items.push({ id, emails, phones, cnpj, instagramUrl: lead.instagramUrl || undefined, facebookUrl: lead.facebookUrl || undefined });
+    enricherJob.sitesCrawled += 1;
+    enricherJob.emailsFound += emails.length;
+    enricherJob.phonesFound += phones.length;
+    if (cnpj) enricherJob.cnpjsFound += 1;
+  }
+  if (!items.length) return;
+  enricherJob.phase = `aplicando ${items.length} no VPS`;
+  const apply = await opsRequest("POST", "/api/radar/vps/apply-contacts", { items }, 60000);
+  if (apply.ok) enricherJob.applied += Number((apply.data && (apply.data.data || apply.data) || {}).updated || 0);
+  else enricherJob.lastError = "apply VPS: " + (apply.reason || `http_${apply.statusCode || "?"}`);
+}
+
+async function enricherLoop() {
+  while (enricherJob.running) {
+    try { await enricherCycle(); } catch (e) { enricherJob.lastError = String((e && e.message) || e); }
+    if (!enricherJob.running) break;
+    await enricherSleep(3000);
+  }
+  enricherJob.phase = "parado";
+  enricherJob.stoppedAt = Date.now();
+}
+
+function startEnricher(opts = {}) {
+  if (enricherJob.running) return false;
+  enricherJob = {
+    running: true, startedAt: Date.now(), stoppedAt: 0, phase: "iniciando",
+    types: { identity: opts.identity !== false, scraper: opts.scraper !== false },
+    aggressive: opts.aggressive === true,
+    cursorPage: 1, cycle: 0, vpsTotal: null,
+    cardsScanned: 0, sitesCrawled: 0, emailsFound: 0, phonesFound: 0, cnpjsFound: 0, applied: 0,
+    tipo1: null, tipo1Runs: 0, localLabJobId: null, lastError: null, lastCycleAt: 0,
+  };
+  setImmediate(() => void enricherLoop());
+  return true;
+}
+function stopEnricher() { enricherJob.running = false; return true; }
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
 function backendRequestOnce(method, route, payload, token, options = {}) {
@@ -1864,142 +1961,59 @@ async function route(req, res) {
   }
 
   // ================================================================
-  // EMAIL FINDER (Worker 2) — high-risk, LOCALHOST ONLY.
-  // Fala DIRETO com o Local Lab (3098); o crawl agressivo sai do IP local,
-  // nunca do IP de produção da VPS. Não passa por Ops Control.
+  // ENRIQUECEDOR DE CARDS (1 worker contínuo) — fonte VPS, crawl IP local.
+  // Tipo 1 (identidade) roda no VPS; Tipo 2 (e-mail) crawleia do seu IP.
   // ================================================================
 
-  // Status da caça atual (proxy do Local Lab + contexto do agent). Sempre responde.
-  if (req.method === "GET" && url.pathname === "/owner/email-finder/status") {
+  if (req.method === "GET" && url.pathname === "/owner/enricher/status") {
     const lab = await readLocalLabStatus();
-    let job = null;
-    if (emailFinderJob.jobId) {
-      const r = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(emailFinderJob.jobId)}`, null, 10000);
-      if (r.ok && r.data) {
-        job = r.data;
-        emailFinderJob.lastStatus = job.status || null;
-        if (["completed", "failed", "canceled"].includes(String(job.status))) {
-          emailFinderJob.running = false;
-          if (!emailFinderJob.finishedAt) emailFinderJob.finishedAt = Date.now();
-        }
-      }
-    }
     sendJson(res, 200, {
       ok: true,
       labUp: Boolean(lab.up),
-      running: emailFinderJob.running,
-      jobId: emailFinderJob.jobId,
-      scope: emailFinderJob.scope,
-      candidates: emailFinderJob.candidates,
-      scannedCards: emailFinderJob.scannedCards,
-      phase: emailFinderJob.phase,
-      error: emailFinderJob.error,
-      applied: emailFinderJob.applied,
-      job,
+      running: enricherJob.running,
+      phase: enricherJob.phase,
+      types: enricherJob.types,
+      aggressive: enricherJob.aggressive,
+      cycle: enricherJob.cycle,
+      cursorPage: enricherJob.cursorPage,
+      vpsTotal: enricherJob.vpsTotal,
+      metrics: {
+        cardsScanned: enricherJob.cardsScanned,
+        sitesCrawled: enricherJob.sitesCrawled,
+        emailsFound: enricherJob.emailsFound,
+        phonesFound: enricherJob.phonesFound,
+        cnpjsFound: enricherJob.cnpjsFound,
+        applied: enricherJob.applied,
+        tipo1Runs: enricherJob.tipo1Runs,
+      },
+      tipo1: enricherJob.tipo1,
+      startedAt: enricherJob.startedAt,
+      lastCycleAt: enricherJob.lastCycleAt,
+      error: enricherJob.lastError,
     });
     return;
   }
 
-  // Inicia a caça: monta candidatos dos cards locais → manda pro Local Lab (modo agressivo).
-  if (req.method === "POST" && url.pathname === "/owner/email-finder/start") {
-    if (emailFinderJob.running) { sendJson(res, 200, { ok: false, reason: "ja_rodando", message: "Já existe uma caça em andamento.", jobId: emailFinderJob.jobId }); return; }
+  // Liga o worker contínuo (fica enriquecendo enquanto o PC estiver ligado).
+  if (req.method === "POST" && url.pathname === "/owner/enricher/start") {
+    if (enricherJob.running) { sendJson(res, 200, { ok: false, reason: "ja_rodando", message: "Enriquecedor já está ligado." }); return; }
     const body = await readBody(req);
-    const onlyMissingEmail = body.onlyMissingEmail !== false;
+    const identity = body.identity !== false; // Tipo 1
+    const scraper = body.scraper !== false;   // Tipo 2
     const aggressive = body.aggressive === true;
-    const maxCandidates = clampInt(body.maxCandidates, 800, 1, 5000);
-    const targetEmails = clampInt(body.targetEmails, Math.min(maxCandidates, 1000), 1, 10000);
-
-    emailFinderJob = { running: true, jobId: null, phase: "montando candidatos", startedAt: Date.now(), finishedAt: 0, scope: { onlyMissingEmail, aggressive, maxCandidates }, candidates: 0, scannedCards: 0, error: null, lastStatus: null, applied: null, domainToCardId: {} };
-
-    let built;
-    try {
-      built = await buildEmailFinderCandidates({ onlyMissingEmail, maxCandidates });
-    } catch (error) {
-      emailFinderJob.running = false; emailFinderJob.error = String(error && error.message || error);
-      sendJson(res, 200, { ok: false, reason: "falha_montar_candidatos", message: emailFinderJob.error });
-      return;
-    }
-    emailFinderJob.candidates = built.seeds.length;
-    emailFinderJob.scannedCards = built.scannedCards;
-    emailFinderJob.domainToCardId = built.domainToCardId;
-    if (!built.seeds.length) {
-      emailFinderJob.running = false;
-      sendJson(res, 200, { ok: false, reason: "sem_candidatos", message: "Nenhum card com site crawlável" + (onlyMissingEmail ? " e sem e-mail." : "."), scannedCards: built.scannedCards });
-      return;
-    }
-
-    emailFinderJob.phase = "subindo Local Lab";
-    const up = await ensureLocalLabUp();
-    if (!up) {
-      emailFinderJob.running = false; emailFinderJob.error = "local_lab_offline";
-      sendJson(res, 200, { ok: false, reason: "local_lab_offline", message: "Não consegui subir o Local Lab (3098)." });
-      return;
-    }
-
-    emailFinderJob.phase = "caçando";
-    const r = await localLabRequest("POST", "/local-lab/jobs", {
-      mode: aggressive ? "max_public" : "email_first",
-      aggressive,
-      providers: ["site_crawl"],
-      websites: built.seeds,
-      maxCandidates: built.seeds.length,
-      targetEmails,
-      requestedBy: "hbx-owner-email-finder",
-    }, 30000);
-    if (!r.ok || !r.data || !(r.data.id || r.data.jobId)) {
-      emailFinderJob.running = false; emailFinderJob.error = r.error || `http_${r.statusCode || "?"}`;
-      sendJson(res, 502, { ok: false, reason: "local_lab_recusou", message: emailFinderJob.error, raw: r.data });
-      return;
-    }
-    emailFinderJob.jobId = String(r.data.id || r.data.jobId);
-    emailFinderJob.lastStatus = r.data.status || "queued";
-    sendJson(res, 200, {
-      ok: true,
-      jobId: emailFinderJob.jobId,
-      candidates: emailFinderJob.candidates,
-      scannedCards: emailFinderJob.scannedCards,
-      message: `Caçando e-mail em ${emailFinderJob.candidates} sites no Local Lab (IP local).`,
-    });
+    if (!identity && !scraper) { sendJson(res, 200, { ok: false, reason: "sem_tipo", message: "Escolha pelo menos um tipo." }); return; }
+    startEnricher({ identity, scraper, aggressive });
+    sendJson(res, 200, { ok: true, message: "Enriquecedor ligado — roda enquanto o PC ficar ligado.", types: enricherJob.types, aggressive });
     return;
   }
 
-  // Cancela a caça atual.
-  if (req.method === "POST" && url.pathname === "/owner/email-finder/cancel") {
-    if (!emailFinderJob.jobId) { sendJson(res, 200, { ok: false, reason: "sem_caca", message: "Nenhuma caça ativa." }); return; }
-    const r = await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(emailFinderJob.jobId)}/cancel`, {}, 10000);
-    emailFinderJob.running = false;
-    if (!emailFinderJob.finishedAt) emailFinderJob.finishedAt = Date.now();
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, job: r.data, reason: r.error });
-    return;
-  }
-
-  // Aplica nos cards o que a caça achou (e-mail/CNPJ/redes), casando por domínio → id.
-  if (req.method === "POST" && url.pathname === "/owner/email-finder/apply") {
-    if (!emailFinderJob.jobId) { sendError(res, 400, "Nenhuma caça pra aplicar."); return; }
-    const r = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(emailFinderJob.jobId)}/export?file=batch`, null, 30000, 32_000_000);
-    if (!r.ok || !r.data) { sendJson(res, 200, { ok: false, reason: "export_indisponivel", message: r.error || `http_${r.statusCode || "?"}` }); return; }
-    const batch = r.data.batch || r.data;
-    const leads = Array.isArray(batch.leads) ? batch.leads : [];
-    const map = emailFinderJob.domainToCardId || {};
-    const byCard = new Map();
-    for (const lead of leads) {
-      const domain = cardDomain(lead.website || lead.sourceUrl);
-      const id = map[domain];
-      if (!id) continue;
-      const prev = byCard.get(id) || { id };
-      if (lead.email && !prev.email) prev.email = lead.email;
-      if (lead.cnpj && !prev.cnpj) prev.cnpj = String(lead.cnpj).replace(/\D/g, "");
-      if (lead.instagramUrl && !prev.instagramUrl) prev.instagramUrl = lead.instagramUrl;
-      if (lead.facebookUrl && !prev.facebookUrl) prev.facebookUrl = lead.facebookUrl;
-      byCard.set(id, prev);
+  // Desliga o worker (para de verdade e fica parado; retoma do cursor ao religar).
+  if (req.method === "POST" && url.pathname === "/owner/enricher/stop") {
+    stopEnricher();
+    if (enricherJob.localLabJobId) {
+      await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(enricherJob.localLabJobId)}/cancel`, {}, 8000).catch(() => {});
     }
-    const items = Array.from(byCard.values()).filter((it) => it.email || it.cnpj || it.instagramUrl || it.facebookUrl);
-    if (!items.length) { emailFinderJob.applied = { requested: 0, updated: 0, emails: 0, cnpjs: 0, socials: 0 }; sendJson(res, 200, { ok: true, applied: emailFinderJob.applied, message: "Nada novo pra aplicar (sem casamento site→card)." }); return; }
-    if (!backendToken) await refreshBackendToken().catch(() => null);
-    const apply = await backendRequest("POST", "/modules/owner/radar/apply-contacts", { items }, { timeoutMs: 60000 });
-    if (!apply.ok) { sendJson(res, 200, { ok: false, reason: apply.error || `http_${apply.statusCode || "?"}`, items: items.length }); return; }
-    emailFinderJob.applied = apply.data || null;
-    sendJson(res, 200, { ok: true, applied: apply.data, message: `Aplicado em ${apply.data?.updated || 0} card(s).` });
+    sendJson(res, 200, { ok: true, message: "Enriquecedor desligado." });
     return;
   }
 
