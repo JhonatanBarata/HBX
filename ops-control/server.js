@@ -649,49 +649,24 @@ const prisma = new PrismaClient();
 (async () => {
   const secret = String(process.env.JWT_SECRET || '').trim();
   if (!secret) throw new Error('JWT_SECRET ausente');
-  const now = new Date();
-  const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
 
   const master = await prisma.user.findFirst({
     where: { isSystemMaster: true, isActive: true },
     orderBy: { id: 'asc' },
-    select: { id: true },
+    select: { id: true, email: true, companyId: true },
   });
   if (!master) throw new Error('Usuario Master ativo nao encontrado');
 
-  const sessionContext = await prisma.$transaction(async (tx) => {
-    await tx.authSession.updateMany({
-      where: { userId: master.id, revokedAt: null },
-      data: { revokedAt: now, revokedReason: 'replaced_by_ops_control' },
-    });
-    const user = await tx.user.update({
-      where: { id: master.id },
-      data: { currentSessionId: null, sessionVersion: { increment: 1 } },
-      select: { id: true, email: true, companyId: true, sessionVersion: true },
-    });
-    const session = await tx.authSession.create({
-      data: {
-        userId: user.id,
-        lastSeenAt: now,
-        expiresAt,
-        userAgent: 'hbx-ops-control',
-        ipHash: null,
-      },
-      select: { id: true },
-    });
-    await tx.user.update({
-      where: { id: user.id },
-      data: { currentSessionId: session.id },
-    });
-    return { user, sessionId: session.id };
-  });
-
+  // Token de MÁQUINA (claim ops=true): NÃO cria/revoga AuthSession nem incrementa
+  // sessionVersion. Antes, cada mint (a cada ~60s do poll do ops-control) revogava
+  // a sessão do dono e o derrubava do /master (409/"fica caindo"). O guard do
+  // backend reconhece ops=true no master e isenta da trava de sessão-única, então
+  // o painel e o dono coexistem. Forjar o claim exige o JWT_SECRET (poder total).
   const token = jwt.sign({
-    sub: sessionContext.user.id,
-    email: sessionContext.user.email,
-    companyId: sessionContext.user.companyId || undefined,
-    sid: sessionContext.sessionId,
-    sv: sessionContext.user.sessionVersion,
+    sub: master.id,
+    email: master.email,
+    companyId: master.companyId || undefined,
+    ops: true,
   }, secret, { expiresIn: '4h' });
 
   console.log(token);
