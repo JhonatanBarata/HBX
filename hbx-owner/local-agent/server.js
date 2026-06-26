@@ -29,7 +29,7 @@ let backendTokenRefreshPromise = null;
 let transferJob = {
   running: false, direction: null, phase: "",
   processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
-  pulled: 0, imported: 0, sent: 0,
+  pulled: 0, imported: 0, sent: 0, cleared: 0,
   done: false, ok: null, error: null, startedAt: 0, finishedAt: 0,
 };
 
@@ -37,7 +37,7 @@ function freshTransferJob(direction) {
   return {
     running: true, direction, phase: "iniciando",
     processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
-    pulled: 0, imported: 0, sent: 0,
+    pulled: 0, imported: 0, duplicates: 0, rejected: 0, sent: 0, cleared: 0,
     done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
   };
 }
@@ -461,11 +461,21 @@ async function backendRequest(method, route, payload, options = {}) {
 }
 
 async function readLeadsBank() {
-  const response = await backendRequest("GET", "/night-factory/leads-bank");
-  if (!response.ok || !response.data) {
-    return { ok: false, configured: Boolean(backendToken), reason: response.error || `http_${response.statusCode || "?"}`, total: null, deltaToday: null };
+  // VERDADE AO VIVO: a headline "SUA MÁQUINA" agora conta o MESMO pool que o transfer mexe
+  // (database-cards / RadarLeadPool), lido na hora. Antes vinha de /night-factory/leads-bank
+  // (outra contagem — 4998 ≠ 5035 do database-cards) e o painel mentia em relação ao
+  // Trazer/Mandar: mostrava um número e transferia outro. Agora o número É o do transfer.
+  // deltaToday ("novos hoje") segue do night-factory, mas é só enfeite — o TOTAL é o real.
+  const total = await readLocalCardTotal().catch(() => null);
+  if (total == null) {
+    return { ok: false, configured: Boolean(backendToken), reason: "backend local indisponível", total: null, deltaToday: null };
   }
-  return { ok: true, configured: true, total: response.data.total ?? null, deltaToday: response.data.deltaToday ?? null, generatedAt: response.data.generatedAt };
+  let deltaToday = null;
+  try {
+    const nf = await backendRequest("GET", "/night-factory/leads-bank");
+    if (nf && nf.ok && nf.data) deltaToday = nf.data.deltaToday ?? null;
+  } catch { /* delta é opcional, não derruba o total */ }
+  return { ok: true, configured: true, total, deltaToday, generatedAt: new Date().toISOString() };
 }
 
 
@@ -999,7 +1009,10 @@ function mapCardToHarvestLead(row, opts = {}) {
     state: row.state || null,
     segment: row.segment || null,
     sourceProvider: safeText(row.source, 60) || provider,
-    sourceUrl: website || row.sourceUrl || row.mapsUrl || `radar:${id}`,
+    // Card sem site ganha URL de PROVENIÊNCIA interna válida (não site falso) → passa no gate
+    // missing_source_url do import e NADA se perde ao "mover tudo pro local". O `website` segue
+    // null (descoberta de site continua valendo); isto só marca de onde o lead veio.
+    sourceUrl: website || row.sourceUrl || row.googleMapsUrl || row.mapsUrl || `https://radar.hbxsystem.com.br/card/${id}`,
     sourceMode,
     evidence: { method, origin },
   };
@@ -1059,7 +1072,15 @@ async function runTransferPull() {
           4, 1500,
         );
         if (imp.ok) {
-          transferJob.imported += Number(imp.data?.accepted ?? 0) || 0;
+          // O backend devolve os totais em data.counts (accepted/duplicates/rejected).
+          // BUG antigo: líamos data.accepted (não existe nesse nível) → "imported" ficava
+          // SEMPRE 0 mesmo gravando cards, e a tela parecia morta. Agora conta o real e
+          // separa já-existiam (duplicates) de não-importáveis (rejected: ex. card sem
+          // site = missing_source_url) pra UI dizer a verdade em vez de um 0 fantasma.
+          const c = (imp.data && imp.data.counts) || {};
+          transferJob.imported += Number(c.accepted ?? imp.data?.accepted ?? 0) || 0;
+          transferJob.duplicates += Number(c.duplicates ?? 0) || 0;
+          transferJob.rejected += Number(c.rejected ?? 0) || 0;
           consecutiveFails = 0;
         } else {
           // Lote travou após retries → pula e segue (idempotente: reclicar completa os buracos).
@@ -1091,14 +1112,18 @@ async function runTransferPull() {
   }
 }
 
-// Roda em segundo plano: manda TUDO do local pro VPS (cópia; não apaga o local), em PÁGINAS.
-// Cada página vira um import próprio na VPS → progresso real e nada de request gigante que estoura.
+// Roda em segundo plano: TRANSFERE TUDO do local pro VPS — manda em PÁGINAS e DEPOIS apaga do
+// local só o que o VPS aceitou (é transferência, não cópia: "Sua máquina" zera).
 // % honesta = sent ÷ total real do banco local.
+// Por que apagar SÓ no fim (e não página a página): a leitura pagina por `page` (offset = page×limit).
+// Se eu apagasse no meio, o banco encolheria e o offset da próxima página pularia leads → buracos.
+// Lendo o banco inteiro primeiro (sem apagar) a paginação fica estável; a limpeza vem por leadIds no fim.
 async function runTransferPush() {
   const pageSize = 500;
   const maxPages = 2000;
   let chunkSeq = 0;
   let consecutiveFails = 0;
+  const sentIds = []; // ids locais que o VPS ACEITOU → apagados do local no fim (vira transferência)
   if (!backendToken) await refreshBackendToken().catch(() => null);
   try {
     for (let page = 1; page <= maxPages; page += 1) {
@@ -1142,6 +1167,8 @@ async function runTransferPush() {
           transferJob.sent += sub.length;
           transferJob.imported += Number(accepted) || 0;
           transferJob.processed = transferJob.sent;
+          // Só apaga o que ENTROU no VPS (por externalId = id do card local).
+          for (const l of sub) { if (l.externalId) sentIds.push(l.externalId); }
           consecutiveFails = 0;
         } else {
           // Lote travou mesmo após retries → pula e segue (import é idempotente: reclicar completa os buracos).
@@ -1157,6 +1184,17 @@ async function runTransferPush() {
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
       if (items.length < pageSize) break;
+    }
+    // TRANSFERÊNCIA: apaga do local tudo que o VPS aceitou (em lotes), pra "Sua máquina" zerar.
+    // Roda mesmo com erro parcial: o que JÁ entrou no VPS não pode ficar duplicado no local.
+    if (sentIds.length) {
+      transferJob.phase = "limpando o local";
+      for (let i = 0; i < sentIds.length; i += 2000) {
+        const chunk = sentIds.slice(i, i + 2000);
+        const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
+        if (del.ok) transferJob.cleared += Number(del.data?.affected ?? chunk.length) || 0;
+        else transferJob.lastError = del.error || del.data?.message || `falha ao limpar o local (http_${del.statusCode || "?"})`;
+      }
     }
     transferJob.ok = !transferJob.error;
     if (transferJob.sent > 0) vpsLeadsCache = { at: 0, data: null };
@@ -1802,14 +1840,58 @@ async function route(req, res) {
   }
 
   // Guia VPS do cockpit: lê os cards da VPS via Ops Control (não junta com o local).
+  // O backend DEPLOYADO na VPS TRAVA database-cards em 20/página (sondado 25–26/06 e confirmado ao
+  // vivo: qualquer `limit` → 20 itens; e pedir page com limit grande pula o offset de 1000 em 1000 →
+  // BURACOS). Resultado: o cockpit recebia só 20 cards e parava. Aqui agregamos as páginas REAIS de 20
+  // do VPS DENTRO do agent e devolvemos a "página" de `limit` que o cockpit espera — trazendo TUDO,
+  // sem buraco. Concorrência limitada (mantém ordem; ~100ms/call) pra não travar o painel.
   if (req.method === "GET" && url.pathname === "/owner/vps/radar/cards") {
+    if (!opsToken) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente (configure HBX_OWNER_OPS_TOKEN)" }); return; }
     const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 2000);
     const page = clampInt(url.searchParams.get("page"), 1, 1, 10000);
-    const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=${limit}&page=${page}`, null, 30000);
-    if (!r.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente (configure HBX_OWNER_OPS_TOKEN)" }); return; }
-    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.reason || (r.data && r.data.error) || "VPS indisponível (rebuild do ops-control pendente)" }); return; }
-    const data = r.data && r.data.data ? r.data.data : r.data;
-    sendJson(res, 200, { ok: true, data });
+    const VPS_CAP = 20;                                         // teto real do backend da VPS
+    const startVpsPage = Math.floor(((page - 1) * limit) / VPS_CAP) + 1;
+    const pagesNeeded = Math.ceil(limit / VPS_CAP);
+    const CONC = 5;
+
+    const slots = new Array(pagesNeeded).fill(undefined);       // index -> { items } | null(falha)
+    let total = null;
+    let cursor = 0;
+    async function worker() {
+      while (true) {
+        const i = cursor; cursor += 1;
+        if (i >= pagesNeeded) return;
+        const r = await withRetry(
+          () => opsRequest("GET", `/api/radar/vps/database-cards?limit=${VPS_CAP}&page=${startVpsPage + i}`, null, 30000),
+          (resp) => resp && resp.ok,
+          3, 1000,
+        );
+        if (r && r.ok) {
+          const data = r.data && r.data.data ? r.data.data : r.data;
+          if (typeof (data && data.total) === "number") total = data.total;
+          slots[i] = { items: Array.isArray(data && data.items) ? data.items : [] };
+        } else {
+          slots[i] = null;                                       // falha → vira buraco, corta o prefixo
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONC, pagesNeeded) }, () => worker()));
+
+    // Monta o prefixo CONTÍGUO: para na 1ª página que falhou (não inventa buraco) ou que veio com
+    // menos de 20 (fim real do banco). Assim cada "página" do cockpit é íntegra e sequencial.
+    const items = [];
+    for (let i = 0; i < pagesNeeded; i += 1) {
+      const slot = slots[i];
+      if (slot === null) break;                                  // buraco por falha → corta aqui
+      if (slot === undefined) break;                             // (defensivo) nunca preenchido
+      for (const it of slot.items) items.push(it);
+      if (slot.items.length < VPS_CAP) break;                    // fim do banco da VPS
+    }
+    if (!items.length && slots[0] === null) {
+      sendJson(res, 200, { ok: false, reason: "VPS indisponível (rebuild do ops-control pendente)" });
+      return;
+    }
+    sendJson(res, 200, { ok: true, data: { items: items.slice(0, limit), total, page, limit } });
     return;
   }
 

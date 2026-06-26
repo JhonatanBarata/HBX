@@ -671,7 +671,7 @@ let ckFiltered = [];        // após filtro + sort
 let ckVisible = CK_CHUNK;   // quantas linhas estão renderizadas agora
 let ckSortCol = "createdAt";
 let ckSortDir = -1;         // -1 = desc, 1 = asc
-let ckSource = "local";     // guia ativa: "local" | "vps"
+let ckSource = "vps";       // cockpit mostra a VPS (máquina local removida da tela)
 let ckHideEmptyCols = false;// esconder colunas 100% vazias
 let ckActiveCols = null;    // colunas efetivamente renderizadas (subset de CK_COLS)
 let ckEnrichJobId = null;
@@ -1216,8 +1216,7 @@ async function ckStartDiscover() {
 let transferPollTimer = null;
 
 function setBankButtonsDisabled(v) {
-  const a = $("#btn-pull-vps"); const b = $("#btn-push-vps");
-  if (a) a.disabled = v;
+  const b = $("#btn-push-vps");
   if (b) b.disabled = v;
 }
 
@@ -1242,19 +1241,27 @@ function paintTransfer(st) {
   if (st.done) {
     if (st.ok && failed === 0) {
       pct = 100;
-      // Reconciliação HONESTA: mostra os dois totais (mesma régua = cards) + quantos foram novos.
-      // push: total=local, otherTotal=VPS. pull: total=VPS, otherTotal=local.
       const novos = Number(st.imported || 0);
-      const localT = Number(st.direction === "push" ? st.total : st.otherTotal) || 0;
-      const vpsT = Number(st.direction === "push" ? st.otherTotal : st.total) || 0;
-      const moved = st.direction === "push" ? Number(st.sent || 0) : Number(st.pulled || 0);
-      const verb = st.direction === "push" ? "Mandei" : "Trouxe";
-      line = `✓ ${verb} tudo: ${nf(moved)} processados, ${nf(novos)} novos no destino.`;
-      if (localT && vpsT) {
-        line += ` Local ${nf(localT)} · VPS ${nf(vpsT)}`;
-        const d = Math.abs(vpsT - localT);
-        if (d === 0) line += " — iguais ✓";
-        else line += `. Tudo que dava pra sincronizar foi: ${novos === 0 ? "o destino já tinha todos" : nf(novos) + " novos"}. As ${nf(d)} de diferença não entram no outro lado (duplicadas por outro critério ou recusadas no filtro de import).`;
+      if (st.direction === "push") {
+        // TRANSFERÊNCIA: mandou pro VPS e LIMPOU o local — "Sua máquina" zera.
+        const moved = Number(st.sent || 0);
+        const cleared = Number(st.cleared || 0);
+        const vpsT = Number(st.otherTotal || 0);
+        line = `✓ Transferi tudo: ${nf(moved)} enviados pro VPS · ${nf(cleared)} apagados do local.`;
+        line += vpsT ? ` VPS agora ${nf(vpsT)}. Local zerado ✓` : " Local zerado ✓";
+      } else {
+        // Reconciliação HONESTA do pull: total=VPS, otherTotal=local.
+        const localT = Number(st.otherTotal) || 0;
+        const vpsT = Number(st.total) || 0;
+        const moved = Number(st.pulled || 0);
+        line = `✓ Trouxe tudo: ${nf(moved)} processados, ${nf(novos)} novos no destino.`;
+        const ja = Number(st.duplicates || 0), rej = Number(st.rejected || 0);
+        if (ja || rej) line += ` (${nf(ja)} já estavam no local${rej ? `, ${nf(rej)} sem site/não importáveis` : ""})`;
+        if (localT && vpsT) {
+          line += ` Local ${nf(localT)} · VPS ${nf(vpsT)}`;
+          const d = Math.abs(vpsT - localT);
+          if (d === 0) line += " — iguais ✓";
+        }
       }
     } else if (st.ok && failed > 0) {
       // Concluiu mas alguns lotes piscaram — honesto: mostra quanto faltou e que reclicar completa.
@@ -1281,7 +1288,7 @@ async function pollTransferOnce() {
     if (transferPollTimer) { clearInterval(transferPollTimer); transferPollTimer = null; }
     setBankButtonsDisabled(false);
     if (st.ok) {
-      pushFeed(st.direction === "push" ? `Enviados ${st.sent} leads pro VPS.` : `Trazidos ${st.pulled} do VPS (${st.imported} importados).`, "ok");
+      pushFeed(st.direction === "push" ? `Transferidos ${st.sent} leads pro VPS · ${st.cleared || 0} apagados do local.` : `Trazidos ${st.pulled} do VPS (${st.imported} importados).`, "ok");
     } else if (st.error) {
       pushFeed(`Transferência: ${st.error}`, "warn");
     }
@@ -1312,7 +1319,6 @@ async function startTransfer(route) {
   transferPollTimer = setInterval(pollTransferOnce, 1200);
 }
 
-function ckPullAllFromVps() { startTransfer("/owner/import-all-from-vps"); }
 function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
 
 /* ---------- Wire-up cockpit ---------- */
@@ -1322,7 +1328,6 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const enrichBtn      = $("#btn-cockpit-enrich");
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
   const discoverBtn    = $("#btn-cockpit-discover");
-  const pullVpsBtn     = $("#btn-pull-vps");
   const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
   const nextBtn        = $("#btn-ck-next");
@@ -1334,7 +1339,6 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
   if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
-  if (pullVpsBtn) pullVpsBtn.addEventListener("click", ckPullAllFromVps);
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
@@ -1361,18 +1365,7 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const hideEmpty = $("#cf-hide-empty-cols");
   if (hideEmpty) hideEmpty.addEventListener("change", () => { ckHideEmptyCols = !!hideEmpty.checked; ckRefresh(); });
 
-  // Guias Local / VPS (não junta as listas — recarrega a fonte ativa)
-  const tabLocal = $("#tab-local");
-  const tabVps = $("#tab-vps");
-  function setTab(src) {
-    if (ckSource === src) return;
-    ckSource = src;
-    if (tabLocal) tabLocal.classList.toggle("is-active", src === "local");
-    if (tabVps) tabVps.classList.toggle("is-active", src === "vps");
-    loadCockpit();
-  }
-  if (tabLocal) tabLocal.addEventListener("click", () => setTab("local"));
-  if (tabVps) tabVps.addEventListener("click", () => setTab("vps"));
+  // Guias Local/VPS removidas: o cockpit é só VPS (ckSource fixo em "vps").
 })();
 
 /* ---------- Controles da VPS ---------- */

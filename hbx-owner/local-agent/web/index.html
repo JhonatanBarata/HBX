@@ -135,8 +135,8 @@
         <div class="card">
           <span class="label">Banco de leads</span>
           <div class="grid-2" style="margin-top:6px;">
-            <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local" class="big">—</strong><small id="sys-bank-local-delta" class="delta"></small><button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;margin-top:8px;width:100%;" title="Copia TODOS os leads locais pro VPS (não apaga o local)">⬆ Mandar tudo pro VPS</button></div>
-            <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps" class="big">—</strong><small id="sys-bank-vps-delta" class="delta"></small><button id="btn-pull-vps" class="btn btn-sm btn-blue" style="display:block;margin-top:8px;width:100%;" title="Copia TODOS os leads do VPS pro local (não apaga o VPS)">⬇ Trazer tudo pro local</button></div>
+            <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local" class="big">—</strong><small id="sys-bank-local-delta" class="delta"></small><button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;margin-top:8px;width:100%;" title="MOVE todos os leads locais pro VPS e LIMPA o local (sua máquina zera) — é transferência, não cópia">⬆ Mandar tudo pro VPS</button></div>
+            <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps" class="big">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
           </div>
           <div id="transfer-box" style="display:none;margin-top:12px;">
             <div class="focus-row" style="align-items:baseline;margin-bottom:6px;gap:8px;">
@@ -156,14 +156,8 @@
     <div class="cockpit-fullbleed" id="cockpit-card">
       <div class="cockpit-inner">
         <div class="focus-row" style="flex-wrap:wrap; gap:10px;">
-          <span class="label" style="margin:0;">Cockpit de Leads</span>
+          <span class="label" style="margin:0;">Cockpit de Leads · VPS</span>
           <span id="cockpit-status" class="pill pill-muted">carregando…</span>
-
-          <!-- Guias Local / VPS -->
-          <div class="ck-tabs" style="margin-left:8px;">
-            <button id="tab-local" class="ck-tab is-active" data-tab="local">Sua máquina (local)</button>
-            <button id="tab-vps" class="ck-tab" data-tab="vps">VPS</button>
-          </div>
 
           <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
             <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
@@ -240,6 +234,6 @@
 
   </main>
 
-  <script src="/app.js?v=20260625j"></script>
+  <script src="/app.js?v=20260626a"></script>
 </body>
 </html>

@@ -1,27 +1,4 @@
-# HBX — Roteador de regras
-
-Leia este arquivo primeiro; depois leia só o arquivo de domínio do que vai mexer (mapa abaixo).
-Aqui mora postura + guardrails + roteamento. Detalhe técnico vive nos `docs/Rules/`.
-
-## Postura (como eu trabalho aqui)
-Parceiro de construção, não fiscal. O fluxo do dono é **localhost reversível**: nada vai pro
-mundo real até ele dar push pro VPS. Então o default é **fazer de qualquer jeito + listar os
-riscos** — o dono testa de manhã, gostou segue, não gostou `git revert`. Não espero o dono pra
-trabalhar; código é reversível, esperar seria desperdício. Decido no melhor critério, trago
-ideia fora do pedido, refatoro aparência/legado por padrão. Perguntar é quase nunca — só antes
-de uma **ação live irreversível** (ver Guardrails).
-
-## Guardrails (a única trava real: o que o git não desfaz)
-Código é livre — todo arquivo que eu escrever, o dono reverte em localhost se não gostar.
-Acessar VPS, ler logs, checar status, rodar comandos de leitura = **livre, sem pedir permissão**.
-Push/deploy pro VPS = **livre quando o dono pedir** — executa direto, sem confirmar de volta.
-A única trava é **disparar ação real irreversível que eu mesmo iniciaria sem o dono pedir**:
-- Cobrança/checkout/webhook em modo **live** (dinheiro real movido).
-- Escrita em **banco de produção** ou rotação de **credencial viva**.
-- Disparo de mensagem real pra cliente (WhatsApp/Evolution em número de verdade).
-
-Editar o CÓDIGO de pagamento, auth, migration etc. = **livre** (reversível). Só não **disparo**
-a ação live por conta própria. Migration/op destrutiva contra DB **local** = livre (reseed desfaz).
+LINGUA PT-BR
 
 ## Mapa de domínios → `docs/Rules/`
 | Vai alterar | Leia |
@@ -42,32 +19,8 @@ reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/
 
 
 ## Checks mínimos (menor conjunto relevante ao que foi tocado)
-- Frontend: `cd frontend && npm run lint` → `npm run build`
-- Backend: `cd backend && npm run prisma:validate` → `npm run build`
-- E2E (`npm run test:e2e` na raiz) só quando um caminho end-to-end mudou e o ambiente está pronto.
-- Login User:jhonatan@hbxsystem.com.br Senha:Monkey123 - full acesso, teste o q quiser - usar o chrome, localhost/3001. Muitos erros no preview Claude. Caso precise subir, usar o npm run up
-
-## Publicar (deploy pro VPS — sempre com autorização do dono; ação live irreversível, ver Guardrails)
-- **Edição pequena** (poucos arquivos, sem rebuild pesado) → **`npm run new`**: publish seletivo, sobe só o
-  que foi editado e reinicia menos coisas. É o caminho preferido pro corriqueiro.
-- **Mudança grande / muitos arquivos / precisa rebuild completo** → `npm run publish` (rebuild total
-  backend+frontend+motores no VPS).
-- Ambos commitam o working tree inteiro (`git add -A`) e o VPS faz `git reset --hard origin/master`. Pra subir
-  **só um fix** no meio de outras mudanças: commita os arquivos do fix isolados + stash do resto antes de publicar.
-
-## Orquestrador × subagentes (papéis)
-O **planejador (Opus)** planeja e orquestra; quem **edita** são os **workers (Sonnet, inteligência
-máxima)**, spawnados ao "aplique com o orquestrador" — divididos em blocos/pedidos separados
-(cada worker tem ~200k de contexto). Exceção: frentes **financeiras** (preço/cobrança/checkout/paywall) o
-Opus edita **direto** — máxima precisão na lógica de dinheiro —, sempre com **revisão obrigatória do diff
-antes do merge** (e confirmação em runtime, não só build). Worker quebrou? Projeto simples: resolve e segue. Pagamento/regra/arquitetura:
-imprime o erro e escala pro dono.
-
-## Planejamentos (PR)
-Planos vivem em `docs/PLANEJAMENTOS/`, sempre com **UMA** pasta de dia ativa (`PR{DDMMAAAA}`, ex.: `PR13062026`).
-- Pasta do dia não existe? Cria, migra o que sobreviveu do dia anterior (não-concluído) e apaga a antiga.
-- Lê a pasta toda; deleta o que já estiver concluído.
-- Nunca cria `.md` de assunto que já existe — injeta no plano existente. Um plano por assunto, não por edição.
+-o dono vai informar onde está o lugar para teste se não informar: Login User:jhonatan@hbxsystem.com.br Senha:Monkey123 - full acesso, teste o q quiser - usar o chrome, localhost/3001. Muitos erros no preview Claude. Caso precise subir, usar o npm run up - navegador sempre chrome
+seguir exatamente o q o dono fala, falou publicar vc publica caralho npm run publish.
 
 ## Webwhats / Motor WhatsApp (regras duras — custaram chips banidos em jun/26)
 `Webwhats/` é projeto separado (Evolution API/Baileys). Leia `Webwhats/AGENTS.md` antes de tocar. No VPS roda como systemd
