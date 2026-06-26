@@ -1238,20 +1238,32 @@ function paintTransfer(st) {
     : `${dirLabel}…`;
   if (st.phase && !st.done) line += ` · ${st.phase}`;
   const failed = Number(st.failed || 0);
+  const nf = (n) => Number(n || 0).toLocaleString("pt-BR");
   if (st.done) {
     if (st.ok && failed === 0) {
       pct = 100;
-      line = st.direction === "push"
-        ? `✓ ${Number(st.sent || 0).toLocaleString("pt-BR")} enviados pro VPS`
-        : `✓ ${Number(st.pulled || 0).toLocaleString("pt-BR")} trazidos · ${Number(st.imported || 0).toLocaleString("pt-BR")} novos no local`;
+      // Reconciliação HONESTA: mostra os dois totais (mesma régua = cards) + quantos foram novos.
+      // push: total=local, otherTotal=VPS. pull: total=VPS, otherTotal=local.
+      const novos = Number(st.imported || 0);
+      const localT = Number(st.direction === "push" ? st.total : st.otherTotal) || 0;
+      const vpsT = Number(st.direction === "push" ? st.otherTotal : st.total) || 0;
+      const moved = st.direction === "push" ? Number(st.sent || 0) : Number(st.pulled || 0);
+      const verb = st.direction === "push" ? "Mandei" : "Trouxe";
+      line = `✓ ${verb} tudo: ${nf(moved)} processados, ${nf(novos)} novos no destino.`;
+      if (localT && vpsT) {
+        line += ` Local ${nf(localT)} · VPS ${nf(vpsT)}`;
+        const d = Math.abs(vpsT - localT);
+        if (d === 0) line += " — iguais ✓";
+        else line += `. Tudo que dava pra sincronizar foi: ${novos === 0 ? "o destino já tinha todos" : nf(novos) + " novos"}. As ${nf(d)} de diferença não entram no outro lado (duplicadas por outro critério ou recusadas no filtro de import).`;
+      }
     } else if (st.ok && failed > 0) {
       // Concluiu mas alguns lotes piscaram — honesto: mostra quanto faltou e que reclicar completa.
       line = st.direction === "push"
-        ? `⚠ ${Number(st.sent || 0).toLocaleString("pt-BR")} enviados · ${failed.toLocaleString("pt-BR")} piscaram — reclica pra completar`
-        : `⚠ ${Number(st.imported || 0).toLocaleString("pt-BR")} no local · ${failed.toLocaleString("pt-BR")} piscaram — reclica pra completar`;
+        ? `⚠ ${nf(st.sent)} enviados · ${nf(failed)} piscaram — reclica pra completar`
+        : `⚠ ${nf(st.imported)} no local · ${nf(failed)} piscaram — reclica pra completar`;
     } else {
       // Erro fatal: mantém a barra onde parou — não mente 100%.
-      line = `✕ ${st.error || "falhou"}${processed ? ` (parou em ${processed.toLocaleString("pt-BR")})` : ""}`;
+      line = `✕ ${st.error || "falhou"}${processed ? ` (parou em ${nf(processed)})` : ""}`;
     }
   }
   const warnPartial = st.done && st.ok && failed > 0;

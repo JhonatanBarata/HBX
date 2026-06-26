@@ -24,9 +24,11 @@ let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
 let backendTokenRefreshPromise = null;
 // Transferência VPS<->local em segundo plano (1 por vez) + progresso vivo pra UI.
 // processed/total = a % honesta (quantos leads já passaram ÷ total real do banco).
+// total      = total de cards da ORIGEM (push=local, pull=VPS) → denominador da %.
+// otherTotal = total de cards do DESTINO depois da transferência → pra reconciliar os dois lados.
 let transferJob = {
   running: false, direction: null, phase: "",
-  processed: 0, total: null, page: 0, errors: 0, failed: 0, lastError: null,
+  processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
   pulled: 0, imported: 0, sent: 0,
   done: false, ok: null, error: null, startedAt: 0, finishedAt: 0,
 };
@@ -34,10 +36,22 @@ let transferJob = {
 function freshTransferJob(direction) {
   return {
     running: true, direction, phase: "iniciando",
-    processed: 0, total: null, page: 0, errors: 0, failed: 0, lastError: null,
+    processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
     pulled: 0, imported: 0, sent: 0,
     done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
   };
+}
+
+// Total de cards transferíveis de cada lado (mesma régua nos dois → dá pra reconciliar/igualar).
+async function readVpsCardTotal() {
+  const r = await opsRequest("GET", "/api/radar/vps/database-cards?limit=1&page=1", null, 30000);
+  const d = r && r.data && r.data.data ? r.data.data : (r && r.data);
+  return d && typeof d.total === "number" ? d.total : null;
+}
+async function readLocalCardTotal() {
+  if (!backendToken) await refreshBackendToken().catch(() => null);
+  const r = await backendRequest("GET", "/modules/owner/radar/database-cards?limit=1&page=1", null, { timeoutMs: 15000 });
+  return r && r.ok && r.data && typeof r.data.total === "number" ? r.data.total : null;
 }
 
 // Tenta de novo UMA vez quando o predicado de sucesso falha (timeout/blip de rede),
@@ -992,11 +1006,14 @@ function mapCardToHarvestLead(row, opts = {}) {
 }
 
 // Roda em segundo plano: traz TUDO do VPS pro local em PÁGINAS (stream), gravando cada
-// página assim que chega. % honesta = pulled ÷ total real do banco da VPS. O proxy do
-// Ops Control aceita até 2000/página; 500 = poucos round-trips e JSON seguro.
+// página assim que chega. % honesta = pulled ÷ total real do banco da VPS.
+// IMPORTANTE: o backend DEPLOYADO na VPS trava database-cards em 20/página (sondei 25/06:
+// limit=20/50/100/500 → sempre 20 itens). Pedir mais NÃO cresce a página e o offset
+// passaria a pular de 500 em 500 → BURACOS. Por isso o pageSize do pull é 20 (casado com o
+// cap real). É mais lento (~total/20 páginas), mas íntegro. Local honra 500 (push usa 500).
 async function runTransferPull() {
-  const pageSize = 500;
-  const maxPages = 2000;
+  const pageSize = 20;
+  const maxPages = 20000;
   let chunkSeq = 0;
   let consecutiveFails = 0;
   if (!backendToken) await refreshBackendToken().catch(() => null);
@@ -1060,6 +1077,9 @@ async function runTransferPull() {
       if (items.length < pageSize) break;
     }
     transferJob.ok = !transferJob.error;
+    // Reconciliação: total do DESTINO (local) depois de trazer → o front mostra se igualou.
+    transferJob.phase = "reconciliando";
+    transferJob.otherTotal = await readLocalCardTotal().catch(() => null);
   } catch (err) {
     transferJob.error = err.message || "falha na transferência";
     transferJob.ok = false;
@@ -1140,6 +1160,9 @@ async function runTransferPush() {
     }
     transferJob.ok = !transferJob.error;
     if (transferJob.sent > 0) vpsLeadsCache = { at: 0, data: null };
+    // Reconciliação: total do DESTINO (VPS) depois de mandar → o front mostra se igualou.
+    transferJob.phase = "reconciliando";
+    transferJob.otherTotal = await readVpsCardTotal().catch(() => null);
   } catch (err) {
     transferJob.error = err.message || "falha na transferência";
     transferJob.ok = false;

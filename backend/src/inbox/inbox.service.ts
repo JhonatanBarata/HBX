@@ -771,10 +771,18 @@ export class InboxService {
     if (scope.mode === 'current') return Boolean(scope.currentSessionId) && rowSessionId === scope.currentSessionId;
     // Só Meta (Cloud API, sem webwhats) → conversas sem sessão webwhats (id null).
     if (scope.mode === 'meta') return rowSessionId === null;
-    // Visão agregada do ADMIN: qualquer sessão listada OU conversa só-Meta (id null e Meta ativo).
+    // Visão agregada: GERENTE (restricted) vê só o TIME (sessões listadas) + só-Meta. O
+    // ADMIN-dono/master vê a EMPRESA INTEIRA — independente de a sessão estar 'active' AGORA.
+    // Sem isso, todo re-link/deploy (publish reinicia o webwhats e re-linka os chips → a
+    // sessão pisca de status no banco) escondia o histórico de quem caiu pra 'disconnected',
+    // mesmo o motor estando 'open'. Espelha o escopo das MUTAÇÕES (ensureConversation já usa
+    // só companyId pro admin-dono) — leitura e escrita do dono enxergam o mesmo conjunto.
     if (scope.mode === 'company') {
-      if (rowSessionId !== null) return scope.sessionIds?.includes(rowSessionId) ?? false;
-      return Boolean(scope.metaActive);
+      if (scope.restricted) {
+        if (rowSessionId !== null) return scope.sessionIds?.includes(rowSessionId) ?? false;
+        return Boolean(scope.metaActive);
+      }
+      return true;
     }
     return false;
   }
