@@ -1415,12 +1415,43 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    await this.prisma.company.update({
-      where: { id: companyId },
-      data: { currentWhatsappConnectionSessionId: String(session.id) },
-    });
+    // Trava de ponteiro (espelha o PR4 no whatsapp-modal, que só cobria o status-poll):
+    // no modo individual o currentWhatsappConnectionSessionId NÃO pode cair na sessão de um
+    // VENDEDOR — senão operações company-scoped (automação/bot/envio sem userId) saem pela
+    // linha dele. Este é o caminho do WEBHOOK (re-link/CONNECTION_UPDATE), que setava o
+    // ponteiro pra QUALQUER sessão que reconectava (foi como o user-33 capturou o ponteiro
+    // da company 5 no re-link pós-deploy). Só aponta quando é seguro.
+    if (await this.webhookPointerAllowedForSession(companyId, userId)) {
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: { currentWhatsappConnectionSessionId: String(session.id) },
+      });
+    }
 
     return { action: 'active', sessionId: String(session.id), phoneNormalized };
+  }
+
+  // Espelha a noção de "dono" do PR4 (admin-dono/master). No individual, só a sessão de um
+  // admin-dono — ou a company-main (sem userId) — pode virar o ponteiro da empresa. Vendedor
+  // reconectando o próprio chip NÃO sequestra mais o ponteiro company-scoped.
+  private async webhookPointerAllowedForSession(companyId: number, userId: number | null): Promise<boolean> {
+    if (!userId) return true; // company-main (sem user) pode virar ponteiro
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { whatsappAttendanceMode: true },
+    });
+    const mode =
+      String((company as any)?.whatsappAttendanceMode || '').trim().toLowerCase() === 'shared'
+        ? 'shared'
+        : 'individual';
+    if (mode === 'shared') return true; // compartilhado = número único da empresa
+    const user = await this.prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: { role: true, isSystemMaster: true, canViewBilling: true },
+    });
+    if (!user) return false;
+    if (user.isSystemMaster) return true;
+    return String(user.role || '').trim().toUpperCase() === 'ADMIN' && user.canViewBilling !== false;
   }
 
   private normalizeWebwhatsJid(value: unknown) {

@@ -1393,18 +1393,17 @@ export class WhatsAppModalService {
     }
 
     // (b) individual: vendedor não pode conectar o número que é a LINHA PRINCIPAL da empresa
-    // (sessão company-{id}). A linha principal é o número da sessão da própria empresa, OU o
-    // whatsappModalPhone persistido como fallback (cobre o caso da sessão company-main ainda
-    // não materializada no banco). Só barra se o número BATE com a linha principal.
+    // (sessão company-{id}). NÃO usar whatsappModalPhone como fallback: esse campo herda
+    // last-writer-wins e PODE ser o número de um VENDEDOR → falso-positivo que bloquearia o
+    // vendedor de reconectar o PRÓPRIO chip. Se não há sessão company-{id} (típico no
+    // individual), não há número da empresa a proteger e a trava NÃO deve disparar.
     const companyTenantKey = this.buildTenantKey(company);
     const mainSession = await this.prisma.whatsAppConnectionSession.findFirst({
       where: { companyId: Number(company.id), provider: 'webwhats', tenantKey: companyTenantKey },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
       select: { phoneNormalized: true },
     });
-    const mainLinePhone =
-      this.normalizeTrialPhone(mainSession?.phoneNormalized) ||
-      this.normalizeTrialPhone(company.whatsappModalPhone);
+    const mainLinePhone = this.normalizeTrialPhone(mainSession?.phoneNormalized);
 
     if (mainLinePhone && mainLinePhone === incomingPhone) {
       throw new ForbiddenException(
