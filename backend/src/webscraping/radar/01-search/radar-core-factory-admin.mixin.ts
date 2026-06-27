@@ -313,9 +313,46 @@ export class RadarCoreFactoryAdminMixin {
     return next;
   }
 
+  // Maiores cidades do BR (curadas) — a fábrica MINERA ISTO PRIMEIRO. Antes ela varria a lista IBGE
+  // em ordem ALFABÉTICA → ficava presa nas microcidades do "A" (Acará/Acarape/Acaraú, ~15-60k hab) por
+  // semanas, com combos vazios e motores em timeout = "nada fabricado". Cidade grande tem negócio de
+  // todo segmento → rende de verdade. Cobre as ~40 maiores (todas as capitais + grandes do interior).
+  private static readonly MAJOR_BR_CITIES: Array<{ city: string; state: string }> = [
+    { city: 'São Paulo', state: 'SP' }, { city: 'Rio de Janeiro', state: 'RJ' }, { city: 'Brasília', state: 'DF' },
+    { city: 'Salvador', state: 'BA' }, { city: 'Fortaleza', state: 'CE' }, { city: 'Belo Horizonte', state: 'MG' },
+    { city: 'Manaus', state: 'AM' }, { city: 'Curitiba', state: 'PR' }, { city: 'Recife', state: 'PE' },
+    { city: 'Goiânia', state: 'GO' }, { city: 'Belém', state: 'PA' }, { city: 'Porto Alegre', state: 'RS' },
+    { city: 'Guarulhos', state: 'SP' }, { city: 'Campinas', state: 'SP' }, { city: 'São Luís', state: 'MA' },
+    { city: 'São Gonçalo', state: 'RJ' }, { city: 'Maceió', state: 'AL' }, { city: 'Duque de Caxias', state: 'RJ' },
+    { city: 'Campo Grande', state: 'MS' }, { city: 'Natal', state: 'RN' }, { city: 'Teresina', state: 'PI' },
+    { city: 'São Bernardo do Campo', state: 'SP' }, { city: 'Nova Iguaçu', state: 'RJ' }, { city: 'João Pessoa', state: 'PB' },
+    { city: 'Santo André', state: 'SP' }, { city: 'Osasco', state: 'SP' }, { city: 'São José dos Campos', state: 'SP' },
+    { city: 'Jaboatão dos Guararapes', state: 'PE' }, { city: 'Ribeirão Preto', state: 'SP' }, { city: 'Uberlândia', state: 'MG' },
+    { city: 'Sorocaba', state: 'SP' }, { city: 'Contagem', state: 'MG' }, { city: 'Aracaju', state: 'SE' },
+    { city: 'Feira de Santana', state: 'BA' }, { city: 'Cuiabá', state: 'MT' }, { city: 'Joinville', state: 'SC' },
+    { city: 'Juiz de Fora', state: 'MG' }, { city: 'Londrina', state: 'PR' }, { city: 'Florianópolis', state: 'SC' },
+    { city: 'Vitória', state: 'ES' }, { city: 'Niterói', state: 'RJ' }, { city: 'Caxias do Sul', state: 'RS' },
+  ];
+
   private async getFactoryLocationPool() {
-    const locations = await this.listAutonomousMassDataLocations().catch(() => AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK);
-    return locations.length ? locations : AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK;
+    const all = await this.listAutonomousMassDataLocations().catch(() => AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK);
+    const base = all.length ? all : AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK;
+    // PRIORIDADE: cidades já produtivas + grandes capitais PRIMEIRO; cauda = resto IBGE (alfabético).
+    // O cursor (currentCityIndex) anda por ESTA ordem → mina cidade real antes de microcidade.
+    const productive = await this.listProductiveMassDataCities().catch(() => []);
+    const seen = new Set<string>();
+    const head: Array<{ city: string; state: string }> = [];
+    for (const c of [...productive, ...RadarCoreFactoryAdminMixin.MAJOR_BR_CITIES]) {
+      const city = String(c?.city || '').trim();
+      const state = String(c?.state || '').trim().toUpperCase();
+      if (!city || !state) continue;
+      const key = `${state}|${normalizeLookupValue(city)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      head.push({ city, state });
+    }
+    const tail = base.filter((c: any) => !seen.has(`${String(c?.state || '').trim().toUpperCase()}|${normalizeLookupValue(c?.city)}`));
+    return [...head, ...tail];
   }
 
   private buildFactoryLinearIndex(input: {
@@ -865,6 +902,15 @@ export class RadarCoreFactoryAdminMixin {
       return { count: 0 };
     });
     const remainingQueued = await (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'queued' } }).catch(() => null);
+    // RESET do cursor: a fábrica volta ao TOPO do pool (agora = cidades grandes/produtivas). Sem isso o
+    // currentCityIndex continuaria apontando pra microcidade do "A" e o reabastecimento voltaria pra lá.
+    if (await this.supportsRadarFactoryPersistence()) {
+      await (this.prisma as any).radarFactoryCursor.upsert({
+        where: { key: 'main' },
+        create: { key: 'main', enabled: true, currentStateIndex: 0, currentCityIndex: 0, currentSegmentIndex: 0, currentTargetTypeIndex: 0, currentCity: null, currentSegment: null, nextRunAt: new Date() },
+        update: { currentStateIndex: 0, currentCityIndex: 0, currentSegmentIndex: 0, currentTargetTypeIndex: 0, currentCity: null, currentSegment: null, nextRunAt: new Date() },
+      }).catch(() => null);
+    }
     // Acorda o pump: com a fila baixa ele reabastece com combo bom já no próximo ciclo.
     this.scheduleRadarCampaignPump(0);
     const deletedNeverRun = safeInteger(deleted?.count);
