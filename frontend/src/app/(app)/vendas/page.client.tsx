@@ -10,7 +10,7 @@
 // template (Próximas tarefas, Funil) foram removidas — só dado real (21/06).
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -102,6 +102,17 @@ type BoardResponse = {
   // Opt-in: tenant HBX admin (revende planos HBX) — habilita o seletor de plano
   // no Fechar venda. Cliente comum vem ausente/false e nunca vê o seletor.
   sellsHbxPlans?: boolean;
+  // Capacidade da carteira → faixa "por que o Radar parou de buscar". O motor
+  // pausa o reabastecimento quando a lista enche (teto de cards ativos).
+  radarSupply?: {
+    isSeller: boolean;
+    activeCards: number;
+    capacity: number;
+    availableSlots: number;
+    full: boolean;
+    paused: boolean;
+    code: string | null;
+  } | null;
 } | null;
 
 type TriagemItem = { key: string; label: string; ok: boolean };
@@ -151,6 +162,131 @@ function fmtWhen(iso: string | null) {
   return d.toLocaleDateString("pt-BR");
 }
 
+
+// ── Quadro (kanban arrastável) — etapas reais do lead (status), independente da
+// agenda (block). Arrastar entre colunas faz PATCH /vendas/lead/:id {status}.
+type VendasStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
+const STAGE_ORDER: { key: VendasStage; label: string; tone: string }[] = [
+  { key: "novo", label: "Novo", tone: "new" },
+  { key: "contato", label: "Em contato", tone: "contact" },
+  { key: "retorno", label: "Retorno", tone: "return" },
+  { key: "qualificado", label: "Qualificado", tone: "qualified" },
+  { key: "encerrado", label: "Encerrado", tone: "ended" },
+];
+const STAGE_LABEL: Record<VendasStage, string> = {
+  novo: "Novo lead", contato: "Em contato", retorno: "Retorno", qualificado: "Qualificado", encerrado: "Encerrado",
+};
+function normalizeStage(status: string | null | undefined): VendasStage {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "contato") return "contato";
+  if (s === "retorno") return "retorno";
+  if (s === "qualificado") return "qualificado";
+  if (s === "encerrado") return "encerrado";
+  return "novo";
+}
+
+// Chip de agenda no card do quadro: a cor carrega a urgência (texto mínimo).
+function agendaInfo(card: VendasLead): { tone: string; label: string } {
+  if (card.block === "overdue") return { tone: "danger", label: "Atrasado" };
+  if (card.block === "today") return { tone: "today", label: "Hoje" };
+  if (card.block === "closed") return { tone: "done", label: card.closedAt ? fmtWhen(card.closedAt) : "Fechado" };
+  return { tone: "soft", label: fmtWhen(card.returnAt) };
+}
+
+// Move otimista: troca o status do card no estado local sem esperar a rede.
+function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): BoardResponse {
+  if (!board) return board;
+  const patch = (arr: VendasLead[]) =>
+    arr.map(c => (c.id === id ? { ...c, status: stage, statusLabel: STAGE_LABEL[stage] } : c));
+  return {
+    ...board,
+    blocks: {
+      today: patch(board.blocks.today),
+      overdue: patch(board.blocks.overdue),
+      scheduled: patch(board.blocks.scheduled),
+      closed: patch(board.blocks.closed),
+    },
+  };
+}
+
+// Faixa "por que o Radar parou de buscar": gauge radial + barra de vagas +
+// pill semáforo. O cliente entende pela COR (verde=buscando / âmbar=quase cheia
+// / vermelho=cheia, busca pausada), não por parágrafo.
+function RadarSupplyStrip({
+  supply,
+  onLiberar,
+}: {
+  supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
+  onLiberar: () => void;
+}) {
+  const capacity = Math.max(1, supply.capacity || 1);
+  const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
+  const pct = Math.max(0, Math.min(1, used / capacity));
+  const state = supply.full ? "full" : pct >= 0.8 ? "warn" : "ok";
+  const free = Math.max(0, supply.availableSlots ?? capacity - used);
+  // anel SVG
+  const R = 17, C = 2 * Math.PI * R, dash = C * pct;
+  const headline =
+    state === "full"
+      ? supply.paused
+        ? "Distribuição pausada"
+        : "Lista cheia · busca pausada"
+      : state === "warn"
+        ? "Lista quase cheia"
+        : "Buscando empresas";
+  const sub =
+    state === "full"
+      ? supply.paused
+        ? "Peça ao responsável para liberar a distribuição."
+        : "Finalize ou descarte cards para o Radar voltar a buscar."
+      : state === "warn"
+        ? `Faltam ${free} vaga${free === 1 ? "" : "s"} — ao encher, o Radar pausa sozinho.`
+        : `${free} vaga${free === 1 ? "" : "s"} livre${free === 1 ? "" : "s"} na sua lista.`;
+  // pips: 1 por vaga até 24; acima disso, barra contínua
+  const showPips = capacity <= 24;
+  return (
+    <div className={"vnd-supply vnd-supply--" + state} role="status" aria-label={headline}>
+      <div className="vnd-supply__gauge" aria-hidden="true">
+        <svg viewBox="0 0 40 40" width="46" height="46">
+          <circle className="vnd-supply__track" cx="20" cy="20" r={R} fill="none" strokeWidth="4" />
+          <circle
+            className="vnd-supply__arc" cx="20" cy="20" r={R} fill="none" strokeWidth="4"
+            strokeLinecap="round" strokeDasharray={`${dash} ${C}`} transform="rotate(-90 20 20)"
+          />
+        </svg>
+        <span className="vnd-supply__gauge-ic">
+          <I d={state === "full" ? ICONS.pause : ICONS.scrape} size={15} />
+        </span>
+      </div>
+      <div className="vnd-supply__txt">
+        <strong className="vnd-supply__title">{headline}</strong>
+        <span className="vnd-supply__sub">{sub}</span>
+      </div>
+      <div className="vnd-supply__meter">
+        <div className="vnd-supply__count">
+          <b>{used}</b>
+          <span>/ {capacity}</span>
+        </div>
+        {showPips ? (
+          <div className="vnd-supply__pips" aria-hidden="true">
+            {Array.from({ length: capacity }).map((_, i) => (
+              <span key={i} className={"vnd-supply__pip" + (i < used ? " is-on" : "")} />
+            ))}
+          </div>
+        ) : (
+          <div className="vnd-supply__bar" aria-hidden="true">
+            <span className="vnd-supply__bar-fill" style={{ width: `${Math.round(pct * 100)}%` }} />
+          </div>
+        )}
+      </div>
+      {state === "full" && (
+        <button type="button" className="vnd-supply__cta" onClick={onLiberar}>
+          Liberar espaço
+        </button>
+      )}
+    </div>
+  );
+}
 
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
@@ -497,39 +633,43 @@ export function VendasClient() {
   const isMobile = useIsMobile();
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
-  // Mobile kanban legado: dots de navegação + menu "mover para" por toque
-  // (mantido para o quadro desktop e view=board; não usado na lista mobile)
-  const boardRef = useRef<HTMLDivElement | null>(null);
-  const [activeDot, setActiveDot] = useState(0);
-  const [cardMoveOpen, setCardMoveOpen] = useState<string | null>(null); // card.id com menu aberto
+  // Quadro arrastável (drag-and-drop nativo): arrastar um card pra outra coluna
+  // muda a ETAPA (status). dragId = card sendo arrastado; dragOverStage = coluna
+  // sob o cursor (highlight). Move é otimista + PATCH + reconcilia no loadBoard.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<VendasStage | null>(null);
 
-  // Atualiza o dot ativo conforme o scroll horizontal do board
-  function onBoardScroll() {
-    const el = boardRef.current;
-    if (!el) return;
-    const colW = el.scrollWidth / BLOCK_ORDER.length;
-    const dot = Math.round(el.scrollLeft / colW);
-    setActiveDot(Math.min(Math.max(0, dot), BLOCK_ORDER.length - 1));
+  function onCardDragStart(e: React.DragEvent, card: VendasLead) {
+    setDragId(card.id);
+    setSel(card);
+    try {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", card.id);
+    } catch { /* alguns navegadores travam setData */ }
+  }
+  function onCardDragEnd() {
+    setDragId(null);
+    setDragOverStage(null);
   }
 
-  // Mover card via toque: ação inline p/ não depender do estado async de moverStatus
-  async function moverCardPorToque(card: VendasLead, status: string) {
-    if (acaoBusy) return;
-    setCardMoveOpen(null);
-    setSel(card);
-    setAcaoBusy(true);
+  async function soltarNaEtapa(stage: VendasStage) {
+    const id = dragId;
+    setDragOverStage(null);
+    setDragId(null);
+    if (!id) return;
+    const card = BLOCK_ORDER.flatMap(({ key }) => board?.blocks?.[key] || []).find(c => c.id === id);
+    if (!card || normalizeStage(card.status) === stage) return;
     setAcaoMsg(null);
+    setBoard(prev => patchCardStage(prev, id, stage)); // otimista
     try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(card.id)}`, {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(id)}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: stage }),
       });
-      setAcaoMsg("✓ Etapa atualizada.");
       await loadBoard();
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
-    } finally {
-      setAcaoBusy(false);
+      await loadBoard(); // desfaz o otimista voltando à verdade do servidor
     }
   }
 
@@ -804,6 +944,9 @@ export function VendasClient() {
                   <button className="btn-teal" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}><I d={ICONS.plus} size={14} /> Novo lead</button>
                 </div>
               </div>
+              {board && board.radarSupply && (summary?.total ?? 0) > 0 && (
+                <RadarSupplyStrip supply={board.radarSupply} onLiberar={() => setView("list")} />
+              )}
               {loadError && (
                 <div style={{ padding: "12px 16px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>
                   {loadError}
@@ -964,89 +1107,73 @@ export function VendasClient() {
                 </>
               )}
 
-              {/* QUADRO (kanban) — opcional, para arrastar entre etapas. Desktop only. */}
-              {!isMobile && view === "board" && (
-              <>
-              <div className="board" ref={boardRef} onScroll={isMobile ? onBoardScroll : undefined}>
-                {BLOCK_ORDER.map(({ key, label }) => {
-                  const cards = (board?.blocks?.[key] || []).filter(matchSearch);
-                  const sumCents = cards.reduce((acc, c) => acc + (c.saleValue || 0), 0);
-                  return (
-                    <div key={key}>
-                      <div className="col-head"><strong>{label}</strong><span className="sum">{sumCents > 0 ? fmtMoney(sumCents) : "—"}</span></div>
-                      <div className="col-count">{cards.length} {cards.length === 1 ? "lead" : "leads"}</div>
-                      <div className="col-cards">
-                        {cards.map(card => (
-                          <article key={card.id} className={"deal" + (sel?.id === card.id ? " sel" : "")} onClick={() => { setSel(card); if (cardMoveOpen === card.id) setCardMoveOpen(null); }}>
-                            <strong>{card.name || "—"}</strong>
-                            <span className="who">{card.segment || card.city || card.phone || "—"}</span>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span className="val">{leadValueLabel(card)}</span>
-                              {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
-                            </div>
-                            <span className="line">{card.shortNote || card.statusLabel}</span>
-                            {card.nextAction && <span className="line">Próximo passo: {card.nextAction}</span>}
-                            <div className="foot">
-                              {card.owner?.name ? <React.Fragment><Av name={card.owner.name} size={18} />{card.owner.name}</React.Fragment> : <span>—</span>}
-                              <span className="when">{fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt)}</span>
-                            </div>
-                            {/* Botão "Mover para" — visível só no mobile via CSS (.deal-move-btn) */}
-                            <button
-                              className="deal-move-btn"
-                              type="button"
-                              aria-label="Mover para outra etapa"
-                              disabled={acaoBusy || card.block === "closed"}
-                              onClick={e => { e.stopPropagation(); setCardMoveOpen(cardMoveOpen === card.id ? null : card.id); }}
-                            >
-                              <I d={ICONS.arrow} size={13} /> Mover para…
-                            </button>
-                            {cardMoveOpen === card.id && (
-                              <div className="deal-move-menu" onClick={e => e.stopPropagation()}>
-                                {[
-                                  { value: "novo", label: "Novo" },
-                                  { value: "contato", label: "Contato" },
-                                  { value: "retorno", label: "Retorno" },
-                                  { value: "qualificado", label: "Qualificado" },
-                                  { value: "encerrado", label: "Encerrado" },
-                                ].map(opt => (
-                                  <button
-                                    key={opt.value}
-                                    type="button"
-                                    disabled={acaoBusy}
-                                    onClick={() => moverCardPorToque(card, opt.value)}
-                                  >
-                                    {opt.label}
-                                  </button>
-                                ))}
-                              </div>
+              {/* QUADRO — pipeline arrastável por ETAPA (status). Desktop only.
+                  Arraste um card para outra coluna: a etapa muda na hora. A cor do
+                  chip carrega a urgência da agenda (atrasado/hoje). */}
+              {!isMobile && view === "board" && board && (summary?.total ?? 0) > 0 && (() => {
+                const stageCards: Record<VendasStage, VendasLead[]> = { novo: [], contato: [], retorno: [], qualificado: [], encerrado: [] };
+                for (const c of flatLeads) stageCards[normalizeStage(c.status)].push(c);
+                return (
+                  <div className={"vnd-pipe" + (dragId ? " is-dragging" : "")}>
+                    {STAGE_ORDER.map(stage => {
+                      const cards = stageCards[stage.key];
+                      const sumCents = cards.reduce((acc, c) => acc + (c.saleValue || 0), 0);
+                      const isOver = dragOverStage === stage.key;
+                      return (
+                        <section
+                          key={stage.key}
+                          className={"vnd-pipe-col" + (isOver ? " is-over" : "")}
+                          data-tone={stage.tone}
+                          onDragEnter={e => { e.preventDefault(); if (dragOverStage !== stage.key) setDragOverStage(stage.key); }}
+                          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverStage !== stage.key) setDragOverStage(stage.key); }}
+                          onDrop={e => { e.preventDefault(); soltarNaEtapa(stage.key); }}
+                        >
+                          <header className="vnd-pipe-col__head">
+                            <span className="vnd-pipe-col__dot" aria-hidden="true" />
+                            <strong className="vnd-pipe-col__name">{stage.label}</strong>
+                            <span className="vnd-pipe-col__count">{cards.length}</span>
+                            {sumCents > 0 && <span className="vnd-pipe-col__sum">{fmtMoney(sumCents)}</span>}
+                          </header>
+                          <div className="vnd-pipe-col__body">
+                            {cards.length === 0 && (
+                              <div className="vnd-pipe-col__empty">{isOver ? "Solte aqui" : "Arraste cards"}</div>
                             )}
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Dots de navegação — visíveis só no mobile via CSS (.board-dots) */}
-              <div className="board-dots" aria-hidden="true">
-                {BLOCK_ORDER.map((_, i) => (
-                  <button
-                    key={i}
-                    className={"board-dot" + (activeDot === i ? " active" : "")}
-                    type="button"
-                    aria-label={`Coluna ${i + 1}`}
-                    onClick={() => {
-                      const el = boardRef.current;
-                      if (!el) return;
-                      const colW = el.scrollWidth / BLOCK_ORDER.length;
-                      el.scrollTo({ left: i * colW, behavior: "smooth" });
-                      setActiveDot(i);
-                    }}
-                  />
-                ))}
-              </div>
-              </>
-              )}
+                            {cards.map(card => {
+                              const ag = agendaInfo(card);
+                              return (
+                                <article
+                                  key={card.id}
+                                  className={"vnd-card" + (sel?.id === card.id ? " is-sel" : "") + (dragId === card.id ? " is-dragging" : "") + (card.block === "closed" ? " is-locked" : "")}
+                                  draggable={card.block !== "closed"}
+                                  onDragStart={card.block !== "closed" ? (e => onCardDragStart(e, card)) : undefined}
+                                  onDragEnd={onCardDragEnd}
+                                  onClick={() => setSel(card)}
+                                >
+                                  <span className="vnd-card__grip" aria-hidden="true" />
+                                  <div className="vnd-card__top">
+                                    <strong className="vnd-card__name">{card.name || "—"}</strong>
+                                    {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
+                                  </div>
+                                  <span className="vnd-card__sub">{card.segment || card.city || card.phone || "—"}</span>
+                                  <div className="vnd-card__row">
+                                    <span className="vnd-card__val">{leadValueLabel(card)}</span>
+                                    <span className={"vnd-chip vnd-chip--" + ag.tone}>{ag.label}</span>
+                                  </div>
+                                  <div className="vnd-card__foot">
+                                    {card.owner?.name
+                                      ? <span className="vnd-card__owner"><Av name={card.owner.name} size={16} />{card.owner.name}</span>
+                                      : <span className="vnd-card__owner vnd-card__owner--none">Sem dono</span>}
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </section>
           </div>
 
