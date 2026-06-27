@@ -1317,6 +1317,11 @@ export class MasterWebscrapingController {
     return this.webscrapingService.forceNextRadarFactoryMission(req.user);
   }
 
+  @Post('factory/purge-dead-queue')
+  purgeDeadQueue(@Req() req: any) {
+    return this.webscrapingService.purgeDeadMassDataQueue(req.user);
+  }
+
   @Get('mass-data')
   getMassDataControl(@Req() req: any) {
     return this.webscrapingService.getMasterMassDataControl(req.user);

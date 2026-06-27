@@ -1522,6 +1522,34 @@ $("#btn-vps-cancel").addEventListener("click", () => {
   vpsAction("cancelar busca", "/owner/vps/cancel", { confirm: true }, "Cancelar a busca forçada na VPS agora?");
 });
 
+// Limpar fila morta: apaga o entulho de combo vazio e religa o abastecimento com cidade boa.
+$("#btn-vps-purge-queue").addEventListener("click", async () => {
+  const btn = $("#btn-vps-purge-queue");
+  const fb = $("#vps-feedback");
+  if (!confirm("Limpar a fila morta da fábrica VPS?\n\nApaga tarefas que nunca renderam (combo vazio) e exaure as que deram 0. NÃO para a produção nem mexe no estoque — o motor volta a abastecer com cidade boa.")) return;
+  btn.disabled = true;
+  fb.textContent = "limpando fila morta… (SSH, ~30s)";
+  fb.className = "delta";
+  try {
+    const r = await api("POST", "/owner/vps/factory/purge-dead-queue", {});
+    if (r.ok) {
+      const del = (r.deletedNeverRun ?? 0).toLocaleString("pt-BR");
+      const exh = (r.exhaustedAttempted ?? 0).toLocaleString("pt-BR");
+      const rest = r.remainingQueued != null ? r.remainingQueued.toLocaleString("pt-BR") : "—";
+      fb.textContent = `fila limpa: ${del} apagadas + ${exh} exauridas · restam ${rest} na fila`;
+      fb.className = "delta up";
+    } else {
+      fb.textContent = `limpar fila: ${r.message || r.reason || "falhou"}`;
+      fb.className = "delta";
+    }
+  } catch (err) {
+    fb.textContent = `limpar fila: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    setTimeout(renderVps, 1500);
+  }
+});
+
 
 /* ---------- Containers + logs + Top processos (recolhido) ---------- */
 let infraLoaded = false;

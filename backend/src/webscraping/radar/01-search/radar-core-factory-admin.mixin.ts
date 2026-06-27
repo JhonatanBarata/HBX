@@ -842,6 +842,37 @@ export class RadarCoreFactoryAdminMixin {
     return this.getRadarFactoryStatus(user);
   }
 
+  // Limpa a FILA MORTA da fábrica sem parar a produção: apaga as tarefas que nunca rodaram
+  // (queued, attemptCount=0 — o entulho que acumula combos vazios tipo "relojoarias·Acarape") e
+  // marca como `exhausted` (provado-morto) as que rodaram e deram 0 — assim o freio `dead` lembra
+  // delas e o planner reabastece com combo BOM na hora (em vez de moer horas a fila envenenada).
+  // Rota sancionada do app (NUNCA SQL cru): vira botão do dono no cockpit. Não mexe em lead/estoque.
+  async purgeDeadMassDataQueue(user: any) {
+    if (!(await this.supportsMassDataCampaignPersistence())) {
+      return { ok: false, reason: 'mass_data_persistence_unavailable', deletedNeverRun: 0, exhaustedAttempted: 0 };
+    }
+    const deleted = await (this.prisma as any).webscrapingCampaignTask.deleteMany({
+      where: { status: 'queued', attemptCount: 0 },
+    }).catch((error: any) => {
+      this.logger.warn(`[purge-dead-queue] falha ao apagar never-run: ${error instanceof Error ? error.message : String(error)}`);
+      return { count: 0 };
+    });
+    const exhausted = await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { status: 'queued', attemptCount: { gt: 0 }, foundCount: 0 },
+      data: { status: 'exhausted', lockedByEngineId: null, lockedUntil: null, finishedAt: new Date(), lastError: 'Fila morta limpa pelo dono (combo sem rendimento).' },
+    }).catch((error: any) => {
+      this.logger.warn(`[purge-dead-queue] falha ao exaurir attempted-empty: ${error instanceof Error ? error.message : String(error)}`);
+      return { count: 0 };
+    });
+    const remainingQueued = await (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'queued' } }).catch(() => null);
+    // Acorda o pump: com a fila baixa ele reabastece com combo bom já no próximo ciclo.
+    this.scheduleRadarCampaignPump(0);
+    const deletedNeverRun = safeInteger(deleted?.count);
+    const exhaustedAttempted = safeInteger(exhausted?.count);
+    this.logger.log(`[purge-dead-queue] dono=${user?.id || '?'} apagadas=${deletedNeverRun} exauridas=${exhaustedAttempted} restamQueued=${remainingQueued ?? '?'}`);
+    return { ok: true, deletedNeverRun, exhaustedAttempted, remainingQueued };
+  }
+
   async forceNightRadarFactory(user: any, input: WebscrapingOperationalConfigInput = {}) {
     const existingConfig = await this.getOperationalConfig().catch(() => null);
     const engineCount = Math.min(

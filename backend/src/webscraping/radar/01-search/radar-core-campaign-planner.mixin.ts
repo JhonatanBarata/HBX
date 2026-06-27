@@ -489,6 +489,8 @@ export class RadarCoreCampaignPlannerMixin {
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
+          status: true,
+          attemptCount: true,
           foundCount: true,
           duplicateCount: true,
           rejectedCount: true,
@@ -518,14 +520,19 @@ export class RadarCoreCampaignPlannerMixin {
     const rejected = safeInteger(recentBatch?.rejectedCount) + safeInteger(taskHistory?.rejectedCount);
     const total = Math.max(1, approved + duplicate + rejected);
     const explored = Boolean(taskHistory);
+    // ATTEMPTED = de fato RODOU (gerou lote OU teve tentativa), não só ficou na fila. Importa pro
+    // freio não confundir "cancelei a fila" com "combo provado vazio": tarefa cancelada-sem-rodar
+    // (attemptCount 0, sem lote) NÃO é morta — pode ser re-escolhida; só é morta o que tentou e deu 0.
+    const attempted = Boolean(recentBatch) || safeInteger(taskHistory?.attemptCount) > 0
+      || ['exhausted', 'completed', 'failed'].includes(String(taskHistory?.status || ''));
     return {
       stockCount: safeInteger(stockCount),
       explored,
       approved,
-      // COMBO MORTO: já foi explorado e NUNCA aprovou nada (cidade vazia p/ aquele segmento).
+      // COMBO MORTO: já foi TENTADO e NUNCA aprovou nada (cidade vazia p/ aquele segmento).
       // O ranqueador antigo tratava estoque-0 como `low_stock` = prioridade MÁXIMA → re-enfileirava
       // eternamente a cidade vazia. Este flag faz o planner PULAR esses combos (freio na fonte).
-      dead: explored && approved === 0,
+      dead: attempted && approved === 0,
       duplicateRatio: duplicate / total,
       lastWorkedAt: taskHistory?.updatedAt instanceof Date
         ? taskHistory.updatedAt

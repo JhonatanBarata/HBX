@@ -1627,6 +1627,31 @@ async function route(req, res) {
     return;
   }
 
+  // Limpar a FILA MORTA da fábrica da VPS (rota sancionada → Ops Control → backend VPS). Botão do dono:
+  // não é SQL cru, não para produção, não toca estoque — só tira o entulho de combo vazio e o pump
+  // reabastece com combo bom. Devolve quantas tarefas foram apagadas/exauridas pra UI mostrar.
+  if (req.method === "POST" && url.pathname === "/owner/vps/factory/purge-dead-queue") {
+    const response = await opsRequest("POST", "/api/opscontrol/factory/purge-dead-queue", { scope: "vps" });
+    if (!response.configured) {
+      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
+      return;
+    }
+    const data = response.data || {};
+    // Ops devolve { action, message, ok, results:[{ environment, ok, data:{...backend} }] }.
+    const vpsResult = Array.isArray(data.results) ? data.results.find((r) => r.environment === "vps") || data.results[0] : null;
+    const backend = (vpsResult && vpsResult.data) || data;
+    const ok = response.ok && (vpsResult ? vpsResult.ok : data.ok) !== false;
+    sendJson(res, ok ? 200 : 502, {
+      ok,
+      deletedNeverRun: backend.deletedNeverRun ?? null,
+      exhaustedAttempted: backend.exhaustedAttempted ?? null,
+      remainingQueued: backend.remainingQueued ?? null,
+      ops: data,
+      reason: response.reason || (vpsResult && vpsResult.error) || data.error,
+    });
+    return;
+  }
+
   // Cockpit Radar Local×VPS: o que cada ambiente raspa AGORA + decisão. Cacheado (SSH pesado).
   if (req.method === "GET" && url.pathname === "/owner/radar-cockpit") {
     sendJson(res, 200, await readRadarCockpit(url.searchParams.get("force") === "1"));

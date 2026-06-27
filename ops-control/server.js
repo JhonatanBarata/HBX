@@ -2214,6 +2214,18 @@ app.post('/api/opscontrol/factory/resume', async (req, res) => {
   }
 });
 
+// Limpa a FILA MORTA da fábrica (rota sancionada do app — nunca SQL cru). Apaga tarefas que nunca
+// rodaram + exaure as que deram 0; o pump reabastece com combo bom. Não para a produção nem mexe em estoque.
+app.post('/api/opscontrol/factory/purge-dead-queue', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(scope, 'POST', '/modules/owner/radar/factory/purge-dead-queue', () => ({}));
+    res.json({ action: 'factory/purge-dead-queue', message: 'Fila morta limpa no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao limpar a fila morta.' });
+  }
+});
+
 // Enriquecimento CNPJ→dono (L4/BrasilAPI). Proxia pro backend escoped por scope/auth,
 // mesmo padrao de /api/opscontrol/elastic/* e /api/opscontrol/turbo.
 app.post('/api/opscontrol/cnpj-backfill', async (req, res) => {
