@@ -57,6 +57,8 @@ export type HbxEngineSchedulerStatus = {
   onlineHealthyEngines: number;
   memoryPressurePercent: number;
   cpuPressurePercent: number;
+  sourcePressurePercent: number;
+  sourceHeadroomEngines: number;
   elasticHeadroomEngines: number;
   elasticEnabled: boolean;
   googleMode: 'manual_only';
@@ -312,6 +314,31 @@ export function parseProcStatCpuSample(raw: string): { idle: number; total: numb
   return null;
 }
 
+/**
+ * Classifica uma errorMessage de batch como TIMEOUT/abort/rede (transiente, fonte estrangulando) vs
+ * outro erro. Espelha os padrões de `RadarHbxEngineErrorsService.isRetryableHbxError`. É o sinal que
+ * separa "a fonte travou" (cortar a frota / re-tentar a missão) de "a cidade secou" (avançar cursor).
+ */
+export function isTimeoutLikeBatchError(message: unknown): boolean {
+  const normalized = String(message || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    'timeout',
+    'timed out',
+    'etimedout',
+    'abort',
+    'aborted',
+    'econnreset',
+    'socket hang up',
+    'fetch failed',
+    'network',
+    'esockettimedout',
+    'enetunreach',
+    'service unavailable',
+    'too many requests',
+  ].some((part) => normalized.includes(part));
+}
+
 export function buildHbxEngineUrls(prefixOrBase: string, count = getConfiguredHbxEngineCount()) {
   const safeCount = clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, getConfiguredHbxEngineMaxCount());
   const base = String(prefixOrBase || '').trim().replace(/\/+$/, '');
@@ -452,6 +479,15 @@ export class HbxEnginePoolService implements OnModuleInit {
   // cobre justamente esse intervalo. Sem amostra anterior, devolvemos null (não pune o crescimento).
   private lastCpuSample: { idle: number; total: number; atMs: number } | null = null;
   private cpuPressureCurrent = 0;
+
+  // 3ª pressão: SAÚDE DA FONTE (taxa de timeout/abort das buscas mass_data). A VPS (IP raspando há
+  // semanas) toma timeout quando 20 motores batem a fonte juntos, mesmo com RAM/CPU baixos — o gargalo
+  // é a FONTE/IP, não a máquina. Histerese/cooldown iguais a RAM/CPU. Amostrada async (1 query barata)
+  // e cacheada aqui pra o resolver síncrono ler sem novo I/O por tick.
+  private sourceHeadroomLastActionAt = 0;
+  private sourceHeadroomCurrent: number | null = null;
+  private sourcePressureCurrent = 0;
+  private sourcePressureSampledAtMs = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -1853,16 +1889,127 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   /**
-   * Teto efetivo da elástica = min(tetoRAM, tetoCPU), sempre dentro de [warmMin, frota declarada].
-   * Esta é a TRAVA DE SEGURANÇA ABSOLUTA: nunca passa de getConfiguredHbxEngineCount() (=20). RAM e CPU
-   * só PODEM reduzir abaixo da frota; nenhum dos dois empurra acima dela. Sem runaway.
+   * Amostra a SAÚDE DA FONTE: taxa de timeout/abort dos batches mass_data numa janela rolante curta.
+   * Async (1 query barata em WebscrapingCampaignBatch) e cacheada — chamada 1x por tick no início do
+   * buildSchedulerStatus; o resolver de banda lê o cache. Janela e mínimo de amostra configuráveis.
+   * Sem batches recentes (frota parada/início) → pressão 0 (não pune o crescimento).
+   */
+  async sampleSourcePressurePercent(): Promise<number> {
+    const nowMs = Date.now();
+    // Idempotente por tick: re-amostra no máx a cada 10s (várias leituras na mesma passada reusam cache).
+    if (this.sourcePressureSampledAtMs > 0 && nowMs - this.sourcePressureSampledAtMs < 10_000) {
+      return this.sourcePressureCurrent;
+    }
+    this.sourcePressureSampledAtMs = nowMs;
+    if (!(await this.prisma.hasTable('WebscrapingCampaignBatch').catch(() => false))) {
+      this.sourcePressureCurrent = 0;
+      return 0;
+    }
+    const delegate = (this.prisma as any).webscrapingCampaignBatch;
+    if (!delegate?.findMany) {
+      this.sourcePressureCurrent = 0;
+      return 0;
+    }
+    const windowSeconds = this.sourcePressureWindowSeconds();
+    const since = new Date(nowMs - windowSeconds * 1000);
+    // Pega só os batches FINALIZADOS recentes (status terminal/erro), limitando o volume lido.
+    const rows = await delegate.findMany({
+      where: { createdAt: { gte: since }, status: { not: 'running' } },
+      select: { status: true, errorMessage: true },
+      take: 400,
+      orderBy: { createdAt: 'desc' },
+    }).catch(() => []);
+    const minSample = this.sourcePressureMinSample();
+    if (!Array.isArray(rows) || rows.length < minSample) {
+      // Amostra pequena demais p/ confiar: não inventa pressão (segura o último valor conhecido decaindo).
+      this.sourcePressureCurrent = Math.max(0, Math.round(this.sourcePressureCurrent * 0.5));
+      return this.sourcePressureCurrent;
+    }
+    const timeouts = rows.filter((row: any) =>
+      isTimeoutLikeBatchError(row?.errorMessage) || String(row?.status || '').toLowerCase().includes('timeout'),
+    ).length;
+    const pressure = Math.max(0, Math.min(100, Math.round((timeouts / rows.length) * 100)));
+    this.sourcePressureCurrent = pressure;
+    return pressure;
+  }
+
+  private sourcePressureWindowSeconds() {
+    return this.readIntegerEnv('HBX_FACTORY_SOURCE_WINDOW_SECONDS', 180, 30, 1800);
+  }
+
+  private sourcePressureMinSample() {
+    return this.readIntegerEnv('HBX_FACTORY_SOURCE_MIN_SAMPLE', 6, 1, 200);
+  }
+
+  /**
+   * Teto dinâmico por SAÚDE DA FONTE: gêmeo dos de RAM/CPU, dirigido pela taxa de timeout cacheada.
+   * Bandas (ordem do dono): <10% libera tudo; 10-30% → 0.6×; 30-60% → 0.35×; >60% → cai pro warm.
+   * É o termo que ACHA O PONTO-ÓTIMO sozinho: local sem timeout fica em ~físico; VPS com timeout
+   * assenta em ~6-8 (onde a fonte responde). Histerese: sobe quando timeout baixa, desce quando sobe.
+   */
+  private resolveSourceHeadroomEngineCount(): number {
+    const physical = getConfiguredHbxEngineCount();
+    const warm = this.resolveElasticWarmMinEngines(physical);
+    const pressure = Math.max(0, Math.min(100, Math.round(this.sourcePressureCurrent)));
+    const soft = this.readIntegerEnv('HBX_FACTORY_SOURCE_SOFT_PERCENT', 10, 1, 100);   // começa a frear
+    const hard = Math.max(soft, this.readIntegerEnv('HBX_FACTORY_SOURCE_HARD_PERCENT', 30, 1, 100));
+    const severe = Math.max(hard, this.readIntegerEnv('HBX_FACTORY_SOURCE_SEVERE_PERCENT', 60, 1, 100));
+
+    let candidate: number;
+    if (pressure > severe) {
+      candidate = warm;
+    } else if (pressure >= hard) {
+      candidate = Math.max(warm, Math.floor(physical * 0.35));
+    } else if (pressure >= soft) {
+      candidate = Math.max(warm, Math.floor(physical * 0.6));
+    } else {
+      candidate = physical;
+    }
+
+    const nowMs = Date.now();
+    const current = this.sourceHeadroomCurrent ?? physical;
+    const cooldownMs = this.governorHeadroomCooldownMs();
+
+    if (pressure > severe) {
+      if (current !== candidate) {
+        this.sourceHeadroomCurrent = candidate;
+        this.sourceHeadroomLastActionAt = nowMs;
+      }
+      return candidate;
+    }
+
+    const wantsGrow = candidate > current && pressure < soft;
+    const wantsShrink = candidate < current && pressure >= hard;
+    if (!wantsGrow && !wantsShrink) return current;
+    if (this.sourceHeadroomLastActionAt > 0 && nowMs - this.sourceHeadroomLastActionAt < cooldownMs) return current;
+
+    this.sourceHeadroomCurrent = candidate;
+    this.sourceHeadroomLastActionAt = nowMs;
+    return candidate;
+  }
+
+  /** Pressão atual da fonte (% de timeout cacheado) — exposta no scheduler/factory-status. */
+  getSourcePressurePercent(): number {
+    return Math.max(0, Math.min(100, Math.round(this.sourcePressureCurrent)));
+  }
+
+  /** Teto da fonte (motores) — exposto no scheduler/factory-status pro painel mostrar "cortou por fonte". */
+  getSourceHeadroomEngineCount(): number {
+    return this.resolveSourceHeadroomEngineCount();
+  }
+
+  /**
+   * Teto efetivo da elástica = min(tetoRAM, tetoCPU, tetoFONTE), sempre em [warmMin, frota declarada].
+   * Esta é a TRAVA DE SEGURANÇA ABSOLUTA: nunca passa de getConfiguredHbxEngineCount() (=20). RAM, CPU
+   * e FONTE só PODEM reduzir abaixo da frota; nenhum empurra acima dela. Sem runaway.
    */
   resolveElasticHeadroomEngineCount(operationalConfig?: any): number {
     const physical = getConfiguredHbxEngineCount();
     const warm = this.resolveElasticWarmMinEngines(physical);
     const headroomRAM = this.resolveMemoryHeadroomEngineCount(operationalConfig);
     const headroomCPU = this.resolveCpuHeadroomEngineCount();
-    const headroom = Math.min(headroomRAM, headroomCPU);
+    const headroomSource = this.resolveSourceHeadroomEngineCount();
+    const headroom = Math.min(headroomRAM, headroomCPU, headroomSource);
     return Math.max(warm, Math.min(physical, headroom));
   }
 
@@ -1916,6 +2063,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       this.hasManualDemand().catch(() => this.manualDemandUntil > Date.now()),
       this.getConfiguredEngineUrls().catch(() => [] as string[]),
     ]);
+    // Atualiza o cache da pressão da fonte (async, 1x por tick) ANTES de resolver os tetos síncronos.
+    await this.sampleSourcePressurePercent().catch(() => this.sourcePressureCurrent);
     const now = Date.now();
     const onlineHealthyEngines = engines
       .filter((engine) => engine.engineIndex < configuredCount)
@@ -2000,6 +2149,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       onlineHealthyEngines,
       memoryPressurePercent,
       cpuPressurePercent: this.resolveCpuPressurePercent(),
+      sourcePressurePercent: this.getSourcePressurePercent(),
+      sourceHeadroomEngines: this.getSourceHeadroomEngineCount(),
       elasticHeadroomEngines: this.resolveElasticHeadroomEngineCount(operationalConfig),
       elasticEnabled,
       googleMode: 'manual_only',

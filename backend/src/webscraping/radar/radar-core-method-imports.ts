@@ -10,7 +10,7 @@ export * as XLSX from 'xlsx';
 export { probeWebscrapingRuntime } from '../../modules/webscraping-runtime.util';
 export type { WebscrapingRuntimeDiagnostic } from '../../modules/webscraping-runtime.util';
 export { buildHbxPresentationEmailDraft } from '../../vendas/vendas.service';
-export { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, isHbxEngineLocalhostUrl } from '../hbx-engine-pool.service';
+export { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, isHbxEngineLocalhostUrl, isTimeoutLikeBatchError } from '../hbx-engine-pool.service';
 export type { HbxEngineLease, HbxEnginePurpose } from '../hbx-engine-pool.service';
 export {
   COMMERCIAL_PLAN_QUOTAS,

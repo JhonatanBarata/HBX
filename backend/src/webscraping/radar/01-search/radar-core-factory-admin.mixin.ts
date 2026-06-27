@@ -12,6 +12,7 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   isHbxEngineLocalhostUrl,
+  isTimeoutLikeBatchError,
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
   GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
@@ -538,7 +539,15 @@ export class RadarCoreFactoryAdminMixin {
       acc.savedCount += safeInteger(batch.approvedCount);
       acc.duplicateCount += safeInteger(batch.duplicateCount);
       acc.rejectedCount += safeInteger(batch.rejectedCount);
-      if (String(batch.status || '').includes('error') || batch.errorMessage) acc.failedCount += 1;
+      const isError = String(batch.status || '').includes('error') || Boolean(batch.errorMessage);
+      if (isError) acc.failedCount += 1;
+      // Distingue FALHA-POR-TIMEOUT (transiente, fonte) de busca BEM-SUCEDIDA (fonte respondeu). Isso
+      // evita marcar cidade virgem como 'empty' (e avançar o cursor) quando o vazio veio de timeout.
+      if (isTimeoutLikeBatchError(batch.errorMessage) || String(batch.status || '').toLowerCase().includes('timeout')) {
+        acc.timeoutCount += 1;
+      } else if (!isError) {
+        acc.successfulCount += 1;
+      }
       const at = batch.finishedAt instanceof Date ? batch.finishedAt : batch.createdAt instanceof Date ? batch.createdAt : null;
       if (at && (!acc.latestAt || acc.latestAt.getTime() < at.getTime())) {
         acc.latestAt = at;
@@ -546,7 +555,7 @@ export class RadarCoreFactoryAdminMixin {
       }
       if (batch.errorMessage) acc.lastError = batch.errorMessage;
       return acc;
-    }, { savedCount: 0, duplicateCount: 0, rejectedCount: 0, failedCount: 0, latestAt: null, latestBatchId: null, lastError: null });
+    }, { savedCount: 0, duplicateCount: 0, rejectedCount: 0, failedCount: 0, timeoutCount: 0, successfulCount: 0, latestAt: null, latestBatchId: null, lastError: null });
   }
 
   private async syncRadarFactoryFinishedWork() {
@@ -920,28 +929,79 @@ export class RadarCoreFactoryAdminMixin {
     return clampInteger(process.env.HBX_FACTORY_MAX_CONSECUTIVE_EMPTY, 1, 1, 10);
   }
 
+  // Saúde RECENTE da busca desta campanha: olha os últimos batches e diz se a atividade foi dominada
+  // por TIMEOUT/abort (fonte estrangulando = transiente) ou se a fonte respondeu OK (busca real).
+  // É o que evita declarar cidade VIRGEM como "esgotada" quando o approved=0 veio de timeout (bug do VPS:
+  // São Paulo virgem com 6 cards foi abandonada porque os timeouts zeraram o approved). Devolve:
+  //   - searched: houve batch BEM-SUCEDIDO recente (a fonte respondeu, dá pra confiar no resultado);
+  //   - timeoutDominated: a maioria dos batches recentes falhou por timeout (NÃO confiar no approved).
+  private async getCampaignRecentSearchHealth(campaignId: string): Promise<{ searched: boolean; timeoutDominated: boolean; total: number }> {
+    if (!campaignId || !(await this.supportsMassDataCampaignPersistence().catch(() => false))) {
+      return { searched: false, timeoutDominated: false, total: 0 };
+    }
+    const delegate = (this.prisma as any).webscrapingCampaignBatch;
+    if (!delegate?.findMany) return { searched: false, timeoutDominated: false, total: 0 };
+    const rows = await delegate.findMany({
+      where: { campaignId, status: { not: 'running' } },
+      select: { status: true, errorMessage: true, approvedCount: true, duplicateCount: true, rejectedCount: true },
+      take: 30,
+      orderBy: { createdAt: 'desc' },
+    }).catch(() => []);
+    if (!Array.isArray(rows) || rows.length === 0) return { searched: false, timeoutDominated: false, total: 0 };
+    let timeouts = 0;
+    let successful = 0;
+    for (const row of rows) {
+      const err = row?.errorMessage;
+      if (isTimeoutLikeBatchError(err) || String(row?.status || '').toLowerCase().includes('timeout')) {
+        timeouts += 1;
+        continue;
+      }
+      // Batch sem erro de timeout: a fonte respondeu (mesmo que tudo tenha sido duplicado/rejeitado).
+      const noError = !err && !String(row?.status || '').toLowerCase().includes('error') && !String(row?.status || '').toLowerCase().includes('fail');
+      if (noError) successful += 1;
+    }
+    return {
+      searched: successful > 0,
+      timeoutDominated: timeouts > 0 && timeouts >= rows.length * 0.5,
+      total: rows.length,
+    };
+  }
+
   // Decide se a campanha mass_data atual está PROVADA esgotada/baixa → abandonar e avançar o cursor.
-  // Sinais (qualquer um basta): (a) cursor já acumulou empties consecutivos na cidade; (b) a campanha já
-  // SE ESFORÇOU (muitas tentativas/lotes vazios) e quase não aprovou card novo; (c) só restam tarefas
-  // mortas (exhausted/canceladas) e nada de queued+running pra processar — a cidade secou. Tudo lido do
-  // que já existe (cursor + contadores da campanha), sem query nova cara.
+  // REGRA DURA (fix do VPS): só ESGOTAMENTO REAL avança o cursor — fonte respondeu OK e os resultados são
+  // duplicados/já-no-pool OU 0-encontrados numa busca BEM-SUCEDIDA. TIMEOUT/abort/motor-offline é TRANSIENTE:
+  // NÃO esgota — a missão fica e re-tenta (o headroom da fonte já reduz a frota pra parar de bater o IP).
   private async shouldAbandonMassDataCampaign(campaign: any, cursor: any): Promise<boolean> {
     if (!campaign) return false;
-    // (a) Empties consecutivos no cursor (alimentado por syncRadarFactoryFinishedWork quando a campanha
-    // termina vazia). Só conta se for a MESMA campanha que o cursor está seguindo.
+    const approved = safeInteger(campaign.approvedCount);
+    const attempts = safeInteger(campaign.currentAttempt);
+    const emptyBatches = safeInteger(campaign.consecutiveEmptyBatchCount);
+
+    // (a) Empties consecutivos no cursor (alimentado por syncRadarFactoryFinishedWork — que já classifica
+    // FALHA≠VAZIO; timeout vira 'failed', não 'empty'). Só conta na MESMA campanha do cursor.
     if (String(cursor?.lastCampaignId || '') === String(campaign.id || '')
       && safeInteger(cursor?.consecutiveEmptyCount) >= this.maxConsecutiveEmptyBeforeAdvance()) {
       return true;
     }
-    // (b) Esforço grande × rendimento ~zero: muitos lotes vazios seguidos OU muitas tentativas com
-    // aprovados irrisórios. Limiares conservadores pra não abandonar cidade boa que só começou.
-    const approved = safeInteger(campaign.approvedCount);
-    const attempts = safeInteger(campaign.currentAttempt);
-    const emptyBatches = safeInteger(campaign.consecutiveEmptyBatchCount);
-    if (emptyBatches >= 6 && approved <= 2) return true;
-    if (attempts >= 40 && approved <= 3) return true;
-    // (c) Sem fila viva e nada aprovado: a cidade secou (toda tarefa virou morta/dup).
-    if (await this.supportsMassDataCampaignPersistence().catch(() => false)) {
+
+    // GATE TRANSIENTE: se a atividade recente foi dominada por timeout, NÃO declarar esgotado. O approved
+    // baixo é culpa da fonte, não da cidade. Pausa/re-tenta a mesma missão (o headroom de fonte segura a frota).
+    const health = await this.getCampaignRecentSearchHealth(String(campaign.id || ''));
+    if (health.timeoutDominated) {
+      this.logger.warn(`[radar-factory] ${campaign.city}/${campaign.state}: atividade recente dominada por TIMEOUT (transiente) — NÃO esgotar, re-tentar a mesma missão.`);
+      return false;
+    }
+
+    // (b) Esforço grande × rendimento ~zero — SÓ vale se a busca REALMENTE rodou (fonte respondeu). Sem
+    // batch bem-sucedido recente, não dá pra afirmar que a cidade secou (pode ser tudo timeout silencioso).
+    if (health.searched) {
+      if (emptyBatches >= 6 && approved <= 2) return true;
+      if (attempts >= 40 && approved <= 3) return true;
+    }
+
+    // (c) Sem fila viva e nada aprovado: a cidade secou — MAS só se a busca foi bem-sucedida (dedup/0-found
+    // REAL), nunca quando a fila morreu por timeout. health.searched garante "a fonte respondeu de verdade".
+    if (health.searched && await this.supportsMassDataCampaignPersistence().catch(() => false)) {
       const aliveTasks = await (this.prisma as any).webscrapingCampaignTask.count({
         where: { campaignId: campaign.id, status: { in: ['queued', 'running'] } },
       }).catch(() => 1);
@@ -1203,6 +1263,8 @@ export class RadarCoreFactoryAdminMixin {
         memoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
         memoryPressurePercent: scheduler?.memoryPressurePercent ?? null,
         cpuPressurePercent: scheduler?.cpuPressurePercent ?? null,
+        sourcePressurePercent: scheduler?.sourcePressurePercent ?? null,
+        sourceHeadroomEngines: scheduler?.sourceHeadroomEngines ?? null,
         elasticHeadroomEngines: scheduler?.elasticHeadroomEngines ?? null,
         elasticEnabled: scheduler?.elasticEnabled ?? null,
         message: safeInteger(scheduler?.manualReservedEngines) > 0
