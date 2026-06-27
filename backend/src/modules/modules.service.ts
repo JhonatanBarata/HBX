@@ -120,16 +120,23 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'master',
   'exclusoes',
 ]);
-// Vendedor (PR-002 A.5/D.1): UMA regra para desktop e mobile.
-// Nasce operacional com Vendas + Radar; Atendimento e elegivel (o gerencial
-// liga por vendedor quando o plano tiver), mas nao vem ligado por padrao.
-const SELLER_ELIGIBLE_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento']);
-const SELLER_DEFAULT_MODULE_KEYS = new Set(['vendas', 'webscraping']);
+// Vendedor — LEI DO DONO 27/06: nasce com TUDO OPERACIONAL no máximo, o admin
+// "corta" o que quiser. UMA regra para desktop e mobile.
+// - ELIGIBLE = tudo que o vendedor PODE ter (admin liga/desliga): todos os
+//   módulos menos o MURO financeiro/gerencial (esses nunca, é a regra sagrada
+//   "só admin vê valores").
+// - DEFAULT = o que já nasce LIGADO sem o admin mexer: os módulos de venda do
+//   dia a dia (Vendas, Radar, Atendimento, Cadastro, E-mail). Bot e Website são
+//   elegíveis mas nascem desligados (ferramenta de configuração da empresa, não
+//   do vendedor) — o admin liga pra quem quiser.
+const SELLER_ELIGIBLE_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento', 'cadastro', 'email', 'bot', 'website']);
+const SELLER_DEFAULT_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento', 'cadastro', 'email']);
 // Régua única (PR13062026007 P2): ACESSO POR CARGO. O molho do cargo Vendedor
-// (Company.sellerCargoAccessJson) decide o que o USER vê; nasce com vendas+radar.
-// financeiro/gerencial sao MURO do eixo Dono/Gerente — nunca entram no molho de
-// vendedor (mesmo que o JSON tente). ADMIN/master veem tudo da empresa.
-const SELLER_CARGO_DEFAULT_ACCESS = new Set(['vendas', 'webscraping']);
+// (Company.sellerCargoAccessJson) decide o que o USER vê; nasce OPERACIONAL no
+// máximo (Vendas, Radar, Atendimento, Cadastro, E-mail). financeiro/gerencial
+// sao MURO do eixo Dono/Gerente — nunca entram no molho de vendedor (mesmo que o
+// JSON tente). ADMIN/master veem tudo da empresa.
+const SELLER_CARGO_DEFAULT_ACCESS = new Set(['vendas', 'webscraping', 'atendimento', 'cadastro', 'email']);
 const SELLER_CARGO_WALL_MODULES = new Set(['financeiro', 'gerencial']);
 // Superficie do master puro (sem contexto de empresa): governo do sistema.
 // Planos, Email e Webwhats sao abas da central master; aqui ficam apenas os

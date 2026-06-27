@@ -7533,6 +7533,10 @@ export class VendasService {
     const full = cardCapacity?.isSeller ? Boolean(cardCapacity?.full) : activeFunnel >= capacity;
     const radarSupply = {
       isSeller: Boolean(cardCapacity?.isSeller),
+      // unlimited = carteira sem teto (lei do dono 27/06). A UI mostra "à vontade"
+      // em vez de "x / 999999". `full` já vem false do snapshot quando ilimitado e
+      // não-pausado (e true quando pausado) — não sobrescrever aqui.
+      unlimited: Boolean(cardCapacity?.unlimited),
       activeCards,
       capacity,
       availableSlots,

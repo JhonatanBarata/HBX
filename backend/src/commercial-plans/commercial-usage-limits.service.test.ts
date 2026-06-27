@@ -35,6 +35,7 @@ function buildPrismaMock(input: {
   activeRadar?: number;
   wonLast30?: number;
   targetStockPerSeller?: number;
+  noDistributionRule?: boolean;
   sellerMode?: string;
   sellerPausedUntil?: Date | null;
   lastSeenAt?: Date | null;
@@ -67,7 +68,9 @@ function buildPrismaMock(input: {
         : input.teamPolicy,
     },
     radarAutoDistributionRule: {
-      findFirst: async () => ({ targetStockPerSeller: input.targetStockPerSeller ?? 20 }),
+      findFirst: async () => input.noDistributionRule
+        ? null
+        : ({ targetStockPerSeller: input.targetStockPerSeller ?? 20 }),
     },
     vendasLead: {
       count: async (args: any) => args?.where?.closedAt === null
@@ -101,6 +104,37 @@ test('seller active card quota blocks when active count reaches effective limit'
   assert.equal(snapshot.activeCount, 20);
   assert.equal(snapshot.effectiveLimit, 20);
   assert.equal(snapshot.availableSlots, 0);
+  assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
+});
+
+test('LEI DO DONO 27/06: vendedor SEM teto configurado nasce ILIMITADO (não trava em 20)', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 40,
+    activeRadar: 5,
+    noDistributionRule: true,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.unlimited, true);
+  assert.equal(snapshot.activeCount, 45);
+  // 45 cards ativos e NADA de bloqueio — o teto antigo de 20 não existe mais por padrão
+  assert.equal(snapshot.code, null);
+  assert.ok(snapshot.availableSlots > 0);
+});
+
+test('admin que CONFIGURA teto por vendedor corta o ilimitado (regra de distribuição manda)', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 30,
+    activeRadar: 0,
+    targetStockPerSeller: 25,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.unlimited, false);
+  assert.equal(snapshot.effectiveLimit, 25);
   assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
 });
 

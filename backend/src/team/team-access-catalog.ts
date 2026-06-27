@@ -117,7 +117,8 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Acessar Atendimento',
     description: 'Permite abrir a caixa de atendimento quando a empresa tem o modulo liberado.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    // Lei do dono 27/06: módulo operacional nasce LIGADO pro vendedor (admin corta).
+    defaultForSeller: true,
     requiresModule: 'atendimento',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -129,7 +130,8 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Acessar Cadastro',
     description: 'Permite abrir cadastros comerciais e registros compartilhados.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    // Lei do dono 27/06: módulo operacional nasce LIGADO pro vendedor (admin corta).
+    defaultForSeller: true,
     requiresModule: 'cadastro',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -189,7 +191,8 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Acessar E-mail',
     description: 'Permite enviar e receber mensagens por e-mail quando o modulo estiver habilitado.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    // Lei do dono 27/06: módulo operacional nasce LIGADO pro vendedor (admin corta).
+    defaultForSeller: true,
     requiresModule: 'email',
     riskLevel: 'medium',
     sellerVisible: true,
@@ -633,7 +636,8 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     label: 'Conectar Gmail',
     description: 'Permite o usuario conectar a propria conta Gmail para enviar e-mails pelo HBX.',
     defaultForAdmin: true,
-    defaultForSeller: false,
+    // Lei do dono 27/06: comunicação operacional nasce LIGADA pro vendedor (admin corta).
+    defaultForSeller: true,
     requiresModule: 'email',
     riskLevel: 'high',
     sellerVisible: true,

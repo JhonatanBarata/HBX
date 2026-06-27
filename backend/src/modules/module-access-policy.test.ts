@@ -213,23 +213,27 @@ test('non-billing blocks pass through unchanged for sellers', () => {
   assert.deepEqual(presentModuleBlockForRole('USER', unblocked), unblocked);
 });
 
-test('seller has ONE rule on any surface: Vendas+Radar default, Atendimento grantable, admin areas blocked', () => {
+test('seller has ONE rule on any surface: operacional no máximo por padrão, Bot/Website elegíveis, admin areas blocked', () => {
   const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const seller = { role: 'USER', isSystemMaster: false };
 
-  // default ligado em qualquer superficie (desktop = mobile)
-  assert.equal(service.defaultUserModuleAllowed(seller, 'vendas', {}), true);
-  assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', {}), true);
+  // LEI DO DONO 27/06: operacional nasce LIGADO em qualquer superficie (desktop = mobile)
+  for (const mod of ['vendas', 'webscraping', 'atendimento', 'cadastro', 'email']) {
+    assert.equal(service.defaultUserModuleAllowed(seller, mod, {}), true, `${mod} deveria nascer ligado`);
+  }
   assert.equal(service.defaultUserModuleAllowed(seller, 'webscraping', { mobileRoute: true }), true);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'cadastro', { mobileRoute: true }), true);
 
-  // atendimento e elegivel (gerencial pode ligar), mas nao vem por padrao
-  assert.equal(service.canUseAdminOnlyModule(seller, 'atendimento', {}), true);
-  assert.equal(service.defaultUserModuleAllowed(seller, 'atendimento', {}), false);
+  // Bot e Website sao ELEGIVEIS (admin liga), mas nao vem por padrao
+  for (const mod of ['bot', 'website']) {
+    assert.equal(service.canUseAdminOnlyModule(seller, mod, {}), true, `${mod} deveria ser elegível`);
+    assert.equal(service.defaultUserModuleAllowed(seller, mod, {}), false, `${mod} não deveria nascer ligado`);
+  }
 
-  // areas do contratante seguem bloqueadas para vendedor
+  // MURO: financeiro/gerencial seguem bloqueados para vendedor (regra sagrada "só admin vê valores")
   assert.equal(service.canUseAdminOnlyModule(seller, 'gerencial', { mobileRoute: true }), false);
   assert.equal(service.canUseAdminOnlyModule(seller, 'financeiro', { mobileRoute: true }), false);
-  assert.equal(service.canUseAdminOnlyModule(seller, 'cadastro', { mobileRoute: true }), false);
+  assert.equal(service.defaultUserModuleAllowed(seller, 'financeiro', {}), false);
 });
 
 test('HBX tenant seller uses the same defaults as a client seller', () => {

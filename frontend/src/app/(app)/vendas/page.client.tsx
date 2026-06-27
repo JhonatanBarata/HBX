@@ -106,6 +106,9 @@ type BoardResponse = {
   // pausa o reabastecimento quando a lista enche (teto de cards ativos).
   radarSupply?: {
     isSeller: boolean;
+    // unlimited = carteira sem teto (lei do dono 27/06). Mostra "à vontade",
+    // sem denominador/medidor de vagas.
+    unlimited?: boolean;
     activeCards: number;
     capacity: number;
     availableSlots: number;
@@ -219,6 +222,33 @@ function RadarSupplyStrip({
   supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
   onLiberar: () => void;
 }) {
+  // Carteira ilimitada (lei do dono 27/06): vendedor nasce sem teto. Faixa só
+  // diz "buscando à vontade" — sem medidor de vagas, sem "x / 999999".
+  if (supply.unlimited && !supply.paused) {
+    const ativos = Math.max(0, supply.activeCards ?? 0);
+    return (
+      <div className="vnd-supply vnd-supply--ok" role="status" aria-label="Carteira sem teto">
+        <div className="vnd-supply__gauge" aria-hidden="true">
+          <svg viewBox="0 0 40 40" width="46" height="46">
+            <circle className="vnd-supply__track" cx="20" cy="20" r={17} fill="none" strokeWidth="4" />
+            <circle className="vnd-supply__arc" cx="20" cy="20" r={17} fill="none" strokeWidth="4"
+              strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 17 * 0.66} ${2 * Math.PI * 17}`} transform="rotate(-90 20 20)" />
+          </svg>
+          <span className="vnd-supply__gauge-ic"><I d={ICONS.scrape} size={15} /></span>
+        </div>
+        <div className="vnd-supply__txt">
+          <strong className="vnd-supply__title">Buscando empresas</strong>
+          <span className="vnd-supply__sub">Sua lista não tem teto — o Radar busca à vontade.</span>
+        </div>
+        <div className="vnd-supply__meter">
+          <div className="vnd-supply__count">
+            <b>{ativos}</b>
+            <span>na lista</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const capacity = Math.max(1, supply.capacity || 1);
   const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
   const pct = Math.max(0, Math.min(1, used / capacity));

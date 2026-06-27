@@ -14,9 +14,10 @@ const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
 const LEAD_ENRICHMENT_SUCCESS_EVENTS = ['lead_enrichment_used'];
-const SELLER_ACTIVE_CARD_LIMIT_DEFAULT = 20;
 const SELLER_ACTIVE_CARD_LIMIT_MIN = 5;
 const SELLER_ACTIVE_CARD_LIMIT_MAX = 100;
+// Sentinela "sem teto" — vendedor ilimitado até o teto do plano (lei do dono 27/06).
+const SELLER_ACTIVE_CARD_LIMIT_UNLIMITED = 999999;
 const ACTIVE_VENDAS_CARD_STATUSES = [
   'novo',
   'contato',
@@ -51,6 +52,10 @@ type SellerActiveCardQuotaSnapshot = {
   userId: number;
   seller: boolean;
   paused: boolean;
+  // unlimited = vendedor SEM teto de cards ativos (lei do dono 27/06: nasce no
+  // máximo, até o teto do plano). Só vira limitado quando o admin OPTA por um
+  // teto — targetStockPerSeller (regra de distribuição) ou activeCards (team policy).
+  unlimited: boolean;
   activeCount: number;
   baseLimit: number;
   bonus: number;
@@ -196,7 +201,11 @@ export class CommercialUsageLimitsService {
     return !pausedUntil || pausedUntil.getTime() > now.getTime();
   }
 
-  private async getSellerActiveCardBaseLimit(companyId: number) {
+  // Teto de cards ativos por vendedor configurado PELO ADMIN (regra de
+  // distribuição da empresa). null = admin NÃO setou teto → vendedor nasce
+  // ILIMITADO (lei do dono 27/06): o teto é o do plano, não um número de fábrica.
+  // O 20 antigo era default escondido — agora só existe quando o admin opta.
+  private async getSellerActiveCardBaseLimit(companyId: number): Promise<number | null> {
     const rule = await this.prisma.radarAutoDistributionRule.findFirst({
       where: {
         companyId,
@@ -205,11 +214,9 @@ export class CommercialUsageLimitsService {
       orderBy: [{ status: 'desc' }, { updatedAt: 'desc' }],
       select: { targetStockPerSeller: true },
     }).catch(() => null);
-    return this.clampInteger(
-      rule?.targetStockPerSeller || SELLER_ACTIVE_CARD_LIMIT_DEFAULT,
-      SELLER_ACTIVE_CARD_LIMIT_MIN,
-      SELLER_ACTIVE_CARD_LIMIT_MAX,
-    );
+    const target = Math.trunc(Number(rule?.targetStockPerSeller || 0) || 0);
+    if (!Number.isFinite(target) || target <= 0) return null;
+    return this.clampInteger(target, SELLER_ACTIVE_CARD_LIMIT_MIN, SELLER_ACTIVE_CARD_LIMIT_MAX);
   }
 
   private async countSellerActiveVendasCards(companyId: number, userId: number) {
@@ -271,13 +278,14 @@ export class CommercialUsageLimitsService {
   async getSellerActiveCardQuotaSnapshot(companyIdRaw: number, userIdRaw: number): Promise<SellerActiveCardQuotaSnapshot> {
     const companyId = Math.trunc(Number(companyIdRaw || 0));
     const userId = Math.trunc(Number(userIdRaw || 0));
-    const unlimited = 999999;
+    const unlimited = SELLER_ACTIVE_CARD_LIMIT_UNLIMITED;
     if (!companyId || !userId) {
       return {
         companyId,
         userId,
         seller: false,
         paused: false,
+        unlimited: true,
         activeCount: 0,
         baseLimit: unlimited,
         bonus: 0,
@@ -318,6 +326,7 @@ export class CommercialUsageLimitsService {
         userId,
         seller: false,
         paused: false,
+        unlimited: true,
         activeCount: 0,
         baseLimit: unlimited,
         bonus: 0,
@@ -346,33 +355,49 @@ export class CommercialUsageLimitsService {
     const policyActiveLimit = activeCardsPolicy.applies
       ? Math.max(0, Math.trunc(Number(activeCardsPolicy.limit || 0) || 0))
       : null;
-    const quota = policyActiveLimit !== null
-      ? {
-          bonus: 0,
-          inactivityPenalty: 0,
-          effectiveLimit: paused ? 0 : policyActiveLimit,
-        }
-      : resolveSellerCardQuota({
-          config: {
-            baseActiveCardLimit: baseLimit,
-            minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
-            maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
-            paused,
-          },
-          salesWonLast30,
-          inactivityDays: this.daysSince(lastSeenAt, now),
-        });
-    const bonus = quota.bonus;
-    const inactivityPenalty = quota.inactivityPenalty;
-    const effectiveLimit = quota.effectiveLimit;
-    const availableSlots = Math.max(0, effectiveLimit - activeCount);
+
+    // Precedência do teto (lei do dono 27/06): (1) teto da PESSOA na team policy,
+    // (2) teto da EMPRESA (regra de distribuição), senão ILIMITADO até o plano.
+    // A cota dinâmica (base/bônus/penalidade) só roda quando há teto configurado.
+    let isUnlimited = false;
+    let bonus = 0;
+    let inactivityPenalty = 0;
+    let resolvedBase: number;
+    let effectiveLimit: number;
+    if (policyActiveLimit !== null) {
+      resolvedBase = policyActiveLimit;
+      effectiveLimit = paused ? 0 : policyActiveLimit;
+    } else if (baseLimit !== null) {
+      const quota = resolveSellerCardQuota({
+        config: {
+          baseActiveCardLimit: baseLimit,
+          minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
+          maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
+          paused,
+        },
+        salesWonLast30,
+        inactivityDays: this.daysSince(lastSeenAt, now),
+      });
+      resolvedBase = baseLimit;
+      bonus = quota.bonus;
+      inactivityPenalty = quota.inactivityPenalty;
+      effectiveLimit = quota.effectiveLimit;
+    } else {
+      isUnlimited = true;
+      resolvedBase = SELLER_ACTIVE_CARD_LIMIT_UNLIMITED;
+      effectiveLimit = paused ? 0 : SELLER_ACTIVE_CARD_LIMIT_UNLIMITED;
+    }
+    const availableSlots = isUnlimited && !paused
+      ? SELLER_ACTIVE_CARD_LIMIT_UNLIMITED
+      : Math.max(0, effectiveLimit - activeCount);
     return {
       companyId,
       userId,
       seller: true,
       paused,
+      unlimited: isUnlimited,
       activeCount,
-      baseLimit: policyActiveLimit !== null ? policyActiveLimit : baseLimit,
+      baseLimit: resolvedBase,
       bonus,
       inactivityPenalty,
       effectiveLimit,
@@ -381,7 +406,7 @@ export class CommercialUsageLimitsService {
       lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : null,
       code: paused
         ? 'SELLER_QUOTA_PAUSED'
-        : availableSlots <= 0
+        : !isUnlimited && availableSlots <= 0
           ? 'SELLER_CARD_QUOTA_REACHED'
           : null,
     };
@@ -397,26 +422,29 @@ export class CommercialUsageLimitsService {
     const userId = Math.trunc(Number(userIdRaw || 0)) || 0;
     const [snapshot, companyTarget] = await Promise.all([
       this.getSellerActiveCardQuotaSnapshot(companyId, userId),
-      this.getSellerActiveCardBaseLimit(companyId).catch(() => SELLER_ACTIVE_CARD_LIMIT_DEFAULT),
+      this.getSellerActiveCardBaseLimit(companyId).catch(() => null),
     ]);
     if (snapshot.seller) {
       return {
         isSeller: true,
+        unlimited: snapshot.unlimited,
         activeCards: snapshot.activeCount,
         capacity: snapshot.effectiveLimit,
         availableSlots: snapshot.availableSlots,
         paused: snapshot.paused,
-        full: snapshot.paused || snapshot.availableSlots <= 0,
+        full: snapshot.paused || (!snapshot.unlimited && snapshot.availableSlots <= 0),
         code: snapshot.code,
         companyTarget,
       };
     }
     // Gestor/admin: numerador (cards ativos) é resolvido por quem chama (board),
-    // aqui só entregamos o teto de referência da empresa.
+    // aqui só entregamos o teto de referência da empresa. Sem teto configurado
+    // (companyTarget null) = sem teto de referência (ilimitado).
     return {
       isSeller: false,
+      unlimited: companyTarget == null,
       activeCards: null as number | null,
-      capacity: companyTarget,
+      capacity: companyTarget ?? SELLER_ACTIVE_CARD_LIMIT_UNLIMITED,
       availableSlots: null as number | null,
       paused: false,
       full: false,
