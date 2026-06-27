@@ -103,6 +103,40 @@
             <button id="btn-turbo" class="btn btn-red btn-sm" title="Liga/desliga o Turbo (scraping agressivo) — cor = estado real (verde ligado, vermelho desligado)">Ligar Turbo</button>
           </div>
           <span id="engines-local-feedback" class="delta"></span>
+
+          <!-- ===== Painel da verdade da FÁBRICA LOCAL (net-new + por que não raspa) ===== -->
+          <div id="factory-truth" style="border-top:1px solid var(--border,#2a3344);margin-top:12px;padding-top:10px;">
+            <div class="focus-row" style="flex-wrap:wrap;gap:8px;margin:0 0 6px;">
+              <span class="label" style="margin:0;">🏭 Fábrica de leads · a verdade</span>
+              <span id="ft-status" class="pill pill-muted">lendo…</span>
+              <button id="btn-ft-refresh" class="btn btn-sm btn-blue" style="margin-left:auto;" title="Reler o status real da fábrica no backend">↺</button>
+            </div>
+            <div class="grid-3" style="margin-bottom:6px;">
+              <div class="metric"><span class="label">Novos na última hora</span><strong id="ft-newhour" class="big">—</strong></div>
+              <div class="metric"><span class="label">Novos hoje</span><strong id="ft-newtoday" class="big">—</strong></div>
+              <div class="metric"><span class="label">Duplicados</span><strong id="ft-dup">—</strong></div>
+            </div>
+            <p class="delta" id="ft-mission" style="margin:4px 0;">missão: —</p>
+            <!-- Diagnóstico "por que não está raspando?" -->
+            <div id="ft-diag" style="margin:6px 0;"></div>
+            <div class="btn-row" style="margin-top:8px;">
+              <button id="btn-ft-purge" class="btn btn-sm btn-amber" title="Apaga as tarefas mortas da fila local (combos vazios) e exaure as que deram 0 — o motor volta a abastecer com cidade boa. Não para produção nem mexe em estoque.">🧹 Limpar fila morta</button>
+              <button id="btn-ft-next" class="btn btn-sm btn-blue" title="Pula o combo travado e força a próxima cidade/segmento da fábrica local agora.">⏭ Próxima missão</button>
+            </div>
+            <span id="ft-feedback" class="delta" style="display:block;margin-top:6px;"></span>
+          </div>
+
+          <!-- ===== Tabela honesta de motores LOCAIS (backend × docker × health × produção) ===== -->
+          <details id="engines-truth" style="margin-top:12px;">
+            <summary class="label" style="cursor:pointer;">⚙️ Motores · tabela honesta (está ligado ou não?)</summary>
+            <p class="delta" id="et-header" style="margin:6px 0;">lendo motores…</p>
+            <div style="overflow-x:auto;">
+              <table class="cockpit-table" id="engines-truth-table" style="font-size:12px;">
+                <thead id="engines-truth-thead"></thead>
+                <tbody id="engines-truth-tbody"></tbody>
+              </table>
+            </div>
+          </details>
         </div>
       </section>
 

@@ -573,6 +573,223 @@ async function toggleFactory() {
   const fb = $("#btn-factory"); if (fb) fb.addEventListener("click", toggleFactory);
 }
 
+/* ---------- Painel da verdade da FÁBRICA LOCAL (net-new + por que não raspa) ---------- */
+// Enumera a causa REAL de net-new=0, derivada do factory-status do backend. Cada causa tem uma
+// frase clara e (quando aplica) o botão que resolve. Não inventa: se net-new>0, diz que está OK.
+function ftDiagnose(s) {
+  const causes = [];
+  const newHour = Number(s.cardsSavedLastHour || 0);
+  const prot = s.protection || {};
+  const status = String(s.status || "").toLowerCase();
+  const allowed = Number(s.activeEngines ?? prot.automaticAllowedEngines ?? 0);
+  const reserved = Number(s.reservedClientEngines ?? prot.manualReservedEngines ?? 0);
+  const maxEng = prot.maxEngines;
+  const memGuard = Number(prot.memoryGuardEngines || 0);
+
+  if (newHour > 0) {
+    return { ok: true, lines: [{ tone: "ok", text: `Raspando: ${newHour.toLocaleString("pt-BR")} cards novos na última hora.` }] };
+  }
+  // net-new = 0 → procura a causa real, em ordem de prioridade.
+  if (s.enabled === false || status === "stopped" || s.reasonStopped) {
+    causes.push({ tone: "bad", text: `Fábrica PARADA${s.reasonStopped ? ` — ${s.reasonStopped}` : " (freio do dono)"}. Religue a fábrica pra voltar a produzir.`, fix: "factory" });
+  }
+  if (allowed <= 0) {
+    const why = reserved > 0
+      ? `Sem motor livre pra fábrica: ${reserved} motor(es) reservado(s) pro cliente (Radar Digital).`
+      : (maxEng != null && Number(maxEng) <= 0)
+        ? "Teto de motores em 0 — a elástica não libera nenhum pra fábrica."
+        : "Nenhum motor liberado pra automação (automaticAllowedEngines=0).";
+    causes.push({ tone: "bad", text: why });
+  }
+  if (memGuard > 0) {
+    causes.push({ tone: "warn", text: `Pressão de memória: o guard cortou ${memGuard} motor(es). Libera sozinho quando a RAM aliviar.` });
+  }
+  const mission = s.currentMission || {};
+  const hasMission = mission.city || mission.segment;
+  if (!hasMission && !s.nextMission) {
+    causes.push({ tone: "warn", text: "Fila vazia: nenhuma missão atual nem próxima. Limpe a fila morta pra reabastecer com cidade boa.", fix: "purge" });
+  }
+  const dup = Number(s.duplicateRatio || 0);
+  if (causes.length === 0 && dup >= 0.9) {
+    causes.push({ tone: "warn", text: `Combo esgotado: ${Math.round(dup * 100)}% do que vem é duplicado (cidade/segmento já raspado). Limpe a fila morta / pule pra próxima missão.`, fix: "purge" });
+  }
+  if (prot.reason) {
+    causes.push({ tone: "muted", text: `Proteção: ${prot.reason}` });
+  }
+  if (causes.length === 0) {
+    causes.push({ tone: "muted", text: "Net-new 0 na última hora, mas sem causa óbvia — fábrica ligada e com motor. Pode ser missão lenta/grande. Acompanhe o próximo ciclo." });
+  }
+  return { ok: false, lines: causes };
+}
+
+async function renderFactoryTruth() {
+  const st = $("#ft-status");
+  let s;
+  try {
+    s = await api("GET", "/owner/factory/status");
+  } catch (err) {
+    if (st) { st.textContent = "erro"; st.className = "pill pill-bad"; }
+    const diag = $("#ft-diag"); if (diag) diag.innerHTML = `<p class="delta">não consegui ler: ${esc(err.message)}</p>`;
+    return;
+  }
+  if (!s.ok) {
+    if (st) { st.textContent = s.reason === "backend_token_ausente" ? "sem token backend" : "indisponível"; st.className = "pill pill-muted"; }
+    const diag = $("#ft-diag"); if (diag) diag.innerHTML = `<p class="delta">${esc(s.message || s.reason || "fábrica não respondeu")}</p>`;
+    return;
+  }
+
+  const newHour = Number(s.cardsSavedLastHour || 0);
+  const newToday = Number(s.cardsSavedToday || 0);
+  const dup = Number(s.duplicateRatio || 0);
+  $("#ft-newhour").textContent = newHour.toLocaleString("pt-BR");
+  $("#ft-newtoday").textContent = newToday.toLocaleString("pt-BR");
+  $("#ft-dup").textContent = dup ? `${Math.round(dup * 100)}%` : "0%";
+
+  if (st) {
+    const running = newHour > 0;
+    st.textContent = running ? "raspando ✓" : (s.enabled === false || s.reasonStopped ? "parada" : "ociosa");
+    st.className = "pill " + (running ? "pill-ok" : (s.enabled === false || s.reasonStopped ? "pill-bad" : "pill-muted"));
+  }
+
+  const m = s.currentMission || {};
+  const where = [m.city, m.state].filter(Boolean).join("/");
+  const missionTxt = (where || m.segment)
+    ? `missão atual: ${esc(m.segment || "—")}${where ? ` · ${esc(where)}` : ""}` + (s.nextMission && (s.nextMission.city || s.nextMission.segment) ? ` → próxima: ${esc(s.nextMission.segment || "")}${s.nextMission.city ? ` · ${esc(s.nextMission.city)}/${esc(s.nextMission.state || "")}` : ""}` : "")
+    : "missão: nenhuma cidade/segmento ativo no momento.";
+  const eng = `motores: ${Number(s.activeEngines || 0)} liberados${s.reservedClientEngines ? ` · ${s.reservedClientEngines} reservados pro cliente` : ""}`;
+  const mission = $("#ft-mission");
+  if (mission) mission.innerHTML = `${missionTxt}<br><span style="color:var(--text-muted);">${eng}</span>`;
+
+  // Diagnóstico "por que não está raspando?"
+  const d = ftDiagnose(s);
+  const diag = $("#ft-diag");
+  if (diag) {
+    const title = d.ok
+      ? ""
+      : `<p class="delta" style="font-weight:600;margin:0 0 4px;">Por que não está raspando agora?</p>`;
+    diag.innerHTML = title + d.lines.map((ln) => {
+      const color = ln.tone === "bad" ? "#ff6b6b" : ln.tone === "warn" ? "#ffb454" : ln.tone === "ok" ? "#39d98a" : "var(--text-muted)";
+      const fix = ln.fix === "purge" ? ' <span class="pill pill-amber" style="cursor:pointer;" data-ft-fix="purge">Limpar fila morta</span>'
+        : ln.fix === "factory" ? ' <span class="pill pill-amber" style="cursor:pointer;" data-ft-fix="factory">Religar fábrica</span>'
+        : "";
+      return `<p class="delta" style="margin:2px 0;color:${color};">• ${ln.text}${fix}</p>`;
+    }).join("");
+    // Liga os atalhos de correção embutidos no diagnóstico.
+    diag.querySelectorAll("[data-ft-fix]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const fix = node.getAttribute("data-ft-fix");
+        if (fix === "purge") ftPurgeQueue();
+        else if (fix === "factory") factoryResume();
+      });
+    });
+  }
+}
+
+async function ftPurgeQueue() {
+  const btn = $("#btn-ft-purge");
+  const fb = $("#ft-feedback");
+  if (!confirm("Limpar a fila morta da fábrica LOCAL?\n\nApaga tarefas que nunca renderam (combo vazio) e exaure as que deram 0. NÃO para a produção nem mexe no estoque — o motor volta a abastecer com cidade boa.")) return;
+  if (btn) btn.disabled = true;
+  if (fb) { fb.textContent = "limpando fila morta…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/factory/purge-dead-queue", {});
+    if (r.ok) {
+      const del = (r.deletedNeverRun ?? 0).toLocaleString("pt-BR");
+      const exh = (r.exhaustedAttempted ?? 0).toLocaleString("pt-BR");
+      const camp = (r.canceledCampaigns ?? 0).toLocaleString("pt-BR");
+      const rest = r.remainingQueued != null ? r.remainingQueued.toLocaleString("pt-BR") : "—";
+      if (fb) { fb.textContent = `fila reiniciada: ${del} apagadas + ${exh} exauridas + ${camp} campanhas zeradas · restam ${rest}`; fb.className = "delta up"; }
+      pushFeed(`Fila morta local limpa: ${del} apagadas, ${exh} exauridas, ${camp} campanhas zeradas.`, "ok");
+    } else if (fb) { fb.textContent = `limpar fila: ${r.message || r.reason || "falhou"}`; fb.className = "delta"; }
+  } catch (err) {
+    if (fb) fb.textContent = `limpar fila: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+    setTimeout(renderFactoryTruth, 1500);
+  }
+}
+
+async function ftForceNext() {
+  const btn = $("#btn-ft-next");
+  const fb = $("#ft-feedback");
+  if (!confirm("Pular o combo atual e forçar a PRÓXIMA missão da fábrica local agora?")) return;
+  if (btn) btn.disabled = true;
+  if (fb) { fb.textContent = "forçando próxima missão…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/factory/force-next", {});
+    if (r.ok) {
+      if (fb) { fb.textContent = "próxima missão acionada ✓"; fb.className = "delta up"; }
+      pushFeed("Fábrica local pulou pra próxima missão.", "ok");
+    } else if (fb) { fb.textContent = `próxima missão: ${r.message || r.reason || "falhou"}`; fb.className = "delta"; }
+  } catch (err) {
+    if (fb) fb.textContent = `próxima missão: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+    setTimeout(renderFactoryTruth, 1500);
+  }
+}
+
+{
+  const p = $("#btn-ft-purge"); if (p) p.addEventListener("click", ftPurgeQueue);
+  const n = $("#btn-ft-next"); if (n) n.addEventListener("click", ftForceNext);
+  const r = $("#btn-ft-refresh"); if (r) r.addEventListener("click", renderFactoryTruth);
+}
+
+/* ---------- Tabela honesta de motores LOCAIS (backend × docker × health × produção) ---------- */
+async function renderEnginesTruth() {
+  const det = $("#engines-truth");
+  if (det && !det.open) return;   // só lê quando o dono abre o details (evita docker ps à toa)
+  const head = $("#et-header");
+  const thead = $("#engines-truth-thead");
+  const tbody = $("#engines-truth-tbody");
+  if (!thead || !tbody) return;
+  let s;
+  try {
+    s = await api("GET", "/owner/engines/status");
+  } catch (err) {
+    if (head) head.textContent = `erro ao ler motores: ${err.message}`;
+    return;
+  }
+  if (!s.ok) {
+    if (head) head.textContent = s.reason === "backend_token_ausente" ? "sem token do backend" : `motores indisponíveis (${s.reason || "?"})`;
+    thead.innerHTML = ""; tbody.innerHTML = "";
+    return;
+  }
+  const cap = s.capacity || {};
+  // Cabeçalho do elástico: RAM%, motores vivos, teto, e por que cortou.
+  const ramTxt = cap.memoryPressurePercent != null ? `RAM ${cap.memoryPressurePercent}%` : "RAM —";
+  const aliveTxt = `${Number(cap.alive ?? cap.running ?? 0)} vivos · teto ${Number(cap.ceiling ?? cap.physicalMax ?? 0)}`;
+  const dockerTxt = s.dockerAvailable ? "" : " · docker indisponível (estado físico = —)";
+  if (head) head.innerHTML = `<strong>Elástico:</strong> ${ramTxt} · ${aliveTxt}${dockerTxt}<br><span style="color:var(--text-muted);">${esc(cap.reason || "—")}</span>`;
+
+  const cols = ["Motor", "Backend", "Docker", "Health", "Produção", "Último erro"];
+  thead.innerHTML = `<tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr>`;
+  tbody.innerHTML = "";
+  if (!s.engines.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--text-muted);padding:10px;">Nenhum motor configurado.</td></tr>`;
+    return;
+  }
+  const pill = (txt, tone) => `<span class="ck-pill ${tone}">${esc(txt)}</span>`;
+  for (const e of s.engines) {
+    const back = e.online ? pill(e.backendStatus || "online", "ok")
+      : e.backendStatus === "cooldown" ? pill("cooldown", "warn")
+      : !e.configured ? pill("não config", "muted")
+      : pill(e.backendStatus || "offline", "bad");
+    const dk = e.dockerState == null ? '<span style="color:var(--text-muted);">—</span>'
+      : e.dockerState === "running" ? pill("running", "ok")
+      : e.dockerState === "missing" ? pill("missing", "muted")
+      : pill(e.dockerState, "bad");
+    const hp = e.health === "ok" ? pill("ok", "ok") : e.health === "—" ? '<span style="color:var(--text-muted);">—</span>' : pill(e.health, "bad");
+    const prod = e.processedLast10Min != null ? `${e.processedLast10Min} <small style="color:var(--text-muted);">/10min</small>` : '<span style="color:var(--text-muted);">—</span>';
+    const errTxt = e.lastError ? `<span title="${esc(e.lastError)}">${esc(String(e.lastError).slice(0, 40))}</span>` : '<span style="color:var(--text-muted);">—</span>';
+    tbody.innerHTML += `<tr><td><strong>${esc(e.label)}</strong></td><td>${back}</td><td>${dk}</td><td>${hp}</td><td>${prod}</td><td>${errTxt}</td></tr>`;
+  }
+}
+{
+  const det = $("#engines-truth");
+  if (det) det.addEventListener("toggle", () => { if (det.open) renderEnginesTruth(); });
+}
+
 /* ---------- Local Lab on/off ---------- */
 async function labStatus() {
   try { return await api("GET", "/local-lab/status"); }
@@ -743,8 +960,10 @@ function ckApplyFilters(rows) {
     if (f.city    && !cityState.includes(f.city.toLowerCase()))                                  return false;
     if (f.state   && !String(row.state   || "").toLowerCase().startsWith(f.state.toLowerCase())) return false;
     if (f.segment && !String(row.segment || "").toLowerCase().includes(f.segment.toLowerCase())) return false;
-    if (f.phone   && !String(row.phone   || row.phoneDigits || "").includes(f.phone))            return false;
-    if (f.email   && !String(row.email   || "").toLowerCase().includes(f.email.toLowerCase()))   return false;
+    // Telefone/E-mail filtram pelos ARRAYS (phones[]/emails[]) — o mesmo que a célula mostra.
+    // Antes só olhava row.phone/row.email e perdia os achados extras do scraper (bug auditoria codex).
+    if (f.phone   && !ckGetValue(row, "phone").toLowerCase().includes(f.phone.toLowerCase()))     return false;
+    if (f.email   && !ckGetValue(row, "email").toLowerCase().includes(f.email.toLowerCase()))     return false;
     if (f.channel && !String(row.recommendedChannel || "").toLowerCase().includes(f.channel.toLowerCase())) return false;
     if (f.status  && !String(row.status  || "").toLowerCase().includes(f.status.toLowerCase()))  return false;
     // Toggles rápidos
@@ -1659,11 +1878,15 @@ if (infraDetails) infraDetails.addEventListener("toggle", () => { if (infraDetai
 pingStatus();
 refreshLabState();
 renderSistema();
+renderFactoryTruth();         // verdade da fábrica local (net-new + por que não raspa)
+renderEnginesTruth();         // tabela honesta de motores (só lê se o details estiver aberto)
 renderVps();
 renderVpsEngines();
 renderFeed(false);
 loadCockpit();
 setInterval(renderSistema, 5000);
+setInterval(renderFactoryTruth, 10000);  // net-new/diagnóstico ao vivo
+setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);
 setInterval(renderVpsEngines, 15000);  // mantém os interruptores da VPS no estado real, ao vivo
 setInterval(pingStatus, 20000);

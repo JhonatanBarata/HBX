@@ -1572,6 +1572,113 @@ async function route(req, res) {
     return;
   }
 
+  // Status REAL da fábrica LOCAL (factory-status do backend): missão atual/próxima, net-new da
+  // última hora, motores liberados, por que parou. Fonte da verdade pro painel "por que não raspa".
+  if (req.method === "GET" && url.pathname === "/owner/factory/status") {
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
+      return;
+    }
+    const response = await backendRequest("GET", "/modules/owner/radar/factory-status", null, { timeoutMs: 20000, maxBytes: 400000 });
+    const data = (response && response.data) || null;
+    const ok = Boolean(response && response.ok && data);
+    sendJson(res, ok ? 200 : 502, ok
+      ? { ok: true, ...data }
+      : { ok: false, reason: response?.error || data?.message || `http_${response?.statusCode || "?"}` });
+    return;
+  }
+
+  // Limpar a FILA MORTA da fábrica LOCAL (espelha o botão da VPS, mas via backend local). Não é SQL
+  // cru, não para produção, não toca estoque — tira o entulho de combo vazio pro pump reabastecer.
+  if (req.method === "POST" && url.pathname === "/owner/factory/purge-dead-queue") {
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
+      return;
+    }
+    const response = await backendRequest("POST", "/modules/owner/radar/factory/purge-dead-queue", {}, { timeoutMs: 60000 });
+    const data = (response && response.data) || {};
+    const ok = Boolean(response && response.ok);
+    sendJson(res, ok ? 200 : 502, {
+      ok,
+      deletedNeverRun: data.deletedNeverRun ?? null,
+      exhaustedAttempted: data.exhaustedAttempted ?? null,
+      canceledCampaigns: data.canceledCampaigns ?? null,
+      remainingQueued: data.remainingQueued ?? null,
+      backend: data,
+      reason: ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`),
+    });
+    return;
+  }
+
+  // Forçar a PRÓXIMA missão da fábrica LOCAL (pula o combo travado e parte pra próxima cidade/segmento).
+  if (req.method === "POST" && url.pathname === "/owner/factory/force-next") {
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
+      return;
+    }
+    const response = await backendRequest("POST", "/modules/owner/radar/factory/force-next", {}, { timeoutMs: 60000 });
+    const data = (response && response.data) || {};
+    const ok = Boolean(response && response.ok);
+    sendJson(res, ok ? 200 : 502, {
+      ok,
+      backend: data,
+      reason: ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`),
+    });
+    return;
+  }
+
+  // Status BRUTO da frota LOCAL (engines[] do dashboard) — pinta a tabela honesta por motor
+  // (backend × docker × health × último erro × produção). Junta os containers docker reais pra
+  // dizer "está ligado ou não?" sem chute. Sem token = devolve ok:false (a UI mostra "—").
+  if (req.method === "GET" && url.pathname === "/owner/engines/status") {
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente" });
+      return;
+    }
+    const response = await backendRequest("GET", "/webscraping/engines/status", null, { timeoutMs: 20000, maxBytes: 1_000_000 });
+    const data = (response && response.data) || null;
+    if (!response.ok || !data) {
+      sendJson(res, 200, { ok: false, reason: response?.error || `http_${response?.statusCode || "?"}` });
+      return;
+    }
+    // Estado docker REAL dos containers (running/exited/missing) pra cruzar com o backend.
+    const docker = execRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
+    const dockerAvailable = docker.ok;
+    const dockerByName = new Map();
+    if (dockerAvailable) {
+      for (const line of String(docker.stdout || "").split(/\r?\n/)) {
+        const [name, state, status] = line.split("\t");
+        if (name && /^hbx-engine-\d+$/.test(name.trim())) dockerByName.set(name.trim(), { state: (state || "").trim(), status: (status || "").trim() });
+      }
+    }
+    const engines = Array.isArray(data.engines) ? data.engines.map((e) => {
+      const dn = dockerByName.get(e.containerName || e.id) || null;
+      return {
+        id: e.id,
+        label: e.shortLabel || e.label || e.id,
+        backendStatus: e.status || null,
+        online: e.online === true,
+        configured: e.configured === true,
+        stateLabel: e.stateLabel || null,
+        actualState: e.actualState || null,
+        health: e.online ? "ok" : (e.configured ? "offline" : "—"),
+        dockerState: dn ? dn.state : (dockerAvailable ? "missing" : null),
+        dockerStatus: dn ? dn.status : null,
+        lastError: e.lastError || null,
+        processedLast10Min: typeof e.processedLast10Min === "number" ? e.processedLast10Min : null,
+        usagePercent: typeof e.usagePercent === "number" ? e.usagePercent : null,
+        heartbeatAgeSeconds: typeof e.heartbeatAgeSeconds === "number" ? e.heartbeatAgeSeconds : null,
+      };
+    }) : [];
+    const capacity = parseEngineCapacity(data);
+    sendJson(res, 200, { ok: true, engines, capacity, dockerAvailable, generatedAt: data.generatedAt || nowIso() });
+    return;
+  }
+
   // Ligar/parar a FROTA LOCAL de motores (hbx-engine-*) pelo painel — o que o dono fazia no
   // CLI com `npm run engines:up/down`. Roda o script async; CPU/RAM e o feed mostram subindo.
   if (req.method === "POST" && (url.pathname === "/owner/engines/local/start" || url.pathname === "/owner/engines/local/stop")) {
@@ -2351,39 +2458,70 @@ async function route(req, res) {
     return;
   }
 
-  // Enriquecimento CNPJ→dono (cadeia gratis L1/L3/L4) — DIRETO no backend, mesmo caminho
-  // do /modules/owner/radar/database-cards (que ja funciona). A ops-control nao precisa
-  // estar configurada: o owner-agent ja autentica como system-master via SYSTEM_MASTER_*
-  // do backend/.env (backendRequest faz refresh de token no 401). O HBX Owner e dono do
-  // motor, entao aciona o backfill sozinho — sem depender do proxy ops-control (que dava 502).
+  // Enriquecimento CNPJ→dono (cadeia gratis L1/L3/L4). RESPEITA o scope:
+  //   local → backend local (backendRequest, system-master via SYSTEM_MASTER_*).
+  //   vps   → ops-control → backend da VPS (opsRequest /api/opscontrol/cnpj-backfill).
+  //   both  → roda os dois e devolve os dois resultados.
+  // Antes ignorava o scope e batia SEMPRE no backend local (bug da auditoria codex): o botao
+  // "CNPJ → dono" (scope vps) acabava enriquecendo o banco LOCAL, nao o do VPS.
   if (req.method === "POST" && url.pathname === "/owner/ops/cnpj-backfill") {
     const body = await readBody(req);
     const scope = OPS_SCOPES.has(String(body.scope || "vps").toLowerCase()) ? String(body.scope).toLowerCase() : "vps";
     const limit = clampInt(body.limit, 200, 1, 2000);
-    if (!backendToken) await refreshBackendToken().catch(() => null);
-    if (!backendToken) {
-      sendJson(res, 200, { ok: false, scope, limit, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env (ou HBX_OWNER_BACKEND_TOKEN)." });
-      return;
+    const wantLocal = scope === "local" || scope === "both";
+    const wantVps = scope === "vps" || scope === "both";
+
+    // ----- Lado LOCAL (backend local, autenticado como system-master) -----
+    let localResult = null;
+    if (wantLocal) {
+      if (!backendToken) await refreshBackendToken().catch(() => null);
+      if (!backendToken) {
+        localResult = { ok: false, environment: "local", label: "local", error: "backend_token_ausente", data: {} };
+      } else {
+        const r = await backendRequest("POST", `/modules/owner/radar/cnpj-backfill?limit=${limit}`, {}, { timeoutMs: 170000 });
+        const d = (r && r.data) || {};
+        localResult = { ok: Boolean(r && r.ok), environment: "local", label: "local", error: r?.error || d?.message, data: d };
+      }
     }
-    const response = await backendRequest("POST", `/modules/owner/radar/cnpj-backfill?limit=${limit}`, {}, { timeoutMs: 170000 });
-    const data = (response && response.data) || {};
-    const ok = Boolean(response && response.ok);
-    const reason = ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`);
+
+    // ----- Lado VPS (ops-control → backend da VPS) -----
+    let vpsResult = null;
+    if (wantVps) {
+      const r = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope: "vps", limit }, 180000);
+      if (!r.configured) {
+        vpsResult = { ok: false, environment: "vps", label: "vps", error: "ops_token_ausente", data: {} };
+      } else {
+        // ops devolve { ok, results:[{ environment, ok, data }] } OU o payload plano direto.
+        const opsData = r.data || {};
+        const inner = Array.isArray(opsData.results) ? (opsData.results.find((x) => x.environment === "vps") || opsData.results[0]) : null;
+        const d = (inner && inner.data) || opsData;
+        const ok = r.ok && (inner ? inner.ok : opsData.ok) !== false;
+        vpsResult = { ok, environment: "vps", label: "vps", error: r.reason || (inner && inner.error) || opsData.error, data: d };
+      }
+    }
+
+    // O front "Descobrir site + CNPJ" (local) le o formato PLANO; o "CNPJ → dono" le ops.results[].
+    // Pra both, o formato plano reflete o local (origem do botao Descobrir). Reason/ok agregam os dois.
+    const results = [localResult, vpsResult].filter(Boolean);
+    const ok = results.length > 0 && results.every((x) => x.ok);
+    const flat = (scope === "vps" ? vpsResult : localResult) || results[0] || { data: {} };
+    const fd = flat.data || {};
+    const reason = ok ? undefined : results.filter((x) => !x.ok).map((x) => `${x.label}: ${x.error || "falhou"}`).join(" · ") || `http_?`;
     sendJson(res, ok ? 200 : 502, {
       ok,
       scope,
       limit,
-      // formato plano — o botao "Descobrir site + CNPJ" (ckStartDiscover) le daqui
-      scanned: data.scanned,
-      enriched: data.enriched,
-      errors: data.errors,
-      sitesFound: data.sitesFound,
-      cnpjsFound: data.cnpjsFound,
-      phonesFound: data.phonesFound,
-      socialsFound: data.socialsFound,
-      data,
-      // compat: o botao "Enriquecer CNPJ->dono" (ckCnpjBackfill) le ops.results[]
-      ops: { results: [{ ok, environment: "backend", label: "backend", data }] },
+      // formato plano (ckStartDiscover) — reflete o lado pedido (local p/ scope local, vps p/ vps)
+      scanned: fd.scanned,
+      enriched: fd.enriched,
+      errors: fd.errors,
+      sitesFound: fd.sitesFound,
+      cnpjsFound: fd.cnpjsFound,
+      phonesFound: fd.phonesFound,
+      socialsFound: fd.socialsFound,
+      data: fd,
+      // compat: ckCnpjBackfill le ops.results[] (cada ambiente com seu data)
+      ops: { results: results.map((x) => ({ ok: x.ok, environment: x.environment, label: x.label, error: x.error, data: x.data })) },
       reason,
       message: reason,
     });

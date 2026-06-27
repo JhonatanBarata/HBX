@@ -685,15 +685,47 @@ export class RadarCoreFactoryAdminMixin {
         return { skipped: true, reason: 'client_reserved_capacity' };
       }
 
-      const activeCampaign = await (this.prisma as any).webscrapingCampaign.findFirst({
-        where: {
-          mode: 'mass_data',
-          status: { in: ['queued', 'running', 'sleeping', 'partial_error'] },
-        },
-        orderBy: { updatedAt: 'desc' },
-      }).catch(() => null);
+      // FREIO AUTO 1 — teto de campanhas ativas: cancela o acúmulo, mantém só a missão atual. FREIO AUTO 2
+      // — exaure combos provados-mortos da fila (foundCount=0) antes de qualquer refill, pra não reenvenenar.
+      const keptCampaignIds = await this.enforceMassDataCampaignCap().catch(() => [] as string[]);
+      await this.exhaustDeadMassDataTasks().catch(() => 0);
+
+      const activeCampaign = keptCampaignIds.length
+        ? await (this.prisma as any).webscrapingCampaign.findUnique({ where: { id: keptCampaignIds[0] } }).catch(() => null)
+        : null;
       if (activeCampaign) {
         const automaticAllowed = safeInteger(scheduler?.automaticAllowedEngines, getConfiguredHbxEngineCount());
+        // FREIO AUTO 3 — avanço do cursor: se a cidade atual está provada vazia/baixa (cursor acumulou
+        // empties OU a campanha só produziu lixo apesar de muito esforço), ABANDONA a campanha e força a
+        // próxima missão, em vez de reabastecer a mesma microcidade pra sempre. É o que destrava o cursor
+        // rumo às cidades grandes sem depender do purge manual.
+        if (await this.shouldAbandonMassDataCampaign(activeCampaign, cursor)) {
+          await (this.prisma as any).webscrapingCampaign.update({
+            where: { id: activeCampaign.id },
+            data: { status: 'canceled', nextRunAt: null, lastErrorMessage: 'Cidade esgotada/baixa: a fábrica avança para a próxima missão (freio automático do cursor).' },
+          }).catch(() => null);
+          await (this.prisma as any).webscrapingCampaignTask.updateMany({
+            where: { campaignId: activeCampaign.id, status: { in: ['queued', 'running'] } },
+            data: { status: 'canceled', lockedByEngineId: null, lockedUntil: null },
+          }).catch(() => null);
+          const nextIndexes = await this.buildNextFactoryCursorIndexes(cursor).catch(() => ({}));
+          await (this.prisma as any).radarFactoryCursor?.update?.({
+            where: { key: 'main' },
+            data: {
+              ...nextIndexes,
+              status: 'idle',
+              lastCampaignId: null,
+              consecutiveEmptyCount: 0,
+              reasonStopped: 'Cidade esgotada/baixa. Avançando para a próxima missão automaticamente.',
+              nextRunAt: new Date(),
+            },
+          }).catch(() => null);
+          // Aplica o avanço no cursor EM MEMÓRIA também — senão pickRadarFactoryMission(cursor) abaixo
+          // ainda miraria a cidade velha (recriaria a mesma campanha que acabamos de abandonar).
+          Object.assign(cursor, nextIndexes, { lastCampaignId: null, consecutiveEmptyCount: 0 });
+          this.logger.warn(`[radar-factory] cidade esgotada (${activeCampaign.city}/${activeCampaign.state}): cursor avançado automaticamente para a próxima missão.`);
+          // Cai para baixo e cria JÁ a próxima missão a partir do cursor avançado.
+        } else {
         const queuedOrRunning = await (this.prisma as any).webscrapingCampaignTask.count({
           where: { campaignId: activeCampaign.id, status: { in: ['queued', 'running'] } },
         }).catch(() => 0);
@@ -729,6 +761,7 @@ export class RadarCoreFactoryAdminMixin {
           this.scheduleRadarCampaignPump(0);
           return { skipped: false, reason: 'active_campaign_exists', campaignId: activeCampaign.id };
         }
+        } // fim do else (campanha mantida e reabastecida) — abandono cai para a criação de missão abaixo
       }
 
       const mission = await this.pickRadarFactoryMission(cursor);
@@ -879,6 +912,91 @@ export class RadarCoreFactoryAdminMixin {
       this.logger.warn(`[factory-stop] falha ao drenar motores da fabrica: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
     });
     return this.getRadarFactoryStatus(user);
+  }
+
+  // Limite de empties consecutivos antes de abandonar a missão e avançar o cursor. 1 já basta (uma
+  // cidade que rendeu zero não vai render do nada no refill), mas deixamos configurável.
+  private maxConsecutiveEmptyBeforeAdvance() {
+    return clampInteger(process.env.HBX_FACTORY_MAX_CONSECUTIVE_EMPTY, 1, 1, 10);
+  }
+
+  // Decide se a campanha mass_data atual está PROVADA esgotada/baixa → abandonar e avançar o cursor.
+  // Sinais (qualquer um basta): (a) cursor já acumulou empties consecutivos na cidade; (b) a campanha já
+  // SE ESFORÇOU (muitas tentativas/lotes vazios) e quase não aprovou card novo; (c) só restam tarefas
+  // mortas (exhausted/canceladas) e nada de queued+running pra processar — a cidade secou. Tudo lido do
+  // que já existe (cursor + contadores da campanha), sem query nova cara.
+  private async shouldAbandonMassDataCampaign(campaign: any, cursor: any): Promise<boolean> {
+    if (!campaign) return false;
+    // (a) Empties consecutivos no cursor (alimentado por syncRadarFactoryFinishedWork quando a campanha
+    // termina vazia). Só conta se for a MESMA campanha que o cursor está seguindo.
+    if (String(cursor?.lastCampaignId || '') === String(campaign.id || '')
+      && safeInteger(cursor?.consecutiveEmptyCount) >= this.maxConsecutiveEmptyBeforeAdvance()) {
+      return true;
+    }
+    // (b) Esforço grande × rendimento ~zero: muitos lotes vazios seguidos OU muitas tentativas com
+    // aprovados irrisórios. Limiares conservadores pra não abandonar cidade boa que só começou.
+    const approved = safeInteger(campaign.approvedCount);
+    const attempts = safeInteger(campaign.currentAttempt);
+    const emptyBatches = safeInteger(campaign.consecutiveEmptyBatchCount);
+    if (emptyBatches >= 6 && approved <= 2) return true;
+    if (attempts >= 40 && approved <= 3) return true;
+    // (c) Sem fila viva e nada aprovado: a cidade secou (toda tarefa virou morta/dup).
+    if (await this.supportsMassDataCampaignPersistence().catch(() => false)) {
+      const aliveTasks = await (this.prisma as any).webscrapingCampaignTask.count({
+        where: { campaignId: campaign.id, status: { in: ['queued', 'running'] } },
+      }).catch(() => 1);
+      if (safeInteger(aliveTasks) === 0 && approved <= 0 && attempts >= 5) return true;
+    }
+    return false;
+  }
+
+  // Teto de campanhas mass_data ATIVAS simultâneas. A fábrica é uma esteira SEQUENCIAL (1 missão por
+  // vez); >1 ativa = acúmulo de microcidades auto-perpetuadas (foi como nasceram as 90 campanhas que
+  // prenderam o cursor). 1 é o alvo; deixamos margem de configuração mas nunca acima de 2.
+  private maxActiveMassDataCampaigns() {
+    return clampInteger(process.env.HBX_FACTORY_MAX_ACTIVE_CAMPAIGNS, 1, 1, 2);
+  }
+
+  // FREIO AUTO (sem botão/IA): mantém só as N campanhas mass_data mais novas ativas e CANCELA o resto.
+  // Sem isso, cada missão deixava uma campanha "sleeping/partial_error" pendurada que o refill ressuscitava
+  // pra sempre → dezenas de cidadezinhas se reabastecendo e travando o avanço do cursor. Devolve a lista
+  // de IDs que SOBRARAM ativas (as mais novas) pra quem chama decidir o próximo passo.
+  private async enforceMassDataCampaignCap(): Promise<string[]> {
+    if (!(await this.supportsMassDataCampaignPersistence().catch(() => false))) return [];
+    const keep = this.maxActiveMassDataCampaigns();
+    const active = await (this.prisma as any).webscrapingCampaign.findMany({
+      where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    }).catch(() => []);
+    const keepIds = active.slice(0, keep).map((c: any) => String(c.id));
+    const dropIds = active.slice(keep).map((c: any) => String(c.id));
+    if (dropIds.length) {
+      await (this.prisma as any).webscrapingCampaign.updateMany({
+        where: { id: { in: dropIds } },
+        data: { status: 'canceled', nextRunAt: null, lastErrorMessage: 'Excesso de campanhas mass_data ativas: a fábrica mantém só a missão atual (freio automático).' },
+      }).catch(() => null);
+      await (this.prisma as any).webscrapingCampaignTask.updateMany({
+        where: { campaignId: { in: dropIds }, status: { in: ['queued', 'running'] } },
+        data: { status: 'canceled', lockedByEngineId: null, lockedUntil: null },
+      }).catch(() => null);
+      this.logger.warn(`[radar-factory] cap de campanhas mass_data: mantidas=${keepIds.length} canceladas=${dropIds.length}`);
+    }
+    return keepIds;
+  }
+
+  // FREIO AUTO de combo provado-morto: tarefas que JÁ rodaram (attemptCount>0) e voltaram com foundCount=0
+  // viram `exhausted` na hora — não esperam o purge manual. Assim a fila não reenvenena com o mesmo combo
+  // vazio (ex.: "relojoarias·Acarape") e os motores não moem horas em cima de cidade esgotada.
+  private async exhaustDeadMassDataTasks(campaignId?: string): Promise<number> {
+    if (!(await this.supportsMassDataCampaignPersistence().catch(() => false))) return 0;
+    const where: any = { status: 'queued', attemptCount: { gt: 0 }, foundCount: 0 };
+    if (campaignId) where.campaignId = campaignId;
+    const result = await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where,
+      data: { status: 'exhausted', lockedByEngineId: null, lockedUntil: null, finishedAt: new Date(), lastError: 'Combo sem rendimento exaurido automaticamente (freio da fábrica).' },
+    }).catch(() => ({ count: 0 }));
+    return safeInteger((result as any)?.count);
   }
 
   // Limpa a FILA MORTA da fábrica sem parar a produção: apaga as tarefas que nunca rodaram
@@ -1083,6 +1201,10 @@ export class RadarCoreFactoryAdminMixin {
         windowStatus: scheduler?.factory?.windowStatus || null,
         maxEngines: scheduler?.factory?.maxEngines ?? null,
         memoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
+        memoryPressurePercent: scheduler?.memoryPressurePercent ?? null,
+        cpuPressurePercent: scheduler?.cpuPressurePercent ?? null,
+        elasticHeadroomEngines: scheduler?.elasticHeadroomEngines ?? null,
+        elasticEnabled: scheduler?.elasticEnabled ?? null,
         message: safeInteger(scheduler?.manualReservedEngines) > 0
           ? 'Radar Digital tem motores reservados; a fábrica usa apenas o excedente.'
           : 'Radar Digital sem reserva configurada. Ajuste HBX_CLIENT_RESERVED_ENGINES.',

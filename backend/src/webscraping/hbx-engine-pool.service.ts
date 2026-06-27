@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { readFileSync } from 'fs';
+import { cpus as osCpus } from 'os';
 import { PrismaService } from '../prisma/prisma.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 3;
@@ -55,6 +56,9 @@ export type HbxEngineSchedulerStatus = {
   factoryMaxEngines: number | null;
   onlineHealthyEngines: number;
   memoryPressurePercent: number;
+  cpuPressurePercent: number;
+  elasticHeadroomEngines: number;
+  elasticEnabled: boolean;
   googleMode: 'manual_only';
   manualDemandActive: boolean;
   productionMode: 'full' | 'reduced' | 'protected';
@@ -287,6 +291,27 @@ export function parseHostMemoryPressurePercent(raw: string) {
   return Math.max(0, Math.min(100, Math.round((usedKb / totalKb) * 100)));
 }
 
+/**
+ * Lê a linha agregada `cpu` do /proc/stat (Linux) e devolve {idle,total} acumulados desde o boot.
+ * Pressão de CPU é a DIFERENÇA entre duas amostras (uso% = 1 - dIdle/dTotal); por isso só devolvemos
+ * os contadores brutos aqui — o delta é calculado por quem chama, entre ticks do governor.
+ * No container da VPS o /proc/stat reflete a CPU do HOST (cgroup não virtualiza essa linha), que é
+ * exatamente o que queremos medir. Linha: `cpu  user nice system idle iowait irq softirq steal ...`.
+ */
+export function parseProcStatCpuSample(raw: string): { idle: number; total: number } | null {
+  for (const line of String(raw || '').split('\n')) {
+    if (!line.startsWith('cpu ') && !line.startsWith('cpu\t')) continue;
+    const parts = line.trim().split(/\s+/).slice(1).map((value) => Number(value));
+    if (!parts.length || parts.some((value) => !Number.isFinite(value))) return null;
+    // idle = idle + iowait (4º e 5º campos); total = soma de todos os campos.
+    const idle = (parts[3] || 0) + (parts[4] || 0);
+    const total = parts.reduce((sum, value) => sum + value, 0);
+    if (total <= 0) return null;
+    return { idle, total };
+  }
+  return null;
+}
+
 export function buildHbxEngineUrls(prefixOrBase: string, count = getConfiguredHbxEngineCount()) {
   const safeCount = clampInteger(count, DEFAULT_HBX_ENGINE_COUNT, 1, getConfiguredHbxEngineMaxCount());
   const base = String(prefixOrBase || '').trim().replace(/\/+$/, '');
@@ -417,6 +442,16 @@ export class HbxEnginePoolService implements OnModuleInit {
   // Cooldown: nunca age mais rápido que HBX_ENGINE_GOVERNOR_COOLDOWN_SECONDS (120s)
   private memoryHeadroomLastActionAt = 0;
   private memoryHeadroomCurrent: number | null = null;
+
+  // Histerese para o teto dinâmico de CPU (mesma mecânica do de RAM)
+  private cpuHeadroomLastActionAt = 0;
+  private cpuHeadroomCurrent: number | null = null;
+  // Amostra anterior de CPU (delta entre ticks do governor) p/ calcular % de uso REAL sem sleep.
+  // Fonte: /proc/stat (host na VPS) ou os.cpus() (mesmo dado no container local). Guardamos o último
+  // snapshot e medimos a diferença na chamada seguinte — o governor roda a cada ~30s, então o delta
+  // cobre justamente esse intervalo. Sem amostra anterior, devolvemos null (não pune o crescimento).
+  private lastCpuSample: { idle: number; total: number; atMs: number } | null = null;
+  private cpuPressureCurrent = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -1559,12 +1594,13 @@ export class HbxEnginePoolService implements OnModuleInit {
     const demandTarget = scheduler?.manualDemandActive
       ? Math.max(manualReserve, Math.min(activeTarget, configuredCount))
       : 0;
-    // Teto dinâmico por RAM: min(demanda, headroomRAM, físico)
-    const headroomRAM = this.resolveMemoryHeadroomEngineCount(operationalConfig);
+    // Teto dinâmico por RAM+CPU: min(demanda, headroom, físico). O headroom já é min(RAM,CPU) clampado
+    // em [warmMin, frota] — quem estiver mais apertado (RAM ou CPU) manda. Nunca passa do físico (trava).
+    const headroom = this.resolveElasticHeadroomEngineCount(operationalConfig);
     const demandBasedTarget = Math.max(warmMin, automaticTarget, demandTarget);
     return Math.min(
       configuredCount,
-      headroomRAM,
+      headroom,
       demandBasedTarget,
     );
   }
@@ -1706,6 +1742,130 @@ export class HbxEnginePoolService implements OnModuleInit {
     return Math.max(0, Math.min(100, Math.round(rssPressure)));
   }
 
+  /**
+   * Pressão de CPU do HOST (0-100%), uso REAL via delta de /proc/stat entre ticks do governor.
+   * Sem sleep síncrono: guardamos a amostra anterior e medimos a diferença na chamada seguinte.
+   * Fallback `os.cpus()` (mesma fonte /proc/stat no Linux) cobre o caso de /proc/stat ilegível.
+   * Enquanto não há amostra anterior (primeira leitura após boot/restart), devolve o último valor
+   * conhecido (0 no boot) — não punimos o crescimento por falta de histórico; o próximo tick mede.
+   */
+  private resolveCpuPressurePercent(): number {
+    const nowMs = Date.now();
+    // Idempotente por tick: só re-amostra se passou um intervalo mínimo desde a última amostra.
+    // Sem isso, duas chamadas no mesmo tick mediriam um delta de ~0ms (ruído). 5s cobre o caso de
+    // várias leituras na mesma passada do governor mantendo amostras espaçadas entre ticks (~30s).
+    if (this.lastCpuSample && nowMs - this.lastCpuSample.atMs < 5_000) {
+      return this.cpuPressureCurrent;
+    }
+    const sample = this.readCpuSample();
+    if (!sample) return this.cpuPressureCurrent;
+    const previous = this.lastCpuSample;
+    this.lastCpuSample = { ...sample, atMs: nowMs };
+    if (!previous) return this.cpuPressureCurrent; // primeira amostra: sem delta ainda
+    const idleDelta = sample.idle - previous.idle;
+    const totalDelta = sample.total - previous.total;
+    if (totalDelta <= 0) return this.cpuPressureCurrent; // contadores resetaram (restart): segura o valor
+    const pressure = Math.max(0, Math.min(100, Math.round((1 - idleDelta / totalDelta) * 100)));
+    this.cpuPressureCurrent = pressure;
+    return pressure;
+  }
+
+  private readCpuSample(): { idle: number; total: number } | null {
+    try {
+      const fromProc = parseProcStatCpuSample(readFileSync('/proc/stat', 'utf8'));
+      if (fromProc) return fromProc;
+    } catch {
+      // Non-Linux/dev fallback abaixo (os.cpus lê o mesmo /proc/stat no Linux).
+    }
+    try {
+      let idle = 0;
+      let total = 0;
+      for (const cpu of osCpus()) {
+        for (const value of Object.values(cpu.times)) total += Number(value) || 0;
+        idle += Number(cpu.times.idle) || 0;
+      }
+      return total > 0 ? { idle, total } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Bandas de CPU espelham as de RAM (soft/hard/panic) mas com folga maior: CPU saudável ~50-70%,
+  // soft 80 = começa a frear, hard 88 = corta forte, panic 94 = cai pro warm. Configuráveis por ENV.
+  private factoryCpuSoftPressurePercent() {
+    return this.readIntegerEnv('HBX_FACTORY_CPU_SOFT_PRESSURE_PERCENT', 80, 1, 100);
+  }
+
+  private factoryCpuHardPressurePercent(softPressure = this.factoryCpuSoftPressurePercent()) {
+    const parsed = this.readIntegerEnv('HBX_FACTORY_CPU_HARD_PRESSURE_PERCENT', Math.max(softPressure, 88), 1, 100);
+    return Math.max(softPressure, parsed);
+  }
+
+  private factoryCpuPanicPressurePercent(hardPressure = this.factoryCpuHardPressurePercent()) {
+    const parsed = this.readIntegerEnv('HBX_FACTORY_CPU_PANIC_PRESSURE_PERCENT', Math.max(hardPressure, 94), 1, 100);
+    return Math.max(hardPressure, parsed);
+  }
+
+  /**
+   * Teto dinâmico por CPU: gêmeo do de RAM (mesma histerese/cooldown), mas usando a pressão de CPU.
+   * Histerese: só sobe quando pressão < soft; só desce quando pressão >= hard. Pânico ignora cooldown.
+   * O teto efetivo da frota = min(tetoRAM, tetoCPU) — quem estiver mais apertado manda.
+   */
+  private resolveCpuHeadroomEngineCount(): number {
+    const physical = getConfiguredHbxEngineCount();
+    const warm = this.resolveElasticWarmMinEngines(physical);
+    const pressure = this.resolveCpuPressurePercent();
+    const soft = this.factoryCpuSoftPressurePercent();   // 80
+    const hard = this.factoryCpuHardPressurePercent(soft); // 88
+    const panic = this.factoryCpuPanicPressurePercent(hard); // 94
+
+    let candidate: number;
+    if (pressure >= panic) {
+      candidate = warm;
+    } else if (pressure >= hard) {
+      candidate = Math.max(warm, Math.floor(physical * 0.25));
+    } else if (pressure >= soft) {
+      candidate = Math.max(warm, Math.floor(physical * 0.6));
+    } else {
+      candidate = physical;
+    }
+
+    const nowMs = Date.now();
+    const current = this.cpuHeadroomCurrent ?? physical;
+    const cooldownMs = this.governorHeadroomCooldownMs();
+
+    if (pressure >= panic) {
+      if (current !== candidate) {
+        this.cpuHeadroomCurrent = candidate;
+        this.cpuHeadroomLastActionAt = nowMs;
+      }
+      return candidate;
+    }
+
+    const wantsGrow = candidate > current && pressure < soft;
+    const wantsShrink = candidate < current && pressure >= hard;
+    if (!wantsGrow && !wantsShrink) return current;
+    if (this.cpuHeadroomLastActionAt > 0 && nowMs - this.cpuHeadroomLastActionAt < cooldownMs) return current;
+
+    this.cpuHeadroomCurrent = candidate;
+    this.cpuHeadroomLastActionAt = nowMs;
+    return candidate;
+  }
+
+  /**
+   * Teto efetivo da elástica = min(tetoRAM, tetoCPU), sempre dentro de [warmMin, frota declarada].
+   * Esta é a TRAVA DE SEGURANÇA ABSOLUTA: nunca passa de getConfiguredHbxEngineCount() (=20). RAM e CPU
+   * só PODEM reduzir abaixo da frota; nenhum dos dois empurra acima dela. Sem runaway.
+   */
+  resolveElasticHeadroomEngineCount(operationalConfig?: any): number {
+    const physical = getConfiguredHbxEngineCount();
+    const warm = this.resolveElasticWarmMinEngines(physical);
+    const headroomRAM = this.resolveMemoryHeadroomEngineCount(operationalConfig);
+    const headroomCPU = this.resolveCpuHeadroomEngineCount();
+    const headroom = Math.min(headroomRAM, headroomCPU);
+    return Math.max(warm, Math.min(physical, headroom));
+  }
+
   private isHealthyEngine(engine: EngineRegistryRow, now = Date.now()) {
     if (this.isEngineLeaseBlocked(engine, now)) return false;
     if (this.isEnginePaused(engine, now)) return false;
@@ -1766,7 +1926,22 @@ export class HbxEnginePoolService implements OnModuleInit {
     const memoryPressurePercent = this.resolveMemoryPressurePercent(operationalConfig);
     const factoryCapacity = Math.max(0, configuredCount - manualReservedEngines);
     const autonomousMin = Math.min(this.resolveAutonomousMinEngines(), factoryCapacity);
-    const factoryMaxEngines = this.resolveFactoryMaxEngines(configuredCount);
+    // Dois tetos distintos:
+    //  • ENV `HBX_FACTORY_MAX_ENGINES` = override OPERACIONAL explícito do ops. SEMPRE respeitado.
+    //  • DB `turbo_noturno.metadataJson.factoryMaxEngines` (ex.: 1) = teto FORÇADO herdado que prendia
+    //    a fábrica em "1" (na prática 3). Com a elástica LIGADA esse teto do banco é NEUTRALIZADO — a
+    //    contagem passa a ser decidida por RAM+CPU (ver bloco do headroom abaixo), não por um número
+    //    velho gravado. Com a elástica DESLIGADA (modo manual) o teto do banco volta a valer.
+    const elasticEnabled = this.parseElasticEnabledFromMetadata(operationalConfig?.metadataJson);
+    const metadataFactoryMaxEngines = elasticEnabled
+      ? null
+      : this.parseOperationalMetadata(operationalConfig?.metadataJson).factoryMaxEngines;
+    const envFactoryMaxEngines = this.resolveFactoryMaxEngines(configuredCount);
+    const factoryMaxEngines = metadataFactoryMaxEngines != null
+      ? (envFactoryMaxEngines != null
+          ? Math.min(envFactoryMaxEngines, Math.max(0, Math.min(configuredCount, metadataFactoryMaxEngines)))
+          : Math.max(0, Math.min(configuredCount, metadataFactoryMaxEngines)))
+      : envFactoryMaxEngines;
     const factoryAllowance = this.resolveFactoryAllowedEngines({
       engineCount: configuredCount,
       onlineHealthyEngines: configuredCount,
@@ -1778,15 +1953,33 @@ export class HbxEnginePoolService implements OnModuleInit {
       factoryMaxEngines,
     });
     const degraded = String(capacity?.operationalStatus || '') === 'degraded';
+    // `activeTarget` = escalonador LEGADO por demanda de fila (ramp 1→N por queue+histerese). Ele
+    // landa em ~3 ao vivo e ERA o que segurava a fábrica em 3 mesmo com RAM/CPU folgados.
     const activeTarget = Math.max(0, Math.min(configuredCount, Math.trunc(Number(capacity?.activeEngineCount || configuredCount))));
-    let automaticAllowedEngines = degraded ? 0 : Math.min(factoryAllowance.allowedEngines, activeTarget);
-    if (!manualDemandActive && !degraded) {
-      automaticAllowedEngines = factoryAllowance.allowedEngines > 0
-        ? Math.max(automaticAllowedEngines, Math.min(autonomousMin, factoryAllowance.allowedEngines, Math.max(activeTarget, autonomousMin)))
-        : 0;
-    }
-    if (factoryMaxEngines != null) {
-      automaticAllowedEngines = Math.min(automaticAllowedEngines, factoryMaxEngines);
+    const elasticHeadroom = this.resolveElasticHeadroomEngineCount(operationalConfig);
+    let automaticAllowedEngines: number;
+    if (elasticEnabled) {
+      // ELÁSTICA LIGADA (default): a contagem SEGUE o headroom RAM+CPU, NÃO o escalonador de fila legado
+      // nem o teto forçado de engineCount/factoryMaxEngines do BANCO. Só o que RAM E CPU comportam manda
+      // (e o factoryAllowance, que já é a frota cheia salvo memory-guard). O ENV `HBX_FACTORY_MAX_ENGINES`
+      // (override explícito do ops) CONTINUA respeitado. A trava absoluta segue sendo `factoryCapacity`
+      // (≤ frota declarada) no clamp final — sem runaway.
+      automaticAllowedEngines = degraded ? 0 : Math.min(factoryAllowance.allowedEngines, elasticHeadroom);
+      if (envFactoryMaxEngines != null) {
+        automaticAllowedEngines = Math.min(automaticAllowedEngines, envFactoryMaxEngines);
+      }
+    } else {
+      // ELÁSTICA DESLIGADA (modo manual): comportamento legado — segue a demanda de fila e respeita o
+      // teto forçado herdado (o dono pediu controle manual, então o número gravado vale).
+      automaticAllowedEngines = degraded ? 0 : Math.min(factoryAllowance.allowedEngines, activeTarget);
+      if (!manualDemandActive && !degraded) {
+        automaticAllowedEngines = factoryAllowance.allowedEngines > 0
+          ? Math.max(automaticAllowedEngines, Math.min(autonomousMin, factoryAllowance.allowedEngines, Math.max(activeTarget, autonomousMin)))
+          : 0;
+      }
+      if (factoryMaxEngines != null) {
+        automaticAllowedEngines = Math.min(automaticAllowedEngines, factoryMaxEngines);
+      }
     }
     automaticAllowedEngines = Math.max(0, Math.min(factoryCapacity, automaticAllowedEngines));
     const productionMode: HbxEngineSchedulerStatus['productionMode'] = manualDemandActive
@@ -1806,6 +1999,9 @@ export class HbxEnginePoolService implements OnModuleInit {
       factoryMaxEngines: factoryAllowance.maxEngines,
       onlineHealthyEngines,
       memoryPressurePercent,
+      cpuPressurePercent: this.resolveCpuPressurePercent(),
+      elasticHeadroomEngines: this.resolveElasticHeadroomEngineCount(operationalConfig),
+      elasticEnabled,
       googleMode: 'manual_only',
       manualDemandActive,
       productionMode,

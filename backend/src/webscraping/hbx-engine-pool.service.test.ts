@@ -8,6 +8,7 @@ import {
   getHbxEnginePurposeRange,
   HbxEnginePoolService,
   parseHostMemoryPressurePercent,
+  parseProcStatCpuSample,
   parseHbxEngineUrls,
   resolveConfiguredHbxEngineUrls,
 } from './hbx-engine-pool.service';
@@ -615,9 +616,15 @@ test('elastic sync wakes stopped engines below target and stops idle engines abo
     HBX_ENGINE_MAX_COUNT: '5',
     HBX_ENGINE_WARM_MIN: '1',
     HBX_CLIENT_RESERVED_ENGINES: '0',
-    HBX_FACTORY_MAX_ENGINES: '5',
+    // ENV override do ops = 4: com a elástica ligada o alvo SEGUE o headroom RAM+CPU mas o ENV explícito
+    // ainda capa em 4 → desired=4, acorda 2/3 (standby) e para o 5 (acima do alvo). Valida a mecânica
+    // de wake/stop com o novo contrato (elástica segue headroom, não o escalonador de fila legado).
+    HBX_FACTORY_MAX_ENGINES: '4',
     HBX_FACTORY_START_HOUR: '0',
     HBX_FACTORY_END_HOUR: '0',
+    // syncElasticEngineDesiredStates só roda quando o governor está habilitado por ENV (kill-switch
+    // legado). Sem isso ele retorna cedo no warm e o teste mediria 1 em vez do alvo.
+    HBX_ENGINE_GOVERNOR_ENABLED: '1',
   }, async () => {
     const rows = buildEngineRows(5);
     rows[1].status = 'stopped';
@@ -1272,5 +1279,100 @@ test('standby engines with stale offline health are excluded; only HTTP-healthy 
     const eligibleAfterHealthCheck = await service.getEligibleEnginesForCurrentQueue('mass_data');
     assert.equal(eligibleAfterHealthCheck.length, 5,
       'after health re-poll all five engines with online status must be eligible');
+  });
+});
+
+// ── Elástico RAM+CPU: teto efetivo = min(RAM, CPU), travado em [warmMin, frota] ──────────────────
+
+test('parseProcStatCpuSample reads idle+iowait and total from the aggregate cpu line', () => {
+  // cpu user nice system idle iowait irq softirq steal ...
+  const sample = parseProcStatCpuSample('cpu  100 0 50 800 40 0 10 0 0 0\ncpu0 ...');
+  assert.deepEqual(sample, { idle: 840, total: 1000 });
+  assert.equal(parseProcStatCpuSample('no cpu line here'), null);
+});
+
+test('elastic headroom never exceeds the declared fleet even with idle CPU and RAM', () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1' }, () => {
+    const service = new HbxEnginePoolService({} as any) as any;
+    service.resolveMemoryPressurePercent = () => 10;
+    service.resolveCpuPressurePercent = () => 5;
+    const headroom = service.resolveElasticHeadroomEngineCount({ enabled: true, metadataJson: '{}' });
+    // Trava absoluta: nunca passa de getConfiguredHbxEngineCount() (=20), mesmo com tudo folgado.
+    assert.equal(headroom, 20);
+  });
+});
+
+test('elastic headroom is the min of the RAM ceiling and the CPU ceiling', () => {
+  withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: '82',
+    HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: '85',
+    HBX_FACTORY_CPU_SOFT_PRESSURE_PERCENT: '80',
+    HBX_FACTORY_CPU_HARD_PRESSURE_PERCENT: '88',
+  }, () => {
+    const service = new HbxEnginePoolService({} as any) as any;
+    // RAM folgada (teto 20), CPU em banda hard (>=88 → 0.25*20=5). min(20,5)=5.
+    service.resolveMemoryPressurePercent = () => 50;
+    service.resolveCpuPressurePercent = () => 90;
+    const cpuBound = service.resolveElasticHeadroomEngineCount({ enabled: true, metadataJson: '{}' });
+    assert.equal(cpuBound, 5);
+  });
+});
+
+test('elastic ON neutralizes a forced low factoryMaxEngines from the DB metadata', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_MAX_ENGINES: '',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
+    HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
+  }, async () => {
+    const service = new HbxEnginePoolService({} as any) as any;
+    service.isWithinClientPriorityWindow = () => false;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    service.hasManualDemand = async () => false;
+    service.getConfiguredEngineUrls = async () => buildEngineRows(20).map((r: any) => r.url);
+    service.resolveMemoryPressurePercent = () => 40;
+    service.resolveCpuPressurePercent = () => 30;
+    // turbo_noturno forçado em 1 (o cap que prendia a fábrica), mas elástica LIGADA (default).
+    service.getOperationalConfig = async () => ({ enabled: true, metadataJson: '{"factoryMaxEngines":1,"factoryMinEngines":1}' });
+    const scheduler = await service.getSchedulerStatus();
+    assert.equal(scheduler.elasticEnabled, true);
+    // O teto forçado (1) NÃO segura mais: RAM+CPU folgados → frota inteira liberada.
+    assert.equal(scheduler.automaticAllowedEngines, 20);
+    assert.equal(scheduler.elasticHeadroomEngines, 20);
+  });
+});
+
+test('elastic OFF lets the forced DB factoryMaxEngines cap hold (manual override respected)', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_MAX_ENGINES: '',
+    HBX_FACTORY_START_HOUR: '0',
+    HBX_FACTORY_END_HOUR: '0',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
+    HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
+  }, async () => {
+    const service = new HbxEnginePoolService({} as any) as any;
+    service.isWithinClientPriorityWindow = () => false;
+    service.healthCheckEngines = async () => buildEngineRows(20);
+    service.hasManualDemand = async () => false;
+    service.getConfiguredEngineUrls = async () => buildEngineRows(20).map((r: any) => r.url);
+    service.resolveMemoryPressurePercent = () => 40;
+    service.resolveCpuPressurePercent = () => 30;
+    // elasticEnabled=false → o teto forçado do banco (4) volta a valer como override manual.
+    service.getOperationalConfig = async () => ({ enabled: true, metadataJson: '{"elasticEnabled":false,"factoryMaxEngines":4}' });
+    const scheduler = await service.getSchedulerStatus();
+    assert.equal(scheduler.elasticEnabled, false);
+    assert.equal(scheduler.automaticAllowedEngines, 4);
   });
 });
