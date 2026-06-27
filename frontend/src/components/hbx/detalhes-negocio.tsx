@@ -602,7 +602,9 @@ function ChannelRow({
 export function DetalhesNegocio({
   detail,
   negocio,
-  title = "Detalhes do negócio",
+  // Título unificado nas 3 telas (27/06): mesmo card = mesmo nome. "Detalhes" sem
+  // jargão ("lead"/"negócio") — o nome da empresa já aparece no herói logo abaixo.
+  title = "Detalhes",
   onClose,
   heroAction,
   crownSlot,

@@ -1846,7 +1846,7 @@ export function AtendimentoClient() {
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
                         {loadError || (inboxWaStatus === "connected"
                           ? "Nenhuma conversa ainda — as mensagens aparecem aqui."
-                          : "WhatsApp ainda não conectado. Vincule o número para receber e responder no Atendimento.")}
+                          : "WhatsApp ainda não conectado. Vincule o número para receber e responder as conversas aqui.")}
                       </span>
                       {!loadError && inboxWaStatus !== "connected" && (
                         <button className="btn-teal" onClick={() => setWaModalOpen(true)}>
@@ -2203,7 +2203,7 @@ export function AtendimentoClient() {
               obsBusy={obsBusy}
               onToggleDoNotCall={convo ? () => alternarNaoLigar(!card?.customer?.doNotCall) : undefined}
               historyLabel="Histórico do lead"
-              title="Detalhes do lead"
+              title="Detalhes"
               actions={convo ? (
                 <div className="dn-cockpit">
                   {/* TIER 1 — Fechar venda */}

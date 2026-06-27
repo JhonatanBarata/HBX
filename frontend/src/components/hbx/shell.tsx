@@ -243,11 +243,14 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
 
 export const NAV_LINKS = [
   { id: "dash", label: "Dashboard", href: "/dashboard" },
-  // 15/06 (#5): Radar+Leads viram UMA entrada "Radar" → /leads (achar+puxar+distribuir
-  // no mesmo lugar). A busca crua /webscraping segue roteável (admin), fora do menu.
-  { id: "leads", label: "Leads", href: "/leads" },
-  { id: "vendas", label: "Vendas", href: "/vendas", chevron: true },
-  { id: "atend", label: "Atendimento", href: "/atendimento" },
+  // Fluxo do vendedor em ORDEM: Encontrar → Conversar → Fechar (27/06, ordem do
+  // dono). O rótulo é o VERBO do que se faz ali; as rotas seguem /leads /atendimento
+  // /vendas. Atendimento entra ANTES de Vendas — a ordem do menu passa a bater com o
+  // trabalho (acho a empresa → falo no WhatsApp → fecho). O par visual é o trilho
+  // (FlowRail) no topo das 3 telas. 15/06 (#5): /webscraping segue roteável (admin).
+  { id: "leads", label: "Encontrar", href: "/leads" },
+  { id: "atend", label: "Conversar", href: "/atendimento" },
+  { id: "vendas", label: "Fechar", href: "/vendas", chevron: true },
   { id: "bot", label: "Bot", href: "/bot" },
   { id: "relat", label: "Relatórios", href: "/relatorios" },
   { id: "config", label: "Configurações", href: "/configuracoes" },

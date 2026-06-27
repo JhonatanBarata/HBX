@@ -58,7 +58,10 @@ export class RadarSearchRunConfigService {
   }
 
   getHbxBatchTimeoutMs() {
-    return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 35_000));
+    // 27/06: subido 35s→90s. Sob 20 motores concorrentes a fonte estrangula e a busca passa de 35s →
+    // morria por timeout ANTES de salvar (medido: SP×padarias = 10 leads NOVOS por busca, perdidos no
+    // timeout). 90s deixa a maioria completar sem capar motor (respeita "teto 20"). Ajustável por env.
+    return Math.max(5_000, parsePositiveIntegerEnv('HBX_SEARCH_BATCH_TIMEOUT_MS', 90_000));
   }
 
   getHbxSocialBatchTimeoutMs(batchTimeoutMs: number) {

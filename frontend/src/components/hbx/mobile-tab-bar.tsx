@@ -1,10 +1,10 @@
 "use client";
 
 // Barra de abas inferior — render APENAS quando useIsMobile() = true.
-// 5 abas fixas: Início · Radar · Vendas · Chat · Mais.
-// Respeita isModuleVisible (mesma fonte da Sidebar). Item ativo = pathname.
-// Folha "Mais" (bottom sheet) usa .hbx-veil.to-bottom / .hbx-drawer-bottom
-// da central — NUNCA re-posiciona inline.
+// 5 abas fixas: Início · Encontrar · Conversar · Fechar · Mais (verbos do fluxo,
+// na ordem do trabalho — 27/06). Respeita isModuleVisible (mesma fonte da Sidebar).
+// Item ativo = pathname. Folha "Mais" (bottom sheet) usa .hbx-veil.to-bottom /
+// .hbx-drawer-bottom da central — NUNCA re-posiciona inline.
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,10 +16,10 @@ import { useIsMobile } from "@/lib/use-is-mobile";
 
 // Abas fixas da barra inferior (Master/Gerencial NÃO entram aqui).
 const TABS = [
-  { id: "dash",   label: "Início",  href: "/dashboard",   icon: "dash" },
-  { id: "leads",  label: "Radar",   href: "/leads",        icon: "leads" },
-  { id: "vendas", label: "Vendas",  href: "/vendas",       icon: "vendas" },
-  { id: "atend",  label: "Chat",    href: "/atendimento",  icon: "atend" },
+  { id: "dash",   label: "Início",     href: "/dashboard",   icon: "dash" },
+  { id: "leads",  label: "Encontrar",  href: "/leads",        icon: "leads" },
+  { id: "atend",  label: "Conversar",  href: "/atendimento",  icon: "atend" },
+  { id: "vendas", label: "Fechar",     href: "/vendas",       icon: "vendas" },
 ] as const;
 
 // Mapeamento rota → id de aba (para calcular a aba ativa)

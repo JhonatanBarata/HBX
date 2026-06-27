@@ -831,7 +831,7 @@ export function LeadsClient() {
       : tab === "carteira"
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
         : city
-          ? `Prateleira vazia pra ${city}. Use o Radar → Buscar no painel ao lado.`
+          ? `Nenhuma empresa disponível em ${city} ainda. Use o Radar ao lado para buscar.`
           : "Escolha cidade + segmento no painel ao lado e busque leads.";
 
   const meterPct = Math.min(100, Math.round(
@@ -958,7 +958,7 @@ export function LeadsClient() {
       <DetalhesNegocio
         key={lead.id}
         detail={detail}
-        title={opts?.title ?? "Detalhes do lead"}
+        title={opts?.title ?? "Detalhes"}
         onClose={opts?.onClose}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
         onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone) : undefined}
@@ -1017,7 +1017,7 @@ export function LeadsClient() {
     const stateLabel = runActive
       ? "Varrendo agora"
       : runPaused
-        ? "Descansando — retoma sozinho"
+        ? "Em pausa — volta sozinho"
         : "Pronto pra buscar";
     const stateClass = runActive ? "radar-state-label--funcionando"
       : runPaused ? "radar-state-label--pausado"
@@ -1193,7 +1193,7 @@ export function LeadsClient() {
         {/* P5: avisos de parada com atalhos clicáveis */}
         {isPausadoCarteira && (
           <div className="radar-stop-warn radar-stop-warn--pausado">
-            <span>Encheu sua carteira ({foundCount} encontrado{foundCount !== 1 ? "s" : ""}) — volta sozinho quando abrir espaço.</span>
+            <span>Sua carteira está cheia ({foundCount} encontrado{foundCount !== 1 ? "s" : ""}). O Radar volta a buscar sozinho quando abrir espaço.</span>
             <button className="btn-ghost btn-xs" onClick={() => setAlcance("50")}>+50 km</button>
           </div>
         )}
@@ -1498,7 +1498,7 @@ export function LeadsClient() {
               )}
               {runPaused && (
                 <div className="radar2-live radar2-live--pausado">
-                  <span className="dot" /> Descansando — retoma sozinho
+                  <span className="dot" /> Em pausa — volta sozinho
                 </div>
               )}
 
@@ -1680,11 +1680,6 @@ export function LeadsClient() {
           </div>
         </section>
 
-        {!isSeller && (
-          <p className="radar2-cap" style={{ padding: "0 4px" }}>
-            Você vê o lago todo mascarado (admin). O vendedor vê a mesma tela — só muda quantos cabem na carteira dele.
-          </p>
-        )}
       </div>
 
       {/* B4: Desktop: aside lateral com 2 estados */}
