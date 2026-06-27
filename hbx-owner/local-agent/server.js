@@ -1645,6 +1645,7 @@ async function route(req, res) {
       ok,
       deletedNeverRun: backend.deletedNeverRun ?? null,
       exhaustedAttempted: backend.exhaustedAttempted ?? null,
+      canceledCampaigns: backend.canceledCampaigns ?? null,
       remainingQueued: backend.remainingQueued ?? null,
       ops: data,
       reason: response.reason || (vpsResult && vpsResult.error) || data.error,

@@ -1535,8 +1535,9 @@ $("#btn-vps-purge-queue").addEventListener("click", async () => {
     if (r.ok) {
       const del = (r.deletedNeverRun ?? 0).toLocaleString("pt-BR");
       const exh = (r.exhaustedAttempted ?? 0).toLocaleString("pt-BR");
+      const camp = (r.canceledCampaigns ?? 0).toLocaleString("pt-BR");
       const rest = r.remainingQueued != null ? r.remainingQueued.toLocaleString("pt-BR") : "—";
-      fb.textContent = `fila limpa: ${del} apagadas + ${exh} exauridas · restam ${rest} na fila`;
+      fb.textContent = `fábrica reiniciada: ${del} apagadas + ${exh} exauridas + ${camp} campanhas zeradas · fila ${rest} → reinicia em cidade grande`;
       fb.className = "delta up";
     } else {
       fb.textContent = `limpar fila: ${r.message || r.reason || "falhou"}`;

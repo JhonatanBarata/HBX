@@ -901,6 +901,19 @@ export class RadarCoreFactoryAdminMixin {
       this.logger.warn(`[purge-dead-queue] falha ao exaurir attempted-empty: ${error instanceof Error ? error.message : String(error)}`);
       return { count: 0 };
     });
+    // CANCELA as campanhas-lixo auto-geradas: o `ensureNightFactoryWork` cria UMA campanha por missão
+    // (city,segment) e, enquanto ela tiver backlog, retorna 'active_campaign_exists' e a MANTÉM pra sempre
+    // — campanha guiada (ex.: Acarape) se reabastece sozinha e TRAVA o cursor de avançar pra cidade grande.
+    // Resultado: dezenas de micro-campanhas de cidadezinha se auto-perpetuando. Aqui zeramos todas (são
+    // 100% auto-geradas pela fábrica; a fábrica recria UMA nova a partir do cursor resetado = São Paulo).
+    const canceledCampaigns = await (this.prisma as any).webscrapingCampaign.updateMany({
+      where: { mode: 'mass_data', status: { in: ['queued', 'running', 'sleeping', 'partial_error'] } },
+      data: { status: 'canceled', nextRunAt: null, lastErrorMessage: 'Fábrica reiniciada pelo dono (limpar fila morta).' },
+    }).catch(() => ({ count: 0 }));
+    await (this.prisma as any).webscrapingCampaignTask.updateMany({
+      where: { status: { in: ['queued', 'running'] } },
+      data: { status: 'canceled', lockedByEngineId: null, lockedUntil: null },
+    }).catch(() => null);
     const remainingQueued = await (this.prisma as any).webscrapingCampaignTask.count({ where: { status: 'queued' } }).catch(() => null);
     // RESET do cursor: a fábrica volta ao TOPO do pool (agora = cidades grandes/produtivas). Sem isso o
     // currentCityIndex continuaria apontando pra microcidade do "A" e o reabastecimento voltaria pra lá.
@@ -911,12 +924,15 @@ export class RadarCoreFactoryAdminMixin {
         update: { currentStateIndex: 0, currentCityIndex: 0, currentSegmentIndex: 0, currentTargetTypeIndex: 0, currentCity: null, currentSegment: null, nextRunAt: new Date() },
       }).catch(() => null);
     }
+    // Cria JÁ uma missão nova a partir do cursor resetado (= São Paulo) — sem isso esperaria o loop.
+    await this.ensureNightFactoryWork(user).catch(() => null);
     // Acorda o pump: com a fila baixa ele reabastece com combo bom já no próximo ciclo.
     this.scheduleRadarCampaignPump(0);
     const deletedNeverRun = safeInteger(deleted?.count);
     const exhaustedAttempted = safeInteger(exhausted?.count);
-    this.logger.log(`[purge-dead-queue] dono=${user?.id || '?'} apagadas=${deletedNeverRun} exauridas=${exhaustedAttempted} restamQueued=${remainingQueued ?? '?'}`);
-    return { ok: true, deletedNeverRun, exhaustedAttempted, remainingQueued };
+    const canceledCampaignCount = safeInteger((canceledCampaigns as any)?.count);
+    this.logger.log(`[purge-dead-queue] dono=${user?.id || '?'} apagadas=${deletedNeverRun} exauridas=${exhaustedAttempted} campanhasCanceladas=${canceledCampaignCount} restamQueued=${remainingQueued ?? '?'}`);
+    return { ok: true, deletedNeverRun, exhaustedAttempted, canceledCampaigns: canceledCampaignCount, remainingQueued };
   }
 
   async forceNightRadarFactory(user: any, input: WebscrapingOperationalConfigInput = {}) {
