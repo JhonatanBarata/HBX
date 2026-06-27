@@ -182,6 +182,14 @@ export class WhatsAppModalService {
   // pelos polls de reconnecting), então um piscar é segurado mas uma queda real cai sozinha.
   private readonly reconnectGraceStartedAt = new Map<string, number>();
   private readonly liveHealthCache = new Map<number, { capturedAtMs: number; payload: WhatsAppLiveHealthResponse }>();
+  // PR4-F3: throttle do reconciler central (estado banco↔motor). Curto-circuita reconciliações
+  // repetidas no mesmo tenantKey dentro da janela → 1 chamada de connectionState por janela,
+  // nunca a cada mensagem/listagem. NÃO é reconnect de socket: só corrige status no banco.
+  private readonly recentProviderReconcileAt = new Map<string, number>();
+  private readonly providerReconcileCooldownMs = Math.max(
+    5_000,
+    Math.min(120_000, Number(process.env.WHATSAPP_RECONCILE_COOLDOWN_MS || 20_000) || 20_000),
+  );
   private readonly connectAttemptCooldownMs = 12000;
   private readonly webhookConfigureCooldownMs = 60000;
   private readonly qrCodeCacheTtlMs = 45000;
@@ -202,6 +210,41 @@ export class WhatsAppModalService {
     if (user?.isSystemMaster) return true;
     const role = String(user?.role || '').trim().toUpperCase();
     return role === 'ADMIN' && user?.canViewBilling !== false;
+  }
+
+  // Mesma noção de "dono da sessão" do inbox (isAdminOwnerSessionUser): master OU ADMIN-dono
+  // (com billing). Gerente (ADMIN sem billing) e vendedor (USER) NÃO são donos. Recebe a linha
+  // crua do User (role/isSystemMaster/canViewBilling) — não o objeto de request.
+  private isAdminOwnerUserRow(
+    row: { role?: string | null; isSystemMaster?: boolean | null; canViewBilling?: boolean | null } | null | undefined,
+  ): boolean {
+    if (!row) return false;
+    if (row.isSystemMaster) return true;
+    const role = String(row.role || '').trim().toUpperCase();
+    return role === 'ADMIN' && row.canViewBilling !== false;
+  }
+
+  // PR4-F1: carrega papel pelo userId pra decidir se a sessão dele pode virar o ponteiro
+  // da empresa (currentWhatsappConnectionSessionId). Cache curto por request evitado de
+  // propósito — é 1 SELECT enxuto e só roda no caminho de persistSnapshot com userId.
+  private async isUserAdminOwnerById(userId: number | null | undefined): Promise<boolean> {
+    if (!userId) return false;
+    const row = await this.prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: { role: true, isSystemMaster: true, canViewBilling: true },
+    });
+    return this.isAdminOwnerUserRow(row as any);
+  }
+
+  // PR4-F1: modo de atendimento efetivo (default = individual). Espelha a normalização do
+  // assertConnectionGate. shared = pool da empresa; individual = cada um conecta o seu chip.
+  private async resolveAttendanceMode(companyId: number): Promise<'shared' | 'individual'> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { whatsappAttendanceMode: true },
+    });
+    const rawMode = String((company as any)?.whatsappAttendanceMode || '').trim().toLowerCase();
+    return rawMode === 'shared' ? 'shared' : 'individual';
   }
 
   // Número limpo pra exibir (tira o "@s.whatsapp.net"/"@c.us" e formata BR). O motor às vezes guarda
@@ -644,23 +687,93 @@ export class WhatsAppModalService {
     }
   }
 
+  // PR4-F3: self-heal (banco diz disconnected/offline mas o motor está open) agora é só uma
+  // FACE do reconciler central. Mantém a assinatura/retorno (snapshot connected ou null) que
+  // getCompanyStatus já consome — sem remendo lateral duplicado.
   private async recoverUserSessionIfProviderOpen(
     company: CompanyModalFields,
     fallback: ModalSnapshot,
     userId: number,
   ): Promise<ModalSnapshot | null> {
-    const tenantKey = this.resolveOperationalTenantKey(company);
+    const result = await this.reconcileSessionAgainstProvider(company, fallback, userId);
+    return result?.status === 'connected' ? result : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // PR4-F3 — Reconciler central: MOTOR = fonte da verdade do estado da sessão
+  // ---------------------------------------------------------------------------
+  // Ponto único e reutilizável que alinha o BANCO ao MOTOR ao vivo (1 chamada de
+  // connectionState — NUNCA fetchInstances em todo request, NUNCA reconnect/logout de socket).
+  // Regras:
+  //   (b) motor 'open' e banco diz disconnected/offline  → promove banco pra connected;
+  //   (c) motor NÃO acha a instância e banco diz active/connected → demova pra
+  //       reconnecting (dentro da janela de grace, anti-flap) ou disconnected.
+  //   (else) banco e motor concordam → não toca em nada.
+  // Throttle por tenantKey (providerReconcileCooldownMs) pra manter LEVE no caminho quente.
+  // Retorna o snapshot reconciliado (ou o fallback) — null só em erro transitório do motor.
+  private async reconcileSessionAgainstProvider(
+    company: CompanyModalFields,
+    fallback: ModalSnapshot,
+    userId?: number,
+  ): Promise<ModalSnapshot | null> {
+    const tenantKey = userId
+      ? this.buildUserTenantKey(company, userId)
+      : this.resolveOperationalTenantKey(company);
+
+    // Curto-circuito: já reconciliamos esse tenantKey há pouco → não repete a chamada ao motor.
+    const lastAt = this.recentProviderReconcileAt.get(tenantKey);
+    if (typeof lastAt === 'number' && Date.now() - lastAt < this.providerReconcileCooldownMs) {
+      return fallback;
+    }
+    this.recentProviderReconcileAt.set(tenantKey, Date.now());
+
+    const bankSaysConnected = fallback.status === 'connected';
+    const bankSaysDown = fallback.status === 'disconnected' || fallback.status === 'offline';
+
     try {
       const payload = await this.fetchProviderConnectionStateForPairing(tenantKey);
-      if (!payload || this.isMissingInstancePayload(payload)) return null;
+      const instanceMissing = !payload || this.isMissingInstancePayload(payload);
+
+      // (c) Motor não acha a instância, mas o banco insiste que está conectado → corrige.
+      if (instanceMissing) {
+        if (bankSaysConnected) {
+          const downSnapshot = this.shouldPreserveSessionDuringReconnectGrace(fallback)
+            ? this.buildReconnectingSnapshot(fallback, 'Instancia ausente no motor durante janela de reconexao.')
+            : {
+                ...fallback,
+                status: 'disconnected' as WhatsAppModalStatus,
+                connectedAt: null,
+                lastError: null,
+                updatedAt: new Date(),
+                qrCodeDataUrl: null,
+                rawStatus: null,
+              };
+          await this.persistSnapshot(company, downSnapshot, 'reconcile_provider_missing', userId);
+          return downSnapshot;
+        }
+        return fallback;
+      }
+
       const snapshot = this.reconcileTransientSnapshot(tenantKey, await this.extractSnapshot(payload, fallback));
-      if (snapshot.status !== 'connected') return null;
-      await this.persistSnapshot(company, snapshot, 'status_self_heal', userId);
-      return snapshot;
+
+      // (b) Motor 'open' e banco caído → promove pra connected (o antigo self-heal).
+      if (snapshot.status === 'connected' && bankSaysDown) {
+        await this.persistSnapshot(company, snapshot, 'reconcile_provider_open', userId);
+        return snapshot;
+      }
+
+      // (c') Motor reporta caído e banco diz conectado → alinha banco ao motor.
+      if ((snapshot.status === 'disconnected' || snapshot.status === 'offline') && bankSaysConnected) {
+        await this.persistSnapshot(company, snapshot, 'reconcile_provider_down', userId);
+        return snapshot;
+      }
+
+      // Concordam (ou estado transitório que o anti-flap já cuida) → não força escrita.
+      return snapshot.status === fallback.status ? fallback : snapshot;
     } catch (error) {
       const providerError = this.toProviderError(error);
       this.logger.warn(
-        `Modal WhatsApp status self-heal skipped for company ${company.id} tenant=${tenantKey}: ${providerError.message}`,
+        `Modal WhatsApp reconcile skipped for company ${company.id} tenant=${tenantKey}: ${providerError.message}`,
       );
       return null;
     }
@@ -1237,6 +1350,69 @@ export class WhatsAppModalService {
     return;
   }
 
+  // PR5 — Trava "compartilhado × individual", sem meio-termo (decisão de produto RÍGIDA).
+  // Guarda ADITIVA e CONSERVADORA: só dispara em violação REAL e só no caminho per-user
+  // (userId presente) quando o snapshot está `connected` com número conhecido. Defesa em
+  // profundidade do assertConnectionGate (que já barra na ENTRADA de start/qr/pairing): os
+  // caminhos de reconcile/self-heal (`reconcile_provider_open`, status_sync) chamam
+  // persistSnapshot com userId SEM passar pelo gate de entrada — esta guarda fecha esse furo.
+  //
+  // Dois meio-termos PROIBIDOS:
+  //   (a) modo SHARED + vendedor (USER comum) abrindo sessão PRÓPRIA → no shared o atendimento
+  //       é por ATRIBUIÇÃO do número da empresa; vendedor não conecta chip próprio. Admin/master
+  //       passa (ele opera a linha da empresa).
+  //   (b) modo INDIVIDUAL + vendedor conectando o MESMO número da LINHA PRINCIPAL da empresa
+  //       (sessão company-{id}) numa sessão de usuário → no individual cada um usa um número
+  //       PRÓPRIO. Bloqueia ANTES da purga (purgeForeignNumberGhosts), senão o vendedor venceria
+  //       e a purga apagaria as conversas/mensagens da linha principal (efeito destrutivo SILENCIOSO).
+  //
+  // Caminhos VÁLIDOS seguem intactos: company-main (sem userId), admin/master conectando,
+  // vendedor com número PRÓPRIO distinto no individual, e shared só com a empresa conectada.
+  private async assertSharedIndividualPolicyOrBlock(
+    company: CompanyModalFields,
+    snapshot: ModalSnapshot,
+    userId?: number,
+  ): Promise<void> {
+    // Só per-user e só conectado com número conhecido — fora disso, nada a validar.
+    if (!userId) return;
+    if (snapshot.status !== 'connected') return;
+    const incomingPhone = this.normalizeTrialPhone(snapshot.phone);
+    if (!incomingPhone) return;
+
+    // Admin-dono/master pode operar a linha da empresa em qualquer modo — nunca bloquear.
+    if (await this.isUserAdminOwnerById(userId)) return;
+
+    const mode = await this.resolveAttendanceMode(Number(company.id));
+
+    if (mode === 'shared') {
+      // (a) vendedor abrindo sessão própria no compartilhado.
+      throw new ForbiddenException(
+        'Empresa em modo compartilhado: o atendimento usa o número da empresa por atribuição; ' +
+        'vendedor não conecta chip próprio. Mude para o modo individual para cada vendedor ter o seu número.',
+      );
+    }
+
+    // (b) individual: vendedor não pode conectar o número que é a LINHA PRINCIPAL da empresa
+    // (sessão company-{id}). A linha principal é o número da sessão da própria empresa, OU o
+    // whatsappModalPhone persistido como fallback (cobre o caso da sessão company-main ainda
+    // não materializada no banco). Só barra se o número BATE com a linha principal.
+    const companyTenantKey = this.buildTenantKey(company);
+    const mainSession = await this.prisma.whatsAppConnectionSession.findFirst({
+      where: { companyId: Number(company.id), provider: 'webwhats', tenantKey: companyTenantKey },
+      orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { phoneNormalized: true },
+    });
+    const mainLinePhone =
+      this.normalizeTrialPhone(mainSession?.phoneNormalized) ||
+      this.normalizeTrialPhone(company.whatsappModalPhone);
+
+    if (mainLinePhone && mainLinePhone === incomingPhone) {
+      throw new ForbiddenException(
+        'Esse número já é a linha principal da empresa; no modo individual cada vendedor usa um número próprio.',
+      );
+    }
+  }
+
   private async registerTrialPhoneUsageOrBlock(company: CompanyModalFields, phone: string | null, snapshot: ModalSnapshot, source: string) {
     const phoneNormalized = this.normalizeTrialPhone(phone);
     if (!phoneNormalized) return;
@@ -1452,6 +1628,14 @@ export class WhatsAppModalService {
         },
       });
 
+      // PR4-F2: purga de fantasma de MESMA tenantKey (número trocado no mesmo "slot",
+      // ex.: admin trocou ...720→...884 em company-5-user-6). As sessões antigas dessa
+      // tenantKey acabaram de virar 'disconnected' acima e ficaram com as conversas/mensagens
+      // PINADAS nelas → órfãs (inbox filtra por sessão ATIVA → o dono não responde mais →
+      // Forbidden). Re-pina conteúdo pra sessão ativa atual e aposenta o fantasma VAZIO.
+      // NUNCA deleta conversa/mensagem — só MOVE.
+      await this.reconcileSameTenantKeyGhosts(Number(company.id), tenantKey, String(session.id));
+
       return String(session.id);
     }
 
@@ -1509,6 +1693,160 @@ export class WhatsAppModalService {
       await tx.companyConversation.deleteMany({ where: { whatsappConnectionSessionId: { in: ghostIds } } });
       await tx.whatsAppConnectionSession.deleteMany({ where: { id: { in: ghostIds } } });
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // PR4-F2 — purga de fantasma de MESMA tenantKey, SEM perder conversa
+  // ---------------------------------------------------------------------------
+  // Caso: número NOVO conecta na MESMA tenantKey (ex.: admin trocou de chip ...720→...884 em
+  // company-5-user-6). O reconcile cria/reusa a sessão ATIVA e marca as OUTRAS sessões dessa
+  // tenantKey como 'disconnected' — mas as conversas/mensagens delas continuam PINADAS na
+  // sessão morta (inbox só enxerga sessão ATIVA → conversa some, dono toma Forbidden ao responder).
+  //
+  // Diferença para purgeForeignNumberGhosts (TRAVA 1): aquele é "mesmo NÚMERO, tenantKey
+  // DIFERENTE" e PODE deletar (chip migrado entre usuários). Este é "MESMA tenantKey, número
+  // diferente" e é o MESMO dono/slot → JAMAIS deleta conversa/mensagem: só MOVE pra sessão ativa.
+  //
+  // Idempotente e transacional. Ordem: MOVE conteúdo → só então aposenta o fantasma VAZIO.
+  private async reconcileSameTenantKeyGhosts(
+    companyId: number,
+    tenantKey: string,
+    activeSessionId: string,
+  ): Promise<void> {
+    // Fantasmas = sessões da MESMA empresa+tenantKey que NÃO são a ativa atual.
+    const ghosts = await this.prisma.whatsAppConnectionSession.findMany({
+      where: {
+        companyId,
+        provider: 'webwhats',
+        tenantKey,
+        NOT: { id: activeSessionId },
+      },
+      select: { id: true, status: true },
+    });
+    if (!ghosts.length) return;
+
+    const ghostIds = ghosts.map((g) => g.id);
+
+    // Conversas pinadas nesses fantasmas (carrega chave de unicidade pra detectar colisão
+    // com conversas já existentes na sessão ativa: @@unique(companyId, channel, contact, sessionId)).
+    const ghostConversations = await this.prisma.companyConversation.findMany({
+      where: { companyId, whatsappConnectionSessionId: { in: ghostIds } },
+      select: { id: true, channel: true, contact: true, lastMessageAt: true },
+    });
+
+    // Se não há conversa NEM mensagem ligada, é só aposentar o fantasma vazio (rota rápida).
+    const ghostMessageCount = await this.prisma.companyMessage.count({
+      where: { companyId, whatsappConnectionSessionId: { in: ghostIds } },
+    });
+    if (!ghostConversations.length && ghostMessageCount === 0) {
+      await this.retireEmptyGhostSessions(this.prisma, ghostIds, companyId);
+      return;
+    }
+
+    // Conversas que JÁ existem na sessão ativa (pra detectar colisão de unicidade ao re-pinar).
+    const activeConversations = await this.prisma.companyConversation.findMany({
+      where: { companyId, whatsappConnectionSessionId: activeSessionId },
+      select: { id: true, channel: true, contact: true },
+    });
+    const activeByKey = new Map<string, number>();
+    for (const c of activeConversations) {
+      activeByKey.set(`${c.channel} ${c.contact}`, c.id);
+    }
+
+    let movedConversations = 0;
+    let mergedConversations = 0;
+    let movedMessages = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const conv of ghostConversations) {
+        const collisionTargetId = activeByKey.get(`${conv.channel} ${conv.contact}`);
+        if (!collisionTargetId) {
+          // SEM colisão → re-pina a conversa inteira (e suas mensagens) pra sessão ativa.
+          await tx.companyConversation.update({
+            where: { id: conv.id },
+            data: { whatsappConnectionSessionId: activeSessionId },
+          });
+          const msgs = await tx.companyMessage.updateMany({
+            where: { conversationId: conv.id, companyId },
+            data: { whatsappConnectionSessionId: activeSessionId },
+          });
+          movedMessages += msgs.count;
+          movedConversations += 1;
+          // A conversa re-pinada passa a ocupar a chave: futuras conversas-fantasma do mesmo
+          // contato (outro slot) viram colisão e mergeiam nela (não duplicam).
+          activeByKey.set(`${conv.channel} ${conv.contact}`, conv.id);
+        } else {
+          // COLISÃO (a sessão ativa já tem conversa desse contato): MERGE — move só as
+          // mensagens do fantasma pra conversa-alvo da sessão ativa. NÃO deleta a conversa
+          // fantasma (guardrail: nunca apagar CompanyConversation) — ela fica vazia e some
+          // do inbox por estar na sessão morta. O CONTEÚDO (mensagens) é preservado e visível.
+          const msgs = await tx.companyMessage.updateMany({
+            where: { conversationId: conv.id, companyId },
+            data: { conversationId: collisionTargetId, whatsappConnectionSessionId: activeSessionId },
+          });
+          movedMessages += msgs.count;
+          mergedConversations += 1;
+          // Atualiza o lastMessageAt da conversa-alvo se o fantasma tinha interação mais recente.
+          if (conv.lastMessageAt) {
+            await tx.companyConversation.updateMany({
+              where: { id: collisionTargetId, lastMessageAt: { lt: conv.lastMessageAt } },
+              data: { lastMessageAt: conv.lastMessageAt },
+            });
+          }
+        }
+      }
+
+      // Mensagens que estavam pinadas direto no fantasma sem conversa re-pinada (defensivo:
+      // ex. mensagem cuja conversa colidiu/foi mergeada já foi movida acima; isto cobre
+      // mensagens órfãs de sessão que sobraram apontando pro fantasma).
+      const strayMsgs = await tx.companyMessage.updateMany({
+        where: { companyId, whatsappConnectionSessionId: { in: ghostIds } },
+        data: { whatsappConnectionSessionId: activeSessionId },
+      });
+      movedMessages += strayMsgs.count;
+
+      // Aposenta os fantasmas: deleta a LINHA da sessão só se ela ficou SEM conversa e SEM
+      // mensagem ligada; senão (colisão deixou conversa vazia pinada) marca wipedAt + disconnected.
+      await this.retireEmptyGhostSessions(tx, ghostIds, companyId);
+    });
+
+    this.logger.warn(
+      `[same-tenant-ghosts] tenantKey=${tenantKey} empresa=${companyId}: ${movedConversations} conversa(s) re-pinada(s), ` +
+      `${mergedConversations} mergeada(s), ${movedMessages} mensagem(ns) movida(s) para a sessão ativa ${activeSessionId}. ` +
+      `Nenhuma conversa/mensagem deletada.`,
+    );
+  }
+
+  // PR4-F2: aposenta sessões fantasma. Deleta a LINHA da sessão apenas quando ela não tem mais
+  // NENHUMA conversa nem mensagem ligada (cumprida a ordem MOVE→aposenta); caso ainda reste
+  // conversa (ex.: conversa-vazia de colisão que o guardrail proíbe deletar), só marca
+  // wipedAt + status='disconnected'. Defensivo: nunca deleta sessão que ainda é ponteiro de empresa.
+  private async retireEmptyGhostSessions(tx: any, ghostIds: string[], companyId: number): Promise<void> {
+    if (!ghostIds.length) return;
+    const now = new Date();
+    const deletable: string[] = [];
+    const keepDisconnected: string[] = [];
+    for (const ghostId of ghostIds) {
+      const [convCount, msgCount, pointedBy] = await Promise.all([
+        tx.companyConversation.count({ where: { companyId, whatsappConnectionSessionId: ghostId } }),
+        tx.companyMessage.count({ where: { companyId, whatsappConnectionSessionId: ghostId } }),
+        tx.company.count({ where: { currentWhatsappConnectionSessionId: ghostId } }),
+      ]);
+      if (convCount === 0 && msgCount === 0 && pointedBy === 0) {
+        deletable.push(ghostId);
+      } else {
+        keepDisconnected.push(ghostId);
+      }
+    }
+    if (deletable.length) {
+      await tx.whatsAppConnectionSession.deleteMany({ where: { id: { in: deletable } } });
+    }
+    if (keepDisconnected.length) {
+      await tx.whatsAppConnectionSession.updateMany({
+        where: { id: { in: keepDisconnected } },
+        data: { status: 'disconnected', disconnectedAt: now, wipedAt: now },
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -3272,6 +3610,9 @@ export class WhatsAppModalService {
       this.logger.log(`QR conectado para company ${company.id}.`);
     }
     if (snapshot.status === 'connected' && snapshot.phone) {
+      // PR5: trava shared×individual ANTES da reconcile/purga (bloquear violação antes de
+      // qualquer escrita destrutiva de sessão). Lança ForbiddenException em violação real.
+      await this.assertSharedIndividualPolicyOrBlock(company, snapshot, userId);
       await this.enforceNumberNotSharedAcrossCompaniesOrBlock(company, snapshot, origin, userId);
       await this.registerTrialPhoneUsageOrBlock(company, snapshot.phone, snapshot, origin);
     }
@@ -3283,14 +3624,31 @@ export class WhatsAppModalService {
       // quem conectou vaza pros outros e o poll de um user derruba o status do outro
       // (foi o "erro compartilhado" entre admin e vendedor). Só aponta o currentSession
       // (usado pela bridge company-scoped) quando ESTE usuário está conectado.
+      //
+      // PR4-F1 (trava do ponteiro): no modo INDIVIDUAL, o ponteiro da empresa
+      // (currentWhatsappConnectionSessionId — usado por operações company-scoped/sem userId)
+      // só pode apontar pra sessão de um ADMIN-dono/master. Era last-writer-wins: um poll de
+      // VENDEDOR capturava o ponteiro e operações company-scoped caíam na instância dele.
+      // Vendedor conectando → NÃO mexe no ponteiro (deixa como está). No modo SHARED o
+      // comportamento segue igual (quem conecta o pool é o admin de qualquer forma).
       if (snapshot.status === 'connected' && currentSessionId) {
-        await this.prisma.company.update({
-          where: { id: Number(company.id) },
-          data: {
-            whatsappModalProvider: 'external_modal',
-            currentWhatsappConnectionSessionId: currentSessionId,
-          },
-        });
+        const mode = await this.resolveAttendanceMode(Number(company.id));
+        const pointerAllowed =
+          mode === 'shared' ? true : await this.isUserAdminOwnerById(userId);
+        if (pointerAllowed) {
+          await this.prisma.company.update({
+            where: { id: Number(company.id) },
+            data: {
+              whatsappModalProvider: 'external_modal',
+              currentWhatsappConnectionSessionId: currentSessionId,
+            },
+          });
+        } else {
+          this.logger.log(
+            `[pointer-lock] Modo individual: sessão de vendedor (userId=${userId}) NÃO vira ponteiro ` +
+            `da empresa ${company.id}; currentWhatsappConnectionSessionId preservado.`,
+          );
+        }
       } else if (
         (snapshot.status === 'disconnected' || snapshot.status === 'offline') &&
         company.currentWhatsappConnectionSessionId

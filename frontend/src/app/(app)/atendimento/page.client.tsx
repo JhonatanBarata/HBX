@@ -430,6 +430,9 @@ export function AtendimentoClient() {
   // conexão WhatsApp (R2.9): chip de status + modal QR/start/disconnect
   const [waStatus, setWaStatus] = useState<string | null>(null);
   const [waModalOpen, setWaModalOpen] = useState(false);
+  // Saúde de conexão lida do MOTOR ao vivo (/inbox/whatsapp-health). Verdade do selo
+  // pessoal: só "Conectado" quando o motor está `open` E dá pra enviar (canSend).
+  const [waHealth, setWaHealth] = useState<{ connectedForUi: boolean; canSend: boolean; providerInstanceState: string } | null>(null);
 
 
   // sessões WhatsApp: modo (company/current/meta/none), lista de sessões visíveis,
@@ -586,6 +589,25 @@ export function AtendimentoClient() {
       .catch(() => { /* endpoint pode não estar disponível ainda */ });
   }, []);
 
+  // Saúde de conexão ao vivo (motor): fetch leve à parte, igual o refreshWaSession.
+  // Alimenta o selo PESSOAL com a verdade do motor (open + canSend = Conectado).
+  const refreshWaHealth = useCallback(() => {
+    return apiFetch<{
+      connectedForUi: boolean;
+      canSend: boolean;
+      providerInstanceState: string;
+    }>("/inbox/whatsapp-health")
+      .then(res => {
+        if (!res) { setWaHealth(null); return; }
+        setWaHealth({
+          connectedForUi: Boolean(res.connectedForUi),
+          canSend: Boolean(res.canSend),
+          providerInstanceState: res.providerInstanceState || "unknown",
+        });
+      })
+      .catch(() => setWaHealth(null));
+  }, []);
+
   // Roster completo da empresa para o seletor "Chat" — inclui quem NÃO tem chip
   // conectado. /inbox/whatsapp/admin-panel é só admin-dono; gerente/erro cai no catch
   // (fica só com as sessões conectadas, sem quebrar nada).
@@ -611,9 +633,10 @@ export function AtendimentoClient() {
   useEffect(() => {
     refreshWaStatus();
     refreshWaSession();
-    const t = setInterval(() => { refreshWaStatus(); refreshWaSession(); }, 20000);
+    refreshWaHealth();
+    const t = setInterval(() => { refreshWaStatus(); refreshWaSession(); refreshWaHealth(); }, 20000);
     return () => clearInterval(t);
-  }, [refreshWaStatus, refreshWaSession]);
+  }, [refreshWaStatus, refreshWaSession, refreshWaHealth]);
 
 
   // Carrega o roster da empresa quando é admin em visão-empresa (o seletor "Chat" só
@@ -839,6 +862,10 @@ export function AtendimentoClient() {
   // tempo real: GET /inbox/events (SSE). EventSource não envia o header
   // Authorization, então o stream é lido com fetch + ReadableStream.
   const [sseOn, setSseOn] = useState(false);
+  // marca do último sinal de vida do stream (qualquer chunk: inbox, ping ou
+  // dado solto). O watchdog usa isso pra detectar stream que "morre calado"
+  // atrás do proxy (res.ok resolve mas nada flui → sseOn ficaria "true mentindo").
+  const lastStreamAt = useRef<number>(Date.now());
   useEffect(() => {
     let alive = true;
     let ctrl: AbortController | null = null;
@@ -865,6 +892,8 @@ export function AtendimentoClient() {
           });
           if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
           setSseOn(true);
+          // (re)conectou: zera o relógio do watchdog pra não abortar na largada
+          lastStreamAt.current = Date.now();
           retry = 0;
           const reader = res.body.getReader();
           const dec = new TextDecoder();
@@ -872,12 +901,16 @@ export function AtendimentoClient() {
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
+            // QUALQUER chunk recebido é sinal de vida — inclusive o ': keepalive'
+            // (comentário) e o 'event: ping'. Atualiza antes de parsear os eventos.
+            lastStreamAt.current = Date.now();
             buf += dec.decode(value, { stream: true });
             let cut;
             while ((cut = buf.indexOf("\n\n")) >= 0) {
               const chunk = buf.slice(0, cut);
               buf = buf.slice(cut + 2);
               if (chunk.includes("event: inbox")) bump();
+              // 'event: ping' já contou como vida acima; não precisa bump().
             }
           }
         } catch { /* desconectou — reconecta com backoff */ }
@@ -889,9 +922,22 @@ export function AtendimentoClient() {
     }
 
     connect();
+    // WATCHDOG: se passar >45s sem NENHUM evento útil (nem ping), o stream
+    // está morto-calado — aborta o reader (read() lança → cai no catch →
+    // setSseOn(false) → o loop reconecta com backoff). Com sseOn=false, o poll
+    // de 8s da thread volta sozinho (efeito mais abaixo).
+    const watchdog = window.setInterval(() => {
+      if (!alive) return;
+      if (Date.now() - lastStreamAt.current > 45000) {
+        lastStreamAt.current = Date.now(); // evita rajada de aborts até reconectar
+        ctrl?.abort();
+      }
+    }, 5000);
+
     return () => {
       alive = false;
       ctrl?.abort();
+      clearInterval(watchdog);
       if (reloadTimer) clearTimeout(reloadTimer);
     };
   }, [loadConvs, loadThread, loadCard, loadMetrics]);
@@ -1567,13 +1613,33 @@ export function AtendimentoClient() {
     return sellerFull(sessionMap.get(numberFilter));
   })();
 
+  // Traduz o estado do MOTOR (providerInstanceState) pro vocabulário que o selo já fala
+  // (whatsappPillVariant/Label): open=conectado (tratado fora), connecting→reconnecting
+  // (warn transitório que o selo já conhece — "connecting" cru cairia em vermelho), close→
+  // disconnected; unknown devolve null pra cair no fallback do waStatus (não regredir).
+  const mapHealthToStatus = (providerState: string): string | null => {
+    switch (providerState) {
+      case "open": return "connected";
+      case "connecting": return "reconnecting";
+      case "close": return "disconnected";
+      default: return null; // unknown → fallback no waStatus
+    }
+  };
+
   // Selo de conexão do Atendimento (fix 25/06): pra ADMIN/dono em visão-empresa o selo
   // reflete a EQUIPE — verde quando QUALQUER vendedor está com a linha no ar (sessionList) —
-  // e não o número PESSOAL do admin (que pode estar caído sem derrubar o time). Vendedor e
-  // os demais casos seguem o status pessoal (waStatus) exatamente como antes. Usa só sinais
-  // que a tela já carrega de /inbox/whatsapp-session; nada novo de backend/motor.
+  // e não o número PESSOAL do admin (que pode estar caído sem derrubar o time). O ramo
+  // PESSOAL (else) agora usa a verdade do MOTOR ao vivo (/inbox/whatsapp-health): só
+  // "Conectado" quando open + canSend; senão traduz o estado do motor pro selo. Health
+  // ausente cai no waStatus de antes (sem regressão).
   const inboxWaStatus =
-    souAdmin && waMode === "company" && sessionList.length > 0 ? "connected" : waStatus;
+    souAdmin && waMode === "company" && sessionList.length > 0
+      ? "connected"
+      : waHealth
+        ? (waHealth.connectedForUi && waHealth.canSend
+            ? "connected"
+            : mapHealthToStatus(waHealth.providerInstanceState) ?? waStatus)
+        : waStatus;
 
   // reações: agrupa as mensagens-reação pelo alvo e tira-as do fluxo principal
   const reactionsByKey = new Map<string, string[]>();

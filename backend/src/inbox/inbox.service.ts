@@ -131,6 +131,24 @@ type InboxWhatsappSessionScope = {
   providerHealth?: WhatsAppProviderHealth | null;
 };
 
+// PR1 — Health endpoint único: A VERDADE que a tela deve usar pra dizer "conectado".
+// Campos null quando não se aplica/sem fonte barata (ver getWhatsappHealth).
+type WhatsappHealthSnapshot = {
+  connectedForUi: boolean;        // operável de verdade = providerInstanceState==='open' && canSend
+  canSend: boolean;               // o viewer tem linha PRÓPRIA ativa pra enviar
+  canReceiveWebhook: boolean | null; // webhook configurado/enabled no motor (conservador — ver nota)
+  providerReachable: boolean;     // o motor respondeu (reconciler não retornou erro transitório)
+  providerInstanceState: 'open' | 'connecting' | 'close' | 'unknown';
+  dbSessionActive: boolean;       // banco tem sessão active pro escopo
+  currentSessionId: string | null;
+  tenantKey: string | null;
+  attendanceMode: 'shared' | 'individual';
+  lastWebhookAt: string | null;   // sem coluna dedicada de webhook WhatsApp → null (ver nota)
+  lastInboundAt: string | null;   // última CompanyMessage INBOUND da sessão (índice barato)
+  lastProviderError: string | null;
+  repairAction: 'none' | 'relinked_session' | 'forced_reconnect' | 'needs_qr';
+};
+
 const METICULOUS_TRASH_DEFAULT_DELAY_MS = 120000;
 const METICULOUS_TRASH_MIN_PRODUCTION_DELAY_MS = 120000;
 const METICULOUS_TRASH_DEFAULT_JITTER_MIN_MS = 5000;
@@ -365,11 +383,16 @@ export class InboxService {
 
     const heartbeat = setInterval(() => {
       try {
+        // comentário SSE (inofensivo) + EVENTO REAL de ping: o front usa o
+        // ping como sinal verificável de vida pra detectar stream que "morre
+        // calado" atrás do proxy (res.ok resolve mas nada flui).
         res.write(': keepalive\n\n');
+        res.write(`event: ping\n`);
+        res.write(`data: {"at":"${new Date().toISOString()}"}\n\n`);
       } catch {
         // ignore write failures; close handler will clean up
       }
-    }, 25000);
+    }, 15000);
 
     const cleanup = () => {
       clearInterval(heartbeat);
@@ -828,6 +851,135 @@ export class InboxService {
       providerWarning,
       whatsappSession: this.buildWhatsappSessionMetadata(sessionScope),
     };
+  }
+
+  // PR1 — A VERDADE ÚNICA do "tem WhatsApp pra operar?". A tela deve usar SÓ `connectedForUi`
+  // (= motor 'open' && o viewer tem linha própria ativa pra enviar). Tudo derivado do que já
+  // existe — REUSA o reconciler do PR4 (via whatsappModal.getCompanyStatus, 1 chamada ao motor
+  // no máximo, com throttle por tenantKey) e o escopo de sessão do inbox. Sem fetchInstances.
+  async getWhatsappHealth(user: any): Promise<WhatsappHealthSnapshot> {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const viewerId = Number(user?.id || 0) || undefined;
+    const scope = await this.resolveInboxWhatsappSessionScope(companyId, {
+      userId: viewerId,
+      aggregate: this.isAggregateUser(user),
+      user,
+    });
+    const attendanceMode: 'shared' | 'individual' = scope.attendanceMode === 'shared' ? 'shared' : 'individual';
+
+    // canSend / dbSessionActive: linha PRÓPRIA do viewer no individual; pool da empresa no shared.
+    // Reaproveita ownSessionIds/sessionIds do scope (mesma lógica de quem pode compor no inbox).
+    const ownActive = (scope.ownSessionIds?.length ?? 0) > 0;
+    const companyActive = (scope.sessionIds?.length ?? 0) > 0 || Boolean(scope.currentSessionId);
+    const canSend = attendanceMode === 'shared' ? companyActive : ownActive;
+    const dbSessionActive = attendanceMode === 'shared' ? companyActive : ownActive;
+    const currentSessionId =
+      scope.currentSessionId
+      || (scope.ownSessionIds?.length ? String(scope.ownSessionIds[0]) : null)
+      || (scope.sessionIds?.length ? String(scope.sessionIds[0]) : null);
+
+    // Motor = fonte da verdade. UMA chamada no máximo: getCompanyStatus internamente passa pelo
+    // reconciler do PR4 (recoverUserSessionIfProviderOpen) e usa fetchLiveSnapshot (connectionState),
+    // nunca fetchInstances. No individual mandamos o userId pra mirar o tenantKey por-vendedor.
+    const modalUserId = attendanceMode === 'individual' ? viewerId : undefined;
+    let providerReachable = false;
+    let providerInstanceState: WhatsappHealthSnapshot['providerInstanceState'] = 'unknown';
+    let lastProviderError: string | null = null;
+    let tenantKey: string | null = null;
+    let promotedToConnected = false;
+    try {
+      const modal = await this.whatsappModal.getCompanyStatus(companyId, modalUserId);
+      tenantKey = modal?.data?.tenantKey || null;
+      lastProviderError = modal?.data?.lastError || null;
+      // O motor respondeu se o provider está saudável (não disabled/misconfigured/unavailable).
+      const providerHealth = modal?.data?.providerHealth;
+      providerReachable = providerHealth === 'healthy';
+      providerInstanceState = this.mapProviderInstanceState(modal?.status, modal?.data?.rawStatus);
+      // Banco caído + motor 'open' = o reconciler promoveu a sessão (re-link). Sinaliza repair.
+      promotedToConnected = providerInstanceState === 'open' && !dbSessionActive;
+    } catch {
+      // getCompanyStatus já trata o transitório internamente; um throw aqui = motor inacessível.
+      providerReachable = false;
+      providerInstanceState = 'unknown';
+    }
+
+    // tenantKey de fallback (motor não respondeu): usa o da sessão atual, se houver.
+    if (!tenantKey && currentSessionId) {
+      const sess = await this.prisma.whatsAppConnectionSession.findUnique({
+        where: { id: currentSessionId },
+        select: { tenantKey: true },
+      });
+      tenantKey = sess?.tenantKey || null;
+    }
+
+    // canReceiveWebhook: NÃO há helper barato de /webhook/find pronto no inbox e a regra do PR
+    // proíbe criar chamada nova pesada. Derivo de forma conservadora: o motor só fica 'open' depois
+    // de o webhook estar plugado no fluxo de start, então open+sessão ⇒ true; sem isso ⇒ null
+    // (desconhecido, não "false" — não temos como afirmar). Nunca consultamos o endpoint aqui.
+    const canReceiveWebhook: boolean | null =
+      providerInstanceState === 'open' && dbSessionActive ? true : null;
+
+    // lastInboundAt: última CompanyMessage INBOUND da sessão (índice [companyId, session, timestamp]).
+    // Query barata e travada na sessão atual; sem sessão → null.
+    let lastInboundAt: string | null = null;
+    if (currentSessionId) {
+      const inbound = await this.prisma.companyMessage.findFirst({
+        where: { companyId, whatsappConnectionSessionId: currentSessionId, direction: 'INBOUND' },
+        orderBy: { timestamp: 'desc' },
+        select: { timestamp: true },
+      });
+      lastInboundAt = inbound?.timestamp ? inbound.timestamp.toISOString() : null;
+    }
+
+    // lastWebhookAt: NÃO existe coluna dedicada de webhook WhatsApp no schema (os lastWebhookAt
+    // existentes são de cobrança/Financeiro). Sem fonte barata e fiel → null (conservador).
+    const lastWebhookAt: string | null = null;
+
+    // A regra: a tela mostra "conectado" SÓ quando dá pra operar de verdade.
+    const connectedForUi = providerInstanceState === 'open' && canSend === true;
+
+    // repairAction (conservador): precisa parear quando não há sessão e o motor não está open;
+    // relinked quando o motor está open mas o banco ainda não tinha sessão ativa (reconciler promoveu).
+    let repairAction: WhatsappHealthSnapshot['repairAction'] = 'none';
+    if (promotedToConnected) {
+      repairAction = 'relinked_session';
+    } else if (!dbSessionActive && providerInstanceState !== 'open') {
+      repairAction = 'needs_qr';
+    }
+
+    return {
+      connectedForUi,
+      canSend,
+      canReceiveWebhook,
+      providerReachable,
+      providerInstanceState,
+      dbSessionActive,
+      currentSessionId,
+      tenantKey,
+      attendanceMode,
+      lastWebhookAt,
+      lastInboundAt,
+      lastProviderError,
+      repairAction,
+    };
+  }
+
+  // Mapeia o status do motor (WhatsAppModalStatus / rawStatus) → estado canônico da instância.
+  // 'open' só pra connected; 'connecting' pra starting/reconnecting/waiting_qr; 'close' pra
+  // disconnected/offline/error; 'unknown' no resto.
+  private mapProviderInstanceState(
+    status?: string | null,
+    rawStatus?: string | null,
+  ): WhatsappHealthSnapshot['providerInstanceState'] {
+    const raw = String(rawStatus || '').trim().toLowerCase();
+    if (raw === 'open') return 'open';
+    if (raw === 'connecting') return 'connecting';
+    if (raw === 'close') return 'close';
+    const s = String(status || '').trim().toLowerCase();
+    if (s === 'connected') return 'open';
+    if (s === 'starting' || s === 'reconnecting' || s === 'waiting_qr') return 'connecting';
+    if (s === 'disconnected' || s === 'offline' || s === 'error') return 'close';
+    return 'unknown';
   }
 
   // Painel "Modelo de atendimento" = só o ADMIN-DONO/master (gerente NÃO: ele não conecta nem
@@ -4116,16 +4268,35 @@ export class InboxService {
         );
       }
 
-      if (failures.length) {
+      // PR3: bootstrap parcial — UMA conversa ruim não derruba o espelhamento inteiro.
+      // 503 SÓ quando NADA espelhou (todas as conversas falharam): aí é sinal de
+      // motor/provider fora, não de uma conversa isolada. O guard de provider-offline
+      // de verdade (motor desligado) já estourou ANTES do laço, no failOnError do
+      // listContacts/syncRecentChats (cai no catch externo → 503).
+      const allFailed =
+        conversationRows.length > 0 && failures.length === conversationRows.length;
+      if (allFailed) {
         const failurePreview = failures
           .slice(0, 5)
           .map((item) => `${item.id}:${item.message}`)
           .join(' | ');
         this.logger.error(
-          `Inbox bootstrap falhou company=${companyId} failed=${failures.length} details=${failurePreview}`,
+          `Inbox bootstrap falhou company=${companyId} failed=${failures.length}/${conversationRows.length} (todas) details=${failurePreview}`,
         );
         throw new ServiceUnavailableException(
           'Falha ao espelhar nomes, fotos, historico e midias do WhatsApp. Tente novamente com o motor online.',
+        );
+      }
+      const partial = failures.length > 0;
+      if (partial) {
+        const failurePreview = failures
+          .slice(0, 5)
+          .map((item) => `${item.id}:${item.message}`)
+          .join(' | ');
+        // Parcial = SUCESSO. Loga como warn (não error) — o espelhamento entregou
+        // a maioria; só algumas conversas ficaram pra trás.
+        this.logger.warn(
+          `Inbox bootstrap parcial company=${companyId} failed=${failures.length}/${conversationRows.length} details=${failurePreview}`,
         );
       }
 
@@ -4170,6 +4341,10 @@ export class InboxService {
         conversationsWithNames,
         conversationsWithAvatars,
         heavySync,
+        // PR3: opcionais — só ACRESCENTAM. Front que lê success/contadores não quebra.
+        // partial=true quando algumas conversas falharam mas o resto espelhou.
+        partial,
+        failures: failures.map((item) => ({ id: item.id, reason: item.message })),
         message,
         error: null,
       };

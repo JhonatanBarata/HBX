@@ -77,6 +77,12 @@ export class InboxController {
     return this.inboxService.getWhatsappSessionDiagnostics(req.user);
   }
 
+  // PR1 — verdade única de conexão: a tela usa só `connectedForUi` (motor 'open' && linha própria).
+  @Get('whatsapp-health')
+  getWhatsappHealth(@Req() req: any) {
+    return this.inboxService.getWhatsappHealth(req.user);
+  }
+
   @Get('whatsapp/admin-panel')
   getWhatsappAdminPanel(@Req() req: any) {
     return this.inboxService.getWhatsappAdminPanel(req.user);

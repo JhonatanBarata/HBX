@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { WhatsAppModalService } from './whatsapp-modal.service';
 
 function createCompany(overrides: Record<string, any> = {}) {
@@ -46,6 +46,21 @@ function createPrisma(
     company: {
       findUnique: async ({ where }: any) => Number(where.id) === Number(company.id) ? company : null,
       update: async ({ data }: any) => ({ ...company, ...data }),
+      // PR4: company.count — usado por retireEmptyGhostSessions p/ não deletar sessão ainda
+      // apontada por currentWhatsappConnectionSessionId. Modela o ponteiro da empresa atual.
+      count: async ({ where }: any = {}) => {
+        if (
+          where?.currentWhatsappConnectionSessionId !== undefined &&
+          String(company.currentWhatsappConnectionSessionId || '') === String(where.currentWhatsappConnectionSessionId)
+        ) {
+          return 1;
+        }
+        return 0;
+      },
+    },
+    // PR4-F1: user.findUnique — resolve papel pra trava do ponteiro (só roda no fluxo com userId).
+    user: {
+      findUnique: async () => null,
     },
     companyMessage: {
       findFirst: async ({ where }: any) => {
@@ -54,6 +69,9 @@ function createPrisma(
         if (directions.includes('OUTBOUND') || directions.includes('outbound')) return outboundCompanyMessage;
         return null;
       },
+      // PR4-F2: count/updateMany — reconcileSameTenantKeyGhosts. Stub: sem mensagens em memória.
+      count: async () => 0,
+      updateMany: async () => ({ count: 0 }),
     },
     inboundMessage: {
       findFirst: async () => activity.legacyInboundAt ? { receivedAt: activity.legacyInboundAt } : null,
@@ -103,11 +121,25 @@ function createPrisma(
         return session;
       },
     },
-    companyConversation: { deleteMany: async () => ({ count: 0 }) },
+    // PR4-F2: findMany/count/update — reconcileSameTenantKeyGhosts. Stub: sem conversas em memória.
+    companyConversation: {
+      deleteMany: async () => ({ count: 0 }),
+      findMany: async () => [],
+      count: async () => 0,
+      update: async () => ({ count: 0 }),
+      updateMany: async () => ({ count: 0 }),
+    },
     $transaction: async (fn: (tx: any) => Promise<void>) => fn({
-      companyMessage: { deleteMany: async () => ({ count: 0 }) },
-      companyConversation: { deleteMany: async () => ({ count: 0 }) },
-      whatsAppConnectionSession: { deleteMany: async () => ({ count: 0 }) },
+      company: {
+        count: async ({ where }: any = {}) =>
+          where?.currentWhatsappConnectionSessionId !== undefined &&
+          String(company.currentWhatsappConnectionSessionId || '') === String(where.currentWhatsappConnectionSessionId)
+            ? 1
+            : 0,
+      },
+      companyMessage: { deleteMany: async () => ({ count: 0 }), count: async () => 0, updateMany: async () => ({ count: 0 }) },
+      companyConversation: { deleteMany: async () => ({ count: 0 }), findMany: async () => [], count: async () => 0, update: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+      whatsAppConnectionSession: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
     }),
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
@@ -187,8 +219,9 @@ function createSessionPrisma(company = createCompany(), initialSessions: any[] =
     }
     return { count };
   };
-  // companyConversation/companyMessage stubs (needed by purgeForeignNumberGhosts)
-  (prisma as any).companyConversation = { deleteMany: async () => ({ count: 0 }) };
+  // companyConversation/companyMessage stubs (needed by purgeForeignNumberGhosts e
+  // reconcileSameTenantKeyGhosts — preserva findMany/count/update/updateMany da base).
+  (prisma as any).companyConversation = { ...(prisma as any).companyConversation, deleteMany: async () => ({ count: 0 }) };
   (prisma as any).companyMessage = { ...(prisma as any).companyMessage, deleteMany: async () => ({ count: 0 }) };
   // $transaction: executa o callback passando o mesmo prisma como tx (testes locais)
   (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
@@ -1204,7 +1237,9 @@ test('trava1: conectar número N no tenant T apaga sessão-fantasma de N em outr
     return sessions.filter((s) => {
       if (where?.companyId !== undefined && Number(s.companyId) !== Number(where.companyId)) return false;
       if (where?.phoneNormalized !== undefined && s.phoneNormalized !== where.phoneNormalized) return false;
+      if (where?.tenantKey !== undefined && s.tenantKey !== where.tenantKey) return false; // PR4: reconcileSameTenantKeyGhosts filtra por tenantKey exato
       if (where?.NOT?.tenantKey !== undefined && s.tenantKey === where.NOT.tenantKey) return false;
+      if (where?.NOT?.id !== undefined && String(s.id) === String(where.NOT.id)) return false; // PR4: exclui a sessão ativa
       return true;
     });
   };
@@ -1216,8 +1251,9 @@ test('trava1: conectar número N no tenant T apaga sessão-fantasma de N em outr
     return { count: removed.length };
   };
 
-  // companyConversation stub
+  // companyConversation stub (preserva findMany/count/update/updateMany da base p/ PR4)
   (prisma as any).companyConversation = {
+    ...(prisma as any).companyConversation,
     deleteMany: async ({ where }: any) => {
       deletedConversationWhere.push(where);
       return { count: 0 };
@@ -1287,7 +1323,9 @@ test('trava1: NÃO apaga sessão do mesmo tenantKey (mesmo número reconectando 
     return sessions.filter((s) => {
       if (where?.companyId !== undefined && Number(s.companyId) !== Number(where.companyId)) return false;
       if (where?.phoneNormalized !== undefined && s.phoneNormalized !== where.phoneNormalized) return false;
+      if (where?.tenantKey !== undefined && s.tenantKey !== where.tenantKey) return false; // PR4: reconcileSameTenantKeyGhosts filtra por tenantKey exato
       if (where?.NOT?.tenantKey !== undefined && s.tenantKey === where.NOT.tenantKey) return false;
+      if (where?.NOT?.id !== undefined && String(s.id) === String(where.NOT.id)) return false; // PR4: exclui a sessão ativa
       return true;
     });
   };
@@ -1295,7 +1333,7 @@ test('trava1: NÃO apaga sessão do mesmo tenantKey (mesmo número reconectando 
     deletedSessionWhere.push(where);
     return { count: 0 };
   };
-  (prisma as any).companyConversation = { deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).companyConversation = { ...(prisma as any).companyConversation, deleteMany: async () => ({ count: 0 }) };
   (prisma as any).companyMessage = { ...(prisma as any).companyMessage, deleteMany: async () => ({ count: 0 }) };
   (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
 
@@ -1333,7 +1371,9 @@ test('trava1: NÃO apaga sessão de OUTRO número (número diferente, mesmo tena
     return sessions.filter((s) => {
       if (where?.companyId !== undefined && Number(s.companyId) !== Number(where.companyId)) return false;
       if (where?.phoneNormalized !== undefined && s.phoneNormalized !== where.phoneNormalized) return false;
+      if (where?.tenantKey !== undefined && s.tenantKey !== where.tenantKey) return false; // PR4: reconcileSameTenantKeyGhosts filtra por tenantKey exato
       if (where?.NOT?.tenantKey !== undefined && s.tenantKey === where.NOT.tenantKey) return false;
+      if (where?.NOT?.id !== undefined && String(s.id) === String(where.NOT.id)) return false; // PR4: exclui a sessão ativa
       return true;
     });
   };
@@ -1341,7 +1381,7 @@ test('trava1: NÃO apaga sessão de OUTRO número (número diferente, mesmo tena
     deletedSessionWhere.push(where);
     return { count: 0 };
   };
-  (prisma as any).companyConversation = { deleteMany: async () => ({ count: 0 }) };
+  (prisma as any).companyConversation = { ...(prisma as any).companyConversation, deleteMany: async () => ({ count: 0 }) };
   (prisma as any).companyMessage = { ...(prisma as any).companyMessage, deleteMany: async () => ({ count: 0 }) };
   (prisma as any).$transaction = async (fn: (tx: any) => Promise<void>) => fn(prisma);
 
@@ -1355,4 +1395,104 @@ test('trava1: NÃO apaga sessão de OUTRO número (número diferente, mesmo tena
   // deleteMany não foi chamado com session-other-number
   const allDeletedIds = deletedSessionWhere.flatMap((w) => w?.id?.in ?? []);
   assert.equal(allDeletedIds.includes('session-other-number'), false, 'não deve apagar sessão de outro número');
+});
+
+// ---------------------------------------------------------------------------
+// PR5 — Trava "compartilhado × individual", sem meio-termo
+// ---------------------------------------------------------------------------
+
+test('PR5 shared: vendedor (USER comum) conectando sessão própria é BLOQUEADO', async () => {
+  // Modo compartilhado: o atendimento usa o número da empresa por atribuição; vendedor
+  // não conecta chip próprio. user.findUnique=null → não é admin-dono → bloqueia.
+  const company = createCompany({ whatsappAttendanceMode: 'shared', whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions } = createSessionPrisma(company);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await assert.rejects(
+    () => service.persistSnapshot(company, createSnapshot(), 'test_pr5_shared_vendedor', 5),
+    (error: any) => {
+      assert.ok(error instanceof ForbiddenException);
+      assert.match(String(error.message), /modo compartilhado/i);
+      return true;
+    },
+  );
+  // Nenhuma sessão foi criada (bloqueou ANTES da reconcile/purga).
+  assert.equal(sessions.length, 0, 'não deve criar sessão de vendedor no shared');
+});
+
+test('PR5 shared: admin-dono/master conectando o número da empresa PASSA', async () => {
+  // Admin opera a linha da empresa em qualquer modo — guarda não bloqueia.
+  const company = createCompany({ whatsappAttendanceMode: 'shared', whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions } = createSessionPrisma(company);
+  prisma.user.findUnique = async () => ({ isSystemMaster: true, role: 'ADMIN', canViewBilling: true });
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot(), 'test_pr5_shared_admin', 9);
+
+  // Admin conectou normalmente: criou a sessão dele.
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].status, 'active');
+  assert.equal(sessions[0].phoneNormalized, '5519999999999');
+});
+
+test('PR5 individual: vendedor com número PRÓPRIO distinto da linha principal PASSA', async () => {
+  // Modo individual: cada um usa o SEU número. A linha principal (company-7) tem outro
+  // número → vendedor conectando um número diferente é caminho VÁLIDO.
+  const company = createCompany({ whatsappAttendanceMode: 'individual', whatsappModalStatus: 'DISCONNECTED' });
+  const { prisma, sessions } = createSessionPrisma(company, [
+    {
+      id: 'session-main',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519911112222',
+      displayPhone: '+5519911112222',
+      status: 'active',
+      connectedAt: new Date('2026-06-01T10:00:00.000Z'),
+      createdAt: new Date('2026-06-01T10:00:00.000Z'),
+    },
+  ]);
+  // user.findUnique=null (base) → vendedor comum.
+  const service = new WhatsAppModalService(prisma) as any;
+
+  // Vendedor conecta número PRÓPRIO (5519999999999 != 5519911112222 da linha principal).
+  await service.persistSnapshot(company, createSnapshot({ phone: '+5519999999999' }), 'test_pr5_individual_own', 5);
+
+  // Sessão do vendedor criada; linha principal intacta.
+  assert.ok(sessions.some((s) => s.tenantKey === 'company-7-user-5' && s.status === 'active'), 'sessão própria do vendedor criada');
+  assert.ok(sessions.some((s) => s.id === 'session-main' && s.status === 'active'), 'linha principal preservada');
+});
+
+test('PR5 individual: vendedor conectando o número da LINHA PRINCIPAL é BLOQUEADO', async () => {
+  // Modo individual: vendedor não pode "tomar" o número da empresa (company-7). A guarda
+  // barra ANTES da purga, senão o vendedor venceria e apagaria as conversas da linha principal.
+  const company = createCompany({ whatsappAttendanceMode: 'individual', whatsappModalStatus: 'CONNECTED' });
+  const { prisma, sessions } = createSessionPrisma(company, [
+    {
+      id: 'session-main',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'active',
+      connectedAt: new Date('2026-06-01T10:00:00.000Z'),
+      createdAt: new Date('2026-06-01T10:00:00.000Z'),
+    },
+  ]);
+  // user.findUnique=null (base) → vendedor comum.
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await assert.rejects(
+    // Vendedor (userId=5) tenta conectar o MESMO número da linha principal (5519999999999).
+    () => service.persistSnapshot(company, createSnapshot({ phone: '+5519999999999' }), 'test_pr5_individual_main_line', 5),
+    (error: any) => {
+      assert.ok(error instanceof ForbiddenException);
+      assert.match(String(error.message), /linha principal/i);
+      return true;
+    },
+  );
+  // Linha principal intacta e nenhuma sessão de vendedor criada (bloqueou antes da purga).
+  assert.ok(sessions.some((s) => s.id === 'session-main' && s.status === 'active'), 'linha principal preservada');
+  assert.equal(sessions.some((s) => s.tenantKey === 'company-7-user-5'), false, 'sessão do vendedor não foi criada');
 });
