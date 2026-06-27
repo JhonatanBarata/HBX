@@ -23,12 +23,10 @@ export const RECENT_HISTORY_LIMIT = 20;
 export const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
 export const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const MASS_DATA_INTERNAL_SEGMENTS = [
-  'empresas',
-  'comércio',
-  'serviços',
-  'lojas',
-  'whatsapp',
-  'telefone',
+  // Genéricos REMOVIDOS (27/06): 'empresas','comércio','serviços','lojas','whatsapp','telefone' — não são
+  // segmentos, são termos guarda-chuva que o motor responde com o mesmo top-N genérico/duplicado. No TOPO,
+  // faziam o cursor moer combo improdutivo antes de chegar nos específicos (padaria, sorveteria, ótica…) que
+  // TÊM lead virgem. Lista agora é só segmento real.
   'restaurantes',
   'mercados',
   'oficinas',

@@ -1432,15 +1432,14 @@ export class RadarCoreMassDataMixin {
       const batchRejectedCount = persisted.rejectedCount + safeInteger(output.rejectedCount);
       const duplicateCount = persisted.duplicateCount + safeInteger(output.duplicateCount);
       const rawResultCount = Array.isArray(output.results) ? output.results.length : 0;
-      // FREIO de combo morto (27/06): cidade vazia volta com 0 resultado cru — insistir 3x é puro
-      // desperdício (era o que deixava 20 motores moendo "relojoarias·Acarape/CE" a 0 card por +1 dia).
-      // Regra: 0 aprovado E (nada veio do motor OU já esgotou as variações) → exaure JÁ; só reenfileira
-      // quando VEIO resultado mas tudo virou duplicado/rejeitado (aí uma variação de query a mais pode pegar).
-      const finalTaskStatus = approvedCount > 0
-        ? 'completed'
-        : (rawResultCount === 0 || attempt >= maxAttempts)
-          ? 'exhausted'
-          : 'queued';
+      // FREIO de combo morto (27/06, reforçado): 0 lead novo aprovado → EXAURE na 1ª, SEM retry. O motor
+      // é determinístico (retorna sempre o mesmo top-N do combo; provado: variar "telefone/whatsapp/contato"
+      // e bairro NÃO muda resultado). Logo retentar combo que voltou vazio OU só-duplicado é 100% desperdício
+      // — era o que travava 18 motores moendo combo minerado por minutos. Assim a fábrica VOA pelos minerados
+      // (1 batch cada) e cai nos combos VIRGENS (provado: SP tem 171 leads novos em 8 segmentos). Erro real
+      // (timeout) ainda retenta no catch. `rawResultCount` mantido pra log/clareza.
+      void rawResultCount;
+      const finalTaskStatus = approvedCount > 0 ? 'completed' : 'exhausted';
       await (this.prisma as any).webscrapingCampaignBatch.update({
         where: { id: batch.id },
         data: {

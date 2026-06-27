@@ -387,6 +387,44 @@ export class CommercialUsageLimitsService {
     };
   }
 
+  // Capacidade da carteira para a UI de Vendas (faixa "por que o Radar parou de
+  // buscar"): traduz o snapshot de cota em números prontos pro medidor. Para quem
+  // NÃO é vendedor (gestor/admin), devolve o teto-alvo da empresa por vendedor como
+  // capacidade de referência — o gestor enxerga exatamente o limite que trava os
+  // vendedores dele, sem inventar número. READ-ONLY: não cobra, não move dinheiro.
+  async getSellerCardCapacitySnapshot(companyIdRaw: number, userIdRaw?: number | null) {
+    const companyId = Math.trunc(Number(companyIdRaw || 0));
+    const userId = Math.trunc(Number(userIdRaw || 0)) || 0;
+    const [snapshot, companyTarget] = await Promise.all([
+      this.getSellerActiveCardQuotaSnapshot(companyId, userId),
+      this.getSellerActiveCardBaseLimit(companyId).catch(() => SELLER_ACTIVE_CARD_LIMIT_DEFAULT),
+    ]);
+    if (snapshot.seller) {
+      return {
+        isSeller: true,
+        activeCards: snapshot.activeCount,
+        capacity: snapshot.effectiveLimit,
+        availableSlots: snapshot.availableSlots,
+        paused: snapshot.paused,
+        full: snapshot.paused || snapshot.availableSlots <= 0,
+        code: snapshot.code,
+        companyTarget,
+      };
+    }
+    // Gestor/admin: numerador (cards ativos) é resolvido por quem chama (board),
+    // aqui só entregamos o teto de referência da empresa.
+    return {
+      isSeller: false,
+      activeCards: null as number | null,
+      capacity: companyTarget,
+      availableSlots: null as number | null,
+      paused: false,
+      full: false,
+      code: null as string | null,
+      companyTarget,
+    };
+  }
+
   async assertSellerActiveCardSlots(companyId: number, userId: number, requestedCount = 1) {
     const snapshot = await this.getSellerActiveCardQuotaSnapshot(companyId, userId);
     if (!snapshot.seller) return snapshot;

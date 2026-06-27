@@ -7516,6 +7516,31 @@ export class VendasService {
       blocks[payload.block].push(payload);
     }
 
+    // Capacidade da carteira → faixa "por que o Radar parou de buscar" na UI.
+    // O Radar pausa o reabastecimento quando a carteira do vendedor enche (teto
+    // de cards ativos). Aqui entregamos os números reais pro medidor visual.
+    const cardCapacity = await this.commercialUsageLimits
+      .getSellerCardCapacitySnapshot(context.companyId, context.userId)
+      .catch(() => null);
+    const activeFunnel = blocks.today.length + blocks.overdue.length + blocks.scheduled.length;
+    const capacity = Math.max(1, Math.trunc(Number(cardCapacity?.capacity || 20) || 20));
+    const activeCards = cardCapacity?.isSeller
+      ? Math.max(0, Math.trunc(Number(cardCapacity?.activeCards || 0) || 0))
+      : activeFunnel;
+    const availableSlots = cardCapacity?.isSeller
+      ? Math.max(0, Math.trunc(Number(cardCapacity?.availableSlots || 0) || 0))
+      : Math.max(0, capacity - activeFunnel);
+    const full = cardCapacity?.isSeller ? Boolean(cardCapacity?.full) : activeFunnel >= capacity;
+    const radarSupply = {
+      isSeller: Boolean(cardCapacity?.isSeller),
+      activeCards,
+      capacity,
+      availableSlots,
+      full,
+      paused: Boolean(cardCapacity?.paused),
+      code: cardCapacity?.code ?? null,
+    };
+
     return {
       summary: {
         total: rows.length,
@@ -7528,6 +7553,7 @@ export class VendasService {
       capabilities: planAccess.capabilities,
       sellsHbxPlans,
       usage,
+      radarSupply,
       blocks,
     };
   }
