@@ -389,6 +389,36 @@ export class RadarCoreCampaignPlannerMixin {
     return Boolean(normalized && !['segmentos internos', 'aberto', 'todos', 'todas'].includes(normalized));
   }
 
+  // PRIORIDADE POR CIDADE REAL (27/06): o planner pegava cidade por rotação alfabética do IBGE — caía
+  // em microcidade (Acarape ~15k hab) e moía segmento a segmento, tudo vazio. Aqui levantamos as cidades
+  // que JÁ renderam lead (tarefas `completed` com found>0 = cidade comprovadamente real e povoada de
+  // negócio) pra minerá-las PRIMEIRO. Cache de 5min (muda devagar). A descoberta nacional vira a cauda.
+  private _productiveCitiesCache: { at: number; data: Array<{ city: string; state: string }> } = { at: 0, data: [] };
+  private async listProductiveMassDataCities() {
+    if (this._productiveCitiesCache.data.length && Date.now() - this._productiveCitiesCache.at < 300_000) {
+      return this._productiveCitiesCache.data;
+    }
+    const rows = await (this.prisma as any).webscrapingCampaignTask.findMany({
+      where: { status: 'completed', foundCount: { gt: 0 }, state: { not: null } },
+      select: { city: true, state: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 4000,
+    }).catch(() => []);
+    const seen = new Set<string>();
+    const data: Array<{ city: string; state: string }> = [];
+    for (const r of rows) {
+      const city = String(r?.city || '').trim();
+      const state = String(r?.state || '').trim().toUpperCase();
+      if (!city || !state) continue;
+      const key = `${state}|${normalizeLookupValue(city)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      data.push({ city, state });
+    }
+    this._productiveCitiesCache = { at: Date.now(), data };
+    return data;
+  }
+
   private async buildAutonomousMassDataLocationPool(campaign: any, now = new Date()) {
     const guidedState = String(campaign?.state || '').trim().toUpperCase();
     const guidedCity = String(campaign?.city || '').trim();
@@ -412,6 +442,15 @@ export class RadarCoreCampaignPlannerMixin {
       const cityKey = normalizeLookupValue(guidedCity);
       const matches = rotated.filter((item) => normalizeLookupValue(item.city) === cityKey);
       if (matches.length) return matches;
+    }
+    // Cidades reais (já renderam lead) PRIMEIRO; descoberta nacional na cauda. O `dead`+`taskExists`
+    // skip vai escorregando pra cauda conforme os segmentos da cidade boa esgotam — auto-equilíbrio.
+    const productive = await this.listProductiveMassDataCities().catch(() => []);
+    if (productive.length) {
+      const rotatedProductive = this.rotateMassDataPool(productive, this.autonomousRotationSeed(campaign, 'productive-location', now));
+      const seen = new Set(rotatedProductive.map((c) => `${c.state}|${normalizeLookupValue(c.city)}`));
+      const tail = rotated.filter((c) => !seen.has(`${String(c.state || '').toUpperCase()}|${normalizeLookupValue(c.city)}`));
+      return [...rotatedProductive, ...tail];
     }
     return rotated;
   }
