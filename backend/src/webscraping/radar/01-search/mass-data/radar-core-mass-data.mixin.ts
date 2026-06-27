@@ -1398,10 +1398,14 @@ export class RadarCoreMassDataMixin {
         data: { currentAttempt: { increment: 1 }, lastQueryUsed: queryUsed, lastEngineUrl: lease.url, lastErrorMessage: null },
       }).catch(() => null);
 
+      // PERF (27/06): antes carregava 50.000 leads do banco INTEIRO a CADA lote, com 20 motores em
+      // paralelo = martelo no Postgres (churn que ajudava a travar a VPS). A dedup do motor só precisa
+      // do que existe NAQUELE local (a busca é cidade+segmento) → escopa por state+cidade. Mais leve e
+      // mais correto. A dedup global de verdade continua no upsert do persistRadarLeadPoolBatch.
       const existingLeads = await (this.prisma as any).radarLeadPool.findMany({
-        where: { phoneDigits: { not: null } },
+        where: { state: task.state, normalizedCity: normalizeLookupValue(task.city), phoneDigits: { not: null } },
         select: { phoneDigits: true, website: true, sourceUrl: true },
-        take: 50_000,
+        take: 5_000,
       }).catch(() => []);
       const existingPhones = new Set<string>(existingLeads.map((row: any) => normalizePhoneDigits(row.phoneDigits)).filter(Boolean) as string[]);
       const output = await this.searchHbxEngine(
@@ -1427,9 +1431,14 @@ export class RadarCoreMassDataMixin {
       const approvedCount = safeInteger(persisted.approvedCount);
       const batchRejectedCount = persisted.rejectedCount + safeInteger(output.rejectedCount);
       const duplicateCount = persisted.duplicateCount + safeInteger(output.duplicateCount);
+      const rawResultCount = Array.isArray(output.results) ? output.results.length : 0;
+      // FREIO de combo morto (27/06): cidade vazia volta com 0 resultado cru — insistir 3x é puro
+      // desperdício (era o que deixava 20 motores moendo "relojoarias·Acarape/CE" a 0 card por +1 dia).
+      // Regra: 0 aprovado E (nada veio do motor OU já esgotou as variações) → exaure JÁ; só reenfileira
+      // quando VEIO resultado mas tudo virou duplicado/rejeitado (aí uma variação de query a mais pode pegar).
       const finalTaskStatus = approvedCount > 0
         ? 'completed'
-        : attempt >= maxAttempts
+        : (rawResultCount === 0 || attempt >= maxAttempts)
           ? 'exhausted'
           : 'queued';
       await (this.prisma as any).webscrapingCampaignBatch.update({

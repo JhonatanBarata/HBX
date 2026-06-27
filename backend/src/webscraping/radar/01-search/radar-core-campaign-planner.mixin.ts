@@ -517,9 +517,15 @@ export class RadarCoreCampaignPlannerMixin {
     const duplicate = safeInteger(recentBatch?.duplicateCount) + safeInteger(taskHistory?.duplicateCount);
     const rejected = safeInteger(recentBatch?.rejectedCount) + safeInteger(taskHistory?.rejectedCount);
     const total = Math.max(1, approved + duplicate + rejected);
+    const explored = Boolean(taskHistory);
     return {
       stockCount: safeInteger(stockCount),
-      explored: Boolean(taskHistory),
+      explored,
+      approved,
+      // COMBO MORTO: já foi explorado e NUNCA aprovou nada (cidade vazia p/ aquele segmento).
+      // O ranqueador antigo tratava estoque-0 como `low_stock` = prioridade MÁXIMA → re-enfileirava
+      // eternamente a cidade vazia. Este flag faz o planner PULAR esses combos (freio na fonte).
+      dead: explored && approved === 0,
       duplicateRatio: duplicate / total,
       lastWorkedAt: taskHistory?.updatedAt instanceof Date
         ? taskHistory.updatedAt
@@ -575,6 +581,9 @@ export class RadarCoreCampaignPlannerMixin {
         this.getAutonomousMassDataCombinationMetrics(candidate),
       ]);
       if (taskExists) continue;
+      // FREIO: combo já explorado que nunca rendeu nada = cidade vazia → NÃO re-enfileira (a não ser
+      // que o dono tenha guiado essa cidade/segmento de propósito). Mata o ciclo Acarape na fonte.
+      if (metrics.dead && !hasGuidedFilter) continue;
       const lowStock = metrics.stockCount < minimumStock;
       const lowDuplicateRecent = metrics.explored && metrics.duplicateRatio <= 0.35;
       const reason: AutonomousMassDataWorkReason = hasGuidedFilter
