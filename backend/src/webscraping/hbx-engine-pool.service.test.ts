@@ -9,6 +9,7 @@ import {
   HbxEnginePoolService,
   parseHostMemoryPressurePercent,
   parseProcStatCpuSample,
+  isTimeoutLikeBatchError,
   parseHbxEngineUrls,
   resolveConfiguredHbxEngineUrls,
 } from './hbx-engine-pool.service';

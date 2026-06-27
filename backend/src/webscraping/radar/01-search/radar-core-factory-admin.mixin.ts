@@ -572,11 +572,18 @@ export class RadarCoreFactoryAdminMixin {
       if (!campaign || !this.terminalCampaignStatuses().includes(String(campaign.status || ''))) continue;
       const summary = await this.summarizeCampaignBatches(campaign.id);
       const duplicateRatio = summary.duplicateCount / Math.max(1, summary.savedCount + summary.duplicateCount + summary.rejectedCount);
-      const failed = String(campaign.status || '') === 'failed' || (summary.failedCount > 0 && summary.savedCount === 0);
-      const empty = summary.savedCount <= 0;
+      // TIMEOUT-dominado (transiente): a fonte estrangulou, NÃO é falha de cidade nem cidade vazia.
+      // Trata como 'failed' (re-tenta a MESMA missão; o headroom de fonte já reduziu a frota), e NUNCA
+      // como 'empty' (que avançaria o cursor declarando a cidade esgotada — bug do VPS em São Paulo).
+      const timeoutDominated = safeInteger(summary.timeoutCount) > 0
+        && safeInteger(summary.timeoutCount) >= (safeInteger(summary.successfulCount) + safeInteger(summary.timeoutCount)) * 0.5
+        && safeInteger(summary.successfulCount) === 0;
+      const failed = String(campaign.status || '') === 'failed' || timeoutDominated || (summary.failedCount > 0 && summary.savedCount === 0);
+      // VAZIO REAL = a busca rodou OK (ao menos 1 batch bem-sucedido) e mesmo assim não salvou nada.
+      const empty = !failed && summary.savedCount <= 0 && safeInteger(summary.successfulCount) > 0;
       const status = failed
         ? 'failed'
-        : empty || String(campaign.status || '') === 'completed_insufficient_results'
+        : empty || (String(campaign.status || '') === 'completed_insufficient_results' && safeInteger(summary.successfulCount) > 0)
           ? 'empty'
           : 'completed';
       await (this.prisma as any).radarFactoryWorkLog.update({
@@ -596,7 +603,11 @@ export class RadarCoreFactoryAdminMixin {
       if (cursor?.lastCampaignId !== campaign.id) continue;
       const nextFailureCount = failed ? safeInteger(cursor.consecutiveFailureCount) + 1 : 0;
       const nextEmptyCount = empty ? safeInteger(cursor.consecutiveEmptyCount) + 1 : 0;
-      const shouldAdvance = !failed || nextFailureCount >= 2 || duplicateRatio >= 0.65 || nextEmptyCount >= 1;
+      // TIMEOUT transiente NÃO avança o cursor (pausa e re-tenta a MESMA missão) — nem pelo limite de
+      // 2 falhas. Cidade virgem só sai do foco por ESGOTAMENTO REAL (vazio/dup numa busca bem-sucedida).
+      const shouldAdvance = timeoutDominated
+        ? false
+        : (!failed || nextFailureCount >= 2 || duplicateRatio >= 0.65 || nextEmptyCount >= 1);
       const nextIndexes = shouldAdvance ? await this.buildNextFactoryCursorIndexes(cursor) : {};
       await (this.prisma as any).radarFactoryCursor.update({
         where: { key: 'main' },
