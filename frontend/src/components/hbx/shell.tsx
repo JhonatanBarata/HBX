@@ -243,14 +243,13 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
 
 export const NAV_LINKS = [
   { id: "dash", label: "Dashboard", href: "/dashboard" },
-  // Fluxo do vendedor em ORDEM: Encontrar → Conversar → Fechar (27/06, ordem do
-  // dono). O rótulo é o VERBO do que se faz ali; as rotas seguem /leads /atendimento
-  // /vendas. Atendimento entra ANTES de Vendas — a ordem do menu passa a bater com o
-  // trabalho (acho a empresa → falo no WhatsApp → fecho). O par visual é o trilho
-  // (FlowRail) no topo das 3 telas. 15/06 (#5): /webscraping segue roteável (admin).
-  { id: "leads", label: "Encontrar", href: "/leads" },
-  { id: "atend", label: "Conversar", href: "/atendimento" },
-  { id: "vendas", label: "Fechar", href: "/vendas", chevron: true },
+  // 2 LUGARES, não 3 ilhas (27/06, ordem do dono). O vendedor tem 2 modos: CAÇAR
+  // (achar empresa → trabalhar → fechar = um movimento só) e ATENDER (responder
+  // quem chama no WhatsApp). Então: VENDAS = o funil inteiro (o Radar/"Buscar
+  // empresas" é a boca dele, acessado de DENTRO de Vendas, por isso /leads saiu do
+  // menu) e CONVERSAS = a caixa. "Fechados" não é tela, é a última etapa do funil.
+  { id: "vendas", label: "Vendas", href: "/vendas" },
+  { id: "atend", label: "Conversas", href: "/atendimento" },
   { id: "bot", label: "Bot", href: "/bot" },
   { id: "relat", label: "Relatórios", href: "/relatorios" },
   { id: "config", label: "Configurações", href: "/configuracoes" },
@@ -631,14 +630,15 @@ export function Sidebar({ active }: { active: string }) {
       </div>
       {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods)).map(n => {
         let cls = "nav-item" + (n.id === active ? " active" : "");
-        // Tinge o item "Leads" com a cor persistente do estado do radar
-        if (n.id === "leads" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
-        if (n.id === "leads" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
+        // Tinge "Vendas" com a cor do estado do radar — o Radar é a boca do funil,
+        // então o funil "acende" quando está sendo abastecido (27/06; era no "leads",
+        // que saiu do menu).
+        if (n.id === "vendas" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
+        if (n.id === "vendas" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
         return (
           <Link key={n.id} className={cls} href={n.href} data-tut={"nav-" + n.id}>
             <I d={ICONS[n.id]} />
             {n.label}
-            {n.chevron && <svg className="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6-6 6" /></svg>}
           </Link>
         );
       })}

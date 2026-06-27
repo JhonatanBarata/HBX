@@ -337,12 +337,14 @@ export class RadarCoreFactoryAdminMixin {
   private async getFactoryLocationPool() {
     const all = await this.listAutonomousMassDataLocations().catch(() => AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK);
     const base = all.length ? all : AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK;
-    // PRIORIDADE: cidades já produtivas + grandes capitais PRIMEIRO; cauda = resto IBGE (alfabético).
-    // O cursor (currentCityIndex) anda por ESTA ordem → mina cidade real antes de microcidade.
+    // PRIORIDADE: cidades GRANDES primeiro (muito segmento ainda virgem = lead net-new), DEPOIS as já
+    // produtivas, e cauda = resto IBGE. Lição 27/06: "produtiva" = JÁ MINERADA (dedup por cidade exclui
+    // tudo conhecido → busca volta vazia). Pôr produtiva antes de SP travava o cursor em capital pequena
+    // esgotada (Teresina) e nunca chegava em São Paulo, que TEM net-new (provado: SP×padarias=10 novos).
     const productive = await this.listProductiveMassDataCities().catch(() => []);
     const seen = new Set<string>();
     const head: Array<{ city: string; state: string }> = [];
-    for (const c of [...productive, ...RadarCoreFactoryAdminMixin.MAJOR_BR_CITIES]) {
+    for (const c of [...RadarCoreFactoryAdminMixin.MAJOR_BR_CITIES, ...productive]) {
       const city = String(c?.city || '').trim();
       const state = String(c?.state || '').trim().toUpperCase();
       if (!city || !state) continue;

@@ -1482,7 +1482,27 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 
 /* ── Leads: tela fixa sem scroll de página ───────────────────────────────── */
-.leads-page .work { grid-template-rows: auto 1fr; align-content: stretch; padding-bottom: 0; }
+/* 3 linhas: voltar-pro-funil (auto) · faixa Total-no-Brasil (auto) · prateleira (1fr) */
+.leads-page .work { grid-template-rows: auto auto 1fr; align-content: stretch; padding-bottom: 0; }
+/* "Voltar pro funil" (27/06): /leads é a boca do funil de Vendas — alinha à
+   esquerda e não estica; só layout (Lei 5), cor/sombra vêm do .btn-ghost central. */
+.leads-back { justify-self: start; gap: 6px; margin: 2px 0 6px; }
+/* Embutido no Vendas (modo Buscar empresas): sem o botão Voltar → 2 linhas
+   (faixa Total-no-Brasil + prateleira). Senão a prateleira não pega o 1fr. */
+.leads-page.leads-embedded .work { grid-template-rows: auto 1fr; }
+
+/* ── Vendas: UMA tela, 2 modos (Meu funil ↔ Buscar empresas) deslizando (27/06) ──
+   O Radar é embutido como 2º painel; o toggle desliza a faixa. Tudo token (5 Leis). */
+.vnd-modehost { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vnd-modeswitch { flex: 0 0 auto; display: flex; justify-content: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-nav-surface); }
+.vnd-mode { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-hairline); background: var(--surface-card); color: var(--text-muted); border-radius: var(--radius-pill); padding: 6px 18px; font-family: var(--font-body); font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
+.vnd-mode:hover { color: var(--text-body); border-color: var(--border-strong); }
+.vnd-mode.on { background: color-mix(in srgb, var(--hbx-brand) 16%, var(--surface-card)); border-color: color-mix(in srgb, var(--hbx-brand) 40%, var(--border-hairline)); color: var(--text-strong); }
+.vnd-slideport { flex: 1; min-height: 0; overflow: hidden; }
+.vnd-slidetrack { display: flex; width: 200%; height: 100%; transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1); }
+.vnd-slidetrack.is-buscar { transform: translateX(-50%); }
+.vnd-pane { width: 50%; flex: 0 0 50%; min-width: 0; height: 100%; display: flex; overflow: hidden; }
+.vnd-pane > .content { flex: 1; min-width: 0; }
 .leads-page .leads-shelf { min-height: 0; display: flex; flex-direction: column; }
 /* Shell agora é 1 coluna — o rail sumiu, a busca mora no aside direito */
 .leads-page .radar2-shell { flex: 1; min-height: 0; align-items: stretch; grid-template-columns: 1fr; }

@@ -12,9 +12,10 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, WhatsAppMark } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
+import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -156,6 +157,16 @@ type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 
 export function VendasClient() {
   const router = useRouter();
+  // Gate do botão "Buscar empresas" (boca do funil): mesmo veredito da navegação —
+  // sem acesso ao Radar, o botão SOME (não mostrar-e-barrar; FRONTEND.md).
+  const entVnd = useEntitlements();
+  const userVnd = useCurrentUser();
+  const modsVnd = useMyModules();
+  const podeBuscarLeads = isModuleVisible("leads", entVnd, userVnd, modsVnd);
+  // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
+  // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
+  const [modo, setModo] = useState<"funil" | "buscar">("funil");
+  const [buscarMounted, setBuscarMounted] = useState(false);
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<VendasLead | null>(null);
@@ -228,6 +239,28 @@ export function VendasClient() {
   }, []);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
+
+  // Entrar já no modo "Buscar empresas" quando vier de fora (/leads redireciona pra
+  // cá com a flag). setState DENTRO do rAF (não no corpo do effect) p/ respeitar
+  // react-hooks/set-state-in-effect (é erro de lint neste repo).
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      try {
+        if (sessionStorage.getItem("hbx:vendas-modo") === "buscar") {
+          sessionStorage.removeItem("hbx:vendas-modo");
+          setBuscarMounted(true);
+          setModo("buscar");
+        }
+      } catch { /* sem storage */ }
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  function irBuscar() { setBuscarMounted(true); setModo("buscar"); }
+  function irFunil() { setModo("funil"); }
+  // Lead puxado no Radar embutido entrou no funil → recarrega o board; focus desliza
+  // pro funil mostrando ele (puxar manual). Auto-pull manda focus=false (só recarrega).
+  function handlePulled(focus?: boolean) { loadBoard(); if (focus) setModo("funil"); }
 
   // Conta os leads disponíveis no pool (vitrine) — só pra mostrar no funil vazio.
   useEffect(() => {
@@ -714,8 +747,25 @@ export function VendasClient() {
 
   return (
     <React.Fragment>
-        <div className={"content" + (isMobile ? " vnd-page" : "")}>
-          <div className="work">
+        <div className="vnd-modehost">
+          {/* UMA tela, 2 modos (27/06): funil e Radar são lados da mesma superfície;
+              o toggle desliza entre eles. "Minha carteira" não existe mais — sua
+              carteira É o funil; o Radar mostra só "Disponíveis" pra puxar. */}
+          <div className="vnd-modeswitch" role="group" aria-label="Modo do Vendas">
+            <button type="button" className={"vnd-mode" + (modo === "funil" ? " on" : "")} onClick={irFunil}>
+              <I d={ICONS.vendas} size={15} /> Meu funil
+            </button>
+            {podeBuscarLeads && (
+              <button type="button" className={"vnd-mode" + (modo === "buscar" ? " on" : "")} onClick={irBuscar} data-tut="vendas-buscar">
+                <I d={ICONS.scrape} size={15} /> Buscar empresas
+              </button>
+            )}
+          </div>
+          <div className="vnd-slideport">
+            <div className={"vnd-slidetrack" + (modo === "buscar" ? " is-buscar" : "")}>
+              <div className="vnd-pane">
+                <div className={"content" + (isMobile ? " vnd-page" : "")}>
+                  <div className="work">
             <KpiRow items={[
               { icon: "users", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
               { icon: "clock", label: "Para hoje", value: summary ? String(summary.today) : "—", delta: "—" },
@@ -1043,7 +1093,14 @@ export function VendasClient() {
               />
             </div>{/* /ctx-body */}
           </aside>
-        </div>
+                </div>{/* /content (Meu funil) */}
+              </div>{/* /vnd-pane funil */}
+              <div className="vnd-pane vnd-pane--buscar">
+                {buscarMounted ? <LeadsClient embedded onLeadPulled={handlePulled} /> : null}
+              </div>
+            </div>{/* /vnd-slidetrack */}
+          </div>{/* /vnd-slideport */}
+        </div>{/* /vnd-modehost */}
 
       {/* MOBILE: pop-up de detalhe do negócio — abre ao tocar uma linha da lista */}
       {isMobile && mobileDetailOpen && sel && (

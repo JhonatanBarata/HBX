@@ -258,7 +258,10 @@ function getStoredFilters() {
   return { uf: "", city: "", segment: "", alcance: "", quantos: 5 };
 }
 
-export function LeadsClient() {
+// embedded: render DENTRO do Vendas (modo "Buscar empresas" do slide), sem a aba
+// "Minha carteira" (carteira = funil) nem o "Voltar pro funil". onLeadPulled avisa
+// o Vendas que um lead entrou no funil — focus=true desliza pro funil. 27/06.
+export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void } = {}) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [filterOpen, setFilterOpen] = useState(false);
@@ -609,6 +612,9 @@ export function LeadsClient() {
   // P5/EFEITO: anima chips saindo do disco do radar e voando pra aba Minha carteira
   function triggerFlyEffect(importedCount: number, _run: RunResponse) {
     void _run;
+    // Embutido no Vendas: não existe aba carteira pra onde voar — só avisa o funil
+    // pra recarregar (sem deslizar; é auto-pull em segundo plano).
+    if (embedded) { onLeadPulled?.(false); return; }
     const cap = Math.min(importedCount, 5);
     const discEl = discRef.current;
     const tabEl = tabCarteiraRef.current;
@@ -755,6 +761,7 @@ export function LeadsClient() {
       loadList("shelf", { page });
       loadUsage();
       loadBank();
+      if (embedded) onLeadPulled?.(true);
     } catch (err) {
       setPullMsg(err instanceof Error ? err.message : "Não consegui puxar este lead.");
     } finally {
@@ -787,6 +794,7 @@ export function LeadsClient() {
     loadUsage();
     loadBank();
     setPage(1);
+    if (embedded && ok > 0) onLeadPulled?.(true);
   }
 
   // Canal toggle
@@ -1400,8 +1408,16 @@ export function LeadsClient() {
   }
 
   return (
-    <div className="content leads-page">
+    <div className={"content leads-page" + (embedded ? " leads-embedded" : "")}>
       <div className="work">
+        {/* Voltar pro funil — só no modo TELA SEPARADA. Embutido no Vendas, quem volta
+            é o toggle do slide (não renderiza o botão → grid vira auto/1fr). 27/06. */}
+        {!embedded && (
+          <button className="btn-ghost leads-back" onClick={() => router.push("/vendas")} title="Voltar pro funil de Vendas">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+            Voltar pro funil
+          </button>
+        )}
         {/* B1: linha fininha Total no Brasil (substituiu os 4 KPIs) */}
         <section className="panel" style={{ padding: 0 }}>
           <div className="leads-bank-strip">
@@ -1481,14 +1497,17 @@ export function LeadsClient() {
                 <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
                   Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
                 </button>
-                {/* P5/EFEITO: ref pra saber onde o chip aterra */}
-                <button
-                  ref={tabCarteiraRef}
-                  className={"tab" + (tab === "carteira" ? " active" : "") + (tabCarteiraPop ? " tab--pop" : "")}
-                  onClick={() => switchTab("carteira")}
-                >
-                  Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
-                </button>
+                {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
+                    o que você puxa aparece no "Meu funil" do slide. 27/06. */}
+                {!embedded && (
+                  <button
+                    ref={tabCarteiraRef}
+                    className={"tab" + (tab === "carteira" ? " active" : "") + (tabCarteiraPop ? " tab--pop" : "")}
+                    onClick={() => switchTab("carteira")}
+                  >
+                    Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                  </button>
+                )}
               </div>
 
               {runActive && (

@@ -380,16 +380,22 @@ async function renderSistema() {
   paintVerdict("sys", s.verdict);
 
   if (cap.ok) {
-    $("#sys-engines-big").textContent = `${cap.alive}/${cap.ceiling}`;
-    const pct = cap.ceiling > 0 ? Math.round((cap.alive / cap.ceiling) * 100) : 0;
+    // VERDADE = containers de motor REALMENTE rodando (docker), não o registro otimista do backend.
+    // Bug antigo: mostrava cap.alive (=1 quando o backend "achava" 1 vivo) com 0 container de pé → "1/20"
+    // mentiroso. Agora o número é o real; se o backend diverge (registro fantasma), a contagem mostra a verdade.
+    const ec = s.containers && s.containers.engineContainers ? s.containers.engineContainers : null;
+    const realRunning = ec && typeof ec.running === "number" ? ec.running : cap.alive;
+    $("#sys-engines-big").textContent = `${realRunning}/${cap.ceiling}`;
+    const pct = cap.ceiling > 0 ? Math.round((realRunning / cap.ceiling) * 100) : 0;
     const bar = $("#sys-bar-alive");
-    bar.style.width = `${Math.max(5, Math.min(100, pct))}%`;
-    bar.className = "bar-fill" + (cap.queue > 0 && cap.alive >= cap.ceiling ? " warn" : "");
-    $("#sys-engines-counts").textContent = `${cap.alive} ${cap.alive === 1 ? "ligado" : "ligados"} · teto ${cap.ceiling}`;
+    bar.style.width = `${Math.max(realRunning > 0 ? 5 : 0, Math.min(100, pct))}%`;
+    bar.className = "bar-fill" + (cap.queue > 0 && realRunning >= cap.ceiling ? " warn" : "");
+    const ghost = ec && cap.alive > realRunning ? ` · backend acha ${cap.alive}` : "";
+    $("#sys-engines-counts").textContent = `${realRunning} ${realRunning === 1 ? "ligado" : "ligados"} · teto ${cap.ceiling}${ghost}`;
     paintChk("#chk-elastic", cap.elastic);
     paintChk("#chk-factory", !cap.factoryStopped);
     paintChk("#chk-turbo", cap.turboActive);
-    paintEngines(cap.alive > 0);            // verde se há motor vivo, vermelho se zero
+    paintEngines(realRunning > 0);          // verde só se há container de motor REAL rodando
     paintTurbo(Boolean(cap.turboActive));
     paintFactory(!cap.factoryStopped);      // verde rodando, vermelho parada
   } else {

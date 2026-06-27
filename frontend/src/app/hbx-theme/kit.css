@@ -57,24 +57,6 @@ html, body { margin: 0; }
    (key=pathname) e desliza pra dentro (transitions.css). Enche a altura que sobra
    e deixa o conteúdo rolar por dentro. */
 .app-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-
-/* ── Trilho de fluxo: Encontrar → Conversar → Fechar (components/hbx/flow-rail.tsx)
-   Fica entre o Topbar e o conteúdo nas 3 telas do funil. Ensina a ordem do trabalho
-   e É a navegação entre elas. Tudo em token (5 Leis) — a pele recolore sozinha pela
-   escada --hbx-brand / --surface-*. Compacto de propósito (lei do zero-scroll). */
-.hbx-flowrail { flex: 0 0 auto; display: flex; align-items: stretch; gap: 4px; padding: 7px 20px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-nav-surface); overflow-x: auto; }
-.hbx-flowrail__step { display: inline-flex; align-items: center; gap: 9px; padding: 5px 14px 5px 6px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline); background: var(--surface-card); color: var(--text-muted); text-decoration: none; white-space: nowrap; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast); }
-.hbx-flowrail__step:hover { transform: translateY(-1px); color: var(--text-body); border-color: var(--border-strong); }
-.hbx-flowrail__num { display: grid; place-items: center; width: 22px; height: 22px; flex: 0 0 auto; border-radius: var(--radius-pill); background: var(--surface-raised); color: var(--text-body); font-family: var(--font-mono, inherit); font-size: 0.76rem; font-weight: 800; }
-.hbx-flowrail__txt { display: grid; line-height: 1.12; min-width: 0; }
-.hbx-flowrail__txt b { font-size: 0.84rem; font-weight: 800; color: inherit; }
-.hbx-flowrail__txt small { font-size: 0.64rem; color: var(--text-muted); white-space: nowrap; }
-.hbx-flowrail__step.is-current { background: color-mix(in srgb, var(--hbx-brand) 14%, var(--surface-card)); border-color: color-mix(in srgb, var(--hbx-brand) 38%, var(--border-hairline)); color: var(--text-strong); box-shadow: 0 12px 24px -16px var(--ring-brand); }
-.hbx-flowrail__step.is-current .hbx-flowrail__num { background: var(--hbx-brand-strong); color: var(--hbx-brand-contrast); }
-.hbx-flowrail__step.is-current .hbx-flowrail__txt small { color: var(--text-body); }
-.hbx-flowrail__step.is-done .hbx-flowrail__num { background: color-mix(in srgb, var(--hbx-brand) 24%, var(--surface-raised)); color: var(--text-strong); }
-.hbx-flowrail__arrow { display: inline-grid; place-items: center; flex: 0 0 auto; color: var(--text-muted); opacity: 0.65; }
-
 /* position+z-index: o topbar e seus dropdowns flutuam ACIMA do conteúdo —
    sem isto, painéis com transform (peles que levantam card no hover/entrada)
    criam stacking context e pintam por cima do menu. */

@@ -10,7 +10,6 @@
 import { usePathname } from "next/navigation";
 import React from "react";
 
-import { FlowRail } from "@/components/hbx/flow-rail";
 import { MobileTabBar } from "@/components/hbx/mobile-tab-bar";
 import { Sidebar, Topbar } from "@/components/hbx/shell";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
@@ -27,10 +26,12 @@ function crumb(last: string, mid?: string): React.ReactNode {
 // De-para rota → identidade da tela (espelha o que cada page passava ao Topbar).
 const META: Record<string, Meta> = {
   "/dashboard": { active: "dash", title: "Dashboard", crumbs: crumb("Dashboard") },
-  // Verbos do fluxo (27/06): o título e o trilho do topo usam o que se FAZ ali.
-  "/leads": { active: "leads", title: "Encontrar", crumbs: crumb("Encontrar") },
-  "/atendimento": { active: "atend", title: "Conversar", crumbs: crumb("Conversar") },
-  "/vendas": { active: "vendas", title: "Fechar", crumbs: crumb("Fechar") },
+  // 2 lugares, não 3 ilhas (27/06): VENDAS = funil (caçar+fechar numa tela só, o
+  // Radar é a boca dele) e CONVERSAS = a caixa de WhatsApp. /leads é a boca do funil
+  // ("Buscar empresas"), acessada de dentro de Vendas — não é mais irmã no menu.
+  "/leads": { active: "vendas", title: "Buscar empresas", crumbs: crumb("Buscar empresas", "Vendas") },
+  "/vendas": { active: "vendas", title: "Vendas", crumbs: crumb("Vendas") },
+  "/atendimento": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
   "/bot": { active: "bot", title: "Bot", crumbs: crumb("Construtor", "Bot") },
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
   "/configuracoes": { active: "config", title: "Configurações", crumbs: crumb("Configurações") },
@@ -61,9 +62,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {navOpen && <button className="mobile-nav-veil" aria-label="Fechar menu" onClick={() => setNavOpen(false)} />}
       <div className="main">
         <Topbar title={meta.title} crumbs={meta.crumbs} onMenu={() => setNavOpen(o => !o)} />
-        {/* Trilho do fluxo (Encontrar → Conversar → Fechar) — só aparece nas 3
-            telas do funil; em qualquer outra rota o FlowRail devolve null. */}
-        <FlowRail />
         <div className="app-page" key={pathname}>{children}</div>
       </div>
       {/* Barra de abas inferior — renderizada apenas em mobile (useIsMobile() interno).
