@@ -362,7 +362,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .thread-empty-nova span { font-size: 0.72rem; color: var(--text-muted); line-height: 1.5; }
 .msg { display: flex; gap: 8px; max-width: 70%; }
 .msg.out { align-self: flex-end; flex-direction: row-reverse; }
-.bubble { padding: 9px 12px 6px; border-radius: var(--radius-md); font-size: 0.82rem; line-height: 1.5; border: 1px solid var(--border-hairline); background: var(--hbx-chat-inbound); }
+.bubble { padding: 9px 12px 6px; border-radius: var(--radius-md); font-size: 0.82rem; line-height: 1.5; border: 1px solid var(--border-hairline); background: var(--hbx-chat-inbound); overflow-wrap: break-word; word-break: break-word; min-width: 0; }
 .msg.out .bubble { background: var(--hbx-chat-outbound); border-color: color-mix(in srgb, var(--hbx-brand) 25%, transparent); border-radius: var(--radius-md) var(--radius-md) var(--radius-xs) var(--radius-md); }
 .msg.in .bubble { border-radius: var(--radius-md) var(--radius-md) var(--radius-md) var(--radius-xs); }
 .bubble .tm { display: flex; justify-content: flex-end; gap: 4px; font-family: var(--font-mono); font-size: 0.58rem; color: var(--text-muted); margin-top: 4px; }
