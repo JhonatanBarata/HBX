@@ -1,0 +1,184 @@
+/* ────────────────────────────────────────────────────────────────────────────
+ * conquista.css — Momento de conquista (Camada 1 — Onboarding).
+ *
+ * Componente CENTRAL de toda "1ª vez" da jornada: marcante, premium e SEMPRE
+ * igual (decisão travada do dono). Medalhão + raios de luz + vidro — nunca cara
+ * de joguinho/badge infantil. Reusável em todos os marcos via .cq-card--{kind}.
+ *
+ * Bloco pele-allow (igual fechar-venda.css): gradientes/brilhos cinematográficos
+ * autorizados a sair das 5 Leis. Reversível: ao assentar, tokenizar os realces.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* pele-allow */
+
+.cq-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: radial-gradient(120% 120% at 50% 18%, rgba(28, 18, 64, 0.5), rgba(6, 5, 18, 0.74));
+  backdrop-filter: blur(10px) saturate(118%);
+  -webkit-backdrop-filter: blur(10px) saturate(118%);
+  animation: cq-veil-in 0.24s ease both;
+}
+@keyframes cq-veil-in { from { opacity: 0 } to { opacity: 1 } }
+
+.cq-card {
+  /* acentos default (marco/violeta) — cada tipo sobrescreve abaixo */
+  --cq-accent: #8b7bff;
+  --cq-accent-2: #5b46d8;
+  --cq-glow: rgba(123, 109, 255, 0.55);
+  position: relative;
+  overflow: hidden;
+  width: min(384px, 92vw);
+  padding: 30px 26px 22px;
+  text-align: center;
+  border-radius: 28px;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(255, 255, 255, 0.1), transparent 60%),
+    linear-gradient(180deg, var(--surface-raised, #fff), var(--surface-card, #fff));
+  border: 1px solid var(--border-hairline, rgba(124, 92, 255, 0.16));
+  box-shadow:
+    0 42px 96px -30px var(--cq-glow),
+    0 14px 40px rgba(14, 10, 40, 0.22);
+  color: var(--text-strong, #1d1733);
+  animation: cq-card-in 0.5s cubic-bezier(.18,.92,.24,1) both;
+}
+@keyframes cq-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Raios de luz girando atrás do medalhão — desbotam nas bordas. */
+.cq-rays {
+  position: absolute;
+  top: -38%;
+  left: 50%;
+  width: 360px;
+  height: 360px;
+  transform: translateX(-50%);
+  background: repeating-conic-gradient(from 0deg, var(--cq-glow) 0deg 6deg, transparent 6deg 18deg);
+  opacity: 0.16;
+  -webkit-mask: radial-gradient(closest-side, #000 8%, transparent 62%);
+  mask: radial-gradient(closest-side, #000 8%, transparent 62%);
+  animation: cq-spin 18s linear infinite;
+  pointer-events: none;
+}
+@keyframes cq-spin { to { transform: translateX(-50%) rotate(360deg); } }
+
+.cq-medal-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  margin: 2px auto 14px;
+}
+.cq-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--cq-accent);
+  opacity: 0.5;
+  animation: cq-ring 1.9s ease-out infinite;
+}
+@keyframes cq-ring {
+  0%   { transform: scale(0.82); opacity: 0.55; }
+  70%  { transform: scale(1.18); opacity: 0; }
+  100% { transform: scale(1.18); opacity: 0; }
+}
+.cq-medal {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(145deg, var(--cq-accent), var(--cq-accent-2));
+  box-shadow:
+    0 12px 26px -8px var(--cq-glow),
+    inset 0 2px 6px rgba(255, 255, 255, 0.45),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.18);
+  animation: cq-pop 0.6s cubic-bezier(.2,1.5,.36,1) both 0.08s;
+}
+@keyframes cq-pop {
+  from { transform: scale(0.2) rotate(-22deg); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+.cq-badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 3px 12px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--cq-accent-2);
+  background: color-mix(in srgb, var(--cq-accent) 16%, transparent);
+  border-radius: 999px;
+}
+.cq-title {
+  margin: 0 0 6px;
+  font-family: var(--font-display, inherit);
+  font-size: 1.32rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.cq-sub {
+  margin: 0 auto 18px;
+  max-width: 30ch;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--text-muted, #6b6580);
+}
+.cq-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 22px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--cq-accent), var(--cq-accent-2));
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 10px 22px -10px var(--cq-glow);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.cq-go:hover { transform: translateY(-1px); box-shadow: 0 14px 26px -10px var(--cq-glow); }
+.cq-go:active { transform: translateY(0); }
+
+/* Linha que esvazia no tempo do auto-dismiss (~4.2s). */
+.cq-progress {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: color-mix(in srgb, var(--cq-accent) 14%, transparent);
+}
+.cq-progress > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cq-accent), var(--cq-accent-2));
+  transform-origin: left;
+  animation: cq-deplete 4.2s linear both;
+}
+@keyframes cq-deplete { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* ── Acentos por tipo de marco ──────────────────────────────────────────── */
+.cq-card--vitoria { --cq-accent: #f6c454; --cq-accent-2: #de9425; --cq-glow: rgba(233, 160, 41, 0.5); }
+.cq-card--ativado { --cq-accent: #7c5cff; --cq-accent-2: #4f37cf; --cq-glow: rgba(112, 86, 255, 0.55); }
+.cq-card--venda   { --cq-accent: #34d399; --cq-accent-2: #0c8f63; --cq-glow: rgba(16, 185, 129, 0.5); }
+.cq-card--marco   { --cq-accent: #8b7bff; --cq-accent-2: #5b46d8; --cq-glow: rgba(123, 109, 255, 0.5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cq-rays { animation: none; }
+  .cq-medal, .cq-card, .cq-ring { animation-duration: 0.01ms; animation-iteration-count: 1; }
+  .cq-progress > i { animation: cq-deplete 4.2s linear both; }
+}
+
+/* pele-allow-end */

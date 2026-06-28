@@ -1074,6 +1074,11 @@ model User {
   // tutorial; preenchido = resolvido. Existentes nascem resolvidos (backfill no
   // runtime-ensure); novos nascem null = pendentes. Re-armado na troca de senha.
   tutorialCompletedAt DateTime?
+  // Ativação / onboarding (28/06, Camada 1): carimbos dos marcos da jornada por
+  // papel. JSON = { events: { "<event>": ISO } }. Fonte da verdade do checklist
+  // de primeiros passos; o GET também DERIVA dos dados reais (lead puxado, chip
+  // conectado, venda fechada) p/ auto-curar quem já fez antes deste recurso.
+  onboardingStateJson String?
   name            String?
   phone           String?
   commissionPercent Float          @default(0)

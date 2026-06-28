@@ -21,6 +21,20 @@
    Vendas), com passo-a-passo da comissão do vendedor. */
 @import "./hbx-theme/fechar-venda.css";
 
+/* Ativação / onboarding (Camada 1): momento de conquista (central, premium) +
+   checklist de primeiros passos do vendedor. */
+@import "./hbx-theme/conquista.css";
+@import "./hbx-theme/activation-checklist.css";
+
+/* Cockpit do MASTER (Camada 5): command center com feed do flywheel ao vivo,
+   métrica-norte "vendedores ativados", roster de empresas e drill-down. */
+@import "./hbx-theme/cockpit-master.css";
+
+/* Permissões em 3 níveis (Gerencial → Equipe → Acessos): nível 2 = 8 grupos
+   por pessoa (cara da tela) + botão "Avançado" pra matriz 76. Reusa a família
+   .tp-* de screens.css; aqui só o que é novo (.tpx-*). */
+@import "./hbx-theme/team-permissions.css";
+
 /* Construtor de Bot — peças do rebuild (organograma, botões QR×Meta, gaveta de
    variáveis) + layout da tela dividida. Depois de transitions.css (reusam
    .hbx-veil/.hbx-drawer) e antes das peles/mobile. */

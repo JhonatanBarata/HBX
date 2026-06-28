@@ -799,6 +799,45 @@ export class UsersService {
     });
   }
 
+  // Ativação / onboarding (28/06, Camada 1): lê os carimbos dos marcos do usuário.
+  // Tolerante a JSON quebrado/legado → sempre devolve um mapa { event: ISO }.
+  getOnboardingEvents(user: { onboardingStateJson?: string | null } | null): Record<string, string> {
+    try {
+      const parsed = JSON.parse(String(user?.onboardingStateJson || '{}'));
+      const ev = parsed && typeof parsed === 'object' ? parsed.events : null;
+      if (!ev || typeof ev !== 'object') return {};
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(ev)) {
+        if (typeof v === 'string' && v) out[k] = v;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  // Carimba um marco de onboarding (idempotente — o primeiro a chegar fica). Devolve
+  // firstTime=true só quando ESTE evento ainda não existia → o front dispara a
+  // conquista uma única vez. Nunca sobrescreve um carimbo já posto.
+  async stampOnboardingEvent(
+    userId: number,
+    event: string,
+    at: Date = new Date(),
+  ): Promise<{ firstTime: boolean; events: Record<string, string> }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { onboardingStateJson: true } as any,
+    });
+    const events = this.getOnboardingEvents(user as any);
+    if (events[event]) return { firstTime: false, events };
+    const next = { ...events, [event]: at.toISOString() };
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { onboardingStateJson: JSON.stringify({ events: next }) } as any,
+    });
+    return { firstTime: true, events: next };
+  }
+
   // Ramo-alvo da empresa (primeiro acesso do dono, 14/06/2026): segmentos que a
   // empresa quer prospectar. Vira filtro padrão do Radar/Leads e desempata o que
   // cada empresa vê primeiro (a lagoa é compartilhada; o dedup é por empresa).

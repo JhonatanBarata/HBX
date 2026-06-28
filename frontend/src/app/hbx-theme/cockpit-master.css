@@ -1,0 +1,236 @@
+/* ============================================================
+   Cockpit do MASTER — command center (Camada 5 do onboarding).
+   O system master OPERA a plataforma: feed do flywheel ao vivo
+   (vendas + comissões cross-company), métrica-norte "vendedores
+   ativados", roster de empresas (status + MRR) e drill-down god-view.
+   Visual nasce AQUI (token/classe central) — nada de hex/inline em tela.
+   Tokens: ver theme.css / skeleton.css.
+   ============================================================ */
+
+/* Faixa de KPIs do topo */
+.ckm-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+.ckm-kpi {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+.ckm-kpi .ckm-kpi-label {
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.ckm-kpi .ckm-kpi-value {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--text-strong);
+}
+.ckm-kpi .ckm-kpi-sub {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+
+/* O KPI-norte (vendedores ativados) ganha destaque de marca */
+.ckm-kpi.ckm-kpi-north {
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent);
+  background: color-mix(in srgb, var(--hbx-brand) 7%, var(--hbx-surface));
+}
+.ckm-kpi.ckm-kpi-north .ckm-kpi-value {
+  color: var(--hbx-brand-strong);
+}
+
+/* Dinheiro recebível em verde discreto; valores fechados em destaque neutro */
+.ckm-kpi.ckm-kpi-money .ckm-kpi-value {
+  color: var(--hbx-brand-strong);
+}
+
+/* Grade do corpo: feed (largo) + lado direito (funil) */
+.ckm-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .ckm-grid { grid-template-columns: 1fr; }
+}
+
+/* Abas internas do feed (vendas × comissões) */
+.ckm-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ckm-tab {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ckm-tab:hover { background: var(--hbx-surface-raised); }
+.ckm-tab.active {
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent);
+  color: var(--hbx-brand-strong);
+  background: var(--hbx-brand-soft);
+}
+
+/* Feed do flywheel — linha do tempo */
+.ckm-feed {
+  display: grid;
+  gap: 0;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.ckm-feed-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  cursor: pointer;
+}
+.ckm-feed-item:last-child { border-bottom: none; }
+.ckm-feed-item:hover { background: var(--hbx-surface-raised); }
+.ckm-feed-item.sel { background: var(--hbx-brand-soft); }
+
+.ckm-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+.ckm-dot.ok { background: var(--hbx-brand); }
+.ckm-dot.warn { background: var(--hbx-warning); }
+.ckm-dot.bad { background: var(--hbx-danger); }
+
+.ckm-feed-body { display: grid; gap: 2px; min-width: 0; }
+.ckm-feed-line {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ckm-feed-line strong { font-weight: 800; color: var(--text-strong); }
+.ckm-feed-meta { font-size: 0.62rem; color: var(--text-muted); }
+
+.ckm-feed-amount {
+  font-family: var(--font-display);
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--hbx-brand-strong);
+  white-space: nowrap;
+}
+.ckm-feed-amount.muted { color: var(--text-muted); }
+
+/* Funil de aquisição (vertical, barras) */
+.ckm-funnel { display: grid; gap: 12px; padding: 14px 16px; }
+.ckm-funnel-step { display: grid; gap: 5px; }
+.ckm-funnel-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ckm-funnel-name { font-size: 0.72rem; font-weight: 700; color: var(--text-body); }
+.ckm-funnel-num {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+.ckm-funnel-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  overflow: hidden;
+}
+.ckm-funnel-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--hbx-brand);
+}
+.ckm-funnel-fill.north { background: var(--hbx-brand-strong); }
+.ckm-funnel-hint { font-size: 0.6rem; color: var(--text-muted); }
+
+/* Drill-down god-view: pílulas de seleção */
+.ckm-drill-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  font-size: 0.7rem;
+}
+.ckm-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised);
+  color: var(--text-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+.ckm-crumb.active {
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent);
+  color: var(--hbx-brand-strong);
+  background: var(--hbx-brand-soft);
+}
+.ckm-crumb-sep { color: var(--text-muted); }
+
+/* Badge de ativação (vendedor ativado × dormindo) */
+.ckm-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent);
+  color: var(--hbx-brand-strong);
+  background: color-mix(in srgb, var(--hbx-brand) 10%, transparent);
+}
+.ckm-act.off {
+  border-color: var(--border-hairline);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+}
+
+/* Empty / erro do cockpit */
+.ckm-empty {
+  padding: 28px 18px;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.ckm-error {
+  font-weight: 700;
+  color: var(--hbx-warning);
+}
+
+/* Célula de tabela em estado vazio/carregando (texto esmaecido). */
+.ckm-muted-cell { color: var(--text-muted); }

@@ -19,6 +19,7 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import { I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { stampOnboardingEvent } from "@/lib/onboarding";
 
 export type FecharVendaMode =
   | { kind: "lead"; leadId: string }
@@ -235,6 +236,7 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
         planLabel: res?.planLabel || "",
         commissionPreview: res?.commissionPreview || null,
       });
+      void stampOnboardingEvent("first_deal_closed"); // marco: 1ª venda fechada (Camada 1)
       onDone?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível gerar o link de contratação.");
@@ -421,6 +423,9 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
                 <span className="fv-spot-chip">
                   <I d={ICONS.check} size={11} /> Recorrente — todo mês que o cliente pagar
                 </span>
+                {/* Cascata (Camada 2): só o ganho DELE em destaque; esta linha sutil
+                    reconhece que a venda alimenta a cadeia, sem expor valores alheios. */}
+                <span className="fv-spot-cascade">Uma parte do valor da venda também remunera sua empresa e o HBX.</span>
               </React.Fragment>
             ) : (
               <div className="fv-spot-zero">

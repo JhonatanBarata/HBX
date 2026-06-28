@@ -13,6 +13,7 @@ import { Av, I, ICONS, ModeToggle, currentUserDisplayName, useCurrentUser } from
 import { apiFetch, clearToken } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
+import { JanelaCockpit } from "./janela-cockpit";
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaOnline } from "./janela-online";
@@ -99,6 +100,7 @@ export function fmtDataHora(iso?: string | null) {
 }
 
 const JANELAS = [
+  { id: "cockpit", label: "Cockpit", icon: "vendas" },
   { id: "empresas", label: "Empresas", icon: "users" },
   { id: "online", label: "Quem está online", icon: "clock" },
   { id: "self-checkout", label: "Self-Checkout", icon: "money" },
@@ -333,6 +335,7 @@ export function MasterClient() {
               )}
             </div>
           )}
+          {janela === "cockpit" && <JanelaCockpit />}
           {janela === "empresas" && (
             <JanelaEmpresas companies={companies} error={companiesError} reload={reloadCompanies} assumirContexto={assumirContexto} />
           )}

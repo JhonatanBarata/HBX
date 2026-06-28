@@ -720,6 +720,30 @@ html, body { height: 100%; }
 .bv-step .tx strong { font-size: 0.79rem; }
 .bv-step .tx small { font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
 
+/* Onboarding do dono (Camada 4, 28/06): escolha solo|time no 1º login. Dois cartões
+   grandes e clicáveis; só tokens (Lei 1/5). Reusa a casca .bv-card/.bv-hero/.bv-body. */
+.bv-branch { display: grid; gap: 10px; }
+.bv-branch-opt {
+  display: flex; gap: 13px; align-items: center; width: 100%;
+  padding: 15px 16px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  border-radius: var(--radius-lg); border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+  transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
+}
+.bv-branch-opt:hover:not(:disabled) {
+  border-color: var(--hbx-brand); background: var(--hbx-brand-soft); transform: translateY(-1px);
+}
+.bv-branch-opt:disabled { opacity: 0.6; cursor: progress; }
+.bv-branch-ico {
+  flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center;
+  border-radius: var(--radius-md); background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong); font-size: 1.25rem;
+}
+.bv-branch-tx { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.bv-branch-tx strong { font-size: 0.92rem; color: var(--text-strong); }
+.bv-branch-tx small { font-size: 0.76rem; line-height: 1.5; color: var(--text-muted); }
+.bv-branch-go { flex: 0 0 auto; font-size: 1.1rem; font-weight: 800; color: var(--hbx-brand-strong); }
+
 /* Troca de plano: faixa antes→depois + detalhe do destino reusando o UI da landing. */
 .bv-card--plan { width: min(680px, 100%); }
 .bv-compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }

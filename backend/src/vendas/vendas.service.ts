@@ -28,6 +28,7 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from '../companies/master-whatsapp-company.constants';
 import { COMPANY_KIND_PLATFORM_INFRA, isTenantCompany } from '../common/company-kind';
+import { pushMasterNotice } from '../common/push-master-notice';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   isGlobalBlockStatus,
@@ -8735,6 +8736,27 @@ export class VendasService {
         monthlyValue: baseSaleValue,
         setupValue: explicitSetupValue,
         leadId: String(updated.id),
+      }).catch(() => { /* best-effort: aviso nunca derruba o fechamento */ });
+    }
+
+    // Camada 2 (FECHAMENTO → MASTER): toda venda fechada cutuca o dono/admin no
+    // sino (audience customer) — ele sabe na hora, sem depender de abrir um feed.
+    // O ganho do vendedor já volta no commissionPreview + celebração do modal; o
+    // dono não vê o % do vendedor aqui (Lei do Vendedor). Best-effort + dedup por
+    // lead (re-gerar o link da mesma venda não enche o sino).
+    {
+      const sellerName = this.normalizeText((user as any)?.name) || this.normalizeText((user as any)?.email) || 'Um vendedor';
+      const customerName = this.normalizeText((updated as any)?.name) || 'o cliente';
+      const monthlyBrl = baseSaleValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      void pushMasterNotice(this.prisma, {
+        companyId: context.companyId,
+        audience: 'customer',
+        source: 'venda',
+        tone: 'success',
+        title: `Venda fechada — ${planLabel}`,
+        body: `${sellerName} fechou ${planLabel} por ${monthlyBrl}/mês. Aguardando ${customerName} ativar o link de contratação.`,
+        payload: { kind: 'venda', href: '/vendas', leadId: String(updated.id) },
+        nudgeKey: `venda:${updated.id}`,
       }).catch(() => { /* best-effort: aviso nunca derruba o fechamento */ });
     }
 

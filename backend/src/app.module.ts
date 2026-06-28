@@ -35,6 +35,7 @@ import { TenantCommunicationModule } from './tenant-communication/tenant-communi
 import { NightFactoryModule } from './night-factory/night-factory.module';
 import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
 import { BotModule } from './bot/bot.module';
+import { MasterCockpitModule } from './master-cockpit/master-cockpit.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { BotModule } from './bot/bot.module';
     MetaLeadAdsModule,
     BotModule,
     AdminModule,
+    MasterCockpitModule,
   ],
   controllers: [AppController],
   providers: [

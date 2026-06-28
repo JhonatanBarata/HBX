@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { BootSplash } from "@/components/hbx/boot-splash";
 import { apiFetch, getToken } from "@/lib/api";
+import { setAdminOnboardingMode } from "@/lib/onboarding";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 
 type Flags = {
@@ -19,6 +20,8 @@ type Flags = {
   email?: string | null;
   mustChangePassword?: boolean;
   ramoPending?: boolean;
+  // Onboarding do dono (Camada 4): true ⇒ portão pergunta "solo ou time?".
+  adminOnboardingPending?: boolean;
   tutorialPending?: boolean;
 };
 
@@ -46,11 +49,13 @@ export function BoasVindasGate() {
 
   if (!flags) return null;
   const precisaSenha = Boolean(flags.mustChangePassword);
-  // Ordem do portão: SENHA → RAMO (só dono) → TUTORIAL. Cada passo repete a cada
-  // login até resolver (os flags moram no backend, não no navegador).
+  // Ordem do portão: SENHA → RAMO (só dono) → MODO solo|time (só dono, Camada 4) →
+  // TUTORIAL. Cada passo repete a cada login até resolver (os flags moram no
+  // backend, não no navegador).
   const precisaRamo = !precisaSenha && Boolean(flags.ramoPending);
-  const precisaTutorial = !precisaSenha && !precisaRamo && Boolean(flags.tutorialPending);
-  if (!precisaSenha && !precisaRamo && !precisaTutorial) return null;
+  const precisaModo = !precisaSenha && !precisaRamo && Boolean(flags.adminOnboardingPending);
+  const precisaTutorial = !precisaSenha && !precisaRamo && !precisaModo && Boolean(flags.tutorialPending);
+  if (!precisaSenha && !precisaRamo && !precisaModo && !precisaTutorial) return null;
 
   // Senha definitiva: portão clássico. Tutorial: NÃO mostra mais o leitor estático
   // — dispara o TOUR INTERATIVO (boot → coach que vive no app-shell). Um só tutorial.
@@ -68,6 +73,15 @@ export function BoasVindasGate() {
       <div className="bv-veil" role="dialog" aria-modal="true">
         <div className="bv-card">
           <PassoRamo flags={flags} onResolved={carregar} />
+        </div>
+      </div>
+    );
+  }
+  if (precisaModo) {
+    return (
+      <div className="bv-veil" role="dialog" aria-modal="true">
+        <div className="bv-card">
+          <PassoAdminModo flags={flags} onResolved={carregar} />
         </div>
       </div>
     );
@@ -324,6 +338,63 @@ function PassoRamo({ flags, onResolved }: { flags: Flags; onResolved: () => void
           </div>
         </div>
       )}
+    </React.Fragment>
+  );
+}
+
+// Onboarding do DONO no 1º login (Camada 4): "Você vai operar sozinho ou com
+// time?". A escolha RAMIFICA o checklist de primeiros passos (solo = vira a jornada
+// do vendedor; time = convidar vendedor + ver a 1ª conversa). Grava o carimbo
+// admin_mode:solo|team (POST /onboarding/event) e some o portão. É um passo de
+// CONFIGURAÇÃO, não tem WhatsApp/ação live aqui — o checklist depois é que conduz.
+// Sem reset-em-effect: o componente nasce fresco a cada abertura do portão.
+function PassoAdminModo({ flags, onResolved }: { flags: Flags; onResolved: () => void }) {
+  const [busy, setBusy] = useState<"solo" | "team" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function escolher(mode: "solo" | "team") {
+    if (busy) return;
+    setBusy(mode);
+    setErr(null);
+    const ok = await setAdminOnboardingMode(mode);
+    if (ok) {
+      onResolved(); // recarrega flags → adminOnboardingPending=false → próximo passo
+    } else {
+      setErr("Não foi possível salvar agora. Tente novamente.");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <React.Fragment>
+      <div className="bv-hero">
+        <span className="orb" />
+        <span className="kicker">Como você vai operar{primeiroNome(flags.name)}</span>
+        <h2>Você vai usar a HBX sozinho ou com um time?</h2>
+        <p>Isso só ajusta os seus primeiros passos — dá pra mudar e crescer a equipe quando quiser.</p>
+      </div>
+      <div className="bv-body">
+        <div className="bv-branch">
+          <button type="button" className="bv-branch-opt" disabled={Boolean(busy)} onClick={() => escolher("solo")}>
+            <span className="bv-branch-ico" aria-hidden="true"><i className="ti ti-user" /></span>
+            <span className="bv-branch-tx">
+              <strong>Sozinho, por enquanto</strong>
+              <small>Eu mesmo prospecto e fecho. Comece puxando seu primeiro lead.</small>
+            </span>
+            <span className="bv-branch-go" aria-hidden="true">{busy === "solo" ? "…" : "→"}</span>
+          </button>
+          <button type="button" className="bv-branch-opt" disabled={Boolean(busy)} onClick={() => escolher("team")}>
+            <span className="bv-branch-ico" aria-hidden="true"><i className="ti ti-users-group" /></span>
+            <span className="bv-branch-tx">
+              <strong>Com um time</strong>
+              <small>Tenho ou vou ter vendedores. Comece convidando o primeiro.</small>
+            </span>
+            <span className="bv-branch-go" aria-hidden="true">{busy === "team" ? "…" : "→"}</span>
+          </button>
+        </div>
+        {err && <div className="bv-msg bad">{err}</div>}
+        <div className="bv-hint">Você é o dono da conta — só você define isso.</div>
+      </div>
     </React.Fragment>
   );
 }

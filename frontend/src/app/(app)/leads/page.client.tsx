@@ -18,6 +18,7 @@ import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-n
 import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
+import { stampOnboardingEvent } from "@/lib/onboarding";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 type FilterOption = { value: string; label: string; count?: number };
@@ -758,6 +759,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
       if (selLead?.id === id) setSelLead(null);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
+      void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)
       loadList("shelf", { page });
       loadUsage();
       loadBank();
@@ -789,6 +791,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
     }
     setSelected(new Set());
     setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
+    if (ok > 0) void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)
     setBulkBusy(false);
     loadList("shelf", { page: 1 });
     loadUsage();
@@ -1081,7 +1084,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
         )}
 
         {/* BLOCO B1: Onde buscar */}
-        <div className="radar-box">
+        <div className="radar-box" data-tut="leads-filtros">
           <div className="radar-box__grid2">
             <div className="f">
               <label htmlFor="rc-uf">
@@ -1185,7 +1188,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
               ◼ STOP
             </button>
           ) : (
-            <button className="btn-teal" onClick={() => executarBusca()} disabled={runBusy || runActive}>
+            <button className="btn-teal" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy || runActive}>
               {runBusy ? "Iniciando…" : runPaused ? "▶ Retomar" : "▶ Buscar"}
             </button>
           )}
@@ -1420,7 +1423,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
         )}
         {/* B1: linha fininha Total no Brasil (substituiu os 4 KPIs) */}
         <section className="panel" style={{ padding: 0 }}>
-          <div className="leads-bank-strip">
+          <div className="leads-bank-strip" data-tut="leads-kpis">
             <span>{isMobile ? "Brasil:" : "Total no Brasil:"}</span>
             <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
             {bank && Number(bank.deltaToday || 0) > 0 && (

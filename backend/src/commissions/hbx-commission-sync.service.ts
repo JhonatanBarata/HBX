@@ -6,6 +6,7 @@ import {
   normalizeCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
+import { pushMasterNotice } from '../common/push-master-notice';
 
 type HbxClientState = {
   saleStatus: 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled' | 'none';
@@ -366,6 +367,14 @@ export class HbxCommissionSyncService {
     const nextCommissionAmount = nextCommissionStatus === 'payable' || nextCommissionStatus === 'paid'
       ? commissionAmount
       : 0;
+    // Camada 2 (COMISSÃO CONFIRMADA): transição pra "payable" pela 1ª vez = o
+    // cliente ativou e a comissão saiu de prevista → confirmada. Gatilho do aviso
+    // pro vendedor ("caiu!") e pro dono ("cliente ativou"). Nada de fantasma: só
+    // dispara quando o estado canônico do cliente vira pagante.
+    const becamePayable =
+      nextCommissionStatus === 'payable'
+      && currentCommissionStatus !== 'payable'
+      && currentCommissionStatus !== 'paid';
     const nextDueAt =
       nextCommissionStatus === 'payable'
         ? (lead?.commissionDueAt instanceof Date ? lead.commissionDueAt : this.addBusinessDays(state.eventAt, dueBusinessDays))
@@ -459,6 +468,12 @@ export class HbxCommissionSyncService {
         },
       });
     });
+
+    // Camada 2: a comissão acabou de confirmar → avisa o vendedor e o dono (sino).
+    if (becamePayable) {
+      await this.notifySaleConfirmed(lead, company, nextCommissionAmount).catch(() => { /* best-effort */ });
+    }
+
     const inherited = await this.syncInheritedReceivablesForLead({
       leadId: lead.id,
       companyId: Number(lead.companyId || 0),
@@ -482,6 +497,47 @@ export class HbxCommissionSyncService {
       };
     });
     return { updated: true, ...inherited };
+  }
+
+  // Camada 2 (FECHAMENTO → COMISSÃO → MASTER): quando a venda confirma (o cliente
+  // ativou → comissão payable), o vendedor recebe "Comissão confirmada 🎉" no sino
+  // (recado pessoal, targetUserId) e o dono recebe "Cliente ativou". Best-effort
+  // (pushMasterNotice nunca lança) + dedup por lead, então re-sync não repete.
+  private async notifySaleConfirmed(lead: any, activatedCompany: any, monthlyCommission: number) {
+    const companyId = Math.trunc(Number(lead?.companyId || 0));
+    const leadId = String(lead?.id || '').trim();
+    if (!companyId || !leadId) return;
+    const customerName = String(activatedCompany?.name || '').trim() || 'O cliente';
+    const sellerUserId = Math.trunc(Number(lead?.assignedUserId || 0)) || null;
+
+    if (sellerUserId) {
+      const amount = this.money(monthlyCommission);
+      const amountTxt = amount > 0
+        ? ` ${amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/mês entrou no seu a receber.`
+        : '';
+      await pushMasterNotice(this.prisma, {
+        companyId,
+        audience: 'seller',
+        targetUserId: sellerUserId,
+        source: 'comissao',
+        tone: 'success',
+        title: 'Comissão confirmada 🎉',
+        body: `${customerName} ativou o plano.${amountTxt} É recorrente — entra todo mês que o cliente pagar.`,
+        payload: { kind: 'comissao', href: '/vendas', leadId },
+        nudgeKey: `comissao-confirmada:${leadId}`,
+      });
+    }
+
+    await pushMasterNotice(this.prisma, {
+      companyId,
+      audience: 'customer',
+      source: 'comissao',
+      tone: 'success',
+      title: `Cliente ativou: ${customerName}`,
+      body: 'A venda foi confirmada e a comissão do vendedor entrou no a receber.',
+      payload: { kind: 'comissao', href: '/vendas', leadId },
+      nudgeKey: `cliente-ativou:${leadId}`,
+    });
   }
 
   async syncActivatedCompany(companyId: number, options: SyncOptions = {}) {

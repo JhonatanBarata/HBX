@@ -1,0 +1,155 @@
+/* ────────────────────────────────────────────────────────────────────────────
+ * activation-checklist.css — Checklist de ativação persistente (Camada 1).
+ *
+ * Casca "Getting Started": dock flutuante no canto, cada item = uma "1ª vez";
+ * some ao completar tudo. 5 Leis: tudo em token/var, zero hex/inline solto.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.ac-card {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  width: 322px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 14px 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-body);
+  animation: ac-in 0.34s cubic-bezier(.18,.92,.24,1) both;
+}
+@keyframes ac-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.ac-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ac-head-txt { display: grid; gap: 2px; min-width: 0; }
+.ac-head-txt strong { font-family: var(--font-display); font-size: 0.96rem; color: var(--text-strong); }
+.ac-head-txt small { font-size: 0.72rem; color: var(--text-muted); }
+.ac-min {
+  flex: none;
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  font-size: 1.1rem; line-height: 1;
+  color: var(--text-muted);
+  background: var(--surface-recessed);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.ac-min:hover { color: var(--text-strong); }
+
+.ac-bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.ac-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong));
+  transition: width 0.5s cubic-bezier(.18,.92,.24,1);
+}
+
+.ac-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.ac-step {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  padding: 7px 6px;
+  border-radius: var(--radius-md);
+}
+.ac-step.is-next { background: var(--hbx-brand-soft); }
+.ac-dot {
+  width: 20px; height: 20px;
+  margin-top: 1px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  color: var(--text-on-brand);
+  background: transparent;
+}
+.ac-step.is-next .ac-dot { border-color: var(--hbx-brand); }
+.ac-step.is-done .ac-dot {
+  border-color: var(--hbx-success);
+  background: var(--hbx-success);
+}
+.ac-step-body { display: grid; gap: 4px; min-width: 0; }
+.ac-step-label { font-size: 0.84rem; font-weight: 600; color: var(--text-strong); }
+.ac-step.is-done .ac-step-label { color: var(--text-muted); font-weight: 500; }
+.ac-step-hint { font-size: 0.74rem; line-height: 1.45; color: var(--text-muted); }
+.ac-cta {
+  justify-self: start;
+  margin-top: 3px;
+  min-height: 30px;
+  padding: 0 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-on-brand);
+  background: var(--hbx-brand);
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+.ac-cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+/* ── Recolhido: pílula com anel de progresso ────────────────────────────── */
+.ac-pill {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 16px 8px 8px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  animation: ac-in 0.3s ease both;
+}
+.ac-pill-label { font-size: 0.82rem; font-weight: 700; color: var(--text-strong); }
+.ac-pill-ring {
+  --ac-pct: 0;
+  position: relative;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: conic-gradient(var(--hbx-brand) calc(var(--ac-pct) * 1%), var(--surface-recessed) 0);
+}
+.ac-pill-ring::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--surface-card);
+}
+.ac-pill-ring > i {
+  position: relative;
+  z-index: 1;
+  font-size: 0.62rem;
+  font-weight: 800;
+  font-style: normal;
+  color: var(--text-strong);
+}
+
+/* No celular sobe pra não brigar com a barra de abas inferior. */
+@media (max-width: 720px) {
+  .ac-card, .ac-pill { right: 12px; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .ac-card { width: calc(100vw - 24px); }
+}

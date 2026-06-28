@@ -752,6 +752,10 @@ type MasterNotice = {
 // junto e a tela de Configurações casa com o membro e abre o Gerenciar dele.
 function noticeTarget(notice: MasterNotice): { href: string; hints?: Record<string, string> } | null {
   const title = String(notice.title || "");
+  // Camada 2: avisos novos (venda/comissão) já trazem o destino no payload.href —
+  // honra direto, sem precisar casar o título por regex.
+  const ph = notice.payload?.href;
+  if (typeof ph === "string" && ph.startsWith("/")) return { href: ph };
   if (/^Ticket aberto: documentos confirmados/i.test(title)) {
     const email = (String(notice.body || "").match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [])[0];
     const hints: Record<string, string> = { "hbx:config-sec": "Equipe" };
@@ -1121,7 +1125,18 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
             className="round-btn"
             title="Como usar esta tela"
             aria-label="Como usar esta tela"
-            onClick={() => startTutorialCoach(moduleTourId)}
+            onClick={() => {
+              // "Como usar" inteligente: em /vendas o Radar vive na slide "Buscar
+              // empresas" (modo "buscar"). Slide aberta → dispara o tour do Radar
+              // ("leads"); no funil ("Meu funil") → o tour de Vendas. O sinal vem do
+              // DOM (.vnd-slidetrack.is-buscar), sem acoplar o Topbar ao estado da página.
+              let id = moduleTourId;
+              if (id === "vendas" && typeof document !== "undefined"
+                  && document.querySelector(".vnd-slidetrack.is-buscar")) {
+                id = "leads";
+              }
+              startTutorialCoach(id);
+            }}
             data-tut="como-usar"
           >
             <I d={ICONS.help} size={17} />

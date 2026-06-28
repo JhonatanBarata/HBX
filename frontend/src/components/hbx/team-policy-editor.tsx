@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { stampOnboardingEvent, type OnboardingEvent } from "@/lib/onboarding";
 
 type Seller = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
 
@@ -196,6 +197,8 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
   const [accessDraft, setAccessDraft] = useState<Record<string, boolean>>({});
   const [accessFilter, setAccessFilter] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  // Nível 2 (8 grupos) é a CARA da tela; nível 3 (matriz 76) abre no "Avançado".
+  const [advanced, setAdvanced] = useState(false);
   const [presetKey, setPresetKey] = useState("");
   const [commissionPercent, setCommissionPercent] = useState("0");
   const [commissionDueBusinessDays, setCommissionDueBusinessDays] = useState("3");
@@ -306,6 +309,18 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
     };
   }, [policy, limits, moduleDraft, accessDraft, presetKey, commissionPercent, commissionDueBusinessDays, canRecruitSellers, sellerReferralCommissionPercent, referredByUserId, referredByCommissionPercentSnapshot, allowedSegments, blockedSegments, allowedCities, allowedStates, requiresLocation, requiredChannels, visibility]);
 
+  // Nível 2 — liga/desliga um GRUPO inteiro de uma vez. Se nem tudo está ON,
+  // liga tudo; se tudo está ON, desliga tudo. (A matriz fina mora no Avançado.)
+  function toggleGroup(items: AccessItem[], allOn: boolean) {
+    if (readOnly || saving) return;
+    setAccessDraft((cur) => {
+      const next = { ...cur };
+      for (const it of items) next[it.key] = !allOn;
+      return next;
+    });
+    setPresetKey("");
+  }
+
   function aplicarPreset(key: string) {
     const preset = (policy?.accessPresets || []).find((p) => p.key === key);
     if (!preset) { setPresetKey(""); return; }
@@ -332,6 +347,12 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
       setPolicy(after);
       hydrate(after);
       setMsg("✓ Política salva.");
+      // Ativação do GERENTE (Camada 3): liberar a política de um VENDEDOR é o
+      // marco "1º vendedor liberado". Best-effort/idempotente — o backend dedupe
+      // o firstTime; se o evento ainda não existir lá (worker C4), engole o erro.
+      if (!isSelf && String(after.subject.role || "").toUpperCase() === "USER") {
+        void stampOnboardingEvent("first_seller_released" as OnboardingEvent);
+      }
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Não foi possível salvar a política.");
     } finally {
@@ -373,14 +394,31 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
         </div>
       </section>
 
-      {/* Acessos — catálogo COMPLETO, agrupado por módulo (todas as ~70 permissões) */}
-      {catalog.length > 0 && (
+      {/* Acessos da pessoa — 3 níveis de divulgação progressiva:
+          1) preset por cargo (CargoAcessosEditor, fora deste modal)
+          2) os 8 GRUPOS (cara da tela — default)
+          3) "Avançado": a matriz completa de permissões. */}
+      {catalog.length > 0 && (() => {
+        const q = accessFilter.trim().toLowerCase();
+        // Filtro é por item → cai automaticamente na matriz (nível 3).
+        const showMatrix = advanced || q.length > 0;
+        return (
         <section className="tp-sec">
-          <div className="tp-acchead">
-            <h4>Acessos da pessoa</h4>
-            <span className="tp-desc">
-              {catalog.length} permissões. O que você liga/desliga aqui é o override desta pessoa sobre o padrão do cargo.
-            </span>
+          <div className="tpx-head">
+            <div className="tpx-titles">
+              <h4>Acessos da pessoa</h4>
+              <p className="tp-desc">
+                {showMatrix
+                  ? `${catalog.length} permissões individuais — o ajuste fino desta pessoa sobre o padrão do cargo.`
+                  : "Ligue ou desligue áreas inteiras para esta pessoa. Cada área cobre todas as suas ações; para o ajuste fino, abra o Avançado."}
+              </p>
+            </div>
+            <button type="button"
+              className={"tpx-advbtn" + (advanced ? " on" : "")}
+              title="Alternar entre áreas (simples) e permissões individuais (avançado)"
+              onClick={() => setAdvanced((v) => !v)}>
+              {advanced ? "Visão simples" : "Avançado"}
+            </button>
           </div>
           <div className="tp-grid2">
             <div className="tp-field">
@@ -398,9 +436,45 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
               </div>
             )}
           </div>
+
+          {/* Nível 2 — os 8 grupos (default) */}
+          {!showMatrix && (
+            <div className="tpx-groups">
+              {groups.map((g) => {
+                const items = catalog.filter((it) => it.group === g.key);
+                if (!items.length) return null;
+                const onCount = items.filter((it) => Boolean(accessDraft[it.key])).length;
+                const allOn = onCount === items.length;
+                const someOn = onCount > 0 && !allOn;
+                const overridden = items.some((it) => Boolean(accessDraft[it.key]) !== defaultForItem(it));
+                const cardCls = "tpx-gcard" + (allOn ? " all" : someOn ? " part" : "");
+                const swCls = "tpx-gswitch" + (allOn ? " on" : someOn ? " part" : "");
+                return (
+                  <div key={g.key} className={cardCls}>
+                    <span className="tpx-gtext">
+                      <b>{g.label}</b>
+                      <small>{g.description}</small>
+                    </span>
+                    <button type="button" className={swCls} role="switch" aria-checked={allOn}
+                      aria-label={`${allOn ? "Desligar" : "Ligar"} ${g.label}`}
+                      disabled={dis}
+                      onClick={() => toggleGroup(items, allOn)}>
+                      <i></i>
+                    </button>
+                    <span className="tpx-gstate">
+                      <span className="tag">{onCount}/{items.length} liberadas</span>
+                      {overridden && <span className="tag teal">Alterado</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Nível 3 — matriz completa (Avançado ou busca ativa) */}
+          {showMatrix && (
           <div className="tp-groups">
             {groups.map((g) => {
-              const q = accessFilter.trim().toLowerCase();
               const items = catalog
                 .filter((it) => it.group === g.key)
                 .filter((it) => !q
@@ -465,8 +539,10 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
               );
             })}
           </div>
+          )}
         </section>
-      )}
+        );
+      })()}
 
       {/* Comissão + Herança */}
       <section className="tp-sec">

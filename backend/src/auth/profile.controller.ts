@@ -72,6 +72,27 @@ export function sanitizeUser(user: any, masterContext?: any) {
     // aí o gate de pagamento (bloqueio-gate) é quem assume.
     Boolean(companyAccess?.canUse) &&
     companyProspectingSegments.length === 0;
+  // Onboarding do ADMIN/dono (Camada 4, 28/06): no 1º login o dono escolhe
+  // "sozinho ou com time?" — a escolha ramifica o checklist. Pendente = mesmo
+  // gating do dono (ADMIN dono, com acesso) E ainda SEM carimbo admin_mode:*.
+  // Vem DEPOIS do ramo (o portão resolve senha → ramo → modo → tutorial). Só
+  // leitura; a escolha é gravada em /onboarding/event { admin_mode:solo|team }.
+  const adminModeChosen = (() => {
+    try {
+      const parsed = JSON.parse(String(user.onboardingStateJson || '{}'));
+      const ev = parsed && typeof parsed === 'object' ? parsed.events : null;
+      return Boolean(ev && (ev['admin_mode:solo'] || ev['admin_mode:team']));
+    } catch {
+      return false;
+    }
+  })();
+  const adminOnboardingPending =
+    role === 'ADMIN' &&
+    !user.isSystemMaster &&
+    user.canViewBilling !== false &&
+    Boolean(user.company) &&
+    Boolean(companyAccess?.canUse) &&
+    !adminModeChosen;
   // Preferência do vendedor (self-service 14/06): leitor tolerante a object
   // {segments,cityRegion} e ao bare-array legado. Vira o default do "Puxar leads".
   const sellerPreferred = parsePreferredSegments((user as any).preferredSegmentsJson);
@@ -93,6 +114,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     tutorialPending: !user.tutorialCompletedAt && Boolean(companyAccess?.canUse),
     // Ramo-alvo: só o dono define. true ⇒ portão pergunta antes do tutorial.
     ramoPending,
+    // Onboarding do dono (Camada 4): true ⇒ portão pergunta "solo ou time?" antes
+    // do tutorial (depois do ramo). Só o dono (não gerente/master/vendedor).
+    adminOnboardingPending,
     sellerProfile: {
       isReferralSeller,
       isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
@@ -345,9 +369,279 @@ function maskPhoneDigits(digits: string | null | undefined): string {
 
 const VITRINE_EXCLUDED = ['rejected', 'duplicate', 'opt_out', 'blocked', 'complaint', 'negative', 'discarded', 'hidden', 'no_whatsapp', 'invalid_whatsapp'];
 
+// ── Ativação / onboarding (28/06) ──────────────────────────────────────────────
+// Camada 1 (vendedor) + Camada 4 (admin/empresa solo|time, gerente). Marcos
+// rastreados da jornada. milestone=true ⇒ o front dispara o "momento de conquista"
+// uma única vez (firstTime). A ordem do array é a ordem do checklist.
+//
+// IMPORTANTE: este controller é a FONTE ÚNICA da camada de dados de onboarding de
+// TODOS os papéis (vendedor, admin/dono, gerente). Os workers C3 (gerencial) e C5
+// (master) DISPARAM eventos do front, mas o catálogo de eventos + checklists vive
+// aqui. Eventos novos NÃO podem quebrar o vendedor (Camada 1).
+const ONBOARDING_EVENTS = [
+  // Camada 1 — vendedor (e admin solo, que reusa a jornada do vendedor)
+  'lead_pulled',
+  'whatsapp_connected',
+  'first_conversation_started',
+  'first_deal_closed',
+  // Camada 4 — admin/dono (1º login solo|time)
+  'company_identity_set',
+  'first_module_confirmed',
+  'first_seller_invited',
+  'first_conversation', // ativação do admin solo (sinônimo "fez acontecer")
+  // Camada 4 — gerente (worker C3 dispara do front; aqui só registramos + checklist)
+  'first_seller_released',
+] as const;
+type OnboardingEvent = (typeof ONBOARDING_EVENTS)[number];
+
+type ChecklistStep = {
+  key: OnboardingEvent;
+  label: string;
+  hint: string;
+  href: string;
+  cta: string;
+  milestone: boolean;
+};
+
+// Checklist do VENDEDOR (coração da Camada 1). Ativação = 1ª conversa iniciada.
+const SELLER_CHECKLIST: ChecklistStep[] = [
+  { key: 'lead_pulled', label: 'Puxe seu primeiro lead', hint: 'Abra o Radar, busque empresas do seu ramo e traga uma pra sua carteira.', href: '/vendas', cta: 'Abrir Radar', milestone: true },
+  { key: 'whatsapp_connected', label: 'Conecte seu WhatsApp', hint: 'É por ele que você fala com o cliente. Leva 1 minuto.', href: '/atendimento', cta: 'Conectar', milestone: false },
+  { key: 'first_conversation_started', label: 'Inicie a primeira conversa', hint: 'Mande a primeira mensagem — é aqui que você ativa de verdade.', href: '/atendimento', cta: 'Ir para Conversas', milestone: true },
+  { key: 'first_deal_closed', label: 'Feche a primeira venda', hint: 'Gere o link de contratação e amarre a sua comissão.', href: '/vendas', cta: 'Abrir Vendas', milestone: true },
+];
+
+// Checklist do ADMIN/DONO (Camada 4), RAMIFICADO por modo de operação:
+//  - 'team' (com time): identidade → módulos → 1º vendedor convidado → 1ª conversa.
+//  - 'solo' (sozinho): identidade → módulos → cai no fluxo do vendedor (puxar lead,
+//    conectar WhatsApp, 1ª conversa). O admin solo "vira vendedor" de si mesmo.
+// Identidade e módulos são comuns. O ramo é escolhido no 1º login (portão) e
+// carimba `company_identity_set` — o checklist auto-cura do dado real (ramo salvo).
+const ADMIN_COMMON_STEPS: ChecklistStep[] = [
+  { key: 'company_identity_set', label: 'Defina a identidade da empresa', hint: 'Nome, ramo-alvo e o que você vende — é o que alimenta o Radar e o fechamento.', href: '/configuracoes', cta: 'Abrir Configurações', milestone: false },
+  { key: 'first_module_confirmed', label: 'Confirme os módulos', hint: 'Já vêm ligados pelo seu plano. Confira o que sua equipe vai usar.', href: '/configuracoes', cta: 'Ver módulos', milestone: false },
+];
+const ADMIN_TEAM_STEPS: ChecklistStep[] = [
+  ...ADMIN_COMMON_STEPS,
+  { key: 'first_seller_invited', label: 'Convide seu primeiro vendedor', hint: 'Cadastre um vendedor e defina o cargo. A operação começa quando o time entra.', href: '/gerencial', cta: 'Convidar vendedor', milestone: true },
+  { key: 'first_conversation', label: 'Veja a primeira conversa acontecer', hint: 'Acompanhe o time falar com o cliente — é aqui que a empresa ativa.', href: '/atendimento', cta: 'Abrir Atendimento', milestone: true },
+];
+const ADMIN_SOLO_STEPS: ChecklistStep[] = [
+  ...ADMIN_COMMON_STEPS,
+  { key: 'lead_pulled', label: 'Puxe seu primeiro lead', hint: 'Abra o Radar, busque empresas do seu ramo e traga uma pra sua carteira.', href: '/vendas', cta: 'Abrir Radar', milestone: true },
+  { key: 'whatsapp_connected', label: 'Conecte seu WhatsApp', hint: 'É por ele que você fala com o cliente. Leva 1 minuto.', href: '/atendimento', cta: 'Conectar', milestone: false },
+  { key: 'first_conversation', label: 'Inicie a primeira conversa', hint: 'Mande a primeira mensagem — é aqui que você ativa de verdade.', href: '/atendimento', cta: 'Ir para Conversas', milestone: true },
+];
+
+// Checklist do GERENTE (Camada 4): 1 marco — liberar o 1º vendedor. O worker C3
+// dispara `first_seller_released` do front; aqui registramos + auto-curamos do dado
+// real (existe vendedor ATIVO na empresa).
+const MANAGER_CHECKLIST: ChecklistStep[] = [
+  { key: 'first_seller_released', label: 'Libere o primeiro vendedor', hint: 'Aprove o acesso de um vendedor da equipe — é o seu papel pra operação girar.', href: '/gerencial', cta: 'Abrir Equipe', milestone: true },
+];
+
+// 'admin' aqui é o DONO (vê cobrança). O GERENTE também é role ADMIN no banco, mas
+// com canViewBilling=false (régua única PR13062026007). Separamos os dois.
+function resolveUserKind(user: any): 'system_master' | 'admin' | 'manager' | 'seller' | 'user' {
+  const role = String(user?.role || '').trim().toUpperCase();
+  if (user?.isSystemMaster) return 'system_master';
+  if (role === 'ADMIN') return (user as any)?.canViewBilling === false ? 'manager' : 'admin';
+  if (role === 'USER') return 'seller';
+  return 'user';
+}
+
+// Modo de operação do admin (solo|time). Decidido no 1º login (portão) e gravado
+// como carimbo de onboarding (admin_mode:solo|admin_mode:team). Default = 'team'
+// (mais comum) até a escolha; o portão força a escolha antes de soltar o app.
+function resolveAdminMode(stamps: Record<string, string>): 'solo' | 'team' {
+  if (stamps['admin_mode:solo']) return 'solo';
+  if (stamps['admin_mode:team']) return 'team';
+  return 'team';
+}
+
 @Controller('onboarding')
 export class OnboardingController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
+  ) {}
+
+  // Checklist de ativação do usuário logado, POR PAPEL (Camada 1 vendedor +
+  // Camada 4 admin/gerente). master/usuário genérico voltam applicable=false e o
+  // front esconde a casca. O estado vem dos carimbos (onboardingStateJson) E DERIVA
+  // dos dados reais — assim o painel mostra a VERDADE e se auto-cura pra quem já fez
+  // antes do recurso. Toda derivação é defensiva: query falhou → cai só no carimbo.
+  @Get('checklist')
+  @UseGuards(JwtAuthGuard)
+  async checklist(@Req() req: any) {
+    const user = await this.usersService.findById(Number(req.user?.id));
+    const kind = resolveUserKind(user);
+    if (kind !== 'seller' && kind !== 'admin' && kind !== 'manager') {
+      return {
+        applicable: false, role: kind, complete: true, activated: false,
+        progress: { done: 0, total: 0 }, steps: [], adminMode: null,
+      };
+    }
+
+    const userId = Number(user?.id || 0);
+    const companyId = Number((user as any)?.companyId || 0);
+    const stamps = this.usersService.getOnboardingEvents(user as any);
+    const derived = await this.deriveOnboardingState(kind, userId, companyId, user);
+
+    // Seleção do checklist + chave de "ativado" por papel.
+    let template: ChecklistStep[];
+    let activatedKey: OnboardingEvent;
+    let adminMode: 'solo' | 'team' | null = null;
+    if (kind === 'manager') {
+      template = MANAGER_CHECKLIST;
+      activatedKey = 'first_seller_released';
+    } else if (kind === 'admin') {
+      adminMode = resolveAdminMode(stamps);
+      template = adminMode === 'solo' ? ADMIN_SOLO_STEPS : ADMIN_TEAM_STEPS;
+      activatedKey = 'first_conversation';
+    } else {
+      template = SELLER_CHECKLIST;
+      activatedKey = 'first_conversation_started';
+    }
+
+    const steps = template.map((s) => {
+      const stampedAt = stamps[s.key] || null;
+      const done = Boolean(stampedAt) || derived[s.key] === true;
+      return {
+        key: s.key,
+        label: s.label,
+        hint: s.hint,
+        href: s.href,
+        cta: s.cta,
+        milestone: s.milestone,
+        done,
+        doneAt: stampedAt,
+      };
+    });
+
+    const doneCount = steps.filter((s) => s.done).length;
+    const activated = Boolean(steps.find((s) => s.key === activatedKey)?.done);
+    return {
+      applicable: true,
+      role: kind,
+      adminMode,
+      complete: doneCount >= steps.length,
+      activated,
+      progress: { done: doneCount, total: steps.length },
+      steps,
+    };
+  }
+
+  // Auto-cura: deriva o estado dos marcos a partir do DADO REAL por papel. Defensiva:
+  // qualquer query que falhe cai fora (o carimbo assume). Nenhuma derivação aqui faz
+  // AÇÃO live (WhatsApp etc.) — só CONTAGEM read-only.
+  private async deriveOnboardingState(
+    kind: 'seller' | 'admin' | 'manager',
+    userId: number,
+    companyId: number,
+    user: any,
+  ): Promise<Partial<Record<OnboardingEvent, boolean>>> {
+    const derived: Partial<Record<OnboardingEvent, boolean>> = {};
+
+    // Identidade da empresa (admin): ramo-alvo já salvo = identidade definida. Os
+    // módulos JÁ vêm ligados pelo plano (não há ação que "confirme" — seria um passo
+    // fantasma travando o checklist), então confirmação de módulo auto-cura junto da
+    // identidade; o admin ainda pode ajustar em Configurações quando quiser.
+    if (kind === 'admin') {
+      try {
+        const segs = JSON.parse(String(user?.company?.prospectingSegmentsJson || '[]'));
+        if (Array.isArray(segs) && segs.some((s: any) => String(s || '').trim())) {
+          derived.company_identity_set = true;
+          derived.first_module_confirmed = true;
+        }
+      } catch { /* sem ramo legível — segue pelo carimbo */ }
+    }
+
+    // Vendedor convidado/liberado (admin/gerente): existe USER na empresa? (≠ o próprio).
+    if (kind === 'admin' || kind === 'manager') {
+      try {
+        const [anySeller, activeSeller] = await Promise.all([
+          companyId
+            ? this.prisma.user.count({ where: { companyId, role: 'USER', isSystemMaster: false } })
+            : Promise.resolve(0),
+          companyId
+            ? this.prisma.user.count({ where: { companyId, role: 'USER', isSystemMaster: false, isActive: true } })
+            : Promise.resolve(0),
+        ]);
+        derived.first_seller_invited = anySeller > 0;
+        derived.first_seller_released = activeSeller > 0;
+      } catch { /* sem derivação de equipe */ }
+    }
+
+    // 1ª conversa da EMPRESA (admin: solo ou time) — qualquer conversa da empresa conta.
+    if (kind === 'admin') {
+      try {
+        const convs = companyId
+          ? await this.prisma.companyConversation.count({ where: { companyId } })
+          : 0;
+        derived.first_conversation = convs > 0;
+      } catch { /* sem derivação de conversa */ }
+    }
+
+    // Fluxo do vendedor (vendedor OU admin solo): lead puxado / chip ativo / venda.
+    if (kind === 'seller' || kind === 'admin') {
+      try {
+        const [pulled, waActive, dealClosed] = await Promise.all([
+          userId ? this.prisma.vendasLead.count({ where: { assignedUserId: userId } }) : Promise.resolve(0),
+          companyId
+            ? this.prisma.whatsAppConnectionSession.count({
+                where: { companyId, status: 'active', OR: [{ userId }, { userId: null }] },
+              })
+            : Promise.resolve(0),
+          userId
+            ? this.prisma.vendasLead.count({ where: { assignedUserId: userId, saleStatus: { not: 'none' } } })
+            : Promise.resolve(0),
+        ]);
+        derived.lead_pulled = pulled > 0;
+        derived.whatsapp_connected = waActive > 0;
+        derived.first_deal_closed = dealClosed > 0;
+      } catch { /* sem derivação do fluxo do vendedor */ }
+    }
+
+    return derived;
+  }
+
+  // Carimbos de configuração do onboarding (NÃO são marcos do checklist): a escolha
+  // solo|time do admin no 1º login. Idempotente; o portão do front decide o ramo.
+  private static readonly ONBOARDING_CONFIG_EVENTS = ['admin_mode:solo', 'admin_mode:team'] as const;
+
+  // Carimba um marco (idempotente). Devolve firstTime + se o marco é milestone —
+  // o front decide disparar a conquista só na 1ª vez de um marco celebrável. Aceita
+  // tanto marcos do checklist (ONBOARDING_EVENTS) quanto carimbos de config
+  // (admin_mode:*) usados pelo portão para ramificar o checklist do admin.
+  @Post('event')
+  @UseGuards(JwtAuthGuard)
+  async event(@Req() req: any, @Body() body: { event?: string }) {
+    const event = String(body?.event || '').trim();
+    const isMilestoneEvent = ONBOARDING_EVENTS.includes(event as OnboardingEvent);
+    const isConfigEvent = (OnboardingController.ONBOARDING_CONFIG_EVENTS as readonly string[]).includes(event);
+    if (!isMilestoneEvent && !isConfigEvent) {
+      throw new BadRequestException('Evento de onboarding inválido.');
+    }
+    const userId = Number(req.user?.id || 0);
+    if (!userId) throw new BadRequestException('Usuario invalido');
+    const { firstTime } = await this.usersService.stampOnboardingEvent(userId, event);
+    // Milestone (momento de conquista) só p/ marco celebrável DO PAPEL de quem chama:
+    // vendedor vê os marcos de vendedor, admin/dono os do admin (solo|time), gerente
+    // o seu. Carimbos de config nunca celebram.
+    const user = await this.usersService.findById(userId);
+    const kind = resolveUserKind(user);
+    let milestone = false;
+    if (isMilestoneEvent) {
+      const stamps = this.usersService.getOnboardingEvents(user as any);
+      let template: ChecklistStep[] | null = null;
+      if (kind === 'seller') template = SELLER_CHECKLIST;
+      else if (kind === 'manager') template = MANAGER_CHECKLIST;
+      else if (kind === 'admin') template = resolveAdminMode(stamps) === 'solo' ? ADMIN_SOLO_STEPS : ADMIN_TEAM_STEPS;
+      milestone = Boolean(template?.find((s) => s.key === event)?.milestone);
+    }
+    return { ok: true, event, firstTime, milestone };
+  }
 
   @Get('segment-preview')
   @UseGuards(JwtAuthGuard)

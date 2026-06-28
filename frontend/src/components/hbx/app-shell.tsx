@@ -14,6 +14,8 @@ import { MobileTabBar } from "@/components/hbx/mobile-tab-bar";
 import { Sidebar, Topbar } from "@/components/hbx/shell";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
+import { ConquistaHost } from "@/components/hbx/conquista-host";
+import { ActivationChecklist } from "@/components/hbx/activation-checklist";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
 
@@ -72,6 +74,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <TutorialCoachHost />
       {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
       <SellersBrainsHost />
+      {/* Ativação / onboarding (Camada 1): checklist de primeiros passos do vendedor
+          (só aparece pra quem tem jornada) + momento de conquista de cada "1ª vez". */}
+      <ActivationChecklist />
+      <ConquistaHost />
     </div>
   );
 }

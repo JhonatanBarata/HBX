@@ -1,5 +1,0 @@
-live/*
-!live/.gitkeep
-logs/*
-!logs/.gitkeep
-*.wgt

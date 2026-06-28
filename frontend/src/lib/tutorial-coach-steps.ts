@@ -180,14 +180,16 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
 // ALVO ausente (cargo/plano não tem, ou mobile que não renderiza aquele bloco)
 // NÃO trava: o coach espera ~4s e pula sozinho. Foco do POC = desktop.
 
-// Radar (/leads): achar empresa → mirar filtro → ver/buscar → puxar pra carteira.
-// Sem cargo por enquanto (todo mundo vê os mesmos passos); quando um módulo
-// precisar variar por cargo, devolver o audience como argumento (par do builder).
+// Radar (slide "Buscar empresas" DENTRO de /vendas — 27/06 o Radar deixou de ser
+// tela própria; /leads redireciona pra /vendas e o LeadsClient roda embutido).
+// Por isso os passos vivem na rota "/vendas" e o tour é disparado pelo "Como usar"
+// quando a slide está aberta (shell detecta .vnd-slidetrack.is-buscar). Fluxo:
+// tamanho do lago → mirar filtro → ligar o motor → prateleira/carteira → puxar → cota.
 function leadsModuleSteps(): CoachStep[] {
   return [
     {
       id: "leads-intro",
-      route: "/leads",
+      route: "/vendas",
       title: "Este é o seu Radar",
       body: "É aqui que você acha empresas pra vender. Vou te mostrar cada parte em poucos toques.",
       gate: "next",
@@ -195,55 +197,39 @@ function leadsModuleSteps(): CoachStep[] {
     },
     {
       id: "leads-kpis",
-      route: "/leads",
+      route: "/vendas",
       target: '[data-tut="leads-kpis"]',
       title: "O tamanho do lago",
-      body: "Esses números são o Brasil inteiro: quantas empresas existem, quantas já foram filtradas pra você e quantas têm WhatsApp.",
+      body: "Esse número é o Brasil inteiro: o total de empresas que o Radar já tem catalogadas pra você garimpar.",
       gate: "next",
     },
     {
       id: "leads-filtros",
-      route: "/leads",
+      route: "/vendas",
       target: '[data-tut="leads-filtros"]',
       title: "Aqui você mira",
-      body: "Escolha estado, cidade, alcance e o segmento que você atende. É o que diz pro Radar o tipo de empresa que você procura.",
-      gate: "next",
-    },
-    {
-      id: "leads-ver",
-      route: "/leads",
-      target: '[data-tut="leads-ver"]',
-      title: "Ver quem já está pronto",
-      body: "Mostra na hora as empresas que já estão na prateleira pro filtro que você escolheu.",
+      body: "Escolha estado, cidade e alcance — e logo abaixo o segmento que você atende. É o que diz pro Radar o tipo de empresa que você procura.",
       gate: "next",
     },
     {
       id: "leads-buscar",
-      route: "/leads",
+      route: "/vendas",
       target: '[data-tut="leads-buscar"]',
-      title: "Prateleira fina? Liga o motor",
-      body: "Isso manda o Radar varrer a internet com a sua cidade e segmento e trazer empresas novinhas.",
-      gate: "next",
-    },
-    {
-      id: "leads-auto",
-      route: "/leads",
-      target: '[data-tut="leads-auto"]',
-      title: "Piloto automático",
-      body: "Liga e o Radar fica buscando sozinho com esse filtro — você chega e já tem lead novo esperando.",
+      title: "Liga o motor",
+      body: "Isso manda o Radar varrer a internet com a sua cidade e segmento e trazer empresas novinhas pra prateleira.",
       gate: "next",
     },
     {
       id: "leads-abas",
-      route: "/leads",
+      route: "/vendas",
       target: '[data-tut="leads-abas"]',
       title: "Prateleira e carteira",
-      body: "“Disponíveis” é a prateleira, com o contato ainda escondido. “Minha carteira” é o que já é seu, com o contato liberado.",
+      body: "“Disponíveis” é a prateleira, com o contato ainda escondido. Quando você puxa, a empresa vira sua e o contato libera.",
       gate: "next",
     },
     {
       id: "leads-puxar",
-      route: "/leads",
+      route: "/vendas",
       target: '[data-tut="leads-puxar"]',
       title: "Puxar pra você",
       body: "Marque as empresas e clique aqui: o contato aparece e elas entram na sua carteira, prontas pra abordar.",
@@ -251,7 +237,7 @@ function leadsModuleSteps(): CoachStep[] {
     },
     {
       id: "leads-cota",
-      route: "/leads",
+      route: "/vendas",
       target: '[data-tut="leads-cota"]',
       title: "Seu limite",
       body: "Mostra quantas empresas você pode ter em mãos. Encheu? Feche uma venda ou agende um retorno pra abrir vaga.",

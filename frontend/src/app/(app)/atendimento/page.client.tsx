@@ -32,6 +32,7 @@ import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-pane
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
+import { stampOnboardingEvent } from "@/lib/onboarding";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
   fetchWhatsAppModalStatus,
@@ -1143,6 +1144,7 @@ export function AtendimentoClient() {
       setDraft("");
       setReplyTo(null);
       atBottomRef.current = true;
+      void stampOnboardingEvent("first_conversation_started"); // marco: ATIVADO (Camada 1)
       await loadThread(selId);
       void loadConvs(); // sobe a conversa e atualiza o preview na hora (sem esperar SSE)
     } catch (err) {
