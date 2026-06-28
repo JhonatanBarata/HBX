@@ -371,7 +371,7 @@ function PassoAdminModo({ flags, onResolved }: { flags: Flags; onResolved: () =>
         <span className="orb" />
         <span className="kicker">Como você vai operar{primeiroNome(flags.name)}</span>
         <h2>Você vai usar a HBX sozinho ou com um time?</h2>
-        <p>Isso só ajusta os seus primeiros passos — dá pra mudar e crescer a equipe quando quiser.</p>
+        <p>Isso ajusta seus primeiros passos e já define o modelo de atendimento do WhatsApp — dá pra mudar quando quiser em Atendimento.</p>
       </div>
       <div className="bv-body">
         <div className="bv-branch">
@@ -379,7 +379,7 @@ function PassoAdminModo({ flags, onResolved }: { flags: Flags; onResolved: () =>
             <span className="bv-branch-ico" aria-hidden="true"><i className="ti ti-user" /></span>
             <span className="bv-branch-tx">
               <strong>Sozinho, por enquanto</strong>
-              <small>Eu mesmo prospecto e fecho. Comece puxando seu primeiro lead.</small>
+              <small>Eu mesmo prospecto e fecho, pelo meu próprio WhatsApp (chips individuais). Comece puxando seu primeiro lead.</small>
             </span>
             <span className="bv-branch-go" aria-hidden="true">{busy === "solo" ? "…" : "→"}</span>
           </button>
@@ -387,7 +387,7 @@ function PassoAdminModo({ flags, onResolved }: { flags: Flags; onResolved: () =>
             <span className="bv-branch-ico" aria-hidden="true"><i className="ti ti-users-group" /></span>
             <span className="bv-branch-tx">
               <strong>Com um time</strong>
-              <small>Tenho ou vou ter vendedores. Comece convidando o primeiro.</small>
+              <small>Tenho ou vou ter vendedores, atendendo por um número compartilhado da empresa. Comece convidando o primeiro.</small>
             </span>
             <span className="bv-branch-go" aria-hidden="true">{busy === "team" ? "…" : "→"}</span>
           </button>

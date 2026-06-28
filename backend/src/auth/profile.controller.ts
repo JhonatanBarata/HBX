@@ -631,6 +631,32 @@ export class OnboardingController {
     // o seu. Carimbos de config nunca celebram.
     const user = await this.usersService.findById(userId);
     const kind = resolveUserKind(user);
+
+    // Fix 28/06 — a escolha solo|time do dono no 1º login DEFINE o modelo de
+    // atendimento real (Company.whatsappAttendanceMode), não é só casca pro checklist:
+    //   solo = 'individual' (atende pelo próprio WhatsApp) · time = 'shared' (número da empresa).
+    // Grava SÓ quando ainda não definido (1º login, sem chip) — nunca sobrescreve uma
+    // escolha já feita. Gravar o campo NÃO desconecta chip (a troca-com-desconexão mora
+    // no painel /atendimento); por isso é seguro aqui. Best-effort: jamais derruba o carimbo.
+    if (isConfigEvent && kind === 'admin') {
+      const companyId = Number((user as any)?.companyId || 0);
+      if (companyId) {
+        const desiredMode = event === 'admin_mode:solo' ? 'individual' : 'shared';
+        try {
+          const company = await this.prisma.company.findUnique({
+            where: { id: companyId },
+            select: { whatsappAttendanceMode: true } as any,
+          });
+          if (company && !(company as any).whatsappAttendanceMode) {
+            await this.prisma.company.update({
+              where: { id: companyId },
+              data: { whatsappAttendanceMode: desiredMode } as any,
+            });
+          }
+        } catch { /* best-effort: o link do modelo nunca derruba o carimbo de onboarding */ }
+      }
+    }
+
     let milestone = false;
     if (isMilestoneEvent) {
       const stamps = this.usersService.getOnboardingEvents(user as any);
