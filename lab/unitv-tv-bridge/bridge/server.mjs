@@ -227,6 +227,26 @@ function serveTransportStream(request, response) {
     return;
   }
 
+  const contentFeatures =
+    "DLNA.ORG_PN=AVC_TS_MP_HD_AAC_ISO;" +
+    "DLNA.ORG_OP=00;DLNA.ORG_CI=0;" +
+    "DLNA.ORG_FLAGS=01700000000000000000000000000000";
+  const headers = {
+    "Content-Type": "video/mpeg",
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+    "Connection": "close",
+    "Accept-Ranges": "none",
+    "transferMode.dlna.org": "Streaming",
+    "contentFeatures.dlna.org": contentFeatures
+  };
+
+  if (request.method === "HEAD") {
+    response.writeHead(200, headers);
+    response.end();
+    return;
+  }
+
   const relay = spawn(findFfmpeg(), [
     "-hide_banner",
     "-loglevel", "error",
@@ -242,12 +262,7 @@ function serveTransportStream(request, response) {
     stdio: ["ignore", "pipe", "ignore"]
   });
 
-  response.writeHead(200, {
-    "Content-Type": "video/mp2t",
-    "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "no-store",
-    "Connection": "close"
-  });
+  response.writeHead(200, headers);
   relay.stdout.pipe(response);
 
   const closeRelay = () => {
@@ -319,7 +334,7 @@ const server = createServer((request, response) => {
 
 server.listen(port, host, () => {
   console.log(`UniTV TV Bridge: http://localhost:${port}`);
-  console.log(`Stream: http://192.168.0.10:${port}/live/index.m3u8`);
+  console.log(`Stream: http://192.168.0.14:${port}/live/index.m3u8`);
 
   const autostart = process.argv
     .find(argument => argument.startsWith("--autostart="))

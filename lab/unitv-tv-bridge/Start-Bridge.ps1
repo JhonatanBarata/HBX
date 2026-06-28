@@ -35,4 +35,4 @@ Invoke-RestMethod `
     -Uri ("http://127.0.0.1:8090/api/start$query") | Out-Null
 
 Write-Host "Bridge iniciado em modo $Mode."
-Write-Host 'TV: http://192.168.0.10:8090/live/index.m3u8'
+Write-Host 'TV: http://192.168.0.14:8090/live/index.m3u8'

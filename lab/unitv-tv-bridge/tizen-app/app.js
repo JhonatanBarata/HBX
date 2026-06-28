@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var bridge = "http://192.168.0.10:8090";
+  var bridge = "http://192.168.0.14:8090";
   var stream = bridge + "/live/index.m3u8";
   var overlay = document.getElementById("overlay");
   var message = document.getElementById("message");
@@ -139,6 +139,6 @@
       setStatus("online", "bridge online", "Pressione Vermelho para gerar o teste.");
     }
   }).catch(function () {
-    setStatus("error", "bridge offline", "Inicie o bridge no PC em 192.168.0.10:8090.");
+    setStatus("error", "bridge offline", "Inicie o bridge no PC em 192.168.0.14:8090.");
   });
 }());

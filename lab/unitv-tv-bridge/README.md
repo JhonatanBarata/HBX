@@ -14,10 +14,10 @@ Tizen usa o player AVPlay da própria Samsung.
 
 Endpoints:
 
-- painel/app: `http://192.168.0.10:8090/`
-- playlist: `http://192.168.0.10:8090/live/index.m3u8`
-- MPEG-TS contínuo: `http://192.168.0.10:8090/live.ts`
-- diagnóstico: `http://192.168.0.10:8090/api/status`
+- painel/app: `http://192.168.0.14:8090/`
+- playlist: `http://192.168.0.14:8090/live/index.m3u8`
+- MPEG-TS contínuo: `http://192.168.0.14:8090/live.ts`
+- diagnóstico: `http://192.168.0.14:8090/api/status`
 
 Para capturar uma janela chamada `UniTV`:
 
@@ -35,7 +35,7 @@ Na TV:
 1. Abra `Apps`.
 2. Digite `12345` no controle remoto.
 3. Ative `Developer mode`.
-4. Informe o IP do PC: `192.168.0.10`.
+4. Informe o IP do PC: `192.168.0.14`.
 5. Desligue a TV da tomada por alguns segundos e ligue novamente.
 
 Depois do reboot, a API da TV deve mostrar `developerMode: 1` e a porta
