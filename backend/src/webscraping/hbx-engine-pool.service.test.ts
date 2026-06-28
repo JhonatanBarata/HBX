@@ -1377,3 +1377,90 @@ test('elastic OFF lets the forced DB factoryMaxEngines cap hold (manual override
     assert.equal(scheduler.automaticAllowedEngines, 4);
   });
 });
+
+// ── 3ª pressão: SAÚDE DA FONTE (taxa de timeout) ─────────────────────────────────────────────────
+
+test('isTimeoutLikeBatchError flags timeout/abort/network errors but not dedup/quality reasons', () => {
+  assert.equal(isTimeoutLikeBatchError('radar-web-enrichment HBX falhou; timeout'), true);
+  assert.equal(isTimeoutLikeBatchError('Request aborted'), true);
+  assert.equal(isTimeoutLikeBatchError('ETIMEDOUT'), true);
+  assert.equal(isTimeoutLikeBatchError('socket hang up'), true);
+  assert.equal(isTimeoutLikeBatchError('fetch failed'), true);
+  // Esgotamento REAL não é timeout:
+  assert.equal(isTimeoutLikeBatchError('all results duplicate'), false);
+  assert.equal(isTimeoutLikeBatchError('rejected by quality filter'), false);
+  assert.equal(isTimeoutLikeBatchError(''), false);
+  assert.equal(isTimeoutLikeBatchError(null), false);
+});
+
+function poolWithBatches(batchRows: any[]) {
+  const service = new HbxEnginePoolService({
+    hasTable: async (name: string) => name === 'WebscrapingCampaignBatch',
+    webscrapingCampaignBatch: { findMany: async () => batchRows },
+  } as any) as any;
+  return service;
+}
+
+test('source headroom drops the fleet to warm when timeout rate is severe (>60%)', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+  }, async () => {
+    // 8 de 10 batches recentes com timeout = 80% → > severe(60) → cai pro warm (1).
+    const rows = [
+      ...Array.from({ length: 8 }, () => ({ status: 'failed', errorMessage: 'HBX falhou; timeout' })),
+      ...Array.from({ length: 2 }, () => ({ status: 'completed', errorMessage: null })),
+    ];
+    const service = poolWithBatches(rows);
+    const pressure = await service.sampleSourcePressurePercent();
+    assert.equal(pressure, 80);
+    assert.equal(service.getSourceHeadroomEngineCount(), 1);
+    assert.equal(service.resolveElasticHeadroomEngineCount({ enabled: true, metadataJson: '{}' }), 1,
+      'source pressure must drag the combined headroom down even with RAM/CPU idle');
+  });
+});
+
+test('source headroom allows the full fleet when timeout rate is low (<10%)', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+  }, async () => {
+    // 0 timeouts em 10 batches = 0% → libera tudo (físico=20).
+    const rows = Array.from({ length: 10 }, () => ({ status: 'completed', errorMessage: null }));
+    const service = poolWithBatches(rows);
+    const pressure = await service.sampleSourcePressurePercent();
+    assert.equal(pressure, 0);
+    assert.equal(service.getSourceHeadroomEngineCount(), 20);
+  });
+});
+
+test('source headroom uses the 30-60% band (0.35x) for a moderate timeout rate', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+  }, async () => {
+    // 4 de 10 = 40% → banda hard (>=30, <60) → floor(0.35*20)=7.
+    const rows = [
+      ...Array.from({ length: 4 }, () => ({ status: 'failed', errorMessage: 'aborted' })),
+      ...Array.from({ length: 6 }, () => ({ status: 'completed', errorMessage: null })),
+    ];
+    const service = poolWithBatches(rows);
+    const pressure = await service.sampleSourcePressurePercent();
+    assert.equal(pressure, 40);
+    assert.equal(service.getSourceHeadroomEngineCount(), 7);
+  });
+});
+
+test('small batch sample does not invent source pressure', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+  }, async () => {
+    // Só 2 batches (< minSample 6) → não confia, pressão decai, headroom permanece físico.
+    const rows = [{ status: 'failed', errorMessage: 'timeout' }, { status: 'failed', errorMessage: 'timeout' }];
+    const service = poolWithBatches(rows);
+    const pressure = await service.sampleSourcePressurePercent();
+    assert.equal(pressure, 0);
+    assert.equal(service.getSourceHeadroomEngineCount(), 20);
+  });
+});

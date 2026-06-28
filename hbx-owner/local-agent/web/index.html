@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HBX Owner</title>
-  <link rel="stylesheet" href="/styles.css?v=20260625c" />
+  <link rel="stylesheet" href="/styles.css?v=20260627r" />
 </head>
 <body>
   <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
@@ -28,19 +28,8 @@
 
   <main class="content">
 
-    <!-- ============ MOLDURA: rails laterais emoldurando o centro ============ -->
+    <!-- ============ MOLDURA: centro emoldurado pelo banco de leads à direita ============ -->
     <div class="cockpit-shell">
-
-      <!-- RAIL ESQUERDA — atividade ao vivo (linha do tempo lateral) -->
-      <aside class="shell-rail rail-left">
-        <div class="card">
-          <div class="focus-row">
-            <span class="label" style="margin:0;">Atividade ao vivo</span>
-            <span id="sys-feed-status" class="pill pill-muted">acompanhando…</span>
-          </div>
-          <div id="sys-feed" class="feed"><div class="empty">Ligue um motor ou o turbo e o que acontecer aparece aqui.</div></div>
-        </div>
-      </aside>
 
       <!-- CENTRO — pressão + motores (sua máquina × VPS) -->
       <div class="shell-center">
@@ -82,25 +71,22 @@
 
     <!-- ============ MOTORES & FÁBRICA: sua máquina × VPS ============ -->
     <div class="sys-cols">
-      <!-- LOCAL -->
+      <!-- LOCAL = A FÁBRICA (o IP residencial rapa; estrela do painel) -->
       <section class="env-col" data-env="local">
         <div class="card">
-          <div class="focus-row"><span class="label" style="margin:0;">Motores · sua máquina</span><strong id="sys-engines-big" class="big">—</strong></div>
+          <div class="focus-row"><span class="label" style="margin:0;">🏭 Sua máquina · a fábrica que rapa</span><strong id="sys-engines-big" class="big">—</strong></div>
           <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
           <div class="bar-legend"><span id="sys-engines-counts">—</span><span id="sys-leads-falling"></span></div>
           <div class="chk-row">
             <span id="chk-elastic" class="chk">Elasticidade</span>
             <span id="chk-factory" class="chk">Fábrica</span>
-            <span id="chk-turbo" class="chk">Turbo</span>
           </div>
           <div class="lab-row">
             <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab de leads: verificando…</span></span>
           </div>
           <div class="btn-row" style="margin-top:10px;">
             <button id="btn-factory" class="btn btn-red btn-sm" title="Liga/desliga a FÁBRICA de leads (emergencyStop, durável) — cor = estado real (verde ligado, vermelho desligado)">Ligar fábrica</button>
-            <button id="btn-engines-local" style="display:none" class="btn btn-red btn-sm" title="Liga/desliga a frota local de motores — cor = estado real (verde ligado, vermelho desligado)">Ligar motores</button>
-            <button id="btn-lab-toggle" class="btn btn-red btn-sm" title="Liga/desliga o Lab de leads — cor = estado real (verde ligado, vermelho desligado)">Ligar Lab</button>
-            <button id="btn-turbo" class="btn btn-red btn-sm" title="Liga/desliga o Turbo (scraping agressivo) — cor = estado real (verde ligado, vermelho desligado)">Ligar Turbo</button>
+            <button id="btn-lab-toggle" class="btn btn-red btn-sm" title="Liga/desliga o Lab de leads (enriquecedor Tipo 2) — cor = estado real (verde ligado, vermelho desligado)">Ligar Lab</button>
           </div>
           <span id="engines-local-feedback" class="delta"></span>
 
@@ -140,24 +126,12 @@
         </div>
       </section>
 
-      <!-- VPS -->
+      <!-- VPS = RECEPTOR (recebe os leads do local e atende os clientes; não rapa) -->
       <section class="env-col env-vps" data-env="vps">
         <div class="card">
-          <div class="focus-row"><span class="label" style="margin:0;">Motores · VPS</span><strong id="vps-engines-big" class="big">—</strong></div>
-          <div class="bar"><div id="vps-bar-alive" class="bar-fill"></div></div>
-          <div class="bar-legend"><span id="vps-engines">—</span><span id="vps-leads-falling"></span></div>
-          <div class="chk-row">
-            <span id="chk-vps-elastic" class="chk">Elasticidade</span>
-            <span id="chk-vps-factory" class="chk">Fábrica</span>
-          </div>
-          <p id="vps-elastic-line" class="delta" style="margin:8px 0 4px;">rodando agora: — · RAM —%</p>
-          <div class="btn-row" style="margin-top:12px;">
-            <button id="btn-vps-factory" class="btn btn-red btn-sm" title="Liga/desliga a FÁBRICA de leads da VPS — cor = estado real (verde ligado, vermelho desligado)">Ligar fábrica</button>
-            <button id="btn-vps-engines" style="display:none" class="btn btn-red btn-sm" title="Liga/desliga a frota de motores da VPS — cor = estado real (verde ligado, vermelho desligado)">Ligar motores</button>
-            <button id="btn-vps-elastic" class="btn btn-red btn-sm" title="Liga/desliga a elasticidade da VPS — cor = estado real (verde ligado, vermelho desligado)">Ligar elástica</button>
-            <button id="btn-vps-cancel" class="btn btn-amber btn-sm" title="Ação pontual: cancela o scraping forçado da VPS agora">Cancelar busca</button>
-            <button id="btn-vps-purge-queue" class="btn btn-amber btn-sm" title="Apaga as tarefas mortas da fila (combos vazios tipo relojoarias·Acarape) e exaure as que deram 0 — o motor volta a abastecer com cidade boa. Não para produção nem mexe em estoque.">🧹 Limpar fila morta</button>
-          </div>
+          <div class="focus-row"><span class="label" style="margin:0;">📥 VPS · recebe e atende</span><strong id="vps-engines-big" class="big">—</strong></div>
+          <p class="delta" style="margin:8px 0 6px;">Recebe os leads prontos do local (botão <strong>⬆ Mandar tudo pro VPS</strong>) e atende os clientes. <strong>Não rapa</strong> — o IP de datacenter é barrado pela fonte.</p>
+          <p id="vps-engines-line" class="delta" style="margin:6px 0 4px;">motores: — <span style="color:var(--text-muted);">(atendem as buscas de cliente)</span></p>
           <span id="vps-feedback" class="delta"></span>
         </div>
       </section>
@@ -222,7 +196,7 @@
         <!-- ====== ENRIQUECEDOR DE CARDS (1 worker contínuo) ====== -->
         <div id="enricher" style="border:1px solid var(--border,#2a3344);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
           <div class="focus-row" style="flex-wrap:wrap;gap:8px;margin:0;">
-            <span class="label" style="margin:0;">⚙️ Enriquecedor de Cards</span>
+            <span class="label" style="margin:0;">✉️ Fabricante de e-mail · Enriquecedor de Cards</span>
             <span class="pill pill-muted" title="Lê os cards do VPS e grava de volta no VPS">fonte: VPS</span>
             <span id="enr-status" class="pill pill-muted">parado</span>
             <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;align-items:center;">
@@ -232,7 +206,7 @@
               <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
             </div>
           </div>
-          <p class="delta" style="margin:4px 0 8px;">Fica rodando <strong>enquanto o PC estiver ligado</strong>: lê os cards do VPS, enriquece e grava de volta — sem copiar pro local. Tipo 2 crawleia do <strong>seu IP</strong> (IP-safe). Cursor de retomada.</p>
+          <p class="delta" style="margin:4px 0 8px;">Lê os cards do VPS, <strong>descobre e-mail / telefone / CNPJ / dono</strong> e grava de volta no VPS — sem copiar pro local. Fica rodando <strong>enquanto o PC estiver ligado</strong>. O <strong>Tipo 2 crawleia do SEU IP local</strong> (IP-safe). Cursor de retomada.</p>
           <div class="grid-3" style="margin-bottom:6px;">
             <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
             <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
@@ -296,6 +270,6 @@
 
   </main>
 
-  <script src="/app.js?v=20260627c"></script>
+  <script src="/app.js?v=20260627r"></script>
 </body>
 </html>

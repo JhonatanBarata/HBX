@@ -1679,30 +1679,6 @@ async function route(req, res) {
     return;
   }
 
-  // Ligar/parar a FROTA LOCAL de motores (hbx-engine-*) pelo painel — o que o dono fazia no
-  // CLI com `npm run engines:up/down`. Roda o script async; CPU/RAM e o feed mostram subindo.
-  if (req.method === "POST" && (url.pathname === "/owner/engines/local/start" || url.pathname === "/owner/engines/local/stop")) {
-    const starting = url.pathname.endsWith("/start");
-    const script = starting ? "scripts/start-hbx-engines.ps1" : "scripts/stop-hbx-engines.ps1";
-    const label = starting ? "Ligar motores locais" : "Parar motores locais";
-    try {
-      const run = runCommandArray(
-        starting ? "engines-local-start" : "engines-local-stop",
-        label,
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
-      );
-      sendJson(res, 200, {
-        ok: true,
-        action: starting ? "start" : "stop",
-        runId: run.id,
-        message: starting ? "Subindo motores locais — acompanhe CPU/RAM e o feed." : "Parando motores locais…",
-      });
-    } catch (error) {
-      sendJson(res, 200, { ok: false, message: error.message || "Falha ao acionar os motores locais." });
-    }
-    return;
-  }
-
   // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
   if (req.method === "GET" && url.pathname === "/owner/vps/system") {
     sendJson(res, 200, await readVpsSystem());
@@ -1719,44 +1695,6 @@ async function route(req, res) {
   // verdade do backend, não por heurística. Mesmo shape do LOCAL (/owner/system → capacity).
   if (req.method === "GET" && url.pathname === "/owner/vps/engines-status") {
     sendJson(res, 200, await readVpsEngineCapacity());
-    return;
-  }
-
-  // Fábrica de leads VPS — ligar/desligar de verdade (via Ops Control → backend da VPS).
-  if (req.method === "POST" && (url.pathname === "/owner/vps/factory/stop" || url.pathname === "/owner/vps/factory/resume")) {
-    const action = url.pathname.endsWith("/stop") ? "stop" : "resume";
-    const response = await opsRequest("POST", `/api/opscontrol/factory/${action}`, { scope: "vps" });
-    if (!response.configured) {
-      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
-      return;
-    }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action, ops: response.data, reason: response.reason || response.data?.error });
-    return;
-  }
-
-  // Limpar a FILA MORTA da fábrica da VPS (rota sancionada → Ops Control → backend VPS). Botão do dono:
-  // não é SQL cru, não para produção, não toca estoque — só tira o entulho de combo vazio e o pump
-  // reabastece com combo bom. Devolve quantas tarefas foram apagadas/exauridas pra UI mostrar.
-  if (req.method === "POST" && url.pathname === "/owner/vps/factory/purge-dead-queue") {
-    const response = await opsRequest("POST", "/api/opscontrol/factory/purge-dead-queue", { scope: "vps" });
-    if (!response.configured) {
-      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
-      return;
-    }
-    const data = response.data || {};
-    // Ops devolve { action, message, ok, results:[{ environment, ok, data:{...backend} }] }.
-    const vpsResult = Array.isArray(data.results) ? data.results.find((r) => r.environment === "vps") || data.results[0] : null;
-    const backend = (vpsResult && vpsResult.data) || data;
-    const ok = response.ok && (vpsResult ? vpsResult.ok : data.ok) !== false;
-    sendJson(res, ok ? 200 : 502, {
-      ok,
-      deletedNeverRun: backend.deletedNeverRun ?? null,
-      exhaustedAttempted: backend.exhaustedAttempted ?? null,
-      canceledCampaigns: backend.canceledCampaigns ?? null,
-      remainingQueued: backend.remainingQueued ?? null,
-      ops: data,
-      reason: response.reason || (vpsResult && vpsResult.error) || data.error,
-    });
     return;
   }
 
@@ -1938,55 +1876,6 @@ async function route(req, res) {
     return;
   }
 
-  // Cancelar scraping forçado na VPS (via backend da VPS, escopo vps).
-  if (req.method === "POST" && url.pathname === "/owner/vps/cancel") {
-    const body = await readBody(req);
-    if (body.confirm !== true && body.confirmation !== "CONFIRMAR") {
-      sendError(res, 400, "Confirmacao obrigatoria para cancelar o scraping da VPS.");
-      return;
-    }
-    const response = await opsRequest("POST", "/api/opscontrol/cancel", { scope: "vps", force: Boolean(body.force) });
-    if (!response.configured) {
-      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
-      return;
-    }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, ops: response.data, reason: response.reason });
-    return;
-  }
-
-  // Elasticidade VPS — ligar / desligar / parar tudo (via Ops Control).
-  // Espelha POST /api/opscontrol/elastic/{enable|disable|stop-all} {scope}.
-  const elasticMatch = url.pathname.match(/^\/owner\/ops\/elastic\/(enable|disable|stop-all)$/);
-  if (req.method === "POST" && elasticMatch) {
-    const action = elasticMatch[1];
-    const body = await readBody(req);
-    const scope = String(body.scope || "vps").toLowerCase();
-    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
-    if (action === "stop-all" && body.confirm !== true) {
-      sendError(res, 400, "Confirmacao obrigatoria para parar todos os motores.");
-      return;
-    }
-    const response = await opsRequest("POST", `/api/opscontrol/elastic/${action}`, { scope });
-    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, action, scope, ops: response.data, reason: response.reason || response.data?.error });
-    return;
-  }
-
-  // Turbo (modo agressivo de scraping) — escopo local/vps/both, filtro de canal opcional.
-  if (req.method === "POST" && url.pathname === "/owner/ops/turbo") {
-    const body = await readBody(req);
-    const scope = String(body.scope || "both").toLowerCase();
-    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
-    const channel = body.channel ? String(body.channel).toLowerCase() : null;
-    if (channel && !RADAR_CHANNELS.has(channel)) { sendError(res, 400, "Canal invalido para filtro."); return; }
-    const payload = { scope };
-    if (channel) payload.requiredChannel = channel;
-    const response = await opsRequest("POST", "/api/opscontrol/turbo", payload, 60000);
-    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, channel, ops: response.data, reason: response.reason || response.data?.error });
-    return;
-  }
-
   // Forçar filtro de canal (hard filter no backend) — escopo + canal obrigatório.
   if (req.method === "POST" && url.pathname === "/owner/ops/force-filter") {
     const body = await readBody(req);
@@ -1997,18 +1886,6 @@ async function route(req, res) {
     const response = await opsRequest("POST", "/api/opscontrol/force-filter", { scope, requiredChannel: channel }, 60000);
     if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
     sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, channel, ops: response.data, reason: response.reason || response.data?.error });
-    return;
-  }
-
-  // Cancelar scraping forçado — escopo local/vps/both (confirmação exigida; destrutivo do fluxo).
-  if (req.method === "POST" && url.pathname === "/owner/ops/cancel") {
-    const body = await readBody(req);
-    if (body.confirm !== true && body.confirmation !== "CONFIRMAR") { sendError(res, 400, "Confirmacao obrigatoria para cancelar o scraping."); return; }
-    const scope = String(body.scope || "both").toLowerCase();
-    if (!OPS_SCOPES.has(scope)) { sendError(res, 400, "Escopo invalido. Use local, vps ou both."); return; }
-    const response = await opsRequest("POST", "/api/opscontrol/cancel", { scope, force: Boolean(body.force) });
-    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, scope, ops: response.data, reason: response.reason || response.data?.error });
     return;
   }
 

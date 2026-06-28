@@ -1,0 +1,30 @@
+{
+  "batchId": "local-lab-9375768d-d3b2-43f7-87ac-2121f85ac3d8",
+  "sourceMode": "local_lab",
+  "sourceName": "HBX Local Lab",
+  "createdAt": "2026-06-27T22:47:28.794Z",
+  "requestedBy": "hbx-owner-enricher",
+  "city": null,
+  "state": null,
+  "segment": null,
+  "targetEmails": 36,
+  "providers": [
+    "site_crawl"
+  ],
+  "stats": {
+    "sitesVisited": 101,
+    "emailsFound": 137,
+    "emailsAccepted": 0,
+    "leads": 12,
+    "pacing": {
+      "fetches": 601,
+      "blocks": 4,
+      "backoffMs": 240000,
+      "minDelayMs": 1500,
+      "maxDelayMs": 4000,
+      "blockBackoffMs": 60000
+    },
+    "providers": 1,
+    "emails": 17
+  }
+}

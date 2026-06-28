@@ -221,8 +221,8 @@ body {
 ================================================================ */
 .cockpit-shell {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 320px);
-  grid-template-areas: "left center right";
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-areas: "center right";
   gap: 18px;
   align-items: start;
   margin-bottom: 16px;
@@ -233,26 +233,21 @@ body {
 }
 .shell-center { grid-area: center; min-width: 0; }
 .shell-rail { min-width: 0; }
-.rail-left { grid-area: left; }
 .rail-right { grid-area: right; }
-
-/* Rail esquerda: feed mais alto, vira "linha do tempo" lateral */
-.rail-left .feed { max-height: 560px; }
 
 /* Rail direita: banco de leads empilhado (números um sobre o outro) */
 .rail-right .grid-2 { grid-template-columns: 1fr; gap: 12px; }
 
-/* Telas estreitas: desmonta a moldura e empilha como antes (centro, feed, leads) */
+/* Telas estreitas: desmonta a moldura e empilha (centro, leads) */
 @media (max-width: 1280px) {
   .cockpit-shell {
     grid-template-columns: 1fr;
-    grid-template-areas: "center" "left" "right";
+    grid-template-areas: "center" "right";
     background: none;
     border: none;
     padding: 0;
     gap: 16px;
   }
-  .rail-left .feed { max-height: 300px; }
 }
 
 /* Sistema */
