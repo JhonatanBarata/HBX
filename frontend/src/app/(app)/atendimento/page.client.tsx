@@ -414,7 +414,7 @@ export function AtendimentoClient() {
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
-  const draftRef = useRef<HTMLInputElement | null>(null);
+  const draftRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const atBottomRef = useRef(true);
   // Abrir conversa = SEMPRE colar no fim (mesmo que o usuário tivesse rolado pra cima
@@ -1025,6 +1025,15 @@ export function AtendimentoClient() {
     const t2 = window.setTimeout(() => { scrollMsgsToEnd(); forceBottomRef.current = false; }, 340);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [thread, scrollMsgsToEnd]);
+
+  useEffect(() => {
+    const el = draftRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const next = Math.min(el.scrollHeight, 96);
+    el.style.height = next + 'px';
+    el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden';
+  }, [draft]);
 
   function onMsgsScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
@@ -2075,9 +2084,11 @@ export function AtendimentoClient() {
                       <button className="send" onClick={() => stopRec(true)} title="Enviar áudio"><I d={ICONS.send} size={16} /></button>
                     </div>
                   ) : (
-                    <div className="row">
-                      <input ref={draftRef} className="field-dark" style={{ flex: 1 }} placeholder="Digite sua mensagem..." value={draft}
-                        onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} disabled={!convo || sendBusy} />
+                    <div className="row" style={{ alignItems: 'flex-end' }}>
+                      <textarea ref={draftRef} className="field-dark" rows={1} style={{ flex: 1, resize: 'none', padding: '8px 12px', lineHeight: '20px', overflowY: 'hidden', verticalAlign: 'top' }} placeholder="Digite sua mensagem..." value={draft}
+                        onChange={e => { setDraft(e.target.value); const el = e.target; el.style.height = 'auto'; const h = Math.min(el.scrollHeight, 96); el.style.height = h + 'px'; el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden'; }}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                        disabled={!convo || sendBusy} />
                       <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
                       <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>
                       <button className="icon-ghost" onClick={startRec} disabled={!convo || sendBusy} title="Gravar áudio"><I d={ICONS.mic} size={17} /></button>
