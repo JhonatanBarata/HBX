@@ -474,6 +474,30 @@ let enricherJob = {
 };
 function enricherSleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+// Lê cards do VPS AGREGANDO as páginas REAIS de 20 (o backend deployado TRAVA database-cards em
+// 20/página, ignorando o limit — ver /owner/vps/radar/cards). Pedir limit=500&page=N só trazia 20
+// e ainda pulava offset → varrer 5.889 a 20 por vez era inviável. Aqui montamos uma "página lógica"
+// de `want` cards juntando ceil(want/20) páginas reais a partir do cursor lógico `logicalPage`.
+// Retorna { items, total } e respeita o fim do banco (página real < 20).
+async function vpsReadCardsAggregated(logicalPage, want) {
+  const VPS_CAP = 20;                                            // teto real do backend da VPS
+  const startVpsPage = Math.floor(((logicalPage - 1) * want) / VPS_CAP) + 1;
+  const pagesNeeded = Math.ceil(want / VPS_CAP);
+  const items = [];
+  let total = null;
+  for (let i = 0; i < pagesNeeded; i += 1) {
+    if (!enricherJob.running) break;
+    const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=${VPS_CAP}&page=${startVpsPage + i}`, null, 30000);
+    if (!r.ok) break;                                            // falha de rede → corta sem inventar buraco
+    const data = (r.data && (r.data.data || r.data)) || {};
+    if (typeof data.total === "number") total = data.total;
+    const pageItems = Array.isArray(data.items) ? data.items : [];
+    for (const it of pageItems) items.push(it);
+    if (pageItems.length < VPS_CAP) break;                       // fim real do banco
+  }
+  return { items, total };
+}
+
 // Um ciclo: dispara Tipo 1 no VPS (a cada N ciclos) + crawleia 1 página de cards (Tipo 2).
 async function enricherCycle() {
   enricherJob.cycle += 1;
@@ -492,20 +516,21 @@ async function enricherCycle() {
   }
   if (!enricherJob.running) return;
 
-  // Tipo 2 — crawl local de 1 página de cards do VPS.
+  // Tipo 2 — crawl local de 1 página LÓGICA de cards do VPS (agrega 25 páginas reais de 20 = 500
+  // cards por varredura; o backend deployado trava em 20/página — ver vpsReadCardsAggregated).
   if (enricherJob.types.scraper) {
     enricherJob.phase = "lendo VPS p/ crawl";
-    const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=500&page=${enricherJob.cursorPage}`, null, 60000);
-    const data = (r.data && (r.data.data || r.data)) || {};
-    const items = Array.isArray(data.items) ? data.items : [];
-    if (typeof data.total === "number") enricherJob.vpsTotal = data.total;
+    const { items, total } = await vpsReadCardsAggregated(enricherJob.cursorPage, 500);
+    if (typeof total === "number") enricherJob.vpsTotal = total;
     if (!items.length) { enricherJob.cursorPage = 1; return; } // fim da base → recomeça a varredura
     enricherJob.cardsScanned += items.length;
 
     const seeds = [];
     const map = {};
     for (const row of items) {
-      if (seeds.length >= 50) break; // teto por ciclo (responsivo ao stop + métricas frequentes)
+      if (seeds.length >= 15) break; // teto por ciclo: lote curto fecha em minutos (não horas) e o
+                                     // painel vê progresso/aplicação rápido — varre 500 cards, mas só
+                                     // os 15 primeiros COM site crawlável viram lote; o resto avança o cursor.
       if (!isCrawlableSite(row.website)) continue;
       const haveEmails = Array.isArray(row.emails) ? row.emails.length : 0;
       if (String(row.email || "").trim() && haveEmails >= 3) continue; // já tem e-mail suficiente
@@ -537,6 +562,10 @@ async function runEnricherCrawl(seeds, map) {
     websites: seeds,
     maxCandidates: seeds.length,
     targetEmails: seeds.length * 3,
+    // Crawl raso quando NÃO agressivo: o e-mail mora em home/contato/sobre — visitar 40 páginas/site
+    // a ~2.7s travava o lote por mais de 1h. 8 páginas/site fecha o ciclo em minutos (modo agressivo
+    // mantém o default fundo do Local Lab).
+    maxPagesPerSite: enricherJob.aggressive ? undefined : 8,
     requestedBy: "hbx-owner-enricher",
   }, 30000);
   const jobId = start.data && (start.data.id || start.data.jobId);

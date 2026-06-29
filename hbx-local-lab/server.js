@@ -209,16 +209,28 @@ async function processJob(job) {
   try {
     for (const provider of job.providers) {
       if (job.status === 'canceled') break;
+      // Progresso INCREMENTAL: o provider chama onProgress a cada página visitada para que o poller
+      // (hbx-owner enricher, a cada 3s) veja sitesVisited/emailsFound subir AO VIVO em vez de ficar
+      // em 0 até o provider inteiro terminar (lote de 50 sites × 40 páginas × ~2.7s = muitos minutos
+      // com a barra parada em 0). As métricas são um snapshot do provider corrente somado ao acumulado.
+      const baseSites = job.metrics.sitesVisited;
+      const baseEmails = job.metrics.emailsFound;
       const result = await runProvider(provider, job, {
         signal: abortController.signal,
         isCanceled: () => job.status === 'canceled',
+        onProgress: (snap) => {
+          if (!snap) return;
+          job.metrics.sitesVisited = baseSites + Number(snap.pagesVisited || 0);
+          job.metrics.emailsFound = baseEmails + Number(snap.emailsFound || 0);
+        },
       });
       leads.push(...(Array.isArray(result.leads) ? result.leads : []));
       emails.push(...(Array.isArray(result.emails) ? result.emails : []));
       providerStats[provider] = result.stats || {};
       if (Array.isArray(result.warnings)) job.warnings.push(...result.warnings);
-      job.metrics.sitesVisited += Number(result.stats?.pagesVisited || 0);
-      job.metrics.emailsFound += Number(result.stats?.emailsFound || 0);
+      // Reconcilia com o total final reportado pelo provider (cobre providers sem onProgress).
+      job.metrics.sitesVisited = baseSites + Number(result.stats?.pagesVisited || 0);
+      job.metrics.emailsFound = baseEmails + Number(result.stats?.emailsFound || 0);
     }
     job.metrics.pacing = getPacingStats();
     if (job.status === 'canceled') {
