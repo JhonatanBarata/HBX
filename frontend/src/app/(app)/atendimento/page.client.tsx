@@ -26,7 +26,8 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, ConfirmDialog, I, ICONS, KpiRow, PhotoLightbox, WhatsAppMark, useCurrentUser } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS, KpiRow, PhotoLightbox, WhatsAppMark, useCurrentUser, useMyModules } from "@/components/hbx/shell";
+import { decodeAudioBlob, renderVoiceWav, VOICE_MODE_LABEL, type DecodedAudio, type VoiceMode } from "@/lib/voice-fx";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -670,14 +671,33 @@ export function AtendimentoClient() {
   const [qrForm, setQrForm] = useState({ title: "", content: "" });
   const [qrBusy, setQrBusy] = useState(false);
 
-  // gravação de áudio (MediaRecorder)
-  const [recording, setRecording] = useState(false);
+  // gravação de áudio (MediaRecorder) — fluxo WhatsApp: gravar → pausar → ouvir → enviar
+  type RecPhase = "idle" | "recording" | "paused" | "review";
+  const [recPhase, setRecPhase] = useState<RecPhase>("idle");
   const [recSecs, setRecSecs] = useState(0);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const recStartRef = useRef(0);
+  const streamRef = useRef<MediaStream | null>(null);
   const recTimerRef = useRef<number>(0);
-  const recCancelRef = useRef(false);
+  const recIntentRef = useRef<"review" | "cancel">("review");
+  const recMimeRef = useRef<{ base: string; ext: string }>({ base: "audio/webm", ext: "webm" });
+  const recBlobRef = useRef<Blob | null>(null);    // áudio original gravado
+  const recDurRef = useRef(0);                       // duração final (s)
+  const decodedRef = useRef<DecodedAudio | null>(null); // PCM decodificado (cache p/ trocar voz)
+  const previewBlobRef = useRef<Blob | null>(null);  // blob que será enviado (original ou WAV processado)
+  const previewExtRef = useRef("webm");
+
+  // Alterador de voz (módulo "VC") — só admin + módulo liberado pelo master
+  const mods = useMyModules();
+  const vcAllowed = souAdmin && Boolean(mods.byKey["vc"]?.accessible);
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>("normal"); // nunca inicia ligado
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  // espelhos p/ o closure do MediaRecorder.onstop (evita estado velho)
+  const recSecsRef = useRef(0);
+  const voiceModeRef = useRef<VoiceMode>("normal");
+  // revoga a URL da prévia ao desmontar (evita vazamento de blob)
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   // Fecha o popover de transferência ao clicar fora
   useEffect(() => {
@@ -1215,47 +1235,155 @@ export function AtendimentoClient() {
     if (file) sendAttachment(file, attachKindFromMime(file.type));
   }
 
-  // gravação de nota de voz no navegador (MediaRecorder)
+  // ── gravação de nota de voz (fluxo WhatsApp: gravar → pausar → ouvir → enviar) ──
+  function clearRecTimer() {
+    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = 0; }
+  }
+  function startRecTimer() {
+    clearRecTimer();
+    recTimerRef.current = window.setInterval(() => setRecSecs(s => { recSecsRef.current = s + 1; return s + 1; }), 1000);
+  }
+  function revokePreview() {
+    setPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+  }
+
+  // Monta a prévia (ouvir antes de enviar). normal = blob original; senão processa a voz.
+  async function buildPreview(mode: VoiceMode) {
+    const original = recBlobRef.current;
+    if (!original) return;
+    revokePreview();
+    if (mode === "normal") {
+      previewBlobRef.current = original;
+      previewExtRef.current = recMimeRef.current.ext;
+      setPreviewUrl(URL.createObjectURL(original));
+      return;
+    }
+    setPreviewBusy(true);
+    try {
+      if (!decodedRef.current) decodedRef.current = await decodeAudioBlob(original);
+      const wav = renderVoiceWav(decodedRef.current, mode);
+      previewBlobRef.current = wav;
+      previewExtRef.current = "wav";
+      setPreviewUrl(URL.createObjectURL(wav));
+    } catch {
+      // se a decodificação/processamento falhar, cai pro original (não trava o envio)
+      previewBlobRef.current = original;
+      previewExtRef.current = recMimeRef.current.ext;
+      setPreviewUrl(URL.createObjectURL(original));
+      setSendError("Não foi possível processar a voz; usando o áudio original.");
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  function pickVoiceMode(mode: VoiceMode) {
+    setVoiceMode(mode);
+    voiceModeRef.current = mode;
+    if (recPhase === "review") void buildPreview(mode);
+  }
+
   async function startRec() {
-    if (recording || !selId) return;
+    if (!selId) return;
+    if (recRef.current && recRef.current.state !== "inactive") return; // já gravando
     setSendError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const mime = typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
         ? "audio/webm"
         : (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/ogg") ? "audio/ogg" : "");
+      const baseMime = (mime || "audio/webm").split(";")[0];
+      recMimeRef.current = { base: baseMime, ext: baseMime.includes("ogg") ? "ogg" : "webm" };
       const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       chunksRef.current = [];
-      recCancelRef.current = false;
+      recIntentRef.current = "review";
+      decodedRef.current = null;
+      previewBlobRef.current = null;
       mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunksRef.current.push(ev.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = 0; }
-        if (recCancelRef.current) return;
-        const baseMime = (mime || "audio/webm").split(";")[0];
-        const ext = baseMime.includes("ogg") ? "ogg" : "webm";
-        const secs = Math.max(1, Math.round((Date.now() - recStartRef.current) / 1000));
-        const blob = new Blob(chunksRef.current, { type: baseMime });
-        const file = new File([blob], `nota-voz-${Date.now()}.${ext}`, { type: baseMime });
-        await sendAttachment(file, "audio", { durationSeconds: secs });
+      mr.onstop = () => {
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        clearRecTimer();
+        if (recIntentRef.current === "cancel") {
+          chunksRef.current = [];
+          setRecPhase("idle");
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: recMimeRef.current.base });
+        recBlobRef.current = blob;
+        recDurRef.current = Math.max(1, recSecsRef.current);
+        setRecPhase("review");
+        void buildPreview(voiceModeRef.current);
       };
       recRef.current = mr;
-      recStartRef.current = Date.now();
-      setRecSecs(0);
+      setRecSecs(0); recSecsRef.current = 0;
       mr.start();
-      setRecording(true);
-      recTimerRef.current = window.setInterval(() => setRecSecs(s => s + 1), 1000);
+      setRecPhase("recording");
+      startRecTimer();
     } catch {
       setSendError("Não foi possível acessar o microfone.");
     }
   }
 
-  function stopRec(commit: boolean) {
+  function pauseRec() {
     const mr = recRef.current;
-    recCancelRef.current = !commit;
-    setRecording(false);
-    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = 0; }
+    if (mr && mr.state === "recording") { try { mr.pause(); } catch { /* */ } clearRecTimer(); setRecPhase("paused"); }
+  }
+  function resumeRec() {
+    const mr = recRef.current;
+    if (mr && mr.state === "paused") { try { mr.resume(); } catch { /* */ } startRecTimer(); setRecPhase("recording"); }
+  }
+  // Para de gravar e vai pra revisão (ouvir antes de enviar).
+  function stopToReview() {
+    const mr = recRef.current;
+    recIntentRef.current = "review";
+    clearRecTimer();
     if (mr && mr.state !== "inactive") { try { mr.stop(); } catch { /* já parou */ } }
+  }
+  // Descarta tudo e volta ao normal.
+  function cancelRec() {
+    const mr = recRef.current;
+    recIntentRef.current = "cancel";
+    clearRecTimer();
+    revokePreview();
+    recBlobRef.current = null; previewBlobRef.current = null; decodedRef.current = null;
+    if (mr && mr.state !== "inactive") { try { mr.stop(); } catch { /* */ } }
+    else { setRecPhase("idle"); }
+  }
+  // Regravar: descarta a prévia e começa de novo.
+  function reRecord() {
+    revokePreview();
+    recBlobRef.current = null; previewBlobRef.current = null; decodedRef.current = null;
+    setRecPhase("idle");
+    void startRec();
+  }
+  // Envia o que está na prévia (original ou voz processada).
+  async function sendRecorded() {
+    const blob = previewBlobRef.current;
+    if (!blob || previewBusy) return;
+    const ext = previewExtRef.current;
+    const file = new File([blob], `nota-voz-${Date.now()}.${ext}`, { type: blob.type || recMimeRef.current.base });
+    revokePreview();
+    recBlobRef.current = null; previewBlobRef.current = null; decodedRef.current = null;
+    setRecPhase("idle");
+    await sendAttachment(file, "audio", { durationSeconds: recDurRef.current });
+  }
+
+  // Seletor Normal/Feminina/Masculina — só admin com módulo "VC" liberado pelo master.
+  function renderVoicePicker() {
+    if (!vcAllowed) return null;
+    const modes: VoiceMode[] = ["normal", "fem", "masc"];
+    return (
+      <div className="vc-picker" role="group" aria-label="Alterador de voz">
+        <span className="vc-picker-label"><I d={ICONS.mic} size={12} /> Voz</span>
+        {modes.map(m => (
+          <button key={m} type="button" className={"vc-opt" + (voiceMode === m ? " on" : "")}
+            disabled={previewBusy} onClick={() => pickVoiceMode(m)}>
+            {VOICE_MODE_LABEL[m]}
+          </button>
+        ))}
+      </div>
+    );
   }
 
   async function doReact(m: InboxMessage, emoji: string) {
@@ -2076,23 +2204,46 @@ export function AtendimentoClient() {
                         </span>
                       </div>
                     )
-                  ) : recording ? (
+                  ) : recPhase === "recording" || recPhase === "paused" ? (
                     <div className="rec-bar">
-                      <span className="rec-dot" />
-                      <span>Gravando nota de voz… {fmtDur(recSecs)}</span>
-                      <button className="icon-ghost" style={{ marginLeft: "auto" }} onClick={() => stopRec(false)} title="Cancelar"><I d={ICONS.trash} size={17} /></button>
-                      <button className="send" onClick={() => stopRec(true)} title="Enviar áudio"><I d={ICONS.send} size={16} /></button>
+                      <span className={"rec-dot" + (recPhase === "paused" ? " paused" : "")} />
+                      <span>
+                        {recPhase === "paused" ? "Pausado" : "Gravando"}
+                        {voiceMode !== "normal" ? ` · voz ${VOICE_MODE_LABEL[voiceMode].toLowerCase()}` : ""}
+                        {" · "}{fmtDur(recSecs)}
+                      </span>
+                      <button className="icon-ghost" style={{ marginLeft: "auto" }} onClick={cancelRec} title="Descartar"><I d={ICONS.trash} size={17} /></button>
+                      {recPhase === "recording"
+                        ? <button className="icon-ghost" onClick={pauseRec} title="Pausar"><I d={ICONS.pause} size={17} /></button>
+                        : <button className="icon-ghost" onClick={resumeRec} title="Continuar"><I d={ICONS.play} size={17} /></button>}
+                      <button className="send" onClick={stopToReview} title="Parar e ouvir"><I d={ICONS.stop} size={15} /></button>
+                    </div>
+                  ) : recPhase === "review" ? (
+                    <div className="rec-review">
+                      {renderVoicePicker()}
+                      <div className="rec-review-row">
+                        <button className="icon-ghost" onClick={cancelRec} title="Descartar"><I d={ICONS.trash} size={17} /></button>
+                        <button className="icon-ghost" onClick={reRecord} disabled={previewBusy} title="Regravar"><I d={ICONS.mic} size={17} /></button>
+                        <audio className="rec-audio" controls src={previewUrl ?? undefined} />
+                        <button className="send" onClick={sendRecorded} disabled={previewBusy} title="Enviar áudio">
+                          {previewBusy ? <span className="rec-spin" /> : <I d={ICONS.send} size={16} />}
+                        </button>
+                      </div>
+                      {previewBusy && <small className="rec-hint">Processando voz…</small>}
                     </div>
                   ) : (
-                    <div className="row" style={{ alignItems: 'flex-end' }}>
-                      <textarea ref={draftRef} className="field-dark" rows={1} style={{ flex: 1, resize: 'none', padding: '8px 12px', lineHeight: '20px', overflowY: 'hidden', verticalAlign: 'top' }} placeholder="Digite sua mensagem..." value={draft}
-                        onChange={e => { setDraft(e.target.value); const el = e.target; el.style.height = 'auto'; const h = Math.min(el.scrollHeight, 96); el.style.height = h + 'px'; el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden'; }}
-                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                        disabled={!convo || sendBusy} />
-                      <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
-                      <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>
-                      <button className="icon-ghost" onClick={startRec} disabled={!convo || sendBusy} title="Gravar áudio"><I d={ICONS.mic} size={17} /></button>
-                      <button className="send" onClick={send} disabled={!convo || sendBusy}><I d={ICONS.send} size={16} /></button>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {renderVoicePicker()}
+                      <div className="row" style={{ alignItems: 'flex-end' }}>
+                        <textarea ref={draftRef} className="field-dark" rows={1} style={{ flex: 1, resize: 'none', padding: '8px 12px', lineHeight: '20px', overflowY: 'hidden', verticalAlign: 'top' }} placeholder="Digite sua mensagem..." value={draft}
+                          onChange={e => { setDraft(e.target.value); const el = e.target; el.style.height = 'auto'; const h = Math.min(el.scrollHeight, 96); el.style.height = h + 'px'; el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden'; }}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                          disabled={!convo || sendBusy} />
+                        <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
+                        <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>
+                        <button className="icon-ghost" onClick={startRec} disabled={!convo || sendBusy} title="Gravar áudio"><I d={ICONS.mic} size={17} /></button>
+                        <button className="send" onClick={send} disabled={!convo || sendBusy}><I d={ICONS.send} size={16} /></button>
+                      </div>
                     </div>
                   )}
 

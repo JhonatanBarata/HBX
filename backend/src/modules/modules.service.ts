@@ -1624,6 +1624,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private getModuleCategory(moduleKey: string): ModuleCategory {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     if (normalized === 'financeiro' || normalized === 'gerencial' || normalized === 'cadastro') return 'structural';
+    // vc (alterador de voz) = capacidade estrutural liberada pelo master, NÃO um
+    // módulo comercial/comprável — fora do funil de planos (entryEligible só p/ commercial).
+    if (normalized === 'vc') return 'structural';
     if (normalized === 'master' || normalized === 'exclusoes') return 'system';
     return 'commercial';
   }
