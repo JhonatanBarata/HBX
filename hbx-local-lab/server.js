@@ -321,7 +321,15 @@ async function handleRequest(req, res) {
   const parts = url.pathname.split('/').filter(Boolean);
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
-      return sendJson(res, 200, { ok: true, service: 'hbx-local-lab', host: HOST, port: PORT });
+      return sendJson(res, 200, { ok: true, service: 'hbx-local-lab', host: HOST, port: PORT, pid: process.pid });
+    }
+    // Desligamento limpo, pedido pelo agent (HBX Owner). Responde primeiro e encerra
+    // o processo logo depois — assim "Desligar Lab" para de verdade sem depender de
+    // achar/matar o PID por fora (que falhava quando a CommandLine nao trazia o diretorio).
+    if (req.method === 'POST' && url.pathname === '/local-lab/shutdown') {
+      sendJson(res, 200, { ok: true, shuttingDown: true, pid: process.pid });
+      setTimeout(() => process.exit(0), 150);
+      return undefined;
     }
     if (req.method === 'POST' && url.pathname === '/local-lab/jobs') {
       const body = await readJsonBody(req);

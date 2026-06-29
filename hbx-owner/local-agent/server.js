@@ -258,13 +258,27 @@ function requestLocalLabHealth(timeoutMs = 1200) {
   });
 }
 
+// Acha o(s) PID(s) do Local Lab. A FONTE DA VERDADE é quem está OUVINDO na 3098
+// (Get-NetTCPConnection) — antes filtrava só por CommandLine contendo 'hbx-local-lab',
+// mas o lab sobe com `node server.js` (cwd no diretório), então a CommandLine vem
+// "<...>node.exe server.js" SEM o diretório → o match falhava e o stop virava no-op.
+// Aqui unimos: dono da porta 3098 ∪ qualquer node cujo CommandLine cite o server.js do lab.
 function findLocalLabProcesses() {
   if (process.platform !== "win32") return [];
+  const labServerPath = path.join(localLabDir, "server.js").replace(/\\/g, "\\\\");
   const script = [
     "$ErrorActionPreference = 'SilentlyContinue'",
-    "Get-CimInstance Win32_Process | Where-Object {",
-    "  $_.Name -eq 'node.exe' -and $_.CommandLine -and $_.CommandLine -match 'hbx-local-lab' -and $_.CommandLine -match 'server.js'",
-    "} | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress",
+    "$pids = New-Object System.Collections.Generic.HashSet[int]",
+    // 1) Dono(s) da porta 3098 em LISTEN — é o processo que o /health realmente bate.
+    "foreach ($c in (Get-NetTCPConnection -LocalPort 3098 -State Listen)) {",
+    "  if ($c.OwningProcess) { [void]$pids.Add([int]$c.OwningProcess) }",
+    "}",
+    // 2) Reforço por CommandLine: node rodando o server.js do lab (ou sob o diretório do lab).
+    "foreach ($p in (Get-CimInstance Win32_Process -Filter \"Name='node.exe'\")) {",
+    "  $cl = $p.CommandLine",
+    `  if ($cl -and ($cl -match 'hbx-local-lab' -or $cl -like '*${labServerPath}*')) { [void]$pids.Add([int]$p.ProcessId) }`,
+    "}",
+    "$pids | ForEach-Object { [pscustomobject]@{ ProcessId = $_ } } | ConvertTo-Json -Compress",
   ].join("\n");
   const result = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
     cwd: rootDir,
@@ -275,7 +289,7 @@ function findLocalLabProcesses() {
   if (result.status !== 0 || !String(result.stdout || "").trim()) return [];
   try {
     const parsed = JSON.parse(result.stdout);
-    return (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean);
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter((item) => item && item.ProcessId);
   } catch {
     return [];
   }
@@ -320,19 +334,57 @@ function startLocalLab() {
   };
 }
 
-function stopLocalLab() {
+function killPidWindows(pid) {
+  // process.kill no Windows nem sempre derruba um node "detached" (sem árvore de sinais);
+  // taskkill /T /F mata a árvore inteira de forma confiável. Idempotente: ignora "não existe".
+  try {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { shell: false, windowsHide: true, encoding: "utf8" });
+  } catch {
+    /* processo pode já ter saído */
+  }
+  try {
+    process.kill(pid);
+  } catch {
+    /* idem */
+  }
+}
+
+// Desliga o Local Lab DE VERDADE e idempotente:
+// 1) pede shutdown limpo via HTTP (o próprio lab faz process.exit) — caminho preferido;
+// 2) mata por PID quem ficar (dono da porta 3098 ∪ node do server.js do lab);
+// 3) confirma pelo /health que caiu (até ~3s). Retorna quantos PIDs foram alvo + se ficou down.
+async function stopLocalLab() {
+  // (1) shutdown cooperativo — só faz sentido se ainda está respondendo.
+  const before = await requestLocalLabHealth();
+  if (before.ok) {
+    await localLabRequest("POST", "/local-lab/shutdown", {}, 4000).catch(() => null);
+    // dá um tempinho pro process.exit do lab acontecer
+    for (let i = 0; i < 6; i += 1) {
+      const h = await requestLocalLabHealth(600);
+      if (!h.ok) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  // (2) mata o que restou (idempotente: pode não sobrar nada).
   const processes = findLocalLabProcesses();
+  const pids = [];
   for (const item of processes) {
     const pid = Number(item.ProcessId);
     if (Number.isInteger(pid) && pid > 0) {
-      try {
-        process.kill(pid);
-      } catch {
-        // Processo pode ter encerrado entre a listagem e o kill.
-      }
+      pids.push(pid);
+      killPidWindows(pid);
     }
   }
-  return processes.length;
+
+  // (3) confirma que o /health caiu (espera curta).
+  let down = false;
+  for (let i = 0; i < 8; i += 1) {
+    const h = await requestLocalLabHealth(600);
+    if (!h.ok) { down = true; break; }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return { killed: pids.length, pids, down };
 }
 
 // Chamada HTTP genérica ao Local Lab (3098) — DIRETO, sem passar por Ops Control/VPS.
@@ -2071,9 +2123,8 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && url.pathname === "/local-lab/stop") {
-    const stopped = stopLocalLab();
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    sendJson(res, 200, { ...(await readLocalLabStatus()), stopped });
+    const stopResult = await stopLocalLab();
+    sendJson(res, 200, { ...(await readLocalLabStatus()), stopped: stopResult.killed, stopResult });
     return;
   }
 
