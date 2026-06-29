@@ -505,7 +505,12 @@ export class WebwhatsBridgeService {
         remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
       );
       const latestDisplayName = latestDisplayNames.displayName || this.getPersistedDisplayName(metadata);
-      const rawAvatarUrl = this.normalizeOptionalString(profilePicture?.profilePictureUrl);
+      // A busca ao vivo no motor pode vir null (privacidade/rate-limit do WhatsApp); nesse caso
+      // cai na foto que o Contact já tem (capturada no webhook da mensagem) em vez de não mostrar nada.
+      const rawAvatarUrl =
+        this.normalizeOptionalString(profilePicture?.profilePictureUrl)
+        || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
+        || this.normalizeOptionalString(remoteJidAlt ? contactsByJid.get(remoteJidAlt)?.profilePicUrl : null);
       // Baixa 1x e serve local/estável (anti-piscada + anti-expiração); cai na crua se falhar.
       const avatarUrl = rawAvatarUrl
         ? (await this.cacheProfilePictureLocally(rawAvatarUrl)) ?? rawAvatarUrl
