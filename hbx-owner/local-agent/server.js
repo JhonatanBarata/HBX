@@ -1685,6 +1685,16 @@ async function route(req, res) {
     sendJson(res, 200, { ok: true, scope: "local", items });
     return;
   }
+  // Coluna VPS: presença das chaves no backend RODANDO na produção (via Ops Control → SSH → docker exec).
+  if (req.method === "GET" && url.pathname === "/owner/integrations/vps") {
+    const keys = INTEGRATION_CATALOG.map((i) => i.key).join(",");
+    const r = await opsRequest("GET", `/api/opscontrol/env-presence?keys=${encodeURIComponent(keys)}`, null, 25000);
+    if (!r.configured) { sendJson(res, 200, { ok: false, configured: false, reason: "ops_token_ausente" }); return; }
+    const body = r.data || {};
+    if (r.ok && body.ok) sendJson(res, 200, { ok: true, scope: "vps", items: body.items || {} });
+    else sendJson(res, 200, { ok: false, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/owner/integrations/set") {
     let body;
     try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }

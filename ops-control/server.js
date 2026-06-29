@@ -2202,6 +2202,27 @@ app.get('/api/opscontrol/engines/status', async (req, res) => {
 
 // Fábrica de leads — ligar/desligar DE VERDADE (emergencyStop durável) no backend configurado.
 // Espelha o que a coluna LOCAL faz direto no backend; aqui escoped (vps/local/both) via Ops Control.
+// Presença das chaves de API no backend RODANDO na VPS (docker exec printenv → verdade de produção).
+// Devolve só bool por chave — NUNCA o valor. Usado pela coluna VPS do painel Owner.
+app.get('/api/opscontrol/env-presence', async (req, res) => {
+  const keys = String(req.query.keys || '')
+    .split(',').map((s) => s.trim()).filter((k) => /^[A-Z0-9_]+$/.test(k)).slice(0, 60);
+  if (!keys.length) { res.json({ ok: false, reason: 'sem_keys' }); return; }
+  if (!hasSshConfig()) { res.json({ ok: false, reason: 'ssh_nao_configurado' }); return; }
+  const container = process.env.OPS_CONTROL_VPS_BACKEND_CONTAINER || 'hbx-backend';
+  const list = keys.join(' ');
+  const cmd = "for k in " + list + "; do if [ -n \"$(docker exec " + container +
+    " printenv \"$k\" 2>/dev/null)\" ]; then echo \"$k=1\"; else echo \"$k=0\"; fi; done";
+  const r = await runSshCommand(cmd, { timeout: 20000 });
+  if (!r.ok) { res.json({ ok: false, reason: r.stderr || `code_${r.code}` }); return; }
+  const items = {};
+  for (const line of String(r.stdout || '').split(/\r?\n/)) {
+    const m = line.match(/^([A-Z0-9_]+)=([01])\s*$/);
+    if (m) items[m[1]] = { present: m[2] === '1' };
+  }
+  res.json({ ok: true, scope: 'vps', container, items });
+});
+
 app.post('/api/opscontrol/factory/stop', async (req, res) => {
   try {
     const scope = normalizeOpsScope(req.body?.scope);

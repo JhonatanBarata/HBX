@@ -44,6 +44,18 @@ type RadarLead = {
   website?: string | null;
   rating?: number | null;
   reviews?: number | null;
+  // Empresa + dono (L4 CNPJ→qsa) e multi-contatos do scraper — captura-e-acumula.
+  cnpj?: string | null;
+  cnae?: string | null;
+  razaoSocial?: string | null;
+  ownerName?: string | null;
+  ownerNames?: string[] | null;
+  ownerPhone?: string | null;
+  ownerInstagram?: string | null;
+  ownerFacebook?: string | null;
+  companySituation?: string | null;
+  emails?: string[] | null;
+  phones?: string[] | null;
   enrichmentScore?: number | null;
   lastEnrichedAt?: string | null;
   vendasStatus?: string | null;
@@ -955,6 +967,19 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       phone: revealed ? lead.phone : null,
       email: revealed ? (lead.email ?? null) : null,
       website: revealed ? (lead.website ?? null) : null,
+      // Multi-contatos e empresa/dono — revelados junto do contato; o card ainda
+      // aplica o cadeado por tier (canSeeCompany) sobre os dados pessoais do dono.
+      emails: revealed ? (lead.emails ?? null) : null,
+      phones: revealed ? (lead.phones ?? null) : null,
+      cnpj: revealed ? (lead.cnpj ?? null) : null,
+      cnae: revealed ? (lead.cnae ?? null) : null,
+      razaoSocial: revealed ? (lead.razaoSocial ?? null) : null,
+      ownerName: revealed ? (lead.ownerName ?? null) : null,
+      ownerNames: revealed ? (lead.ownerNames ?? null) : null,
+      ownerPhone: revealed ? (lead.ownerPhone ?? null) : null,
+      ownerInstagram: revealed ? (lead.ownerInstagram ?? null) : null,
+      ownerFacebook: revealed ? (lead.ownerFacebook ?? null) : null,
+      companySituation: revealed ? (lead.companySituation ?? null) : null,
       leadIntelligence: {
         whatsappStatus: lead.hasWhatsapp ? "confirmed" : null,
         emailStatus: lead.hasEmail ? "confirmed" : null,

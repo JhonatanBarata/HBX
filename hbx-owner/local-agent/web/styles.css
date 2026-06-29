@@ -587,3 +587,4 @@ body {
 .int-inject { display: flex; gap: 6px; }
 .int-input { min-width: 150px; }
 .int-missing { opacity: .92; }
+.int-badges { display: flex; gap: 6px; }

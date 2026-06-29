@@ -720,10 +720,14 @@ const CK_COLS = [
   { key: "_cityState",         label: "Cidade/UF",       w: 120 },
   { key: "segment",            label: "Segmento",        w: 120 },
   { key: "cnpj",               label: "CNPJ",            w: 130 },
+  { key: "razaoSocial",        label: "Razão social",    w: 160 },
+  { key: "_owner",             label: "Sócio/dono",      w: 150 },
   { key: "phone",              label: "Telefone",        w: 110 },
+  { key: "_ownerPhone",        label: "Tel. do dono",    w: 110 },
   { key: "_whatsapp",          label: "WhatsApp",        w: 90  },
   { key: "website",            label: "Website",         w: 130 },
   { key: "email",              label: "E-mail",          w: 140 },
+  { key: "_ownerSocial",       label: "Social do dono",  w: 120 },
   { key: "instagramUrl",       label: "Instagram",       w: 110 },
   { key: "facebookUrl",        label: "Facebook",        w: 110 },
   { key: "recommendedChannel", label: "Canal",           w: 90  },
@@ -763,6 +767,13 @@ function ckGetValue(row, key) {
   if (key === "phone") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(", ");
   if (key === "instagramUrl") return row.instagramUrl || "";
   if (key === "facebookUrl") return row.facebookUrl || "";
+  // Dono/sócio (do L4 CNPJ→qsa): nome(s), telefone e redes PESSOAIS do dono.
+  if (key === "_owner") {
+    const names = Array.isArray(row.ownerNames) && row.ownerNames.length ? row.ownerNames : (row.ownerName ? [row.ownerName] : []);
+    return names.filter(Boolean).join(", ");
+  }
+  if (key === "_ownerPhone") return row.ownerPhone || "";
+  if (key === "_ownerSocial") return [row.ownerInstagram, row.ownerFacebook].filter(Boolean).join(" · ");
   return row[key] != null ? String(row[key]) : "";
 }
 
@@ -842,6 +853,12 @@ function ckCellHtml(row, key) {
   if (key === "instagramUrl" || key === "facebookUrl") {
     const short = v.replace(/^https?:\/\/(www\.)?/, "").slice(0, 26);
     return `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(short)}</a>`;
+  }
+  if (key === "_ownerSocial") {
+    return [row.ownerInstagram, row.ownerFacebook]
+      .filter(Boolean)
+      .map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(String(u).replace(/^https?:\/\/(www\.)?/, "").slice(0, 22))}</a>`)
+      .join("<br>");
   }
   if (key === "_whatsapp" && v) {
     return `<span class="ck-pill ok">✓ ${esc(v)}</span>`;
@@ -1017,8 +1034,15 @@ function ckExportCsv() {
     { key: "state",              label: "UF" },
     { key: "segment",            label: "Segmento" },
     { key: "cnpj",               label: "CNPJ" },
+    { key: "razaoSocial",        label: "Razão social" },
+    { key: "ownerName",          label: "Sócio/dono" },
+    { key: "ownerPhone",         label: "Tel. do dono" },
+    { key: "ownerInstagram",     label: "Instagram do dono" },
+    { key: "ownerFacebook",      label: "Facebook do dono" },
     { key: "phone",              label: "Telefone" },
     { key: "phoneDigits",        label: "Telefone (digits)" },
+    { key: "_emails",            label: "E-mails (1/2/3)" },
+    { key: "_phones",            label: "Telefones (1/2/3)" },
     { key: "email",              label: "E-mail" },
     { key: "emailStatus",        label: "Status e-mail" },
     { key: "emailSource",        label: "Fonte e-mail" },
@@ -1042,9 +1066,17 @@ function ckExportCsv() {
     return s;
   }
 
+  // Resolve chaves computadas (arrays do scraper) p/ texto; o resto vem direto do row.
+  const csvVal = (row, key) => {
+    if (key === "_emails") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(" | ");
+    if (key === "_phones") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(" | ");
+    if (key === "ownerName") return (Array.isArray(row.ownerNames) && row.ownerNames.length ? row.ownerNames : [row.ownerName]).filter(Boolean).join(" | ");
+    return row[key];
+  };
+
   const bom = "﻿";
   const header = CSV_COLS.map((c) => csvCell(c.label)).join(";");
-  const lines = rows.map((row) => CSV_COLS.map((c) => csvCell(row[c.key])).join(";"));
+  const lines = rows.map((row) => CSV_COLS.map((c) => csvCell(csvVal(row, c.key))).join(";"));
   const csv = bom + [header, ...lines].join("\r\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -1628,6 +1660,7 @@ async function renderIntegrations() {
   const items = (data && data.items) || [];
   const groups = {};
   for (const it of items) (groups[it.group] = groups[it.group] || []).push(it);
+  // Render do LOCAL na hora; a coluna VPS (SSH ~15s) preenche depois, sem travar a tela.
   grid.innerHTML = Object.keys(groups).map((g) => `
     <div class="int-group">
       <div class="label" style="margin:0 0 8px;">${esc(g)}</div>
@@ -1638,14 +1671,29 @@ async function renderIntegrations() {
             <div class="int-desc">${esc(it.desc)}</div>
           </div>
           <div class="int-side">
-            ${it.present
-              ? `<span class="pill pill-ok">✓ ativo · ${it.length} car.</span>`
-              : `<span class="pill pill-bad">✗ falta</span>
-                 <div class="int-inject"><input class="cf-input int-input" data-int="${esc(it.key)}" placeholder="colar chave…" autocomplete="off" /><button class="btn btn-sm btn-green int-save" data-int="${esc(it.key)}">Salvar</button></div>`}
+            <div class="int-badges">
+              ${it.present ? `<span class="pill pill-ok">Local ✓</span>` : `<span class="pill pill-bad">Local ✗</span>`}
+              <span class="pill pill-muted int-vps" data-int="${esc(it.key)}">VPS …</span>
+            </div>
+            ${it.present ? "" : `<div class="int-inject"><input class="cf-input int-input" data-int="${esc(it.key)}" placeholder="colar chave (local)…" autocomplete="off" /><button class="btn btn-sm btn-green int-save" data-int="${esc(it.key)}">Salvar</button></div>`}
           </div>
         </div>`).join("")}
     </div>`).join("");
   grid.querySelectorAll(".int-save").forEach((b) => b.addEventListener("click", () => intSave(b.getAttribute("data-int"))));
+  loadVpsBadges();
+}
+async function loadVpsBadges() {
+  let vps;
+  try { vps = await api("GET", "/owner/integrations/vps"); } catch { vps = null; }
+  const ok = !!(vps && vps.ok);
+  const items = (ok && vps.items) || {};
+  document.querySelectorAll(".int-vps").forEach((el) => {
+    const k = el.getAttribute("data-int");
+    if (!ok) { el.className = "pill pill-muted int-vps"; el.textContent = "VPS —"; el.title = (vps && vps.reason) || "sem leitura da VPS"; return; }
+    const v = items[k];
+    el.className = "pill int-vps " + (v && v.present ? "pill-ok" : "pill-bad");
+    el.textContent = v && v.present ? "VPS ✓" : "VPS ✗";
+  });
 }
 async function intSave(key) {
   const input = document.querySelector(`.int-input[data-int="${key}"]`);

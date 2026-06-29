@@ -143,10 +143,18 @@ export type NegocioDetail = {
   email?: string | null;
   website?: string | null;
   channel?: string | null;
+  // Multi-contatos acumulados pelo scraper (até 3) — captura-e-acumula, nunca descarta.
+  emails?: string[] | null;
+  phones?: string[] | null;
   cnpj?: string | null;
   cnae?: string | null;
   razaoSocial?: string | null;
   ownerName?: string | null;
+  ownerNames?: string[] | null;
+  // Dados PESSOAIS do dono/sócio (L4 CNPJ→qsa) — sensíveis, gate por tier.
+  ownerPhone?: string | null;
+  ownerInstagram?: string | null;
+  ownerFacebook?: string | null;
   companySituation?: string | null;
 
   city?: string | null;
@@ -704,7 +712,12 @@ export function DetalhesNegocio({
 
   function renderContacts() {
     if (!n) return null;
-    const hasCompanyData = Boolean(n.cnpj || n.razaoSocial || n.cnae || n.ownerName || n.companySituation);
+    const hasCompanyData = Boolean(n.cnpj || n.razaoSocial || n.cnae || n.ownerName || n.ownerPhone || n.companySituation);
+    // Captura-e-acumula: mostra TODOS os e-mails/telefones achados (teto 3), não só o 1º.
+    const emailList = (Array.isArray(n.emails) && n.emails.length ? n.emails : (n.email ? [n.email] : []))
+      .filter(Boolean).filter((e, i, a) => a.indexOf(e) === i).slice(0, 3);
+    const extraPhones = (Array.isArray(n.phones) ? n.phones : [])
+      .filter((p) => p && p !== n.phone).filter((p, i, a) => a.indexOf(p) === i).slice(0, 3);
     return (
       <div style={{ display: "grid", gap: 6 }}>
         {n.phone ? (
@@ -714,6 +727,12 @@ export function DetalhesNegocio({
         ) : !loading ? (
           <div className="dn-no-phone muted-note">Sem telefone neste card.</div>
         ) : null}
+
+        {extraPhones.map((p, i) => (
+          <a key={`xp-${i}`} href={`tel:${p.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">
+            <CanalIcon canal="telefone" /> {p}
+          </a>
+        ))}
 
         {n.website && (
           <a
@@ -757,6 +776,27 @@ export function DetalhesNegocio({
                   <span className="v"><TypedText text={n.ownerName} speed={46} delay={120} /></span>
                 </div>
               )}
+              {n.ownerPhone && (
+                <div className="row dn-kv-row">
+                  <span className="k">Tel. do dono</span>
+                  <span className="v">
+                    <a href={`tel:${n.ownerPhone.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">{n.ownerPhone}</a>
+                  </span>
+                </div>
+              )}
+              {(n.ownerInstagram || n.ownerFacebook) && (
+                <div className="row dn-kv-row">
+                  <span className="k">Redes do dono</span>
+                  <span className="v" style={{ display: "inline-flex", gap: 8, flexWrap: "wrap" }}>
+                    {n.ownerInstagram && (
+                      <a href={n.ownerInstagram} target="_blank" rel="noopener noreferrer">Instagram</a>
+                    )}
+                    {n.ownerFacebook && (
+                      <a href={n.ownerFacebook} target="_blank" rel="noopener noreferrer">Facebook</a>
+                    )}
+                  </span>
+                </div>
+              )}
               {n.companySituation && (
                 <div className="row dn-kv-row">
                   <span className="k">Situação</span>
@@ -771,12 +811,18 @@ export function DetalhesNegocio({
           </LockGate>
         )}
 
-        {n.email && !n.channel && (
+        {emailList.length > 0 && (
           <div className="row dn-kv-row">
             <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <I d={ICONS.mail} size={13} /> E-mail
+              <I d={ICONS.mail} size={13} /> {emailList.length > 1 ? "E-mails" : "E-mail"}
             </span>
-            <span className="v"><TypedText text={n.email} speed={44} delay={40} /></span>
+            <span className="v" style={{ display: "grid", gap: 2 }}>
+              {emailList.map((e, i) => (
+                <span key={`em-${i}`} style={{ display: "block" }}>
+                  <TypedText text={e} speed={44} delay={40 + i * 30} />
+                </span>
+              ))}
+            </span>
           </div>
         )}
 
