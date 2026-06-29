@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
+import { AllExceptionsFilter } from './common/errors/all-exceptions.filter';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { assertIntegrationSecretKeyConfigured } from './integrations/integration-secrets.service';
 import { resolveWebscrapingTarget } from './modules/webscraping-runtime.util';
@@ -277,6 +278,9 @@ async function bootstrap() {
       },
     }),
   );
+  // Filtro GLOBAL de erros: padroniza TODA exceção num envelope único e amigável
+  // ({ code, userMessage, action, traceId }) — fonte da verdade pro popup do front.
+  app.useGlobalFilters(new AllExceptionsFilter());
   const port = Number(process.env.PORT || process.env.APP_PORT || 3000);
   await app.listen(port);
   const httpServer = app.getHttpServer() as Server;

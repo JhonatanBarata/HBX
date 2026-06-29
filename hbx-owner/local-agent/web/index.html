@@ -61,6 +61,36 @@
       </section>
     </div>
 
+    <!-- ============ ENRIQUECEDOR ============ -->
+    <section class="card" id="enricher">
+      <div class="cockpit-head">
+        <div class="hero-title">
+          <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
+          <span class="pill pill-muted">mira o VPS</span>
+          <span id="enr-status" class="pill pill-muted">parado</span>
+        </div>
+        <div class="cockpit-actions enr-controls">
+          <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
+          <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
+          <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
+          <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
+          <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
+          <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
+        </div>
+      </div>
+      <div class="grid-3" style="margin-top:10px;">
+        <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
+        <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
+        <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
+      </div>
+      <div class="grid-3" style="margin-top:8px;">
+        <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
+        <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
+        <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
+      </div>
+      <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
+    </section>
+
     <!-- ============ FÁBRICA (card herói, honesto) ============ -->
     <section class="card factory-hero">
       <div class="hero-top">
@@ -161,34 +191,17 @@
       <span id="export-status" style="display:none;"></span>
     </section>
 
-    <!-- ============ ENRIQUECEDOR ============ -->
-    <section class="card" id="enricher">
+    <!-- ============ CHAVES DE API / INTEGRAÇÕES ============ -->
+    <section class="card" id="integrations">
       <div class="cockpit-head">
         <div class="hero-title">
-          <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
-          <span class="pill pill-muted">mira o VPS</span>
-          <span id="enr-status" class="pill pill-muted">parado</span>
+          <span class="label">Chaves de API · Integrações</span>
+          <span class="pill pill-muted">esta máquina (local)</span>
         </div>
-        <div class="cockpit-actions enr-controls">
-          <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
-          <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
-          <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
-          <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
-          <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
-          <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
-        </div>
+        <button id="btn-int-refresh" class="btn btn-sm btn-blue">↺ Reler</button>
       </div>
-      <div class="grid-3" style="margin-top:10px;">
-        <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
-        <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
-        <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
-      </div>
-      <div class="grid-3" style="margin-top:8px;">
-        <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
-        <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
-        <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
-      </div>
-      <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
+      <p class="delta" style="margin:0 0 12px;">Injetar grava no <code>backend/.env</code> local (o backend pega ao recriar o container). A <strong>VPS tem .env próprio</strong> — não sobe no deploy.</p>
+      <div id="integrations-grid" class="int-grid"><p class="delta">lendo…</p></div>
     </section>
 
   </main>

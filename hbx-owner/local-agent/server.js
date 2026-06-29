@@ -123,7 +123,9 @@ function readDotenvValue(filePath, key) {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = raw.match(new RegExp(`^\\s*${escaped}\\s*=\\s*(.*)\\s*$`, "m"));
+    // [ \t] (whitespace horizontal) em vez de \s* — \s atravessava a quebra de linha e, numa
+    // chave VAZIA (KEY=), capturava a LINHA SEGUINTE como se fosse o valor (bug: chave vazia virava "ativa").
+    const match = raw.match(new RegExp(`^[ \\t]*${escaped}[ \\t]*=[ \\t]*(.*)$`, "m"));
     if (!match) return "";
     let value = String(match[1] || "").trim();
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
@@ -1592,6 +1594,53 @@ function readBody(req) {
   });
 }
 
+// ===== Integrações / chaves de API (status + injeção pelo painel) =====
+// Allowlist: só estas chaves o painel lê/escreve. NUNCA devolve o valor — só presença.
+const INTEGRATION_CATALOG = [
+  { key: "GOOGLE_PLACES_API_KEY", label: "Google Places", group: "Busca & Leads", cost: "pago", desc: "Fonte de leads estruturada e imbanível (alternativa paga ao scraping do seu IP)." },
+  { key: "BRAVE_SEARCH_API_KEY", label: "Brave Search", group: "Busca & Leads", cost: "grátis", desc: "Busca de site/CNPJ no enriquecimento. Sem chave cai no Bing/DDG." },
+  { key: "SERPER_API_KEY", label: "Serper (Google)", group: "Busca & Leads", cost: "pago", desc: "Busca Google paga p/ enriquecimento em escala." },
+  { key: "OPENAI_API_KEY", label: "OpenAI", group: "IA", cost: "pago", desc: "Respostas inteligentes / assistente. Só liga se usar a IA." },
+  { key: "GOOGLE_CLIENT_ID", label: "Login Google", group: "Login & E-mail", cost: "grátis", desc: "Entrar com Google (OAuth)." },
+  { key: "GMAIL_OAUTH_CLIENT_ID", label: "Gmail — Client ID", group: "Login & E-mail", cost: "grátis", desc: "Envio de e-mail pelo Gmail (módulo e-mail)." },
+  { key: "GMAIL_OAUTH_CLIENT_SECRET", label: "Gmail — Secret", group: "Login & E-mail", cost: "grátis", desc: "Par do Client ID do Gmail." },
+  { key: "SMTP_PASS", label: "SMTP (e-mail)", group: "Login & E-mail", cost: "grátis", desc: "Senha do relay SMTP transacional." },
+  { key: "MERCADO_PAGO_ACCESS_TOKEN", label: "Mercado Pago — Token", group: "Pagamento", cost: "conta", desc: "Cobrança server-side (assinaturas/charges)." },
+  { key: "MERCADO_PAGO_PUBLIC_KEY", label: "Mercado Pago — Public", group: "Pagamento", cost: "conta", desc: "Checkout no front." },
+  { key: "WHATSAPP_MODAL_API_KEY", label: "Webwhats (motor)", group: "WhatsApp", cost: "próprio", desc: "Motor WhatsApp self-hosted (o que você usa)." },
+  { key: "WHATSAPP_ACCESS_TOKEN", label: "WhatsApp Cloud (Meta)", group: "WhatsApp", cost: "conta", desc: "API oficial da Meta (alternativa ao motor)." },
+  { key: "AUVO_APP_KEY", label: "Auvo (CRM)", group: "CRM", cost: "conta", desc: "Integração Auvo (ordens de serviço)." },
+];
+const INTEGRATION_KEYS = new Set(INTEGRATION_CATALOG.map((i) => i.key));
+const backendEnvPath = () => path.join(rootDir, "backend", ".env");
+
+// Presença = o que o BACKEND realmente enxerga (os .env, não o process.env do agent — o backend
+// roda em container separado e NÃO herda o ambiente desta máquina). Verdade, sem mentir "ativo".
+// Nunca devolve o valor — só bool + tamanho.
+function readIntegrationPresence(key) {
+  let val = readDotenvValue(backendEnvPath(), key);
+  let source = val ? "backend/.env" : "";
+  if (!val) { val = readDotenvValue(path.join(rootDir, ".env"), key); if (val) source = ".env"; }
+  return { present: Boolean(val), length: val ? val.length : 0, source: source || null };
+}
+
+// Upsert por linha (sem regex frágil): troca a linha KEY= ou acrescenta no fim.
+function setDotenvValue(filePath, key, value) {
+  let raw = "";
+  try { raw = fs.readFileSync(filePath, "utf8"); } catch { raw = ""; }
+  const lines = raw.split(/\r?\n/);
+  let found = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = lines[i].match(/^\s*([A-Z0-9_]+)\s*=/);
+    if (m && m[1] === key) { lines[i] = `${key}=${value}`; found = true; break; }
+  }
+  if (!found) {
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
+    lines.push(`${key}=${value}`);
+  }
+  fs.writeFileSync(filePath, lines.join("\n") + "\n", "utf8");
+}
+
 async function route(req, res) {
   if (req.method === "OPTIONS") {
     sendJson(res, 200, { ok: true });
@@ -1627,6 +1676,29 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/owner/system") {
     sendJson(res, 200, await readSystemSnapshot());
+    return;
+  }
+
+  // Integrações: status das chaves (presença, nunca o valor) + injeção no .env LOCAL.
+  if (req.method === "GET" && url.pathname === "/owner/integrations") {
+    const items = INTEGRATION_CATALOG.map((i) => ({ ...i, ...readIntegrationPresence(i.key) }));
+    sendJson(res, 200, { ok: true, scope: "local", items });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/integrations/set") {
+    let body;
+    try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }
+    const key = String(body.key || "").trim();
+    const value = String(body.value == null ? "" : body.value).trim();
+    if (!INTEGRATION_KEYS.has(key)) { sendJson(res, 200, { ok: false, reason: "chave_nao_permitida" }); return; }
+    if (!value) { sendJson(res, 200, { ok: false, reason: "valor_vazio" }); return; }
+    try {
+      setDotenvValue(backendEnvPath(), key, value);
+      process.env[key] = value; // vale já pro agent; o backend só pega ao RECRIAR o container
+      const p = readIntegrationPresence(key);
+      sendJson(res, 200, { ok: true, key, present: p.present, length: p.length,
+        note: "Salvo no backend/.env local. O backend pega ao RECRIAR o container (env_file). NÃO vai pra VPS." });
+    } catch (e) { sendJson(res, 200, { ok: false, reason: String((e && e.message) || e) }); }
     return;
   }
 

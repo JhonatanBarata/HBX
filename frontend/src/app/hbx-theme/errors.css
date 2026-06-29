@@ -1,0 +1,70 @@
+/* Popup ÚNICO de erro — toda falha do sistema (rede, backend, navegador, crash)
+   cai aqui com a MESMA cara. Cor só por token (5 Leis / check-pele); #fff é
+   neutro permitido. A casca (.hbx-veil/.hbx-modal/.hbx-x) vem do kit central. */
+
+.hbx-error {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 26px 24px 20px;
+  max-width: 100%;
+}
+
+.hbx-error__icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+}
+
+.hbx-error[data-severity="error"] .hbx-error__icon {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+
+.hbx-error__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.hbx-error__msg {
+  margin: 0;
+  color: var(--color-ink-muted);
+  line-height: 1.45;
+}
+
+.hbx-error__ref {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.hbx-error__actions {
+  margin-top: 6px;
+  width: 100%;
+  display: grid;
+}
+
+.hbx-error__btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 11px 16px;
+  border-radius: var(--radius-panel, 12px);
+  font-weight: 700;
+  color: #fff;
+  background: var(--color-accent);
+}
+
+.hbx-error__btn:hover {
+  filter: brightness(1.06);
+}

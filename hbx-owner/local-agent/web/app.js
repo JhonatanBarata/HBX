@@ -1617,9 +1617,54 @@ async function renderMotorStrip() {
   if (fb) { fb.textContent = "Religar motores: rode  pwsh scripts/start-hbx-engines.ps1 -Count 20  (botão automático em breve)."; fb.className = "delta"; }
 }); }
 
+/* ---------- Chaves de API / Integrações ---------- */
+function intCostPill(c) { return c === "grátis" ? "pill-ok" : c === "pago" ? "pill-amber" : "pill-muted"; }
+async function renderIntegrations() {
+  const grid = $("#integrations-grid");
+  if (!grid) return;
+  let data;
+  try { data = await api("GET", "/owner/integrations"); }
+  catch (e) { grid.innerHTML = `<p class="delta">erro: ${esc(e.message)}</p>`; return; }
+  const items = (data && data.items) || [];
+  const groups = {};
+  for (const it of items) (groups[it.group] = groups[it.group] || []).push(it);
+  grid.innerHTML = Object.keys(groups).map((g) => `
+    <div class="int-group">
+      <div class="label" style="margin:0 0 8px;">${esc(g)}</div>
+      ${groups[g].map((it) => `
+        <div class="int-row${it.present ? "" : " int-missing"}">
+          <div class="int-main">
+            <div class="int-name">${esc(it.label)} <span class="pill ${intCostPill(it.cost)}" style="font-size:.64rem;">${esc(it.cost)}</span></div>
+            <div class="int-desc">${esc(it.desc)}</div>
+          </div>
+          <div class="int-side">
+            ${it.present
+              ? `<span class="pill pill-ok">✓ ativo · ${it.length} car.</span>`
+              : `<span class="pill pill-bad">✗ falta</span>
+                 <div class="int-inject"><input class="cf-input int-input" data-int="${esc(it.key)}" placeholder="colar chave…" autocomplete="off" /><button class="btn btn-sm btn-green int-save" data-int="${esc(it.key)}">Salvar</button></div>`}
+          </div>
+        </div>`).join("")}
+    </div>`).join("");
+  grid.querySelectorAll(".int-save").forEach((b) => b.addEventListener("click", () => intSave(b.getAttribute("data-int"))));
+}
+async function intSave(key) {
+  const input = document.querySelector(`.int-input[data-int="${key}"]`);
+  const btn = document.querySelector(`.int-save[data-int="${key}"]`);
+  const value = input ? input.value.trim() : "";
+  if (!value) { if (input) input.focus(); return; }
+  if (btn) { btn.disabled = true; btn.textContent = "salvando…"; }
+  try {
+    const r = await api("POST", "/owner/integrations/set", { key, value });
+    if (r && r.ok) { renderIntegrations(); }
+    else if (btn) { btn.disabled = false; btn.textContent = (r && r.reason) || "falhou"; }
+  } catch { if (btn) { btn.disabled = false; btn.textContent = "erro"; } }
+}
+{ const ir = $("#btn-int-refresh"); if (ir) ir.addEventListener("click", renderIntegrations); }
+
 /* ---------- Boot ---------- */
 pingStatus();
 renderMotorStrip();
+renderIntegrations();
 refreshLabState();
 renderSistema();
 renderFactoryTruth();         // verdade da fábrica local (net-new + por que não raspa)

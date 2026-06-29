@@ -574,3 +574,16 @@ body {
 .bank-count { font-size: 1.25rem; font-weight: 800; }
 .enr-controls { gap: 10px; }
 .enr-controls .lab-state { font-size: .78rem; }
+
+/* Chaves de API / Integrações */
+.int-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+.int-group { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.int-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); }
+.int-group .int-row:first-of-type { border-top: none; }
+.int-main { min-width: 0; }
+.int-name { font-size: .86rem; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.int-desc { font-size: .74rem; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+.int-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.int-inject { display: flex; gap: 6px; }
+.int-input { min-width: 150px; }
+.int-missing { opacity: .92; }

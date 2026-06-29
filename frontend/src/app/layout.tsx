@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 import { ThemeAttributes } from "@/components/hbx/theme-attributes";
+import { GlobalErrorHost } from "@/components/hbx/error-popup";
 
 export const metadata: Metadata = {
   title: "HBX System",
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <ThemeAttributes />
         {children}
+        <GlobalErrorHost />
       </body>
     </html>
   );

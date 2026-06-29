@@ -13,6 +13,7 @@
 @import "./hbx-theme/skeleton.css";
 @import "./hbx-theme/base.css";
 @import "./hbx-theme/kit.css";
+@import "./hbx-theme/errors.css";
 @import "./hbx-theme/screens.css";
 @import "./hbx-theme/foco-game.css";
 @import "./hbx-theme/marketing.css";
