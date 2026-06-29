@@ -3365,6 +3365,18 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const auditTimeline = (auditRows || []).map((row) => this.normalizeAuditRow(row));
     const trialHistory = auditTimeline.filter((row) => String(row.action || '').toUpperCase().startsWith('TRIAL_'));
 
+    // Lista TODOS os módulos atribuíveis (não só os que já têm CompanyModule).
+    // Sem isso, um módulo NOVO no catálogo (ex.: "vc") nunca apareceria pro master
+    // ligar — o toggle só mostrava o que já tinha row (ovo-e-galinha). Estado vem
+    // da row se existir; senão o default do catálogo.
+    const assignableSystemModules = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+      orderBy: { name: 'asc' },
+    });
+    const companyModuleByKeyForDetail = new Map(
+      (company.companyModules || []).map((row) => [row.systemModule.key, row]),
+    );
+
     return {
       generatedAt: new Date().toISOString(),
       company: {
@@ -3384,14 +3396,15 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           retentionUntil: user.retentionUntil ? user.retentionUntil.toISOString() : null,
           createdAt: user.createdAt ? user.createdAt.toISOString() : null,
         })),
-        modules: (company.companyModules || [])
-          .filter((row) => row.systemModule.companyAssignable)
-          .map((row) => ({
-            key: row.systemModule.key,
-            name: row.systemModule.name,
-            enabled: Boolean(row.enabled),
-            monthlyPrice: this.normalizeCurrencyAmount(row.systemModule.monthlyPrice || 0),
-          })),
+        modules: assignableSystemModules.map((moduleItem) => {
+          const row = companyModuleByKeyForDetail.get(moduleItem.key);
+          return {
+            key: moduleItem.key,
+            name: moduleItem.name,
+            enabled: row ? Boolean(row.enabled) : Boolean(moduleItem.defaultEnabled),
+            monthlyPrice: this.normalizeCurrencyAmount((moduleItem as any).monthlyPrice || 0),
+          };
+        }),
         website: {
           ...summary.website,
         },
