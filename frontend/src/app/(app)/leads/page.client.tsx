@@ -857,7 +857,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // pai é estável (não dispara loop). 29/06.
   useEffect(() => {
     onEmbedStats?.({
-      totalBrasil: bank ? bank.total : null,
+      totalBrasil: bank?.total ?? null,
       disponiveis: counts.shelf,
       cotaLabel: meterLabel,
       cotaValue: meterValue,
