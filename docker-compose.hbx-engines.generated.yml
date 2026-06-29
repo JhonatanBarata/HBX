@@ -9,6 +9,13 @@ x-hbx-engine-common: &hbx-engine-common
     context: ./hbx-scraping-engine
     dockerfile: Dockerfile
   restart: unless-stopped
+  # Teto de RAM por motor — impede OOM global do host (exit 137 em massa).
+  # Motor = Python/uvicorn + httpx + BeautifulSoup/lxml (scraper HTTP, SEM Chrome).
+  # RSS típico ~150-350MB; 768m é ~2x o típico e acima do pico de lxml = folga real.
+  # 20 motores × 768m = 15GB de teto somado, cabe nos ~20GB livres de um host ~32GB.
+  # Um motor que vaze bate o PRÓPRIO teto e reinicia isolado, sem derrubar os 20 juntos.
+  mem_limit: ${HBX_ENGINE_MEM_LIMIT:-768m}
+  mem_reservation: ${HBX_ENGINE_MEM_RESERVATION:-256m}
   environment:
     HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
     HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-20}
