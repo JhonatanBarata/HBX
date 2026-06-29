@@ -232,6 +232,7 @@ async function runSiteCrawlProvider(job, context = {}) {
       pages.push(page);
       if (!page.ok) continue;
       stats.pagesVisited += 1;
+      if (typeof context.onProgress === 'function') context.onProgress({ pagesVisited: stats.pagesVisited, emailsFound: stats.emailsFound });
       extractPublicLinks(page.html, page.url).slice(0, maxDiscoveredLinks).forEach((link) => discoveredLinks.add(link));
       const socialLinks = extractSocialUrls(page.html, page.url);
       if (!candidate.instagramUrl) candidate.instagramUrl = socialLinks.find((link) => /instagram\.com/i.test(link)) || null;
@@ -255,6 +256,7 @@ async function runSiteCrawlProvider(job, context = {}) {
       pages.push(page);
       if (!page.ok) continue;
       stats.pagesVisited += 1;
+      if (typeof context.onProgress === 'function') context.onProgress({ pagesVisited: stats.pagesVisited, emailsFound: stats.emailsFound });
       if (!candidate.cnpj) candidate.cnpj = extractCnpjFromText(page.html);
       collectPhones(page.html);
       const found = extractEmailsFromText(page.html, {

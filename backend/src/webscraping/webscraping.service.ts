@@ -472,8 +472,12 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         const hasSiteBefore = Boolean(String(row?.website || '').trim());
         const hasCnpjBefore = String(metaBefore?.cnpj || row?.cnpj || '').replace(/\D/g, '').length >= 14;
 
-        // (a) Web-enrichment discovery for leads without a site (L3 → finds site + CNPJ)
-        if (!hasSiteBefore && process.env.BRAVE_SEARCH_API_KEY) {
+        // (a) Web-enrichment discovery for leads without a site (L3 → finds site + CNPJ).
+        // NÃO exigir BRAVE_SEARCH_API_KEY: o RadarWebEnrichmentService.searchWeb tem fallback
+        // Bing/DuckDuckGo (IP-safe) e acha o WEBSITE pelo nome/cidade sem Brave. Com a guarda de
+        // Brave aqui, uma base inteira sem CNPJ nem site (5.889 leads) descobria ZERO — o passo nem
+        // rodava. Brave, quando configurado, continua sendo usado lá dentro p/ o extra de CNPJ-por-nome.
+        if (!hasSiteBefore) {
           const cityRaw = String(row.city || '').trim();
           const stateRaw = String(row.state || '').trim();
           const segmentRaw = String(row.segment || '').trim();
