@@ -1128,6 +1128,13 @@ async function readRadarCockpit(force) {
   return out;
 }
 
+// Cache curto do factory-status do backend. A rota /modules/owner/radar/factory-status dispara o
+// caminho pesado do pool (healthcheck HTTP em cada motor) e o painel a chama em rajada → era ~20s.
+// O backend já ganhou cache de 4s; aqui guardamos 3s a mais pra suavizar polling e quedas de rede.
+// Invalidado por força/purga da fila (mudam o estado da fábrica) p/ não mostrar dado velho.
+let factoryStatusCache = { at: 0, data: null };
+function invalidateFactoryStatusCache() { factoryStatusCache = { at: 0, data: null }; }
+
 // Espelha o looksLikeNonBusinessName do backend (radar-core-shared) pra limpar o banco local
 // pelo MESMO critério do filtro: script estrangeiro, título de página, frase em inglês, nome comprido.
 const NON_BIZ_EN_STOPWORDS = new Set(["the", "of", "to", "for", "and", "that", "this", "with", "your", "you", "in", "on", "at", "by", "from", "into", "about", "their", "they", "what", "how", "why", "when", "where", "which", "are", "was", "were", "will", "would", "can", "could", "should", "has", "have", "had", "does", "did", "its"]);
@@ -1580,9 +1587,14 @@ async function route(req, res) {
       sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
       return;
     }
+    if (factoryStatusCache.data && Date.now() - factoryStatusCache.at < 3000) {
+      sendJson(res, 200, { ok: true, cached: true, ...factoryStatusCache.data });
+      return;
+    }
     const response = await backendRequest("GET", "/modules/owner/radar/factory-status", null, { timeoutMs: 20000, maxBytes: 400000 });
     const data = (response && response.data) || null;
     const ok = Boolean(response && response.ok && data);
+    if (ok) factoryStatusCache = { at: Date.now(), data };
     sendJson(res, ok ? 200 : 502, ok
       ? { ok: true, ...data }
       : { ok: false, reason: response?.error || data?.message || `http_${response?.statusCode || "?"}` });
@@ -1600,6 +1612,7 @@ async function route(req, res) {
     const response = await backendRequest("POST", "/modules/owner/radar/factory/purge-dead-queue", {}, { timeoutMs: 60000 });
     const data = (response && response.data) || {};
     const ok = Boolean(response && response.ok);
+    invalidateFactoryStatusCache();
     sendJson(res, ok ? 200 : 502, {
       ok,
       deletedNeverRun: data.deletedNeverRun ?? null,
@@ -1622,6 +1635,7 @@ async function route(req, res) {
     const response = await backendRequest("POST", "/modules/owner/radar/factory/force-next", {}, { timeoutMs: 60000 });
     const data = (response && response.data) || {};
     const ok = Boolean(response && response.ok);
+    invalidateFactoryStatusCache();
     sendJson(res, ok ? 200 : 502, {
       ok,
       backend: data,

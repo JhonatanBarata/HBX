@@ -489,6 +489,15 @@ export class HbxEnginePoolService implements OnModuleInit {
   private sourcePressureCurrent = 0;
   private sourcePressureSampledAtMs = 0;
 
+  // Cache curto do scheduler-status (LEITURA de painel). `getSchedulerStatus()` dispara o caminho
+  // PESADO — `getCurrentCapacityLevel()` + `healthCheckEngines()` (fetch /health em CADA motor com
+  // timeout de 3.5s) — e o painel/Owner o chama em rajada (factory-status + force-next + engines).
+  // Motor offline = cada fetch paga o timeout inteiro → 20-24s. 4s de TTL colapsa as leituras numa
+  // só passada pesada sem afetar a frequência REAL do healthcheck (TTL próprio de 30s). NÃO cacheia o
+  // governor (`syncElasticEngineDesiredStates` chama o caminho cru) — a elástica/freio segue ao vivo.
+  private schedulerStatusCache: { at: number; data: HbxEngineSchedulerStatus } | null = null;
+  private schedulerStatusInflight: Promise<HbxEngineSchedulerStatus> | null = null;
+
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
@@ -1514,8 +1523,37 @@ export class HbxEnginePoolService implements OnModuleInit {
   }
 
   async getSchedulerStatus() {
-    const capacity = await this.getCurrentCapacityLevel().catch(() => null);
-    return this.buildSchedulerStatus(capacity || undefined);
+    const SCHEDULER_STATUS_TTL_MS = Math.max(
+      0,
+      parseIntegerEnv('HBX_SCHEDULER_STATUS_TTL_MS', 4000),
+    );
+    const now = Date.now();
+    if (
+      SCHEDULER_STATUS_TTL_MS > 0 &&
+      this.schedulerStatusCache &&
+      now - this.schedulerStatusCache.at < SCHEDULER_STATUS_TTL_MS
+    ) {
+      return this.schedulerStatusCache.data;
+    }
+    // Dedup de concorrência: várias leituras simultâneas (factory-status + engines + force-next chegam
+    // juntas do painel) compartilham UMA passada pesada em vez de cada uma rodar o healthcheck.
+    if (this.schedulerStatusInflight) {
+      return this.schedulerStatusInflight;
+    }
+    const compute = (async () => {
+      const capacity = await this.getCurrentCapacityLevel().catch(() => null);
+      // `getCurrentCapacityLevel` JÁ montou `capacity.scheduler` (mesmo healthcheck, mesmo tick) —
+      // reusa em vez de rodar `buildSchedulerStatus` de novo (evitava 2× healthCheckEngines por leitura).
+      const scheduler = capacity?.scheduler || (await this.buildSchedulerStatus(capacity || undefined));
+      this.schedulerStatusCache = { at: Date.now(), data: scheduler };
+      return scheduler;
+    })();
+    this.schedulerStatusInflight = compute;
+    try {
+      return await compute;
+    } finally {
+      this.schedulerStatusInflight = null;
+    }
   }
 
   async syncElasticEngineDesiredStates(): Promise<HbxEngineElasticSyncResult> {
