@@ -55,7 +55,7 @@ function paintVerdict(prefix, v) {
   const card = $(`#${prefix}-verdict`);
   if (!card) return;
   const level = (v && v.level) || "ok";
-  card.className = `card verdict ${level}`;
+  card.className = `verdict-line ${level}`;
   const icon = $(`#${prefix}-verdict-icon`);
   const title = $(`#${prefix}-verdict-title`);
   const detail = $(`#${prefix}-verdict-detail`);
@@ -100,22 +100,22 @@ function paintChk(sel, on, pending) {
 
 /* ---------- Banco de leads (local + VPS) ---------- */
 async function renderLocalBank() {
+  const set = (sel, txt, cls) => { const e = $(sel); if (e) { e.textContent = txt; if (cls != null) e.className = cls; } };
   try {
     const b = await api("GET", "/owner/leads-bank");
     if (b.ok && b.total != null) {
       const total = Number(b.total);
       const delta = Number(b.deltaToday || 0);
-      $("#sys-bank-local").textContent = total.toLocaleString("pt-BR");
-      $("#sys-bank-local-delta").textContent = delta > 0 ? `+${delta} hoje` : "sem novos hoje";
-      $("#sys-bank-local-delta").className = delta > 0 ? "delta up" : "delta";
-      $("#sys-leads-falling").textContent = delta > 0 ? `▲ +${delta} caindo hoje` : "parado hoje";
+      set("#sys-bank-local", total.toLocaleString("pt-BR"));
+      set("#sys-bank-local-delta", delta > 0 ? `+${delta} hoje` : "sem novos hoje", delta > 0 ? "delta up" : "delta");
+      set("#sys-leads-falling", delta > 0 ? `▲ +${delta} caindo hoje` : "parado hoje");
       return { total, delta };
     }
-    $("#sys-bank-local").textContent = b.configured ? "indisponível" : "config token";
-    $("#sys-bank-local-delta").textContent = b.reason || "";
+    set("#sys-bank-local", b.configured ? "indisponível" : "config token");
+    set("#sys-bank-local-delta", b.reason || "");
     return { total: null, delta: 0 };
   } catch {
-    $("#sys-bank-local").textContent = "—";
+    set("#sys-bank-local", "—");
     return { total: null, delta: 0 };
   }
 }
@@ -414,8 +414,9 @@ function ftDiagnose(s) {
         : "Nenhum motor liberado pra automação (automaticAllowedEngines=0).";
     causes.push({ tone: "bad", text: why });
   }
-  if (memGuard > 0) {
-    causes.push({ tone: "warn", text: `Pressão de memória: o guard cortou ${memGuard} motor(es). Libera sozinho quando a RAM aliviar.` });
+  const memCut = Math.max(0, (maxEng != null ? Number(maxEng) : memGuard) - memGuard);
+  if (memCut > 0) {
+    causes.push({ tone: "warn", text: `Pressão de memória: o guard cortou ${memCut} motor(es). Libera sozinho quando a RAM aliviar.` });
   }
   const mission = s.currentMission || {};
   const hasMission = mission.city || mission.segment;
@@ -689,7 +690,7 @@ async function cleanJunkLeads() {
     if (btn) btn.disabled = false;
   }
 }
-$("#btn-clean-junk").addEventListener("click", cleanJunkLeads);
+{ const cj = $("#btn-clean-junk"); if (cj) cj.addEventListener("click", cleanJunkLeads); }
 
 /* ================================================================
    COCKPIT DE LEADS
@@ -1591,8 +1592,34 @@ async function renderInfra() {
 const infraDetails = $("#infra-details");
 if (infraDetails) infraDetails.addEventListener("toggle", () => { if (infraDetails.open) renderInfra(); });
 
+/* ---------- Fileira de motores (verde = vivo · vermelho = morto) ---------- */
+async function renderMotorStrip() {
+  const wrap = $("#motor-strip");
+  if (!wrap) return;
+  let data;
+  try { data = await api("GET", "/owner/engines/status"); } catch { return; }
+  const engines = Array.isArray(data.engines) ? data.engines : [];
+  const total = Math.max(engines.length, Number(data.ceiling || data.physicalMax || 20)) || 20;
+  const cells = [];
+  for (let i = 0; i < total; i += 1) {
+    const e = engines[i];
+    const docker = String((e && (e.dockerState || e.actualState)) || "").toLowerCase();
+    const on = !!(e && (e.online === true || docker === "running"));
+    const tip = e ? `${e.label || ("HBX " + (i + 1))}: ${docker || "offline"}` : `HBX ${i + 1}: —`;
+    cells.push(`<span class="motor-cell ${on ? "on" : "off"}" title="${esc(tip)}"></span>`);
+  }
+  wrap.innerHTML = cells.join("");
+}
+
+/* ---------- Religar motores ---------- */
+{ const rb = $("#btn-religar"); if (rb) rb.addEventListener("click", () => {
+  const fb = $("#engines-local-feedback");
+  if (fb) { fb.textContent = "Religar motores: rode  pwsh scripts/start-hbx-engines.ps1 -Count 20  (botão automático em breve)."; fb.className = "delta"; }
+}); }
+
 /* ---------- Boot ---------- */
 pingStatus();
+renderMotorStrip();
 refreshLabState();
 renderSistema();
 renderFactoryTruth();         // verdade da fábrica local (net-new + por que não raspa)
@@ -1601,6 +1628,7 @@ renderVps();
 renderVpsEngines();
 loadCockpit();
 setInterval(renderSistema, 5000);
+setInterval(renderMotorStrip, 12000);
 setInterval(renderFactoryTruth, 10000);  // net-new/diagnóstico ao vivo
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);

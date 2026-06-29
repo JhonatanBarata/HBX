@@ -521,3 +521,56 @@ body {
   text-align: center;
   margin: 8px 0;
 }
+
+/* ================================================================
+   REDESENHO 29/06 — herói da fábrica, fileira de motores, tela limpa
+================================================================ */
+.hidden { display: none !important; }
+
+/* Veredito inline (sem card aninhado) */
+.verdict-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding: 9px 12px; border-radius: 10px; background: var(--surface-2); border-left: 3px solid var(--blue); font-size: .85rem; }
+.verdict-line.ok { border-left-color: var(--green); }
+.verdict-line.tight { border-left-color: var(--amber); }
+.verdict-line.buy { border-left-color: var(--red); }
+.verdict-line .vdot { font-weight: 900; color: var(--blue); }
+.verdict-line.ok .vdot { color: var(--green); }
+.verdict-line.tight .vdot { color: var(--amber); }
+.verdict-line.buy .vdot { color: var(--red); }
+.verdict-line strong { font-size: .9rem; }
+.verdict-line .verdict-detail { color: var(--text-muted); margin: 0; }
+
+/* esconde a faixa "resumo" da VPS quando vazia */
+.env-head .resumo:empty { display: none; }
+
+/* Card herói da fábrica */
+.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hero-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-title .label { display: inline; margin: 0; }
+.hero-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Fileira de motores (verde = vivo · vermelho = morto) */
+.hero-strip-row { display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; flex-wrap: wrap; }
+.hero-strip-row .label { display: inline; margin: 0; }
+.motor-strip { display: flex; gap: 4px; flex-wrap: wrap; }
+.motor-cell { width: 17px; height: 17px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.motor-cell.on { background: rgba(22, 163, 74, .85); border-color: transparent; }
+.motor-cell.off { background: rgba(220, 38, 38, .30); border-color: rgba(220, 38, 38, .55); }
+.strip-count { font-size: .82rem; font-weight: 700; color: var(--text-muted); margin-left: auto; }
+
+.diag-box { margin: 12px 0; }
+.diag-box .delta { margin: 3px 0; }
+.diag-box:empty { display: none; }
+.hero-metrics { margin-top: 12px; }
+.hero-metrics .metric strong { font-size: 1.5rem; }
+.mission-line { margin: 8px 0 0; }
+.hero-foot { margin-top: 12px; align-items: center; }
+.motor-details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.motor-details summary { cursor: pointer; }
+
+/* Cockpit / enricher como cards normais */
+.cockpit-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.cockpit-head .label { display: inline; margin: 0; }
+.cockpit-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bank-count { font-size: 1.25rem; font-weight: 800; }
+.enr-controls { gap: 10px; }
+.enr-controls .lab-state { font-size: .78rem; }
