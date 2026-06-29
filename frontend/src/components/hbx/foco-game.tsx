@@ -1,13 +1,12 @@
 "use client";
 
-// Modo Foco GAME (desktop) — casca cinematográfica do /vendas. Ao ativar, as
-// distrações queimam (controlado, ordem aleatória, lento) enquanto o tablado de
-// 4 etapas brota por cima (Pesquisa · Análise · Atendimento · Fechamento). É um 3º
-// MODO de DESKTOP que sobrepõe a casca funil/buscar; sai sem deixar rastro (onExit
-// desmonta e a tela normal volta). SEPARADO do Modo Foco mobile do dono
-// (vendas-modo-foco.tsx / VendasModoFoco / .vf-*). Pele: hbx-theme/foco-game.css.
-// EDIT 1 = casca + transição + espelho dos dados reais + gates; pendências
-// (radar-na-entrada, missões/arquivo no backend, robô v2) entram nos próximos passos.
+// Modo Foco GAME (desktop) — casca cinematográfica do /vendas. A ALMA: você
+// escolhe UM foco (1 segmento + 1 cidade) e SÓ ele aparece — o resto do funil
+// (outros segmentos/cidades) fica de fora. Ao comprometer, as distrações queimam
+// (controlado, ordem aleatória, lento) e o tablado de 4 etapas brota só com o foco
+// escolhido (Pesquisa · Análise · Atendimento · Fechamento), teto de 10. "Nova
+// missão" abre outro foco; a anterior fica parada, nunca misturada. Separado do
+// Modo Foco mobile do dono (vendas-modo-foco.tsx / .vf-*). Pele: foco-game.css.
 
 import React, { useEffect, useRef, useState } from "react";
 
@@ -23,9 +22,11 @@ export type FocoLead = {
   col: FocoCol;
   inInbox?: boolean;
 };
-export type FocoMission = { id: string; label: string };
+type Focus = { key: string; segment: string; city: string; count: number };
 
-type Phase = "commit" | "transform" | "board" | "exiting";
+type Phase = "commit" | "setup" | "transform" | "board" | "exiting";
+
+const MAX_LEADS = 10;
 
 const COLS: { key: FocoCol; label: string; icon: string }[] = [
   { key: "pesquisa", label: "Pesquisa", icon: "scrape" },
@@ -58,7 +59,6 @@ function addSparks(el: HTMLElement, timers: number[]) {
 export function FocoGame({
   summary,
   leads,
-  missions,
   canRobot,
   onExit,
   onOpenProspector,
@@ -66,19 +66,36 @@ export function FocoGame({
 }: {
   summary: { total: number; overdue: number; closed: number } | null;
   leads: FocoLead[];
-  missions: FocoMission[];
   canRobot: boolean;
   onExit: () => void;
   onOpenProspector: () => void;
   onSelectLead?: (id: string) => void;
 }) {
   const [phase, setPhase] = useState<Phase>("commit");
+  const [missions, setMissions] = useState<Focus[]>([]);
   const [activeMission, setActiveMission] = useState(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // Queima-de-entrada: distrações queimam (ordem aleatória, lento) e as folhas do
-  // foco brotam por cima com sobreposição. setState só dentro de setTimeout (o lint
-  // react-hooks/set-state-in-effect é erro neste repo).
+  // Focos disponíveis = combos (segmento · cidade) presentes na carteira, ordenados
+  // por volume. É o que a pessoa pode escolher pra focar (1 por vez).
+  const focusMap = new Map<string, Focus>();
+  for (const l of leads) {
+    if (!l.segment || !l.city) continue;
+    const key = l.segment + "||" + l.city;
+    const f = focusMap.get(key);
+    if (f) f.count++;
+    else focusMap.set(key, { key, segment: l.segment, city: l.city, count: 1 });
+  }
+  const focuses = Array.from(focusMap.values()).sort((a, b) => b.count - a.count);
+
+  const active = missions[activeMission];
+  // SÓ o foco ativo entra no tablado — teto de 10.
+  const focusLeads = active
+    ? leads.filter(l => l.segment === active.segment && l.city === active.city).slice(0, MAX_LEADS)
+    : [];
+
+  // Queima-de-entrada: distrações (funil misturado) queimam em ordem aleatória,
+  // lento, e as folhas do foco brotam por cima. setState só dentro de setTimeout.
   useEffect(() => {
     if (phase !== "transform") return;
     const root = rootRef.current;
@@ -122,7 +139,15 @@ export function FocoGame({
     return () => timers.forEach(t => clearTimeout(t));
   }, [phase, onExit]);
 
-  const colLeads = (c: FocoCol) => leads.filter(l => l.col === c);
+  function pickFocus(f: Focus) {
+    const idx = missions.findIndex(m => m.key === f.key);
+    if (idx >= 0) { setActiveMission(idx); setPhase("board"); return; }
+    setMissions(prev => [...prev, f]);
+    setActiveMission(missions.length);
+    setPhase("transform");
+  }
+
+  const colLeads = (c: FocoCol) => focusLeads.filter(l => l.col === c);
   const chips = leads.slice(0, 6);
   const showBoard = phase === "transform" || phase === "board" || phase === "exiting";
 
@@ -132,17 +157,44 @@ export function FocoGame({
         <div className="foco-commit">
           <div className="foco-commit__card">
             <div className="foco-commit__title"><I d={ICONS.bolt} size={20} /> Comprometer com o foco</div>
-            <p className="foco-commit__lead">Você entra numa missão única. O resto queima da tela.</p>
+            <p className="foco-commit__lead">Você escolhe UM foco. Só ele aparece — o resto fica de fora.</p>
             <ul className="foco-commit__warns">
               <li><I d={ICONS.bolt} size={16} /> Consome do seu plano enquanto pesquisa.</li>
               <li><I d={ICONS.mark} size={16} /> Pesquisa fora do foco é arquivada (recuperável ao sair).</li>
-              <li><I d={ICONS.users} size={16} /> Máximo 10 leads por missão.</li>
+              <li><I d={ICONS.users} size={16} /> Máximo {MAX_LEADS} leads por missão.</li>
             </ul>
             <div className="foco-commit__acts">
-              <button type="button" className="foco-btn foco-btn--fire" onClick={() => setPhase("transform")}>
+              <button type="button" className="foco-btn foco-btn--fire" onClick={() => setPhase("setup")}>
                 <I d={ICONS.bolt} size={16} /> Comprometer
               </button>
               <button type="button" className="foco-btn foco-btn--ghost" onClick={onExit}>Agora não</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "setup" && (
+        <div className="foco-setup">
+          <div className="foco-setup__card">
+            <h2 className="foco-setup__title"><I d={ICONS.scrape} size={18} /> Qual o seu foco?</h2>
+            <p className="foco-setup__sub">Escolha 1 segmento + cidade. Só ele aparece — o resto do funil fica fora.</p>
+            {focuses.length === 0 ? (
+              <div className="foco-setup__empty">Você ainda não tem leads com segmento + cidade na carteira. Busque no Radar primeiro.</div>
+            ) : (
+              <div className="foco-setup__opts">
+                {focuses.map(f => (
+                  <button type="button" key={f.key} className="foco-setup__opt" onClick={() => pickFocus(f)}>
+                    <span className="foco-setup__opt-seg">{f.segment}</span>
+                    <span className="foco-setup__opt-city"><I d={ICONS.mapin} size={12} /> {f.city}</span>
+                    <span className="foco-setup__opt-count">{f.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="foco-setup__foot">
+              <button type="button" className="foco-btn foco-btn--ghost" onClick={() => (missions.length ? setPhase("board") : onExit())}>
+                {missions.length ? "Voltar" : "Cancelar"}
+              </button>
             </div>
           </div>
         </div>
@@ -164,12 +216,12 @@ export function FocoGame({
         </div>
       )}
 
-      {showBoard && (
+      {showBoard && active && (
         <div className={"foco-board" + (phase === "board" ? " is-live" : "")}>
           <div className="foco-board__bar foco-leaf">
             <span className="foco-board__title"><I d={ICONS.scrape} size={16} /> Modo foco ativo</span>
             <span className="foco-board__spacer" />
-            <span className="foco-board__cap">{leads.length} / 10 leads</span>
+            <span className="foco-board__cap">{focusLeads.length} / {MAX_LEADS} leads</span>
             <button type="button" className="foco-btn foco-btn--ghost" onClick={() => setPhase("exiting")}>
               <I d={ICONS.arrow} size={15} /> Sair do foco
             </button>
@@ -177,11 +229,11 @@ export function FocoGame({
 
           <div className="foco-tabs foco-leaf">
             {missions.map((m, i) => (
-              <button type="button" key={m.id} className={"foco-tab" + (i === activeMission ? " is-on" : "")} onClick={() => setActiveMission(i)}>
-                <I d={ICONS.mapin} size={13} /> {m.label}
+              <button type="button" key={m.key} className={"foco-tab" + (i === activeMission ? " is-on" : "")} onClick={() => setActiveMission(i)}>
+                <I d={ICONS.mapin} size={13} /> {m.segment} · {m.city}
               </button>
             ))}
-            <button type="button" className="foco-tab foco-tab--new" onClick={onOpenProspector}>
+            <button type="button" className="foco-tab foco-tab--new" onClick={() => setPhase("setup")}>
               <I d={ICONS.plus} size={13} /> Nova missão
             </button>
           </div>
@@ -194,7 +246,7 @@ export function FocoGame({
                 <section className={"foco-col foco-leaf foco-col--" + col.key} key={col.key}>
                   <h4 className="foco-col__head"><I d={ICONS[col.icon]} size={14} /> {col.label} <span className="foco-col__count">{cards.length}</span></h4>
                   <div className="foco-col__body">
-                    {cards.length === 0 && <div className="foco-col__empty">—</div>}
+                    {cards.length === 0 && <div className="foco-col__empty">{col.key === "pesquisa" ? "Busque novos no Radar" : "—"}</div>}
                     {cards.map(card => (
                       <article className="foco-card" key={card.id} onClick={() => onSelectLead?.(card.id)}>
                         <strong className="foco-card__name">{card.name || "—"}</strong>

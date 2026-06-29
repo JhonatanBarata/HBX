@@ -25,7 +25,10 @@ export type VendasModoFocoProps = {
   onExit: () => void;
   onWhatsApp: (lead: AgendaLead) => void;
   onCall: (lead: AgendaLead) => void;
-  onWinSale: (lead: AgendaLead) => void;
+  // Abre o FecharVendaModal por cima do foco. `onConfirmed` é ligado ao onDone do
+  // modal (sucesso real = venda concluída): só então avança + conta como fechado.
+  // Cancelar (✕/clique fora) NÃO chama onConfirmed → volta ao mesmo lead.
+  onWinSale: (lead: AgendaLead, onConfirmed: () => void) => void;
   // Disparado após uma gravação inline (reagendar/observação/encerrar) para o
   // page recarregar o board. Não desmonta o foco.
   onMutated?: () => void;
@@ -249,7 +252,8 @@ export function VendasModoFoco({
   }
 
   async function confirmNote() {
-    if (!lead || !noteText.trim() || busy) return;
+    // Campo vazio é VÁLIDO = limpar a nota (PATCH shortNote: ""). Só barra se ocupado.
+    if (!lead || busy) return;
     setBusy(true);
     setSheetErr(null);
     try {
@@ -288,11 +292,11 @@ export function VendasModoFoco({
     }
   }
 
-  // Fechar venda — abre o FecharVendaModal por cima (callback do page) e avança
-  // (a venda fechada some da fila no próximo loadBoard).
+  // Fechar venda — abre o FecharVendaModal por cima (callback do page). Só avança
+  // + conta como fechado quando o modal sinaliza SUCESSO (onConfirmed = onDone do
+  // modal). Cancelar (✕/clique fora) não chama onConfirmed → fica no mesmo lead.
   function handleWinSale(l: AgendaLead) {
-    onWinSale(l);
-    advanceWorked({ closed: 1 });
+    onWinSale(l, () => advanceWorked({ closed: 1 }));
   }
 
   // Reinicia atacando só os atrasados
@@ -424,7 +428,7 @@ export function VendasModoFoco({
           <button type="button" className="vf-res-btn" onClick={() => { setSheetErr(null); setRescheduleDate(""); setNoteText(""); setSheet("reschedule"); }}>
             <I d={ICONS.clock} size={15} /> Reagendar
           </button>
-          <button type="button" className="vf-res-btn" onClick={() => { setSheetErr(null); setNoteText(""); setSheet("note"); }}>
+          <button type="button" className="vf-res-btn" onClick={() => { setSheetErr(null); setNoteText(lead.shortNote ?? ""); setSheet("note"); }}>
             <I d={ICONS.doc} size={15} /> Observação
           </button>
           <button type="button" className="vf-res-btn vf-res-btn--win" onClick={() => handleWinSale(lead)}>
@@ -445,7 +449,7 @@ export function VendasModoFoco({
               />
             ))}
           </div>
-          {idx < n - 1 && (
+          {idx < n - 1 ? (
             <button
               type="button"
               className="vf-next"
@@ -453,6 +457,17 @@ export function VendasModoFoco({
               aria-label="Próximo lead"
             >
               Próximo lead →
+            </button>
+          ) : (
+            // Último lead: caminho de saída sem ser obrigado a registrar resultado
+            // nele. Leva direto ao end-state ("Fila do dia zerada").
+            <button
+              type="button"
+              className="vf-next"
+              onClick={() => setIdx(n)}
+              aria-label="Concluir fila"
+            >
+              Concluir fila ✓
             </button>
           )}
         </div>
@@ -493,12 +508,12 @@ export function VendasModoFoco({
                   <h3 className="vf-sheet__title">Observação — {lead.name || "lead"}</h3>
                   {sheetErr && <div className="vf-sheet__err">{sheetErr}</div>}
                   <textarea className="field-dark vf-sheet__input" rows={4} maxLength={280} autoFocus
-                    placeholder="O que ficou combinado / por que segue no funil…"
+                    placeholder="O que ficou combinado / por que segue no funil… (vazio limpa a nota)"
                     value={noteText} onChange={e => setNoteText(e.target.value)} />
                   <div className="vf-sheet__foot">
                     <button type="button" className="btn-ghost" onClick={closeSheet} disabled={busy}>Cancelar</button>
-                    <button type="button" className="btn-teal" onClick={confirmNote} disabled={!noteText.trim() || busy}>
-                      {busy ? "Salvando…" : "Salvar e seguir"}
+                    <button type="button" className="btn-teal" onClick={confirmNote} disabled={busy}>
+                      {busy ? "Salvando…" : noteText.trim() ? "Salvar e seguir" : "Limpar e seguir"}
                     </button>
                   </div>
                 </>

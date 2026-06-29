@@ -10,7 +10,7 @@
 // template (Próximas tarefas, Funil) foram removidas — só dado real (21/06).
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -228,12 +228,12 @@ function RadarSupplyCard({
   const capacity = Math.max(1, supply.capacity || 1);
   const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
   const pct = used / capacity;
-  const state = unlimited ? "ok" : supply.full ? "full" : pct >= 0.8 ? "warn" : "ok";
+  const state = unlimited ? "ok" : supply.full ? "full" : (supply.paused || pct >= 0.8) ? "warn" : "ok";
   const count = unlimited ? Math.max(0, supply.activeCards ?? 0) : used;
-  const label =
-    state === "full"
-      ? supply.paused ? "Distribuição pausada" : "Lista cheia"
-      : state === "warn" ? "Lista quase cheia" : "Buscando empresas";
+  const label = supply.paused ? "Distribuição pausada"
+    : state === "full" ? "Lista cheia"
+    : state === "warn" ? "Lista quase cheia"
+    : "Buscando empresas";
   const unit = unlimited ? "na lista" : `/ ${capacity}`;
   const clickable = state === "full";
   return (
@@ -643,6 +643,10 @@ export function VendasClient() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   // Mobile: Modo Foco (overlay 1 lead de cada vez — hoje+atrasados)
   const [modoFocoOpen, setModoFocoOpen] = useState(false);
+  // Ponte Modo Foco → FecharVendaModal: o foco passa um callback de "avançar quando
+  // a venda for REALMENTE concluída"; ligamos ao onDone do modal (sucesso). Cancelar
+  // (✕) só fecha o modal e devolve o MESMO lead, sem avançar/contar.
+  const focoWinConfirmRef = useRef<(() => void) | null>(null);
   // Desktop: Modo Foco GAME (cinematográfico — queima + tablado 4 etapas + missões).
   // Separado do mobile acima; só monta em !isMobile. EDIT 1 = casca front-first.
   const [focoGameOpen, setFocoGameOpen] = useState(false);
@@ -899,9 +903,10 @@ export function VendasClient() {
   const summary = board?.summary;
   const deal = sel;
 
-  // Modo Foco GAME (desktop): espelha os leads reais nas 4 etapas da jornada.
+  // Modo Foco GAME (desktop): mapeia os leads reais nas 4 etapas da jornada.
   // novo→Pesquisa · contato→Análise · inbox/retorno/qualificado→Atendimento ·
-  // encerrado/fechado→Fechamento. Missões = stub front (1 por ora). EDIT 1.
+  // encerrado/fechado→Fechamento. O componente FILTRA pelo foco escolhido (1
+  // segmento + cidade) e corta em 10 — nunca mistura segmentos/cidades.
   const focoLeads: FocoLead[] = board
     ? BLOCK_ORDER.flatMap(({ key }) => board.blocks?.[key] || []).map(c => {
         const st = normalizeStage(c.status);
@@ -913,7 +918,6 @@ export function VendasClient() {
         return { id: c.id, name: c.name, segment: c.segment, city: c.city, phone: c.phone, col, inInbox: c.isInInbox ?? false };
       })
     : [];
-  const focoMissions = [{ id: "m1", label: focoLeads[0]?.segment ? `${focoLeads[0].segment}${focoLeads[0].city ? " · " + focoLeads[0].city : ""}` : "Sua missão" }];
 
   // 2 botões acoplados (toggle de modo) — vivem no topo persistente da casca ÚNICA,
   // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
@@ -939,7 +943,6 @@ export function VendasClient() {
           <FocoGame
             summary={summary ? { total: summary.total, overdue: summary.overdue, closed: summary.closed } : null}
             leads={focoLeads}
-            missions={focoMissions}
             canRobot={Boolean(botStatus?.botModuleEnabled)}
             onExit={() => setFocoGameOpen(false)}
             onOpenProspector={() => setProspOpen(true)}
@@ -954,8 +957,7 @@ export function VendasClient() {
             {segToggle}
             {!isMobile && canAtendimento && (
               <button type="button" className="foco-enter" onClick={() => setFocoGameOpen(true)}>
-                <span className="foco-enter__ic"><I d={ICONS.bolt} size={16} /></span>
-                <span className="foco-enter__txt">Ativar modo foco</span>
+                <I d={ICONS.bolt} size={15} /> Ativar modo foco
               </button>
             )}
             <div className="vnd-stats">
@@ -1369,9 +1371,10 @@ export function VendasClient() {
           onCall={lead => {
             if (lead.phone) window.location.href = `tel:${lead.phone.replace(/\D/g, "")}`;
           }}
-          onWinSale={lead => {
-            // Mantém o foco montado (z 80); o FecharVendaModal (z 90) abre por cima
-            // e, ao fechar, devolve a tela do foco já no próximo lead.
+          onWinSale={(lead, onConfirmed) => {
+            // Mantém o foco montado (z 80); o FecharVendaModal (z 90) abre por cima.
+            // Guarda o avanço; só dispara no onDone do modal (venda concluída).
+            focoWinConfirmRef.current = onConfirmed;
             setSel(lead as unknown as VendasLead);
             setFecharOpen(true);
           }}
@@ -1430,8 +1433,20 @@ export function VendasClient() {
           leadName={sel.name}
           phone={sel.phone}
           sellsHbxPlans={Boolean(board?.sellsHbxPlans)}
-          onClose={() => setFecharOpen(false)}
-          onDone={loadBoard}
+          onClose={() => {
+            // Fechar puro (✕/fora): se o foco está aberto e a venda NÃO foi concluída
+            // (ref ainda setado), cancela sem avançar nem contar.
+            focoWinConfirmRef.current = null;
+            setFecharOpen(false);
+          }}
+          onDone={() => {
+            loadBoard();
+            // Venda concluída (gerou link / salvou no card): avança o foco + conta
+            // como fechado. Consome o ref pra não re-disparar no onClose seguinte.
+            const confirm = focoWinConfirmRef.current;
+            focoWinConfirmRef.current = null;
+            confirm?.();
+          }}
         />
       )}
 

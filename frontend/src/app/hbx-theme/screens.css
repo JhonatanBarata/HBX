@@ -1520,38 +1520,48 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    SOBREPOSTAS em crossfade; só os DADOS trocam. Tudo token (5 Leis). */
 .vnd-modehost { flex: 1; min-height: 0; position: relative; }
 
-/* Topo NÃO empurra o stage: a barra (toggle + 3 cards) SOBREPÕE só a coluna da
-   ESQUERDA (a lista) → o card de detalhe sobe até o topo, coluna cheia à direita.
-   right: 360px = largura exata do aside de detalhe (.content é 1fr 360px). */
+/* ── BARRA DE 7 BOTÕES (vnd-funhead) ─────────────────────────────────────────
+   7 elementos distribuídos uniformemente na coluna esquerda. Todos partilham a
+   mesma forma-base (card arredondado, border hairline, superfície suave). O
+   wrapper de toggle e a área de stats viram recipientes transparentes que deixam
+   os filhos herdarem a forma. right:360px = largura do aside de detalhe. */
 .vnd-funhead { position: absolute; top: 0; left: 0; right: 360px; z-index: 6;
-  display: flex; align-items: center; gap: 12px; padding: 8px 20px 0; pointer-events: none; }
+  display: flex; align-items: stretch; gap: 8px; padding: 8px 16px; min-height: 58px; pointer-events: none; }
 .vnd-funhead > * { pointer-events: auto; }
 
-/* 2 botões "acoplados" — pílula única, ativo preenchido */
-.vnd-segbtns { flex: 0 0 auto; display: inline-flex; align-items: stretch; gap: 4px; padding: 4px;
-  border-radius: var(--radius-pill); background: var(--hbx-surface-soft);
-  border: 1px solid var(--border-hairline); box-shadow: var(--shadow-inset); }
-.vnd-segbtn { display: inline-flex; align-items: center; gap: 8px; padding: 0 20px;
-  border: none; background: transparent; color: var(--text-muted);
-  font-family: var(--font-display); font-size: 0.9rem; font-weight: 800; letter-spacing: -0.01em;
-  border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap;
-  transition: color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
-.vnd-segbtn:hover { color: var(--text-strong); }
-.vnd-segbtn.is-on { background: var(--hbx-primary); color: var(--hbx-action-ink); box-shadow: var(--shadow-sm); }
-.vnd-segbtn.is-on:hover { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
+/* Toggle wrapper: sem visual próprio — distribui 2 filhos */
+.vnd-segbtns { flex: 2; display: flex; align-items: stretch; gap: 8px;
+  background: none; border: none; box-shadow: none; padding: 0; border-radius: 0; }
+
+/* Forma-base compartilhada por segbtn (2) + kpi (3) + supcard (1) + foco (1) = 7 */
+.vnd-segbtn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 14px; border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft); border-radius: 12px;
+  color: var(--text-body); font-family: var(--font-display); font-size: 0.86rem; font-weight: 700;
+  letter-spacing: -0.01em; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+.vnd-segbtn:hover { background: var(--hbx-surface); border-color: var(--border-strong); color: var(--text-strong); }
+.vnd-segbtn.is-on { background: var(--hbx-primary); color: var(--hbx-action-ink); border-color: var(--hbx-primary);
+  box-shadow: 0 4px 16px -6px color-mix(in srgb, var(--hbx-primary) 55%, transparent); }
+.vnd-segbtn.is-on:hover { background: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
 .vnd-segbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-brand); }
 
-/* 3 cards do topo — a camada ATIVA fica em FLUXO (define a altura → casa exatamente
-   com o toggle); a inativa fica absoluta por baixo e SOME na hora (swap seco). */
-.vnd-stats { position: relative; flex: 1; min-width: 0; }
+/* Stats: área flex que distribui os 3 KPIs como colunas iguais */
+.vnd-stats { flex: 3; position: relative; min-width: 0; display: flex; flex-direction: column; }
 .vnd-stats__layer:not(.is-on) { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
-.vnd-stats__layer.is-on { position: relative; }
-.vnd-stats__layer .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-/* Barra COMPACTA — KPI baixinho pra liberar altura do card de detalhe */
-.vnd-stats__layer .kpi { padding: 7px 14px; align-items: center; }
-.vnd-stats__layer .kpi .kpi-icon { width: 30px; height: 30px; }
-.vnd-stats__layer .kpi .kpi-label { font-size: 0.72rem; }
-.vnd-stats__layer .kpi .kpi-value { font-size: 1.2rem; margin-top: 0; }
+.vnd-stats__layer.is-on { flex: 1; display: flex; position: relative; }
+.vnd-stats__layer .kpis { flex: 1; display: flex; gap: 8px; align-items: stretch; }
+/* KPI como card vertical: label pequeno + número grande, centrados */
+.vnd-stats__layer .kpi { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 6px 10px; gap: 1px;
+  background: var(--hbx-surface-soft); border: 1px solid var(--border-hairline); border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.vnd-stats__layer .kpi .kpi-icon { display: none; }
+.vnd-stats__layer .kpi > div { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.vnd-stats__layer .kpi .kpi-label { font-size: 0.67rem; font-weight: 500; color: var(--text-muted); line-height: 1.3; white-space: nowrap; }
+.vnd-stats__layer .kpi .kpi-value { font-size: 1.3rem; font-weight: 800; margin-top: 0; line-height: 1.1; }
 .vnd-stats__layer .kpi .kpi-foot { display: none; }
 
 /* Stage — preenche o modehost do TOPO (a barra fica POR CIMA). 2 camadas
@@ -1563,57 +1573,115 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-layer--buscar { flex-direction: column; }
 /* A LISTA (esquerda) abre espaço pra barra sobreposta; o card de detalhe NÃO
    (sobe até o topo). Buscar: a lista do Radar também desce. */
-.vnd-layer.is-on .content > .work { padding-top: 64px; }
-.vnd-layer--buscar.is-on .content .work { padding-top: 64px; }
+.vnd-layer.is-on .content > .work { padding-top: 74px; }
+.vnd-layer--buscar.is-on .content .work { padding-top: 74px; }
 /* Card de detalhe encosta no topo, com respiro suave */
 .vnd-layer aside.ctx { padding-top: 14px; }
 
-/* Modo Foco — botão mais discreto dentro da barra de vendas (o herói é o overlay) */
+/* Modo Foco — 7º botão da barra: mesma forma-base dos outros, toque de fogo */
 .vnd-funhead .foco-enter {
-  height: 38px; padding: 0 14px 0 10px;
-  background: transparent; color: var(--foco-fire);
-  border: 1.5px solid color-mix(in srgb, var(--foco-fire) 32%, var(--border-hairline));
-  box-shadow: none;
+  flex: 1.2; height: auto; width: auto; padding: 0 12px; gap: 8px;
+  background: var(--hbx-surface-soft); color: var(--foco-fire);
+  border: 1px solid color-mix(in srgb, var(--foco-fire) 28%, var(--border-hairline));
+  border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  font-size: 0.84rem; font-weight: 700;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
+.vnd-funhead .foco-enter__txt { display: flex; align-items: center; white-space: nowrap; padding-right: 2px; }
 .vnd-funhead .foco-enter__ic {
-  width: 24px; height: 24px;
-  background: color-mix(in srgb, var(--foco-fire) 10%, transparent);
+  width: 26px; height: 26px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--foco-fire) 12%, transparent);
   color: var(--foco-fire);
 }
 .vnd-funhead .foco-enter:hover {
-  background: color-mix(in srgb, var(--foco-fire) 6%, transparent);
+  background: color-mix(in srgb, var(--foco-fire) 6%, var(--hbx-surface-soft));
+  border-color: color-mix(in srgb, var(--foco-fire) 45%, var(--border-hairline));
   filter: none; transform: none;
-  box-shadow: 0 3px 10px -4px color-mix(in srgb, var(--foco-fire) 28%, transparent);
+  box-shadow: 0 3px 10px -4px color-mix(in srgb, var(--foco-fire) 30%, transparent);
 }
 .vnd-funhead .foco-enter:active { transform: scale(0.98); }
 
 /* Título do Radar embutido — herda .panel-head (mesmo do funil); só separa do tab */
 .leads-embed-head { border-bottom: 1px solid var(--border-hairline); }
 
-/* 4º BOTÃO — card "Buscando empresas" (visual DIFERENTÃO). Vive na barra (limitada
-   a right:360px) → JAMAIS invade o card de detalhe. Gradiente da marca + ícone em
-   disco; estados ok/warn/full pela cor. Tudo token (5 Leis). */
-.vnd-supcard { flex: 0 0 auto; position: relative; display: flex; align-items: center; gap: 10px;
-  min-width: 144px; padding: 6px 14px; border-radius: var(--panel-radius); overflow: hidden;
-  background: var(--hbx-surface-soft);
-  border: 1px solid var(--border-hairline);
-  box-shadow: var(--shadow-sm); color: var(--text-strong); }
+/* ── RADAR CARD — indicador visual puro do estado do Radar (sem texto) ─────────
+   pele-allow: animações do radar usam --radar-color (CSS var por estado, não hex) */
+.vnd-supcard {
+  --radar-color: var(--hbx-success);
+  flex: 1; position: relative; display: flex; align-items: center; justify-content: center;
+  min-width: 0; padding: 6px; border-radius: 12px; overflow: visible;
+  background: color-mix(in srgb, var(--radar-color) 9%, var(--hbx-surface-soft));
+  border: 1.5px solid color-mix(in srgb, var(--radar-color) 38%, var(--border-hairline));
+  box-shadow: 0 0 16px -5px color-mix(in srgb, var(--radar-color) 45%, transparent),
+              0 1px 3px color-mix(in srgb, var(--text-strong) 5%, transparent);
+  cursor: default;
+  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+}
 .vnd-supcard.is-clickable { cursor: pointer; }
+
+/* Tudo escondido — só o disco visual */
 .vnd-supcard__halo { display: none; }
-.vnd-supcard__ic { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;
-  border-radius: 999px; background: var(--hbx-surface); border: 1px solid var(--border-hairline); color: var(--hbx-primary); }
-.vnd-supcard__txt { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.vnd-supcard__label { font-size: 0.7rem; font-weight: 600; white-space: nowrap; color: var(--text-muted); }
-.vnd-supcard__val { font-family: var(--font-display); display: flex; align-items: baseline; gap: 4px; }
-.vnd-supcard__val b { font-size: 1.15rem; font-weight: 800; line-height: 1; color: var(--text-strong); }
-.vnd-supcard__val span { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); }
-.vnd-supcard__cta { position: relative; margin-left: 6px; font-size: 0.66rem; font-weight: 700; white-space: nowrap;
-  padding: 3px 10px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); color: var(--hbx-danger); border: 1px solid color-mix(in srgb, var(--hbx-danger) 30%, transparent); }
-.vnd-supcard--ok  .vnd-supcard__ic { color: var(--hbx-success); }
-.vnd-supcard--warn { background: color-mix(in srgb, var(--hbx-warning) 7%, var(--hbx-surface-soft)); border-color: color-mix(in srgb, var(--hbx-warning) 30%, var(--border-hairline)); }
-.vnd-supcard--warn .vnd-supcard__ic { color: var(--hbx-warning); }
-.vnd-supcard--full { background: color-mix(in srgb, var(--hbx-danger) 7%, var(--hbx-surface-soft)); border-color: color-mix(in srgb, var(--hbx-danger) 30%, var(--border-hairline)); }
-.vnd-supcard--full .vnd-supcard__ic { color: var(--hbx-danger); }
+.vnd-supcard__txt  { display: none; }
+.vnd-supcard__cta  { display: none; }
+
+/* Disco do radar: círculo com sweep giratório */
+.vnd-supcard__ic {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+  background: color-mix(in srgb, var(--radar-color) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--radar-color) 28%, transparent);
+  box-shadow: inset 0 0 0 8px  color-mix(in srgb, var(--radar-color) 6%,  transparent),
+              inset 0 0 0 16px color-mix(in srgb, var(--radar-color) 3%,  transparent);
+}
+
+/* Feixe de varredura giratório (sweep) */
+.vnd-supcard__ic::before {
+  content: "";
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent                                                0deg,
+    color-mix(in srgb, var(--radar-color) 55%, transparent) 38deg,
+    color-mix(in srgb, var(--radar-color) 20%, transparent) 52deg,
+    transparent                                               60deg
+  );
+  animation: vnd-radar-spin 2.4s linear infinite;
+}
+
+/* Ponto central brilhante (origin do sweep) */
+.vnd-supcard__ic::after {
+  content: "";
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--radar-color);
+  box-shadow: 0 0 5px 2px color-mix(in srgb, var(--radar-color) 65%, transparent);
+}
+
+/* Esconde o SVG original dentro do disco (CSS visual substitui) */
+.vnd-supcard__ic svg { display: none; }
+
+/* ── Estado: warn (amarelo) — sweep mais lento, lista quase cheia */
+.vnd-supcard--warn { --radar-color: var(--hbx-warning); }
+.vnd-supcard--warn .vnd-supcard__ic::before { animation-duration: 3.8s; }
+
+/* ── Estado: full (vermelho) — sweep urgente + anel pulsante ao redor do card */
+.vnd-supcard--full { --radar-color: var(--hbx-danger); }
+.vnd-supcard--full .vnd-supcard__ic::before { animation-duration: 1.1s; }
+.vnd-supcard--full::before {
+  content: "";
+  position: absolute; inset: -5px; border-radius: 15px; pointer-events: none;
+  border: 2px solid color-mix(in srgb, var(--hbx-danger) 55%, transparent);
+  animation: vnd-radar-ring-pulse 1.4s ease-out infinite;
+}
+
+@keyframes vnd-radar-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes vnd-radar-ring-pulse {
+  0%   { transform: scale(1);    opacity: 0.8; }
+  100% { transform: scale(1.26); opacity: 0;   }
+}
+/* pele-allow-end */
 
 /* Typewriter "digitando" — caret pisca enquanto escreve, some ao terminar */
 .vnd-caret { display: inline-block; width: 2px; height: 0.92em; margin-left: 2px;
