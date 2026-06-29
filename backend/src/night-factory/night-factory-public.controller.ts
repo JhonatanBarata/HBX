@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NightFactoryService } from './night-factory.service';
 
@@ -10,11 +10,6 @@ export class NightFactoryPublicController {
   @Get('claim-status')
   getClaimStatus(@Req() req: any) {
     return this.nightFactoryService.getClaimStatus(req.user);
-  }
-
-  @Post('redeem')
-  redeem(@Req() req: any) {
-    return this.nightFactoryService.redeemReward(req.user);
   }
 
   @Get('my-reward')

@@ -1511,32 +1511,23 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* "Voltar pro funil" (27/06): /leads é a boca do funil de Vendas — alinha à
    esquerda e não estica; só layout (Lei 5), cor/sombra vêm do .btn-ghost central. */
 .leads-back { justify-self: start; gap: 6px; margin: 2px 0 6px; }
-/* Embutido no Vendas (modo Buscar empresas): sem o botão Voltar → 2 linhas
-   (faixa Total-no-Brasil + prateleira). Senão a prateleira não pega o 1fr. */
-.leads-page.leads-embedded .work { grid-template-rows: auto 1fr; }
+/* Embutido no Vendas (casca única): sem o botão Voltar E sem a faixa
+   Total-no-Brasil (virou card no topo) → só a prateleira pega o 1fr. */
+.leads-page.leads-embedded .work { grid-template-rows: 1fr; }
 
-/* ── Vendas: UMA tela, 2 modos (Meu funil ↔ Buscar empresas) deslizando (27/06) ──
-   O Radar é embutido como 2º painel; o toggle desliza a faixa. Tudo token (5 Leis). */
-.vnd-modehost { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.vnd-modeswitch { flex: 0 0 auto; display: flex; justify-content: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-nav-surface); }
-.vnd-mode { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-hairline); background: var(--surface-card); color: var(--text-muted); border-radius: var(--radius-pill); padding: 6px 18px; font-family: var(--font-body); font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast); }
-.vnd-mode:hover { color: var(--text-body); border-color: var(--border-strong); }
-.vnd-mode.on { background: color-mix(in srgb, var(--hbx-brand) 16%, var(--surface-card)); border-color: color-mix(in srgb, var(--hbx-brand) 40%, var(--border-hairline)); color: var(--text-strong); }
-.vnd-slideport { flex: 1; min-height: 0; overflow: hidden; }
-.vnd-slidetrack { display: flex; width: 200%; height: 100%; transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1); }
-.vnd-slidetrack.is-buscar { transform: translateX(-50%); }
-.vnd-pane { width: 50%; flex: 0 0 50%; min-width: 0; height: 100%; display: flex; overflow: hidden; }
-.vnd-pane > .content { flex: 1; min-width: 0; }
-/* Modo Buscar: empilha o título da casca + o LeadsClient (que é um .content 1fr/360) */
-.vnd-pane--buscar { flex-direction: column; }
+/* ── Vendas: UMA casca, 2 modos (Meu funil ↔ Buscar empresas) — 29/06 ──────────
+   NADA desliza. Topo persistente (toggle + 3 cards) + stage com 2 camadas
+   SOBREPOSTAS em crossfade; só os DADOS trocam. Tudo token (5 Leis). */
+.vnd-modehost { flex: 1; min-height: 0; position: relative; }
 
-/* ── Casca compartilhada (29/06): linha de topo na COLUNA ESQUERDA — 2 botões
-   acoplados + KPIs (funil) ou título (Buscar). Dentro da coluna → o card de
-   detalhe da direita mantém a altura cheia. Tudo token (5 Leis). ───────────── */
-.vnd-funhead { display: flex; align-items: stretch; gap: 16px; }
-.vnd-pane--buscar .vnd-funhead { padding: 16px 20px 0; }
+/* Topo NÃO empurra o stage: a barra (toggle + 3 cards) SOBREPÕE só a coluna da
+   ESQUERDA (a lista) → o card de detalhe sobe até o topo, coluna cheia à direita.
+   right: 360px = largura exata do aside de detalhe (.content é 1fr 360px). */
+.vnd-funhead { position: absolute; top: 0; left: 0; right: 360px; z-index: 6;
+  display: flex; align-items: center; gap: 12px; padding: 8px 20px 0; pointer-events: none; }
+.vnd-funhead > * { pointer-events: auto; }
 
-/* 2 botões "acoplados" — pílula única, o ativo preenchido e elevado */
+/* 2 botões "acoplados" — pílula única, ativo preenchido */
 .vnd-segbtns { flex: 0 0 auto; display: inline-flex; align-items: stretch; gap: 4px; padding: 4px;
   border-radius: var(--radius-pill); background: var(--hbx-surface-soft);
   border: 1px solid var(--border-hairline); box-shadow: var(--shadow-inset); }
@@ -1544,22 +1535,85 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   border: none; background: transparent; color: var(--text-muted);
   font-family: var(--font-display); font-size: 0.9rem; font-weight: 800; letter-spacing: -0.01em;
   border-radius: var(--radius-pill); cursor: pointer; white-space: nowrap;
-  transition: color var(--motion-fast), background var(--motion-fast),
-    box-shadow var(--motion-fast), transform var(--motion-fast); }
+  transition: color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
 .vnd-segbtn:hover { color: var(--text-strong); }
 .vnd-segbtn.is-on { background: var(--hbx-primary); color: var(--hbx-action-ink); box-shadow: var(--shadow-sm); }
 .vnd-segbtn.is-on:hover { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
 .vnd-segbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-brand); }
 
-/* KPIs ao lado do toggle — agora são 3 (Para hoje saiu) */
-.vnd-kpiflow { flex: 1; min-width: 0; }
-.vnd-kpiflow .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* 3 cards do topo — a camada ATIVA fica em FLUXO (define a altura → casa exatamente
+   com o toggle); a inativa fica absoluta por baixo e SOME na hora (swap seco). */
+.vnd-stats { position: relative; flex: 1; min-width: 0; }
+.vnd-stats__layer:not(.is-on) { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.vnd-stats__layer.is-on { position: relative; }
+.vnd-stats__layer .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+/* Barra COMPACTA — KPI baixinho pra liberar altura do card de detalhe */
+.vnd-stats__layer .kpi { padding: 7px 14px; align-items: center; }
+.vnd-stats__layer .kpi .kpi-icon { width: 30px; height: 30px; }
+.vnd-stats__layer .kpi .kpi-label { font-size: 0.72rem; }
+.vnd-stats__layer .kpi .kpi-value { font-size: 1.2rem; margin-top: 0; }
+.vnd-stats__layer .kpi .kpi-foot { display: none; }
 
-/* Título da casca no modo Buscar — espelha o "Pipeline de vendas" do funil */
-.vnd-pane-head { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-.vnd-pane-head h2 { margin: 0; font-family: var(--font-display); font-size: 1.05rem;
-  font-weight: 800; color: var(--text-strong); letter-spacing: -0.01em; line-height: 1.2; }
-.vnd-pane-head__sub { display: block; margin-top: 3px; font-size: 0.72rem; color: var(--text-muted); }
+/* Stage — preenche o modehost do TOPO (a barra fica POR CIMA). 2 camadas
+   SOBREPOSTAS (a casca) em crossfade + sobe/escala. */
+.vnd-stage { position: absolute; inset: 0; }
+.vnd-layer { position: absolute; inset: 0; display: flex; opacity: 0; pointer-events: none; }
+.vnd-layer.is-on { opacity: 1; pointer-events: auto; }
+.vnd-layer > .content { flex: 1; min-width: 0; }
+.vnd-layer--buscar { flex-direction: column; }
+/* A LISTA (esquerda) abre espaço pra barra sobreposta; o card de detalhe NÃO
+   (sobe até o topo). Buscar: a lista do Radar também desce. */
+.vnd-layer.is-on .content > .work { padding-top: 64px; }
+.vnd-layer--buscar.is-on .content .work { padding-top: 64px; }
+/* Card de detalhe encosta no topo, com respiro suave */
+.vnd-layer aside.ctx { padding-top: 14px; }
+
+/* Modo Foco — botão mais discreto dentro da barra de vendas (o herói é o overlay) */
+.vnd-funhead .foco-enter {
+  height: 38px; padding: 0 14px 0 10px;
+  background: transparent; color: var(--foco-fire);
+  border: 1.5px solid color-mix(in srgb, var(--foco-fire) 32%, var(--border-hairline));
+  box-shadow: none;
+}
+.vnd-funhead .foco-enter__ic {
+  width: 24px; height: 24px;
+  background: color-mix(in srgb, var(--foco-fire) 10%, transparent);
+  color: var(--foco-fire);
+}
+.vnd-funhead .foco-enter:hover {
+  background: color-mix(in srgb, var(--foco-fire) 6%, transparent);
+  filter: none; transform: none;
+  box-shadow: 0 3px 10px -4px color-mix(in srgb, var(--foco-fire) 28%, transparent);
+}
+.vnd-funhead .foco-enter:active { transform: scale(0.98); }
+
+/* Título do Radar embutido — herda .panel-head (mesmo do funil); só separa do tab */
+.leads-embed-head { border-bottom: 1px solid var(--border-hairline); }
+
+/* 4º BOTÃO — card "Buscando empresas" (visual DIFERENTÃO). Vive na barra (limitada
+   a right:360px) → JAMAIS invade o card de detalhe. Gradiente da marca + ícone em
+   disco; estados ok/warn/full pela cor. Tudo token (5 Leis). */
+.vnd-supcard { flex: 0 0 auto; position: relative; display: flex; align-items: center; gap: 10px;
+  min-width: 144px; padding: 6px 14px; border-radius: var(--panel-radius); overflow: hidden;
+  background: var(--hbx-surface-soft);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-sm); color: var(--text-strong); }
+.vnd-supcard.is-clickable { cursor: pointer; }
+.vnd-supcard__halo { display: none; }
+.vnd-supcard__ic { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 999px; background: var(--hbx-surface); border: 1px solid var(--border-hairline); color: var(--hbx-primary); }
+.vnd-supcard__txt { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vnd-supcard__label { font-size: 0.7rem; font-weight: 600; white-space: nowrap; color: var(--text-muted); }
+.vnd-supcard__val { font-family: var(--font-display); display: flex; align-items: baseline; gap: 4px; }
+.vnd-supcard__val b { font-size: 1.15rem; font-weight: 800; line-height: 1; color: var(--text-strong); }
+.vnd-supcard__val span { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); }
+.vnd-supcard__cta { position: relative; margin-left: 6px; font-size: 0.66rem; font-weight: 700; white-space: nowrap;
+  padding: 3px 10px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); color: var(--hbx-danger); border: 1px solid color-mix(in srgb, var(--hbx-danger) 30%, transparent); }
+.vnd-supcard--ok  .vnd-supcard__ic { color: var(--hbx-success); }
+.vnd-supcard--warn { background: color-mix(in srgb, var(--hbx-warning) 7%, var(--hbx-surface-soft)); border-color: color-mix(in srgb, var(--hbx-warning) 30%, var(--border-hairline)); }
+.vnd-supcard--warn .vnd-supcard__ic { color: var(--hbx-warning); }
+.vnd-supcard--full { background: color-mix(in srgb, var(--hbx-danger) 7%, var(--hbx-surface-soft)); border-color: color-mix(in srgb, var(--hbx-danger) 30%, var(--border-hairline)); }
+.vnd-supcard--full .vnd-supcard__ic { color: var(--hbx-danger); }
 
 /* Typewriter "digitando" — caret pisca enquanto escreve, some ao terminar */
 .vnd-caret { display: inline-block; width: 2px; height: 0.92em; margin-left: 2px;
@@ -1568,12 +1622,36 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-typed.is-done .vnd-caret { display: none; }
 @keyframes vnd-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
-@media (prefers-reduced-motion: reduce) { .vnd-caret { animation: none; } }
+/* ── EFEITOS de troca de guia — DESLIGADOS por padrão (swap seco). O dono liga
+   tudo de uma vez pondo data-fx="on" no .vnd-modehost (1 const no client). ── */
+.vnd-modehost[data-fx="on"] .vnd-layer { transform: translateY(12px) scale(0.99);
+  transition: opacity 0.4s var(--ease-out-quint), transform 0.5s var(--ease-out-quint); }
+.vnd-modehost[data-fx="on"] .vnd-layer.is-on { transform: none; }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer:not(.is-on) { transition: opacity 0.3s var(--ease-out-quint); }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer .kpi { transition: opacity 0.4s var(--ease-out-quint), transform 0.5s var(--ease-out-quint); }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer:not(.is-on) .kpi { opacity: 0; transform: translateY(16px) scale(0.95); }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer.is-on .kpi { opacity: 1; transform: none; }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer.is-on .kpi:nth-child(1) { transition-delay: 0.05s; }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer.is-on .kpi:nth-child(2) { transition-delay: 0.12s; }
+.vnd-modehost[data-fx="on"] .vnd-stats__layer.is-on .kpi:nth-child(3) { transition-delay: 0.19s; }
+/* pulso "ao vivo" do radar no 4º card — também só com efeitos ligados */
+.vnd-modehost[data-fx="on"] .vnd-supcard__ic::after { content: ""; position: absolute; inset: 0; border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--hbx-action-ink) 50%, transparent); animation: vnd-sup-pulse 1.8s ease-out infinite; }
+@keyframes vnd-sup-pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(1.85); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .vnd-modehost[data-fx="on"] .vnd-stats__layer .kpi,
+  .vnd-modehost[data-fx="on"] .vnd-layer { transition: opacity 0.15s linear; transform: none; }
+  .vnd-modehost[data-fx="on"] .vnd-stats__layer:not(.is-on) .kpi { transform: none; }
+  .vnd-supcard__ic::after { animation: none; }
+  .vnd-caret { animation: none; }
+}
 @media (max-width: 760px) {
-  .vnd-funhead { flex-wrap: wrap; gap: 10px; }
+  .vnd-funhead { flex-wrap: wrap; gap: 10px; padding: 10px 12px 0; }
   .vnd-segbtns { width: 100%; }
   .vnd-segbtn { flex: 1; justify-content: center; min-height: 46px; padding: 0 14px; font-size: 0.86rem; }
-  .vnd-kpiflow { flex-basis: 100%; }
+  .vnd-stats { flex-basis: 100%; }
+  .vnd-stats__layer:not(.is-on) { display: none; }
 }
 
 /* ══ Faixa "por que o Radar parou de buscar" ════════════════════════════════

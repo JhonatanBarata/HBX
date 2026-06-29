@@ -1126,13 +1126,13 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
             title="Como usar esta tela"
             aria-label="Como usar esta tela"
             onClick={() => {
-              // "Como usar" inteligente: em /vendas o Radar vive na slide "Buscar
-              // empresas" (modo "buscar"). Slide aberta → dispara o tour do Radar
-              // ("leads"); no funil ("Meu funil") → o tour de Vendas. O sinal vem do
-              // DOM (.vnd-slidetrack.is-buscar), sem acoplar o Topbar ao estado da página.
+              // "Como usar" inteligente: em /vendas o Radar vive na casca "Buscar
+              // empresas" (modo "buscar"). Camada do Buscar ativa → dispara o tour do
+              // Radar ("leads"); no funil ("Meu funil") → o tour de Vendas. O sinal vem
+              // do DOM (.vnd-layer--buscar.is-on), sem acoplar o Topbar ao estado da página.
               let id = moduleTourId;
               if (id === "vendas" && typeof document !== "undefined"
-                  && document.querySelector(".vnd-slidetrack.is-buscar")) {
+                  && document.querySelector(".vnd-layer--buscar.is-on")) {
                 id = "leads";
               }
               startTutorialCoach(id);

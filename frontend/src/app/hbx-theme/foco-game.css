@@ -1,0 +1,230 @@
+/* Modo Foco GAME (desktop) — pele cinematográfica do /vendas: queima controlada
+   das distrações + tablado de 4 etapas que brota (Pesquisa · Análise · Atendimento
+   · Fechamento). É SEPARADO do Modo Foco mobile do dono (componente vendas-modo-foco
+   .tsx, classes .vf-*, pele modo-foco.css) — aqui prefixo .foco-*, só desktop.
+   Estrutura/layout = token central; as cores de FOGO e os tons das 4 etapas são
+   cinematográficos (em evolução) → ficam num único bloco pele-allow, reversível
+   p/ tokens quando assentar. Componente: src/components/hbx/foco-game.tsx */
+
+/* pele-allow: paleta cinematográfica do Modo Foco game (fogo + tons das 4 etapas),
+   em evolução. Em :root para o botão de entrada (.foco-enter, fora do overlay)
+   também enxergar as cores de fogo. */
+:root {
+  --foco-ember: #ff7a18;
+  --foco-ember-2: #ff5a00;
+  --foco-spark: #ffcf57;
+  --foco-veil: rgba(20, 14, 10, 0.55);
+  --foco-fire: #d85a30;
+  --foco-fire-2: #e0682f;
+  --foco-fire-glow: rgba(216, 90, 48, 0.5);
+  --foco-fire-ink: #fff;
+  --foco-c1-bg: #eeedfe; --foco-c1-ink: #26215c; --foco-c1-acc: #7f77dd;
+  --foco-c2-bg: #e6f1fb; --foco-c2-ink: #0c447c; --foco-c2-acc: #378add;
+  --foco-c3-bg: #faeeda; --foco-c3-ink: #633806; --foco-c3-acc: #ef9f27;
+  --foco-c4-bg: #e1f5ee; --foco-c4-ink: #04342c; --foco-c4-acc: #1d9e75;
+  --foco-wa: #1d9e75; --foco-wa-ink: #0f6e56;
+}
+/* pele-allow-end */
+
+/* ── Botão de entrada (topo do /vendas, ao lado do toggle de modo — só desktop) ──
+   CTA herói do game-mode: pílula de fogo cheia, ícone num disco, glow sutil. */
+.foco-enter {
+  display: inline-flex; align-items: center; gap: 9px;
+  height: 42px; padding: 0 9px 0 8px; border: none; cursor: pointer;
+  border-radius: var(--radius-pill);
+  background: var(--foco-fire); color: var(--foco-fire-ink);
+  font-family: var(--font-display); font-size: 0.84rem; font-weight: 800;
+  letter-spacing: 0.01em; white-space: nowrap;
+  box-shadow: 0 8px 20px -8px var(--foco-fire-glow), inset 0 1px 0 0 var(--foco-fire-2);
+  transition: transform 0.13s ease, filter 0.13s ease, box-shadow 0.13s ease;
+}
+.foco-enter__ic {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--foco-fire-ink); color: var(--foco-fire);
+}
+.foco-enter__txt { padding-right: 6px; }
+.foco-enter:hover { filter: brightness(1.07); transform: translateY(-1px); box-shadow: 0 12px 26px -8px var(--foco-fire-glow), inset 0 1px 0 0 var(--foco-fire-2); }
+.foco-enter:active { transform: translateY(0) scale(0.98); }
+.foco-enter:focus-visible { outline: 2px solid var(--foco-fire-ink); outline-offset: 2px; }
+
+/* ── Overlay (cobre tudo — modo jogo) ── */
+.foco-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--hbx-surface);
+  padding: clamp(14px, 2.4vw, 26px);
+}
+
+.foco-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 16px; border-radius: var(--radius-md); cursor: pointer;
+  font-family: var(--font-display); font-size: 0.82rem; font-weight: 700;
+  border: 1px solid var(--border-hairline); background: transparent; color: var(--text-strong);
+}
+.foco-btn--fire { background: var(--foco-fire); color: #fff; border-color: transparent; }
+.foco-btn--fire:hover { filter: brightness(1.06); }
+.foco-btn--ghost:hover { background: var(--hbx-surface-soft); }
+
+/* ── Ritual de comprometimento ── */
+.foco-commit {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--foco-veil); padding: 18px;
+}
+.foco-commit__card {
+  width: min(400px, 100%);
+  background: var(--hbx-surface-raised); border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg); padding: 24px;
+}
+.foco-commit__title {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; color: var(--text-strong);
+}
+.foco-commit__lead { margin: 10px 0 14px; font-size: 0.82rem; color: var(--text-muted); }
+.foco-commit__warns { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.foco-commit__warns li {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.8rem; color: var(--text-muted);
+}
+.foco-commit__acts { display: flex; gap: 10px; margin-top: 18px; }
+.foco-commit__acts .foco-btn--fire { flex: 1; justify-content: center; }
+
+/* ── Palco de queima (KPIs reais + chips de leads que viram cinza) ── */
+.foco-burnstage { position: absolute; inset: 0; padding: inherit; overflow: hidden; }
+.foco-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.foco-kpi {
+  background: var(--hbx-surface-soft); border-radius: var(--radius-md); padding: 14px;
+  display: grid; gap: 4px;
+}
+.foco-kpi__lab { font-size: 0.72rem; color: var(--text-muted); }
+.foco-kpi__num { font-size: 1.5rem; font-weight: 800; color: var(--text-strong); font-family: var(--font-display); }
+.foco-clutter {
+  background: var(--hbx-surface-soft); border-radius: var(--radius-md);
+  padding: 10px 13px; margin-bottom: 8px;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.foco-clutter__name { font-weight: 700; font-size: 0.84rem; color: var(--text-strong); }
+.foco-clutter__sub { font-size: 0.72rem; color: var(--text-muted); }
+
+/* ── Tablado de foco ── */
+.foco-board { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; }
+.foco-board__bar { display: flex; align-items: center; gap: 10px; }
+.foco-board__title {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-display); font-weight: 800; font-size: 0.92rem; color: var(--text-strong);
+}
+.foco-board__spacer { flex: 1; }
+.foco-board__cap {
+  font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: var(--radius-pill);
+  background: var(--foco-c4-bg); color: var(--foco-c4-ink);
+}
+
+.foco-tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.foco-tab {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 0.74rem; padding: 7px 12px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-muted);
+}
+.foco-tab.is-on { background: var(--foco-c1-bg); border-color: var(--foco-c1-acc); color: var(--foco-c1-ink); font-weight: 700; }
+.foco-cap-note { margin: 0; font-size: 0.7rem; color: var(--text-muted); }
+
+.foco-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; flex: 1; min-height: 0; }
+.foco-col {
+  border-radius: var(--radius-lg); padding: 9px; display: flex; flex-direction: column; min-height: 0;
+}
+.foco-col--pesquisa { background: var(--foco-c1-bg); }
+.foco-col--analise { background: var(--foco-c2-bg); }
+.foco-col--atendimento { background: var(--foco-c3-bg); }
+.foco-col--fechamento { background: var(--foco-c4-bg); }
+.foco-col__head {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 9px;
+  font-size: 0.76rem; font-weight: 700; font-family: var(--font-display);
+}
+.foco-col--pesquisa .foco-col__head { color: var(--foco-c1-ink); }
+.foco-col--analise .foco-col__head { color: var(--foco-c2-ink); }
+.foco-col--atendimento .foco-col__head { color: var(--foco-c3-ink); }
+.foco-col--fechamento .foco-col__head { color: var(--foco-c4-ink); }
+.foco-col__count { margin-left: auto; font-family: var(--font-mono); font-size: 0.7rem; opacity: 0.8; }
+.foco-col__body { display: flex; flex-direction: column; gap: 7px; overflow-y: auto; min-height: 0; }
+.foco-col__empty { font-size: 0.7rem; color: var(--text-muted); text-align: center; padding: 8px 0; }
+
+.foco-card {
+  background: var(--hbx-surface-raised); border-radius: var(--radius-sm);
+  padding: 8px 9px; cursor: pointer; display: grid; gap: 3px;
+  border-left: 3px solid transparent;
+}
+.foco-col--pesquisa .foco-card { border-left-color: var(--foco-c1-acc); }
+.foco-col--analise .foco-card { border-left-color: var(--foco-c2-acc); }
+.foco-col--atendimento .foco-card { border-left-color: var(--foco-c3-acc); }
+.foco-col--fechamento .foco-card { border-left-color: var(--foco-c4-acc); }
+.foco-card:hover { transform: translateX(2px); }
+.foco-card__name { font-weight: 700; font-size: 0.76rem; color: var(--text-strong); }
+.foco-card__sub { font-size: 0.68rem; color: var(--text-muted); }
+.foco-card__wa { display: inline-flex; align-items: center; gap: 5px; font-size: 0.64rem; color: var(--foco-wa-ink); margin-top: 2px; }
+.foco-card__pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--foco-wa); animation: foco-pulse 1.2s infinite; }
+@keyframes foco-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* ── Robô prospector (disparador controlado, painel de uma tecla) ── */
+.foco-robot {
+  background: var(--hbx-surface-soft); border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg); padding: 13px 15px;
+}
+.foco-robot__head { display: flex; align-items: center; gap: 9px; color: var(--foco-c1-ink); }
+.foco-robot__name { font-weight: 700; font-size: 0.82rem; color: var(--text-strong); }
+.foco-robot__badge {
+  font-size: 0.66rem; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-pill);
+  background: var(--foco-c1-bg); color: var(--foco-c1-ink); margin-left: auto;
+}
+.foco-robot__desc { margin: 5px 0 0; font-size: 0.72rem; color: var(--text-muted); }
+.foco-robot__ctrls { display: flex; align-items: center; gap: 14px; margin-top: 11px; flex-wrap: wrap; }
+.foco-robot__play {
+  width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--foco-c4-acc); color: #fff;
+}
+.foco-robot__dial { font-size: 0.72rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: 5px; }
+.foco-robot__safe { font-size: 0.68rem; color: var(--foco-wa-ink); display: inline-flex; align-items: center; gap: 5px; }
+.foco-robot.is-locked .foco-robot__ctrls { filter: grayscale(1); opacity: 0.45; pointer-events: none; }
+
+/* ── Motor da queima/broto ── */
+.foco-burn-item, .foco-leaf { position: relative; }
+.foco-leaf { opacity: 0; }
+.foco-board.is-live .foco-leaf { opacity: 1; }
+
+.foco-leaf.foco-in { animation: foco-unfurl 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; transform-origin: bottom center; }
+@keyframes foco-unfurl {
+  0% { opacity: 0; transform: scale(0.5) translateY(16px) rotate(-7deg); }
+  55% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) translateY(0) rotate(0); }
+}
+
+.foco-burning { animation: foco-charcurl 0.95s ease forwards; transform-origin: bottom center; }
+.foco-burning::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 9px;
+  border-radius: 6px; background: var(--foco-ember);
+  box-shadow: 0 0 16px 5px var(--foco-ember-2);
+  animation: foco-edgeup 0.95s ease forwards; pointer-events: none;
+}
+@keyframes foco-charcurl {
+  0% { opacity: 1; filter: none; }
+  25% { filter: brightness(0.78) sepia(0.55); }
+  55% { transform: perspective(420px) rotateX(32deg) scale(0.94); filter: brightness(0.34) sepia(0.8); }
+  100% { transform: perspective(420px) rotateX(72deg) scale(0.7) translateY(10px); opacity: 0; filter: brightness(0.12); }
+}
+@keyframes foco-edgeup { 0% { bottom: 0; opacity: 1; } 100% { bottom: 100%; opacity: 0; } }
+
+.foco-spark {
+  position: absolute; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--foco-spark); box-shadow: 0 0 7px 2px var(--foco-ember);
+  pointer-events: none; animation: foco-sparkup 1.05s ease forwards;
+}
+@keyframes foco-sparkup {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-40px) scale(0.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .foco-leaf.foco-in { animation: none; opacity: 1; transform: none; }
+  .foco-burning { animation: none; opacity: 0; }
+  .foco-spark { display: none; }
+}

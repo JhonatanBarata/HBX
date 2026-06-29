@@ -10,7 +10,7 @@
 // Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
@@ -262,7 +262,7 @@ function getStoredFilters() {
 // embedded: render DENTRO do Vendas (modo "Buscar empresas" do slide), sem a aba
 // "Minha carteira" (carteira = funil) nem o "Voltar pro funil". onLeadPulled avisa
 // o Vendas que um lead entrou no funil — focus=true desliza pro funil. 27/06.
-export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void } = {}) {
+export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }) => void; embedTitle?: ReactNode } = {}) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [filterOpen, setFilterOpen] = useState(false);
@@ -853,6 +853,18 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
       : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
   ));
 
+  // Embutido no Vendas: espelha os 3 números pro topo da casca única. setState do
+  // pai é estável (não dispara loop). 29/06.
+  useEffect(() => {
+    onEmbedStats?.({
+      totalBrasil: bank ? bank.total : null,
+      disponiveis: counts.shelf,
+      cotaLabel: meterLabel,
+      cotaValue: meterValue,
+      cotaPct: meterPct,
+    });
+  }, [onEmbedStats, bank, counts.shelf, meterLabel, meterValue, meterPct]);
+
   function contatoMascarado(row: RadarLead) {
     const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
       || Boolean(row.instagramUrl) || Boolean(row.facebookUrl) || Boolean(row.website);
@@ -1423,7 +1435,9 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
             Voltar pro funil
           </button>
         )}
-        {/* B1: linha fininha Total no Brasil (substituiu os 4 KPIs) */}
+        {/* B1: linha fininha Total no Brasil. Embutido no Vendas (casca única) ela
+            some — o número já vive no card do topo. 29/06. */}
+        {!embedded && (
         <section className="panel" style={{ padding: 0 }}>
           <div className="leads-bank-strip" data-tut="leads-kpis">
             <span>{isMobile ? "Brasil:" : "Total no Brasil:"}</span>
@@ -1433,6 +1447,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
             )}
           </div>
         </section>
+        )}
 
         {/* PRATELEIRA + CARTEIRA */}
         <section className="panel leads-shelf" style={{ padding: 0 }}>
@@ -1498,6 +1513,13 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
 
             {/* Área principal da lista */}
             <div className="radar2-main">
+              {/* Embutido no Vendas (casca única): título "Pipeline de pesquisa" DENTRO
+                  do painel — mesmo tratamento do "Pipeline de vendas" do funil. 29/06. */}
+              {embedded && embedTitle && (
+                <div className="panel-head leads-embed-head">
+                  <h2>{embedTitle}</h2>
+                </div>
+              )}
               <div className="tabs" data-tut="leads-abas">
                 <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
                   Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>

@@ -14,6 +14,7 @@
 @import "./hbx-theme/base.css";
 @import "./hbx-theme/kit.css";
 @import "./hbx-theme/screens.css";
+@import "./hbx-theme/foco-game.css";
 @import "./hbx-theme/marketing.css";
 @import "./hbx-theme/transitions.css";
 
@@ -59,6 +60,10 @@
 @import "./hbx-theme/theme-ember.css";
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
+
+/* Modo Foco — overlay full-screen mobile para /vendas (1 lead de cada vez).
+   Mobile-only (@media ≤ 860px); aditivo, não toca na casca crossfade. */
+@import "./hbx-theme/modo-foco.css";
 
 /* Camada MOBILE de 1ª classe — SEMPRE por último: tudo dentro de @media,
    o desktop não lê nada disto e fica idêntico. Ver mobile.css. */

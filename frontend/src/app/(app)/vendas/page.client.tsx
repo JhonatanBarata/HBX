@@ -15,6 +15,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
+import { VendasModoFoco } from "@/components/hbx/vendas-modo-foco";
+import { FocoGame, type FocoLead } from "@/components/hbx/foco-game";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
@@ -212,114 +214,58 @@ function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): B
   };
 }
 
-// Faixa "por que o Radar parou de buscar": gauge radial + barra de vagas +
-// pill semáforo. O cliente entende pela COR (verde=buscando / âmbar=quase cheia
-// / vermelho=cheia, busca pausada), não por parágrafo.
-function RadarSupplyStrip({
+// 4º botão do topo (visual DIFERENTÃO): os dados da faixa "Buscando empresas"
+// viram um card destacado ao lado dos 3 KPIs. Nunca invade o card de detalhe —
+// mora dentro da barra do topo, que é limitada à coluna da esquerda.
+function RadarSupplyCard({
   supply,
   onLiberar,
 }: {
   supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
   onLiberar: () => void;
 }) {
-  // Carteira ilimitada (lei do dono 27/06): vendedor nasce sem teto. Faixa só
-  // diz "buscando à vontade" — sem medidor de vagas, sem "x / 999999".
-  if (supply.unlimited && !supply.paused) {
-    const ativos = Math.max(0, supply.activeCards ?? 0);
-    return (
-      <div className="vnd-supply vnd-supply--ok" role="status" aria-label="Carteira sem teto">
-        <div className="vnd-supply__gauge" aria-hidden="true">
-          <svg viewBox="0 0 40 40" width="46" height="46">
-            <circle className="vnd-supply__track" cx="20" cy="20" r={17} fill="none" strokeWidth="4" />
-            <circle className="vnd-supply__arc" cx="20" cy="20" r={17} fill="none" strokeWidth="4"
-              strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 17 * 0.66} ${2 * Math.PI * 17}`} transform="rotate(-90 20 20)" />
-          </svg>
-          <span className="vnd-supply__gauge-ic"><I d={ICONS.scrape} size={15} /></span>
-        </div>
-        <div className="vnd-supply__txt">
-          <strong className="vnd-supply__title">Buscando empresas</strong>
-          <span className="vnd-supply__sub">Sua lista não tem teto — o Radar busca à vontade.</span>
-        </div>
-        <div className="vnd-supply__meter">
-          <div className="vnd-supply__count">
-            <b>{ativos}</b>
-            <span>na lista</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const unlimited = Boolean(supply.unlimited) && !supply.paused;
   const capacity = Math.max(1, supply.capacity || 1);
   const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
-  const pct = Math.max(0, Math.min(1, used / capacity));
-  const state = supply.full ? "full" : pct >= 0.8 ? "warn" : "ok";
-  const free = Math.max(0, supply.availableSlots ?? capacity - used);
-  // anel SVG
-  const R = 17, C = 2 * Math.PI * R, dash = C * pct;
-  const headline =
+  const pct = used / capacity;
+  const state = unlimited ? "ok" : supply.full ? "full" : pct >= 0.8 ? "warn" : "ok";
+  const count = unlimited ? Math.max(0, supply.activeCards ?? 0) : used;
+  const label =
     state === "full"
-      ? supply.paused
-        ? "Distribuição pausada"
-        : "Lista cheia · busca pausada"
-      : state === "warn"
-        ? "Lista quase cheia"
-        : "Buscando empresas";
-  const sub =
-    state === "full"
-      ? supply.paused
-        ? "Peça ao responsável para liberar a distribuição."
-        : "Finalize ou descarte cards para o Radar voltar a buscar."
-      : state === "warn"
-        ? `Faltam ${free} vaga${free === 1 ? "" : "s"} — ao encher, o Radar pausa sozinho.`
-        : `${free} vaga${free === 1 ? "" : "s"} livre${free === 1 ? "" : "s"} na sua lista.`;
-  // pips: 1 por vaga até 24; acima disso, barra contínua
-  const showPips = capacity <= 24;
+      ? supply.paused ? "Distribuição pausada" : "Lista cheia"
+      : state === "warn" ? "Lista quase cheia" : "Buscando empresas";
+  const unit = unlimited ? "na lista" : `/ ${capacity}`;
+  const clickable = state === "full";
   return (
-    <div className={"vnd-supply vnd-supply--" + state} role="status" aria-label={headline}>
-      <div className="vnd-supply__gauge" aria-hidden="true">
-        <svg viewBox="0 0 40 40" width="46" height="46">
-          <circle className="vnd-supply__track" cx="20" cy="20" r={R} fill="none" strokeWidth="4" />
-          <circle
-            className="vnd-supply__arc" cx="20" cy="20" r={R} fill="none" strokeWidth="4"
-            strokeLinecap="round" strokeDasharray={`${dash} ${C}`} transform="rotate(-90 20 20)"
-          />
-        </svg>
-        <span className="vnd-supply__gauge-ic">
-          <I d={state === "full" ? ICONS.pause : ICONS.scrape} size={15} />
-        </span>
-      </div>
-      <div className="vnd-supply__txt">
-        <strong className="vnd-supply__title">{headline}</strong>
-        <span className="vnd-supply__sub">{sub}</span>
-      </div>
-      <div className="vnd-supply__meter">
-        <div className="vnd-supply__count">
-          <b>{used}</b>
-          <span>/ {capacity}</span>
-        </div>
-        {showPips ? (
-          <div className="vnd-supply__pips" aria-hidden="true">
-            {Array.from({ length: capacity }).map((_, i) => (
-              <span key={i} className={"vnd-supply__pip" + (i < used ? " is-on" : "")} />
-            ))}
-          </div>
-        ) : (
-          <div className="vnd-supply__bar" aria-hidden="true">
-            <span className="vnd-supply__bar-fill" style={{ width: `${Math.round(pct * 100)}%` }} />
-          </div>
-        )}
-      </div>
-      {state === "full" && (
-        <button type="button" className="vnd-supply__cta" onClick={onLiberar}>
-          Liberar espaço
-        </button>
-      )}
+    <div
+      className={"vnd-supcard vnd-supcard--" + state + (clickable ? " is-clickable" : "")}
+      role={clickable ? "button" : "status"}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={label}
+      onClick={clickable ? onLiberar : undefined}
+      onKeyDown={clickable ? (e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLiberar(); } }) : undefined}
+    >
+      <span className="vnd-supcard__halo" aria-hidden="true" />
+      <span className="vnd-supcard__ic" aria-hidden="true">
+        <I d={state === "full" ? ICONS.pause : ICONS.scrape} size={16} />
+      </span>
+      <span className="vnd-supcard__txt">
+        <span className="vnd-supcard__label">{label}</span>
+        <span className="vnd-supcard__val"><b>{count}</b> <span>{unit}</span></span>
+      </span>
+      {clickable && <span className="vnd-supcard__cta">Liberar</span>}
     </div>
   );
 }
 
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
+
+// LIGA/DESLIGA todos os efeitos de troca de guia (transição das camadas, entrada
+// escalonada dos KPIs, "digitando" do título, pulso do 4º card). Pedido do dono
+// 29/06: travar tudo SECO por enquanto pra validar a casca; depois ele manda
+// religar = só pôr `true` aqui (o CSS lê via data-fx no .vnd-modehost).
+const EFFECTS_ON = true;
 
 // ── TypedText — efeito "digitando" (mesmo do card de detalhe) ─────────────────
 // Re-digita a cada montagem; o caller passa key={...} pra re-rodar na troca de
@@ -332,7 +278,7 @@ function TypedTextCore({ text, speed }: { text: string; speed: number }) {
     if (!text) return;
     const reduce = typeof window !== "undefined"
       && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
+    if (!EFFECTS_ON || reduce) {
       const id = requestAnimationFrame(() => { setShown(text); setDone(true); });
       return () => cancelAnimationFrame(id);
     }
@@ -362,6 +308,10 @@ export function VendasClient() {
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
   const [buscarMounted, setBuscarMounted] = useState(false);
+  // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
+  // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
+  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }>(
+    { totalBrasil: null, disponiveis: null, cotaLabel: "Cota do mês", cotaValue: "—", cotaPct: 0 });
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<VendasLead | null>(null);
@@ -691,6 +641,11 @@ export function VendasClient() {
   // Mobile: lista agrupada + pop-up de detalhe (substitui kanban swipe)
   const isMobile = useIsMobile();
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  // Mobile: Modo Foco (overlay 1 lead de cada vez — hoje+atrasados)
+  const [modoFocoOpen, setModoFocoOpen] = useState(false);
+  // Desktop: Modo Foco GAME (cinematográfico — queima + tablado 4 etapas + missões).
+  // Separado do mobile acima; só monta em !isMobile. EDIT 1 = casca front-first.
+  const [focoGameOpen, setFocoGameOpen] = useState(false);
 
   // Quadro arrastável (drag-and-drop nativo): arrastar um card pra outra coluna
   // muda a ETAPA (status). dragId = card sendo arrastado; dragOverStage = coluna
@@ -944,9 +899,25 @@ export function VendasClient() {
   const summary = board?.summary;
   const deal = sel;
 
-  // 2 botões acoplados (toggle de modo) — vivem no topo da coluna ESQUERDA de cada
-  // painel, à esquerda dos KPIs. Como os dois painéis têm o toggle no mesmo ponto,
-  // ele parece "ficar parado" enquanto o corpo desliza. Ativo destacado (preenchido).
+  // Modo Foco GAME (desktop): espelha os leads reais nas 4 etapas da jornada.
+  // novo→Pesquisa · contato→Análise · inbox/retorno/qualificado→Atendimento ·
+  // encerrado/fechado→Fechamento. Missões = stub front (1 por ora). EDIT 1.
+  const focoLeads: FocoLead[] = board
+    ? BLOCK_ORDER.flatMap(({ key }) => board.blocks?.[key] || []).map(c => {
+        const st = normalizeStage(c.status);
+        const col: FocoLead["col"] =
+          c.block === "closed" || c.saleConfirmedAt || st === "encerrado" ? "fechamento"
+          : c.isInInbox || st === "retorno" || st === "qualificado" ? "atendimento"
+          : st === "contato" ? "analise"
+          : "pesquisa";
+        return { id: c.id, name: c.name, segment: c.segment, city: c.city, phone: c.phone, col, inInbox: c.isInInbox ?? false };
+      })
+    : [];
+  const focoMissions = [{ id: "m1", label: focoLeads[0]?.segment ? `${focoLeads[0].segment}${focoLeads[0].city ? " · " + focoLeads[0].city : ""}` : "Sua missão" }];
+
+  // 2 botões acoplados (toggle de modo) — vivem no topo persistente da casca ÚNICA,
+  // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
+  // Ativo destacado (preenchido).
   const segToggle = (
     <div className="vnd-segbtns" role="tablist" aria-label="Modo da tela">
       <button type="button" role="tab" aria-selected={modo === "funil"}
@@ -964,26 +935,57 @@ export function VendasClient() {
 
   return (
     <React.Fragment>
-        <div className="vnd-modehost">
+        {!isMobile && focoGameOpen && board && (
+          <FocoGame
+            summary={summary ? { total: summary.total, overdue: summary.overdue, closed: summary.closed } : null}
+            leads={focoLeads}
+            missions={focoMissions}
+            canRobot={Boolean(botStatus?.botModuleEnabled)}
+            onExit={() => setFocoGameOpen(false)}
+            onOpenProspector={() => setProspOpen(true)}
+            onSelectLead={id => { const c = BLOCK_ORDER.flatMap(({ key }) => board?.blocks?.[key] || []).find(x => x.id === id); if (c) setSel(c); }}
+          />
+        )}
+        <div className="vnd-modehost" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
 
-          <div className="vnd-slideport">
-            <div className={"vnd-slidetrack" + (modo === "buscar" ? " is-buscar" : "")}>
-              <div className="vnd-pane">
-                <div className={"content" + (isMobile ? " vnd-page" : "")}>
-                  <div className="work">
-            {/* Topo da esquerda: toggle + 3 KPIs ("Para hoje" saiu — redundante com
-                "Cards no funil"). Por estar DENTRO da coluna esquerda, o card de
-                detalhe (direita) volta à altura cheia. 29/06. */}
-            <div className="vnd-funhead">
-              {segToggle}
-              <div className="vnd-kpiflow">
+          {/* TOPO — UMA casca: toggle + 3 cards. Os NÚMEROS trocam por modo
+              (funil ↔ Radar) em crossfade no MESMO lugar; nada desliza. 29/06. */}
+          <div className="vnd-funhead">
+            {segToggle}
+            {!isMobile && canAtendimento && (
+              <button type="button" className="foco-enter" onClick={() => setFocoGameOpen(true)}>
+                <span className="foco-enter__ic"><I d={ICONS.bolt} size={16} /></span>
+                <span className="foco-enter__txt">Ativar modo foco</span>
+              </button>
+            )}
+            <div className="vnd-stats">
+              <div className={"vnd-stats__layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
                 <KpiRow items={[
                   { icon: "users", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
                   { icon: "doc", label: "Atrasados", value: summary ? String(summary.overdue) : "—", delta: "—", down: Boolean(summary && summary.overdue > 0) },
                   { icon: "check", label: "Fechados", value: summary ? String(summary.closed) : "—", delta: "—" },
                 ]} />
               </div>
+              <div className={"vnd-stats__layer" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
+                <KpiRow items={[
+                  { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
+                  { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
+                  { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—" },
+                ]} />
+              </div>
             </div>
+            {/* 4º botão — a faixa "Buscando empresas" virou card destacado (persistente
+                nos 2 modos). Mora na barra (limitada à esquerda) → não invade o card. */}
+            {board?.radarSupply && (
+              <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
+            )}
+          </div>
+
+          {/* STAGE — 2 camadas SOBREPOSTAS em crossfade (uma casca só) */}
+          <div className="vnd-stage">
+            <div className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
+                <div className={"content" + (isMobile ? " vnd-page" : "")}>
+                  <div className="work">
             <section className="panel">
               <div className="panel-head">
                 <h2><TypedText key={"t-funil-" + modo} text="Pipeline de vendas" />{board && <span style={{ fontSize: "0.72rem", fontWeight: 400, color: "var(--text-muted)", marginLeft: 8 }}>{searchQuery ? `${flatLeads.length} de ${summary?.total ?? 0} cards` : `${summary?.total ?? 0} cards`}</span>}
@@ -1006,12 +1008,14 @@ export function VendasClient() {
                     <I d={ICONS.clock} size={16} />
                   </button>
                   <button className="btn-ghost">Todas as equipes ▾</button>
+                  {isMobile && board && ((board.blocks?.today?.length ?? 0) + (board.blocks?.overdue?.length ?? 0)) > 0 && (
+                    <button className="btn-teal vf-entry-btn" data-tut="vendas-modo-foco" onClick={() => setModoFocoOpen(true)}>
+                      <I d={ICONS.bolt} size={14} /> Modo foco
+                    </button>
+                  )}
                   <button className="btn-teal" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}><I d={ICONS.plus} size={14} /> Novo lead</button>
                 </div>
               </div>
-              {board && board.radarSupply && (summary?.total ?? 0) > 0 && (
-                <RadarSupplyStrip supply={board.radarSupply} onLiberar={() => setView("list")} />
-              )}
               {loadError && (
                 <div style={{ padding: "12px 16px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>
                   {loadError}
@@ -1286,27 +1290,28 @@ export function VendasClient() {
             </div>{/* /ctx-body */}
           </aside>
                 </div>{/* /content (Meu funil) */}
-              </div>{/* /vnd-pane funil */}
-              <div className="vnd-pane vnd-pane--buscar">
-                {/* Casca igual à do funil: toggle no MESMO ponto + título. Os "botões"
-                    do Buscar (no lugar dos KPIs) a gente decide a seguir. Conteúdo
-                    embaixo mantido 100% (LeadsClient embutido). 29/06. */}
-                <div className="vnd-funhead">
-                  {segToggle}
-                  <div className="vnd-pane-head">
-                    <h2><TypedText key={"t-busca-" + modo} text="Pipeline de pesquisa" /></h2>
-                    <span className="vnd-pane-head__sub">Sua lista não tem teto — o Radar busca à vontade.</span>
-                  </div>
-                </div>
-                {buscarMounted ? <LeadsClient embedded onLeadPulled={handlePulled} /> : null}
-              </div>
-            </div>{/* /vnd-slidetrack */}
-          </div>{/* /vnd-slideport */}
+            </div>{/* /vnd-layer funil */}
+
+            <div className={"vnd-layer vnd-layer--buscar" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
+              {/* MESMA casca: o título "Pipeline de pesquisa" digita DENTRO do painel do
+                  Radar (prop embedTitle) — mesmo tratamento do "Pipeline de vendas".
+                  Conteúdo intacto; os 3 números do topo vêm por callback. 29/06. */}
+              {buscarMounted ? (
+                <LeadsClient
+                  embedded
+                  onLeadPulled={handlePulled}
+                  onEmbedStats={setBuscarStats}
+                  embedTitle={<TypedText key={"t-busca-" + modo} text="Pipeline de pesquisa" />}
+                />
+              ) : null}
+            </div>{/* /vnd-layer buscar */}
+          </div>{/* /vnd-stage */}
         </div>{/* /vnd-modehost */}
 
-      {/* MOBILE: pop-up de detalhe do negócio — abre ao tocar uma linha da lista */}
+      {/* MOBILE: pop-up de detalhe do negócio — abre ao tocar uma linha da lista.
+          Folha que ENCOSTA NO TOPO e usa a tela toda (veil deixa de centralizar). */}
       {isMobile && mobileDetailOpen && sel && (
-        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setMobileDetailOpen(false); }}>
+        <div className="hbx-veil vnd-detail-veil" onClick={e => { if (e.target === e.currentTarget) setMobileDetailOpen(false); }}>
           <div className="vnd-detail" onClick={e => e.stopPropagation()}>
             <DetalhesNegocio
               detail={toNegocioDetail(sel)}
@@ -1350,6 +1355,28 @@ export function VendasClient() {
             />
           </div>
         </div>
+      )}
+
+      {/* MOBILE — Modo Foco: overlay full-screen 1 lead de cada vez (hoje+atrasados). */}
+      {isMobile && modoFocoOpen && board && (
+        <VendasModoFoco
+          board={board}
+          onExit={() => setModoFocoOpen(false)}
+          onWhatsApp={lead => {
+            setModoFocoOpen(false);
+            abrirWhatsAppInterno({ phone: lead.phone, name: lead.name });
+          }}
+          onCall={lead => {
+            if (lead.phone) window.location.href = `tel:${lead.phone.replace(/\D/g, "")}`;
+          }}
+          onWinSale={lead => {
+            // Mantém o foco montado (z 80); o FecharVendaModal (z 90) abre por cima
+            // e, ao fechar, devolve a tela do foco já no próximo lead.
+            setSel(lead as unknown as VendasLead);
+            setFecharOpen(true);
+          }}
+          onMutated={loadBoard}
+        />
       )}
 
       {novoOpen && (

@@ -15,11 +15,6 @@ import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 
-class MarkComplaintDto {
-  @IsBoolean()
-  isComplaint: boolean;
-}
-
 class UpdateCommissionDto {
   @IsOptional()
   @IsIn(['pending', 'payable', 'paid', 'canceled'])
@@ -51,28 +46,6 @@ class UpdateClientSaleStatusDto {
   commissionNote?: string;
 }
 
-class CreateCommissionPayoutDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  sellerUserId?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  dueOnly?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  referenceLabel?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  notes?: string;
-}
-
 class RejectHbxPartnerReferralDto {
   @IsOptional()
   @IsString()
@@ -101,16 +74,6 @@ export class GerencialController {
     return this.gerencialService.overview(req.user);
   }
 
-  @Patch('message/:id/complaint')
-  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
-  @Admin()
-  @ModuleAccess('gerencial')
-  async markMessageComplaint(@Req() req: any, @Param('id') id: string, @Body() dto: MarkComplaintDto) {
-    const messageId = Number(id);
-    if (Number.isNaN(messageId)) throw new BadRequestException('Invalid message id');
-    return this.gerencialService.markComplaint(req.user, messageId, Boolean(dto.isComplaint));
-  }
-
   @Patch('commission/settings')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
   @Admin()
@@ -133,14 +96,6 @@ export class GerencialController {
   @ModuleAccess('gerencial')
   async updateClientSaleStatus(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: UpdateClientSaleStatusDto) {
     return this.gerencialService.updateClientSaleStatus(req.user, leadId, dto || {});
-  }
-
-  @Post('commission/payouts')
-  @UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
-  @Admin()
-  @ModuleAccess('gerencial')
-  async createCommissionPayout(@Req() req: any, @Body() dto: CreateCommissionPayoutDto) {
-    return this.gerencialService.createCommissionPayout(req.user, dto || {});
   }
 
   @Post('commission/sync-hbx-clients')

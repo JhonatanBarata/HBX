@@ -641,15 +641,21 @@
   }
 
   /* --- Pop-up de detalhe do negócio (.vnd-detail) --- */
-  /* Moldura: largura máxima, rola por dentro */
+  /* O veil PARA de centralizar: a folha encosta no topo e ocupa a tela toda
+     (sem folga mostrando os KPIs da página atrás). Pedido do dono 29/06. */
+  .hbx-veil.vnd-detail-veil {
+    place-items: start stretch;
+    padding: 0;
+  }
+  /* Moldura: largura cheia, encosta no topo, altura cheia, rola por dentro */
   .vnd-detail {
-    width: min(460px, 100%);
-    max-height: 90dvh;
+    width: 100%;
+    max-height: 100dvh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    border-radius: var(--radius-xl);
+    border-radius: 0;
     background: var(--hbx-surface);
-    border: 1px solid var(--border-hairline);
+    border: none;
     box-shadow: var(--shadow-lg);
     display: grid;
     gap: 0;

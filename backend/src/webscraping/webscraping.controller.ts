@@ -1001,16 +1001,6 @@ export class WebscrapingController {
     return this.webscrapingService.getRadarAutoDistributionRuleForUser(req.user);
   }
 
-  @Put('radar/auto-distribution')
-  saveRadarAutoDistributionRule(@Req() req: any, @Body() dto: RadarAutoDistributionRuleDto) {
-    return this.webscrapingService.saveRadarAutoDistributionRuleForUser(req.user, dto || {});
-  }
-
-  @Post('radar/auto-distribution/run')
-  runRadarAutoDistribution(@Req() req: any, @Body() dto: RadarAutoDistributionRunDto) {
-    return this.webscrapingService.runRadarAutoDistributionForUser(req.user, dto || {});
-  }
-
   @Get('radar/standing-order')
   getSellerStandingOrder(@Req() req: any) {
     return this.webscrapingService.getRadarSellerStandingOrder(req.user);
@@ -1034,15 +1024,6 @@ export class WebscrapingController {
   @Post('radar/leads/:id/email/presentation/send')
   radarLeadPresentationSend(@Req() req: any, @Param('id') id: string, @Body() body?: any) {
     return this.webscrapingService.sendRadarPresentationEmailForUser(req.user, id, body || {});
-  }
-
-  @Post('radar/pull')
-  async radarPull(@Req() req: any, @Body() dto: RadarPullDto) {
-    try {
-      return await this.webscrapingService.pullRadarLeadsForUser(req.user, dto || {});
-    } catch (error) {
-      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull', error);
-    }
   }
 
   // Preview do pull para vendedor: retorna candidatos que casam com o pedido
@@ -1103,15 +1084,6 @@ export class WebscrapingController {
     }
   }
 
-  @Post('radar/replenish')
-  async radarReplenish(@Req() req: any, @Body() dto: RadarPullDto) {
-    try {
-      return await this.webscrapingService.replenishRadarStockForUser(req.user, dto || {});
-    } catch (error) {
-      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/replenish', error);
-    }
-  }
-
   @Post('radar/:id/import-to-vendas')
   radarImportToVendas(@Req() req: any, @Param('id') id: string) {
     return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, { debitOnImport: true });
@@ -1120,11 +1092,6 @@ export class WebscrapingController {
   @Post('radar/:id/negative')
   radarNegative(@Req() req: any, @Param('id') id: string, @Body() dto: RadarNegativeDto) {
     return this.webscrapingService.markRadarLeadNegativeForUser(req.user, id, dto || {});
-  }
-
-  @Post('campaigns')
-  createRadarCampaign(@Req() req: any, @Body() dto: RadarCampaignDto) {
-    return this.webscrapingService.createRadarCampaignForUser(req.user, dto || {});
   }
 
   @Get('campaigns')
@@ -1137,32 +1104,6 @@ export class WebscrapingController {
     return this.webscrapingService.getRadarCampaignForUser(req.user, id);
   }
 
-  @Post('campaigns/:id/pause')
-  pauseRadarCampaign(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.pauseRadarCampaignForUser(req.user, id);
-  }
-
-  @Post('campaigns/:id/resume')
-  resumeRadarCampaign(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.resumeRadarCampaignForUser(req.user, id);
-  }
-
-  @Post('campaigns/:id/cancel')
-  cancelRadarCampaign(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.cancelRadarCampaignForUser(req.user, id);
-  }
-
-  @Post('export')
-  async exportExcel(
-    @Req() req: any,
-    @Body() dto: WebscrapingSearchDto,
-    @Res() res: Response,
-  ) {
-    const exported = await this.webscrapingService.exportContactsForUser(req.user, dto);
-    res.setHeader('Content-Type', exported.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
-    res.send(exported.buffer);
-  }
 }
 
 @Controller('modules/owner/radar')

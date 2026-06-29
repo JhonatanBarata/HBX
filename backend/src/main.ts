@@ -32,8 +32,39 @@ function buildAllowedOrigins() {
   return Array.from(new Set(configured));
 }
 
-function isFirebaseHostingOrigin(origin: string) {
-  return /^https:\/\/[a-z0-9-]+\.(web\.app|firebaseapp\.com)$/i.test(origin);
+/**
+ * Controla quais origens Firebase Hosting passam no CORS.
+ *
+ * Modo RESTRITO (preferencial): se CORS_ALLOWED_FIREBASE_ORIGINS estiver preenchido,
+ * aceita SOMENTE as origens exatas listadas nessa variável (ex.:
+ * "https://guinchorioclarosp.web.app,https://madeireira-78732.web.app").
+ *
+ * Modo FALLBACK (retrocompatível): se a variável não estiver configurada,
+ * mantém o comportamento anterior (qualquer *.web.app / *.firebaseapp.com),
+ * evitando quebrar clientes em produção antes de o env ser preenchido.
+ *
+ * Para fechar de verdade: sete CORS_ALLOWED_FIREBASE_ORIGINS no backend .env da VPS
+ * com as origens exatas de cada cliente.
+ */
+const _allowedFirebaseOrigins: Set<string> | null = (() => {
+  const raw = String(process.env.CORS_ALLOWED_FIREBASE_ORIGINS || '').trim();
+  if (!raw) return null; // fallback mode
+  const origins = raw
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  return origins.length ? new Set(origins) : null;
+})();
+
+const _firebaseOriginFallbackRegex = /^https:\/\/[a-z0-9-]+\.(web\.app|firebaseapp\.com)$/i;
+
+function isAllowedFirebaseOrigin(origin: string): boolean {
+  if (_allowedFirebaseOrigins !== null) {
+    // Modo restrito: apenas origens explicitamente permitidas
+    return _allowedFirebaseOrigins.has(origin);
+  }
+  // Modo fallback: comportamento original (qualquer *.web.app / *.firebaseapp.com)
+  return _firebaseOriginFallbackRegex.test(origin);
 }
 
 function isWebscrapingProxyPath(url: string | undefined) {
@@ -113,7 +144,7 @@ async function bootstrap() {
       (
         !allowedOrigins.length ||
         allowedOrigins.includes(origin) ||
-        isFirebaseHostingOrigin(origin)
+        isAllowedFirebaseOrigin(origin)
       )
     ) {
       res.setHeader('Access-Control-Allow-Origin', origin);
@@ -190,7 +221,7 @@ async function bootstrap() {
       if (
         !allowedOrigins.length ||
         allowedOrigins.includes(normalizedOrigin) ||
-        isFirebaseHostingOrigin(normalizedOrigin)
+        isAllowedFirebaseOrigin(normalizedOrigin)
       ) {
         return callback(null, true);
       }

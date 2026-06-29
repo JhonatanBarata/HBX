@@ -1,4 +1,5 @@
 const { execFile } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const express = require('express');
@@ -45,9 +46,16 @@ app.use(express.json({ limit: '32kb' }));
 // Headless: o Ops Control nao serve tela propria. O HBX Owner (:3107) e a unica cara;
 // aqui sobra so a API (SSH -> VPS) que o Owner consome.
 
+function safeEqualStr(a, b) {
+  const ba = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
 app.use('/api', (req, res, next) => {
   const expected = `Bearer ${token}`;
-  if (req.header('authorization') !== expected) {
+  if (!safeEqualStr(req.header('authorization'), expected)) {
     return res.status(401).json({ error: 'Token ausente ou invalido.' });
   }
   next();

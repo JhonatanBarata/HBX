@@ -13,6 +13,27 @@ const nextConfig: NextConfig = {
 	turbopack: {
 		root: path.resolve(__dirname),
 	},
+	async headers() {
+		const isProd = process.env.NODE_ENV === "production";
+		const headerList: { key: string; value: string }[] = [
+			{ key: "X-Frame-Options", value: "SAMEORIGIN" },
+			{ key: "X-Content-Type-Options", value: "nosniff" },
+			{ key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+			{
+				key: "Permissions-Policy",
+				value: "camera=(), microphone=(), geolocation=()",
+			},
+			// CSP fica como follow-up (report-only): o app usa scripts inline
+			// via dangerouslySetInnerHTML (service worker + boot de tema) e login Google.
+		];
+		if (isProd) {
+			headerList.push({
+				key: "Strict-Transport-Security",
+				value: "max-age=31536000; includeSubDomains",
+			});
+		}
+		return [{ source: "/:path*", headers: headerList }];
+	},
 	async rewrites() {
 		const backendUrl = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 		return [
