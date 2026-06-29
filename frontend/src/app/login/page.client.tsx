@@ -68,6 +68,7 @@ export function LoginClient() {
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
   // F4 (19/06): destino de RETOMADA devolvido pelo backend (/?ver=planos&resume=1).
   const [resumeHref, setResumeHref] = useState<string>("/?ver=planos&resume=1");
+  const [manterConectado, setManterConectado] = useState(true); // checkbox "Manter conectado" (default = marcado)
   const [plain, setPlain] = useState(false);
   const [lado, setLado] = useState<Lado>("corporativo"); // login entra no MUNDO escolhido (default: empresa)
   const googleBtnRef = useRef<HTMLDivElement>(null);
@@ -160,7 +161,7 @@ export function LoginClient() {
         body: JSON.stringify({ username: email, password, ...(force ? { forceSession: true } : {}) }),
       });
       if (!res?.access_token) throw new Error("Resposta de login sem token.");
-      setToken(res.access_token);
+      setToken(res.access_token, manterConectado);
       setOk(true);
       setConflict(false);
       // Visual on = saída cinematográfica (fade); Visual off = entra direto.
@@ -274,7 +275,7 @@ export function LoginClient() {
                 value={password} onChange={e => setPassword(e.target.value)} />
             </div>
             <div className="row">
-              <label><input type="checkbox" defaultChecked />Manter conectado</label>
+              <label><input type="checkbox" checked={manterConectado} onChange={e => setManterConectado(e.target.checked)} />Manter conectado</label>
               <Link href="/reset-password" className="link" style={{ textDecoration: "none" }}>Esqueci minha senha</Link>
             </div>
             {notice && !error && !ok && (<div className="ok show warn">{notice}</div>)}

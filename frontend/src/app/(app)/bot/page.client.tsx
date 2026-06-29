@@ -729,7 +729,7 @@ export function BotClient() {
 
   if (isMobile) {
     return (
-      <React.Fragment>
+      <div className="bot-page">
         <div className="bot-head">
           <h1>Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
           <span className={"saved" + (cfgData && !cfgData.setup?.completed ? " bot-badge--warn" : "")}>{setupBadge}</span>
@@ -842,7 +842,7 @@ export function BotClient() {
           }}
           onClose={() => { setTermsOpen(false); pendingActivateRef.current = false; }}
         />
-      </React.Fragment>
+      </div>
     );
   }
 

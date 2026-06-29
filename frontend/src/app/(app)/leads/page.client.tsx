@@ -843,7 +843,9 @@ export function LeadsClient({ embedded = false, onLeadPulled }: { embedded?: boo
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
         : city
           ? `Nenhuma empresa disponível em ${city} ainda. Use o Radar ao lado para buscar.`
-          : "Escolha cidade + segmento no painel ao lado e busque leads.";
+          : isMobile
+            ? "Toque em Filtrar para escolher cidade + segmento e buscar leads."
+            : "Escolha cidade + segmento no painel ao lado e busque leads.";
 
   const meterPct = Math.min(100, Math.round(
     isSeller

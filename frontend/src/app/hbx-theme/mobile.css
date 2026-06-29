@@ -816,8 +816,10 @@
   .radar2-kpis { grid-template-columns: 1fr 1fr; }
 }
 
-/* Oculta toggle de filtro no desktop */
-.radar2-filter-toggle { display: none; }
+/* Oculta toggle de filtro no desktop (só ≥861px — dentro do media a regra é display:flex) */
+@media (min-width: 861px) {
+  .radar2-filter-toggle { display: none; }
+}
 
 /* ============================================================
    === BOT ===
@@ -827,7 +829,24 @@
    O canal useIsMobile() na tela decide o render — o CSS aqui
    garante que o canvas não vaze no viewport mobile caso apareça.
    ============================================================ */
+
+/* Oculta elementos exclusivos do mobile no desktop (ANTES do @media para que
+   o bloco abaixo possa sobrescrever com display:flex/block) */
+.bot-mobile-view  { display: none; }
+.bot-mobile-notice { display: none; }
+.bot-block-list   { display: none; }
+.bot-mobile-actions { display: none; }
+
 @media (max-width: 860px) {
+  /* Casca mobile do bot: coluna flex que preenche a altura do shell
+     (mesmo padrão de .vnd-page / .leads-page) */
+  .bot-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
   /* Canvas: proibir overflow horizontal caso renderize */
   .canvas {
     overflow-x: auto;
@@ -844,6 +863,7 @@
     flex-direction: column;
     gap: 0;
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -918,13 +938,6 @@
   /* Ícone de bloco: cor dinâmica via --bot-nc injetado como CSS custom property */
   .bot-block-icon { background: var(--bot-nc, var(--hbx-brand)); }
 }
-
-/* Oculta elementos exclusivos do mobile no desktop */
-.bot-mobile-view  { display: none; }
-.bot-mobile-notice { display: none; }
-.bot-block-list   { display: none; }
-.bot-mobile-actions { display: none; }
-
 
 /* ============================================================
    === RELATÓRIOS ===

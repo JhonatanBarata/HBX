@@ -21,7 +21,7 @@ reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/
 
 
 ## Checks mínimos (menor conjunto relevante ao que foi tocado)
--o dono vai informar onde está o lugar para teste se não informar: Login User:jhonatan@hbxsystem.com.br Senha:Monkey123 - full acesso, teste o q quiser - usar o chrome, localhost/3001. Muitos erros no preview Claude. Caso precise subir, usar o npm run up - navegador sempre chrome
+-o dono vai informar onde está o lugar para teste se não informar: credenciais de teste em .test-login.local.md (gitignored) - full acesso, teste o q quiser - usar o chrome, localhost/3001. Muitos erros no preview Claude. Caso precise subir, usar o npm run up - navegador sempre chrome
 seguir exatamente o q o dono fala, falou publicar vc publica caralho npm run publish.
 
 ## Webwhats / Motor WhatsApp (regras duras — custaram chips banidos em jun/26)

@@ -94,5 +94,6 @@ hbx-owner/local-agent/.owner-token
 # Tokens temporarios de sessao (nunca versionar)
 /.tmp-*
 /.tmp_*
+/.test-login.local.md
 
 test-results/

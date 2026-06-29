@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
@@ -101,6 +101,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
     username: user.username,
     email: user.email,
     name: user.name,
+    avatarUrl: user.avatarUrl ?? null,
     role: user.role,
     userKind,
     isSystemMaster: Boolean(user.isSystemMaster),
@@ -187,6 +188,7 @@ export class ProfileController {
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
     private readonly themePreferencesService: ThemePreferencesService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private async resolveMasterContext(req: any, user: any) {
@@ -343,6 +345,110 @@ export class ProfileController {
       ? { ...updated, company: req.user.company }
       : updated;
     return sanitizeUser(runtimeUser, masterContext);
+  }
+
+  // Avatar do usuário: armazenado como data URL (base64) na coluna avatarUrl do User.
+  // Limite de ~500KB (700000 chars) e apenas imagens PNG/JPEG/WEBP são aceitas.
+  @Patch('avatar')
+  @UseGuards(JwtAuthGuard)
+  async updateAvatar(@Req() req: any, @Body() body: { dataUrl?: string }) {
+    const userId = Number(req.user?.id);
+    const dataUrl = String(body?.dataUrl || '').trim();
+    if (!dataUrl) throw new BadRequestException('dataUrl é obrigatório.');
+    if (!/^data:image\/(png|jpe?g|webp);base64,/.test(dataUrl)) {
+      throw new BadRequestException('dataUrl deve ser uma imagem PNG, JPEG ou WEBP em formato base64.');
+    }
+    if (dataUrl.length > 700000) {
+      throw new BadRequestException('Imagem muito grande. Máximo ~500KB após compressão.');
+    }
+    await this.prisma.$executeRawUnsafe(
+      'UPDATE "User" SET "avatarUrl" = $1 WHERE "id" = $2',
+      dataUrl,
+      userId,
+    );
+    const updated = await this.usersService.findById(userId);
+    const masterContext = await this.resolveMasterContext(req, updated);
+    const runtimeUser: any = updated;
+    const finalUser = runtimeUser && !runtimeUser.company && req.user?.company
+      ? { ...updated, company: req.user.company }
+      : updated;
+    return sanitizeUser(finalUser, masterContext);
+  }
+
+  @Delete('avatar')
+  @UseGuards(JwtAuthGuard)
+  async removeAvatar(@Req() req: any) {
+    const userId = Number(req.user?.id);
+    await this.prisma.$executeRawUnsafe(
+      'UPDATE "User" SET "avatarUrl" = NULL WHERE "id" = $1',
+      userId,
+    );
+    const updated = await this.usersService.findById(userId);
+    const masterContext = await this.resolveMasterContext(req, updated);
+    const runtimeUser: any = updated;
+    const finalUser = runtimeUser && !runtimeUser.company && req.user?.company
+      ? { ...updated, company: req.user.company }
+      : updated;
+    return sanitizeUser(finalUser, masterContext);
+  }
+
+  // Preferências de notificação do usuário: 4 booleans persistidos em JSON na coluna
+  // notificationPrefsJson do User. Lógica inline (pequena e auto-contida).
+  private notifDefaults() {
+    return { novoLead: true, semResposta: true, resumoDiario: false, tarefasAtrasadas: true };
+  }
+
+  private async readNotifPrefs(userId: number): Promise<{ novoLead: boolean; semResposta: boolean; resumoDiario: boolean; tarefasAtrasadas: boolean }> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ notificationPrefsJson: string | null }>>(
+      'SELECT "notificationPrefsJson" FROM "User" WHERE "id" = $1 LIMIT 1',
+      userId,
+    );
+    const raw = rows?.[0]?.notificationPrefsJson;
+    const defaults = this.notifDefaults();
+    if (!raw) return defaults;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return defaults;
+      return {
+        novoLead:         typeof parsed.novoLead === 'boolean'         ? parsed.novoLead         : defaults.novoLead,
+        semResposta:      typeof parsed.semResposta === 'boolean'      ? parsed.semResposta      : defaults.semResposta,
+        resumoDiario:     typeof parsed.resumoDiario === 'boolean'     ? parsed.resumoDiario     : defaults.resumoDiario,
+        tarefasAtrasadas: typeof parsed.tarefasAtrasadas === 'boolean' ? parsed.tarefasAtrasadas : defaults.tarefasAtrasadas,
+      };
+    } catch {
+      return defaults;
+    }
+  }
+
+  @Get('notification-prefs')
+  @UseGuards(JwtAuthGuard)
+  async getNotificationPrefs(@Req() req: any) {
+    const prefs = await this.readNotifPrefs(Number(req.user?.id));
+    return { prefs };
+  }
+
+  @Patch('notification-prefs')
+  @UseGuards(JwtAuthGuard)
+  async updateNotificationPrefs(@Req() req: any, @Body() body: { prefs?: Record<string, unknown> }) {
+    const userId = Number(req.user?.id);
+    const current = await this.readNotifPrefs(userId);
+    const patch = body?.prefs && typeof body.prefs === 'object' ? body.prefs : {};
+
+    // whitelist: só as 4 chaves válidas — ignora qualquer outro campo do body
+    const next = {
+      novoLead:         'novoLead'         in patch ? Boolean(patch.novoLead)         : current.novoLead,
+      semResposta:      'semResposta'      in patch ? Boolean(patch.semResposta)      : current.semResposta,
+      resumoDiario:     'resumoDiario'     in patch ? Boolean(patch.resumoDiario)     : current.resumoDiario,
+      tarefasAtrasadas: 'tarefasAtrasadas' in patch ? Boolean(patch.tarefasAtrasadas) : current.tarefasAtrasadas,
+    };
+
+    await this.prisma.$executeRawUnsafe(
+      'UPDATE "User" SET "notificationPrefsJson" = $1 WHERE "id" = $2',
+      JSON.stringify(next),
+      userId,
+    );
+
+    return { prefs: next };
   }
 }
 

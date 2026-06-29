@@ -28,21 +28,41 @@ export function getApiBase(): string {
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
+  // Lê localStorage primeiro (sessão persistente); cai pra sessionStorage (sessão de aba).
   return (
     localStorage.getItem("token") ||
     localStorage.getItem("access_token") ||
-    localStorage.getItem("accessToken")
+    localStorage.getItem("accessToken") ||
+    sessionStorage.getItem("token") ||
+    sessionStorage.getItem("access_token") ||
+    sessionStorage.getItem("accessToken")
   );
 }
 
-export function setToken(token: string) {
-  localStorage.setItem("token", token);
+export function setToken(token: string, persist: boolean = true) {
+  if (persist) {
+    // Persistente: fica no localStorage; garante que não sobra cópia no sessionStorage.
+    localStorage.setItem("token", token);
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("access_token");
+    sessionStorage.removeItem("accessToken");
+  } else {
+    // Sessão de aba: vai pro sessionStorage; garante que não sobra cópia no localStorage.
+    sessionStorage.setItem("token", token);
+    localStorage.removeItem("token");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("accessToken");
+  }
 }
 
 export function clearToken() {
+  // Limpa ambos os stores — logout/401 não pode deixar token em lugar nenhum.
   localStorage.removeItem("token");
   localStorage.removeItem("access_token");
   localStorage.removeItem("accessToken");
+  sessionStorage.removeItem("token");
+  sessionStorage.removeItem("access_token");
+  sessionStorage.removeItem("accessToken");
 }
 
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {

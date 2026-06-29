@@ -918,19 +918,7 @@ export function VendasClient() {
   return (
     <React.Fragment>
         <div className="vnd-modehost">
-          {/* UMA tela, 2 modos (27/06): funil e Radar são lados da mesma superfície;
-              o toggle desliza entre eles. "Minha carteira" não existe mais — sua
-              carteira É o funil; o Radar mostra só "Disponíveis" pra puxar. */}
-          <div className="vnd-modeswitch" role="group" aria-label="Modo do Vendas">
-            <button type="button" className={"vnd-mode" + (modo === "funil" ? " on" : "")} onClick={irFunil}>
-              <I d={ICONS.vendas} size={15} /> Meu funil
-            </button>
-            {podeBuscarLeads && (
-              <button type="button" className={"vnd-mode" + (modo === "buscar" ? " on" : "")} onClick={irBuscar} data-tut="vendas-buscar">
-                <I d={ICONS.scrape} size={15} /> Buscar empresas
-              </button>
-            )}
-          </div>
+
           <div className="vnd-slideport">
             <div className={"vnd-slidetrack" + (modo === "buscar" ? " is-buscar" : "")}>
               <div className="vnd-pane">

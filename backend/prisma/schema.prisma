@@ -1123,7 +1123,9 @@ model User {
   currentSession  AuthSession?     @relation("CurrentUserSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
   currentSessionId String?         @unique
   sessionVersion  Int              @default(0)
-  themePreferenceConfig String?
+  themePreferenceConfig    String?
+  notificationPrefsJson    String?
+  avatarUrl                String?
   deactivatedAt   DateTime?
   retentionUntil  DateTime?
   createdAt       DateTime         @default(now())

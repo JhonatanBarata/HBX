@@ -22,7 +22,7 @@
 // Notificações seguem visuais (sem contrato). Campos sem dado no contrato
 // (CNPJ, segmento, cidade, telefone do perfil) mostram vazio/“—”.
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
@@ -48,6 +48,7 @@ type CurrentUser = {
   role?: string | null;
   userKind?: string | null;
   canViewBilling?: boolean | null;
+  avatarUrl?: string | null;
   company?: { name?: string | null; contactPhone?: string | null; prospectingSegments?: string[] | null } | null;
 } | null;
 
@@ -157,6 +158,8 @@ export function ConfiguracoesClient() {
   const [nichoMsg, setNichoMsg] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   // team só é usado em Plano e cobrança (contagem de usuários) — mantido, mas
   // Equipe como seção foi movida para Gerencial.
   const [team, setTeam] = useState<CompanyUser[]>([]);
@@ -202,6 +205,15 @@ export function ConfiguracoesClient() {
     fetchPublicPlans()
       .then(res => { if (alive && Array.isArray(res) && res.length) setLivePlans(res); })
       .catch(() => { /* mantém FALLBACK_PLANS */ });
+    apiFetch<{ prefs: { novoLead: boolean; semResposta: boolean; resumoDiario: boolean; tarefasAtrasadas: boolean } }>("/profile/notification-prefs")
+      .then(res => {
+        if (!alive || !res?.prefs) return;
+        setN1(Boolean(res.prefs.novoLead));
+        setN2(Boolean(res.prefs.semResposta));
+        setN3(Boolean(res.prefs.resumoDiario));
+        setN4(Boolean(res.prefs.tarefasAtrasadas));
+      })
+      .catch(() => { /* mantém defaults locais */ });
     return () => { alive = false; };
   }, []);
 
@@ -222,6 +234,63 @@ export function ConfiguracoesClient() {
       setSaveBusy(false);
     }
   }
+
+  // Faz downscale da imagem no canvas e envia como data URL JPEG ao backend.
+  async function handleAvatarFile(file: File) {
+    if (avatarBusy) return;
+    setAvatarBusy(true);
+    setSaveMsg(null);
+    try {
+      const MAX_PX = 256;
+      const bitmap = await createImageBitmap(file);
+      const ratio = Math.min(MAX_PX / bitmap.width, MAX_PX / bitmap.height, 1);
+      const w = Math.round(bitmap.width * ratio);
+      const h = Math.round(bitmap.height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas não disponível.");
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const updated = await apiFetch<CurrentUser>("/profile/avatar", {
+        method: "PATCH",
+        body: JSON.stringify({ dataUrl }),
+      });
+      if (updated) setUser(updated);
+      setSaveMsg("✓ Foto atualizada.");
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : "Não foi possível atualizar a foto.");
+    } finally {
+      setAvatarBusy(false);
+      // Limpa o value para permitir reselecionar o mesmo arquivo
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
+
+  async function removerAvatar() {
+    if (avatarBusy) return;
+    setAvatarBusy(true);
+    setSaveMsg(null);
+    try {
+      const updated = await apiFetch<CurrentUser>("/profile/avatar", { method: "DELETE" });
+      if (updated) setUser(updated);
+      setSaveMsg("✓ Foto removida.");
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : "Não foi possível remover a foto.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  // Persiste uma preferência de notificação individualmente (otimista + rollback).
+  async function saveNotif(patch: Partial<{ novoLead: boolean; semResposta: boolean; resumoDiario: boolean; tarefasAtrasadas: boolean }>) {
+    await apiFetch("/profile/notification-prefs", {
+      method: "PATCH",
+      body: JSON.stringify({ prefs: patch }),
+    });
+  }
+
 
   // Assinatura recorrente (cartão) — abre o modal de cartão (Card Brick do Mercado
   // Pago), que consome o motor existente /financeiro/subscription/create. A
@@ -296,12 +365,30 @@ export function ConfiguracoesClient() {
                   </div>
                   <div className="cfg-panel-body" style={{ padding: 18, display: "grid", gap: 16 }}>
                     <div className="cfg-avatar-hero" style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                      <Av name={displayName} size={56} />
+                      {/* Input oculto para seleção de arquivo de avatar */}
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleAvatarFile(f); }}
+                      />
+                      <Av name={displayName} src={user?.avatarUrl} size={56} />
                       <div style={{ display: "grid", gap: 6 }}>
                         <strong>{displayName}</strong>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem" }}>Alterar</button>
-                          <button className="btn-ghost cfg-danger-btn" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>Remover</button>
+                          <button
+                            className="btn-ghost"
+                            style={{ minHeight: 30, fontSize: "0.7rem" }}
+                            disabled={avatarBusy}
+                            onClick={() => avatarInputRef.current?.click()}
+                          >{avatarBusy ? "Aguarde…" : "Alterar"}</button>
+                          <button
+                            className="btn-ghost cfg-danger-btn"
+                            style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}
+                            disabled={avatarBusy || !user?.avatarUrl}
+                            onClick={removerAvatar}
+                          >Remover</button>
                         </div>
                       </div>
                     </div>
@@ -375,10 +462,10 @@ export function ConfiguracoesClient() {
               <section className="panel cfg-section">
                 <div className="panel-head"><h2>Notificações</h2></div>
                 <div className="cfg-notif-body" style={{ padding: "6px 18px 14px" }}>
-                  <div className="setting"><div style={{ flex: 1 }}><strong>Novo lead na esteira</strong><small>Receba um aviso quando um lead novo for captado.</small></div><Toggle on={n1} set={setN1} /></div>
-                  <div className="setting"><div style={{ flex: 1 }}><strong>Mensagens não respondidas</strong><small>Alerta quando uma conversa ficar sem resposta por mais de 30 min.</small></div><Toggle on={n2} set={setN2} /></div>
-                  <div className="setting"><div style={{ flex: 1 }}><strong>Resumo diário por e-mail</strong><small>Um resumo da operação às 8h, todos os dias úteis.</small></div><Toggle on={n3} set={setN3} /></div>
-                  <div className="setting"><div style={{ flex: 1 }}><strong>Tarefas atrasadas</strong><small>Aviso quando uma tarefa passar do prazo.</small></div><Toggle on={n4} set={setN4} /></div>
+                  <div className="setting"><div style={{ flex: 1 }}><strong>Novo lead na esteira</strong><small>Receba um aviso quando um lead novo for captado.</small></div><Toggle on={n1} set={(v) => { setN1(v); saveNotif({ novoLead: v }).catch(() => setN1(!v)); }} /></div>
+                  <div className="setting"><div style={{ flex: 1 }}><strong>Mensagens não respondidas</strong><small>Alerta quando uma conversa ficar sem resposta por mais de 30 min.</small></div><Toggle on={n2} set={(v) => { setN2(v); saveNotif({ semResposta: v }).catch(() => setN2(!v)); }} /></div>
+                  <div className="setting"><div style={{ flex: 1 }}><strong>Resumo diário por e-mail</strong><small>Um resumo da operação às 8h, todos os dias úteis.</small></div><Toggle on={n3} set={(v) => { setN3(v); saveNotif({ resumoDiario: v }).catch(() => setN3(!v)); }} /></div>
+                  <div className="setting"><div style={{ flex: 1 }}><strong>Tarefas atrasadas</strong><small>Aviso quando uma tarefa passar do prazo.</small></div><Toggle on={n4} set={(v) => { setN4(v); saveNotif({ tarefasAtrasadas: v }).catch(() => setN4(!v)); }} /></div>
                 </div>
               </section>
             )}

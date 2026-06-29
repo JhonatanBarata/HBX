@@ -79,7 +79,30 @@ function warnIfIntegrationSecretKeyMissing() {
   }
 }
 
+function assertJwtSecretStrength() {
+  const JWT_PLACEHOLDER = 'change-me-to-a-strong-secret';
+  const jwtSecret = String(process.env.JWT_SECRET || '').trim();
+  const isWeak = !jwtSecret || jwtSecret.length < 32 || jwtSecret === JWT_PLACEHOLDER;
+  if (!isWeak) return;
+
+  if (process.env.NODE_ENV === 'production') {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[security] JWT_SECRET ausente/fraco/placeholder — abortando boot em producao por seguranca. ' +
+      'Configure uma chave aleatoria de pelo menos 32 caracteres na variavel JWT_SECRET.',
+    );
+    process.exit(1);
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[security] AVISO: JWT_SECRET ausente, fraco ou usando placeholder. ' +
+      'Tokens JWT serao frageis neste ambiente. Configure JWT_SECRET com pelo menos 32 caracteres antes de subir em producao.',
+    );
+  }
+}
+
 async function bootstrap() {
+  assertJwtSecretStrength();
   warnIfIntegrationSecretKeyMissing();
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const allowedOrigins = buildAllowedOrigins();

@@ -1,9 +1,18 @@
 import { Body, Controller, Get, Headers, Param, Post, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { IsEmail, IsNotEmpty } from 'class-validator';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcryptjs';
+import { timingSafeEqual } from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
+
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
 
 class ResetPasswordDto {
   @IsNotEmpty()
@@ -25,7 +34,7 @@ export class InternalController {
   private assertInternalSecret(secret?: string) {
     const expected = String(process.env.INTERNAL_SECRET || process.env.PROD_INTERNAL_SECRET || '').trim();
     if (!expected) throw new BadRequestException('INTERNAL_SECRET or PROD_INTERNAL_SECRET not configured');
-    if (!secret || secret !== expected) throw new ForbiddenException('invalid internal secret');
+    if (!secret || !safeEqual(secret, expected)) throw new ForbiddenException('invalid internal secret');
   }
 
   private getWhatsAppModalConfigSummary() {
@@ -93,6 +102,7 @@ export class InternalController {
     return this.getWhatsAppModalConfigSummary();
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('users/:id/reset-password')
   async resetPassword(
     @Param('id') id: string,

@@ -12,6 +12,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { apiFetch, getToken } from "@/lib/api";
 import { subscribeChecklistBump } from "@/lib/onboarding";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 type Step = {
   key: string;
@@ -37,6 +38,7 @@ const COLLAPSE_KEY = "hbx:ac-collapsed";
 export function ActivationChecklist() {
   const router = useRouter();
   const pathname = usePathname() || "";
+  const isMobile = useIsMobile();
   const [data, setData] = useState<Checklist | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -53,14 +55,25 @@ export function ActivationChecklist() {
   useEffect(() => subscribeChecklistBump(load), [load]);
 
   // Estado de recolhido salvo (lido pós-montagem em callback — regra set-state-in-effect).
+  // Se não houver preferência salva, mobile nasce recolhido; desktop nasce expandido.
   useEffect(() => {
     let cancelled = false;
     const id = requestAnimationFrame(() => {
       if (cancelled) return;
-      try { if (localStorage.getItem(COLLAPSE_KEY) === "1") setCollapsed(true); } catch { /* sem storage */ }
+      try {
+        const saved = localStorage.getItem(COLLAPSE_KEY);
+        if (saved === "1") {
+          setCollapsed(true);
+        } else if (saved === "0") {
+          setCollapsed(false);
+        } else {
+          // Sem preferência: mobile recolhido, desktop expandido
+          setCollapsed(isMobile);
+        }
+      } catch { /* sem storage */ }
     });
     return () => { cancelled = true; cancelAnimationFrame(id); };
-  }, []);
+  }, [isMobile]);
 
   function setCollapsedPersist(v: boolean) {
     setCollapsed(v);

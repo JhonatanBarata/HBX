@@ -113,7 +113,6 @@ function fmtMoney(v?: number | null) {
 
 export function DashboardClient() {
   const user = useCurrentUser();
-  const [tasks, setTasks] = useState<boolean[]>([]);
   const [board, setBoard] = useState<Board>(null);
   const [radarTotal, setRadarTotal] = useState<number | null>(null);
   const [convCount, setConvCount] = useState<number | null>(null);
@@ -296,9 +295,8 @@ export function DashboardClient() {
                 )}
                 {tarefas.map((t, i) => (
                   <div className="task" key={t.id ?? i}>
-                    <input type="checkbox" checked={Boolean(tasks[i])} aria-label="Marcar como visto (local)" onChange={() => setTasks(ts => { const next = [...ts]; next[i] = !next[i]; return next; })} />
                     <span>
-                      <Link className="t" href="/vendas" style={{ textDecoration: tasks[i] ? "line-through" : "none", opacity: tasks[i] ? 0.6 : 1 }}>{t.nextAction || "Retorno agendado"}</Link>
+                      <Link className="t" href="/vendas">{t.nextAction || "Retorno agendado"}</Link>
                       <span className="d">{t.name || "—"}</span>
                     </span>
                   </div>
