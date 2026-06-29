@@ -1,9 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseIntPipe, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MessagingService } from './messaging.service';
-import { EnqueueMessageDto } from './dto/enqueue-message.dto';
 import { InboundMessageDto } from './dto/inbound-message.dto';
-import { CreateAutoReplyRuleDto, UpdateAutoReplyRuleDto } from './dto/auto-reply.dto';
 import type { Response } from 'express';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
@@ -11,21 +9,6 @@ import { ModuleAccess } from '../modules/module-feature.decorator';
 @Controller()
 export class MessagingController {
   constructor(private readonly messaging: MessagingService) {}
-
-  // Manual enqueue (useful for testing the sender)
-  @Post('messages')
-  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
-  @ModuleAccess('atendimento')
-  enqueue(@Req() req: any, @Body() dto: EnqueueMessageDto) {
-    return this.messaging.enqueueMessage(req.user, {
-      to: dto.to,
-      body: dto.body,
-      messageType: dto.messageType,
-      templateName: dto.templateName,
-      templateLanguage: dto.templateLanguage,
-      templateComponents: dto.templateComponents,
-    });
-  }
 
   @Get('messages/outbound')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
@@ -103,32 +86,10 @@ export class MessagingController {
     });
   }
 
-  // Auto-reply rules CRUD (company scoped by JWT user.companyId)
-  @Post('auto-replies/rules')
-  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
-  @ModuleAccess('atendimento')
-  createRule(@Req() req: any, @Body() dto: CreateAutoReplyRuleDto) {
-    return this.messaging.createRule(req.user, dto);
-  }
-
   @Get('auto-replies/rules')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
   @ModuleAccess('atendimento')
   listRules(@Req() req: any) {
     return this.messaging.listRules(req.user);
-  }
-
-  @Patch('auto-replies/rules/:id')
-  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
-  @ModuleAccess('atendimento')
-  updateRule(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateAutoReplyRuleDto) {
-    return this.messaging.updateRule(req.user, id, dto);
-  }
-
-  @Delete('auto-replies/rules/:id')
-  @UseGuards(JwtAuthGuard, ModuleAccessGuard)
-  @ModuleAccess('atendimento')
-  deleteRule(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
-    return this.messaging.deleteRule(req.user, id);
   }
 }

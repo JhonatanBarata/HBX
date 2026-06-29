@@ -4,12 +4,8 @@ import { CadastrosService } from './cadastros.service';
 import {
   CreateCadastroClienteDto,
   CreateCustomerProfileDto,
-  CreateFornecedorDto,
-  CreatePaisDto,
-  CreatePortoDto,
   UpdateCadastroClienteDto,
   UpdateCustomerProfileDto,
-  UpsertTransitTimeDto,
 } from './dto/cadastros.dto';
 
 @Controller('cadastros')
@@ -64,26 +60,6 @@ export class CadastrosController {
   @Get('customer-profiles/by-document')
   getCustomerProfileByDocument(@Req() req: any, @Query('document') document: string) {
     return this.service.getCustomerProfileByDocument(req.user, document);
-  }
-
-  @Post('fornecedores')
-  createFornecedor(@Req() req: any, @Body() dto: CreateFornecedorDto) {
-    return this.service.createFornecedor(req.user, dto);
-  }
-
-  @Post('paises')
-  createPais(@Req() req: any, @Body() dto: CreatePaisDto) {
-    return this.service.createPais(req.user, dto);
-  }
-
-  @Post('portos')
-  createPorto(@Req() req: any, @Body() dto: CreatePortoDto) {
-    return this.service.createPorto(req.user, dto);
-  }
-
-  @Post('transit-times')
-  upsertTransitTime(@Req() req: any, @Body() dto: UpsertTransitTimeDto) {
-    return this.service.upsertTransitTime(req.user, dto);
   }
 
   @Get('transit-times/resolve')

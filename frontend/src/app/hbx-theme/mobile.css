@@ -1553,3 +1553,57 @@
     margin-top: 10px;
   }
 }
+
+/* ============================================================
+   === GERENCIAL ===
+   ≤ 860px — abas em pills roláveis (1 linha) + tabelas que
+   não cortam (scroll horizontal dentro do card).
+   Desktop 100% INTOCADO — zero regra fora do @media.
+   ============================================================ */
+@media (max-width: 860px) {
+
+  /* ── Layout raiz: coluna flex de altura ── */
+  .ger-page {
+    display: flex !important;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  /* ── Nav de abas → pills roláveis em 1 linha ── */
+  .ger-nav {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 2px 4px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .ger-nav::-webkit-scrollbar { display: none; }
+
+  /* Cada botão-aba: não encolhe, não quebra linha */
+  .ger-nav .btn-ghost {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* ── Tabelas: scroll horizontal dentro do card ── */
+  .ger-page .tbl-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+  }
+
+  /* Tabela de Equipe: esconde coluna E-mail (2ª) no mobile */
+  .ger-page .tbl thead th:nth-child(2),
+  .ger-page .tbl tbody td:nth-child(2) { display: none; }
+
+  /* Grid 2 colunas (payouts / aguardando ativação): vira coluna */
+  .ger-page > [style*="grid-template-columns: 1fr 1fr"] {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+}

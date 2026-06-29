@@ -57,16 +57,6 @@ export class InboxController {
     return this.inboxService.getInboxMetrics(req.user);
   }
 
-  @Post('bootstrap/full')
-  bootstrapFull(@Req() req: any, @Query('take') take?: string) {
-    return this.inboxService.bootstrapFullMirror(req.user, take);
-  }
-
-  @Post('bootstrap/full/background')
-  bootstrapFullBackground(@Req() req: any, @Query('take') take?: string) {
-    return this.inboxService.bootstrapFullMirrorBackground(req.user, take);
-  }
-
   @Post('whatsapp-sessions/wipe-all')
   wipeAllWhatsAppData(@Req() req: any) {
     return this.inboxService.wipeAllWhatsAppData(req.user);

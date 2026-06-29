@@ -153,15 +153,6 @@ class WebscrapingSearchDto {
   negativeRules?: Record<string, any>;
 }
 
-class WebscrapingSearchMoreDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  quantity?: number;
-}
-
 class RadarDatabaseQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -600,24 +591,6 @@ class MasterDeleteDatabaseCardsDto extends MasterDatabaseCardsQueryDto {
   leadIds?: string[];
 }
 
-class MasterExportCardsDto {
-  @IsArray()
-  @IsString({ each: true })
-  leadIds!: string[];
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  userId?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  companyId?: number;
-}
-
 class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -911,23 +884,6 @@ class RadarTenantAutoDistributionDto {
   }>;
 }
 
-class WebscrapingWebSearchDto {
-  @IsString()
-  query!: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(10)
-  limit?: number;
-
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  fresh?: boolean;
-}
-
 @Controller('webscraping')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
@@ -963,11 +919,6 @@ export class WebscrapingController {
     return this.webscrapingService.searchContactsForUser(req.user, dto);
   }
 
-  @Post('web-search')
-  webSearch(@Body() dto: WebscrapingWebSearchDto) {
-    return this.webscrapingService.webSearch(dto);
-  }
-
   @Post('lead-harvest/import')
   importLeadHarvest(@Req() req: any, @Body() body: Record<string, any>) {
     return this.leadHarvestImportService.importBatchForUser(req.user, body || {});
@@ -983,19 +934,9 @@ export class WebscrapingController {
     return this.leadHarvestImportService.getImportForUser(req.user, id);
   }
 
-  @Post('search-runs')
-  createSearchRun(@Req() req: any, @Body() dto: WebscrapingSearchDto) {
-    return this.webscrapingService.startSearchRunForUser(req.user, dto);
-  }
-
   @Get('search-runs/:id')
   getSearchRun(@Req() req: any, @Param('id') id: string) {
     return this.webscrapingService.getSearchRunForUser(req.user, id);
-  }
-
-  @Post('search-runs/:id/cancel')
-  cancelSearchRun(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.cancelSearchRunForUser(req.user, id);
   }
 
   @Get('history')
@@ -1005,16 +946,6 @@ export class WebscrapingController {
       req.user,
       Number.isFinite(parsedLimit) ? parsedLimit : undefined,
     );
-  }
-
-  @Post('history/:id/reuse')
-  reuseHistory(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.reuseHistorySearchForUser(req.user, id);
-  }
-
-  @Post('history/:id/search-more')
-  searchMoreHistory(@Req() req: any, @Param('id') id: string, @Body() dto: WebscrapingSearchMoreDto) {
-    return this.webscrapingService.searchMoreHistoryForUser(req.user, id, dto?.quantity || 100);
   }
 
   @Get('radar/database')
@@ -1282,19 +1213,9 @@ export class MasterWebscrapingController {
     return this.webscrapingService.runRadarTenantDistributionForUser(req.user, dto || {});
   }
 
-  @Post('export-cards')
-  exportCards(@Req() req: any, @Body() dto: MasterExportCardsDto) {
-    return this.webscrapingService.exportRadarCardsToTarget(req.user, dto || ({} as any));
-  }
-
   @Get('factory-status')
   getFactoryStatus(@Req() req: any) {
     return this.webscrapingService.getRadarFactoryStatus(req.user);
-  }
-
-  @Post('elastic/force-night')
-  forceNightFactory(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
-    return this.webscrapingService.forceNightRadarFactory(req.user, dto || {});
   }
 
   @Post('elastic/cancel-forced')

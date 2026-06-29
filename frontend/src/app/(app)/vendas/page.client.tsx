@@ -321,6 +321,35 @@ function RadarSupplyStrip({
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 
+// ── TypedText — efeito "digitando" (mesmo do card de detalhe) ─────────────────
+// Re-digita a cada montagem; o caller passa key={...} pra re-rodar na troca de
+// modo. Sem setState síncrono no corpo do effect (lint react-hooks é erro aqui):
+// o reset vem do key, os updates rodam só dentro do interval/rAF.
+function TypedTextCore({ text, speed }: { text: string; speed: number }) {
+  const [shown, setShown] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!text) return;
+    const reduce = typeof window !== "undefined"
+      && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      const id = requestAnimationFrame(() => { setShown(text); setDone(true); });
+      return () => cancelAnimationFrame(id);
+    }
+    let i = 0;
+    const iv = setInterval(() => {
+      i++;
+      setShown(text.slice(0, i));
+      if (i >= text.length) { clearInterval(iv); setDone(true); }
+    }, speed);
+    return () => clearInterval(iv);
+  }, [text, speed]);
+  return <span className={"vnd-typed" + (done ? " is-done" : "")}>{shown}<i className="vnd-caret" aria-hidden="true" /></span>;
+}
+function TypedText({ text, speed = 42 }: { text: string; speed?: number }) {
+  return <TypedTextCore key={text} text={text} speed={speed} />;
+}
+
 export function VendasClient() {
   const router = useRouter();
   // Gate do botão "Buscar empresas" (boca do funil): mesmo veredito da navegação —
@@ -915,6 +944,24 @@ export function VendasClient() {
   const summary = board?.summary;
   const deal = sel;
 
+  // 2 botões acoplados (toggle de modo) — vivem no topo da coluna ESQUERDA de cada
+  // painel, à esquerda dos KPIs. Como os dois painéis têm o toggle no mesmo ponto,
+  // ele parece "ficar parado" enquanto o corpo desliza. Ativo destacado (preenchido).
+  const segToggle = (
+    <div className="vnd-segbtns" role="tablist" aria-label="Modo da tela">
+      <button type="button" role="tab" aria-selected={modo === "funil"}
+        className={"vnd-segbtn" + (modo === "funil" ? " is-on" : "")} onClick={irFunil}>
+        <I d={ICONS.vendas} size={16} /> <span>Meu funil</span>
+      </button>
+      {podeBuscarLeads && (
+        <button type="button" role="tab" aria-selected={modo === "buscar"} data-tut="vendas-buscar"
+          className={"vnd-segbtn" + (modo === "buscar" ? " is-on" : "")} onClick={irBuscar}>
+          <I d={ICONS.scrape} size={16} /> <span>Buscar empresas</span>
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <React.Fragment>
         <div className="vnd-modehost">
@@ -924,24 +971,24 @@ export function VendasClient() {
               <div className="vnd-pane">
                 <div className={"content" + (isMobile ? " vnd-page" : "")}>
                   <div className="work">
-            <KpiRow items={[
-              { icon: "users", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
-              { icon: "clock", label: "Para hoje", value: summary ? String(summary.today) : "—", delta: "—" },
-              { icon: "doc", label: "Atrasados", value: summary ? String(summary.overdue) : "—", delta: "—", down: Boolean(summary && summary.overdue > 0) },
-              { icon: "check", label: "Fechados", value: summary ? String(summary.closed) : "—", delta: "—" },
-            ]} />
-
+            {/* Topo da esquerda: toggle + 3 KPIs ("Para hoje" saiu — redundante com
+                "Cards no funil"). Por estar DENTRO da coluna esquerda, o card de
+                detalhe (direita) volta à altura cheia. 29/06. */}
+            <div className="vnd-funhead">
+              {segToggle}
+              <div className="vnd-kpiflow">
+                <KpiRow items={[
+                  { icon: "users", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
+                  { icon: "doc", label: "Atrasados", value: summary ? String(summary.overdue) : "—", delta: "—", down: Boolean(summary && summary.overdue > 0) },
+                  { icon: "check", label: "Fechados", value: summary ? String(summary.closed) : "—", delta: "—" },
+                ]} />
+              </div>
+            </div>
             <section className="panel">
               <div className="panel-head">
-                <h2>Pipeline de vendas</h2>
+                <h2><TypedText key={"t-funil-" + modo} text="Pipeline de vendas" />{board && <span style={{ fontSize: "0.72rem", fontWeight: 400, color: "var(--text-muted)", marginLeft: 8 }}>{searchQuery ? `${flatLeads.length} de ${summary?.total ?? 0} cards` : `${summary?.total ?? 0} cards`}</span>}
+                </h2>
                 <div className="meta">
-                  <span>
-                    {board
-                      ? searchQuery
-                        ? `${flatLeads.length} de ${summary?.total ?? 0} cards`
-                        : `${summary?.total ?? 0} cards`
-                      : loadError ? "" : "Carregando…"}
-                  </span>
                   <span className="seg-toggle" role="group" aria-label="Visão do pipeline" data-tut="vendas-visao">
                     <button className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
                     <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
@@ -1241,6 +1288,16 @@ export function VendasClient() {
                 </div>{/* /content (Meu funil) */}
               </div>{/* /vnd-pane funil */}
               <div className="vnd-pane vnd-pane--buscar">
+                {/* Casca igual à do funil: toggle no MESMO ponto + título. Os "botões"
+                    do Buscar (no lugar dos KPIs) a gente decide a seguir. Conteúdo
+                    embaixo mantido 100% (LeadsClient embutido). 29/06. */}
+                <div className="vnd-funhead">
+                  {segToggle}
+                  <div className="vnd-pane-head">
+                    <h2><TypedText key={"t-busca-" + modo} text="Pipeline de pesquisa" /></h2>
+                    <span className="vnd-pane-head__sub">Sua lista não tem teto — o Radar busca à vontade.</span>
+                  </div>
+                </div>
                 {buscarMounted ? <LeadsClient embedded onLeadPulled={handlePulled} /> : null}
               </div>
             </div>{/* /vnd-slidetrack */}

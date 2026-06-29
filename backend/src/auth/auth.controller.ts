@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ConfirmEmailDto, EmailConfirmationStatusDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
+import { ConfirmEmailDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -24,12 +24,6 @@ export class AuthController {
       userAgent: req?.headers?.['user-agent'],
       ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
     });
-  }
-
-  @Post('email-confirmation-status')
-  @Throttle({ default: { limit: 20, ttl: 60 } })
-  emailConfirmationStatus(@Body() dto: EmailConfirmationStatusDto) {
-    return this.authService.emailConfirmationStatus(dto.pollToken);
   }
 
   @Post('resend-confirmation')

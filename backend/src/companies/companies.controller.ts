@@ -123,12 +123,6 @@ class UpdateMyWhatsAppCenterDto {
   mode!: string;
 }
 
-class RegisterWhatsAppMigrationInterestDto {
-  @IsOptional()
-  @IsString()
-  source?: string;
-}
-
 class UpdateMasterWhatsAppMigrationWorkflowDto {
   @IsString()
   @IsNotEmpty()
@@ -921,15 +915,6 @@ export class CompaniesController {
     return this.companyWhatsAppCustomerSync.bootstrapAfterWhatsappConnect(companyId);
   }
 
-  @Post('me/whatsapp-center/migration-interest')
-  @UseGuards(JwtAuthGuard)
-  async registerMyWhatsAppMigrationInterest(
-    @Req() req: any,
-    @Body() dto: RegisterWhatsAppMigrationInterestDto,
-  ) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req, { allowMasterWhatsappEngineFallback: true });
-    return this.companiesService.registerWhatsAppMigrationInterest(companyId, dto || {});
-  }
 
   @Get(':id/whatsapp-modal/status')
   @UseGuards(JwtAuthGuard)

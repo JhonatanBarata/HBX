@@ -1,15 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { FinanceiroService } from './financeiro.service';
 import {
   ChangeFinanceiroPlanDto,
   ChangeFinanceiroSubscriptionCardDto,
-  CreateFinanceiroCheckoutDto,
   CreateFinanceiroSubscriptionDto,
   RefundFinanceiroChargeDto,
-  SaveFinanceiroCardDto,
-  UpdateFinanceiroPreferencesDto,
 } from './dto/financeiro.dto';
 
 @Controller('financeiro')
@@ -25,26 +22,6 @@ export class FinanceiroController {
   @Get('payments-config')
   getPaymentsConfig(@Req() req: any) {
     return this.financeiroService.getPaymentsConfigForUser(req.user);
-  }
-
-  @Patch('preferences')
-  updatePreferences(@Req() req: any, @Body() dto: UpdateFinanceiroPreferencesDto) {
-    return this.financeiroService.updatePreferencesForUser(req.user, dto || {});
-  }
-
-  @Put('card')
-  saveCard(@Req() req: any, @Body() dto: SaveFinanceiroCardDto) {
-    return this.financeiroService.saveCardForUser(req.user, dto);
-  }
-
-  @Delete('card')
-  removeCard(@Req() req: any) {
-    return this.financeiroService.removeCardForUser(req.user);
-  }
-
-  @Post('checkout')
-  createCheckout(@Req() req: any, @Body() dto: CreateFinanceiroCheckoutDto) {
-    return this.financeiroService.createCheckoutForUser(req.user, dto);
   }
 
   @Post('subscription/create')
@@ -84,11 +61,6 @@ export class FinanceiroController {
   @Post('subscription/sync')
   syncSubscription(@Req() req: any) {
     return this.financeiroService.syncSubscriptionForUser(req.user);
-  }
-
-  @Post('charges/:chargeId/refresh')
-  refreshCharge(@Req() req: any, @Param('chargeId') chargeId: string, @Body() dto?: { paymentId?: string }) {
-    return this.financeiroService.refreshChargeForUser(req.user, chargeId, dto?.paymentId);
   }
 
   // F3 — estorno acionado pelo MASTER no painel de empresas. Sem amount = estorno total;

@@ -14,7 +14,6 @@ test('master elastic and engine lifecycle routes stay behind MasterGuard', () =>
   assert.equal(controllerPath, 'modules/owner/radar');
   assert.equal(guards.includes(JwtAuthGuard), true);
   assert.equal(guards.includes(MasterGuard), true);
-  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.forceNightFactory), 'elastic/force-night');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.cancelForcedFactory), 'elastic/cancel-forced');
 });
 

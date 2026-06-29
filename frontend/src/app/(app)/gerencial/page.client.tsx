@@ -458,7 +458,7 @@ export function GerencialClient() {
 
   return (
     <React.Fragment>
-        <div className="work" style={{ flex: 1 }}>
+        <div className="work ger-page" style={{ flex: 1 }}>
           {user && !isAdmin && (
             <section className="panel">
               <div style={{ padding: 18 }}>
@@ -472,7 +472,7 @@ export function GerencialClient() {
 
           {isAdmin && (
             <React.Fragment>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <div className="ger-nav" style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {ABAS.map((a, i) => (
                   <button key={a} className="btn-ghost" onClick={() => setAba(i)}
                     style={i === aba ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}>

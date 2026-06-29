@@ -303,35 +303,6 @@ export class ProfileController {
     return { ok: true, prospectingSegments: saved };
   }
 
-  // Preferência de segmento/região do PRÓPRIO vendedor (self-service 14/06):
-  // grava em User.preferredSegmentsJson do usuário logado. Vira o default do
-  // "Puxar leads". Lista vazia ⇒ limpa a preferência (cai no ramo da empresa).
-  // Qualquer usuário autenticado edita a SUA preferência; o master não tem
-  // contexto de vendedor próprio.
-  @Patch('preferred-segments')
-  @UseGuards(JwtAuthGuard)
-  async savePreferredSegments(
-    @Req() req: any,
-    @Body() body: { segments?: string[]; cityRegion?: string | null },
-  ) {
-    const user = await this.usersService.findById(req.user.id);
-    if (!user) throw new BadRequestException('Usuario invalido');
-    if (user.isSystemMaster) {
-      throw new BadRequestException('O master nao possui preferencia de vendedor.');
-    }
-    const segments = Array.isArray(body?.segments) ? body.segments : [];
-    const saved = await this.usersService.saveUserPreferredSegments(
-      Number(user.id),
-      segments,
-      body?.cityRegion ?? null,
-    );
-    return {
-      ok: true,
-      preferredSegments: saved.segments,
-      preferredCityRegion: saved.cityRegion,
-    };
-  }
-
   @Patch('display-name')
   @UseGuards(JwtAuthGuard)
   async updateDisplayName(@Req() req: any, @Body() dto: UpdateDisplayNameDto) {
