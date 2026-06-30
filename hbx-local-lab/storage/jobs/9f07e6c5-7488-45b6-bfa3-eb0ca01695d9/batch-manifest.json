@@ -1,0 +1,30 @@
+{
+  "batchId": "local-lab-9f07e6c5-7488-45b6-bfa3-eb0ca01695d9",
+  "sourceMode": "local_lab",
+  "sourceName": "HBX Local Lab",
+  "createdAt": "2026-06-30T01:58:59.163Z",
+  "requestedBy": "claude-test",
+  "city": null,
+  "state": null,
+  "segment": null,
+  "targetEmails": 6,
+  "providers": [
+    "site_crawl"
+  ],
+  "stats": {
+    "sitesVisited": 3,
+    "emailsFound": 3,
+    "emailsAccepted": 0,
+    "leads": 2,
+    "pacing": {
+      "fetches": 33,
+      "blocks": 0,
+      "backoffMs": 0,
+      "minDelayMs": 1500,
+      "maxDelayMs": 4000,
+      "blockBackoffMs": 60000
+    },
+    "providers": 1,
+    "emails": 3
+  }
+}
