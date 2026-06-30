@@ -28,6 +28,9 @@ function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string
 
 $resolvedCount = Resolve-EngineCount $Count
 $resolvedCount = [Math]::Min([Math]::Max($resolvedCount, 1), 50)
+# NÃO subir searxng: medido ao vivo 29/06, searxng LENTO (timeout 10s aglutinando bing/ddg/google
+# bloqueados) e o motor o tenta PRIMEIRO → cada query espera ~10s antes do fallback → throughput
+# despencou 6x (+180/min sem searxng → +31/min com). searxng DOWN (DNS-fail instantâneo) é melhor que lento.
 $services = 1..$resolvedCount | ForEach-Object { "hbx-engine-$_" }
 $urls = 1..$resolvedCount | ForEach-Object { "http://hbx-engine-$($_):8001" }
 

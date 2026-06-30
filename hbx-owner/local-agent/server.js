@@ -126,6 +126,8 @@ function runningEngineSet() {
 // Liga (docker start) os containers de motor que não estão rodando. Idempotente e RÁPIDO — NÃO
 // recria o backend (o backend local já roda com a frota declarada nos envs HBX_ENGINE_*). Só os motores.
 function ensureEnginesUp(n = ENGINE_FLEET_SIZE) {
+  // NÃO subir searxng aqui: medido ao vivo 29/06, ele é LENTO (timeout 10s) e o motor o tenta 1º →
+  // throughput cai 6x (+180/min sem → +31/min com). O fallback bing/ddg direto é mais rápido.
   const running = runningEngineSet();
   const started = [];
   const failed = [];
@@ -674,7 +676,7 @@ async function runEnricherCrawl(seeds, map) {
     const id = map[cardDomain(lead.website || lead.sourceUrl)];
     if (!id) continue;
     const emails = Array.isArray(lead.emails) ? lead.emails.filter(Boolean).slice(0, 3) : (lead.email ? [lead.email] : []);
-    const phones = Array.isArray(lead.phones) ? lead.phones.filter(Boolean).slice(0, 3) : [];
+    const phones = Array.isArray(lead.phones) ? lead.phones.filter(Boolean).slice(0, 3) : (lead.phone ? [String(lead.phone)] : []);
     const cnpj = lead.cnpj ? String(lead.cnpj).replace(/\D/g, "") : undefined;
     if (!emails.length && !phones.length && !cnpj && !lead.instagramUrl && !lead.facebookUrl) continue;
     items.push({ id, emails, phones, cnpj, instagramUrl: lead.instagramUrl || undefined, facebookUrl: lead.facebookUrl || undefined });

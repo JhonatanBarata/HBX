@@ -18,10 +18,11 @@ search:
     - json
 
 engines:
+  # language/region por-engine QUEBRAVAM o boot ("settings.yml engine 'google' language 'pt-br' not
+  # supported" → searxng morria → descoberta 100% no fallback bing/ddg flaky → yield baixo/dupe alto).
+  # A localização vem da query (cidade+UF); sem o override o searxng sobe e responde JSON. (Fix 29/06.)
   - name: google
     engine: google
-    language: pt-br
-    region: br
     use_mobile_ui: false
     weight: 1
   - name: bing

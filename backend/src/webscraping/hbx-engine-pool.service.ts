@@ -506,6 +506,22 @@ export class HbxEnginePoolService implements OnModuleInit {
       return [];
     });
     this.logger.log(`[hbx-engine-pool] configured engine urls:\n${urls.map((url) => `- ${url}`).join('\n')}`);
+    // BOOT: solta leases ÓRFÃOS. Após restart/publish, todo HbxEngineLock 'busy' (lockedRunId setado) é
+    // órfão — o processo que segurava o lease morreu, mas `lockedUntil` segue no futuro → o motor fica
+    // 'busy' até expirar (~15min) → o pump vê "todos busy" e NÃO despacha → 0 produção. (Raiz 29/06: VPS
+    // parada por ~15min a cada deploy.) Soltar aqui faz a frota voltar elegível em segundos.
+    await this.releaseOrphanedEngineLocksOnBoot().catch(() => undefined);
+  }
+
+  private async releaseOrphanedEngineLocksOnBoot() {
+    if (!(await this.prisma.hasTable('HbxEngineLock').catch(() => false))) return;
+    const result = await (this.prisma as any).hbxEngineLock.updateMany({
+      where: { OR: [{ status: 'busy' }, { lockedRunId: { not: null } }] },
+      data: { status: 'online', lockedRunId: null, lockedUntil: null },
+    }).catch(() => null);
+    if (result?.count) {
+      this.logger.log(`[hbx-engine-pool] boot: liberou ${result.count} lease(s) órfão(s) de motor (status busy→online).`);
+    }
   }
 
   async refreshEngineRegistryFromEnv() {

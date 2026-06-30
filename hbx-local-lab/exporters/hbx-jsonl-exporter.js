@@ -30,6 +30,17 @@ function normalizeLead(lead, batchId, job) {
     email: email || null,
     emailStatus: email ? lead.emailStatus || 'probable' : 'missing',
     emailConfidence: Number.isFinite(Number(lead.emailConfidence)) ? Math.max(0, Math.min(100, Math.round(Number(lead.emailConfidence)))) : undefined,
+    // Multi-contato 1/2/3 — o provider já junta até 3 e-mails/telefones (por confiança); o export
+    // só carregava `email`/`phone` SINGULAR → o consumidor (enricher do Owner) recebia 1 e-mail e
+    // ZERO telefone (ele lê `emails[]`/`phones[]`, não os singulares). Agora exporta os arrays + CNPJ
+    // do rodapé. Fallback p/ o singular quando o provider não trouxe array.
+    emails: Array.isArray(lead.emails)
+      ? lead.emails.map((e) => normalizeEmail(e)).filter(Boolean).slice(0, 3)
+      : (email ? [email] : []),
+    phones: Array.isArray(lead.phones)
+      ? lead.phones.map((p) => normalizePhoneDigits(p)).filter((p) => p && (p.length === 10 || p.length === 11)).slice(0, 3)
+      : (normalizePhoneDigits(lead.phone) ? [normalizePhoneDigits(lead.phone)] : []),
+    cnpj: String(lead.cnpj || '').replace(/\D/g, '').slice(0, 14) || null,
     instagramUrl: normalizeUrl(lead.instagramUrl) || null,
     facebookUrl: normalizeUrl(lead.facebookUrl) || null,
     sourceUrl,

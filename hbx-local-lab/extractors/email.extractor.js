@@ -10,11 +10,15 @@ const BAD_EMAIL_LOCAL_PARTS = new Set([
   'image',
   'img',
   'logo',
+  'mymail',
+  'noreply',
+  'no-reply',
   'sprite',
   'test',
   'teste',
   'user',
   'usuario',
+  'yourname',
 ]);
 
 const BAD_EMAIL_DOMAINS = new Set([
@@ -27,14 +31,19 @@ const BAD_EMAIL_DOMAINS = new Set([
   'google.com',
   'instagram.com',
   'linktr.ee',
+  'mailservice.com',
   'maps.app.goo.gl',
   'restaurantguru.com',
   'restaurantguru.com.br',
+  'sentry.io',
   'solutudo.com.br',
   'test.com',
   'teste.com',
   'wa.me',
   'whatsapp.com',
+  'wix.com',
+  'wixpress.com',
+  'yourdomain.com',
 ]);
 
 const BAD_EMAIL_TLDS = new Set(['css', 'gif', 'jpeg', 'jpg', 'js', 'png', 'svg', 'webp']);
@@ -141,20 +150,32 @@ function extractCnpjFromText(text) {
 }
 
 // --- Telefones no HTML (BR) ------------------------------------------------
+// DDDs que existem no Brasil (Anatel). Sem isso, um run de 10-11 dígitos com DDD "10",
+// "20", "90"... passava como telefone.
+const VALID_BR_DDD = new Set([
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38,
+  41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+  71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+]);
+
 // Acha telefones fixos/celulares brasileiros no texto, devolve só dígitos (DDD+numero),
 // dedup e no máximo `max`. Ignora sequências curtas/longas demais (CEP, CNPJ, etc.).
 function extractPhonesFromText(text, max = 6) {
   const raw = String(text || '');
   const out = [];
   const seen = new Set();
-  // tel: links (mais confiáveis) + padrão visual (xx) xxxxx-xxxx
+  // tel: links (mais confiáveis) + padrão visual COM formatação OBRIGATÓRIA: (xx) ou xx<sep>.
+  // O padrão antigo (separadores opcionais) casava qualquer run cru de 10-11 dígitos →
+  // capturava TIMESTAMP Unix (ex.: 1782784996 = jun/2026) e IDs como "telefone". Exigir
+  // parênteses/separador + validar DDD + regra do 9 no celular mata esse lixo.
   const telLinks = [...raw.matchAll(/tel:\+?(\d[\d\s().-]{8,16}\d)/gi)].map((m) => m[1]);
-  const visual = [...raw.matchAll(/\(?\b\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}\b/g)].map((m) => m[0]);
+  const visual = [...raw.matchAll(/(?:\(\d{2}\)\s*|\b\d{2}[\s.-])\s?9?\d{4}[\s.-]?\d{4}\b/g)].map((m) => m[0]);
   for (const candidate of [...telLinks, ...visual]) {
     const digits = normalizePhoneDigits(candidate);
     if (digits.length !== 10 && digits.length !== 11) continue;       // fixo(10) ou celular(11)
+    if (!VALID_BR_DDD.has(Number(digits.slice(0, 2)))) continue;      // DDD inexistente → não é telefone
+    if (digits.length === 11 && digits[2] !== '9') continue;          // celular BR (11díg) tem 9 após o DDD
     if (/^(\d)\1+$/.test(digits)) continue;                            // 0000000000 etc.
-    if (digits[2] === '0' && digits.length === 11) continue;          // celular não começa com 0
     if (seen.has(digits)) continue;
     seen.add(digits);
     out.push(digits);

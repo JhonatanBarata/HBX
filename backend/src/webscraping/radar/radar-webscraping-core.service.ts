@@ -271,7 +271,9 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       void this.processActiveRadarAutoDistributions();
     }, 60_000);
     setTimeout(() => {
-      void this.recoverRadarCampaignWork();
+      // force: no boot toda task 'running' é órfã (o processo que a leaseou morreu no restart) → libera já,
+      // sem esperar o lease de ~15min expirar. Mata o stall "fábrica parada pós-publish".
+      void this.recoverRadarCampaignWork({ force: true });
     }, 1_000);
     setTimeout(() => {
       void this.processNextQueuedSearchRun();

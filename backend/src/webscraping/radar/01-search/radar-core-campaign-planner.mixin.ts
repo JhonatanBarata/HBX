@@ -811,12 +811,17 @@ export class RadarCoreCampaignPlannerMixin {
     return { created, checked };
   }
 
-  private async recoverRadarCampaignWork() {
+  private async recoverRadarCampaignWork(options: { force?: boolean } = {}) {
     if (!(await this.supportsMassDataCampaignPersistence())) return;
     const now = new Date();
+    // `force` (no BOOT): TODA task 'running' é órfã — o processo que segurava o lease morreu no restart,
+    // mas o `lockedUntil` ainda está no futuro (lease ~15min). Sem o force, só recupera lock EXPIRADO →
+    // cada `npm run publish` trava a fábrica por até 15min ("VPS parou de raspar pós-deploy", raiz 29/06).
     await (this.prisma as any).webscrapingCampaignTask.updateMany({
-      where: { status: 'running', OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
-      data: { status: 'queued', lockedByEngineId: null, lockedUntil: null, lastError: 'Lock expirado e liberado na retomada.' },
+      where: options.force
+        ? { status: 'running' }
+        : { status: 'running', OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
+      data: { status: 'queued', lockedByEngineId: null, lockedUntil: null, startedAt: null, lastError: 'Lock liberado na retomada.' },
     }).catch(() => null);
     await (this.prisma as any).webscrapingCampaign.updateMany({
       where: { mode: 'mass_data', status: { in: ['running', 'partial_error', 'sleeping'] } },
