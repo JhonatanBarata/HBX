@@ -1,0 +1,563 @@
+/* ================================================================
+   ÁRVORE HBX — tree.css
+   Estiliza EXCLUSIVAMENTE as classes da guia "Árvore HBX".
+   Usa tokens de --bg --surface --surface-2 --border --text
+   --text-muted --brand --green --amber --blue --red --radius --shadow
+   definidos em styles.css. NÃO redefine variáveis de tema.
+================================================================ */
+
+/* ---------------------------------------------------------------
+   NAV DE GUIAS (na topbar, entre .brand e .topbar-right)
+--------------------------------------------------------------- */
+.guide-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  padding: 0 16px;
+}
+
+/* Reutiliza a aparência do .tab já existente no styles.css —
+   sem redefinir; apenas garante a relação de layout. */
+
+/* ---------------------------------------------------------------
+   SEÇÃO RAIZ
+   Quando o atributo [hidden] estiver presente, o elemento
+   desaparece pelo comportamento nativo — não forçamos display.
+--------------------------------------------------------------- */
+.tree-guide {
+  padding: 0 24px 40px;
+  max-width: 760px;
+  margin: 0 auto;
+  animation: treeIn .2s ease;
+}
+
+@keyframes treeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---------------------------------------------------------------
+   CABEÇALHO DA ÁRVORE
+--------------------------------------------------------------- */
+.tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 18px 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+/* Sub-tabs local / VPS — reutiliza aparência .tabs sem poluir o
+   seletor raiz (que tem padding/border horizontal diferentes aqui) */
+.tree-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  /* sobrescreve o .tabs global que tem border-bottom e padding lateral */
+  border-bottom-color: var(--border);
+}
+
+/* Os botões dentro de .tree-tabs ainda são .tab e herdam a aparência,
+   mas aqui ficam sem o underline — usamos fundo destacado. */
+.tree-tabs .tab {
+  border-bottom: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: .84rem;
+}
+
+.tree-tabs .tab.is-active {
+  background: var(--surface);
+  color: var(--brand);
+  border-bottom: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+.tree-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------
+   LEGENDA
+--------------------------------------------------------------- */
+.tree-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-bottom: 18px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+
+.tleg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+/* Pontos de status na legenda */
+.tdot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tdot.ok      { background: var(--green);       box-shadow: 0 0 0 3px rgba(22,163,74,.20); }
+.tdot.warn    { background: var(--amber);        box-shadow: 0 0 0 3px rgba(217,119,6,.20); }
+.tdot.blocked { background: var(--red);          box-shadow: 0 0 0 3px rgba(220,38,38,.25); }
+.tdot.idle    { background: var(--blue);         box-shadow: 0 0 0 3px rgba(37,99,235,.18); }
+.tdot.off     { background: var(--text-muted);   }
+
+/* ---------------------------------------------------------------
+   SPINE / FLOW — container dos nós
+--------------------------------------------------------------- */
+.tree-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+/* ---------------------------------------------------------------
+   NÓ DA ÁRVORE
+--------------------------------------------------------------- */
+.tree-node {
+  width: 100%;
+  max-width: 720px;
+  position: relative;
+  /* espaço acima para a linha do spine */
+  padding-top: 0;
+}
+
+/* Linha do spine: segmento vertical ACIMA do card.
+   Desenhada via ::before; cor/estilo pelo data-flow do NÓ ATUAL. */
+.tree-node::before {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 32px;
+  margin: 0 auto;
+  border-radius: 2px;
+}
+
+/* Primeiro nó não tem linha acima */
+.tree-node:first-child::before {
+  display: none;
+}
+
+/* data-flow="on" → verde sólido, com animação discreta de fluxo */
+.tree-node[data-flow="on"]::before {
+  background: var(--green);
+  animation: flowPulse 2s ease-in-out infinite;
+}
+
+@keyframes flowPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .55; }
+}
+
+/* data-flow="stopped" → vermelho tracejado */
+.tree-node[data-flow="stopped"]::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--red) 0px,
+    var(--red) 5px,
+    transparent 5px,
+    transparent 10px
+  );
+  animation: none;
+}
+
+/* ---------------------------------------------------------------
+   CARD DO NÓ (.tnode)
+   Herda a linguagem visual de .card mas com reforços de status.
+--------------------------------------------------------------- */
+.tnode {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+/* --- STATUS no nó (data-status no .tree-node, não no .tnode) --- */
+
+.tree-node[data-status="ok"] .tnode {
+  border-color: rgba(22, 163, 74, .38);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(22, 163, 74, .10);
+}
+
+.tree-node[data-status="warn"] .tnode {
+  border-color: rgba(217, 119, 6, .44);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(217, 119, 6, .10);
+}
+
+/* BLOCKED: destaque forte, inequívoco — o dono quer ver na hora */
+.tree-node[data-status="blocked"] .tnode {
+  border-color: var(--red);
+  border-width: 2px;
+  box-shadow: var(--shadow), 0 0 0 4px rgba(220, 38, 38, .14);
+  background: rgba(220, 38, 38, .04);
+}
+
+[data-theme="dark"] .tree-node[data-status="blocked"] .tnode {
+  background: rgba(220, 38, 38, .08);
+}
+
+.tree-node[data-status="idle"] .tnode {
+  border-color: rgba(37, 99, 235, .28);
+}
+
+.tree-node[data-status="off"] .tnode {
+  border-color: var(--border);
+  opacity: .72;
+}
+
+/* ---------------------------------------------------------------
+   CABEÇALHO DO NÓ
+--------------------------------------------------------------- */
+.tnode-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tnode-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+  flex: none;
+}
+
+.tnode-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Badge de status no header — pill pequena */
+.tnode-badge {
+  font-size: .72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+/* Badge colorida por status do nó pai */
+.tree-node[data-status="ok"]      .tnode-badge { background: rgba(22,163,74,.12);  color: var(--green); border-color: transparent; }
+.tree-node[data-status="warn"]    .tnode-badge { background: rgba(217,119,6,.14); color: var(--amber); border-color: transparent; }
+.tree-node[data-status="blocked"] .tnode-badge { background: rgba(220,38,38,.12); color: var(--red);   border-color: transparent; }
+.tree-node[data-status="idle"]    .tnode-badge { background: rgba(37,99,235,.10); color: var(--blue);  border-color: transparent; }
+.tree-node[data-status="off"]     .tnode-badge { background: var(--surface-2);    color: var(--text-muted); }
+
+/* ---------------------------------------------------------------
+   MÉTRICAS
+--------------------------------------------------------------- */
+.tnode-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tnode-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 60px;
+}
+
+.tm-label {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+
+.tm-val {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+/* ---------------------------------------------------------------
+   NOTA E MISSÃO
+--------------------------------------------------------------- */
+.tnode-note {
+  font-size: .82rem;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+/* Destaque da cidade·segmento atual — bem visível */
+.tnode-mission {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .88rem;
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(14, 164, 114, .10);
+  border: 1.5px solid rgba(14, 164, 114, .30);
+  border-radius: 9px;
+  padding: 7px 13px;
+  margin-bottom: 12px;
+}
+
+.tnode-mission::before {
+  content: "📍";
+  font-style: normal;
+}
+
+[data-theme="dark"] .tnode-mission {
+  background: rgba(16, 185, 129, .12);
+  border-color: rgba(16, 185, 129, .28);
+}
+
+/* ---------------------------------------------------------------
+   BRANCHES (grátis × pago)
+--------------------------------------------------------------- */
+.tnode-branches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 640px) {
+  .tnode-branches {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tbranch {
+  border: 1.5px solid var(--border);
+  border-radius: 11px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  transition: border-color .15s;
+}
+
+/* Branch cost visual hint */
+.tbranch[data-cost="free"] {
+  border-left: 3px solid rgba(22, 163, 74, .50);
+}
+
+.tbranch[data-cost="paid"] {
+  border-left: 3px solid rgba(37, 99, 235, .40);
+}
+
+/* Branch status */
+.tbranch[data-status="ok"] {
+  border-color: rgba(22, 163, 74, .38);
+  background: rgba(22, 163, 74, .04);
+}
+
+.tbranch[data-status="warn"] {
+  border-color: rgba(217, 119, 6, .38);
+  background: rgba(217, 119, 6, .04);
+}
+
+.tbranch[data-status="blocked"] {
+  border-color: var(--red);
+  border-width: 2px;
+  background: rgba(220, 38, 38, .05);
+}
+
+.tbranch[data-status="idle"] {
+  border-color: rgba(37, 99, 235, .25);
+  background: rgba(37, 99, 235, .03);
+}
+
+.tbranch[data-status="off"] {
+  border-color: var(--border);
+  opacity: .68;
+}
+
+.tbranch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+}
+
+.tbranch-name {
+  font-size: .83rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tbranch-desc {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+/* Slot de token de API */
+.tbranch-token {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.tree-token-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: .8rem;
+  color: var(--text);
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+.tree-token-input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(14, 164, 114, .15);
+}
+
+.tree-token-input::placeholder {
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+/* ---------------------------------------------------------------
+   AÇÕES, TOGGLES, FEEDBACK
+--------------------------------------------------------------- */
+.tnode-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.tnode-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Toggle checkbox estilizado */
+.ttoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  user-select: none;
+  white-space: nowrap;
+  transition: border-color .12s, color .12s;
+}
+
+.ttoggle:hover {
+  border-color: var(--brand);
+  color: var(--text);
+}
+
+.ttoggle input[type="checkbox"] {
+  accent-color: var(--brand);
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Feedback inline ao lado do botão */
+.tbtn-result {
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 4ch;
+}
+
+.tbtn-result.ok  { color: var(--green); }
+.tbtn-result.bad { color: var(--red); }
+
+/* Botão destrutivo — leve realce vermelho/âmbar para alertar */
+.tbtn-danger {
+  position: relative;
+}
+
+.tbtn-danger::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 11px;
+  border: 1.5px solid rgba(220, 38, 38, .35);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------
+   RESPONSIVO GERAL
+--------------------------------------------------------------- */
+@media (max-width: 600px) {
+  .tree-guide {
+    padding: 0 12px 32px;
+  }
+
+  .tree-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tnode-metrics {
+    gap: 8px 14px;
+  }
+
+  .tnode-actions {
+    gap: 6px;
+  }
+}

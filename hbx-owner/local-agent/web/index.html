@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HBX Owner</title>
   <link rel="stylesheet" href="/styles.css?v=20260629d" />
+  <link rel="stylesheet" href="/tree.css?v=20260630t4" />
 </head>
-<body>
+<body data-guide="panel">
   <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
 
   <header class="topbar">
@@ -17,6 +18,10 @@
         <small>Sua máquina e o servidor, numa tela só</small>
       </div>
     </div>
+    <nav class="guide-nav">
+      <button id="gnav-panel" class="tab is-active" data-guide="panel">Painel</button>
+      <button id="gnav-tree" class="tab" data-guide="tree">Árvore HBX</button>
+    </nav>
     <div class="topbar-right status-pills">
       <span id="st-agent" class="pill pill-muted" title="Local agent">agente…</span>
       <span id="st-backend" class="pill pill-muted" title="Backend :3000">backend…</span>
@@ -27,6 +32,7 @@
   </header>
 
   <main class="content">
+  <div id="guide-panel">
 
     <!-- ============ TOPO: Sua máquina · VPS · Enriquecedor · Banco de leads (1 linha) ============ -->
     <div class="top-row">
@@ -224,8 +230,32 @@
       <div id="integrations-grid" class="int-grid"><p class="delta">lendo…</p></div>
     </section>
 
+  </div><!-- /#guide-panel -->
+
+  <section id="guide-tree" class="tree-guide" hidden>
+    <div class="tree-head">
+      <div class="tree-tabs tabs">
+        <button class="tab is-active" data-scope="local">🖥 Sua máquina (localhost)</button>
+        <button class="tab" data-scope="vps">☁ Servidor (VPS)</button>
+      </div>
+      <div class="tree-head-right">
+        <span id="tree-generated" class="delta">—</span>
+        <button id="tree-refresh" class="btn btn-sm btn-blue">↺ Reler árvore</button>
+      </div>
+    </div>
+    <div class="tree-legend">
+      <span class="tleg"><i class="tdot ok"></i> fluindo</span>
+      <span class="tleg"><i class="tdot warn"></i> atenção</span>
+      <span class="tleg"><i class="tdot blocked"></i> travado</span>
+      <span class="tleg"><i class="tdot idle"></i> ocioso</span>
+      <span class="tleg"><i class="tdot off"></i> desligado</span>
+    </div>
+    <div id="tree-flow" class="tree-flow"><p class="delta">carregando árvore…</p></div>
+  </section>
+
   </main>
 
   <script src="/app.js?v=20260629d"></script>
+  <script src="/tree.js?v=20260630t4"></script>
 </body>
 </html>
