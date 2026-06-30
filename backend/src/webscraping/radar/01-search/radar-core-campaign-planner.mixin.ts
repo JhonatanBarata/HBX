@@ -436,6 +436,13 @@ export class RadarCoreCampaignPlannerMixin {
       if (fallback.length) return this.rotateMassDataPool(fallback, this.autonomousRotationSeed(campaign, `fallback-state:${guidedState}`, now));
     }
 
+    // AUTOMÁTICO (sem cidade/estado guiado): usa o MESMO pool CURADO do picker — MAJOR_BR_CITIES
+    // (cidades grandes, muito segmento virgem) PRIMEIRO, depois produtivas, cauda IBGE. Sem isso a
+    // rotação nacional crua caía em microcidade do IBGE ("Maria Helena", ~6k hab) = +0 lead (trap Acarape).
+    if (!guidedCity && typeof (this as any).getFactoryLocationPool === 'function') {
+      const curated = await (this as any).getFactoryLocationPool().catch(() => []);
+      if (Array.isArray(curated) && curated.length) return curated;
+    }
     const national = await this.listAutonomousMassDataLocations();
     const rotated = this.rotateMassDataPool(national, this.autonomousRotationSeed(campaign, 'national-location', now));
     if (guidedCity) {
@@ -603,11 +610,15 @@ export class RadarCoreCampaignPlannerMixin {
     const rawCandidates: Array<{ city: string; state: string; segment: string; targetType: HbxTargetType; key: string }> = [];
     const seen = new Set<string>();
 
-    for (const location of locations) {
-      const state = String(location.state || '').trim().toUpperCase();
-      const city = String(location.city || '').trim();
-      if (!state || !city) continue;
-      for (const segment of segments) {
+    // SEGMENT-MAJOR (não city-major): intercala CIDADES por segmento. City-major enchia o teto de
+    // candidatos (candidateLimit) com UMA cidade só (São Paulo tem ~130 seg × 2-3 tipos > 360) e a
+    // varredura nunca via Rio/BH/etc. Assim cada segmento é ofertado em TODAS as cidades do pool → o
+    // ranqueador por menor-stock pega os combos FRESCOS de várias cidades = net-new espalhado (raiz 29/06).
+    for (const segment of segments) {
+      for (const location of locations) {
+        const state = String(location.state || '').trim().toUpperCase();
+        const city = String(location.city || '').trim();
+        if (!state || !city) continue;
         for (const targetType of targetTypes) {
           const key = this.buildAutonomousMassDataCandidateKey({ state, city, segment, targetType });
           if (seen.has(key) || options.excludeKeys?.has(key)) continue;
@@ -619,6 +630,17 @@ export class RadarCoreCampaignPlannerMixin {
       }
       if (rawCandidates.length >= candidateLimit) break;
     }
+
+    // RANK por TAMANHO de cidade = posição no pool curado (MAJOR_BR_CITIES primeiro). Entre combos
+    // igualmente frescos (mesmo stock), a cidade MAIOR vence → varre as gigantes (alto yield) antes
+    // das pequenas, em vez do desempate por "nunca-trabalhada" puxar pra microcidade (raiz 29/06).
+    const cityRankByKey = new Map<string, number>();
+    locations.forEach((loc: { state: string; city: string }, idx: number) => {
+      const k = `${String(loc.state || '').toUpperCase()}|${normalizeLookupValue(loc.city)}`;
+      if (!cityRankByKey.has(k)) cityRankByKey.set(k, idx);
+    });
+    const cityRankOf = (c: { state: string; city: string }) =>
+      cityRankByKey.get(`${String(c.state || '').toUpperCase()}|${normalizeLookupValue(c.city)}`) ?? 99999;
 
     const scored: AutonomousMassDataCandidate[] = [];
     for (const candidate of rawCandidates) {
@@ -667,6 +689,9 @@ export class RadarCoreCampaignPlannerMixin {
       const rightRank = reasonRank[right.reason] ?? 3;
       if (leftRank !== rightRank) return leftRank - rightRank;
       if (left.stockCount !== right.stockCount) return left.stockCount - right.stockCount;
+      const leftCityRank = cityRankOf(left);
+      const rightCityRank = cityRankOf(right);
+      if (leftCityRank !== rightCityRank) return leftCityRank - rightCityRank;
       if (left.duplicateRatio !== right.duplicateRatio) return left.duplicateRatio - right.duplicateRatio;
       const leftWorked = left.lastWorkedAt ? left.lastWorkedAt.getTime() : 0;
       const rightWorked = right.lastWorkedAt ? right.lastWorkedAt.getTime() : 0;

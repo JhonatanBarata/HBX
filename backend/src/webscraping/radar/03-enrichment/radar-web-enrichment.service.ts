@@ -425,6 +425,13 @@ function withWebEnrichmentPipeline(result: WebscrapingContactResult, attempts: W
  * Matches patterns like 12.345.678/0001-90 or 12345678000190.
  */
 function extractCnpjFromText(text: string): string | null {
+  // Preferir um CNPJ TOTALMENTE formatado (12.345.678/0001-90) — bem mais confiável que um
+  // run solto de 14 dígitos, que num snippet de buscador pode ser telefone/ID/protocolo.
+  const formatted = text.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g);
+  if (formatted && formatted.length) {
+    const digits = formatted[0].replace(/\D/g, '');
+    if (digits.length === 14) return digits;
+  }
   const matches = text.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g);
   if (!matches) return null;
   for (const raw of matches) {
@@ -800,8 +807,13 @@ export class RadarWebEnrichmentService {
                   ...existingMeta,
                   cnpj: existingMeta.cnpj || discoveredCnpj,
                 };
+                // BUG-FIX (30/06): num lead SEM site e SEM contato aceito, merged.result E
+                // bestResult são null → o CNPJ descoberto no Brave era setado em baseLead mas
+                // NUNCA empurrado pro results (linha ~821 `if (bestResult)` ficava falsa) → a base
+                // inteira terminava com 0 CNPJ apesar do Brave achar. Agora promovemos o lead
+                // portador do CNPJ a bestResult SEMPRE, pra ele ser persistido e o L4 disparar.
                 if (merged.result) merged = { ...merged, result: baseLead as WebscrapingContactResult };
-                else if (bestResult) bestResult = baseLead as WebscrapingContactResult;
+                else bestResult = baseLead as WebscrapingContactResult;
               }
               fallbackFoundCount += cnpjCandidates.length;
             }
@@ -833,6 +845,29 @@ export class RadarWebEnrichmentService {
       rejectedCount,
       retryable,
     });
+  }
+
+  /**
+   * Descoberta de CNPJ por NOME (1 chamada Brave) — caminho LEAN p/ o backfill.
+   * Sem o peso do run() completo (HBX engine + social probes + 4 fallback queries + crawl
+   * = ~16s/lead que estourava o timeout). Aqui é 1 query "<nome> <cidade> CNPJ" → ~1.1s
+   * (throttle Brave). GRÁTIS, mas consome 1 do orçamento Brave (2.000/mês) → o chamador
+   * aplica teto por execução. Devolve só os 14 dígitos do CNPJ ou null.
+   */
+  async discoverCnpjByName(
+    fetcher: typeof fetch,
+    opts: { name: string; city: string; state?: string | null },
+  ): Promise<string | null> {
+    if (!fetcher || !process.env.BRAVE_SEARCH_API_KEY) return null;
+    const name = compactText(opts.name).replace(/"/g, '');
+    const city = compactText(opts.city || '').replace(/"/g, '');
+    if (name.length < 3) return null;
+    const query = `"${name}" "${city}" CNPJ`.replace(/\s+/g, ' ').trim();
+    const timeoutMs = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_TIMEOUT_MS', 4500, 15000);
+    const candidates = await this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
+    if (!candidates.length) return null;
+    const allText = candidates.map((c) => `${c.title} ${c.snippet} ${c.url}`).join(' ');
+    return extractCnpjFromText(allText);
   }
 
   private async searchHbxForLead(

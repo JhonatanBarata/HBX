@@ -27,7 +27,7 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, ConfirmDialog, I, ICONS, KpiRow, PhotoLightbox, WhatsAppMark, useCurrentUser, useMyModules } from "@/components/hbx/shell";
-import { decodeAudioBlob, renderVoiceWav, VOICE_MODE_LABEL, VOICE_PITCH_DEFAULTS, VOICE_PITCH_RANGE, type DecodedAudio, type VoiceMode } from "@/lib/voice-fx";
+import { decodeAudioBlob, renderVoiceWav, VOICE_MODE_LABEL, VOICE_PRESETS, VOICE_PITCH_RANGE, VOICE_FORMANT_RANGE, type DecodedAudio, type VoiceMode, type VoiceTune } from "@/lib/voice-fx";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -707,9 +707,11 @@ export function AtendimentoClient() {
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);        // popover (só aparece ao clicar)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
-  // afinação do TOM por modo (slider ao vivo, salvo no navegador)
-  const [tunePitch, setTunePitch] = useState<Record<"fem" | "masc", number>>({ ...VOICE_PITCH_DEFAULTS });
-  const tunePitchRef = useRef<Record<"fem" | "masc", number>>({ ...VOICE_PITCH_DEFAULTS });
+  // afinação Tom (pitch) + Timbre (formant) por modo (sliders ao vivo, salvo no navegador)
+  type TuneMap = Record<"fem" | "masc", VoiceTune>;
+  const freshTune = (): TuneMap => ({ fem: { ...VOICE_PRESETS.fem }, masc: { ...VOICE_PRESETS.masc } });
+  const [tune, setTune] = useState<TuneMap>(freshTune);
+  const tuneRef = useRef<TuneMap>(freshTune());
   const pitchTimerRef = useRef<number>(0);
   // espelhos p/ o closure do MediaRecorder.onstop (evita estado velho)
   const recSecsRef = useRef(0);
@@ -717,15 +719,16 @@ export function AtendimentoClient() {
   // carrega a afinação salva (1x no mount; evita mismatch de hidratação)
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("hbx-vc-pitch");
+      const raw = localStorage.getItem("hbx-vc-tune");
       if (!raw) return;
       const p = JSON.parse(raw);
-      const next = {
-        fem: Number(p?.fem) > 0 ? Number(p.fem) : VOICE_PITCH_DEFAULTS.fem,
-        masc: Number(p?.masc) > 0 ? Number(p.masc) : VOICE_PITCH_DEFAULTS.masc,
-      };
-      tunePitchRef.current = next;
-      setTunePitch(next);
+      const pick = (m: "fem" | "masc"): VoiceTune => ({
+        pitch: Number(p?.[m]?.pitch) > 0 ? Number(p[m].pitch) : VOICE_PRESETS[m].pitch,
+        formant: Number(p?.[m]?.formant) > 0 ? Number(p[m].formant) : VOICE_PRESETS[m].formant,
+      });
+      const next: TuneMap = { fem: pick("fem"), masc: pick("masc") };
+      tuneRef.current = next;
+      setTune(next);
     } catch { /* ignora */ }
   }, []);
   // revoga a URL da prévia ao desmontar (evita vazamento de blob)
@@ -1296,8 +1299,8 @@ export function AtendimentoClient() {
     setPreviewBusy(true);
     try {
       if (!decodedRef.current) decodedRef.current = await decodeAudioBlob(original);
-      const pitch = mode === "fem" || mode === "masc" ? tunePitchRef.current[mode] : undefined;
-      const wav = renderVoiceWav(decodedRef.current, mode, pitch);
+      const t = mode === "fem" || mode === "masc" ? tuneRef.current[mode] : undefined;
+      const wav = await renderVoiceWav(decodedRef.current, mode, t);
       previewBlobRef.current = wav;
       previewExtRef.current = "wav";
       setPreviewUrl(URL.createObjectURL(wav));
@@ -1321,16 +1324,16 @@ export function AtendimentoClient() {
     else void startRec();
   }
 
-  // Slider de afinação do TOM (ao vivo na revisão). Salva no navegador e
-  // reprocessa a prévia com debounce (cada render do motor ~200ms).
-  function setVoicePitch(mode: "fem" | "masc", value: number) {
-    const next = { ...tunePitchRef.current, [mode]: value };
-    tunePitchRef.current = next;
-    setTunePitch(next);
-    try { localStorage.setItem("hbx-vc-pitch", JSON.stringify(next)); } catch { /* ignora */ }
+  // Sliders Tom (pitch) e Timbre (formant) ao vivo na revisão. Salva no navegador
+  // e reprocessa a prévia com debounce (RubberBand leva ~centenas de ms).
+  function setVoiceParam(mode: "fem" | "masc", key: keyof VoiceTune, value: number) {
+    const next: TuneMap = { ...tuneRef.current, [mode]: { ...tuneRef.current[mode], [key]: value } };
+    tuneRef.current = next;
+    setTune(next);
+    try { localStorage.setItem("hbx-vc-tune", JSON.stringify(next)); } catch { /* ignora */ }
     if (recPhase === "review" && voiceModeRef.current === mode) {
       if (pitchTimerRef.current) clearTimeout(pitchTimerRef.current);
-      pitchTimerRef.current = window.setTimeout(() => { void buildPreview(mode); }, 220);
+      pitchTimerRef.current = window.setTimeout(() => { void buildPreview(mode); }, 260);
     }
   }
 
@@ -2289,13 +2292,23 @@ export function AtendimentoClient() {
                         </button>
                       </div>
                       {vcAllowed && voiceMode !== "normal" && (
-                        <div className="vc-tune">
-                          <span className="vc-tune-lbl">Tom da voz</span>
-                          <input type="range" className="vc-range"
-                            min={VOICE_PITCH_RANGE[voiceMode].min} max={VOICE_PITCH_RANGE[voiceMode].max} step={0.01}
-                            value={tunePitch[voiceMode]} disabled={previewBusy}
-                            onChange={e => setVoicePitch(voiceMode as "fem" | "masc", Number(e.target.value))} />
-                          <span className="vc-tune-val">{tunePitch[voiceMode] >= 1 ? "+" : ""}{Math.round((tunePitch[voiceMode] - 1) * 100)}%</span>
+                        <div className="vc-tune-box">
+                          <div className="vc-tune">
+                            <span className="vc-tune-lbl">Tom</span>
+                            <input type="range" className="vc-range"
+                              min={VOICE_PITCH_RANGE[voiceMode].min} max={VOICE_PITCH_RANGE[voiceMode].max} step={0.01}
+                              value={tune[voiceMode].pitch} disabled={previewBusy}
+                              onChange={e => setVoiceParam(voiceMode as "fem" | "masc", "pitch", Number(e.target.value))} />
+                            <span className="vc-tune-val">{tune[voiceMode].pitch >= 1 ? "+" : ""}{Math.round((tune[voiceMode].pitch - 1) * 100)}%</span>
+                          </div>
+                          <div className="vc-tune">
+                            <span className="vc-tune-lbl">Timbre</span>
+                            <input type="range" className="vc-range"
+                              min={VOICE_FORMANT_RANGE[voiceMode].min} max={VOICE_FORMANT_RANGE[voiceMode].max} step={0.01}
+                              value={tune[voiceMode].formant} disabled={previewBusy}
+                              onChange={e => setVoiceParam(voiceMode as "fem" | "masc", "formant", Number(e.target.value))} />
+                            <span className="vc-tune-val">{tune[voiceMode].formant >= 1 ? "+" : ""}{Math.round((tune[voiceMode].formant - 1) * 100)}%</span>
+                          </div>
                         </div>
                       )}
                       {previewBusy && <small className="rec-hint">Processando voz…</small>}

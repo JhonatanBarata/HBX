@@ -832,11 +832,17 @@ export class RadarCoreFactoryAdminMixin {
         1,
         AUTONOMOUS_MASS_DATA_MAX_TASKS,
       );
+      // AUTÔNOMO (dono NÃO fixou cidade no painel) = campanha AUTOMÁTICA: deixa city/state/segment
+      // VAZIOS para o refill (`rankAutonomousMassDataWorkCandidates`) varrer o pool NACIONAL (cidades
+      // produtivas primeiro) e preferir combos FRESCOS/baixo-stock em vez de re-moer uma cidade só.
+      // RAIZ 29/06: herdava `mission.city` → `buildAutonomousMassDataLocationPool` devolvia [1 cidade]
+      // (guided) → travava em São Paulo (+0 net-new quando minerada). Com o dono guiando, respeita o pin.
+      const ownerGuidedLocation = this.getFactoryGuidedLocation(config);
       const campaign = await this.createRadarCampaignForUser(factoryUser, {
         mode: 'mass_data',
-        state: mission.state,
-        city: mission.city,
-        segment: mission.segment,
+        state: ownerGuidedLocation ? mission.state : '',
+        city: ownerGuidedLocation ? mission.city : '',
+        segment: ownerGuidedLocation ? mission.segment : '',
         targetType: mission.targetType,
         targetTotal,
         batchSize: safeInteger(config?.batchSize, 20),

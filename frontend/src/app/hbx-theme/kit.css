@@ -466,9 +466,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   border-radius: 999px; border: 1px solid var(--hbx-brand-strong); background: var(--hbx-brand-soft);
   color: var(--hbx-brand-strong); cursor: pointer; flex: 0 0 auto; }
 .vc-chip:disabled { opacity: 0.5; cursor: default; }
-/* Slider de afinação do tom (ao vivo na revisão; salva no navegador) */
+/* Sliders de afinação Tom/Timbre (ao vivo na revisão; salva no navegador) */
+.vc-tune-box { display: grid; gap: 5px; padding: 2px 0 0; }
 .vc-tune { display: flex; align-items: center; gap: 9px; padding: 2px 2px 0; }
-.vc-tune-lbl { font-size: 0.66rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; flex: 0 0 auto; }
+.vc-tune-lbl { font-size: 0.66rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; flex: 0 0 auto; min-width: 48px; }
 .vc-range { flex: 1; min-width: 0; accent-color: var(--hbx-brand-strong); height: 22px; cursor: pointer; }
 .vc-range:disabled { opacity: 0.5; cursor: default; }
 .vc-tune-val { font-size: 0.7rem; font-weight: 700; color: var(--hbx-brand-strong); min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }

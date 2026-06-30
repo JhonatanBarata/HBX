@@ -12,19 +12,24 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 export type VoiceMode = 'normal' | 'fem' | 'masc';
+export type VoiceTune = { pitch: number; formant: number };
 
-// TOM padrão por modo (multiplicador de altura). 1.0 = sem mudança; >1 mais
-// aguda; <1 mais grave. O admin afina ao vivo no slider (salvo no navegador).
-//   1.25 ≈ +3.9 semitons | 0.85 ≈ -2.8 semitons
-export const VOICE_PITCH_DEFAULTS: Record<Exclude<VoiceMode, 'normal'>, number> = {
-  fem: 1.25,
-  masc: 0.85,
+// Padrões por modo. pitch = altura (1.45 ≈ +6.5 semitons); formant = timbre do
+// trato vocal, SEPARADO do pitch (é o que dá voz feminina natural sem chipmunk).
+// O admin afina os dois ao vivo (sliders Tom/Timbre), salvo no navegador.
+export const VOICE_PRESETS: Record<Exclude<VoiceMode, 'normal'>, VoiceTune> = {
+  fem: { pitch: 1.45, formant: 1.16 },
+  masc: { pitch: 0.72, formant: 0.88 },
 };
 
-// Faixa do slider de afinação por modo (mín/máx do "Tom").
+// Faixas dos sliders por modo.
 export const VOICE_PITCH_RANGE: Record<Exclude<VoiceMode, 'normal'>, { min: number; max: number }> = {
-  fem: { min: 1.05, max: 1.6 },
-  masc: { min: 0.6, max: 0.95 },
+  fem: { min: 1.1, max: 1.9 },
+  masc: { min: 0.5, max: 0.95 },
+};
+export const VOICE_FORMANT_RANGE: Record<Exclude<VoiceMode, 'normal'>, { min: number; max: number }> = {
+  fem: { min: 1.0, max: 1.4 },
+  masc: { min: 0.7, max: 1.0 },
 };
 
 export const VOICE_MODE_LABEL: Record<VoiceMode, string> = {
@@ -205,11 +210,27 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
 }
 
 // ── Alto nível: aplica o modo de voz no PCM decodificado → WAV Blob. ──────────
-// `pitch` opcional sobrescreve o padrão do modo (usado pelo slider de afinação).
-export function renderVoiceWav(decoded: DecodedAudio, mode: VoiceMode, pitch?: number): Blob {
+// Qualidade máxima via RubberBand (pitch + formant independentes). Se o wasm não
+// carregar, cai no phase vocoder (só pitch) pra NÃO travar o envio. `tune`
+// sobrescreve os padrões do modo (sliders Tom/Timbre).
+export async function renderVoiceWav(
+  decoded: DecodedAudio,
+  mode: VoiceMode,
+  tune?: Partial<VoiceTune>,
+): Promise<Blob> {
   if (mode === 'normal') return encodeWav(decoded.data, decoded.sampleRate);
-  const p = typeof pitch === 'number' && pitch > 0 ? pitch : VOICE_PITCH_DEFAULTS[mode];
-  const shifted = pitchShift(decoded.data, p);
+  const preset = VOICE_PRESETS[mode];
+  const pitch = typeof tune?.pitch === 'number' && tune.pitch > 0 ? tune.pitch : preset.pitch;
+  const formant = typeof tune?.formant === 'number' && tune.formant > 0 ? tune.formant : preset.formant;
+  let shifted: Float32Array;
+  try {
+    const { processVoiceRubberBand } = await import('./voice-rubberband');
+    shifted = await processVoiceRubberBand(decoded.data, decoded.sampleRate, pitch, formant);
+    if (!shifted.length) throw new Error('saída vazia');
+  } catch {
+    // fallback: phase vocoder (só pitch) — pior que RubberBand, mas funcional
+    shifted = pitchShift(decoded.data, pitch);
+  }
   normalizePeak(shifted);
   return encodeWav(shifted, decoded.sampleRate);
 }

@@ -423,19 +423,22 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
   async cnpjBackfillForMaster(opts: { limit?: number; socials?: boolean } = {}): Promise<{ scanned: number; enriched: number; errors: number; sitesFound: number; cnpjsFound: number; phonesFound: number; socialsFound: number }> {
     const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 200, 2000));
     // Worker 1 "CNPJ → dono": por padrão também caça as redes sociais DO DONO.
-    // Cap por execução pra não martelar o buscador (cada lookup faz buscas web sequenciais).
     const withSocials = opts.socials !== false;
-    let socialBudget = withSocials ? 80 : 0;
+    let socialBudget = withSocials ? 40 : 0;
+    // ORÇAMENTO BRAVE por execução. Brave free = 2.000 buscas/mês; 1 busca "CNPJ por nome" por
+    // lead sem site queimaria o mês numa única passada (5.900+ leads). Teto por execução +
+    // marcador `cnpjTriedAt` (faz o cursor AVANÇAR pela base, não re-moer os mesmos leads novos).
+    const braveBudgetMax = Math.max(0, Number(process.env.HBX_CNPJ_BACKFILL_BRAVE_BUDGET ?? 40) || 0);
+    let braveBudget = braveBudgetMax;
+    const retryAfterMs = Math.max(1, Number(process.env.HBX_CNPJ_BACKFILL_RETRY_DAYS ?? 14) || 14) * 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
     const prisma = this.internalPrisma as any;
 
-    // Passo 1 — busca leads pendentes:
-    //   (A) leads com CNPJ mas sem razaoSocial/ownerName completo (candidatos L4)
-    //   (B) leads sem site (website nulo/vazio) e sem CNPJ no metadataJson (candidatos L3→L4)
-    // Pega um lote maior e filtra em memória (campos JSON não são filtráveis no DB de forma segura).
+    // Pega um lote grande e filtra em memória (campos JSON não são filtráveis no DB de forma segura).
     const candidates = await prisma.radarLeadPool.findMany({
-      select: { id: true, name: true, city: true, state: true, segment: true, website: true, metadataJson: true, evidenceJson: true, signalsJson: true },
+      select: { id: true, name: true, city: true, state: true, segment: true, website: true, email: true, instagramUrl: true, facebookUrl: true, metadataJson: true, evidenceJson: true, signalsJson: true },
       orderBy: { createdAt: 'desc' },
-      take: limit * 6,
+      take: Math.min(limit * 20, 3000),
     });
 
     const parseMeta = (row: any): Record<string, any> => {
@@ -446,14 +449,25 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       } catch { return {}; }
     };
 
-    const pending = candidates.filter((row: any) => {
+    // Dois grupos de pendência, em ordem de PRIORIDADE:
+    //   (1) tem CNPJ mas L4 incompleto → barato (só BrasilAPI), zero Brave.
+    //   (2) sem site, sem CNPJ, não tentado há `retryAfterMs` → Brave CNPJ-por-nome (com teto).
+    // Lead COM site fica de fora aqui — quem cobre é o crawl local (Tipo 2, ilimitado/grátis).
+    const l4Pending: any[] = [];
+    const bravePending: any[] = [];
+    for (const row of candidates) {
       const meta = parseMeta(row);
       const cnpjDigits = String(meta?.cnpj || row?.cnpj || '').replace(/\D/g, '');
-      const alreadyComplete = Boolean(meta?.ownerName) && Boolean(meta?.razaoSocial);
+      const hasCnpj = cnpjDigits.length >= 14;
+      const l4Complete = Boolean(meta?.razaoSocial)
+        && (Boolean(meta?.ownerName) || (Array.isArray(meta?.ownerNames) && meta.ownerNames.length > 0));
       const hasSite = Boolean(String(row?.website || '').trim());
-      // Include: has CNPJ not yet fully enriched, OR has no site (needs L3 discovery)
-      return (!alreadyComplete && cnpjDigits.length >= 14) || (!hasSite);
-    }).slice(0, limit);
+      const triedAt = Number(meta?.cnpjTriedAt || 0);
+      const triedRecently = triedAt > 0 && (nowMs - triedAt) < retryAfterMs;
+      if (hasCnpj && !l4Complete) { l4Pending.push(row); continue; }
+      if (!hasSite && !hasCnpj && !triedRecently) { bravePending.push(row); }
+    }
+    const pending = [...l4Pending, ...bravePending].slice(0, limit);
 
     const l4Enricher = new RadarCnpjL4EnrichmentService();
     const l1Enricher = new RadarPublicDataService();
@@ -472,92 +486,26 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         const hasSiteBefore = Boolean(String(row?.website || '').trim());
         const hasCnpjBefore = String(metaBefore?.cnpj || row?.cnpj || '').replace(/\D/g, '').length >= 14;
 
-        // (a) Web-enrichment discovery for leads without a site (L3 → finds site + CNPJ).
-        // NÃO exigir BRAVE_SEARCH_API_KEY: o RadarWebEnrichmentService.searchWeb tem fallback
-        // Bing/DuckDuckGo (IP-safe) e acha o WEBSITE pelo nome/cidade sem Brave. Com a guarda de
-        // Brave aqui, uma base inteira sem CNPJ nem site (5.889 leads) descobria ZERO — o passo nem
-        // rodava. Brave, quando configurado, continua sendo usado lá dentro p/ o extra de CNPJ-por-nome.
-        if (!hasSiteBefore) {
-          const cityRaw = String(row.city || '').trim();
-          const stateRaw = String(row.state || '').trim();
-          const segmentRaw = String(row.segment || '').trim();
-
-          // Build a minimal lead object compatible with RadarWebEnrichmentService helpers
-          const syntheticLead: any = {
-            name: row.name,
-            phone: '',
-            phoneDigits: '',
-            website: row.website || null,
-            instagramUrl: null,
-            facebookUrl: null,
-            city: cityRaw,
-            state: stateRaw,
-            segment: segmentRaw,
-            metadataJson: metaBefore,
-            cnpj: metaBefore?.cnpj || row?.cnpj || null,
-          };
-
-          const webResult = await webEnrichService.run({
-            normalized: {
-              city: cityRaw,
-              state: stateRaw,
-              segment: segmentRaw,
-              targetType: 'pj',
-              quantity: 1,
-              preferredChannels: [],
-              requiredChannels: [],
-              channelMatchMode: 'prefer',
-            } as any,
-            currentResults: [syntheticLead],
-            host: { fetcher: globalThis.fetch },
-            maxCards: 1,
+        // (a) CNPJ por NOME (lean, ~1.1s/Brave) p/ lead SEM site e SEM CNPJ. Marca SEMPRE
+        // `cnpjTriedAt` (achando ou não) pra o backfill AVANÇAR e não re-moer o mesmo lead novo.
+        // Teto de Brave por execução (orçamento free 2.000/mês). O run() completo (16s/lead,
+        // busca de site/social) foi removido daqui de propósito: estourava o timeout e a
+        // descoberta de site rende pouco — quem acha e-mail/telefone é o crawl local (Tipo 2,
+        // ilimitado). Com CNPJ em mãos, o passo (b) L4 dispara → razão/dono/telefone do dono.
+        if (!hasSiteBefore && !hasCnpjBefore && braveBudget > 0) {
+          braveBudget -= 1;
+          const found = await webEnrichService.discoverCnpjByName(globalThis.fetch, {
+            name: String(row.name || ''),
+            city: String(row.city || ''),
+            state: String(row.state || '') || null,
           }).catch(() => null);
-
-          const enrichedResult = webResult?.results?.[0];
-          if (enrichedResult) {
-            const newWebsite = String((enrichedResult as any).website || '').trim();
-            const newCnpj = String(
-              (enrichedResult as any).cnpj
-              || (typeof (enrichedResult as any).metadataJson === 'object'
-                ? (enrichedResult as any).metadataJson?.cnpj
-                : null)
-              || '',
-            ).replace(/\D/g, '');
-            const newEmail = String((enrichedResult as any).email || '').trim();
-            const newIg = String((enrichedResult as any).instagramUrl || '').trim();
-            const newFb = String((enrichedResult as any).facebookUrl || '').trim();
-
-            const hasSiteNow = Boolean(newWebsite) && !['instagram.com', 'facebook.com', 'fb.com'].some((d) => newWebsite.includes(d));
-            if (hasSiteNow) sitesFound += 1;
-            if (newCnpj.length >= 14 && !hasCnpjBefore) cnpjsFound += 1;
-
-            // Persist delta into metadataJson (additive, no migration)
-            if (hasSiteNow || newCnpj || newEmail || newIg || newFb) {
-              const currentMeta = parseMeta(row);
-              const patchedMeta = {
-                ...currentMeta,
-                ...(newCnpj && !currentMeta.cnpj ? { cnpj: newCnpj } : {}),
-                ...(newEmail && !currentMeta.email ? { discoveredEmail: newEmail } : {}),
-              };
-              const updateData: Record<string, any> = {
-                metadataJson: JSON.stringify(patchedMeta),
-                ...(hasSiteNow && !row.website ? { website: newWebsite } : {}),
-                ...(newEmail && !row.email ? { email: newEmail } : {}),
-                ...(newIg && !row.instagramUrl ? { instagramUrl: newIg } : {}),
-                ...(newFb && !row.facebookUrl ? { facebookUrl: newFb } : {}),
-              };
-              await prisma.radarLeadPool.update({
-                where: { id: row.id },
-                data: updateData,
-              }).catch(() => null);
-
-              // Re-read metadataJson for subsequent steps
-              row.metadataJson = patchedMeta;
-              if (hasSiteNow) row.website = newWebsite;
-              if (newCnpj) row.cnpj = row.cnpj || newCnpj;
-              enriched += 1;
-            }
-          }
+          const patchedMeta = { ...metaBefore, cnpjTriedAt: nowMs, ...(found ? { cnpj: found } : {}) };
+          await prisma.radarLeadPool.update({
+            where: { id: row.id },
+            data: { metadataJson: JSON.stringify(patchedMeta) },
+          }).catch(() => null);
+          row.metadataJson = patchedMeta;
+          if (found) { cnpjsFound += 1; enriched += 1; }
         }
 
         // (b) L4 enrichment: CNPJ → razão/CNAE/sócio/situação/telefone do dono
