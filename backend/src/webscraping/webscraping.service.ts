@@ -649,6 +649,24 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       return out;
     };
 
+    // Verificação WhatsApp em LOTE de TODOS os telefones capturados (1 request no motor dedicado,
+    // sessão já conectada — NUNCA reconecta; degrada p/ vazio se o motor estiver fora). O resultado
+    // (digits→tem WhatsApp?) é gravado por lead em metadataJson.phonesWhatsapp; o DISPLAY só exibe
+    // telefone confirmado. Regra do dono: todo telefone passa pelo motor antes de aparecer.
+    const allIncomingPhones = Array.from(new Set(
+      list.flatMap((it) => (Array.isArray(it?.phones) ? it!.phones! : []).map(cleanPhone).filter(Boolean)),
+    ));
+    const waMap: Record<string, boolean> = {};
+    if (allIncomingPhones.length) {
+      try {
+        const checks = await this.radarCheckWhatsappNumbers(allIncomingPhones);
+        for (const c of checks || []) {
+          const p = String((c as any)?.normalizedNumber || (c as any)?.input || '').replace(/\D/g, '');
+          if (p) waMap[p] = Boolean((c as any)?.exists);
+        }
+      } catch { /* motor fora do ar → sem verificação; nada é exibido como verificado */ }
+    }
+
     for (const item of list) {
       const id = String(item?.id || '').trim();
       if (!id) { errors += 1; continue; }
@@ -683,7 +701,19 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           const before = Array.isArray(meta.phones) ? meta.phones.length : 0;
           meta.phones = mergeCapped(meta.phones, incomingPhones);
           if (meta.phones.length !== before) metaChanged = true;
-          if (!String(row.phone || '').trim() && meta.phones[0]) data.phone = meta.phones[0];
+          // Grava a verificação WhatsApp (do lote) p/ os telefones deste lead — sem descartar nenhum.
+          const waStore: Record<string, boolean> = (meta.phonesWhatsapp && typeof meta.phonesWhatsapp === 'object') ? meta.phonesWhatsapp : {};
+          for (const p of meta.phones as string[]) {
+            const d = String(p).replace(/\D/g, '');
+            if (Object.prototype.hasOwnProperty.call(waMap, d)) waStore[d] = waMap[d];
+          }
+          meta.phonesWhatsapp = waStore;
+          metaChanged = true;
+          // O telefone PRINCIPAL do card só é preenchido com um número COM WhatsApp confirmado.
+          if (!String(row.phone || '').trim()) {
+            const firstWithWa = (meta.phones as string[]).find((p) => waStore[String(p).replace(/\D/g, '')] === true);
+            if (firstWithWa) data.phone = firstWithWa;
+          }
         }
 
         const cnpj = String(item?.cnpj || '').replace(/\D/g, '');

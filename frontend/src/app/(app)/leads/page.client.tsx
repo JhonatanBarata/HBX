@@ -56,6 +56,7 @@ type RadarLead = {
   companySituation?: string | null;
   emails?: string[] | null;
   phones?: string[] | null;
+  phonesWhatsapp?: Record<string, boolean> | null;
   enrichmentScore?: number | null;
   lastEnrichedAt?: string | null;
   vendasStatus?: string | null;
@@ -971,6 +972,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       // aplica o cadeado por tier (canSeeCompany) sobre os dados pessoais do dono.
       emails: revealed ? (lead.emails ?? null) : null,
       phones: revealed ? (lead.phones ?? null) : null,
+      phonesWhatsapp: revealed ? (lead.phonesWhatsapp ?? null) : null,
       cnpj: revealed ? (lead.cnpj ?? null) : null,
       cnae: revealed ? (lead.cnae ?? null) : null,
       razaoSocial: revealed ? (lead.razaoSocial ?? null) : null,

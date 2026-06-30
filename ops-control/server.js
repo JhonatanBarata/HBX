@@ -2223,6 +2223,26 @@ app.get('/api/opscontrol/env-presence', async (req, res) => {
   res.json({ ok: true, scope: 'vps', container, items });
 });
 
+// Injeta uma chave no .env do backend de PRODUÇÃO (VPS) e RECRIA o container pra valer.
+// Valor chega em base64 (evita qualquer escaping no SSH). NUNCA loga/devolve o valor.
+app.post('/api/opscontrol/env-set', async (req, res) => {
+  const key = String((req.body && req.body.key) || '').trim();
+  const valueB64 = String((req.body && req.body.valueB64) || '').trim();
+  if (!/^[A-Z0-9_]+$/.test(key)) { res.json({ ok: false, reason: 'chave_invalida' }); return; }
+  if (!valueB64 || !/^[A-Za-z0-9+/=]+$/.test(valueB64)) { res.json({ ok: false, reason: 'valor_invalido' }); return; }
+  if (!hasSshConfig()) { res.json({ ok: false, reason: 'ssh_nao_configurado' }); return; }
+  const f = vpsHostRoot + '/backend/.env';
+  // upsert seguro: remove a linha KEY= e re-grava com printf (sem interpretar o valor) → depois recria o backend.
+  const cmd = "set -e; f='" + f + "'; k='" + key + "'; " +
+    "v=$(printf '%s' '" + valueB64 + "' | base64 -d); " +
+    "tmp=$(mktemp); grep -v \"^${k}=\" \"$f\" > \"$tmp\" 2>/dev/null || true; " +
+    "printf '%s=%s\\n' \"$k\" \"$v\" >> \"$tmp\"; mv \"$tmp\" \"$f\"; " +
+    "cd '" + vpsHostRoot + "' && docker compose -f docker-compose.hostinger.yml up -d --no-deps --force-recreate backend";
+  const r = await runSshCommand(cmd, { timeout: 90000 });
+  if (!r.ok) { res.json({ ok: false, reason: String(r.stderr || `code_${r.code}`).slice(0, 300) }); return; }
+  res.json({ ok: true, key, recreated: true });
+});
+
 app.post('/api/opscontrol/factory/stop', async (req, res) => {
   try {
     const scope = normalizeOpsScope(req.body?.scope);

@@ -2242,8 +2242,13 @@ export class RadarCorePresentationMixin {
       ownerFacebook: (meta as any)?.ownerFacebook || null,
       ownerSocialCandidates: Array.isArray((meta as any)?.ownerSocialCandidates) ? (meta as any).ownerSocialCandidates : [],
       // Worker 2 "Email finder": e-mails 1/2/3 e telefones 1/2/3 achados no crawl (teto 3).
+      // `phonesWhatsapp` = mapa digits→bool da verificação WhatsApp (motor dedicado). O DISPLAY
+      // só exibe telefone com `true`; sem mapa = nenhum extra aparece (card idêntico). Cru nunca descartado.
       emails: Array.isArray((meta as any)?.emails) ? (meta as any).emails.slice(0, 3) : [],
       phones: Array.isArray((meta as any)?.phones) ? (meta as any).phones.slice(0, 3) : [],
+      phonesWhatsapp: ((meta as any)?.phonesWhatsapp && typeof (meta as any).phonesWhatsapp === 'object')
+        ? (meta as any).phonesWhatsapp
+        : {},
       companySituation: (meta as any)?.companySituation || null,
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,
@@ -2472,12 +2477,15 @@ export class RadarCorePresentationMixin {
     }
   }
 
-  private async radarCheckWhatsappNumbers(
+  // protected: o enricher (applyDiscoveredContactsForMaster) reusa esta MESMA verificação
+  // em lote (motor WhatsApp dedicado, sessão já conectada — NUNCA reconecta) p/ checar os
+  // multi-telefones capturados. 1 request por lote; degrada p/ [] se o motor não estiver no ar.
+  protected async radarCheckWhatsappNumbers(
     numbers: Array<string | null | undefined>,
   ) {
     const engineId = await this.resolveRadarWhatsappEngineCompanyId();
-    if (!engineId) return [];
-    return await this.webwhatsBridge!.checkWhatsappNumbers(engineId, numbers);
+    if (!engineId || !this.webwhatsBridge) return [];
+    return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers);
   }
 
   private async applyRadarWhatsappCheck(

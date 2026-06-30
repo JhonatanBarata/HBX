@@ -691,6 +691,7 @@ export function AtendimentoClient() {
   const mods = useMyModules();
   const vcAllowed = souAdmin && Boolean(mods.byKey["vc"]?.accessible);
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("normal"); // nunca inicia ligado
+  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);        // popover (só aparece ao clicar)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   // espelhos p/ o closure do MediaRecorder.onstop (evita estado velho)
@@ -698,6 +699,13 @@ export function AtendimentoClient() {
   const voiceModeRef = useRef<VoiceMode>("normal");
   // revoga a URL da prévia ao desmontar (evita vazamento de blob)
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  // fecha o menu de voz ao clicar fora (popover dentro do composer faz stopPropagation)
+  useEffect(() => {
+    if (!voiceMenuOpen) return;
+    const h = () => setVoiceMenuOpen(false);
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [voiceMenuOpen]);
 
   // Fecha o popover de transferência ao clicar fora
   useEffect(() => {
@@ -1276,10 +1284,13 @@ export function AtendimentoClient() {
     }
   }
 
-  function pickVoiceMode(mode: VoiceMode) {
+  // Escolheu a voz no menu: na revisão reprocessa a prévia; senão começa a gravar já.
+  function pickVoiceFromMenu(mode: VoiceMode) {
+    setVoiceMenuOpen(false);
     setVoiceMode(mode);
     voiceModeRef.current = mode;
     if (recPhase === "review") void buildPreview(mode);
+    else void startRec();
   }
 
   async function startRec() {
@@ -1369,19 +1380,21 @@ export function AtendimentoClient() {
     await sendAttachment(file, "audio", { durationSeconds: recDurRef.current });
   }
 
-  // Seletor Normal/Feminina/Masculina — só admin com módulo "VC" liberado pelo master.
-  function renderVoicePicker() {
-    if (!vcAllowed) return null;
+  // Popover Normal/Feminina/Masculina — só admin com módulo "VC", abre AO CLICAR (não fica sempre visível).
+  function renderVoiceMenu() {
+    if (!vcAllowed || !voiceMenuOpen) return null;
     const modes: VoiceMode[] = ["normal", "fem", "masc"];
     return (
-      <div className="vc-picker" role="group" aria-label="Alterador de voz">
-        <span className="vc-picker-label"><I d={ICONS.mic} size={12} /> Voz</span>
-        {modes.map(m => (
-          <button key={m} type="button" className={"vc-opt" + (voiceMode === m ? " on" : "")}
-            disabled={previewBusy} onClick={() => pickVoiceMode(m)}>
-            {VOICE_MODE_LABEL[m]}
-          </button>
-        ))}
+      <div className="hbx-pop chat-pop vc-menu" style={{ right: 12 }} onMouseDown={e => e.stopPropagation()}>
+        <span className="vc-picker-label"><I d={ICONS.mic} size={12} /> Escolha a voz</span>
+        <div className="vc-menu-opts">
+          {modes.map(m => (
+            <button key={m} type="button" className={"vc-opt" + (voiceMode === m ? " on" : "")}
+              disabled={previewBusy} onClick={() => pickVoiceFromMenu(m)}>
+              {VOICE_MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -2220,11 +2233,16 @@ export function AtendimentoClient() {
                     </div>
                   ) : recPhase === "review" ? (
                     <div className="rec-review">
-                      {renderVoicePicker()}
                       <div className="rec-review-row">
                         <button className="icon-ghost" onClick={cancelRec} title="Descartar"><I d={ICONS.trash} size={17} /></button>
                         <button className="icon-ghost" onClick={reRecord} disabled={previewBusy} title="Regravar"><I d={ICONS.mic} size={17} /></button>
                         <audio className="rec-audio" controls src={previewUrl ?? undefined} />
+                        {vcAllowed && (
+                          <button className={"vc-chip" + (voiceMenuOpen ? " on" : "")} disabled={previewBusy}
+                            onMouseDown={e => e.stopPropagation()} onClick={() => setVoiceMenuOpen(o => !o)} title="Trocar voz">
+                            {VOICE_MODE_LABEL[voiceMode]}
+                          </button>
+                        )}
                         <button className="send" onClick={sendRecorded} disabled={previewBusy} title="Enviar áudio">
                           {previewBusy ? <span className="rec-spin" /> : <I d={ICONS.send} size={16} />}
                         </button>
@@ -2232,18 +2250,18 @@ export function AtendimentoClient() {
                       {previewBusy && <small className="rec-hint">Processando voz…</small>}
                     </div>
                   ) : (
-                    <div style={{ display: "grid", gap: 6 }}>
-                      {renderVoicePicker()}
-                      <div className="row" style={{ alignItems: 'flex-end' }}>
-                        <textarea ref={draftRef} className="field-dark" rows={1} style={{ flex: 1, resize: 'none', padding: '8px 12px', lineHeight: '20px', overflowY: 'hidden', verticalAlign: 'top' }} placeholder="Digite sua mensagem..." value={draft}
-                          onChange={e => { setDraft(e.target.value); const el = e.target; el.style.height = 'auto'; const h = Math.min(el.scrollHeight, 96); el.style.height = h + 'px'; el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden'; }}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                          disabled={!convo || sendBusy} />
-                        <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
-                        <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>
-                        <button className="icon-ghost" onClick={startRec} disabled={!convo || sendBusy} title="Gravar áudio"><I d={ICONS.mic} size={17} /></button>
-                        <button className="send" onClick={send} disabled={!convo || sendBusy}><I d={ICONS.send} size={16} /></button>
-                      </div>
+                    <div className="row" style={{ alignItems: 'flex-end' }}>
+                      <textarea ref={draftRef} className="field-dark" rows={1} style={{ flex: 1, resize: 'none', padding: '8px 12px', lineHeight: '20px', overflowY: 'hidden', verticalAlign: 'top' }} placeholder="Digite sua mensagem..." value={draft}
+                        onChange={e => { setDraft(e.target.value); const el = e.target; el.style.height = 'auto'; const h = Math.min(el.scrollHeight, 96); el.style.height = h + 'px'; el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden'; }}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                        disabled={!convo || sendBusy} />
+                      <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
+                      <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>
+                      <button className={"icon-ghost" + (voiceMenuOpen ? " on" : "")}
+                        onMouseDown={e => { if (vcAllowed) e.stopPropagation(); }}
+                        onClick={() => { if (vcAllowed) { setVoiceMenuOpen(o => !o); setEmojiOpen(false); setQuickOpen(false); } else { void startRec(); } }}
+                        disabled={!convo || sendBusy} title={vcAllowed ? "Gravar — escolher voz" : "Gravar áudio"}><I d={ICONS.mic} size={17} /></button>
+                      <button className="send" onClick={send} disabled={!convo || sendBusy}><I d={ICONS.send} size={16} /></button>
                     </div>
                   )}
 
@@ -2255,6 +2273,8 @@ export function AtendimentoClient() {
                       </button>
                     </div>
                   )}
+
+                  {renderVoiceMenu()}
 
                   {emojiOpen && (
                     <div className="hbx-pop chat-pop" style={{ left: 12 }}>

@@ -754,6 +754,21 @@ function ckGetFilters() {
   };
 }
 
+// Telefones exibidos = principal + extras do crawl QUE PASSARAM no motor do WhatsApp (confirmados).
+// Sem mapa de verificação → só o principal (regra do dono: telefone extra só aparece se verificado).
+function ckDisplayPhones(row) {
+  const wa = (row && row.phonesWhatsapp) || {};
+  const out = [];
+  const primary = (row && (row.phone || row.phoneDigits)) || "";
+  if (primary) out.push(primary);
+  const extras = Array.isArray(row && row.phones) ? row.phones : [];
+  for (const p of extras) {
+    const d = String(p || "").replace(/\D/g, "");
+    if (p && wa[d] === true && !out.includes(p)) out.push(p);
+  }
+  return out.slice(0, 3);
+}
+
 function ckGetValue(row, key) {
   if (key === "_cityState") return [row.city, row.state].filter(Boolean).join("/");
   if (key === "_whatsapp") {
@@ -764,7 +779,7 @@ function ckGetValue(row, key) {
   }
   if (key === "website") return row.website || "";
   if (key === "email") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(", ");
-  if (key === "phone") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(", ");
+  if (key === "phone") return ckDisplayPhones(row).join(", ");
   if (key === "instagramUrl") return row.instagramUrl || "";
   if (key === "facebookUrl") return row.facebookUrl || "";
   // Dono/sócio (do L4 CNPJ→qsa): nome(s), telefone e redes PESSOAIS do dono.
@@ -829,7 +844,7 @@ function ckCellHtml(row, key) {
   if (key === "email" || key === "phone") {
     const arr = key === "email"
       ? (Array.isArray(row.emails) && row.emails.length ? row.emails : (row.email ? [row.email] : []))
-      : (Array.isArray(row.phones) && row.phones.length ? row.phones : (row.phone || row.phoneDigits ? [row.phone || row.phoneDigits] : []));
+      : ckDisplayPhones(row);  // principal + extras VERIFICADOS no WhatsApp
     const list = arr.filter(Boolean).slice(0, 3);
     if (!list.length) return '<span style="color:var(--text-muted);">—</span>';
     let head = "";

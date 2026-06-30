@@ -5053,6 +5053,9 @@ export class InboxService {
               enrichmentScore: true,
               lastEnrichedAt: true,
               enrichmentVersion: true,
+              // CNPJ/dono/multi-contatos vivem no metadataJson (cnpj/razaoSocial/ownerName/
+              // ownerPhone/emails/phones/phonesWhatsapp). Sem isso, o card de atendimento não exibe.
+              metadataJson: true,
             },
           },
         },
@@ -5233,6 +5236,28 @@ export class InboxService {
             setupValueLabel: lead.setupValue != null && Number(lead.setupValue) > 0 ? this.fmtMoneyBrl(Number(lead.setupValue)) : null,
             setupCommissionValueLabel: lead.setupCommissionAmount != null && Number(lead.setupCommissionAmount) > 0 ? this.fmtMoneyBrl(Number(lead.setupCommissionAmount)) : null,
             updatedAt: lead.updatedAt instanceof Date ? lead.updatedAt.toISOString() : null,
+            // Empresa + dono + multi-contatos (do metadataJson do RadarLeadPool ligado). Telefone extra
+            // só é exibido no front se confirmado no WhatsApp (phonesWhatsapp). Cru nunca é descartado.
+            ...(() => {
+              const pool = input.lead?.radarCompanyStates?.[0]?.radarLead ?? null;
+              let meta: any = {};
+              try { const v = pool?.metadataJson; meta = v ? (typeof v === 'object' ? v : JSON.parse(v)) : {}; } catch { meta = {}; }
+              const cap3 = (x: any) => (Array.isArray(x) ? x.filter(Boolean).slice(0, 3) : []);
+              return {
+                cnpj: meta.cnpj || null,
+                cnae: meta.cnae || null,
+                razaoSocial: meta.razaoSocial || null,
+                ownerName: meta.ownerName || null,
+                ownerNames: Array.isArray(meta.ownerNames) ? meta.ownerNames : [],
+                ownerPhone: meta.ownerPhone || null,
+                ownerInstagram: meta.ownerInstagram || null,
+                ownerFacebook: meta.ownerFacebook || null,
+                companySituation: meta.companySituation || null,
+                emails: cap3(meta.emails),
+                phones: cap3(meta.phones),
+                phonesWhatsapp: (meta.phonesWhatsapp && typeof meta.phonesWhatsapp === 'object') ? meta.phonesWhatsapp : {},
+              };
+            })(),
             leadIntelligence: (() => {
               const pool = input.lead?.radarCompanyStates?.[0]?.radarLead ?? null;
               if (!pool) return null;

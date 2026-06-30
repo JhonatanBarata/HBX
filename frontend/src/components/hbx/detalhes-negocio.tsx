@@ -146,6 +146,8 @@ export type NegocioDetail = {
   // Multi-contatos acumulados pelo scraper (até 3) — captura-e-acumula, nunca descarta.
   emails?: string[] | null;
   phones?: string[] | null;
+  // Mapa digits→tem WhatsApp? (motor dedicado). Telefone extra só é exibido se confirmado aqui.
+  phonesWhatsapp?: Record<string, boolean> | null;
   cnpj?: string | null;
   cnae?: string | null;
   razaoSocial?: string | null;
@@ -713,11 +715,14 @@ export function DetalhesNegocio({
   function renderContacts() {
     if (!n) return null;
     const hasCompanyData = Boolean(n.cnpj || n.razaoSocial || n.cnae || n.ownerName || n.ownerPhone || n.companySituation);
-    // Captura-e-acumula: mostra TODOS os e-mails/telefones achados (teto 3), não só o 1º.
-    const emailList = (Array.isArray(n.emails) && n.emails.length ? n.emails : (n.email ? [n.email] : []))
-      .filter(Boolean).filter((e, i, a) => a.indexOf(e) === i).slice(0, 3);
+    // Regra do dono: telefone extra só aparece se passou pelo motor do WhatsApp (confirmado).
+    const waOk = (p: string) => (n.phonesWhatsapp || {})[String(p).replace(/\D/g, "")] === true;
+    // Telefones extras (2/3): além do principal, SÓ os verificados no WhatsApp. Sem verificado → vazio → card idêntico.
     const extraPhones = (Array.isArray(n.phones) ? n.phones : [])
-      .filter((p) => p && p !== n.phone).filter((p, i, a) => a.indexOf(p) === i).slice(0, 3);
+      .filter((p) => p && p !== n.phone && waOk(p)).filter((p, i, a) => a.indexOf(p) === i).slice(0, 3);
+    // E-mails extras (2/3): além do principal, já validados na captura. Sem extra → card idêntico.
+    const extraEmails = (Array.isArray(n.emails) ? n.emails : [])
+      .filter((e) => e && e !== n.email).filter((e, i, a) => a.indexOf(e) === i).slice(0, 3);
     return (
       <div style={{ display: "grid", gap: 6 }}>
         {n.phone ? (
@@ -811,13 +816,22 @@ export function DetalhesNegocio({
           </LockGate>
         )}
 
-        {emailList.length > 0 && (
+        {n.email && !n.channel && (
           <div className="row dn-kv-row">
             <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <I d={ICONS.mail} size={13} /> {emailList.length > 1 ? "E-mails" : "E-mail"}
+              <I d={ICONS.mail} size={13} /> E-mail
+            </span>
+            <span className="v"><TypedText text={n.email} speed={44} delay={40} /></span>
+          </div>
+        )}
+
+        {extraEmails.length > 0 && (
+          <div className="row dn-kv-row">
+            <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              <I d={ICONS.mail} size={13} /> {extraEmails.length > 1 ? "Outros e-mails" : "Outro e-mail"}
             </span>
             <span className="v" style={{ display: "grid", gap: 2 }}>
-              {emailList.map((e, i) => (
+              {extraEmails.map((e, i) => (
                 <span key={`em-${i}`} style={{ display: "block" }}>
                   <TypedText text={e} speed={44} delay={40 + i * 30} />
                 </span>

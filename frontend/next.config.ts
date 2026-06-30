@@ -21,7 +21,8 @@ const nextConfig: NextConfig = {
 			{ key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
 			{
 				key: "Permissions-Policy",
-				value: "camera=(), microphone=(), geolocation=()",
+				// microphone=(self): libera o mic só p/ a própria origem (nota de voz no /atendimento). camera/geo seguem off.
+				value: "camera=(), microphone=(self), geolocation=()",
 			},
 			// CSP fica como follow-up (report-only): o app usa scripts inline
 			// via dangerouslySetInnerHTML (service worker + boot de tema) e login Google.

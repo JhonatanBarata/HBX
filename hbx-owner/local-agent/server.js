@@ -1702,13 +1702,14 @@ async function route(req, res) {
     const value = String(body.value == null ? "" : body.value).trim();
     if (!INTEGRATION_KEYS.has(key)) { sendJson(res, 200, { ok: false, reason: "chave_nao_permitida" }); return; }
     if (!value) { sendJson(res, 200, { ok: false, reason: "valor_vazio" }); return; }
-    try {
-      setDotenvValue(backendEnvPath(), key, value);
-      process.env[key] = value; // vale já pro agent; o backend só pega ao RECRIAR o container
-      const p = readIntegrationPresence(key);
-      sendJson(res, 200, { ok: true, key, present: p.present, length: p.length,
-        note: "Salvo no backend/.env local. O backend pega ao RECRIAR o container (env_file). NÃO vai pra VPS." });
-    } catch (e) { sendJson(res, 200, { ok: false, reason: String((e && e.message) || e) }); }
+    // Injeta na PRODUÇÃO (VPS): grava no .env de lá e recria o backend, via Ops Control (SSH).
+    const valueB64 = Buffer.from(value, "utf8").toString("base64");
+    const r = await opsRequest("POST", "/api/opscontrol/env-set", { key, valueB64 }, 95000);
+    if (!r.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente" }); return; }
+    const b = r.data || {};
+    if (r.ok && b.ok) sendJson(res, 200, { ok: true, key, scope: "vps",
+      note: "Gravado no .env da VPS e backend recriado — leva alguns segundos pra subir." });
+    else sendJson(res, 200, { ok: false, reason: b.reason || r.reason || `http_${r.statusCode || "?"}` });
     return;
   }
 
