@@ -1,7 +1,7 @@
 {
   "id": "2e4e2ab7-a6cf-4b51-8239-e83785eceecd",
   "batchId": "local-lab-2e4e2ab7-a6cf-4b51-8239-e83785eceecd",
-  "status": "running",
+  "status": "canceled",
   "city": "",
   "state": "",
   "segment": "",
@@ -18,15 +18,23 @@
   "maxDelayMs": 4000,
   "blockBackoffMs": 60000,
   "metrics": {
-    "sitesVisited": 0,
-    "emailsFound": 0,
+    "sitesVisited": 56,
+    "emailsFound": 21,
     "emailsAccepted": 0,
-    "leads": 0
+    "leads": 0,
+    "pacing": {
+      "fetches": 683,
+      "blocks": 1,
+      "backoffMs": 60000,
+      "minDelayMs": 1500,
+      "maxDelayMs": 4000,
+      "blockBackoffMs": 60000
+    }
   },
   "warnings": [],
   "error": null,
   "exportReady": false,
   "createdAt": "2026-06-30T00:58:51.440Z",
   "startedAt": "2026-06-30T00:58:51.442Z",
-  "finishedAt": null
+  "finishedAt": "2026-06-30T01:25:30.466Z"
 }
