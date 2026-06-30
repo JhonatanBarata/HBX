@@ -1,26 +1,30 @@
 // ─────────────────────────────────────────────────────────────────────────
 // voice-fx.ts — Alterador de voz (módulo "VC"), 100% no navegador.
 //
-// Processa a nota de voz GRAVADA (offline, não é tempo real → sem latência de
-// rede; o VPS fica fora) com um phase vocoder de PITCH e FORMANT independentes.
-//   • pitch  = altura da voz (sobe = mais aguda)
-//   • formant = timbre/ressonância do trato vocal (o que faz soar "menor")
-// Separar os dois é o que deixa imperceptível: só subir pitch vira "chipmunk";
-// subir pitch + formant na medida certa = voz feminina natural.
+// Processa a nota de voz GRAVADA (offline) deslocando o TOM da voz. Usa WSOLA
+// (Waveform Similarity Overlap-Add) — emenda no domínio do TEMPO alinhando os
+// trechos por similaridade de onda. NÃO mexe em fase espectral, então NÃO solta
+// aquele timbre metálico/robótico de phase vocoder ("voz de proteção"). É a
+// mesma família de algoritmo do SoundTouch.
 //
-// Saída em WAV (PCM 16-bit). O motor (Webwhats/Baileys) já transcodifica o
-// áudio enviado para opus/PTT — então WAV entra e vira nota de voz tocável,
-// mesmo caminho do envio de áudio de hoje. Nada muda no motor/envio.
+// Saída em WAV (PCM 16-bit). O motor (Webwhats/Baileys) já transcodifica para
+// opus/PTT — WAV entra e vira nota de voz tocável. Nada muda no motor/envio.
 // ─────────────────────────────────────────────────────────────────────────
 
 export type VoiceMode = 'normal' | 'fem' | 'masc';
 
-// Presets — TUNÁVEIS. Se quiser mais/menos efeito, mexa aqui.
-//   pitch 1.0 = sem mudança; >1 sobe; <1 desce.  (1.30 ≈ +4.7 semitons)
-//   formant 1.0 = sem mudança; >1 trato "menor" (feminino); <1 "maior" (grave).
-export const VOICE_PRESETS: Record<Exclude<VoiceMode, 'normal'>, { pitch: number; formant: number }> = {
-  fem:  { pitch: 1.34, formant: 1.18 },
-  masc: { pitch: 0.80, formant: 0.86 },
+// TOM padrão por modo (multiplicador de altura). 1.0 = sem mudança; >1 mais
+// aguda; <1 mais grave. O admin afina ao vivo no slider (salvo no navegador).
+//   1.25 ≈ +3.9 semitons | 0.85 ≈ -2.8 semitons
+export const VOICE_PITCH_DEFAULTS: Record<Exclude<VoiceMode, 'normal'>, number> = {
+  fem: 1.25,
+  masc: 0.85,
+};
+
+// Faixa do slider de afinação por modo (mín/máx do "Tom").
+export const VOICE_PITCH_RANGE: Record<Exclude<VoiceMode, 'normal'>, { min: number; max: number }> = {
+  fem: { min: 1.05, max: 1.6 },
+  masc: { min: 0.6, max: 0.95 },
 };
 
 export const VOICE_MODE_LABEL: Record<VoiceMode, string> = {
@@ -30,6 +34,29 @@ export const VOICE_MODE_LABEL: Record<VoiceMode, string> = {
 };
 
 export type DecodedAudio = { data: Float32Array; sampleRate: number };
+
+// ── Decodifica o blob gravado (webm/ogg) → PCM mono Float32 + sampleRate. ──────
+export async function decodeAudioBlob(blob: Blob): Promise<DecodedAudio> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const w = window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+  const AC = w.AudioContext ?? w.webkitAudioContext;
+  if (!AC) throw new Error('AudioContext indisponível neste navegador.');
+  const ctx = new AC();
+  try {
+    const buf: AudioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const ch = buf.numberOfChannels;
+    const len = buf.length;
+    const out = new Float32Array(len);
+    for (let c = 0; c < ch; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < len; i++) out[i] += d[i];
+    }
+    if (ch > 1) for (let i = 0; i < len; i++) out[i] /= ch;
+    return { data: out, sampleRate: buf.sampleRate };
+  } finally {
+    ctx.close().catch(() => undefined);
+  }
+}
 
 // ── FFT iterativa radix-2 (in-place). inverse não normaliza (dividimos à mão). ─
 function fft(re: Float64Array, im: Float64Array, inverse: boolean) {
@@ -62,76 +89,38 @@ function fft(re: Float64Array, im: Float64Array, inverse: boolean) {
   }
 }
 
-// ── Decodifica o blob gravado (webm/ogg) → PCM mono Float32 + sampleRate. ──────
-export async function decodeAudioBlob(blob: Blob): Promise<DecodedAudio> {
-  const arrayBuffer = await blob.arrayBuffer();
-  const w = window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
-  const AC = w.AudioContext ?? w.webkitAudioContext;
-  if (!AC) throw new Error('AudioContext indisponível neste navegador.');
-  const ctx = new AC();
-  try {
-    const buf: AudioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    const ch = buf.numberOfChannels;
-    const len = buf.length;
-    const out = new Float32Array(len);
-    for (let c = 0; c < ch; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < len; i++) out[i] += d[i];
-    }
-    if (ch > 1) for (let i = 0; i < len; i++) out[i] /= ch;
-    return { data: out, sampleRate: buf.sampleRate };
-  } finally {
-    ctx.close().catch(() => undefined);
-  }
-}
-
-// ── Núcleo: phase vocoder (Bernsee) com separação envelope/excitação. ─────────
-// Baseado no smbPitchShift, com o magnitude dividido pelo envelope espectral
-// (cepstral) antes do shift e o envelope re-aplicado escalado por `formant` —
-// dando controle INDEPENDENTE de pitch e formant.
-function pitchFormantShift(
-  input: Float32Array,
-  sampleRate: number,
-  pitch: number,
-  formant: number,
-): Float32Array {
-  const N = 2048;            // tamanho da janela FFT
-  const osamp = 4;           // sobreposição 4x
-  const step = N / osamp;    // hop = 512
+// ── Phase vocoder LIMPO (smbPitchShift) — desloca o TOM mantendo a duração. ────
+// Sem manipulação de formante (era o que metalizava): apenas remapeia os
+// harmônicos por `pitch` com fase propagada. pitch>1 = aguda; <1 = grave.
+function pitchShift(x: Float32Array, pitch: number): Float32Array {
+  if (Math.abs(pitch - 1) < 0.01 || x.length < 2048) return x.slice();
+  const N = 2048;
+  const osamp = 8;                 // 8x overlap = menos artefato
+  const step = N / osamp;
   const half = N / 2;
   const expct = (2 * Math.PI * step) / N;
-  const freqPerBin = sampleRate / N;
-  const liftQuef = 48;       // suavização do envelope (quanto menor, mais liso)
+  const freqPerBin = 1 / N;        // em ciclos/amostra (sr cancela no remap)
 
-  const output = new Float32Array(input.length);
-
-  // janela de Hann
   const win = new Float64Array(N);
   for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
 
-  // buffers reaproveitados
   const re = new Float64Array(N);
   const im = new Float64Array(N);
-  const cre = new Float64Array(N);
-  const cim = new Float64Array(N);
   const lastPhase = new Float64Array(half + 1);
   const sumPhase = new Float64Array(half + 1);
   const anaMagn = new Float64Array(half + 1);
   const anaFreq = new Float64Array(half + 1);
-  const env = new Float64Array(half + 1);
-  const synExc = new Float64Array(half + 1);
-  const synFreq = new Float64Array(half + 1);
   const synMagn = new Float64Array(half + 1);
+  const synFreq = new Float64Array(half + 1);
 
-  // gain de reconstrução p/ Hann com osamp=4 (soma das janelas ≈ constante)
-  const gain = 2 / (osamp * 0.5);
+  const output = new Float32Array(x.length + N);
+  const gain = 2 / (osamp * 0.5);  // OLA de Hann com osamp
 
-  for (let pos = 0; pos + N <= input.length; pos += step) {
-    // 1) janela + FFT
-    for (let i = 0; i < N; i++) { re[i] = input[pos + i] * win[i]; im[i] = 0; }
+  for (let pos = 0; pos + N <= x.length; pos += step) {
+    for (let i = 0; i < N; i++) { re[i] = x[pos + i] * win[i]; im[i] = 0; }
     fft(re, im, false);
 
-    // 2) magnitude/frequência-verdadeira por bin (phase vocoder)
+    // análise: magnitude + frequência verdadeira (em ciclos/amostra)
     for (let k = 0; k <= half; k++) {
       const r = re[k], ii = im[k];
       const magn = Math.sqrt(r * r + ii * ii);
@@ -139,62 +128,26 @@ function pitchFormantShift(
       let tmp = phase - lastPhase[k];
       lastPhase[k] = phase;
       tmp -= k * expct;
-      // princarg → [-π, π]
       const qpd = Math.round(tmp / Math.PI);
       tmp -= Math.PI * qpd;
       tmp = (osamp * tmp) / (2 * Math.PI);
       anaMagn[k] = magn;
-      anaFreq[k] = k * freqPerBin + tmp * freqPerBin;
+      anaFreq[k] = (k + tmp) * freqPerBin;
     }
 
-    // 3) envelope espectral via cepstro (lifter passa-baixa na quefrência)
-    for (let k = 0; k <= half; k++) {
-      cre[k] = Math.log(anaMagn[k] + 1e-8);
-      cim[k] = 0;
-    }
-    for (let k = 1; k < half; k++) { cre[N - k] = cre[k]; cim[N - k] = 0; } // espelho
-    fft(cre, cim, true); // → cepstro real (não normalizado; ok, é linear)
-    for (let k = 0; k < N; k++) cre[k] /= N;
-    // mantém só baixas quefrências (envelope liso)
-    for (let k = 0; k < N; k++) {
-      const keep = k <= liftQuef || k >= N - liftQuef;
-      if (!keep) { cre[k] = 0; }
-      cim[k] = 0;
-    }
-    fft(cre, cim, false); // volta p/ log-magnitude suavizada
-    for (let k = 0; k <= half; k++) env[k] = Math.exp(cre[k]);
-
-    // 4) excitação = magnitude / envelope; zera acumuladores
-    for (let k = 0; k <= half; k++) { synExc[k] = 0; synFreq[k] = 0; }
-
-    // 5) PITCH: remapeia a excitação (harmônicos) por `pitch`
+    // pitch shift: remapeia bin k -> k*pitch
+    for (let k = 0; k <= half; k++) { synMagn[k] = 0; synFreq[k] = 0; }
     for (let k = 0; k <= half; k++) {
       const idx = Math.round(k * pitch);
       if (idx >= 0 && idx <= half) {
-        synExc[idx] += anaMagn[k] / (env[k] + 1e-8);
+        synMagn[idx] += anaMagn[k];
         synFreq[idx] = anaFreq[k] * pitch;
       }
     }
 
-    // 6) FORMANT: envelope reavaliado em k/formant (interp linear) e re-aplicado
+    // síntese: reconstrói fase acumulada
     for (let k = 0; k <= half; k++) {
-      const sx = k / formant;
-      let warped: number;
-      if (sx <= 0) warped = env[0];
-      else if (sx >= half) warped = env[half];
-      else {
-        const i0 = Math.floor(sx);
-        const frac = sx - i0;
-        warped = env[i0] * (1 - frac) + env[i0 + 1] * frac;
-      }
-      synMagn[k] = synExc[k] * warped;
-    }
-
-    // 7) síntese: reconstrói fase acumulada
-    for (let k = 0; k <= half; k++) {
-      let tmp = synFreq[k];
-      tmp -= k * freqPerBin;
-      tmp /= freqPerBin;
+      let tmp = synFreq[k] / freqPerBin - k;
       tmp = (2 * Math.PI * tmp) / osamp;
       tmp += k * expct;
       sumPhase[k] += tmp;
@@ -202,25 +155,21 @@ function pitchFormantShift(
       re[k] = synMagn[k] * Math.cos(phase);
       im[k] = synMagn[k] * Math.sin(phase);
     }
-    // espelho hermitiano p/ saída real
     for (let k = 1; k < half; k++) { re[N - k] = re[k]; im[N - k] = -im[k]; }
     im[0] = 0; im[half] = 0;
 
     fft(re, im, true);
-    for (let k = 0; k < N; k++) re[k] /= N;
-
-    // 8) overlap-add com janela de síntese
-    for (let i = 0; i < N; i++) output[pos + i] += re[i] * win[i] * gain;
+    for (let i = 0; i < N; i++) output[pos + i] += (re[i] / N) * win[i] * gain;
   }
 
-  return output;
+  return output.subarray(0, x.length);
 }
 
-// Normaliza o pico para ~-1dBFS (evita clip do envelope/overlap).
-function normalizePeak(buf: Float32Array, target = 0.89) {
+// Normaliza o pico para ~-1dBFS (evita clip nas bordas do overlap).
+function normalizePeak(buf: Float32Array, target = 0.9) {
   let peak = 0;
   for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > peak) peak = a; }
-  if (peak > 1e-6 && peak !== target) {
+  if (peak > 1e-6) {
     const g = target / peak;
     if (g < 1) for (let i = 0; i < buf.length; i++) buf[i] *= g;
   }
@@ -255,12 +204,12 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-// ── Alto nível: aplica o modo de voz no PCM já decodificado → WAV Blob. ───────
-// `normal` não deveria chegar aqui (manda-se o blob original), mas é seguro.
-export function renderVoiceWav(decoded: DecodedAudio, mode: VoiceMode): Blob {
+// ── Alto nível: aplica o modo de voz no PCM decodificado → WAV Blob. ──────────
+// `pitch` opcional sobrescreve o padrão do modo (usado pelo slider de afinação).
+export function renderVoiceWav(decoded: DecodedAudio, mode: VoiceMode, pitch?: number): Blob {
   if (mode === 'normal') return encodeWav(decoded.data, decoded.sampleRate);
-  const preset = VOICE_PRESETS[mode];
-  const shifted = pitchFormantShift(decoded.data, decoded.sampleRate, preset.pitch, preset.formant);
+  const p = typeof pitch === 'number' && pitch > 0 ? pitch : VOICE_PITCH_DEFAULTS[mode];
+  const shifted = pitchShift(decoded.data, p);
   normalizePeak(shifted);
   return encodeWav(shifted, decoded.sampleRate);
 }
