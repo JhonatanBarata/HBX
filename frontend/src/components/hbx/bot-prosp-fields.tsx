@@ -17,6 +17,18 @@ import {
 } from "@/lib/use-prospecting-config";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 
+// "Pausar" uma variante = mantê-la salva SEM o motor usar (igual deletar, mas
+// reversível: o dono reativa quando quiser). A variante pausada fica marcada com
+// um caractere de controle invisível no INÍCIO da string persistida. O campo de
+// edição SEMPRE mostra o texto limpo — a marca nunca aparece pro dono e o backend
+// descarta as variantes marcadas na hora de disparar (espelhado em
+// vendas-automation.service.ts / messaging.service.ts).
+export const VARIANT_PAUSE_MARK = String.fromCharCode(1);
+const isVariantPaused = (s: string) => typeof s === "string" && s.startsWith(VARIANT_PAUSE_MARK);
+const bareVariant = (s: string) => (isVariantPaused(s) ? s.slice(VARIANT_PAUSE_MARK.length) : s);
+const withVariantPause = (s: string, paused: boolean) =>
+  paused ? VARIANT_PAUSE_MARK + bareVariant(s) : bareVariant(s);
+
 // Helpers de leitura/escrita que vêm do hook (mesma assinatura).
 export type ProspFieldHelpers = {
   numVal: (k: keyof ProspCfg) => number;
@@ -219,6 +231,13 @@ export function VariantListEditor({ label, hint, max, items, onChange, single, v
   }
   function remove(i: number) { onChange(items.filter((_, idx) => idx !== i)); }
   function add() { if (items.length < max) onChange([...items, ""]); }
+  // Pausar/reativar: alterna a marca sem perder o texto (o motor ignora as pausadas).
+  function togglePause(i: number) {
+    const cur = items[i] ?? "";
+    const next = items.slice();
+    next[i] = withVariantPause(cur, !isVariantPaused(cur));
+    onChange(next);
+  }
 
   function trackCursor(i: number, el: HTMLTextAreaElement | HTMLInputElement) {
     lastFocused.current = { index: i, selStart: el.selectionStart ?? el.value.length, selEnd: el.selectionEnd ?? el.value.length };
@@ -228,10 +247,12 @@ export function VariantListEditor({ label, hint, max, items, onChange, single, v
     const lf = lastFocused.current;
     setVarPopup(false);
     if (!lf || lf.index >= items.length) return;
-    const text = items[lf.index] ?? "";
+    const raw = items[lf.index] ?? "";
+    const paused = isVariantPaused(raw);
+    const text = bareVariant(raw); // cursor é medido sobre o texto limpo exibido no campo
     const newText = text.slice(0, lf.selStart) + token + text.slice(lf.selEnd);
     const next = items.slice();
-    next[lf.index] = newText;
+    next[lf.index] = withVariantPause(newText, paused);
     onChange(next);
     const newPos = lf.selStart + token.length;
     setTimeout(() => {
@@ -259,36 +280,52 @@ export function VariantListEditor({ label, hint, max, items, onChange, single, v
       </div>
       {hint && <span className="bot-prosp-vlist__hint">{hint}</span>}
       {items.length === 0 && <span className="bot-prosp-vlist__empty">Nenhuma personalizada — o motor usa as mensagens padrão.</span>}
-      {items.map((it, i) => (
-        <div className="bot-prosp-vlist__item" key={i}>
-          {single ? (
-            <input
-              className="field-dark bot-prosp-vlist__field"
-              value={it}
-              ref={el => { fieldRefs.current[i] = el; }}
-              onFocus={e => trackCursor(i, e.target as HTMLInputElement)}
-              onClick={e => trackCursor(i, e.target as HTMLInputElement)}
-              onKeyUp={e => trackCursor(i, e.target as HTMLInputElement)}
-              onChange={e => update(i, e.target.value)}
-              placeholder="palavra ou frase curta"
-            />
-          ) : (
-            <textarea
-              className="field-dark bot-prosp-vlist__field bot-prosp-vlist__field--multi"
-              value={it}
-              ref={el => { fieldRefs.current[i] = el as HTMLTextAreaElement; }}
-              onFocus={e => trackCursor(i, e.target as HTMLTextAreaElement)}
-              onClick={e => trackCursor(i, e.target as HTMLTextAreaElement)}
-              onKeyUp={e => trackCursor(i, e.target as HTMLTextAreaElement)}
-              onChange={e => update(i, e.target.value)}
-              placeholder="escreva uma variante…"
-            />
-          )}
-          <button type="button" className="icon-ghost bot-prosp-vlist__del" title="Remover" aria-label="Remover" onClick={() => remove(i)}>
-            <I d={ICONS.trash} size={13} />
-          </button>
-        </div>
-      ))}
+      {items.map((it, i) => {
+        const paused = !single && isVariantPaused(it);
+        const text = single ? it : bareVariant(it);
+        return (
+          <div className={"bot-prosp-vlist__item" + (paused ? " is-paused" : "")} key={i}>
+            {single ? (
+              <input
+                className="field-dark bot-prosp-vlist__field"
+                value={text}
+                ref={el => { fieldRefs.current[i] = el; }}
+                onFocus={e => trackCursor(i, e.target as HTMLInputElement)}
+                onClick={e => trackCursor(i, e.target as HTMLInputElement)}
+                onKeyUp={e => trackCursor(i, e.target as HTMLInputElement)}
+                onChange={e => update(i, e.target.value)}
+                placeholder="palavra ou frase curta"
+              />
+            ) : (
+              <textarea
+                className="field-dark bot-prosp-vlist__field bot-prosp-vlist__field--multi"
+                value={text}
+                ref={el => { fieldRefs.current[i] = el as HTMLTextAreaElement; }}
+                onFocus={e => trackCursor(i, e.target as HTMLTextAreaElement)}
+                onClick={e => trackCursor(i, e.target as HTMLTextAreaElement)}
+                onKeyUp={e => trackCursor(i, e.target as HTMLTextAreaElement)}
+                onChange={e => update(i, withVariantPause(e.target.value, paused))}
+                placeholder="escreva uma variante…"
+              />
+            )}
+            {!single && (
+              <button
+                type="button"
+                className={"icon-ghost bot-prosp-vlist__pause" + (paused ? " is-paused" : "")}
+                title={paused ? "Pausada — o bot não usa. Clique pra reativar." : "Pausar (salva, mas o bot não usa)"}
+                aria-label={paused ? "Reativar variante" : "Pausar variante"}
+                aria-pressed={paused}
+                onClick={() => togglePause(i)}
+              >
+                <I d={paused ? ICONS.play : ICONS.pause} size={13} />
+              </button>
+            )}
+            <button type="button" className="icon-ghost bot-prosp-vlist__del" title="Remover" aria-label="Remover" onClick={() => remove(i)}>
+              <I d={ICONS.trash} size={13} />
+            </button>
+          </div>
+        );
+      })}
       <div className="bot-prosp-vlist__footer">
         <button type="button" className="btn-ghost bot-prosp-vlist__add" onClick={add} disabled={items.length >= max}>
           <I d={ICONS.plus} size={12} /> Adicionar {single ? "palavra" : "variante"}

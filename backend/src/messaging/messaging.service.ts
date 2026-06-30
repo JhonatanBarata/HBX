@@ -1858,7 +1858,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       new Set(
         source
           .map((item) => sanitizeFirstContactMessage(String(item || '').trim()))
-          .filter(Boolean),
+          .filter(Boolean)
+          // Variantes pausadas pelo dono (marca de controle no início) ficam salvas
+          // mas o motor NÃO dispara — espelha VARIANT_PAUSE_MARK do front.
+          .filter((s) => !s.startsWith(String.fromCharCode(1))),
       ),
     ).slice(0, 20);
   }

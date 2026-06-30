@@ -364,6 +364,15 @@
 .bot-prosp-vlist__field { flex: 1; min-width: 0; }
 .bot-prosp-vlist__field--multi { resize: vertical; min-height: 64px; line-height: 1.45; padding: 9px 11px; }
 .bot-prosp-vlist__del { flex: 0 0 auto; width: 32px; height: 32px; }
+.bot-prosp-vlist__pause { flex: 0 0 auto; width: 32px; height: 32px; }
+.bot-prosp-vlist__pause.is-paused { color: var(--hbx-danger); }
+/* Variante pausada: salva, porém o motor NÃO usa — fica vermelha (igual deletar, reversível). */
+.bot-prosp-vlist__item.is-paused .bot-prosp-vlist__field {
+  border-color: color-mix(in srgb, var(--hbx-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--hbx-danger) 9%, transparent);
+  color: var(--hbx-danger);
+  opacity: 0.9;
+}
 .bot-prosp-vlist__add { align-self: start; min-height: 30px; font-size: 0.68rem; padding: 0 12px; }
 .bot-prosp-vlist__footer { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .bot-prosp-var-popup {
@@ -393,3 +402,50 @@
 .bot-prosp-var-popup__item:hover { background: var(--hbx-surface-soft); }
 .bot-prosp-var-popup__label { font-size: 0.7rem; color: var(--text-strong); font-weight: 600; }
 .bot-prosp-var-popup__token { font-size: 0.62rem; color: var(--hbx-brand); font-family: var(--font-mono); }
+
+/* ---- Teste de conversa (sandbox interativo) no dock da direita ---- */
+.bot-sandbox {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.bot-sandbox__err {
+  margin: 0 10px 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.66rem;
+  color: var(--hbx-danger);
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--hbx-danger) 14%, transparent);
+}
+.bot-sandbox .wa-phone { flex: 1; min-height: 0; }
+.bot-sandbox__cta { width: 100%; justify-content: center; }
+
+/* relógio encostado no topo: tira o vão verde do "notch" só aqui no dock */
+.bot-sandbox .wa-status { padding-top: 8px; height: auto; }
+
+/* Reiniciar centralizado na barra de status, entre o relógio e a rede */
+.bot-sandbox__restart {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--wa-header-ink) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--wa-header-ink) 14%, transparent);
+  color: var(--wa-header-ink);
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.bot-sandbox__restart:hover { background: color-mix(in srgb, var(--wa-header-ink) 24%, transparent); }
+.bot-sandbox__restart:disabled { opacity: 0.5; cursor: not-allowed; }
+.bot-sandbox__restart-glyph { font-size: 0.78rem; }

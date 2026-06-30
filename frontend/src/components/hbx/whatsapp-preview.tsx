@@ -11,6 +11,13 @@ export type WAMessage = {
   text: string;
   time?: string;
   status?: "sent" | "read";
+  // Nota de sistema (não é balão): centro do chat, ex.: "Bot passou pro humano".
+  system?: boolean;
+  tone?: "green" | "yellow" | "red" | "gray";
+  // Variantes alternadas do motor: quando >1, o balão ganha setas ‹ x/y › para
+  // o dono navegar e ver cada variante que o bot reveza.
+  variants?: string[];
+  variant?: number;
 };
 
 export type WAHeader = {
@@ -29,6 +36,11 @@ export type WhatsAppPreviewProps = {
   footer?: React.ReactNode;
   bodyRef?: React.Ref<HTMLDivElement>;
   className?: string;
+  // Navegar entre variantes de um balão (seta ‹ ›). dir: -1 anterior, +1 próxima.
+  onCycleVariant?: (index: number, dir: -1 | 1) => void;
+  // Clicar no "digitando…" pula a espera (o tempo configurado pode ser longo).
+  onSkipTyping?: () => void;
+  typingHint?: string;
 };
 
 function initials(name: string): string {
@@ -53,6 +65,9 @@ export function WhatsAppPreview({
   footer,
   bodyRef,
   className,
+  onCycleVariant,
+  onSkipTyping,
+  typingHint,
 }: WhatsAppPreviewProps) {
   const name = header?.name ?? "Contato";
   const headerStatus = typing ? "digitando…" : (header?.status ?? "online");
@@ -151,25 +166,50 @@ export function WhatsAppPreview({
             </div>
           ) : (
             <>
-              {messages.map((m, i) => (
-                <div key={i} className={"wa-msg wa-msg--" + m.dir}>
-                  <div className="wa-bubble">
-                    <span className="wa-bubble__text">{m.text}</span>
-                    <span className="wa-bubble__meta">
-                      {m.time && <span className="wa-bubble__time">{m.time}</span>}
-                      {m.dir === "out" && (
-                        <span className={"wa-tick" + (m.status === "read" ? " wa-tick--read" : "")} aria-hidden="true">✓✓</span>
+              {messages.map((m, i) => {
+                if (m.system) {
+                  return (
+                    <div key={i} className={"wa-note wa-note--" + (m.tone || "gray")}>
+                      <span className="wa-note__text">{m.text}</span>
+                    </div>
+                  );
+                }
+                const total = m.variants?.length ?? 0;
+                const active = total > 0 ? Math.min(Math.max(m.variant ?? 0, 0), total - 1) : 0;
+                return (
+                  <div key={i} className={"wa-msg wa-msg--" + m.dir}>
+                    <div className="wa-bubble">
+                      <span className="wa-bubble__text">{m.text}</span>
+                      {total > 1 && onCycleVariant && (
+                        <span className="wa-variant" aria-label="Variantes alternadas do bot">
+                          <button type="button" className="wa-variant__nav" aria-label="Variante anterior" onClick={() => onCycleVariant(i, -1)}>‹</button>
+                          <span className="wa-variant__count">{active + 1}/{total}</span>
+                          <button type="button" className="wa-variant__nav" aria-label="Próxima variante" onClick={() => onCycleVariant(i, 1)}>›</button>
+                        </span>
                       )}
-                    </span>
+                      <span className="wa-bubble__meta">
+                        {m.time && <span className="wa-bubble__time">{m.time}</span>}
+                        {m.dir === "out" && (
+                          <span className={"wa-tick" + (m.status === "read" ? " wa-tick--read" : "")} aria-hidden="true">✓✓</span>
+                        )}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {typing && (
                 <div className="wa-msg wa-typing-row">
-                  <span className="wa-typing" aria-label="digitando">
-                    <i /><i /><i />
-                  </span>
+                  {onSkipTyping ? (
+                    <button type="button" className="wa-typing wa-typing--skip" onClick={onSkipTyping} title={typingHint || "Pular a espera"} aria-label={typingHint || "digitando — clique para pular"}>
+                      <i /><i /><i />
+                      {typingHint && <span className="wa-typing__hint">{typingHint}</span>}
+                    </button>
+                  ) : (
+                    <span className="wa-typing" aria-label="digitando">
+                      <i /><i /><i />
+                    </span>
+                  )}
                 </div>
               )}
 

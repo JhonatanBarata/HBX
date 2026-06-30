@@ -888,6 +888,27 @@ export class UpdateVendasProspectingConfigDto {
 
 export class StartVendasProspectingDto extends UpdateVendasProspectingConfigDto {}
 
+// Simulação do disparo frio (preview interativo "Teste de conversa"). NÃO escreve
+// nada, NÃO envia WhatsApp: roda o MESMO classificador do motor sobre um texto de
+// teste e devolve a resposta/variantes que o bot mandaria. `config` é a config que
+// está sendo editada na tela (draft) — quando ausente, cai na campanha salva.
+export class SimulateProspectingDto {
+  @IsOptional()
+  @IsIn(['opener', 'reply'])
+  mode?: 'opener' | 'reply';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  text?: string;
+
+  // Config efetiva da tela (mesmos campos de UpdateVendasProspectingConfigDto).
+  // Lida de forma defensiva no service; nunca persistida.
+  @IsOptional()
+  @IsObject()
+  config?: Record<string, unknown>;
+}
+
 export class UpdateSalesProfileDto {
   @IsOptional()
   @IsString()

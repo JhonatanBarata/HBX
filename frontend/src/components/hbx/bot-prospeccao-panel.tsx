@@ -17,7 +17,7 @@ import { BotTutofig } from "@/components/hbx/bot-tutofig";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
-import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
 import { apiFetch } from "@/lib/api";
 import {
   useProspectingConfig,
@@ -130,13 +130,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const liveDaily = live?.dailyLimit ?? cfg.numVal("dailyLimit");
   const nextWhen = fmtWhen(live?.nextScheduledAt);
   const campaignStatus = campaign?.status;
-
-  // Prévia ao vivo: a 1ª variante de contato frio como o lead recebe (read-only).
-  const prospPreviewMessages: WAMessage[] = (() => {
-    const variants = cfg.listVal("firstContactVariants").map(s => s.trim()).filter(Boolean);
-    if (!variants.length) return [];
-    return [{ dir: "out", text: variants[0], time: "agora", status: "read" }];
-  })();
 
   // ── Erro de carregamento (não armado / sem plano / falha) ──
   if (loadErr && !live) {
@@ -263,14 +256,9 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         )}
       </div>
 
-      {/* ── DIREITA (dock): prévia de como o lead vê — mesmo dock do Tabuleiro ── */}
+      {/* ── DIREITA (dock): teste de conversa ponta a ponta — o dono fala, o bot responde ── */}
       <aside className="bot-preview-dock">
-        <span className="bot-preview-dock__title">Como o lead vê</span>
-        <WhatsAppPreview
-          messages={prospPreviewMessages}
-          header={{ name: "Lead", status: "online" }}
-          emptyHint={'A prévia aparece quando você escrever a 1ª mensagem (peça “Mensagens alternadas”).'}
-        />
+        <BotProspeccaoSandbox cfg={cfg} />
       </aside>
 
       {/* ── TutoFig ── */}

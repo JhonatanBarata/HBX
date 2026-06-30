@@ -16,6 +16,7 @@ import {
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
+  SimulateProspectingDto,
   StartVendasProspectingDto,
   UpdateSalesProfileDto,
   UpdateVendasProspectingConfigDto,
@@ -105,6 +106,13 @@ export class VendasController {
   @Patch('automation/prospecting/config')
   updateProspectingConfig(@Req() req: any, @Body() dto: UpdateVendasProspectingConfigDto) {
     return this.vendasAutomationService.patchProspectingConfigForUser(req.user, dto || {});
+  }
+
+  // Teste de conversa (preview interativo). Sem efeito colateral: roda o mesmo
+  // classificador do motor sobre um texto de teste e devolve o que o bot mandaria.
+  @Post('automation/prospecting/simulate')
+  simulateProspecting(@Req() req: any, @Body() dto: SimulateProspectingDto) {
+    return this.vendasAutomationService.simulateProspectingForUser(req.user, dto || {});
   }
 
   @Get('board')

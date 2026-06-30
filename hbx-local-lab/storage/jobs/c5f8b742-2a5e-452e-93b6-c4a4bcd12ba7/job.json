@@ -1,6 +1,6 @@
 {
-  "id": "dedad0e4-98ec-49a4-a699-fb61f641db94",
-  "batchId": "local-lab-dedad0e4-98ec-49a4-a699-fb61f641db94",
+  "id": "c5f8b742-2a5e-452e-93b6-c4a4bcd12ba7",
+  "batchId": "local-lab-c5f8b742-2a5e-452e-93b6-c4a4bcd12ba7",
   "status": "completed",
   "city": "",
   "state": "",
@@ -18,9 +18,9 @@
   "maxDelayMs": 4000,
   "blockBackoffMs": 60000,
   "metrics": {
-    "sitesVisited": 35,
-    "emailsFound": 23,
-    "emailsAccepted": 11,
+    "sitesVisited": 43,
+    "emailsFound": 33,
+    "emailsAccepted": 9,
     "leads": 15,
     "pacing": {
       "fetches": 120,
@@ -34,15 +34,15 @@
       "site_crawl": {
         "provider": "site_crawl",
         "candidates": 15,
-        "pagesVisited": 35,
-        "emailsFound": 23
+        "pagesVisited": 43,
+        "emailsFound": 33
       }
     }
   },
   "warnings": [],
   "error": null,
   "exportReady": true,
-  "createdAt": "2026-06-30T14:13:24.419Z",
-  "startedAt": "2026-06-30T14:13:24.423Z",
-  "finishedAt": "2026-06-30T14:20:09.085Z"
+  "createdAt": "2026-06-30T14:20:48.922Z",
+  "startedAt": "2026-06-30T14:20:48.924Z",
+  "finishedAt": "2026-06-30T14:27:41.028Z"
 }

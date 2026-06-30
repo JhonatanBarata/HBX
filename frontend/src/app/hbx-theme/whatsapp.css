@@ -390,6 +390,85 @@
 .wa-foot { background: var(--wa-composer); padding: 6px 8px; }
 .wa-composer-row { display: flex; gap: 8px; align-items: center; }
 .wa-composer-input { flex: 1; min-width: 0; }
+.wa-send {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 50%;
+  background: var(--wa-bubble-out);
+  color: var(--wa-header-ink);
+  cursor: pointer;
+  padding: 0;
+}
+.wa-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Setas de variante no balão do bot (‹ x/y ›) ── */
+.wa-variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid color-mix(in srgb, var(--wa-text-sub) 30%, transparent);
+}
+.wa-variant__nav {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--wa-text-sub) 18%, transparent);
+  color: var(--wa-text);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.wa-variant__nav:hover { background: color-mix(in srgb, var(--wa-text-sub) 32%, transparent); }
+.wa-variant__count {
+  font-size: 0.56rem;
+  color: var(--wa-text-sub);
+  min-width: 24px;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+/* ── Nota de sistema (o que o bot FAZ): chip centralizado tri-cor ── */
+.wa-note {
+  align-self: center;
+  max-width: 92%;
+  margin: 2px 0;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--wa-note-color) 45%, transparent);
+  background: color-mix(in srgb, var(--wa-note-color) 16%, var(--wa-bubble-in));
+}
+.wa-note__text {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--wa-text);
+}
+.wa-note--green  { --wa-note-color: var(--hbx-success); }
+.wa-note--yellow { --wa-note-color: var(--hbx-warning); }
+.wa-note--red    { --wa-note-color: var(--hbx-danger); }
+.wa-note--gray   { --wa-note-color: var(--hbx-muted); }
+
+/* ── "digitando…" clicável (pular a espera do tempo configurado) ── */
+.wa-typing--skip {
+  border: none;
+  cursor: pointer;
+  gap: 6px;
+}
+.wa-typing__hint {
+  font-size: 0.56rem;
+  color: var(--wa-text-sub);
+  white-space: nowrap;
+}
 
 /* ── Indicador home ── */
 .wa-phone__home {

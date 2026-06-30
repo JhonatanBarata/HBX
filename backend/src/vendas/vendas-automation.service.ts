@@ -13,6 +13,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
+import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
 import { StartVendasProspectingDto, UpdateVendasProspectingConfigDto } from './dto/vendas.dto';
 import { resolveBotActivation } from '../modules/bot-activation-state';
@@ -381,6 +382,16 @@ function normalizeVariantList(value: unknown, fallback: string[] = []) {
 function pickRandomItem<T>(items: T[]) {
   if (!items.length) return null;
   return items[Math.floor(Math.random() * items.length)] || null;
+}
+
+// Variante "pausada" pelo dono: fica salva (round-trip pelo filtersJson e pela
+// tela), mas o motor NÃO a usa pra disparar — igual deletar, porém reversível.
+// É marcada com um caractere de controle no início da string (espelha
+// VARIANT_PAUSE_MARK do front: bot-prosp-fields.tsx). Filtramos no ponto de USO,
+// nunca no persist, pra a variante voltar quando o dono reativar.
+const VARIANT_PAUSE_MARK = String.fromCharCode(1);
+function dropPausedVariants(list: string[]): string[] {
+  return list.filter((s) => typeof s === 'string' && !s.startsWith(VARIANT_PAUSE_MARK));
 }
 
 function getBusinessDateParts(date: Date) {
@@ -1779,6 +1790,160 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.buildLiveStatus(campaign);
   }
 
+  // ── Teste de conversa (preview interativo) ────────────────────────────────
+  // Roda o MESMO classificador do motor (classifyProspectingIntent) e as MESMAS
+  // listas de variante/aquecimento sobre um texto de teste. Não escreve nada e
+  // não envia WhatsApp — é só pra a tela mostrar fielmente o que o bot faria.
+  // `config` é a config que está sendo editada (draft); quando ausente, usa a
+  // campanha salva; e cada lista cai no default do motor quando vazia.
+  async simulateProspectingForUser(
+    user: any,
+    dto: { mode?: 'opener' | 'reply'; text?: string; config?: Record<string, unknown> },
+  ) {
+    const context = this.resolveUserContext(user);
+    const campaign = await this.latestCampaign(context.companyId);
+    const runtimeUser = campaign
+      ? await this.buildAutomationUser(campaign)
+      : {
+          id: context.userId,
+          name: trimOrNull(user?.name) || trimOrNull(user?.fullName) || 'time comercial',
+          companyId: context.companyId,
+          company: await this.prisma.company.findUnique({ where: { id: context.companyId } }),
+        };
+
+    const cfg = dto?.config && typeof dto.config === 'object' ? (dto.config as Record<string, any>) : {};
+    const filters = parseJsonObject(campaign?.filtersJson);
+
+    const sampleLead = {
+      name: 'sua empresa',
+      city: trimOrNull(cfg.city) || campaign?.city || '',
+      state: trimOrNull(cfg.state) || campaign?.state || '',
+      segment: trimOrNull(cfg.segment) || campaign?.segment || '',
+      website: '',
+    };
+    const renderCampaign = campaign || {
+      city: sampleLead.city,
+      state: sampleLead.state,
+      segment: sampleLead.segment,
+    };
+    const renderAll = (arr: string[]): string[] =>
+      arr
+        .map((tpl) =>
+          sanitizeFirstContactMessage(
+            this.renderMessageTemplate(tpl, { lead: sampleLead, campaign: renderCampaign, user: runtimeUser }),
+          ),
+        )
+        .filter((s) => Boolean(s && s.trim()));
+
+    const variantList = (key: string, fallback: string[]): string[] => {
+      const fromCfg = Array.isArray(cfg[key]) ? (cfg[key] as string[]) : undefined;
+      const raw = fromCfg ?? (filters as any)[key];
+      // Teste reflete o disparo real: variantes pausadas não entram na rotação.
+      return dropPausedVariants(normalizeVariantList(raw, fallback));
+    };
+
+    const typingSeconds = clampInteger(cfg.typingSeconds ?? (filters as any).typingSeconds, 8, 0, 45);
+    const typingVarianceSeconds = clampInteger(cfg.typingVarianceSeconds ?? (filters as any).typingVarianceSeconds, 12, 0, 30);
+
+    if ((dto?.mode || 'reply') === 'opener') {
+      const preMessageEnabled =
+        typeof cfg.preMessageEnabled === 'boolean' ? cfg.preMessageEnabled : (filters as any).preMessageEnabled === true;
+      return {
+        typingSeconds,
+        typingVarianceSeconds,
+        preMessageEnabled,
+        preMessageVariants: renderAll(variantList('preMessageVariants', DEFAULT_PRE_MESSAGE_VARIANTS)),
+        firstContactVariants: renderAll(variantList('firstContactVariants', DEFAULT_FIRST_CONTACT_VARIANTS)),
+      };
+    }
+
+    // ── mode === 'reply': classifica o texto do lead com o motor real ──
+    const text = String(dto?.text || '');
+    const keywordList = (key: string, fallback: string[], savedJson?: unknown): string[] => {
+      const fromCfg = Array.isArray(cfg[key]) ? (cfg[key] as string[]) : undefined;
+      const saved = savedJson !== undefined ? parseJsonList(savedJson, fallback) : (filters as any)[key];
+      return normalizeTextList(fromCfg ?? saved, fallback).map(normalizeKey);
+    };
+    const positives = keywordList('positiveIntentKeywords', DEFAULT_POSITIVE_KEYWORDS, campaign?.positiveIntentKeywordsJson);
+    const negatives = keywordList('negativeIntentKeywords', DEFAULT_NEGATIVE_KEYWORDS, campaign?.negativeIntentKeywordsJson);
+    const whatIsItKeywords = keywordList('whatIsItIntentKeywords', WHAT_IS_IT_INTENT_KEYWORDS);
+    const neutralKeywords = keywordList('neutralIntentKeywords', DEFAULT_NEUTRAL_KEYWORDS);
+    const callbackKeywords = keywordList('callbackIntentKeywords', DEFAULT_CALLBACK_KEYWORDS);
+    const humanHandoffKeywords = keywordList('humanHandoffIntentKeywords', DEFAULT_HUMAN_HANDOFF_KEYWORDS);
+
+    const intent = classifyProspectingIntent({
+      text,
+      positiveKeywords: positives,
+      negativeKeywords: negatives,
+      whatIsItKeywords,
+      neutralKeywords,
+      callbackKeywords,
+      humanHandoffKeywords,
+    });
+    const autoReply = classifyProspectingAutoReply(text);
+    const optOutReplyEnabled =
+      typeof cfg.optOutReplyEnabled === 'boolean' ? cfg.optOutReplyEnabled : (filters as any).optOutReplyEnabled === true;
+
+    type SimAction = 'reply' | 'handoff' | 'silent';
+    const base = {
+      intent: { kind: intent.kind, confidence: intent.confidence, reasons: intent.reasons },
+      typingSeconds,
+      typingVarianceSeconds,
+    };
+    const out = (action: SimAction, tone: 'green' | 'yellow' | 'red' | 'gray', note: string, group?: string, variants: string[] = []) => ({
+      ...base,
+      action,
+      tone,
+      note,
+      group: group || null,
+      variants,
+    });
+
+    // Mesma prioridade do handler real (handleProspectingInboundReply):
+    if (intent.kind === 'opt_out') {
+      if (optOutReplyEnabled) {
+        return out('reply', 'red', 'Lead pediu pra parar (opt-out). O bot responde com a despedida e arquiva o contato.', 'optOut', renderAll(variantList('optOutVariants', DEFAULT_OPT_OUT_VARIANTS)));
+      }
+      return out('silent', 'red', 'Lead pediu pra parar (opt-out). O bot silencia e arquiva o contato (resposta de opt-out está desligada).');
+    }
+    if (intent.kind === 'negative') {
+      return out('silent', 'red', 'Resposta negativa firme. O bot marca o lead como negativo e silencia — sem resposta automática.');
+    }
+    if (autoReply) {
+      const autoNote: Record<string, string> = {
+        bot_menu_detected: 'Do outro lado respondeu um menu automático. O bot não entra em loop com robô — para e não responde.',
+        out_of_hours_auto_reply: 'Resposta automática de fora do horário. O bot reconhece que é robô e não responde.',
+        awaiting_human: 'Aviso automático de "aguarde um atendente". O bot não responde a robô.',
+        auto_reply_detected: 'Mensagem automática detectada. O bot não responde a robô (anti-loop).',
+      };
+      return out('silent', 'gray', autoNote[autoReply] || 'Resposta automática detectada — o bot não responde a robô.');
+    }
+    if (intent.kind === 'positive' || intent.kind === 'what_is_it') {
+      const isWhat = intent.kind === 'what_is_it';
+      return out(
+        'reply',
+        'green',
+        isWhat
+          ? 'Lead com dúvida ("o que é?"). O bot manda a explicação e passa pra um humano dar sequência.'
+          : 'Interesse detectado. O bot manda o follow-up e passa pra um humano assumir a conversa.',
+        isWhat ? 'whatIsIt' : 'positive',
+        renderAll(
+          isWhat
+            ? variantList('whatIsItReplyVariants', DEFAULT_WHAT_IS_IT_REPLY_VARIANTS)
+            : variantList('positiveReplyVariants', DEFAULT_POSITIVE_REPLY_VARIANTS),
+        ),
+      );
+    }
+    if (intent.kind === 'human_requested') {
+      return out('handoff', 'yellow', 'Lead pediu falar com uma pessoa. O bot passa o atendimento pra um humano — não responde sozinho.');
+    }
+    if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
+      return out('handoff', 'yellow', 'Resposta ambígua / fora do roteiro. O bot pausa e chama um humano pra revisar antes de responder.');
+    }
+    // neutral / "falar depois"
+    return out('handoff', 'yellow', 'Resposta neutra ou "falar depois". O bot pausa e deixa um humano dar sequência (não responde sozinho).');
+  }
+
   async startProspectingForUser(user: any, dto: StartVendasProspectingDto) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
@@ -2097,10 +2262,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (key === 'firstContactVariants' && !hasOwnValue(filters, key)) {
       const existingTemplate = trimOrNull(campaign?.messageTemplate);
       if (existingTemplate && !isSystemGeneratedProspectingTemplate(existingTemplate)) {
-        return normalizeVariantList(existingTemplate, fallback);
+        return dropPausedVariants(normalizeVariantList(existingTemplate, fallback));
       }
     }
-    return normalizeVariantList((filters as any)[key], fallback);
+    return dropPausedVariants(normalizeVariantList((filters as any)[key], fallback));
   }
 
   private renderRandomCampaignVariant(campaign: any, lead: any, user: any, key: string, fallback: string[]) {
@@ -4487,6 +4652,46 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       conversationId: input.conversationId,
       at: now.toISOString(),
     });
+    await this.notifyInterestedLead(input, job);
+  }
+
+  // Sino (Avisos): avisa o operador que tem cliente interessado AGORA. Best-effort
+  // (pushMasterNotice nunca lança) — um aviso que falha não pode derrubar o fluxo.
+  // Manda pro ADMIN (audience 'customer') E pro vendedor dono da campanha
+  // (audience 'seller', targeted) — cada um vê no SEU sino. Dedup por lead/audiência.
+  private async notifyInterestedLead(input: any, job: any) {
+    const leadName = String(job?.lead?.name || 'Lead').trim() || 'Lead';
+    const sellerId = Number(job?.campaign?.createdByUserId || 0) || null;
+    const body = `${leadName} respondeu com interesse na prospecção. Abra a conversa pra assumir e fechar.`;
+    const payload = {
+      kind: 'conversation',
+      href: '/atendimento',
+      conversationId: input.conversationId,
+      leadId: job?.leadId,
+    };
+    await pushMasterNotice(this.prisma, {
+      companyId: input.companyId,
+      audience: 'customer',
+      tone: 'success',
+      title: `Cliente interessado: ${leadName}`,
+      body,
+      source: 'vendas_prospeccao_interessado',
+      payload,
+      nudgeKey: `prosp-interested:${job?.leadId}:customer`,
+    });
+    if (sellerId) {
+      await pushMasterNotice(this.prisma, {
+        companyId: input.companyId,
+        audience: 'seller',
+        targetUserId: sellerId,
+        tone: 'success',
+        title: `Cliente interessado: ${leadName}`,
+        body,
+        source: 'vendas_prospeccao_interessado',
+        payload,
+        nudgeKey: `prosp-interested:${job?.leadId}:seller`,
+      });
+    }
   }
 
   private async markNegative(input: any) {
