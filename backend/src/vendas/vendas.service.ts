@@ -1474,6 +1474,7 @@ export class VendasService {
       email: row?.email ? String(row.email) : null,
       address: row?.address ? String(row.address) : null,
       website: row?.website ? String(row.website) : null,
+      ...companyData,
       rating: row?.rating == null ? null : Number(row.rating),
       reviews: Math.max(0, Math.trunc(Number(row?.reviews || 0) || 0)),
       opportunityScore: row?.opportunityScore == null ? null : Math.max(0, Math.min(100, Math.trunc(Number(row.opportunityScore) || 0))),
