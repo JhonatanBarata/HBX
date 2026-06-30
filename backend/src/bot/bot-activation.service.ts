@@ -14,7 +14,6 @@ import {
   ATENDIMENTO_BOT_CONFIG_TITLE,
 } from '../inbox/atendimento-config';
 import { normalizeRecoveryBotConfig } from '../hbx-recovery/recovery-bot-config';
-import { SAFE_FIRST_CONTACT_TEMPLATE } from '../vendas/prospecting-safety';
 import type { BotTypeKey } from './dto/bot-activation.dto';
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -160,72 +159,42 @@ export class BotActivationService {
     }
 
     if (type === 'prospeccao') {
-      // Prospecção: sales-profile preenchido (whatDoYouSell) + template de 1º contato seguro existe.
-      const salesProfile = await this.prisma.salesProfile
+      // Prospecção: mede a config de disparo REAL (espelha isProspConfigComplete do front).
+      // Pega a última vendasAutomationCampaign da empresa e verifica:
+      //   - ≥1 variante de 1º contato não-vazia (firstContactVariants em filtersJson)
+      //   - intervalMinutes numérico
+      //   - dailyLimit numérico
+      const campaign = await this.prisma.vendasAutomationCampaign
         .findFirst({
           where: { companyId },
-          select: { id: true, whatDoYouSell: true },
+          orderBy: { updatedAt: 'desc' },
+          select: { filtersJson: true, intervalMinutes: true, dailyLimit: true },
         })
         .catch(() => null);
-      const hasSalesProfile = Boolean(salesProfile?.whatDoYouSell?.trim());
-      // Template de 1º contato: SAFE_FIRST_CONTACT_TEMPLATE existe como constante — sempre ok
-      // enquanto ele não for nulo/vazio.
-      const hasSafeTemplate = Boolean(SAFE_FIRST_CONTACT_TEMPLATE?.trim());
-      return hasSalesProfile && hasSafeTemplate;
+      if (!campaign) return false;
+
+      // intervalMinutes e dailyLimit estão em colunas diretas da tabela
+      if (typeof campaign.intervalMinutes !== 'number') return false;
+      if (typeof campaign.dailyLimit !== 'number') return false;
+
+      // firstContactVariants fica dentro do JSON filtersJson
+      let firstContactVariants: string[] = [];
+      try {
+        const filters =
+          typeof campaign.filtersJson === 'string'
+            ? JSON.parse(campaign.filtersJson)
+            : (campaign.filtersJson as any) ?? {};
+        if (Array.isArray(filters.firstContactVariants)) {
+          firstContactVariants = (filters.firstContactVariants as unknown[])
+            .filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+        }
+      } catch {
+        // filtersJson malformado → incompleto
+      }
+      return firstContactVariants.length > 0;
     }
 
     return false;
-  }
-
-  // ── pré-voo: passouModoTeste ──────────────────────────────────────────────
-  // testedAt fica DENTRO do config JSON de cada tipo para evitar coluna nova.
-  // atendimento → setup.testedAt no config JSON do atendimento
-  // recovery → campo setup.testedAt no config JSON do recovery (__BOT_TESTED_META__)
-  // prospeccao → idem
-
-  private readonly BOT_TEST_META_CHANNEL = '__BOT_TESTED_META__';
-
-  private async resolvePassouModoTeste(companyId: number, type: BotTypeKey): Promise<boolean> {
-    if (type === 'atendimento') {
-      const config = await this.getAtendimentoConfig(companyId);
-      return Boolean((config.setup as any).testedAt);
-    }
-    // recovery e prospeccao: canal separado simples
-    const row = await this.getConfigRow(companyId, this.BOT_TEST_META_CHANNEL, type);
-    if (!row?.template) return false;
-    try {
-      const parsed = JSON.parse(row.template);
-      return Boolean(parsed?.testedAt);
-    } catch {
-      return false;
-    }
-  }
-
-  // ── mark-tested ───────────────────────────────────────────────────────────
-
-  async markTested(user: any, type: BotTypeKey): Promise<{ ok: boolean; testedAt: string }> {
-    const companyId = requireCompanyId(user);
-    const now = new Date().toISOString();
-
-    if (type === 'atendimento') {
-      // Gravar testedAt dentro do setup do config de atendimento
-      const config = await this.getAtendimentoConfig(companyId);
-      const updated = {
-        ...config,
-        setup: { ...config.setup, testedAt: now },
-      };
-      await this.saveConfigRow(
-        companyId,
-        ATENDIMENTO_BOT_CONFIG_CHANNEL,
-        ATENDIMENTO_BOT_CONFIG_TITLE,
-        updated,
-      );
-    } else {
-      // recovery / prospeccao: canal simples
-      await this.saveConfigRow(companyId, this.BOT_TEST_META_CHANNEL, type, { testedAt: now });
-    }
-
-    return { ok: true, testedAt: now };
   }
 
   // ── pré-voo completo por tipo ─────────────────────────────────────────────
@@ -236,25 +205,18 @@ export class BotActivationService {
     chipConectado: boolean,
     atendimentoConfig?: ReturnType<typeof normalizeAtendimentoBotConfig>,
   ) {
-    const [configCompleta, passouModoTeste] = await Promise.all([
-      this.resolveConfigCompleta(companyId, type, atendimentoConfig),
-      this.resolvePassouModoTeste(companyId, type),
-    ]);
-    return { chipConectado, configCompleta, passouModoTeste };
+    const configCompleta = await this.resolveConfigCompleta(companyId, type, atendimentoConfig);
+    return { chipConectado, configCompleta };
   }
 
   private resolveBlocked(
     type: BotTypeKey,
     armed: boolean,
-    preflight: { chipConectado: boolean; configCompleta: boolean; passouModoTeste: boolean },
+    preflight: { chipConectado: boolean; configCompleta: boolean },
   ): string | null {
     if (!armed) return 'Bot não ativado pela plataforma. Acione o suporte.';
     if (!preflight.chipConectado) return 'Nenhum chip WhatsApp conectado.';
     if (!preflight.configCompleta) return 'Configuração do bot incompleta.';
-    // atendimento não bloqueia por modo teste (reativo)
-    if (type !== 'atendimento' && !preflight.passouModoTeste) {
-      return 'Rode o teste do bot antes de ligar ao vivo.';
-    }
     return null;
   }
 

@@ -338,11 +338,6 @@ export class VendasService {
 
   async updateAutomationBotConfigForUser(user: any, payload: unknown) {
     const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0);
-    const requested = payload && typeof payload === 'object' ? payload as any : {};
-    const globalBotEnabled = Boolean(requested?.routingRules?.globalBotEnabled);
-    if (companyId && globalBotEnabled) {
-      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
-    }
     return this.inboxService.updateBotConfig(user, payload);
   }
 

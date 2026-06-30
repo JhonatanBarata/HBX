@@ -85,8 +85,14 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
     onSavedRef.current?.();
   }
 
-  // Gate de termos: se não aceito ainda abre o modal; se aceito executa direto.
+  // Gate de termos + config completa: se config incompleta, reabre o tutofig.
+  // Se aceito e config ok, executa direto.
   function handleStartOrResume(path: "start" | "resume") {
+    if (live && !isProspConfigComplete(live)) {
+      dismissedRef.current = false;
+      setTutofigOpen(true);
+      return;
+    }
     if (isBotTermsAccepted("prospeccao")) {
       void executeCiclo(path);
     } else {

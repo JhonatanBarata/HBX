@@ -1947,7 +1947,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   async startProspectingForUser(user: any, dto: StartVendasProspectingDto) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
-    await this.commercialPlansService.assertAssistedSetupCompleteForCompany(context.companyId);
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
@@ -2020,7 +2019,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   async resumeProspectingForUser(user: any) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
-    await this.commercialPlansService.assertAssistedSetupCompleteForCompany(context.companyId);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     const nextScheduledAt = this.moveToWorkingWindow(new Date(), campaign);
@@ -3565,19 +3563,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       nextAllowedSendAt,
       shouldContinue: false,
     });
-
-    try {
-      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(Number(campaign.companyId));
-    } catch {
-      await this.markCampaignStage(
-        campaign.id,
-        campaign.companyId,
-        'pausado',
-        'Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.',
-        { type: 'assisted_setup_required' },
-      );
-      return deferredResult('assisted_setup_required', null);
-    }
 
     if (!(await this.isHBotActiveForCampaign(campaign))) {
       await this.markCampaignStage(campaign.id, campaign.companyId, 'pausado', 'HBot desligado. Ative o bot para enviar novos contatos.', {

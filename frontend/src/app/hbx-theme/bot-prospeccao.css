@@ -449,3 +449,22 @@
 .bot-sandbox__restart:hover { background: color-mix(in srgb, var(--wa-header-ink) 24%, transparent); }
 .bot-sandbox__restart:disabled { opacity: 0.5; cursor: not-allowed; }
 .bot-sandbox__restart-glyph { font-size: 0.78rem; }
+
+/* pele-allow — chave de liberação do bot (header desktop + mobile) */
+.bot-release-key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  transition: background var(--motion-fast), box-shadow var(--motion-fast);
+}
+.bot-release-key--on {
+  background: var(--hbx-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-warning) 22%, transparent);
+}
+.bot-release-key--off {
+  background: var(--hbx-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-danger) 22%, transparent);
+}
+/* pele-allow-end */

@@ -5697,9 +5697,6 @@ export class InboxService {
       );
     }
     const requested = normalizeAtendimentoBotConfig(payload || {});
-    if (requested.routingRules.globalBotEnabled) {
-      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
-    }
     if (
       (requested.routingRules.globalBotEnabled || requested.setup.completed) &&
       !isAtendimentoBotSetupComplete(requested)
@@ -5757,7 +5754,6 @@ export class InboxService {
           HttpStatus.PAYMENT_REQUIRED,
         );
       }
-      await this.commercialPlansService.assertAssistedSetupCompleteForCompany(companyId);
       const config = await this.getBotConfigByCompanyId(companyId);
       if (!isAtendimentoBotSetupComplete(config)) {
         throw new BadRequestException({

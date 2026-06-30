@@ -1,10 +1,9 @@
 "use client";
 
 // Tela Bot — painel de controle real: pino + 3 chavinhas + pré-voo + config 3 tipos + modo teste.
-// B: Header com faixa do pino (read-only) + 3 chavinhas (Atendimento/Recovery/Prospecção) cada
-//    com chip tri-cor (chipConectado/configCompleta/passouModoTeste) e switch .sw.
+// B: Header com faixa do pino (read-only) + chave de liberação + 3 guias por tipo.
 // C: Aba Configurações com seletor de tipo: troca endpoint (atendimento/recovery/prospecção).
-// D: Chat de teste chama POST /bot/activation/mark-tested ao concluir rodada → acende 3ª luz.
+// D: Chat de teste — simulação local do fluxo de mensagens.
 // Design System: zero hex/inline solto — só classes/tokens centrais. CSS novo em screens.css.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -56,7 +55,6 @@ type BotTypeName = "atendimento" | "recovery" | "prospeccao";
 type PreflightStatus = {
   chipConectado: boolean;
   configCompleta: boolean;
-  passouModoTeste: boolean;
 };
 
 type BotTypeStatus = {
@@ -208,9 +206,9 @@ export function BotClient() {
     channel: null,
     canAdminToggle: false,
     types: {
-      atendimento: { live: false, preflight: { chipConectado: false, configCompleta: false, passouModoTeste: false }, blocked: null },
-      recovery:    { live: false, preflight: { chipConectado: false, configCompleta: false, passouModoTeste: false }, blocked: null },
-      prospeccao:  { live: false, preflight: { chipConectado: false, configCompleta: false, passouModoTeste: false }, blocked: null },
+      atendimento: { live: false, preflight: { chipConectado: false, configCompleta: false }, blocked: null },
+      recovery:    { live: false, preflight: { chipConectado: false, configCompleta: false }, blocked: null },
+      prospeccao:  { live: false, preflight: { chipConectado: false, configCompleta: false }, blocked: null },
     },
   };
 
@@ -317,31 +315,6 @@ export function BotClient() {
     initCfgTipo("atendimento");
   }, [loadActivation, initCfgTipo]);
 
-  // ── Auto-ligar: a chavinha NÃO depende de clique. Quando o pré-voo do tipo fica
-  // OK (chip + config; proativos exigem também o teste feito), liga SOZINHO. Direção
-  // única (liga ao ficar OK; não desliga sozinho). Em localhost o chip nunca conecta,
-  // então isto NUNCA dispara aqui — só vale em produção (deploy do dono). Ver RISCOS.md.
-  const autoArmedRef = useRef<Set<BotTypeName>>(new Set());
-  useEffect(() => {
-    if (!activation?.armed) return;
-    if (activation.masterOff) return; // chave geral baixada → não re-liga sozinho
-    (Object.keys(activation.types) as BotTypeName[]).forEach(tipo => {
-      const st = activation.types[tipo];
-      const pf = st.preflight;
-      const ok = PROATIVO[tipo]
-        ? pf.chipConectado && pf.configCompleta && pf.passouModoTeste
-        : pf.chipConectado && pf.configCompleta;
-      if (!ok) { autoArmedRef.current.delete(tipo); return; }
-      if (st.live || autoArmedRef.current.has(tipo)) return;
-      autoArmedRef.current.add(tipo);
-      apiFetch<ActivationState>("/bot/activation", {
-        method: "PUT",
-        body: JSON.stringify({ type: tipo, live: true }),
-      })
-        .then(data => { if (data) setActivation(data); setActMsg(`✓ ${TYPE_LABEL[tipo]} ligado automaticamente.`); })
-        .catch(() => { autoArmedRef.current.delete(tipo); });
-    });
-  }, [activation]);
 
   // Trocar tipo → recarregar config. Prospecção NÃO usa o endpoint de bot-config
   // (é do atendimento); o <BotProspeccaoPanel> carrega sozinho via live-status.
@@ -572,16 +545,6 @@ export function BotClient() {
     setDraft("");
   }
 
-  // Ao concluir rodada de teste: chama mark-tested e recarrega ativação
-  function marcarTestado(tipo: BotTypeName) {
-    apiFetch("/bot/activation/mark-tested", {
-      method: "POST",
-      body: JSON.stringify({ type: tipo }),
-    })
-      .then(() => { loadActivation(); })
-      .catch(() => { /* silencia — pré-voo será atualizado na próxima carga */ });
-  }
-
   function reply(text: string) {
     const now = hhmm();
     setChat(c => {
@@ -599,10 +562,6 @@ export function BotClient() {
     });
     const novoStep = step + 1;
     setStep(novoStep);
-    // Após 2 trocas consideramos "rodada concluída" → marca como testado
-    if (novoStep >= 2) {
-      void marcarTestado(chatTipo);
-    }
   }
 
   function send() { if (!draft.trim()) return; reply(draft.trim()); setDraft(""); }
@@ -733,6 +692,12 @@ export function BotClient() {
         <div className="bot-head">
           <h1>Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
           <span className={"saved" + (cfgData && !cfgData.setup?.completed ? " bot-badge--warn" : "")}>{setupBadge}</span>
+          {/* Chave de liberação mobile (read-only): amarela = armado, vermelha = não armado */}
+          <span
+            className={"bot-release-key" + (act.armed ? " bot-release-key--on" : " bot-release-key--off")}
+            title={act.armed ? "Liberado pelo Suporte — configure e ligue" : "Aguardando liberação do Suporte"}
+            aria-label={act.armed ? "Liberado pelo Suporte" : "Aguardando liberação do Suporte"}
+          />
           {actMsg && (
             <span className={"bot-mobile-msg" + (actMsg.startsWith("✓") ? " bot-mobile-msg--ok" : " bot-mobile-msg--err")}>{actMsg}</span>
           )}
@@ -861,6 +826,13 @@ export function BotClient() {
             : "Aguardando ativação do Suporte"}
         </span>
 
+        {/* Chave de liberação (read-only): amarela = armado, vermelha = não armado */}
+        <span
+          className={"bot-release-key" + (act.armed ? " bot-release-key--on" : " bot-release-key--off")}
+          title={act.armed ? "Liberado pelo Suporte — configure e ligue" : "Aguardando liberação do Suporte"}
+          aria-label={act.armed ? "Liberado pelo Suporte" : "Aguardando liberação do Suporte"}
+        />
+
         <div style={{ marginLeft: "auto", display: "flex", gap: 9, alignItems: "center" }}>
           {actMsg && (
             <span className={"bot-act-msg" + (actMsg.startsWith("✓") ? " bot-act-msg--ok" : " bot-act-msg--err")}>
@@ -912,7 +884,7 @@ export function BotClient() {
         })}
       </div>
 
-      {/* ── Painel integrado do tipo: fluxo=config (a chavinha liga SOZINHA — ver efeito auto-ligar) ── */}
+      {/* ── Painel integrado do tipo: fluxo=config (master arma → cliente configura → cliente liga) ── */}
       <div className="bot-panel">
         {cfgTipo === "prospeccao" ? (
           /* Guia Prospecção: motor de disparo frio (config REAL via live-status +

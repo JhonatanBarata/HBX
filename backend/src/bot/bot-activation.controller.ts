@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Put,
-  Post,
   Body,
   Req,
   UseGuards,
@@ -52,13 +51,4 @@ export class BotActivationController {
     return this.botActivationService.setMasterSwitch(req.user, body.on);
   }
 
-  @Post('mark-tested')
-  markTested(@Req() req: any, @Body() body: { type: BotTypeKey }) {
-    const type = body?.type;
-    const validTypes: BotTypeKey[] = ['atendimento', 'recovery', 'prospeccao'];
-    if (!type || !validTypes.includes(type)) {
-      throw new BadRequestException('Campo "type" obrigatório: atendimento | recovery | prospeccao.');
-    }
-    return this.botActivationService.markTested(req.user, type);
-  }
 }
