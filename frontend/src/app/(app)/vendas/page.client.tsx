@@ -154,6 +154,9 @@ const PROSP_LABEL: Record<string, string> = {
   enviando: "Enviando", aguardando: "Aguardando",
 };
 
+// Persistência do filtro de vendedor (admin) — sobrevive reload/navegação.
+const TEAM_FILTER_KEY = "hbx:vendas-team-filter";
+
 const BLOCK_ORDER: { key: keyof NonNullable<BoardResponse>["blocks"]; label: string }[] = [
   { key: "today", label: "Hoje" },
   { key: "overdue", label: "Atrasados" },
@@ -333,8 +336,21 @@ export function VendasClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
   // vendedor (inclui "Eu" quando o admin prospecta). Refaz o board ao mudar.
-  const [teamFilter, setTeamFilter] = useState<number | null>(null);
+  // PERSISTE em localStorage → sobrevive reload/navegação. Initializer lazy com
+  // guarda de window (SSR devolve null; o dropdown só monta depois do board, então
+  // não há mismatch de hidratação) — sem double-fetch na montagem.
+  const [teamFilter, setTeamFilter] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return Number(localStorage.getItem(TEAM_FILTER_KEY) || 0) || null; } catch { return null; }
+  });
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
+  const applyTeamFilter = useCallback((id: number | null) => {
+    setTeamFilter(id);
+    try {
+      if (id) localStorage.setItem(TEAM_FILTER_KEY, String(id));
+      else localStorage.removeItem(TEAM_FILTER_KEY);
+    } catch { /* sem storage */ }
+  }, []);
   const [sel, setSel] = useState<VendasLead | null>(null);
   // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
@@ -396,6 +412,9 @@ export function VendasClient() {
       .then(res => {
         setBoard(res);
         setLoadError(null);
+        // Auto-cura: filtro persistido que o backend rejeitou (vendedor desativado/
+        // removido → selectedSellerId volta null) é limpo p/ não ficar fantasma.
+        if (res?.team && teamFilter && res.team.selectedSellerId == null) applyTeamFilter(null);
         const todos = BLOCK_ORDER.map(b => res?.blocks?.[b.key] || []).flat();
         // mantém a seleção, mas sempre com a versão FRESCA do card
         setSel(prev => (prev && todos.find(c => c.id === prev.id)) || todos[0] || null);
@@ -403,7 +422,7 @@ export function VendasClient() {
       .catch((err: unknown) => {
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o board de Vendas.");
       });
-  }, [teamFilter]);
+  }, [teamFilter, applyTeamFilter]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
@@ -1057,13 +1076,13 @@ export function VendasClient() {
                             <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={() => setTeamMenuOpen(false)} />
                             <div className="vnd-team-menu" role="menu">
                               <button type="button" role="menuitem" className={"vnd-team-item" + (!teamFilter ? " on" : "")}
-                                onClick={() => { setTeamFilter(null); setTeamMenuOpen(false); }}>
+                                onClick={() => { applyTeamFilter(null); setTeamMenuOpen(false); }}>
                                 Todas as equipes
                               </button>
                               {team.sellers.map(s => (
                                 <button key={s.id} type="button" role="menuitem"
                                   className={"vnd-team-item" + (teamFilter === s.id ? " on" : "")}
-                                  onClick={() => { setTeamFilter(s.id); setTeamMenuOpen(false); }}>
+                                  onClick={() => { applyTeamFilter(s.id); setTeamMenuOpen(false); }}>
                                   {s.isMe ? "Eu (prospectar)" : s.name}
                                 </button>
                               ))}
