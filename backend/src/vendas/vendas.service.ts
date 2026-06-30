@@ -7441,12 +7441,17 @@ export class VendasService {
     };
   }
 
-  async getBoardForUser(user: any) {
+  async getBoardForUser(user: any, sellerIdRaw?: string | number | null) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanReadVendasCards(context);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const sellsHbxPlans = await this.resolveSellsHbxPlans(context.companyId);
     const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId);
+    // Filtro de vendedor (admin/gerente apenas): a barra de Vendas ganha um seletor
+    // "Todas as equipes ▾" que estreita o funil ao card de UM vendedor — incluindo o
+    // próprio admin quando ele também prospecta. Vendedor comum nunca recebe `team`
+    // (canManageTeam=false) → seletor SOME no front. Fonte da verdade = backend.
+    const team = await this.buildVendasTeamFilter(context, sellerIdRaw);
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
         orderBy: [{ createdAt: 'desc' }],
@@ -7454,7 +7459,10 @@ export class VendasService {
       },
     });
     let rows: any[] = [];
-    const boardWhere = this.buildLeadAccessWhere(context);
+    const boardWhere = this.buildLeadAccessWhere(
+      context,
+      team?.selectedSellerId ? { assignedUserId: team.selectedSellerId } : {},
+    );
     try {
       rows = await this.prisma.vendasLead.findMany({
         where: boardWhere,
@@ -7579,8 +7587,45 @@ export class VendasService {
       sellsHbxPlans,
       usage,
       radarSupply,
+      team,
       blocks,
     };
+  }
+
+  // Lista de vendedores selecionáveis no seletor de equipe do funil + qual está
+  // ativo. Só existe para quem gerencia a equipe (admin/gerente); vendedor comum
+  // recebe `null` e o front nem renderiza o botão. Inclui o próprio admin (isMe),
+  // que pode prospectar e ter carteira. `selectedSellerId` valida o id pedido
+  // contra a lista — id inválido/estranho cai em "Todas as equipes" (null).
+  private async buildVendasTeamFilter(
+    context: VendasUserContext,
+    sellerIdRaw?: string | number | null,
+  ): Promise<{ sellers: Array<{ id: number; name: string; active: boolean; isMe: boolean }>; selectedSellerId: number | null } | null> {
+    if (!context.canManageTeam) return null;
+    const members = await this.prisma.user.findMany({
+      where: {
+        companyId: context.companyId,
+        OR: [
+          { id: context.userId },
+          { role: 'USER', isActive: true, deactivatedAt: null, isSystemMaster: false },
+        ],
+      },
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+      take: 200,
+      select: { id: true, name: true, email: true, isActive: true },
+    });
+    const sellers = members.map((m: any) => ({
+      id: Number(m.id),
+      name: String(m.name || m.email || 'Sem nome'),
+      active: Boolean(m.isActive),
+      isMe: Number(m.id) === context.userId,
+    }));
+    // "Eu" primeiro; demais por nome (a query já ordena por nome).
+    sellers.sort((a, b) => (a.isMe === b.isMe ? 0 : a.isMe ? -1 : 1));
+    const validIds = new Set(sellers.map((s) => s.id));
+    const requestedSellerId = Math.trunc(Number(sellerIdRaw || 0)) || null;
+    const selectedSellerId = requestedSellerId && validIds.has(requestedSellerId) ? requestedSellerId : null;
+    return { sellers, selectedSellerId };
   }
 
   async getLeadConversationSnapshotForUser(user: any, leadId: string, eventId?: string | null) {

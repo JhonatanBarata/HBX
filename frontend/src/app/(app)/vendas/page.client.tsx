@@ -129,6 +129,12 @@ type BoardResponse = {
     paused: boolean;
     code: string | null;
   } | null;
+  // Seletor de vendedor do funil — só vem preenchido para admin/gerente
+  // (canManageTeam). Vendedor comum recebe ausente/null → o botão SOME.
+  team?: {
+    sellers: Array<{ id: number; name: string; active: boolean; isMe: boolean }>;
+    selectedSellerId: number | null;
+  } | null;
 } | null;
 
 type TriagemItem = { key: string; label: string; ok: boolean };
@@ -325,6 +331,10 @@ export function VendasClient() {
     { totalBrasil: null, disponiveis: null, cotaLabel: "Cota do mês", cotaValue: "—", cotaPct: 0 });
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
+  // vendedor (inclui "Eu" quando o admin prospecta). Refaz o board ao mudar.
+  const [teamFilter, setTeamFilter] = useState<number | null>(null);
+  const [teamMenuOpen, setTeamMenuOpen] = useState(false);
   const [sel, setSel] = useState<VendasLead | null>(null);
   // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
@@ -381,7 +391,8 @@ export function VendasClient() {
   }
 
   const loadBoard = useCallback(() => {
-    return apiFetch<BoardResponse>("/vendas/board")
+    const qs = teamFilter ? `?sellerId=${teamFilter}` : "";
+    return apiFetch<BoardResponse>(`/vendas/board${qs}`)
       .then(res => {
         setBoard(res);
         setLoadError(null);
@@ -392,7 +403,7 @@ export function VendasClient() {
       .catch((err: unknown) => {
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o board de Vendas.");
       });
-  }, []);
+  }, [teamFilter]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
@@ -1031,7 +1042,37 @@ export function VendasClient() {
                   <button className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" data-tut="vendas-agenda" onClick={() => setAgendaOpen(o => !o)}>
                     <I d={ICONS.clock} size={16} />
                   </button>
-                  <button className="btn-ghost">Todas as equipes ▾</button>
+                  {board?.team && !isMobile && (() => {
+                    const team = board.team;
+                    const selSeller = teamFilter ? team.sellers.find(x => x.id === teamFilter) : null;
+                    const label = !teamFilter ? "Todas as equipes" : selSeller ? (selSeller.isMe ? "Eu" : selSeller.name) : "Todas as equipes";
+                    return (
+                      <div className="vnd-team">
+                        <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={teamMenuOpen}
+                          onClick={() => setTeamMenuOpen(o => !o)}>
+                          {label} ▾
+                        </button>
+                        {teamMenuOpen && (
+                          <React.Fragment>
+                            <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={() => setTeamMenuOpen(false)} />
+                            <div className="vnd-team-menu" role="menu">
+                              <button type="button" role="menuitem" className={"vnd-team-item" + (!teamFilter ? " on" : "")}
+                                onClick={() => { setTeamFilter(null); setTeamMenuOpen(false); }}>
+                                Todas as equipes
+                              </button>
+                              {team.sellers.map(s => (
+                                <button key={s.id} type="button" role="menuitem"
+                                  className={"vnd-team-item" + (teamFilter === s.id ? " on" : "")}
+                                  onClick={() => { setTeamFilter(s.id); setTeamMenuOpen(false); }}>
+                                  {s.isMe ? "Eu (prospectar)" : s.name}
+                                </button>
+                              ))}
+                            </div>
+                          </React.Fragment>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {isMobile && board && ((board.blocks?.today?.length ?? 0) + (board.blocks?.overdue?.length ?? 0)) > 0 && (
                     <button className="btn-teal vf-entry-btn" data-tut="vendas-modo-foco" onClick={() => setModoFocoOpen(true)}>
                       <I d={ICONS.bolt} size={14} /> Modo foco

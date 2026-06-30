@@ -1564,6 +1564,19 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-stats__layer .kpi .kpi-value { font-size: 1.3rem; font-weight: 800; margin-top: 0; line-height: 1.1; }
 .vnd-stats__layer .kpi .kpi-foot { display: none; }
 
+/* Seletor de vendedor do funil (admin) — botão .btn-ghost central + menu flutuante.
+   Cor/borda/sombra vêm de tokens; aqui só posição e layout (Lei 5). */
+.vnd-team { position: relative; display: inline-flex; }
+.vnd-team-veil { position: fixed; inset: 0; z-index: 40; border: 0; background: transparent; cursor: default; }
+.vnd-team-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 41; min-width: 200px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px; border: 1px solid var(--border-hairline);
+  border-radius: var(--control-radius); background: var(--hbx-surface-raised); box-shadow: var(--shadow-md); }
+.vnd-team-item { display: flex; align-items: center; width: 100%; min-height: 32px; padding: 0 10px; border: 0;
+  border-radius: var(--control-radius); background: transparent; color: var(--text-body); font-family: var(--font-body);
+  font-size: 0.76rem; font-weight: 600; text-align: left; cursor: pointer; }
+.vnd-team-item:hover { background: var(--hbx-surface-sunken, color-mix(in srgb, var(--text-body) 6%, transparent)); }
+.vnd-team-item.on { background: color-mix(in srgb, var(--hbx-accent) 16%, transparent); color: var(--hbx-accent); }
+
 /* Stage — preenche o modehost do TOPO (a barra fica POR CIMA). 2 camadas
    SOBREPOSTAS (a casca) em crossfade + sobe/escala. */
 .vnd-stage { position: absolute; inset: 0; }

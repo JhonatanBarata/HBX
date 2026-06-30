@@ -277,6 +277,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
       <BotTutofig
         open={tutofigOpen}
         cfg={cfg}
+        variableCatalog={variableCatalog}
         onClose={() => { dismissedRef.current = true; setTutofigOpen(false); }}
         onSaved={() => onSavedRef.current?.()}
       />

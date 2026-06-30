@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
+import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
 import {
   PIECES,
@@ -181,11 +182,13 @@ export function BotTutofig({
   cfg,
   onClose,
   onSaved,
+  variableCatalog,
 }: {
   open: boolean;
   cfg: ProspConfigApi;
   onClose: () => void;
   onSaved?: () => void;
+  variableCatalog?: VarDef[];
 }) {
   // "splash" → mostra boas-vindas antes das 3 colunas
   // "flow"   → fluxo guiado (3 colunas)
@@ -208,6 +211,7 @@ export function BotTutofig({
   const helpers: ProspFieldHelpers = {
     numVal: cfg.numVal, boolVal: cfg.boolVal, strVal: cfg.strVal, listVal: cfg.listVal,
     setField: cfg.setField, setNum: cfg.setNum,
+    variableCatalog,
   };
 
   // ── Estado de cada peça (feita / pendente) ──

@@ -108,8 +108,8 @@ export class VendasController {
   }
 
   @Get('board')
-  getBoard(@Req() req: any) {
-    return this.vendasService.getBoardForUser(req.user);
+  getBoard(@Req() req: any, @Query('sellerId') sellerId?: string) {
+    return this.vendasService.getBoardForUser(req.user, sellerId);
   }
 
   @Get('usage')
