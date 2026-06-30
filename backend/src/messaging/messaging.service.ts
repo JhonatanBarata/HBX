@@ -48,11 +48,10 @@ import {
   resolveCompanyMercadoPagoAccess,
 } from '../modules/master-global-integrations.util';
 import {
-  classifyProspectingAutoReply,
-  classifyProspectingIntent,
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from '../vendas/prospecting-safety';
+import { AiIntentClassifierService } from '../vendas/ai-intent-classifier.service';
 import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
@@ -262,6 +261,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
+    private readonly aiIntentClassifier: AiIntentClassifierService,
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
   ) {}
 
@@ -3013,7 +3013,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'me chama',
       'pode ligar',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const intent = classifyProspectingIntent({
+    const { intent, autoReply: autoReplyClassification } = await this.aiIntentClassifier.classifyIntentWithFallback({
       text: input.text,
       positiveKeywords,
       negativeKeywords,
@@ -3022,7 +3022,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       callbackKeywords,
       humanHandoffKeywords,
     });
-    const autoReplyClassification = classifyProspectingAutoReply(input.text);
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
     const alreadyClosed =
       terminalStatus.has(automationStatus) ||

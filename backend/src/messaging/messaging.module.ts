@@ -19,9 +19,10 @@ import { InboxRealtimeService } from './inbox-realtime.service';
 import { MailModule } from '../mail/mail.module';
 import { MasterPaymentNotificationsController } from './master-payment-notifications.controller';
 import { WhatsappConsentLedgerService } from './whatsapp-consent-ledger.service';
+import { AiIntentClassifierModule } from '../vendas/ai-intent-classifier.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, AiIntentClassifierModule],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService],
   controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService],

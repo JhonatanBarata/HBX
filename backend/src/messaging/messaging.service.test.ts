@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MessagingService } from './messaging.service';
+import { AiIntentClassifierService } from '../vendas/ai-intent-classifier.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
 
 const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
@@ -107,6 +108,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
     inboxRealtime,
+    new AiIntentClassifierService() as any,
     (overrides?.hbxPresentationEmails || undefined) as any,
   );
 
@@ -1201,6 +1203,7 @@ function createServiceForStatusTest() {
     {} as any,
     { sendText: async () => undefined } as any,
     inboxRealtime,
+    new AiIntentClassifierService() as any,
     undefined as any,
   );
 
