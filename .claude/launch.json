@@ -15,6 +15,12 @@
       "runtimeArgs": ["run", "dev:preview"],
       "autoPort": true,
       "cwd": "frontend"
+    },
+    {
+      "name": "owner-harness",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/Jhonatan/AppData/Local/Temp/claude/C--Users-Jhonatan-Desktop-App/fa5acf30-19bd-400e-9b8b-bac0440ec724/scratchpad/static-server.js"],
+      "port": 8099
     }
   ]
 }

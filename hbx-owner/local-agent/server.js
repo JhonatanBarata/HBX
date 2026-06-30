@@ -92,6 +92,83 @@ const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").
 const opsToken = String(process.env.HBX_OWNER_OPS_TOKEN || "").trim();
 const runs = new Map();
 
+// ---------- Frota de motores LOCAIS (autoridade = este agent, docker nativo) ----------
+// O governor do backend NÃO consegue subir motor local: o container do backend não tem docker
+// (sem socket/CLI) e a única ponte (ops-control) aponta SSH→VPS → todo `start` dá timeout. Quem
+// sobe motor local é ESTE agent, que roda nativo no Windows com docker total.
+// CRÍTICO subir a frota INTEIRA: um container parado pendura o health-check do backend por 3.5s
+// (DNS do Docker trava no nome de container parado) → envenena a pressão da fonte e derruba TODOS
+// em cooldown → o pump leasa 0 e nada raspa. Frota completa = health rápido (~55ms) = produção
+// sustentada (provado ao vivo 29/06: 0→1696 cards em ~2.5min só subindo os 20 + limpando cooldown).
+const ENGINE_FLEET_SIZE = clampInt(process.env.HBX_LOCAL_ENGINE_COUNT, 20, 1, 50);
+let enginesKeepWarm = false; // o dono ligou os motores pelo painel? (mantém a frota de pé)
+let enginesWarmTimer = null;
+let lastEnginesAction = { at: 0, started: [], failed: [], stopped: [] };
+
+function engineContainerNames(n = ENGINE_FLEET_SIZE) {
+  const out = [];
+  for (let i = 1; i <= n; i += 1) out.push(`hbx-engine-${i}`);
+  return out;
+}
+
+function runningEngineSet() {
+  const r = execRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
+  const set = new Set();
+  if (r.ok) {
+    for (const line of String(r.stdout || "").split(/\r?\n/)) {
+      const name = line.trim();
+      if (/^hbx-engine-\d+$/.test(name)) set.add(name);
+    }
+  }
+  return set;
+}
+
+// Liga (docker start) os containers de motor que não estão rodando. Idempotente e RÁPIDO — NÃO
+// recria o backend (o backend local já roda com a frota declarada nos envs HBX_ENGINE_*). Só os motores.
+function ensureEnginesUp(n = ENGINE_FLEET_SIZE) {
+  const running = runningEngineSet();
+  const started = [];
+  const failed = [];
+  for (const name of engineContainerNames(n)) {
+    if (running.has(name)) continue;
+    const r = execRead(["docker", "start", name]);
+    if (r.ok) started.push(name);
+    else failed.push({ name, error: (r.stderr || "").trim().slice(0, 160) });
+  }
+  const alreadyUp = engineContainerNames(n).filter((x) => running.has(x)).length;
+  return { started, failed, alreadyUp };
+}
+
+function stopEngineContainers(n = ENGINE_FLEET_SIZE) {
+  const running = runningEngineSet();
+  const stopped = [];
+  const failed = [];
+  for (const name of engineContainerNames(n)) {
+    if (!running.has(name)) continue;
+    const r = execRead(["docker", "stop", name]);
+    if (r.ok) stopped.push(name);
+    else failed.push({ name, error: (r.stderr || "").trim().slice(0, 160) });
+  }
+  return { stopped, failed };
+}
+
+// Keep-warm: re-afirma a frota a cada 30s. Se um motor cair (OOM 137), sobe de volta ANTES de o
+// backend acumular 3 falhas de health (=cooldown 30min). Disjuntor: intervalo FIXO, sem loop apertado.
+function startEnginesKeepWarm() {
+  enginesKeepWarm = true;
+  if (enginesWarmTimer) return;
+  enginesWarmTimer = setInterval(() => {
+    if (!enginesKeepWarm) return;
+    try { ensureEnginesUp(); } catch { /* docker indisponível por um tick; tenta de novo no próximo */ }
+  }, 30000);
+  if (enginesWarmTimer.unref) enginesWarmTimer.unref();
+}
+
+function stopEnginesKeepWarm() {
+  enginesKeepWarm = false;
+  if (enginesWarmTimer) { clearInterval(enginesWarmTimer); enginesWarmTimer = null; }
+}
+
 const STATIC_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -1804,6 +1881,45 @@ async function route(req, res) {
       ok,
       backend: data,
       reason: ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`),
+    });
+    return;
+  }
+
+  // LIGAR a frota LOCAL de motores (docker nativo do agent + keep-warm). É a via que OBEDECE: o
+  // governor do backend não sobe motor local. Sobe a frota INTEIRA (parcial envenena o health-check)
+  // e mantém de pé. Não recria o backend — só liga os containers (rápido).
+  if (req.method === "POST" && url.pathname === "/owner/engines/up") {
+    const r = ensureEnginesUp();
+    startEnginesKeepWarm();
+    lastEnginesAction = { at: Date.now(), started: r.started, failed: r.failed, stopped: [] };
+    const upNow = runningEngineSet().size;
+    sendJson(res, 200, {
+      ok: r.failed.length === 0,
+      fleet: ENGINE_FLEET_SIZE,
+      started: r.started.length,
+      alreadyUp: r.alreadyUp,
+      running: upNow,
+      failed: r.failed,
+      keepWarm: true,
+      message: r.failed.length === 0
+        ? `${upNow}/${ENGINE_FLEET_SIZE} motores ligados — keep-warm ativo.`
+        : `${upNow}/${ENGINE_FLEET_SIZE} ligados; ${r.failed.length} falharam.`,
+    });
+    return;
+  }
+
+  // DESLIGAR a frota LOCAL (para o keep-warm + para os containers). Freio do dono que FICA.
+  if (req.method === "POST" && url.pathname === "/owner/engines/down") {
+    stopEnginesKeepWarm();
+    const r = stopEngineContainers();
+    lastEnginesAction = { at: Date.now(), started: [], failed: r.failed, stopped: r.stopped };
+    sendJson(res, 200, {
+      ok: r.failed.length === 0,
+      stopped: r.stopped.length,
+      running: runningEngineSet().size,
+      failed: r.failed,
+      keepWarm: false,
+      message: `${r.stopped.length} motores desligados — keep-warm parado.`,
     });
     return;
   }

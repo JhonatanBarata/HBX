@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HBX Owner</title>
-  <link rel="stylesheet" href="/styles.css?v=20260629a" />
+  <link rel="stylesheet" href="/styles.css?v=20260629d" />
 </head>
 <body>
   <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
@@ -28,8 +28,8 @@
 
   <main class="content">
 
-    <!-- ============ SAÚDE: sua máquina × VPS ============ -->
-    <div class="sys-cols">
+    <!-- ============ TOPO: Sua máquina · VPS · Enriquecedor · Banco de leads (1 linha) ============ -->
+    <div class="top-row">
       <section class="card env-col" data-env="local">
         <header class="env-head"><h2>Sua máquina</h2></header>
         <div class="grid-3">
@@ -43,7 +43,7 @@
         </div>
       </section>
 
-      <section class="card env-col env-vps" data-env="vps">
+      <section class="card env-col" data-env="vps">
         <header class="env-head">
           <h2>Servidor (VPS) <small id="vps-host" class="env-host"></small></h2>
           <span id="vps-status" class="tag-ok">—</span>
@@ -59,10 +59,9 @@
           <span id="vps-verdict-detail" class="verdict-detail"></span>
         </div>
       </section>
-    </div>
 
-    <!-- ============ ENRIQUECEDOR ============ -->
-    <section class="card" id="enricher">
+      <!-- ============ ENRIQUECEDOR ============ -->
+      <section class="card" id="enricher">
       <div class="cockpit-head">
         <div class="hero-title">
           <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
@@ -89,7 +88,28 @@
         <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
       </div>
       <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
-    </section>
+      </section>
+
+      <!-- ============ BANCO DE LEADS · Sua máquina × VPS + injetar ============ -->
+      <section class="card env-col" data-env="bank">
+        <header class="env-head"><h2>Banco de leads</h2></header>
+        <div class="grid-2">
+          <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local">—</strong><small id="sys-bank-local-delta" class="delta"></small></div>
+          <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps-mini">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
+        </div>
+        <button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;width:100%;margin-top:12px;" title="MOVE todos os leads locais pro VPS e LIMPA o local (sua máquina zera) — é transferência, não cópia">⬆ Mandar tudo pro VPS</button>
+        <div id="transfer-box" style="display:none;margin-top:12px;">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+            <span id="transfer-status" class="delta" style="font-weight:600;">—</span>
+            <strong id="transfer-pct" style="margin-left:auto;font-size:18px;line-height:1;">0%</strong>
+          </div>
+          <div style="height:12px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;">
+            <div id="transfer-bar" style="height:100%;width:0%;background:#39d98a;transition:width .35s ease;"></div>
+          </div>
+        </div>
+        <p class="delta" style="margin-top:8px;">Move os leads prontos do local pro VPS e <strong>limpa o local</strong> — é transferência, não cópia.</p>
+      </section>
+    </div><!-- /top-row -->
 
     <!-- ============ FÁBRICA (card herói, honesto) ============ -->
     <section class="card factory-hero">
@@ -206,6 +226,6 @@
 
   </main>
 
-  <script src="/app.js?v=20260629a"></script>
+  <script src="/app.js?v=20260629d"></script>
 </body>
 </html>

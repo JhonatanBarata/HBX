@@ -126,19 +126,21 @@ async function refreshVpsBank(force) {
   if (vpsBankLoading) return;
   if (!force && vpsBankAt && Date.now() - vpsBankAt < 60000) return;
   vpsBankLoading = true;
+  // mesma contagem do VPS aparece no header do Cockpit (#sys-bank-vps) e no card Banco de leads (#sys-bank-vps-mini)
+  const setVpsCount = (txt) => { document.querySelectorAll("#sys-bank-vps, #sys-bank-vps-mini").forEach((e) => { e.textContent = txt; }); };
   const delta = $("#sys-bank-vps-delta");
   if (delta && (!vpsBankAt || force)) delta.textContent = "lendo a VPS…";
   try {
     const d = await api("GET", "/owner/vps/leads");
     if (d.ok && d.total != null) {
-      $("#sys-bank-vps").textContent = Number(d.total).toLocaleString("pt-BR");
+      setVpsCount(Number(d.total).toLocaleString("pt-BR"));
       if (delta) {
         delta.textContent = d.today > 0 ? `+${d.today} em 24h` : "sem novos 24h";
         delta.className = d.today > 0 ? "delta up" : "delta";
       }
       vpsBankAt = Date.now();
     } else {
-      $("#sys-bank-vps").textContent = d.configured === false ? "config Ops" : "—";
+      setVpsCount(d.configured === false ? "config Ops" : "—");
       if (delta) delta.textContent = d.reason || "VPS indisponível";
     }
   } catch {
@@ -1658,10 +1660,32 @@ async function renderMotorStrip() {
   wrap.innerHTML = cells.join("");
 }
 
-/* ---------- Religar motores ---------- */
-{ const rb = $("#btn-religar"); if (rb) rb.addEventListener("click", () => {
+/* ---------- Ligar motores (frota local via docker nativo do agent + keep-warm) ----------
+   Antes era um STUB que mandava o dono rodar um .ps1 na mão ("motor não sobe"). Agora o botão
+   SOBE a frota inteira de verdade (o agent dá docker start nos 20 + mantém de pé). Frota completa
+   é o que destrava a produção (container parado pendura o health-check do backend → cooldown geral). */
+{ const rb = $("#btn-religar"); if (rb) rb.addEventListener("click", async () => {
   const fb = $("#engines-local-feedback");
-  if (fb) { fb.textContent = "Religar motores: rode  pwsh scripts/start-hbx-engines.ps1 -Count 20  (botão automático em breve)."; fb.className = "delta"; }
+  const old = rb.textContent;
+  rb.disabled = true;
+  rb.textContent = "ligando motores…";
+  if (fb) { fb.textContent = "Subindo a frota de motores (docker)… alguns segundos."; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/engines/up");
+    if (fb) {
+      fb.textContent = (r && r.ok)
+        ? `✓ ${r.message || ((r.running || 0) + " motores ligados")} A fábrica começa a raspar em ~30s.`
+        : `Subiu ${r && r.running != null ? r.running : "?"}/${(r && r.fleet) || 20} — ${(r && r.failed && r.failed.length) || 0} falharam (ver logs).`;
+      fb.className = "delta";
+    }
+    renderSistema();          // repinta a contagem N/20 com a verdade do docker
+    renderMotorStrip();
+  } catch (e) {
+    if (fb) { fb.textContent = "erro ao ligar motores: " + e.message; fb.className = "delta"; }
+  } finally {
+    rb.disabled = false;
+    rb.textContent = old;
+  }
 }); }
 
 /* ---------- Chaves de API / Integrações ---------- */
@@ -1690,8 +1714,8 @@ async function renderIntegrations() {
               ${it.present ? `<span class="pill pill-ok">Local ✓</span>` : `<span class="pill pill-muted">Local ✗</span>`}
               <span class="pill pill-muted int-vps" data-int="${esc(it.key)}">VPS …</span>
             </div>
-            <div class="int-inject-slot" data-int="${esc(it.key)}"></div>
           </div>
+          <div class="int-inject-slot" data-int="${esc(it.key)}"></div>
         </div>`).join("")}
     </div>`).join("");
   loadVpsBadges();

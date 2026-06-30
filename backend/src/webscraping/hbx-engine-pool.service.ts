@@ -623,9 +623,16 @@ export class HbxEnginePoolService implements OnModuleInit {
       const desiredStopping = rawStatus === 'draining' || rawStatus === 'stopped';
       const paused = !desiredStopping && this.isEnginePaused(row, now.getTime());
       const pausedExpired = !row.manualPaused && row.pausedUntil instanceof Date && row.pausedUntil.getTime() <= now.getTime();
-      const healthCooldownUntil = !paused && healthStatus === 'offline' && healthFailureCount >= 3
-        ? new Date(Date.now() + Math.min(30, 2 ** healthFailureCount) * 60_000)
-        : row.cooldownUntil || null;
+      // Motor que RECUPEROU (online de novo) limpa o cooldown na hora — não fica preso num castigo
+      // velho de até 30min mesmo já saudável. Sem isso, uma falha transitória de health (ex.: /health
+      // starvado durante uma busca pesada single-worker, ou container parado por instantes durante um
+      // restart) prendia o motor inelegível e a frota inteira colapsava → o pump leasava 0 e nada
+      // raspava. (Causa-raiz provada ao vivo 29/06: frota up porém toda em cooldown → 0 cards.)
+      const healthCooldownUntil = healthStatus === 'online'
+        ? null
+        : !paused && healthFailureCount >= 3
+          ? new Date(Date.now() + Math.min(30, 2 ** healthFailureCount) * 60_000)
+          : row.cooldownUntil || null;
       const isLocked = Boolean(row.lockedRunId && row.lockedUntil && row.lockedUntil.getTime() > Date.now());
       const inCooldown = !desiredStopping && Boolean(healthCooldownUntil && healthCooldownUntil.getTime() > Date.now());
       const status = rawStatus === 'stopped'
