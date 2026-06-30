@@ -418,12 +418,39 @@ export class RadarCoreFactoryAdminMixin {
       segmentCount: segments.length,
       targetTypeCount: targetTypes.length,
     }) % total;
-    const candidateLimit = options.previewOnly ? 1 : Math.min(total, 120);
+    const depthLimit = options.previewOnly ? 1 : Math.min(total, 80);
     const candidates: any[] = [];
     const stateOrder = Array.from(new Set(missionLocations.map((item) => item.state)));
 
-    for (let offset = 0; offset < candidateLimit; offset += 1) {
-      const linear = (start + offset) % total;
+    // Candidatos em DUAS frentes — corrige o cursor preso na cidade corrente (raiz 29/06):
+    //  • LARGURA: o segmento/targetType ATUAL do cursor em CADA cidade do pool → o sort por menor-stock
+    //    SALTA pra uma cidade FRESCA (stock 0) em vez de re-moer a atual já minerada (stock ~20-39).
+    //    Sem isso a janela consecutiva (~80) < combos-por-cidade (~390) NUNCA saía de São Paulo.
+    //  • PROFUNDIDADE: janela consecutiva a partir do cursor (mina os combos vizinhos na cidade atual).
+    const curSegIndex = clampInteger(cursor?.currentSegmentIndex, 0, 0, Math.max(0, segments.length - 1));
+    const curTtIndex = clampInteger(cursor?.currentTargetTypeIndex, 0, 0, Math.max(0, targetTypes.length - 1));
+    const seenLinear = new Set<number>();
+    const orderedLinears: number[] = [];
+    const pushLinear = (lin: number) => {
+      const v = ((Math.trunc(lin) % total) + total) % total;
+      if (!seenLinear.has(v)) { seenLinear.add(v); orderedLinears.push(v); }
+    };
+    if (!options.previewOnly && !guidedLocation) {
+      for (let ci = 0; ci < missionLocations.length; ci += 1) {
+        pushLinear(this.buildFactoryLinearIndex({
+          cityIndex: ci,
+          segmentIndex: curSegIndex,
+          targetTypeIndex: curTtIndex,
+          segmentCount: segments.length,
+          targetTypeCount: targetTypes.length,
+        }));
+      }
+    }
+    for (let offset = 0; offset < depthLimit; offset += 1) pushLinear(start + offset);
+
+    for (let scan = 0; scan < orderedLinears.length; scan += 1) {
+      const linear = orderedLinears[scan];
+      const offset = scan;
       const indexes = this.splitFactoryLinearIndex(linear, segments.length, targetTypes.length);
       const location = missionLocations[indexes.cityIndex] || missionLocations[0];
       const segment = segments[indexes.segmentIndex] || segments[0] || 'empresas';
