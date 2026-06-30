@@ -514,8 +514,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         if (l4Result !== null) {
           enriched += 1;
           const metaAfterL4 = parseMeta({ metadataJson: l4Result });
-          const newCnpjFromL4 = String(metaAfterL4?.cnpj || '').replace(/\D/g, '');
-          if (newCnpjFromL4.length >= 14 && !hasCnpjBefore) cnpjsFound += 1;
+          // cnpjsFound é contabilizado no passo (a); aqui só telefone do dono (novo).
           if (metaAfterL4?.ownerPhone && !hadPhoneBefore) phonesFound += 1;
           // Update in-memory metadataJson so L1 sees the fresh data
           row.metadataJson = l4Result;

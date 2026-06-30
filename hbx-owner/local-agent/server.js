@@ -585,7 +585,7 @@ async function enricherCycle() {
   // Tipo 1 — identidade no VPS (server-side). 1º ciclo + a cada 5 (é pesado, throttle BrasilAPI).
   if (enricherJob.types.identity && (enricherJob.cycle === 1 || enricherJob.cycle % 5 === 0)) {
     enricherJob.phase = "Tipo 1 (identidade) no VPS";
-    const t1 = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope: "vps", limit: 500 }, 180000);
+    const t1 = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope: "vps", limit: 150 }, 180000);
     if (t1.ok) {
       enricherJob.tipo1Runs += 1;
       enricherJob.tipo1 = (t1.data && (t1.data.results?.[0]?.data || t1.data.data || t1.data)) || null;
