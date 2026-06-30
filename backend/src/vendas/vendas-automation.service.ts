@@ -20,13 +20,12 @@ import { resolveBotActivation } from '../modules/bot-activation-state';
 import {
   SAFE_FIRST_CONTACT_TEMPLATE,
   SAFE_FIRST_CONTACT_VARIANTS,
-  classifyProspectingAutoReply,
-  classifyProspectingIntent,
   normalizeFirstContactForComparison,
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from './prospecting-safety';
 import { VendasService } from './vendas.service';
+import { AiIntentClassifierService } from './ai-intent-classifier.service';
 
 type LiveAutomationStatus =
   | 'parado'
@@ -521,6 +520,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly conversations: ConversationsService,
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
+    private readonly aiIntentClassifier: AiIntentClassifierService,
   ) {}
 
   onModuleInit() {
@@ -1871,7 +1871,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const callbackKeywords = keywordList('callbackIntentKeywords', DEFAULT_CALLBACK_KEYWORDS);
     const humanHandoffKeywords = keywordList('humanHandoffIntentKeywords', DEFAULT_HUMAN_HANDOFF_KEYWORDS);
 
-    const intent = classifyProspectingIntent({
+    const { intent, autoReply } = await this.aiIntentClassifier.classifyIntentWithFallback({
       text,
       positiveKeywords: positives,
       negativeKeywords: negatives,
@@ -1880,7 +1880,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       callbackKeywords,
       humanHandoffKeywords,
     });
-    const autoReply = classifyProspectingAutoReply(text);
     const optOutReplyEnabled =
       typeof cfg.optOutReplyEnabled === 'boolean' ? cfg.optOutReplyEnabled : (filters as any).optOutReplyEnabled === true;
 
@@ -4404,7 +4403,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const neutralKeywords = normalizeTextList(filtersJson.neutralIntentKeywords, DEFAULT_NEUTRAL_KEYWORDS).map(normalizeKey);
     const callbackKeywords = normalizeTextList(filtersJson.callbackIntentKeywords, DEFAULT_CALLBACK_KEYWORDS).map(normalizeKey);
     const humanHandoffKeywords = normalizeTextList(filtersJson.humanHandoffIntentKeywords, DEFAULT_HUMAN_HANDOFF_KEYWORDS).map(normalizeKey);
-    const intent = classifyProspectingIntent({
+    const { intent, autoReply: autoReplyClassification } = await this.aiIntentClassifier.classifyIntentWithFallback({
       text: input.text,
       positiveKeywords: positives,
       negativeKeywords: negatives,
@@ -4413,7 +4412,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       callbackKeywords,
       humanHandoffKeywords,
     });
-    const autoReplyClassification = classifyProspectingAutoReply(input.text);
     const terminalStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived'];
     const alreadyClosed =
       terminalStatus.includes(automationStatus) ||

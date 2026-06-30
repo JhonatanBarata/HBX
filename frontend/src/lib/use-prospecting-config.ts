@@ -124,7 +124,6 @@ export const VARIANT_LISTS: { key: keyof ProspCfg; label: string; hint: string; 
   { key: "whatIsItReplyVariants", label: "Quando pergunta “o que é?”",     hint: "Explicação curta quando o lead quer entender.",          max: 20 },
   { key: "scheduledReplyVariants", label: "Quando pede pra falar depois",  hint: "Confirmação de retorno agendado.",                       max: 20 },
   { key: "optOutVariants",        label: "Quando pede pra parar",          hint: "Descadastro educado (opt-out).",                          max: 20 },
-  { key: "neutralHandoffVariants", label: "Quando passa pro humano",       hint: "Transferência neutra para atendimento humano.",          max: 20 },
 ];
 
 export function fmtWhen(iso: string | null | undefined): string | null {
@@ -295,9 +294,8 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
           listVal("positiveIntentKeywords").length +
           listVal("whatIsItIntentKeywords").length +
           listVal("callbackIntentKeywords").length +
-          listVal("negativeIntentKeywords").length +
-          listVal("humanHandoffIntentKeywords").length;
-        return total > 0 ? `${total} palavra(s) em 5 categorias` : "palavras padrão do motor";
+          listVal("negativeIntentKeywords").length;
+        return total > 0 ? `${total} palavra(s) em 4 categorias` : "palavras padrão do motor";
       }
       default:
         return "";

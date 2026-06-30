@@ -175,7 +175,7 @@ export function classifyProspectingIntent(input: {
   // não perder os gatilhos básicos). Opcionais: chamadas antigas seguem valendo.
   callbackKeywords?: string[];
   humanHandoffKeywords?: string[];
-}) {
+}): ProspectingIntentClassification {
   const text = String(input.text || '');
   const normalized = normalizeIntentText(text);
   const empty: ProspectingIntentClassification = {

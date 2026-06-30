@@ -41,24 +41,17 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
       .then(data => { if (data?.variableCatalog?.length) setVariableCatalog(data.variableCatalog); })
       .catch(() => {});
   }, []);
-  // tutofig (config acompanhada) — abre sozinho quando a config está incompleta.
+  // tutofig (config acompanhada) — só abre via "Configurar com ajuda".
   const [tutofigOpen, setTutofigOpen] = useState(false);
-  const autoOpenedRef = useRef(false); // só auto-abre 1x por montagem
-  const dismissedRef = useRef(false);  // pulou/fechou → não reabre sozinho
 
   // Gate de Termos antes de INICIAR — estado controlado por handlers (não effect).
   const [termsOpen, setTermsOpen] = useState(false);
   // Ação pendente que será executada após aceitar os termos
   const pendingStartRef = useRef<"start" | "resume" | null>(null);
 
-  // onLive: roda a cada carga (no .then do hook). Decide o auto-open do tutofig
-  // sem setState síncrono em effect (a regra react-hooks/set-state-in-effect é erro).
-  const onLive = useCallback((data: ProspLive) => {
-    if (autoOpenedRef.current || dismissedRef.current) return;
-    if (!isProspConfigComplete(data)) {
-      autoOpenedRef.current = true;
-      setTutofigOpen(true);
-    }
+  // onLive: roda a cada carga (no .then do hook).
+  const onLive = useCallback((_data: ProspLive) => {
+    // auto-open removido — tutofig só via botão "Configurar com ajuda"
   }, []);
 
   const cfg = useProspectingConfig({ onLive });
@@ -89,7 +82,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   // Se aceito e config ok, executa direto.
   function handleStartOrResume(path: "start" | "resume") {
     if (live && !isProspConfigComplete(live)) {
-      dismissedRef.current = false;
       setTutofigOpen(true);
       return;
     }
@@ -162,7 +154,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
           {saveMsg && (
             <span className={"bot-prosp__msg" + (saveMsg.startsWith("✓") ? " is-ok" : " is-err")}>{saveMsg}</span>
           )}
-          <button className="btn-ghost" onClick={() => { dismissedRef.current = false; setTutofigOpen(true); }} disabled={busy}>
+          <button className="btn-ghost" onClick={() => setTutofigOpen(true)} disabled={busy}>
             <I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda
           </button>
           <button className="btn-ghost" onClick={() => loadLive()} disabled={busy} title="Recarregar">⟳</button>
@@ -272,7 +264,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         open={tutofigOpen}
         cfg={cfg}
         variableCatalog={variableCatalog}
-        onClose={() => { dismissedRef.current = true; setTutofigOpen(false); }}
+        onClose={() => setTutofigOpen(false)}
         onSaved={() => onSavedRef.current?.()}
       />
 

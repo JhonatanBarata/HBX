@@ -148,7 +148,6 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
         <VariantListEditor single label="Demonstra dúvida" hint="O lead quer entender melhor antes de decidir. Ex.: o que é, como funciona, não entendi, me explica melhor." max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
         <VariantListEditor single label="Pede pra falar depois" hint="Adiamento, não recusa. Ex.: depois, mais tarde, amanhã, semana que vem, agora não." max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />
         <VariantListEditor single label="Pede pra parar / não contatar" hint="Recusa firme — vira opt-out. Ex.: não quero, pare, remova, spam, bloqueia." max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
-        <VariantListEditor single label="Pede pra falar com humano" hint="Quer atendimento de gente. Ex.: humano, atendente, consultor, me liga, pode ligar." max={40} items={listVal("humanHandoffIntentKeywords")} onChange={items => setField("humanHandoffIntentKeywords", items)} />
       </>
     );
   }

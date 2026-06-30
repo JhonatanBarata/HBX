@@ -1,0 +1,270 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { classifyProspectingAutoReply, classifyProspectingIntent } from './prospecting-safety';
+import type {
+  ProspectingAutoReplyClassification,
+  ProspectingIntentClassification,
+  ProspectingIntentKind,
+} from './prospecting-safety';
+
+/**
+ * Classificador de intenção por IA (LLM local via Ollama / endpoint compatível).
+ *
+ * ETAPA 1 — serviço ISOLADO: ainda NÃO é chamado pelo fluxo do bot. Fica dormente
+ * (default desligado por `HBX_LLM_CLASSIFIER_ENABLED`) até a Etapa 2 plugar com
+ * fallback para as palavras-chave atuais (`classifyProspectingIntent`).
+ *
+ * Endpoint-agnóstico de propósito: roda contra o Ollama do host em dev
+ * (`http://host.docker.internal:11434`) e contra qualquer outro endereço em
+ * produção só trocando a env — sem mexer no código.
+ */
+
+function envStr(name: string, fallback: string) {
+  const value = String(process.env[name] || '').trim();
+  return value || fallback;
+}
+
+function envInt(name: string, fallback: number) {
+  const parsed = Number.parseInt(String(process.env[name] || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function envOn(name: string) {
+  return ['true', '1', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
+}
+
+function classifierBaseUrl() {
+  return envStr('HBX_LLM_CLASSIFIER_URL', 'http://host.docker.internal:11434').replace(/\/+$/, '');
+}
+
+const SYSTEM_PROMPT = [
+  'Voce e um classificador de respostas de leads no WhatsApp (prospeccao B2B no Brasil).',
+  'Recebe UMA mensagem do lead e devolve SOMENTE um JSON valido, sem texto fora dele.',
+  'Saida minima exata: {"remetente":"...","intencao":"..."}',
+  '',
+  'remetente: "bot" se for resposta AUTOMATICA (menu numerado, "digite 1", "mensagem',
+  'automatica", lista de opcoes, saudacao robotica de empresa, horario de atendimento).',
+  'Senao "humano".',
+  '',
+  'intencao (apenas se humano; use EXATAMENTE um destes rotulos):',
+  '- INTERESSE: quer saber mais, curioso, topa conversar/ligacao.',
+  '- O_QUE_SERIA: nao entendeu, pergunta o que e / do que se trata.',
+  '- RETORNE_DEPOIS: nao agora, mais tarde, ocupado.',
+  '- NAO_INCOMODE: sem interesse, recusa educada.',
+  '- REMOVER: pede para parar/remover/descadastrar/bloquear.',
+  '- HUMANO: quer falar com pessoa/atendente/ligar.',
+  '- INDEFINIDO: nao da para saber.',
+  '',
+  'Entenda girias e abreviacoes BR: dps=depois, vlw=valeu, blz=beleza, to=estou,',
+  'vc=voce, pra=para, pfv=por favor, n=nao, kk=risada, fmz=firmeza, mds=meu deus.',
+].join('\n');
+
+const AI_INTENT_LABELS = [
+  'INTERESSE',
+  'O_QUE_SERIA',
+  'RETORNE_DEPOIS',
+  'NAO_INCOMODE',
+  'REMOVER',
+  'HUMANO',
+  'INDEFINIDO',
+] as const;
+
+export type AiIntentLabel = (typeof AI_INTENT_LABELS)[number];
+
+export type AiIntentResult = {
+  source: 'ai';
+  model: string;
+  latencyMs: number;
+  raw: string;
+  /** quando a IA detecta resposta automática/bot (Etapa 2 usa para PARAR, não disparar variante) */
+  bot: boolean;
+  botKind: ProspectingAutoReplyClassification | null;
+  /** classificação no MESMO formato do keyword (`classifyProspectingIntent`) — drop-in */
+  intent: ProspectingIntentClassification | null;
+};
+
+function emptySignals(): ProspectingIntentClassification['signals'] {
+  return {
+    positive: false,
+    negative: false,
+    optOut: false,
+    whatIsIt: false,
+    delay: false,
+    humanHandoff: false,
+    neutral: false,
+  };
+}
+
+function safeParseJson(raw: string): Record<string, unknown> | null {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+}
+
+@Injectable()
+export class AiIntentClassifierService {
+  private readonly logger = new Logger(AiIntentClassifierService.name);
+
+  /** Liga só quando a env está setada — dormente por padrão (Etapa 1). */
+  isEnabled(): boolean {
+    return envOn('HBX_LLM_CLASSIFIER_ENABLED');
+  }
+
+  /**
+   * Classifica a resposta do lead pela IA local.
+   * Retorna `null` quando a IA está desligada, indisponível, deu timeout, ou
+   * respondeu INDEFINIDO — nesses casos o caller (Etapa 2) cai no keyword atual.
+   */
+  async classify(input: { text: string }): Promise<AiIntentResult | null> {
+    const text = String(input?.text || '').trim();
+    if (!text) return null;
+    if (!this.isEnabled()) return null;
+
+    const baseUrl = classifierBaseUrl();
+    const model = envStr('HBX_LLM_CLASSIFIER_MODEL', 'qwen2.5:7b');
+    const timeoutMs = envInt('HBX_LLM_CLASSIFIER_TIMEOUT_MS', 9000);
+    const startedAt = Date.now();
+
+    try {
+      const response = await fetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          think: false,
+          format: 'json',
+          options: { temperature: 0.1, num_predict: 80 },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: `Resposta do lead: ${text}` },
+          ],
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!response.ok) {
+        this.logger.warn(`classificador IA respondeu HTTP ${response.status} — caindo no keyword`);
+        return null;
+      }
+
+      const data = (await response.json()) as { message?: { content?: string } };
+      const raw = String(data?.message?.content || '');
+      const parsed = safeParseJson(raw);
+      if (!parsed) {
+        this.logger.warn('classificador IA devolveu JSON inválido — caindo no keyword');
+        return null;
+      }
+
+      const latencyMs = Date.now() - startedAt;
+      const sender = String((parsed as any).remetente || '').toLowerCase();
+
+      if (sender === 'bot') {
+        return { source: 'ai', model, latencyMs, raw, bot: true, botKind: 'bot_menu_detected', intent: null };
+      }
+
+      const label = String((parsed as any).intencao || '').toUpperCase().trim();
+      const intent = this.buildIntent(label);
+      if (!intent) return null; // INDEFINIDO / rótulo desconhecido -> fallback keyword
+
+      return { source: 'ai', model, latencyMs, raw, bot: false, botKind: null, intent };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`classificador IA indisponível (${message}) — caindo no keyword`);
+      return null;
+    }
+  }
+
+  /**
+   * Orquestra IA → keyword. Tenta a IA primeiro; se ela estiver desligada,
+   * indisponível, der timeout ou responder INDEFINIDO, cai no classificador por
+   * palavra-chave atual (comportamento de hoje). Bot detectado pela IA vira
+   * auto-reply (o handler já PARA nesse caso). Retorno é drop-in dos call-sites:
+   * `{ intent, autoReply }`.
+   */
+  async classifyIntentWithFallback(input: {
+    text: string;
+    positiveKeywords: string[];
+    negativeKeywords: string[];
+    whatIsItKeywords: string[];
+    neutralKeywords: string[];
+    callbackKeywords?: string[];
+    humanHandoffKeywords?: string[];
+  }): Promise<{
+    intent: ProspectingIntentClassification;
+    autoReply: ProspectingAutoReplyClassification | null;
+    source: 'ai' | 'keyword';
+  }> {
+    const text = String(input?.text || '');
+
+    const ai = await this.classify({ text });
+    if (ai?.bot) {
+      // IA detectou robô → trata como auto-reply; o handler já silencia nesse caso.
+      return { source: 'ai', intent: this.neutralIntent('ai:bot'), autoReply: ai.botKind ?? classifyProspectingAutoReply(text) };
+    }
+    if (ai?.intent) {
+      // IA classificou a intenção; a regex de auto-reply segue como defesa extra.
+      return { source: 'ai', intent: ai.intent, autoReply: classifyProspectingAutoReply(text) };
+    }
+
+    // Fallback: classificação por palavra-chave (exatamente o comportamento atual).
+    const intent = classifyProspectingIntent({
+      text,
+      positiveKeywords: input.positiveKeywords,
+      negativeKeywords: input.negativeKeywords,
+      whatIsItKeywords: input.whatIsItKeywords,
+      neutralKeywords: input.neutralKeywords,
+      callbackKeywords: input.callbackKeywords,
+      humanHandoffKeywords: input.humanHandoffKeywords,
+    });
+    return { source: 'keyword', intent, autoReply: classifyProspectingAutoReply(text) };
+  }
+
+  private neutralIntent(reason: string): ProspectingIntentClassification {
+    return { kind: 'neutral', confidence: 0.3, reasons: [reason], signals: emptySignals() };
+  }
+
+  /** Mapeia o rótulo da IA para o MESMO formato do keyword (`ProspectingIntentClassification`). */
+  private buildIntent(label: string): ProspectingIntentClassification | null {
+    const signals = emptySignals();
+    const make = (kind: ProspectingIntentKind, confidence: number): ProspectingIntentClassification => ({
+      kind,
+      confidence,
+      reasons: [`ai:${label.toLowerCase()}`],
+      signals,
+    });
+
+    switch (label) {
+      case 'INTERESSE':
+        signals.positive = true;
+        return make('positive', 0.9);
+      case 'O_QUE_SERIA':
+        signals.whatIsIt = true;
+        return make('what_is_it', 0.86);
+      case 'RETORNE_DEPOIS':
+        signals.delay = true;
+        return make('neutral', 0.8);
+      case 'NAO_INCOMODE':
+        signals.negative = true;
+        return make('negative', 0.9);
+      case 'REMOVER':
+        signals.negative = true;
+        signals.optOut = true;
+        return make('opt_out', 0.95);
+      case 'HUMANO':
+        signals.humanHandoff = true;
+        return make('human_requested', 0.82);
+      default:
+        return null; // INDEFINIDO ou rótulo fora do enum
+    }
+  }
+}

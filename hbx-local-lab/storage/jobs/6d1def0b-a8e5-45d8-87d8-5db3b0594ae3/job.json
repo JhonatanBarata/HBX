@@ -1,31 +1,31 @@
 {
-  "id": "939b8190-4088-4cf4-a264-c6fbce388ca4",
-  "batchId": "local-lab-939b8190-4088-4cf4-a264-c6fbce388ca4",
+  "id": "6d1def0b-a8e5-45d8-87d8-5db3b0594ae3",
+  "batchId": "local-lab-6d1def0b-a8e5-45d8-87d8-5db3b0594ae3",
   "status": "completed",
   "city": "",
   "state": "",
   "segment": "",
-  "targetEmails": 45,
+  "targetEmails": 27,
   "mode": "email_first",
   "aggressive": false,
   "providers": [
     "site_crawl"
   ],
-  "maxCandidates": 15,
+  "maxCandidates": 9,
   "maxPagesPerSite": 8,
   "maxDiscoveredLinks": 80,
   "minDelayMs": 1500,
   "maxDelayMs": 4000,
   "blockBackoffMs": 60000,
   "metrics": {
-    "sitesVisited": 43,
-    "emailsFound": 27,
-    "emailsAccepted": 12,
-    "leads": 15,
+    "sitesVisited": 37,
+    "emailsFound": 20,
+    "emailsAccepted": 7,
+    "leads": 9,
     "pacing": {
-      "fetches": 120,
-      "blocks": 8,
-      "backoffMs": 1800000,
+      "fetches": 72,
+      "blocks": 1,
+      "backoffMs": 60000,
       "minDelayMs": 1500,
       "maxDelayMs": 4000,
       "blockBackoffMs": 60000
@@ -33,16 +33,16 @@
     "providerStats": {
       "site_crawl": {
         "provider": "site_crawl",
-        "candidates": 15,
-        "pagesVisited": 43,
-        "emailsFound": 27
+        "candidates": 9,
+        "pagesVisited": 37,
+        "emailsFound": 20
       }
     }
   },
   "warnings": [],
   "error": null,
   "exportReady": true,
-  "createdAt": "2026-06-30T17:21:17.519Z",
-  "startedAt": "2026-06-30T17:21:17.521Z",
-  "finishedAt": "2026-06-30T17:58:31.200Z"
+  "createdAt": "2026-06-30T18:06:22.956Z",
+  "startedAt": "2026-06-30T18:06:22.957Z",
+  "finishedAt": "2026-06-30T18:11:28.010Z"
 }
