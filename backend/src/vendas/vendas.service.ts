@@ -1434,6 +1434,25 @@ export class VendasService {
       ? { ...access.capabilities, canSeeLeadIntelligence: true }
       : access.capabilities;
     const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
+    // Empresa + dono + multi-contatos no TOPO do lead (o card lê daqui). Gated pela MESMA
+    // capability da inteligência — dado pessoal do dono NÃO vaza pra tier sem acesso.
+    // Telefone extra continua só exibido se confirmado no WhatsApp (phonesWhatsapp).
+    const companyData = leadCapabilities.canSeeLeadIntelligence
+      ? {
+          cnpj: (rawIntelligence as any).cnpj || null,
+          cnae: (rawIntelligence as any).cnae || null,
+          razaoSocial: (rawIntelligence as any).razaoSocial || null,
+          ownerName: (rawIntelligence as any).ownerName || null,
+          ownerNames: (rawIntelligence as any).ownerNames || [],
+          ownerPhone: (rawIntelligence as any).ownerPhone || null,
+          ownerInstagram: (rawIntelligence as any).ownerInstagram || null,
+          ownerFacebook: (rawIntelligence as any).ownerFacebook || null,
+          companySituation: (rawIntelligence as any).companySituation || null,
+          emails: (rawIntelligence as any).emails || [],
+          phones: (rawIntelligence as any).phones || [],
+          phonesWhatsapp: (rawIntelligence as any).phonesWhatsapp || {},
+        }
+      : {};
     const canViewProductPrice = Boolean(accessContext?.canViewProductPrice);
     const productPriceCents = canViewProductPrice && row?.productPriceCentsSnapshot != null
       ? Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0))

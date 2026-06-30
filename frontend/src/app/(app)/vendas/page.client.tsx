@@ -31,6 +31,17 @@ type VendasLead = {
   address?: string | null;
   website?: string | null;
   cnpj?: string | null;
+  cnae?: string | null;
+  razaoSocial?: string | null;
+  ownerName?: string | null;
+  ownerNames?: string[] | null;
+  ownerPhone?: string | null;
+  ownerInstagram?: string | null;
+  ownerFacebook?: string | null;
+  companySituation?: string | null;
+  emails?: string[] | null;
+  phones?: string[] | null;
+  phonesWhatsapp?: Record<string, boolean> | null;
   city: string | null;
   state: string | null;
   segment: string | null;
@@ -781,6 +792,17 @@ export function VendasClient() {
       email: d.email,
       website: d.website,
       cnpj: d.cnpj ?? null,
+      cnae: d.cnae ?? null,
+      razaoSocial: d.razaoSocial ?? null,
+      ownerName: d.ownerName ?? null,
+      ownerNames: d.ownerNames ?? null,
+      ownerPhone: d.ownerPhone ?? null,
+      ownerInstagram: d.ownerInstagram ?? null,
+      ownerFacebook: d.ownerFacebook ?? null,
+      companySituation: d.companySituation ?? null,
+      emails: d.emails ?? null,
+      phones: d.phones ?? null,
+      phonesWhatsapp: d.phonesWhatsapp ?? null,
       address: d.address ?? null,
       city: d.city,
       state: d.state,
