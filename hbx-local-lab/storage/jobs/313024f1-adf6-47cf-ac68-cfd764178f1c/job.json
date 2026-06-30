@@ -1,0 +1,32 @@
+{
+  "id": "313024f1-adf6-47cf-ac68-cfd764178f1c",
+  "batchId": "local-lab-313024f1-adf6-47cf-ac68-cfd764178f1c",
+  "status": "running",
+  "city": "",
+  "state": "",
+  "segment": "",
+  "targetEmails": 45,
+  "mode": "max_public",
+  "aggressive": true,
+  "providers": [
+    "site_crawl"
+  ],
+  "maxCandidates": 15,
+  "maxPagesPerSite": 250,
+  "maxDiscoveredLinks": 1000,
+  "minDelayMs": 1500,
+  "maxDelayMs": 4000,
+  "blockBackoffMs": 60000,
+  "metrics": {
+    "sitesVisited": 0,
+    "emailsFound": 0,
+    "emailsAccepted": 0,
+    "leads": 0
+  },
+  "warnings": [],
+  "error": null,
+  "exportReady": false,
+  "createdAt": "2026-06-30T01:53:26.334Z",
+  "startedAt": "2026-06-30T01:53:26.336Z",
+  "finishedAt": null
+}

@@ -1019,7 +1019,11 @@ export class RadarWebEnrichmentService {
       const inCache = RadarWebEnrichmentService._braveCache.get(query);
       if (inCache) return inCache;
       try {
-        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&country=br&search_lang=pt&count=10`;
+        // BUG-FIX (30/06): `search_lang=pt` (e `pt-BR`) faz a Brave responder 422 Unprocessable
+        // Entity → searchBrave devolvia [] SEMPRE → todo enriquecimento via Brave (CNPJ-por-nome,
+        // descoberta de site, sociais do dono) achava ZERO. `country=br` já enviesa pro Brasil.
+        // Medido ao vivo no IP do VPS: com search_lang=422, sem ele=200.
+        const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&country=br&count=10`;
         const response = await fetcher(url, {
           headers: {
             'Accept': 'application/json',
