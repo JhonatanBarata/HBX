@@ -139,6 +139,19 @@ type StatusCardLead = {
   setupValueLabel: string | null;
   setupCommissionValueLabel: string | null;
   updatedAt: string | null;
+  // Empresa + dono + multi-contatos (do RadarLeadPool ligado). Telefone extra só exibe se WhatsApp-confirmado.
+  cnpj?: string | null;
+  cnae?: string | null;
+  razaoSocial?: string | null;
+  ownerName?: string | null;
+  ownerNames?: string[] | null;
+  ownerPhone?: string | null;
+  ownerInstagram?: string | null;
+  ownerFacebook?: string | null;
+  companySituation?: string | null;
+  emails?: string[] | null;
+  phones?: string[] | null;
+  phonesWhatsapp?: Record<string, boolean> | null;
   leadIntelligence?: {
     whatsappStatus?: string | null;
     emailStatus?: string | null;
@@ -2327,6 +2340,19 @@ export function AtendimentoClient() {
                 // Email: lead tem email completo; fallback pro contato do WhatsApp
                 email: card?.lead?.email || convo.customer?.email || null,
                 website: card?.lead?.website ?? null,
+                // Empresa + dono + multi-contatos (telefone extra só exibe se WhatsApp-confirmado, via phonesWhatsapp)
+                cnpj: card?.lead?.cnpj ?? null,
+                cnae: card?.lead?.cnae ?? null,
+                razaoSocial: card?.lead?.razaoSocial ?? null,
+                ownerName: card?.lead?.ownerName ?? null,
+                ownerNames: card?.lead?.ownerNames ?? null,
+                ownerPhone: card?.lead?.ownerPhone ?? null,
+                ownerInstagram: card?.lead?.ownerInstagram ?? null,
+                ownerFacebook: card?.lead?.ownerFacebook ?? null,
+                companySituation: card?.lead?.companySituation ?? null,
+                emails: card?.lead?.emails ?? null,
+                phones: card?.lead?.phones ?? null,
+                phonesWhatsapp: card?.lead?.phonesWhatsapp ?? null,
                 city: card?.lead?.city ?? null,
                 state: card?.lead?.state ?? null,
                 segment: card?.lead?.segment ?? null,

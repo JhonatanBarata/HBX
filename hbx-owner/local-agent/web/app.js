@@ -1675,26 +1675,25 @@ async function renderIntegrations() {
   const items = (data && data.items) || [];
   const groups = {};
   for (const it of items) (groups[it.group] = groups[it.group] || []).push(it);
-  // Render do LOCAL na hora; a coluna VPS (SSH ~15s) preenche depois, sem travar a tela.
+  // Local = só leitura (badge). VPS preenche depois (SSH ~15s) e, se faltar, abre o campo de injetar NA VPS.
   grid.innerHTML = Object.keys(groups).map((g) => `
     <div class="int-group">
       <div class="label" style="margin:0 0 8px;">${esc(g)}</div>
       ${groups[g].map((it) => `
-        <div class="int-row${it.present ? "" : " int-missing"}">
+        <div class="int-row">
           <div class="int-main">
             <div class="int-name">${esc(it.label)} <span class="pill ${intCostPill(it.cost)}" style="font-size:.64rem;">${esc(it.cost)}</span></div>
             <div class="int-desc">${esc(it.desc)}</div>
           </div>
           <div class="int-side">
             <div class="int-badges">
-              ${it.present ? `<span class="pill pill-ok">Local ✓</span>` : `<span class="pill pill-bad">Local ✗</span>`}
+              ${it.present ? `<span class="pill pill-ok">Local ✓</span>` : `<span class="pill pill-muted">Local ✗</span>`}
               <span class="pill pill-muted int-vps" data-int="${esc(it.key)}">VPS …</span>
             </div>
-            ${it.present ? "" : `<div class="int-inject"><input class="cf-input int-input" data-int="${esc(it.key)}" placeholder="colar chave (local)…" autocomplete="off" /><button class="btn btn-sm btn-green int-save" data-int="${esc(it.key)}">Salvar</button></div>`}
+            <div class="int-inject-slot" data-int="${esc(it.key)}"></div>
           </div>
         </div>`).join("")}
     </div>`).join("");
-  grid.querySelectorAll(".int-save").forEach((b) => b.addEventListener("click", () => intSave(b.getAttribute("data-int"))));
   loadVpsBadges();
 }
 async function loadVpsBadges() {
@@ -1704,21 +1703,29 @@ async function loadVpsBadges() {
   const items = (ok && vps.items) || {};
   document.querySelectorAll(".int-vps").forEach((el) => {
     const k = el.getAttribute("data-int");
-    if (!ok) { el.className = "pill pill-muted int-vps"; el.textContent = "VPS —"; el.title = (vps && vps.reason) || "sem leitura da VPS"; return; }
+    const slot = document.querySelector(`.int-inject-slot[data-int="${k}"]`);
+    if (!ok) {
+      el.className = "pill pill-muted int-vps"; el.textContent = "VPS —"; el.title = (vps && vps.reason) || "sem leitura da VPS";
+      if (slot) slot.innerHTML = "";
+      return;
+    }
     const v = items[k];
-    el.className = "pill int-vps " + (v && v.present ? "pill-ok" : "pill-bad");
-    el.textContent = v && v.present ? "VPS ✓" : "VPS ✗";
+    const present = !!(v && v.present);
+    el.className = "pill int-vps " + (present ? "pill-ok" : "pill-bad");
+    el.textContent = present ? "VPS ✓" : "VPS ✗";
+    if (slot) slot.innerHTML = present ? "" : `<div class="int-inject"><input class="cf-input int-input" data-int="${esc(k)}" placeholder="colar chave (VPS)…" autocomplete="off" /><button class="btn btn-sm btn-green int-save" data-int="${esc(k)}">Salvar na VPS</button></div>`;
   });
+  document.querySelectorAll(".int-save").forEach((b) => { b.onclick = () => intSave(b.getAttribute("data-int")); });
 }
 async function intSave(key) {
   const input = document.querySelector(`.int-input[data-int="${key}"]`);
   const btn = document.querySelector(`.int-save[data-int="${key}"]`);
   const value = input ? input.value.trim() : "";
   if (!value) { if (input) input.focus(); return; }
-  if (btn) { btn.disabled = true; btn.textContent = "salvando…"; }
+  if (btn) { btn.disabled = true; btn.textContent = "gravando na VPS…"; }
   try {
     const r = await api("POST", "/owner/integrations/set", { key, value });
-    if (r && r.ok) { renderIntegrations(); }
+    if (r && r.ok) { if (btn) btn.textContent = "✓ recriando backend…"; setTimeout(loadVpsBadges, 22000); }
     else if (btn) { btn.disabled = false; btn.textContent = (r && r.reason) || "falhou"; }
   } catch { if (btn) { btn.disabled = false; btn.textContent = "erro"; } }
 }
