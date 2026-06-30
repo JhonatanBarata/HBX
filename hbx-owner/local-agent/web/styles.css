@@ -225,9 +225,9 @@ body {
 #enricher .enr-controls .btn-sm { padding: 4px 8px; font-size: .72rem; }
 #enricher .enr-controls .lab-state { font-size: .7rem; gap: 5px; }
 #enricher .enr-controls .pill { font-size: .6rem; }
-#enricher .grid-3 { gap: 8px; margin-top: 8px !important; }
-#enricher .metric strong { font-size: 1.25rem; }
-#enricher .metric .label { margin-bottom: 2px; }
+#enricher .grid-3 { gap: 8px; margin-top: 6px !important; }
+#enricher .metric strong { font-size: 1.1rem; line-height: 1.15; }
+#enricher .metric .label { margin-bottom: 1px; font-size: .68rem; }
 #enricher #enr-feedback { margin-top: 6px !important; }
 .env-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
 .env-head h2 { margin: 0; font-size: 1.05rem; order: 1; }
