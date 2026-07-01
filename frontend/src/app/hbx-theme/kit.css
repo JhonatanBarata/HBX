@@ -1191,6 +1191,59 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   border-color: color-mix(in srgb, var(--hbx-info) 28%, transparent);
 }
 
+/* ── ESTADO "ENRIQUECENDO AGORA" (o MEIO entre loading e coroa) ──────────────
+   O lead nasce cru (Receita) e a IA/motor preenche campos progressivamente.
+   Três estados por campo: (a) chegou → valor; (b) enriquecendo → shimmer;
+   (c) confirmado-ausente → nota muted. O badge acende só enquanto o motor
+   trabalha; ao terminar ele some e a coroa (.dn-crown) assume. */
+
+/* Selo pulsante no header — mesmo esqueleto do .dn-status-chip, tom âmbar do
+   enriquecimento (mesma família da coroa: --hbx-warning). */
+.dn-enriching-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px; flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 32%, transparent);
+  background: color-mix(in srgb, var(--hbx-warning) 12%, transparent);
+  color: var(--hbx-warning);
+  font-size: 0.62rem; font-weight: 800; white-space: nowrap;
+  animation: dn-enriching-pulse 1.7s ease-in-out infinite;
+}
+.dn-enriching-badge__spark {
+  display: inline-flex; line-height: 1;
+  animation: dn-spark-twinkle 1.7s ease-in-out infinite;
+}
+@keyframes dn-enriching-pulse {
+  0%, 100% { border-color: color-mix(in srgb, var(--hbx-warning) 32%, transparent); box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-warning) 22%, transparent); }
+  50%      { border-color: color-mix(in srgb, var(--hbx-warning) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-warning) 10%, transparent); }
+}
+@keyframes dn-spark-twinkle {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50%      { opacity: 1;    transform: scale(1.12); }
+}
+
+/* Placeholder pulsante por CAMPO pendente — reusa o shimmer neutro do .dn-skel
+   mas dimensionado para o VALOR inline de uma linha (não o skeleton de bloco).
+   Some assim que o dado assenta (o campo volta a renderizar via TypedText). */
+.dn-field-skel {
+  display: inline-block; vertical-align: middle;
+  height: 0.82em; min-width: 64px; border-radius: 5px;
+  background: linear-gradient(90deg, var(--surface-recessed) 25%, var(--surface-raised) 50%, var(--surface-recessed) 75%);
+  background-size: 250% 100%;
+  animation: dn-shimmer 1.4s ease-in-out infinite;
+}
+.dn-field-skel--wide { min-width: 120px; width: 60%; }
+.dn-field-skel--full { min-width: 140px; width: 100%; }
+/* Contato pendente (telefone/site) — placeholder com a altura do .ctx-phone,
+   pra linha não "pular" quando o número chega. */
+.dn-contact-skel {
+  display: block; width: 100%; box-sizing: border-box;
+  height: 42px; border-radius: var(--radius-md);
+  border: 1px dashed color-mix(in srgb, var(--hbx-warning) 28%, transparent);
+  background: linear-gradient(90deg, var(--surface-recessed) 25%, var(--surface-raised) 50%, var(--surface-recessed) 75%);
+  background-size: 250% 100%;
+  animation: dn-shimmer 1.4s ease-in-out infinite;
+}
+
 /* ============================================================
    DETALHES NEGÓCIO — classes das 2 ZONAS + score ring + cadeado
    Geradas 25/06 (reset de git apagou; reconstituídas do markup real).

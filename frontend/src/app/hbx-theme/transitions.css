@@ -130,5 +130,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, .select-dark:focus-
   html.hbx-theme-anim body, html.hbx-theme-anim body * { transition: none !important; }
   .hbx-veil, .hbx-modal, .hbx-drawer, .hbx-pop { animation: none !important; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
-  .dn-root, .dn-kv-row, .dn-skel { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .dn-root, .dn-kv-row, .dn-skel,
+  .dn-enriching-badge, .dn-enriching-badge__spark,
+  .dn-field-skel, .dn-contact-skel { animation: none !important; opacity: 1 !important; transform: none !important; }
 }

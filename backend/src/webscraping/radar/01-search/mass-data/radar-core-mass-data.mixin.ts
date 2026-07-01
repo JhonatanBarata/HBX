@@ -812,6 +812,17 @@ export class RadarCoreMassDataMixin {
       channelMatchMode: input.channelMatchMode,
       freshness: input.freshness,
     });
+    // PAINEL ABSOLUTO (30/06): este endpoint é o ON-DEMAND do dono (POST modules/owner/radar/mass-data)
+    // — a criação de campanha cai no MESMO pump autônomo (`processNextRadarCampaigns`), agora gateado
+    // em `RadarFactoryCursor.enabled===true`. Sem ligar o cursor aqui, o próprio pedido manual do dono
+    // ficaria parado esperando uma fábrica "desligada". Ligar o cursor é o equivalente a `startRadarFactory`.
+    if (await this.supportsRadarFactoryPersistence()) {
+      await (this.prisma as any).radarFactoryCursor.upsert({
+        where: { key: 'main' },
+        create: { key: 'main', enabled: true, forcedOn: false, status: 'idle', reasonStopped: null, nextRunAt: new Date() },
+        update: { enabled: true, status: 'idle', reasonStopped: null, nextRunAt: new Date() },
+      }).catch(() => null);
+    }
     const context = await this.resolveMasterCampaignContext(user, input.companyId);
     const campaign = await this.createRadarCampaignForUser(context.user, {
       mode: 'mass_data',
@@ -1175,6 +1186,21 @@ export class RadarCoreMassDataMixin {
   private async processNextRadarCampaigns() {
     if (this.radarCampaignPumpActive) return;
     if (!(await this.supportsRadarCampaignPersistence().catch(() => false))) return;
+    // PAINEL ABSOLUTO (30/06, redefinição do dono): este pump é o loop AUTÔNOMO de 30s (registrado em
+    // radar-webscraping-core.service.ts) que drena campanhas mass_data (a única `mode` que passa por
+    // aqui — ver createRadarCampaignForUser). Regra: nada autônomo roda a não ser que o dono tenha
+    // LIGADO a fábrica explicitamente (`RadarFactoryCursor.enabled === true`). Ausência de cursor,
+    // `enabled` undefined/null ou `false` = OFF por padrão — nunca assume "ligado" na dúvida. O
+    // on-demand do MASTER (`createMasterMassDataCampaign`) liga o cursor antes de criar a campanha
+    // (radar-core-mass-data.mixin.ts, `createMasterMassDataCampaign`), então continua funcionando.
+    const cursor = await (this.supportsRadarFactoryPersistence().then((supported) => (supported
+      ? (this.prisma as any).radarFactoryCursor.findUnique({ where: { key: 'main' }, select: { enabled: true } }).catch(() => null)
+      : null)).catch(() => null));
+    if (!cursor || cursor.enabled !== true) {
+      this.logger.log('[factoryPump] pausada: fábrica DESLIGADA (RadarFactoryCursor.enabled !== true) — ciclo autônomo pulado; reagendando em 8s');
+      this.scheduleRadarCampaignPump(8_000);
+      return;
+    }
     this.radarCampaignPumpActive = true;
     try {
       const [capacity, scheduler] = await Promise.all([

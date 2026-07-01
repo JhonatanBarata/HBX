@@ -41,7 +41,6 @@ entra nos Guardrails.
 - **Derrubar chip SEMPRE pela rotina do app** (`disconnectCompanySession`), nunca pela API crua do motor
   (`DELETE /instance/logout|delete`) — a crua não sincroniza o banco do app e o painel passa a mentir.
 - **Fonte única da verdade = motor ao vivo** (`/instance/connectionState`, `/instance/fetchInstances`), não o banco do app.
-- **Deploy do motor:** `npm run publish` (full) funciona; **`npm run new` está QUEBRADO** (gera script remoto com syntax error →
-  sai status 2 → não aplica nada). Manual cirúrgico que funciona: `node scripts/vps-run.js` → `cd /root/HBX && git fetch origin
+- **Deploy do motor:** `npm run publish` (full) e `npm run new` funcionam. Manual cirúrgico (alternativa): `node scripts/vps-run.js` → `cd /root/HBX && git fetch origin
   master && git reset --hard origin/master && cd Webwhats && npm run build && systemctl restart webwhats`; conferir o `dist`
   depois. `publish`/`new` rodam typecheck ESTRITO do motor → passar `cd Webwhats && npm run typecheck`, não só `build`.

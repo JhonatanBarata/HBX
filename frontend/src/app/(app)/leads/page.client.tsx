@@ -59,6 +59,11 @@ type RadarLead = {
   phonesWhatsapp?: Record<string, boolean> | null;
   enrichmentScore?: number | null;
   lastEnrichedAt?: string | null;
+  // Estado do pipeline de enriquecimento (enum backend RadarPipelineEnrichmentStatus).
+  // Enquanto a API não o envia fica undefined → card NÃO mostra "enriquecendo"
+  // (idêntico a hoje). Quando o backend surfacer 'pending'/'partial', o selo +
+  // shimmer por campo acendem sozinhos no card.
+  enrichmentStatus?: string | null;
   vendasStatus?: string | null;
   vendasReturnAt?: string | null;
   vendasAttemptCount?: number | null;
@@ -1006,11 +1011,16 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   function renderLeadDetail(lead: RadarLead, opts?: { title?: string; onClose?: () => void }) {
     const detail = buildNegocioDetail(lead);
     const revealed = tab === "carteira" && Boolean(lead.phone);
+    // "Enriquecendo agora" = pipeline em pending/partial e ainda não enriquecido.
+    // Sinal ainda não vem da API → fica false hoje (comportamento idêntico).
+    const enrichStatus = String(lead.enrichmentStatus || "").toLowerCase();
+    const enriching = (enrichStatus === "pending" || enrichStatus === "partial") && !detail.enriched;
     return (
       <DetalhesNegocio
         key={lead.id}
         detail={detail}
         title={opts?.title ?? "Detalhes"}
+        enriching={enriching}
         onClose={opts?.onClose}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
         onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone) : undefined}

@@ -41,12 +41,15 @@
   }
 
   /* ── estado ─────────────────────────────────────────────────────────── */
+  /* Split-screen: local e VPS SEMPRE lado a lado, nunca mais um toggle que troca de tela
+     (pedido do dono 30/06 — "LOCAL na ESQUERDA e VPS na DIREITA, na MESMA TELA"). */
   var tState = {
-    scope: "local",   // 'local' | 'vps'
     pollTimer: null,
-    loading: false,   // trava re-entrância (cada load é SSH pesado)
-    seq: 0,           // token de requisição: render só vale se for o load MAIS RECENTE (evita VPS pintar sobre local)
     intCache: null,   // { at, local, vps } — presença de chave muda raramente; intVps é SSH
+    /* cada escopo carrega e renderiza no seu próprio ritmo — um SSH lento na VPS
+       nunca trava o local (e vice-versa) */
+    local: { loading: false, loadStartedAt: 0, seq: 0 },
+    vps:   { loading: false, loadStartedAt: 0, seq: 0 },
   };
 
   /* ── navegação guia (Painel ↔ Árvore) ──────────────────────────────── */
@@ -81,22 +84,8 @@
     if (tState.pollTimer) { clearInterval(tState.pollTimer); tState.pollTimer = null; }
   }
 
-  /* ── scope tabs ────────────────────────────────────────────────────── */
+  /* ── refresh (split-screen não tem mais tabs — os dois lados sempre carregam juntos) ── */
   function initScopeTabs() {
-    var flow = document.getElementById("tree-flow");
-    if (!flow) return;
-    var parent = flow.closest(".tree-guide");
-    if (!parent) return;
-    parent.querySelectorAll("[data-scope]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        tState.scope = btn.dataset.scope;
-        parent.querySelectorAll("[data-scope]").forEach(function (b) {
-          b.classList.toggle("is-active", b === btn);
-        });
-        tState.loading = false;   // troca de escopo NUNCA pode ser engolida pela trava (seq descarta o load velho)
-        loadTree();
-      });
-    });
     var refreshBtn = document.getElementById("tree-refresh");
     if (refreshBtn) refreshBtn.addEventListener("click", function () { loadTree(true); });
   }
@@ -114,22 +103,27 @@
             .catch(function (e) { return { ok: false, err: e.message }; });
   }
 
-  /* ── loadTree ──────────────────────────────────────────────────────── */
+  /* ── loadTree: dispara os DOIS escopos em paralelo (split-screen, sem toggle) ── */
   function loadTree(force) {
-    var flow = document.getElementById("tree-flow");
+    loadScope("local", force);
+    loadScope("vps", force);
+  }
+
+  function loadScope(scope, force) {
+    var flow = document.getElementById(scope === "vps" ? "tree-flow-vps" : "tree-flow-local");
     if (!flow) return;
+    var st = scope === "vps" ? tState.vps : tState.local;
     /* trava re-entrância MAS auto-cura: se o load anterior pendurou >45s, segue (nunca deadlock) */
-    if (tState.loading && (Date.now() - (tState.loadStartedAt || 0)) < 45000) return;
-    tState.loading = true;
-    tState.loadStartedAt = Date.now();
-    tState.seq += 1;
-    var mySeq = tState.seq;            // se outro load (ou troca de escopo) começar depois, este render é descartado
+    if (st.loading && (Date.now() - (st.loadStartedAt || 0)) < 45000) return;
+    st.loading = true;
+    st.loadStartedAt = Date.now();
+    st.seq += 1;
+    var mySeq = st.seq;                 // se outro load deste MESMO escopo começar depois, este render é descartado
     /* só mostra "carregando" no 1º load (vazio); no refresh mantém a árvore (não pula o scroll) */
     if (!flow.querySelector(".tree-node")) {
       flow.innerHTML = '<p class="delta">montando a árvore… (a 1ª leitura pode levar ~30s — depois fica instantânea)</p>';
     }
 
-    var scope = tState.scope;
     var isVps = scope === "vps";
 
     /* integrações: cache client-side ~3min. intVps é SSH (~15-30s) — não bater a cada poll. */
@@ -285,27 +279,31 @@
           var branches = [
             {
               cost: "free", status: "ok",
-              name: "Grátis · scraping do seu IP (searxng/Bing/DDG)",
-              desc: "Sem chave de API — sempre disponível.",
+              name: "Grátis · IP residencial (searxng/Bing/DDG)",
+              desc: isVps
+                ? "O motor LOCAL busca pelo IP de casa — fonte grátis e durável que o IP do VPS não tem (VPS toma ban)."
+                : "Sem chave de API — fonte grátis e durável. IP residencial não toma ban; é o ativo que sustenta o pipeline.",
               tokenKey: null,
             },
             {
               cost: "paid", status: gpPresent ? "ok" : "off",
-              name: "Pago · Google Places",
-              desc: "Fonte estruturada — resultados de alta qualidade.",
+              name: "Pago · Google Places (reforço)",
+              desc: "Só reforço — puxa contato que falta no lead que já passou no score. Nunca metralhar buscador.",
               tokenKey: gpPresent ? null : "GOOGLE_PLACES_API_KEY",
             },
             {
               cost: "paid", status: serPresent ? "ok" : "off",
-              name: "Pago · Serper",
-              desc: "Google Search API — complementa o Places.",
+              name: "Pago · Serper (reforço)",
+              desc: "Fallback quando o motor grátis não achou o contato — só no lead que passou no score.",
               tokenKey: serPresent ? null : "SERPER_API_KEY",
             },
           ];
 
           nodes.push({
-            stage: "source", icon: "🔎", title: "Fonte de busca",
-            status: "ok", metrics: [], note: "", actions: [], branches: branches,
+            stage: "source", icon: "🔎", title: "Fonte de busca · grátis primeiro, pago só reforço",
+            status: "ok", metrics: [],
+            note: "Grátis (IP residencial) sustenta a busca; pago (Places/Serper) entra só como reforço no lead que passou no score.",
+            actions: [], branches: branches,
           });
         })();
 
@@ -359,8 +357,15 @@
             ];
           }
 
+          /* ponte pull local↔VPS: o motor LOCAL puxa missão da fila do VPS e devolve enriquecimento.
+             Conceitual (sem endpoint novo) — só deixa a narrativa da ponte visível no nó certo. */
+          var bridgeNote = isVps
+            ? "O VPS orquestra a fila; o motor LOCAL puxa as missões daqui (pull — sem abrir porta em casa)."
+            : "Este motor puxa missão da fila do VPS pelo IP residencial e devolve o enriquecimento (pull, nunca push).";
+          note = note ? (note + " · " + bridgeNote) : bridgeNote;
+
           nodes.push({
-            stage: "engines", icon: "⚙️", title: "Motores (frota)",
+            stage: "engines", icon: "⚙️", title: "Motores (frota) · puxa missão do VPS",
             status: status, metrics: metrics, note: note, actions: actions,
             enginesAlive: alive,
           });
@@ -523,8 +528,8 @@
             {
               cost: "free",
               status: bravePresent ? "ok" : "off",
-              name: "Tipo 1 · identidade (CNPJ→dono, telefone) — VPS",
-              desc: "Usa Brave (grátis) como motor de busca de CNPJ e dono.",
+              name: "Tipo 1 · identidade (CNPJ→dono, telefone)",
+              desc: "Base rica grátis: Brave descobre CNPJ e dono. Serper só como reforço pago quando falta contato.",
               tokenSlots: [
                 {
                   key: "BRAVE_SEARCH_API_KEY",
@@ -541,8 +546,8 @@
             {
               cost: "paid",
               status: labUp ? "ok" : "off",
-              name: "Tipo 2 · caça e-mail (crawl do seu IP via Local Lab)",
-              desc: "Rasteja o site das empresas buscando e-mails — requer Lab ligado.",
+              name: "Tipo 2 · caça e-mail (crawl pelo IP residencial via Local Lab)",
+              desc: "Rasteja o site das empresas pelo IP de casa buscando e-mails — requer Lab ligado.",
               tokenSlots: [],
             },
           ];
@@ -555,16 +560,91 @@
           ];
 
           nodes.push({
-            stage: "enrichment", icon: "✨", title: "Enriquecimento",
+            stage: "enrichment", icon: "✨", title: "Enriquecimento · base rica (contato)",
             status: enrStatus,
             metrics: metrics2,
-            note: hasError ? ("Erro: " + tesc(enr.error)) : (running ? ("Rodando · fase " + tesc(phase)) : ""),
+            note: hasError ? ("Erro: " + tesc(enr.error))
+                : (running ? ("Rodando · fase " + tesc(phase) + " — coleta o contato bruto que o Cérebro IA (abaixo) vai sanear e pontuar.")
+                           : "Coleta o contato bruto (e-mail/tel/CNPJ/dono) que alimenta o Cérebro IA logo abaixo."),
             actions: [
               { act: "lab-toggle",     label: labUp ? "⏹ Desligar Lab" : "▶ Lab on", cls: "btn-blue" },
               { act: "enricher-toggle", label: running ? "⏸ Parar enriquecedor" : "▶ Ligar enriquecedor", cls: running ? "btn-red" : "btn-green" },
             ],
             branches: enrBranches,
             toggles: toggles,
+          });
+        })();
+
+        /* ── 6.5 Cérebro IA (a PONTE) ───────────────────────────────────
+           2 modelos: 30B LOCAL (batch pesado quando o PC está ON) e 7B VPS
+           (realtime + fallback). O túnel Tailscale + heartbeat AINDA NÃO existe
+           (PR4, sessão conjunta ao vivo) → o nó degrada gracioso: NÃO inventa
+           endpoint nem métrica; se não há sinal de modelo, mostra o estado
+           honesto "aguardando túnel/heartbeat (PR4)". Sem ação/botão (nenhuma
+           rota nova no backend). */
+        (function () {
+          var enr = enrichR.ok ? enrichR.data : null;
+
+          /* sinal aproveitável SEM inventar endpoint: o enricher já chama Ollama
+             p/ saneamento. Se o status trouxer algo de IA, aproveita; senão placeholder. */
+          function firstDefined() {
+            for (var i = 0; i < arguments.length; i++) {
+              if (arguments[i] !== undefined && arguments[i] !== null) return arguments[i];
+            }
+            return null;
+          }
+          var ai = enr && (enr.ai || enr.brain || enr.saneamento) ? (enr.ai || enr.brain || enr.saneamento) : null;
+          var aiEnabled = enr ? firstDefined(enr.aiSaneamentoEnabled, enr.aiEnabled, ai && ai.enabled) : null;
+          var aiModel   = enr ? firstDefined(enr.aiModel, ai && ai.model) : null;
+
+          /* 30B é do PC LOCAL; 7B é do VPS. Sem heartbeat → status "waiting". */
+          var localBrainStatus = "waiting";  // 30B: só sabemos ao vivo (túnel PR4)
+          var vpsBrainStatus   = "waiting";   // 7B: idem
+          var noteExtra = "";
+
+          if (aiEnabled === true) {
+            /* há sinal de saneamento IA ligado no lado renderizado */
+            if (isVps) { vpsBrainStatus = "ok"; } else { localBrainStatus = "ok"; }
+            noteExtra = aiModel ? (" · modelo em uso: " + tesc(String(aiModel))) : "";
+          } else if (aiEnabled === false) {
+            noteExtra = " · saneamento IA desligado (flag OFF).";
+          }
+
+          var brainBranches = [
+            {
+              cost: "free",
+              status: localBrainStatus === "ok" ? "ok" : "idle",
+              name: "30B LOCAL · qwen3:30b-a3b (batch pesado)",
+              desc: localBrainStatus === "ok"
+                ? "Saneia nome+segmento · extrai e-mail/tel/dono · nota ICP · escreve 1ª msg. Roda no PC quando ON."
+                : "Trabalho pesado/batch quando o PC está ON. Sinal ao vivo depende do túnel Tailscale + heartbeat (PR4).",
+              tokenSlots: [],
+            },
+            {
+              cost: "paid",
+              status: vpsBrainStatus === "ok" ? "ok" : "idle",
+              name: "7B VPS · qwen2.5:7b (realtime + fallback)",
+              desc: vpsBrainStatus === "ok"
+                ? "Realtime do cliente e fallback quando o PC está OFF."
+                : "Realtime do cliente + fallback quando o PC está OFF. Sinal ao vivo depende do heartbeat (PR4).",
+              tokenSlots: [],
+            },
+          ];
+
+          /* estado do nó: honesto. Sem heartbeat = "idle" com nota de espera —
+             nunca "ok" fantasiado nem "blocked" (não está quebrado, só não plugado). */
+          var brainStatus = (aiEnabled === true) ? "ok" : "idle";
+          var brainNote = (aiEnabled === true)
+            ? ("Cérebro parcialmente ativo (saneamento IA ligado)" + noteExtra + ". Roteador 30B↔7B + heartbeat = sessão ao vivo (PR4).")
+            : ("Aguardando túnel/heartbeat (PR4): o roteador 30B↔7B ainda não está plugado — sessão conjunta ao vivo." + noteExtra);
+
+          nodes.push({
+            stage: "brain", icon: "🧠", title: "Cérebro IA · saneia · extrai · nota ICP · escreve msg",
+            status: brainStatus,
+            metrics: [],
+            note: brainNote,
+            branches: brainBranches,
+            actions: [],  // sem botão: nenhuma rota nova no backend
           });
         })();
 
@@ -585,13 +665,14 @@
           }
 
           nodes.push({
-            stage: "result", icon: "🎯", title: "Resultado final · banco de leads",
+            stage: "result", icon: "🎯", title: "Resultado final · card na ordem da nota ICP",
             status: status,
             metrics: [
               { label: "Total",      val: total.toLocaleString("pt-BR") },
               { label: "Novos hoje", val: String(today) },
             ],
-            note: note,
+            note: note ? (note + " · card pronto após validação WhatsApp, ordenado pela nota ICP.")
+                       : "Card pronto após validação WhatsApp, ordenado pela nota ICP.",
             actions: [
               { act: "result-reload", label: "↺ Reler contagem", cls: "btn-blue" },
             ],
@@ -609,11 +690,13 @@
           }
         });
 
-        /* ── render (só se ainda for o load mais recente — senão um load antigo pintaria escopo errado) ── */
-        if (mySeq !== tState.seq) return;
-        renderNodes(nodes);
+        /* ── render (só se ainda for o load mais recente DESTE escopo — evita um load antigo
+           pintar por cima de um mais novo do MESMO lado; local e vps nunca se pisam pq
+           cada um tem seu próprio elemento e seq) ── */
+        if (mySeq !== st.seq) return;
+        renderNodes(nodes, flow);
 
-        /* timestamp */
+        /* timestamp: um relógio só, atualizado pelo escopo que terminar por último */
         var gen = document.getElementById("tree-generated");
         if (gen) {
           var now = new Date();
@@ -621,12 +704,11 @@
         }
       })
       .catch(function () { /* safe() já blinda cada fetch; rede dura aqui não derruba a guia */ })
-      .finally(function () { tState.loading = false; });
+      .finally(function () { st.loading = false; });
   }
 
   /* ── renderNodes ───────────────────────────────────────────────────── */
-  function renderNodes(nodes) {
-    var flow = document.getElementById("tree-flow");
+  function renderNodes(nodes, flow) {
     if (!flow) return;
 
     var html = "";
@@ -704,8 +786,14 @@
   }
 
   function renderBranch(b) {
-    var pillCls = b.status === "ok" ? "pill-ok" : b.status === "off" ? "pill-muted" : "pill-amber";
-    var pillTxt = b.status === "ok" ? "ativo" : b.status === "off" ? "sem chave" : "atenção";
+    var pillCls = b.status === "ok" ? "pill-ok"
+                : b.status === "off" ? "pill-muted"
+                : b.status === "idle" ? "pill-muted"
+                : "pill-amber";
+    var pillTxt = b.status === "ok" ? "ativo"
+                : b.status === "off" ? "sem chave"
+                : b.status === "idle" ? "aguardando"
+                : "atenção";
 
     var tokenSlotsHtml = "";
     if (b.tokenSlots && b.tokenSlots.length) {
@@ -738,13 +826,13 @@
       + '</div>';
   }
 
-  /* ── delegação de eventos em #tree-flow ────────────────────────────── */
+  /* ── delegação de eventos em #guide-tree (pai comum às DUAS colunas) ── */
   function initEventDelegation() {
-    var flow = document.getElementById("tree-flow");
-    if (!flow) return;
+    var root = document.getElementById("guide-tree");
+    if (!root) return;
 
     /* click em [data-act] */
-    flow.addEventListener("click", function (e) {
+    root.addEventListener("click", function (e) {
       /* tree-token-save */
       var saveBtn = e.target.closest(".tree-token-save");
       if (saveBtn) {
@@ -758,10 +846,16 @@
     });
 
     /* change em [data-enr] */
-    flow.addEventListener("change", function (e) {
+    root.addEventListener("change", function (e) {
       var cb = e.target.closest("[data-enr]");
       if (cb) { /* estado atualizado; próxima ação de toggle lerá os checkboxes */ }
     });
+  }
+
+  /* qual coluna (local/vps) contém este elemento — deriva da .tree-split-col ancestral */
+  function scopeOf(el) {
+    var col = el.closest("[data-scope]");
+    return col ? col.dataset.scope : "local";
   }
 
   function getResultEl(btn) {
@@ -803,13 +897,14 @@
     var act = btn.dataset.act;
     var resultEl = getResultEl(btn);
 
-    /* result-reload: re-fetch apenas leads */
+    /* result-reload: re-fetch apenas leads — só recarrega a coluna do botão clicado */
     if (act === "result-reload") {
       btn.disabled = true;
       if (resultEl) { resultEl.textContent = "…"; resultEl.className = "tbtn-result"; }
-      var isVps = tState.scope === "vps";
+      var scope = scopeOf(btn);
+      var isVps = scope === "vps";
       tapi("GET", isVps ? "/owner/vps/leads" : "/owner/leads-bank")
-        .then(function () { if (resultEl) tbtnResult(resultEl, true, ""); setTimeout(function () { loadTree(true); }, 2500); })
+        .then(function () { if (resultEl) tbtnResult(resultEl, true, ""); setTimeout(function () { loadScope(scope, true); }, 2500); })
         .catch(function (e) { if (resultEl) tbtnResult(resultEl, false, e.message); })
         .finally(function () { btn.disabled = false; });
       return;
@@ -876,11 +971,10 @@
         return tapi("POST", "/owner/factory/purge-dead-queue", {});
 
       case "lab-toggle": {
-        /* decide on/off lendo o labUp do último estado */
-        var flow = document.getElementById("tree-flow");
-        var labBtn = flow && flow.querySelector("[data-act='lab-toggle']");
-        var labLabel = labBtn ? labBtn.textContent : "";
-        var turnOn = labLabel.indexOf("on") !== -1 || labLabel.indexOf("Ligar") !== -1 || labLabel.indexOf("▶") !== -1;
+        /* Lab é conceito só-local, mas o nó "Enriquecimento" é renderizado nas DUAS colunas
+           (mira o VPS a partir da máquina local) — decide on/off lendo o botão QUE FOI CLICADO,
+           não um #tree-flow único que não existe mais. */
+        var labLabel = btn ? btn.textContent : "";
         /* heurística: se label diz "Desligar", labUp=true */
         var labUp = labLabel.indexOf("Desligar") !== -1;
         return tapi("POST", labUp ? "/local-lab/stop" : "/local-lab/start", {});
@@ -893,11 +987,11 @@
         if (isRunning) {
           return tapi("POST", "/owner/enricher/stop", {});
         } else {
-          /* lê checkboxes data-enr */
-          var flow2 = document.getElementById("tree-flow");
-          var cbId  = flow2 ? flow2.querySelector("[data-enr='identity']")   : null;
-          var cbSc  = flow2 ? flow2.querySelector("[data-enr='scraper']")    : null;
-          var cbAg  = flow2 ? flow2.querySelector("[data-enr='aggressive']") : null;
+          /* lê checkboxes data-enr da MESMA coluna do botão clicado (o nó existe nas duas) */
+          var actionsBox = btn.closest(".tnode-actions");
+          var cbId  = actionsBox ? actionsBox.querySelector("[data-enr='identity']")   : null;
+          var cbSc  = actionsBox ? actionsBox.querySelector("[data-enr='scraper']")    : null;
+          var cbAg  = actionsBox ? actionsBox.querySelector("[data-enr='aggressive']") : null;
           return tapi("POST", "/owner/enricher/start", {
             identity:   cbId ? cbId.checked   : true,
             scraper:    cbSc ? cbSc.checked   : true,

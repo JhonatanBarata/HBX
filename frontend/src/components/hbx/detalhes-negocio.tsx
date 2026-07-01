@@ -241,6 +241,20 @@ export type DetalhesNegocioProps = {
   /** quando true exibe skeleton shimmer nos campos que vêm da API de card */
   loading?: boolean;
 
+  /**
+   * Estado "enriquecendo AGORA" — o MEIO entre `loading` (card inteiro carregando
+   * do backend) e a coroa `enriched` (motor já terminou). Quando true:
+   *  - acende o selo "✨ Enriquecendo…" no header;
+   *  - campos ainda vazios mas que o motor busca (telefone, e-mail, segmento,
+   *    CNPJ, razão, sócio) viram shimmer em vez de "Sem X neste card." (não
+   *    afirma ausência enquanto ainda procura).
+   * Quando o dado chega, o campo assenta sozinho (reusa TypedText). Default
+   * `false` → card sem a prop é IDÊNTICO ao comportamento de hoje.
+   * Como o pai liga: `enriching={enrichmentStatus === 'pending' || 'partial'}`
+   * (enum do pipeline RadarPipelineEnrichmentStatus no backend).
+   */
+  enriching?: boolean;
+
   // ── compat props ─────────────────────────────────────────────────────────
   /** @deprecated passe pelo slot heroAction */
   waPhone?: string | null;
@@ -364,6 +378,15 @@ function TypedTextCore({ text, speed, delay }: { text: string; speed: number; de
 
 function TypedText({ text, speed = 48, delay = 0 }: { text: string; speed?: number; delay?: number }) {
   return <TypedTextCore key={text} text={text} speed={speed} delay={delay} />;
+}
+
+// ── FieldSkel — placeholder pulsante de VALOR pendente (enriquecendo) ─────────
+// Marca o 3º estado por campo: "estou buscando isto agora". Some sozinho quando
+// o dado chega (o campo real volta a renderizar via TypedText). Só largura —
+// toda cor/shimmer vive na classe central .dn-field-skel (kit.css).
+function FieldSkel({ variant }: { variant?: "wide" | "full" }) {
+  const cls = "dn-field-skel" + (variant ? ` dn-field-skel--${variant}` : "");
+  return <span className={cls} aria-hidden="true" />;
 }
 
 // ── Bloco recolhível para textos longos ───────────────────────────────────────
@@ -621,6 +644,7 @@ export function DetalhesNegocio({
   actions,
   emptyHint,
   loading = false,
+  enriching = false,
   waQrActive = false,
   waCanInternal = false,
   onWaOpenExternal,
@@ -654,6 +678,14 @@ export function DetalhesNegocio({
 
   const li = n?.leadIntelligence;
   const recChannel = li?.recommendedChannel ? toCanal(li.recommendedChannel) : null;
+
+  // ── Estado "enriquecendo agora" — só acende no MEIO: card já carregou do
+  // backend (!loading) e o motor ainda trabalha (enriching). A coroa (enriched)
+  // é o "terminou": quando ela existe, o badge não briga — some. Os 3 estados
+  // (loading · enriquecendo · enriquecido) nunca aparecem juntos.
+  const isEnriching = Boolean(enriching) && !loading && !n?.enriched;
+  // Placeholder de campo pendente só faz sentido enquanto enriquece.
+  const fieldPending = (has: boolean) => isEnriching && !has;
 
   // ── Renderizadores de seção ───────────────────────────────────────────────
 
@@ -729,6 +761,9 @@ export function DetalhesNegocio({
           <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
             <CanalIcon canal="telefone" /> {n.phone}
           </a>
+        ) : fieldPending(false) ? (
+          // Enriquecendo: procurando telefone — placeholder, NÃO "ausente".
+          <span className="dn-contact-skel" aria-label="Buscando telefone…" role="status" />
         ) : !loading ? (
           <div className="dn-no-phone muted-note">Sem telefone neste card.</div>
         ) : null}
@@ -816,12 +851,42 @@ export function DetalhesNegocio({
           </LockGate>
         )}
 
+        {/* Empresa AINDA sendo buscada (enriquecendo, sem dado, tier libera):
+            placeholder pulsante das linhas-chave em vez de sumir a seção. */}
+        {isEnriching && !hasCompanyData && canSeeCompany && (
+          <div style={{ display: "grid", gap: 4 }}>
+            <span className="dn-section-head">
+              <I d={ICONS.mapin} size={11} /> Empresa
+            </span>
+            {[
+              { k: "CNPJ", variant: "wide" as const },
+              { k: "Razão social", variant: "full" as const },
+              { k: "Sócio", variant: "wide" as const },
+            ].map(({ k, variant }) => (
+              <div className="row dn-kv-row" key={k}>
+                <span className="k">{k}</span>
+                <span className="v"><FieldSkel variant={variant} /></span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {n.email && !n.channel && (
           <div className="row dn-kv-row">
             <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
               <I d={ICONS.mail} size={13} /> E-mail
             </span>
             <span className="v"><TypedText text={n.email} speed={44} delay={40} /></span>
+          </div>
+        )}
+
+        {/* E-mail sendo buscado (enriquecendo, sem e-mail nem canal). */}
+        {!n.email && !n.channel && fieldPending(false) && (
+          <div className="row dn-kv-row">
+            <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              <I d={ICONS.mail} size={13} /> E-mail
+            </span>
+            <span className="v"><FieldSkel variant="wide" /></span>
           </div>
         )}
 
@@ -1340,6 +1405,12 @@ export function DetalhesNegocio({
                     <span className="company" style={{ flex: 1, minWidth: 0 }}>
                       <TypedText text={n.name || "—"} speed={62} delay={0} />
                     </span>
+                    {isEnriching && (
+                      <span className="dn-enriching-badge" title="A IA está enriquecendo este lead agora" aria-label="Enriquecendo este lead agora" role="status">
+                        <span className="dn-enriching-badge__spark" aria-hidden="true">✨</span>
+                        Enriquecendo…
+                      </span>
+                    )}
                     {n.enriched && (
                       <span className="dn-crown" title="Lead enriquecido" aria-label="Lead enriquecido">
                         <I d={ICONS.crown} size={15} />
@@ -1348,11 +1419,17 @@ export function DetalhesNegocio({
                     {crownSlot && <>{crownSlot}</>}
                     {heroAction && <>{heroAction}</>}
                   </div>
-                  {(n.segment || !n.city) && (
+                  {n.segment ? (
                     <div className="sub sub--seg">
-                      <TypedText text={n.segment || "—"} speed={50} delay={180} />
+                      <TypedText text={n.segment} speed={50} delay={180} />
                     </div>
-                  )}
+                  ) : fieldPending(false) ? (
+                    <div className="sub sub--seg"><FieldSkel variant="wide" /></div>
+                  ) : !n.city ? (
+                    <div className="sub sub--seg">
+                      <TypedText text="—" speed={50} delay={180} />
+                    </div>
+                  ) : null}
                   {n.city && (
                     <div className="sub sub--loc">
                       <I d={ICONS.mapin} size={11} />{" "}

@@ -27,7 +27,7 @@
 --------------------------------------------------------------- */
 .tree-guide {
   padding: 0 24px 40px;
-  max-width: 760px;
+  max-width: 1560px;
   margin: 0 auto;
   animation: treeIn .2s ease;
 }
@@ -51,35 +51,6 @@
   margin-bottom: 14px;
 }
 
-/* Sub-tabs local / VPS — reutiliza aparência .tabs sem poluir o
-   seletor raiz (que tem padding/border horizontal diferentes aqui) */
-.tree-tabs {
-  display: inline-flex;
-  gap: 2px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 3px;
-  /* sobrescreve o .tabs global que tem border-bottom e padding lateral */
-  border-bottom-color: var(--border);
-}
-
-/* Os botões dentro de .tree-tabs ainda são .tab e herdam a aparência,
-   mas aqui ficam sem o underline — usamos fundo destacado. */
-.tree-tabs .tab {
-  border-bottom: none;
-  border-radius: 8px;
-  padding: 7px 16px;
-  font-size: .84rem;
-}
-
-.tree-tabs .tab.is-active {
-  background: var(--surface);
-  color: var(--brand);
-  border-bottom: none;
-  box-shadow: 0 1px 3px rgba(0,0,0,.08);
-}
-
 .tree-head-right {
   display: flex;
   align-items: center;
@@ -94,7 +65,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
-  margin-bottom: 18px;
   padding: 10px 14px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -126,12 +96,54 @@
 .tdot.off     { background: var(--text-muted);   }
 
 /* ---------------------------------------------------------------
-   SPINE / FLOW — container dos nós
+   SPLIT LOCAL | VPS — as duas árvores lado a lado, SEMPRE visíveis
+   (pedido do dono 30/06: nada de toggle trocando de tela — mesma
+   lógica de coluna já usada no Painel via .env-vps/.top-row).
+--------------------------------------------------------------- */
+.tree-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 28px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .tree-split { grid-template-columns: 1fr; }
+}
+
+.tree-split-col { min-width: 0; }
+
+.tree-split-col--vps {
+  border-left: 2px solid var(--border);
+  padding-left: 26px;
+}
+
+@media (max-width: 1180px) {
+  .tree-split-col--vps {
+    border-left: none;
+    padding-left: 0;
+    border-top: 2px solid var(--border);
+    padding-top: 22px;
+    margin-top: 6px;
+  }
+}
+
+.tree-split-title {
+  margin: 0 0 14px;
+  font-size: .92rem;
+  font-weight: 700;
+  color: var(--text);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
+}
+
+/* ---------------------------------------------------------------
+   SPINE / FLOW — container dos nós (um por coluna)
 --------------------------------------------------------------- */
 .tree-flow {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   position: relative;
 }
 
@@ -538,6 +550,27 @@
   border-radius: 11px;
   border: 1.5px solid rgba(220, 38, 38, .35);
   pointer-events: none;
+}
+
+/* ---------------------------------------------------------------
+   CÉREBRO IA (a ponte) — nó data-stage="brain"
+   Realce sutil de "ponte" sem sair dos tokens de tema.
+   Status honesto: idle (aguardando túnel/heartbeat PR4) usa o azul
+   de --blue já mapeado em [data-status="idle"]; aqui só reforça a
+   leitura de "cérebro" com uma faixa lateral discreta.
+--------------------------------------------------------------- */
+.tree-node[data-stage="brain"] .tnode {
+  border-left: 3px solid rgba(37, 99, 235, .45);
+}
+
+.tree-node[data-stage="brain"][data-status="ok"] .tnode {
+  border-left-color: rgba(22, 163, 74, .50);
+}
+
+/* Nas branches do cérebro (os 2 modelos), quando "idle" = aguardando
+   heartbeat, dá o mesmo tom azul-ocioso já usado no resto da árvore. */
+.tree-node[data-stage="brain"] .tbranch[data-status="idle"] {
+  border-style: dashed;
 }
 
 /* ---------------------------------------------------------------
