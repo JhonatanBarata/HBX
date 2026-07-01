@@ -343,22 +343,26 @@
             note = "erro ao ler motores";
           }
 
+          var enginesOn = alive > 0;
           var actions = [];
           if (isVps) {
             actions = [
-              { act: "vps-engines-start", label: "▶ Ligar frota",  cls: "btn-green" },
-              { act: "vps-engines-stop",  label: "⏸ Parar frota",  cls: "btn-red tbtn-danger" },
+              enginesOn
+                ? { act: "vps-engines-toggle", label: "● Ativo",      cls: "btn-red tbtn-danger", state: "on" }
+                : { act: "vps-engines-toggle", label: "○ Desativado", cls: "btn-green",            state: "off" },
             ];
           } else {
             actions = [
-              { act: "engines-up",   label: "▶ Ligar frota", cls: "btn-green" },
-              { act: "engines-down", label: "⏸ Parar frota", cls: "btn-red tbtn-danger" },
+              enginesOn
+                ? { act: "engines-toggle", label: "● Ativo",      cls: "btn-red tbtn-danger", state: "on" }
+                : { act: "engines-toggle", label: "○ Desativado", cls: "btn-green",            state: "off" },
             ];
           }
 
           nodes.push({
             stage: "engines", icon: "⚙️", title: "Motores (frota)",
             status: status, metrics: metrics, note: note, actions: actions,
+            enginesAlive: alive,
           });
         })();
 
@@ -441,23 +445,31 @@
             note = "dados da fábrica indisponíveis";
           }
 
+          /* interlock visual: fábrica depende do motor — nó "engines" já foi empilhado acima */
+          var enginesNode = nodes.length ? nodes[nodes.length - 1] : null;
+          var enginesAliveCount = enginesNode && enginesNode.stage === "engines" ? Number(enginesNode.enginesAlive || 0) : null;
+          var noEngine = !isVps && enginesAliveCount === 0;
+
+          var factoryRunning = status === "ok" || status === "warn";
+
           var actions = [];
           if (!isVps) {
             actions = [
-              { act: "factory-resume", label: "▶ Ligar fábrica",  cls: "btn-green" },
-              { act: "factory-stop",   label: "⏸ Parar fábrica",  cls: "btn-red tbtn-danger" },
+              factoryRunning
+                ? { act: "factory-toggle", label: "● Ativo",      cls: "btn-red tbtn-danger", state: "on" }
+                : { act: "factory-toggle", label: "○ Desativado", cls: "btn-green",            state: "off", disabled: noEngine },
               { act: "factory-next",   label: "⏭ Próxima missão", cls: "btn-blue" },
               { act: "factory-purge",  label: "🧹 Limpar fila morta", cls: "btn-amber" },
             ];
           }
           var vpsNote = isVps
             ? "A fábrica do VPS se controla pela frota (acima) e pelo enriquecedor (abaixo)."
-            : note;
+            : (noEngine ? "Depende do motor — ligue a frota acima para destravar a fábrica." : note);
 
           nodes.push({
             stage: "factory", icon: "🏭", title: "Laboratório / Fábrica",
-            status: status, metrics: metrics,
-            note: isVps ? vpsNote : note,
+            status: noEngine ? "blocked" : status, metrics: metrics,
+            note: vpsNote,
             mission: mission,
             actions: actions,
           });
@@ -664,8 +676,10 @@
       actionsHtml = '<div class="tnode-actions">'
         + togglesHtml
         + (n.actions ? n.actions.map(function (a) {
-            return '<button class="btn btn-sm ' + tesc(a.cls) + '" data-act="' + tesc(a.act) + '">'
-              + tesc(a.label) + "</button>";
+            return '<button class="btn btn-sm ' + tesc(a.cls) + '" data-act="' + tesc(a.act) + '"'
+              + (a.state ? ' data-state="' + tesc(a.state) + '"' : '')
+              + (a.disabled ? ' disabled title="depende do motor — ligue a frota primeiro"' : '')
+              + '>' + tesc(a.label) + "</button>";
           }).join("") : "")
         + '<span class="tbtn-result"></span>'
         + "</div>";
@@ -801,8 +815,11 @@
       return;
     }
 
+    /* botão de estado único travado pelo interlock (fábrica sem motor) */
+    if (btn.disabled) return;
+
     /* destrutivos que pedem confirm */
-    if (act === "vps-engines-stop") {
+    if (act === "vps-engines-stop" || (act === "vps-engines-toggle" && btn.dataset.state === "on")) {
       if (!confirm("⏸ Parar TODA a frota de motores do VPS (produção)?\n\nIsso para todos os motores da fila no servidor.")) return;
     }
 
@@ -834,11 +851,23 @@
       case "vps-engines-stop":
         return tapi("POST", "/owner/vps/engines/stop", { confirm: true, from: 1, to: 20 });
 
+      case "engines-toggle":
+        /* botão de estado único: data-state="on" → motores vivos → ação é DESLIGAR; "off" → LIGAR */
+        return tapi("POST", btn.dataset.state === "on" ? "/owner/engines/down" : "/owner/engines/up", {});
+
+      case "vps-engines-toggle":
+        return tapi("POST", btn.dataset.state === "on" ? "/owner/vps/engines/stop" : "/owner/vps/engines/start",
+          btn.dataset.state === "on" ? { confirm: true, from: 1, to: 20 } : { from: 1, to: 20 });
+
       case "factory-resume":
         return tapi("POST", "/owner/factory/resume", {});
 
       case "factory-stop":
         return tapi("POST", "/owner/factory/stop", {});
+
+      case "factory-toggle":
+        /* botão de estado único: data-state="on" → fábrica rodando → ação é PARAR; "off" → LIGAR */
+        return tapi("POST", btn.dataset.state === "on" ? "/owner/factory/stop" : "/owner/factory/resume", {});
 
       case "factory-next":
         return tapi("POST", "/owner/factory/force-next", {});

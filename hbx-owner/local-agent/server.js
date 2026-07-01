@@ -2406,6 +2406,25 @@ async function route(req, res) {
     return;
   }
 
+  // --- Export em lote de contatos não reivindicados (PR1 30/06, LeadContact) ---
+  if (req.method === "GET" && url.pathname === "/owner/radar/contacts/export") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const kind = url.searchParams.get("kind") || "";
+    const unclaimed = url.searchParams.get("unclaimed") || "true";
+    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 2000);
+    const qs = new URLSearchParams();
+    if (kind) qs.set("kind", kind);
+    qs.set("unclaimed", unclaimed);
+    qs.set("limit", String(limit));
+    const r = await backendRequest("GET", `/modules/owner/radar/contacts/export?${qs.toString()}`);
+    if (!r.ok) {
+      sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` });
+      return;
+    }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
   // --- Guia de cards: lista navegável ---
   if (req.method === "GET" && url.pathname === "/owner/radar/cards") {
     if (!backendToken) { await refreshBackendToken().catch(() => null); }

@@ -1796,6 +1796,7 @@ model RadarLeadPool {
   updatedAt            DateTime @updatedAt
   companyStates        RadarLeadCompanyState[]
   events               RadarLeadEvent[]
+  contacts             LeadContact[]
 
   @@index([companyId, status])
   @@index([ownerCompanyId, status])
@@ -1806,6 +1807,39 @@ model RadarLeadPool {
   @@index([ddd, state])
   @@index([campaignId])
   @@index([lastSeenAt])
+}
+
+// PR1 (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md): tabela normalizada
+// p/ BUSCA EM LOTE de contatos descobertos (email/phone/social). ADITIVA — populada a partir do
+// metadataJson existente do RadarLeadPool (backfill) + escrita dupla nos pontos que descobrem contato
+// novo. NÃO é a fonte do presenter (metadataJson continua sendo); serve só consulta/filtro/export.
+model LeadContact {
+  id                  String   @id @default(cuid())
+  radarLead           RadarLeadPool @relation(fields: [radarLeadId], references: [id], onDelete: Cascade)
+  radarLeadId         String
+  kind                String   // 'email' | 'phone' | 'whatsapp' | 'instagram' | 'facebook'
+  value               String
+  valueNormalized     String
+  rank                Int      @default(1) // 1..N, ordem de descoberta/confiança
+  source              String?  // de onde veio: 'website_crawl' | 'cnpj_l4' | 'owner_social' | 'metadataJson_backfill' | etc
+  confidence          Int?     @default(0)
+  claimedByCompanyId  Int?     // null = não reivindicado por nenhuma empresa ainda (chave do #15)
+  createdAt           DateTime @default(now())
+
+  @@index([radarLeadId, kind, rank])
+  @@index([kind, valueNormalized])
+  @@index([claimedByCompanyId])
+}
+
+// DISJUNTOR MENSAL do Brave (30/06 — incidente "estourou 1000"): contador persistente de chamadas
+// Brave por mês. O `searchBrave` (radar-web-enrichment.service.ts — gargalo único por onde TODA chamada
+// Brave passa) corta duro no teto (env HBX_BRAVE_MONTHLY_CAP, default 900) e degrada gracioso (devolve
+// []). Persistente = sobrevive a restart/recreate (contador em memória zerava → a trava virava inútil).
+// yearMonth = "YYYY-MM".
+model BraveApiUsage {
+  yearMonth String   @id
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 model RadarLeadCompanyState {

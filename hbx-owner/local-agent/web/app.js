@@ -1108,6 +1108,54 @@ function ckExportCsv() {
   pushFeed(`CSV exportado: ${rows.length} leads filtrados.`, "ok");
 }
 
+/* ---------- Exportar contatos não reivindicados (PR1 30/06, LeadContact) ---------- */
+async function ckExportUnclaimedContacts() {
+  const btn = $("#btn-export-unclaimed");
+  const fb  = $("#export-feedback");
+  if (btn) btn.disabled = true;
+  if (fb)  { fb.textContent = "buscando contatos não reivindicados…"; fb.className = "delta"; }
+  try {
+    const r = await api("GET", "/owner/radar/contacts/export?unclaimed=true&limit=500");
+    if (!r.ok) throw new Error(r.reason || "falha ao exportar contatos");
+    const items = (r.data && r.data.items) || [];
+    if (!items.length) {
+      if (fb) { fb.textContent = "nenhum contato não reivindicado encontrado."; fb.className = "delta"; }
+      pushFeed("Exportar contatos: 0 encontrados.", "warn");
+      return;
+    }
+
+    // Mesmo padrão de geração de CSV do botão CSV do cockpit (BOM + ";" pro Excel pt-BR).
+    function csvCell(v) {
+      const s = v == null ? "" : String(v);
+      if (s.includes(";") || s.includes('"') || s.includes("\n")) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+    const header = ["radarLeadId", "kind", "value", "rank", "source", "createdAt"];
+    const lines = items.map((it) => [it.radarLeadId, it.kind, it.value, it.rank, it.source || "", it.createdAt]
+      .map(csvCell).join(";"));
+    const bom = "﻿";
+    const csv = bom + [header.join(";"), ...lines].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const ts = new Date().toISOString().slice(0, 10);
+    a.download = `contatos_nao_reivindicados_${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    if (fb) { fb.textContent = `${items.length} de ${r.data.total ?? items.length} contato(s) exportado(s).`; fb.className = "delta up"; }
+    pushFeed(`Contatos não reivindicados exportados: ${items.length}.`, "ok");
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
+    pushFeed(`Erro ao exportar contatos: ${err.message}`, "warn");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* ---------- Mover TUDO pro VPS (envia tudo + limpa o local; SEM cópia) ---------- */
 async function ckSendToVps() {
   const fb = $("#export-feedback");
@@ -1492,6 +1540,7 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const csvBtn         = $("#btn-cockpit-csv");
   const enrichBtn      = $("#btn-cockpit-enrich");
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
+  const exportUnclaimedBtn = $("#btn-export-unclaimed");
   const discoverBtn    = $("#btn-cockpit-discover");
   const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
@@ -1504,6 +1553,7 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
   if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
+  if (exportUnclaimedBtn) exportUnclaimedBtn.addEventListener("click", ckExportUnclaimedContacts);
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 

@@ -1292,4 +1292,33 @@ export class MasterWebscrapingController {
   applyContacts(@Body() body: { items?: Array<{ id?: string; email?: string; emails?: string[]; phones?: string[]; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> }) {
     return this.webscrapingService.applyDiscoveredContactsForMaster(body?.items || []);
   }
+
+  /**
+   * POST /modules/owner/radar/ai-saneamento { limit? }
+   * PR4a "worker de saneamento IA" (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md).
+   * LIMPA nome + deduz SEGMENTO de leads crus via Ollama LOCAL. NÃO é enriquecimento de contato
+   * nem nota ICP. Gate `HBX_AI_SANEAMENTO_ENABLED` (default OFF) — desligado devolve
+   * `{ enabled:false, reason:'disabled' }` sem tocar em nada. Aditivo: só `metadataJson.ai*`,
+   * NUNCA sobrescreve `name`/`segment`. Devolve { enabled:true, scanned, saneados, errors }.
+   */
+  @Post('ai-saneamento')
+  aiSaneamento(@Body() body: { limit?: number }) {
+    return this.webscrapingService.aiSaneamentoForMaster({ limit: body?.limit });
+  }
+
+  /**
+   * GET /modules/owner/radar/contacts/export?kind=email&unclaimed=true&limit=50
+   * PR1 (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md), resolve #15:
+   * export em LOTE de contatos descobertos (LeadContact, tabela normalizada — não varre
+   * metadataJson). `kind` filtra email|phone|whatsapp|instagram|facebook (omitido = todos).
+   * `unclaimed=true` (default) só traz claimedByCompanyId IS NULL. Devolve { items, total }.
+   */
+  @Get('contacts/export')
+  exportContacts(@Query() query: { kind?: string; unclaimed?: string; limit?: string }) {
+    return this.webscrapingService.exportLeadContactsForMaster({
+      kind: query?.kind,
+      unclaimedOnly: query?.unclaimed !== '0' && query?.unclaimed !== 'false',
+      limit: query?.limit ? Number(query.limit) : undefined,
+    });
+  }
 }

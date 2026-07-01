@@ -106,7 +106,7 @@ export const PIECES: { key: PieceKey; label: string; hint: string; icon: string;
   { key: "limite",    label: "Limite diário",       hint: "Proteção contra banimento",                icon: "bell",   tone: "var(--hbx-warning)" },
   { key: "alvo",      label: "Alvo & horário",      hint: "Janela de trabalho e estoque de leads",    icon: "mapin",  tone: "var(--hbx-success)" },
   { key: "mensagens", label: "Mensagens alternadas", hint: "O motor rotaciona pra fugir de padrão",   icon: "msg",    tone: "var(--hbx-secondary)" },
-  { key: "palavras",  label: "Palavras-chave",      hint: "Classificação das respostas (opcional)",   icon: "search", tone: "var(--hbx-secondary)" },
+  { key: "palavras",  label: "Detecção por IA",     hint: "A IA lê a resposta; palavras são reforço",  icon: "bot",    tone: "var(--hbx-secondary)" },
 ];
 
 // Campos numéricos/strings por peça (pra detectar "editado" — só leitura do draft).
@@ -295,7 +295,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
           listVal("whatIsItIntentKeywords").length +
           listVal("callbackIntentKeywords").length +
           listVal("negativeIntentKeywords").length;
-        return total > 0 ? `${total} palavra(s) em 4 categorias` : "palavras padrão do motor";
+        return total > 0 ? `IA decide · +${total} palavra(s) de reforço` : "IA decide · palavras padrão de reforço";
       }
       default:
         return "";

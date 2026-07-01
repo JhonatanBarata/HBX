@@ -162,6 +162,19 @@ import type {
   WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
 
+// Gate da fábrica AUTÔNOMA por ambiente (PR3 30/06 — "VPS sem fábrica"): decisão do dono é que o
+// scraping autônomo (mass_data auto-perpetuado, "night factory") só roda na máquina LOCAL; o VPS
+// passa a só guardar leads e servir clientes (motores no VPS sobem sob demanda do cliente). Espelha
+// o padrão `envFlag`/`TRUTHY_VALUES` de `enrichment-cost/enrichment-paid-policy.ts`. Default
+// ausente/false = comportamento ATUAL preservado (fábrica local continua igual); só quando setado
+// truthy (no VPS, na sessão de publish) a fábrica autônoma para. NÃO afeta scraping on-demand do
+// cliente (campanhas mode!=='mass_data' nunca passam por `ensureNightFactoryWork`).
+const FACTORY_GATE_TRUTHY_VALUES = new Set(['true', '1', 'on', 'yes', 'sim']);
+
+function isFactoryAutonomousDisabled(): boolean {
+  return FACTORY_GATE_TRUTHY_VALUES.has((process.env.HBX_FACTORY_AUTONOMOUS_DISABLED ?? '').trim().toLowerCase());
+}
+
 export class RadarCoreFactoryAdminMixin {
   [key: string]: any;
   private startOfLocalDay(date = new Date()) {
@@ -687,6 +700,20 @@ export class RadarCoreFactoryAdminMixin {
 
   async ensureNightFactoryWork(user?: any) {
     if (this.radarFactoryPumpActive) return { skipped: true, reason: 'factory_pump_active' };
+    // GATE PR3 (30/06): VPS sem fábrica autônoma — só a fábrica AUTÔNOMA é bloqueada aqui (o scraping
+    // on-demand do cliente cria campanhas mode!=='mass_data' por outro caminho e nunca passa por esta
+    // função). Default ausente/false preserva o comportamento atual (local continua fabricando normal).
+    if (isFactoryAutonomousDisabled()) {
+      await (this.prisma as any).radarFactoryCursor?.update?.({
+        where: { key: 'main' },
+        data: {
+          status: 'idle',
+          reasonStopped: 'Fábrica autônoma desligada (VPS — scraping é local).',
+          nextRunAt: new Date(Date.now() + 5 * 60_000),
+        },
+      }).catch(() => null);
+      return { skipped: true, reason: 'autonomous_disabled' };
+    }
     if (!(await this.supportsMassDataCampaignPersistence().catch(() => false))) {
       return { skipped: true, reason: 'mass_data_persistence_unavailable' };
     }
@@ -720,6 +747,23 @@ export class RadarCoreFactoryAdminMixin {
       }
 
       const scheduler = await this.getEnginePool().getSchedulerStatus().catch(() => null);
+
+      // INTERLOCK motor→fábrica (PR2 30/06): a fábrica DEPENDE do motor. Se não há nenhum motor
+      // vivo (onlineHealthyEngines=0), a fábrica não pode produzir — pausa o ciclo com razão legível
+      // em vez de girar em falso (reenfileirar/disparar lease contra uma frota morta). Early-return
+      // limpo, sem exceção; não mexe na lógica de cursor/combo/backoff (fora de escopo desta PR).
+      if (safeInteger(scheduler?.onlineHealthyEngines) <= 0) {
+        await (this.prisma as any).radarFactoryCursor?.update?.({
+          where: { key: 'main' },
+          data: {
+            status: 'idle',
+            reasonStopped: 'Pausada: sem motor ativo.',
+            nextRunAt: new Date(Date.now() + 30_000),
+          },
+        }).catch(() => null);
+        return { skipped: true, reason: 'no_engine_alive' };
+      }
+
       if (safeInteger(scheduler?.automaticAllowedEngines) <= 0) {
         await (this.prisma as any).radarFactoryCursor?.update?.({
           where: { key: 'main' },

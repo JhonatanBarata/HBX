@@ -1,4 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
 import type { NormalizedSearchInput } from '../shared/radar-types';
 import type { HbxEngineSearchOutput, WebscrapingContactResult } from '../shared/radar-core-shared';
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
@@ -682,6 +683,55 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
 export class RadarWebEnrichmentService {
   constructor(@Optional() private readonly websiteCrawl?: RadarWebsiteCrawlSourceService) {}
 
+  // ── DISJUNTOR MENSAL do Brave (30/06, incidente "estourou 1000") ────────────────────────────
+  // Contador estático dedicado: o serviço é instanciado na mão em 4 lugares (`new
+  // RadarWebEnrichmentService()`) → injetar Prisma no constructor quebraria esses call sites. Um
+  // PrismaClient estático LAZY serve pra TODA instância (DI ou manual), persiste no banco (sobrevive a
+  // restart/recreate — contador em memória zerava e a trava virava inútil) e não toca o DI. Uso: só a
+  // tabela BraveApiUsage. Serializado de fato pelo `_enqueueThrottledBrave` (1 chamada Brave por vez).
+  private static _counterDb: PrismaClient | null = null;
+  private static _braveBudgetBlockedLoggedAt = 0; // throttle do log de "teto atingido" (1x/min)
+  private static counterDb(): PrismaClient {
+    if (!RadarWebEnrichmentService._counterDb) {
+      RadarWebEnrichmentService._counterDb = new PrismaClient();
+    }
+    return RadarWebEnrichmentService._counterDb;
+  }
+  private static braveMonthlyCap(): number {
+    const raw = Number.parseInt(String(process.env.HBX_BRAVE_MONTHLY_CAP ?? '').trim(), 10);
+    return Number.isFinite(raw) ? raw : 900; // default 900 (margem sob o teto real ~1000); <=0 = ilimitado
+  }
+  private static currentYearMonth(): string {
+    return new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  }
+  /** true quando o teto mensal de Brave já foi atingido → searchBrave NÃO bate na API. */
+  private static async braveBudgetExceeded(): Promise<boolean> {
+    const cap = RadarWebEnrichmentService.braveMonthlyCap();
+    if (cap <= 0) return false; // ilimitado (escape hatch)
+    try {
+      const ym = RadarWebEnrichmentService.currentYearMonth();
+      const db = RadarWebEnrichmentService.counterDb() as any;
+      const row = await db.braveApiUsage.upsert({
+        where: { yearMonth: ym },
+        create: { yearMonth: ym, count: 0 },
+        update: {},
+      });
+      return Number(row?.count || 0) >= cap;
+    } catch {
+      // Falha ao LER o contador = provavelmente o banco inteiro do app está fora → enriquecimento já
+      // estaria quebrado de qualquer jeito. Fail-open pra não derrubar o fluxo por um blip transitório.
+      return false;
+    }
+  }
+  /** incrementa o contador do mês — chamado SÓ quando a chamada vai mesmo bater na API Brave. */
+  private static async braveBudgetIncrement(): Promise<void> {
+    try {
+      const ym = RadarWebEnrichmentService.currentYearMonth();
+      const db = RadarWebEnrichmentService.counterDb() as any;
+      await db.braveApiUsage.update({ where: { yearMonth: ym }, data: { count: { increment: 1 } } });
+    } catch { /* best-effort — não quebra a busca por erro de contador */ }
+  }
+
   async run(input: {
     normalized: NormalizedSearchInput;
     currentResults: WebscrapingContactResult[];
@@ -1018,6 +1068,20 @@ export class RadarWebEnrichmentService {
       // Double-check cache after queue wait — another item may have populated it.
       const inCache = RadarWebEnrichmentService._braveCache.get(query);
       if (inCache) return inCache;
+      // DISJUNTOR MENSAL: query cacheada nem chega aqui (não gasta cota). Se o teto do mês estourou,
+      // NÃO bate na API — degrada gracioso (devolve [], igual o backstop de 429 logo abaixo). O
+      // incremento só acontece quando a chamada VAI mesmo ser feita (serializado pelo throttle).
+      if (await RadarWebEnrichmentService.braveBudgetExceeded()) {
+        RadarWebEnrichmentService._braveBudgetBlockedLoggedAt = RadarWebEnrichmentService._braveBudgetBlockedLoggedAt || 0;
+        const now = Date.now();
+        if (now - RadarWebEnrichmentService._braveBudgetBlockedLoggedAt > 60_000) {
+          RadarWebEnrichmentService._braveBudgetBlockedLoggedAt = now;
+          // eslint-disable-next-line no-console
+          console.warn(`[brave-disjuntor] teto mensal atingido (HBX_BRAVE_MONTHLY_CAP=${RadarWebEnrichmentService.braveMonthlyCap()}) — chamadas Brave pausadas até virar o mês.`);
+        }
+        return [];
+      }
+      await RadarWebEnrichmentService.braveBudgetIncrement();
       try {
         // BUG-FIX (30/06): `search_lang=pt` (e `pt-BR`) faz a Brave responder 422 Unprocessable
         // Entity → searchBrave devolvia [] SEMPRE → todo enriquecimento via Brave (CNPJ-por-nome,

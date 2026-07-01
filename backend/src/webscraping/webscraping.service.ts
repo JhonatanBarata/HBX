@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { RadarCnpjL4EnrichmentService } from './radar/03-enrichment/radar-cnpj-l4-enrichment.service';
 import { RadarPublicDataService } from './radar/03-enrichment/radar-public-data.service';
+import { AiSaneamentoService } from './radar/03-enrichment/ai-saneamento.service';
 import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
@@ -680,11 +681,192 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           await prisma.radarLeadPool.update({ where: { id }, data }).catch(() => { errors += 1; });
           updated += 1;
         }
+
+        // Escrita dupla ADITIVA (PR1 30/06): além do metadataJson (fonte do presenter, intocada
+        // acima), grava cada contato descoberto em LeadContact p/ permitir busca/filtro/export em
+        // lote sem varrer o JSON blob inteiro. Nunca falha o fluxo principal por erro aqui.
+        try {
+          await this.upsertLeadContactsForRadarLead(prisma, id, {
+            emails: incomingEmails,
+            phones: incomingPhones,
+            cnpj: cnpj.length === 14 ? cnpj : null,
+            instagramUrl: ig || null,
+            facebookUrl: fb || null,
+          });
+        } catch { /* best-effort — LeadContact é índice de consulta, não fonte de verdade */ }
       } catch {
         errors += 1;
       }
     }
 
     return { requested: list.length, updated, emails, cnpjs, socials, errors };
+  }
+
+  /**
+   * PR4a "worker de saneamento IA" (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md).
+   * LIMPA nome + deduz SEGMENTO de leads crus via Ollama LOCAL (`AiSaneamentoService`). NÃO é
+   * enriquecimento de contato (CNPJ/e-mail/telefone) nem nota ICP — só nome cru → nome limpo + segmento.
+   * Gate: default OFF (`HBX_AI_SANEAMENTO_ENABLED` ausente/falsy → no-op). ADITIVO: grava só em
+   * `metadataJson.aiCleanName/aiSegment/aiSaneadoAt`, NUNCA sobrescreve as colunas `name`/`segment`
+   * (o dono revisa antes de decidir promover). Pacing leve entre chamadas — modelo local é lento.
+   */
+  async aiSaneamentoForMaster(opts: { limit?: number } = {}): Promise<
+    | { enabled: false; reason: 'disabled' }
+    | { enabled: true; scanned: number; saneados: number; errors: number }
+  > {
+    const enabled = ['true', '1', 'yes', 'on'].includes(
+      String(process.env.HBX_AI_SANEAMENTO_ENABLED || '').trim().toLowerCase(),
+    );
+    if (!enabled) return { enabled: false, reason: 'disabled' };
+
+    const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 50, 500));
+    const prisma = this.internalPrisma as any;
+
+    const parseMeta = (row: any): Record<string, any> => {
+      try {
+        const v = row?.metadataJson;
+        if (!v) return {};
+        return typeof v === 'object' ? v : JSON.parse(v);
+      } catch { return {}; }
+    };
+
+    // Pega um lote maior e filtra em memória (metadataJson.aiSaneadoAt não é filtrável no DB).
+    const candidates = await prisma.radarLeadPool.findMany({
+      select: { id: true, name: true, city: true, state: true, segment: true, metadataJson: true },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit * 10, 3000),
+    });
+
+    const pending = candidates
+      .filter((row: any) => !parseMeta(row)?.aiSaneadoAt)
+      .slice(0, limit);
+
+    const saneador = new AiSaneamentoService();
+    const pacingMs = Math.max(0, Number(process.env.HBX_AI_SANEAMENTO_PACING_MS ?? 300) || 0);
+
+    let saneados = 0;
+    let errors = 0;
+
+    for (const row of pending) {
+      try {
+        const meta = parseMeta(row);
+        const result = await saneador.saneia({
+          name: String(row.name || ''),
+          city: row.city || null,
+          state: row.state || null,
+          segmentHint: row.segment || null,
+        });
+
+        // Só marca `aiSaneadoAt` (e persiste) em caso de SUCESSO. Falha (Ollama offline/timeout/
+        // JSON inválido) NÃO marca — o lead volta a ser candidato no próximo scan (retry natural,
+        // sem precisar de cursor/backoff dedicado pra esse worker).
+        if (result.ok) {
+          const patchedMeta = {
+            ...meta,
+            aiSaneadoAt: Date.now(),
+            ...(result.nomeLimpo ? { aiCleanName: result.nomeLimpo } : {}),
+            ...(result.segmento ? { aiSegment: result.segmento } : {}),
+          };
+          await prisma.radarLeadPool.update({
+            where: { id: row.id },
+            data: { metadataJson: JSON.stringify(patchedMeta) },
+          }).catch(() => null);
+          saneados += 1;
+        } else {
+          errors += 1;
+        }
+      } catch {
+        errors += 1;
+      }
+      if (pacingMs > 0) await new Promise((resolve) => setTimeout(resolve, pacingMs));
+    }
+
+    return { enabled: true, scanned: pending.length, saneados, errors };
+  }
+
+  /**
+   * Escrita dupla ADITIVA p/ a tabela normalizada LeadContact (PR1 30/06,
+   * docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md). Idempotente: pula se já
+   * existe linha com a mesma (radarLeadId, kind, valueNormalized). NUNCA é a fonte do presenter —
+   * só serve consulta/filtro/export em lote.
+   */
+  private async upsertLeadContactsForRadarLead(
+    prisma: any,
+    radarLeadId: string,
+    discovered: { emails?: string[]; phones?: string[]; cnpj?: string | null; instagramUrl?: string | null; facebookUrl?: string | null },
+  ): Promise<void> {
+    const candidates: Array<{ kind: string; value: string; valueNormalized: string; rank: number }> = [];
+
+    (discovered.emails || []).forEach((value, idx) => {
+      const normalized = String(value).trim().toLowerCase();
+      if (normalized) candidates.push({ kind: 'email', value: String(value).trim(), valueNormalized: normalized, rank: idx + 1 });
+    });
+
+    (discovered.phones || []).forEach((value, idx) => {
+      const normalized = String(value).replace(/\D/g, '');
+      if (normalized) candidates.push({ kind: 'phone', value: String(value).trim(), valueNormalized: normalized, rank: idx + 1 });
+    });
+
+    if (discovered.instagramUrl) {
+      const normalized = discovered.instagramUrl.trim().toLowerCase();
+      if (normalized) candidates.push({ kind: 'instagram', value: discovered.instagramUrl.trim(), valueNormalized: normalized, rank: 1 });
+    }
+
+    if (discovered.facebookUrl) {
+      const normalized = discovered.facebookUrl.trim().toLowerCase();
+      if (normalized) candidates.push({ kind: 'facebook', value: discovered.facebookUrl.trim(), valueNormalized: normalized, rank: 1 });
+    }
+
+    if (!candidates.length) return;
+
+    for (const candidate of candidates) {
+      const exists = await prisma.leadContact.findFirst({
+        where: { radarLeadId, kind: candidate.kind, valueNormalized: candidate.valueNormalized },
+        select: { id: true },
+      });
+      if (exists) continue;
+      await prisma.leadContact.create({
+        data: {
+          radarLeadId,
+          kind: candidate.kind,
+          value: candidate.value,
+          valueNormalized: candidate.valueNormalized,
+          rank: candidate.rank,
+          source: 'website_crawl',
+          confidence: 0,
+        },
+      }).catch(() => { /* best-effort */ });
+    }
+  }
+
+  /**
+   * GET /modules/owner/radar/contacts/export — PR1 (30/06), resolve #15: consulta RÁPIDA e
+   * indexada em LeadContact (não varre metadataJson em todos os leads). Default: só contatos
+   * ainda não reivindicados por nenhuma empresa (claimedByCompanyId IS NULL).
+   */
+  async exportLeadContactsForMaster(
+    params: { kind?: string; unclaimedOnly?: boolean; limit?: number } = {},
+  ): Promise<{ items: Array<{ radarLeadId: string; kind: string; value: string; rank: number; source: string | null; createdAt: Date }>; total: number }> {
+    const prisma = this.internalPrisma as any;
+    const allowedKinds = new Set(['email', 'phone', 'whatsapp', 'instagram', 'facebook']);
+    const kind = params.kind && allowedKinds.has(params.kind) ? params.kind : undefined;
+    const unclaimedOnly = params.unclaimedOnly !== false;
+    const limit = Math.min(Math.max(Number(params.limit) || 50, 1), 2000);
+
+    const where: Record<string, any> = {};
+    if (kind) where.kind = kind;
+    if (unclaimedOnly) where.claimedByCompanyId = null;
+
+    const [items, total] = await Promise.all([
+      prisma.leadContact.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { radarLeadId: true, kind: true, value: true, rank: true, source: true, createdAt: true },
+      }),
+      prisma.leadContact.count({ where }),
+    ]);
+
+    return { items, total };
   }
 }

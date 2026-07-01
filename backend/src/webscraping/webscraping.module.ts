@@ -41,6 +41,7 @@ import { RadarPublicDataService } from './radar/03-enrichment/radar-public-data.
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
 import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
+import { AiSaneamentoService } from './radar/03-enrichment/ai-saneamento.service';
 import { IcpFingerprintService } from './icp/icp-fingerprint.service';
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { GoogleSearchQueryBuilder } from './radar/providers/google-search/google-search-query-builder';
@@ -101,6 +102,7 @@ const RADAR_ENRICHMENT_SERVICES = [
   RadarScoreEnrichmentService,
   RadarWebEnrichmentService,
   RadarWebEnrichmentJobService,
+  AiSaneamentoService,
   IcpFingerprintService,
 ];
 

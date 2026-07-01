@@ -143,7 +143,7 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
   if (piece === "palavras") {
     return (
       <>
-        <p className="bot-prosp-field__note">Palavras que ajudam o motor a classificar a resposta do lead e decidir o próximo passo. Opcional — o que você adiciona entra <strong>por cima</strong> das palavras padrão do motor (nunca as apaga).</p>
+        <p className="bot-prosp-field__note">A <strong>IA local</strong> lê cada resposta do lead e decide a intenção (interesse, dúvida, adiar, parar…). Estas palavras são uma <strong>rede de segurança</strong>: entram quando a IA está indisponível ou em dúvida — nunca apagam o que a IA entende. Opcional.</p>
         <VariantListEditor single label="Demonstra interesse" hint="O lead topou ouvir. Ex.: quero, tenho interesse, pode mandar, quanto custa." max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
         <VariantListEditor single label="Demonstra dúvida" hint="O lead quer entender melhor antes de decidir. Ex.: o que é, como funciona, não entendi, me explica melhor." max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
         <VariantListEditor single label="Pede pra falar depois" hint="Adiamento, não recusa. Ex.: depois, mais tarde, amanhã, semana que vem, agora não." max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />

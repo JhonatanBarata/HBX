@@ -1181,6 +1181,16 @@ export class RadarCoreMassDataMixin {
         this.getEnginePool().getCurrentCapacityLevel().catch(() => null),
         this.getEnginePool().getSchedulerStatus().catch(() => null),
       ]);
+
+      // INTERLOCK motor→fábrica (PR2 30/06): sem nenhum motor vivo, o pump não tenta arrendar —
+      // early-return limpo do ciclo (mesma regra aplicada em ensureNightFactoryWork). Evita varrer
+      // campanhas e chamar acquireEngine contra uma frota morta; reagenda como o backoff anti-spin já faz.
+      if (safeInteger(scheduler?.onlineHealthyEngines) <= 0) {
+        this.logger.log('[factoryPump] pausada: sem motor ativo (onlineHealthyEngines=0) — ciclo pulado; reagendando em 8s');
+        this.scheduleRadarCampaignPump(8_000);
+        return;
+      }
+
       const maxParallel = Math.min(
         Math.max(safeInteger(scheduler?.automaticAllowedEngines, safeInteger(capacity?.activeEngineCount, parsePositiveIntegerEnv('HBX_RADAR_MAX_PARALLEL_ENGINES', getConfiguredHbxEngineCount()))), 0),
         getConfiguredHbxEngineCount(),

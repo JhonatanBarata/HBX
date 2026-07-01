@@ -673,6 +673,67 @@ test('elastic sync wakes stopped engines below target and stops idle engines abo
   });
 });
 
+// PR2 30/06 — interlock "fábrica parada manualmente ⇒ motores caem pro mínimo/warm". `stopRadarFactory`
+// grava `operationalConfig.enabled=false`; isso já zera `factoryAllowance.allowedEngines` (reason
+// 'factory_disabled') e, sem demanda manual do cliente, o alvo elástico cai pro warmMin — NÃO segura
+// a frota em 20 à toa. Este teste prova o mecanismo já existente (sem mexer em cursor/combo/backoff).
+test('elastic sync drops engines to warm min when factory is stopped manually (operationalConfig.enabled=false)', async () => {
+  await withEnv({
+    NODE_ENV: 'production',
+    HBX_ENGINE_COUNT: '20',
+    HBX_ENGINE_MAX_COUNT: '20',
+    HBX_ENGINE_WARM_MIN: '1',
+    HBX_CLIENT_RESERVED_ENGINES: '0',
+    HBX_ENGINE_GOVERNOR_ENABLED: '1',
+  }, async () => {
+    const rows = buildEngineRows(20);
+    const updates: any[] = [];
+    const service = createPoolForCapacity({
+      queuedCount: 0,
+      // fábrica parada manualmente: mesmo payload que stopRadarFactory grava no turbo_noturno.
+      operationalConfig: { enabled: false },
+    }) as any;
+    service.prisma = {
+      hasTable: async (name: string) => name === 'HbxEngineLock',
+      hbxEngineLock: {
+        updateMany: async (input: any) => {
+          updates.push(input);
+          return { count: 1 };
+        },
+      },
+      webscrapingSearchRun: {
+        count: async () => 0,
+      },
+    };
+    service.healthCheckEngines = async () => rows;
+    service.getCurrentCapacityLevel = async () => ({
+      activeEngineCount: 20,
+      googleEmergencyMode: false,
+      queuedCount: 0,
+      runningCount: 0,
+      operationalStatus: 'healthy',
+      message: null,
+      completedLast10Min: 0,
+      partialLast10Min: 0,
+      oldestQueuedAgeMinutes: 0,
+      isTurboEnabled: false,
+      isTurboWindowActive: false,
+      isTurboForcedNow: false,
+      forcedUntil: null,
+      nextTurboAt: null,
+    });
+
+    const result = await service.syncElasticEngineDesiredStates();
+
+    // Sem demanda manual do cliente (webscrapingSearchRun=0) e fábrica desligada: o alvo cai pro warmMin (1),
+    // não fica preso em 20. Motores 2..20 devem ser drenados/parados; só o índice 0 (warm) fica de pé.
+    assert.equal(result.desiredRunningCount, 1);
+    assert.equal(result.scheduler?.automaticAllowedEngines, 0);
+    assert.equal(updates.some((input) => input.where.id === 'hbx-engine-20' && input.data.status === 'stopped'), true);
+    assert.equal(updates.some((input) => input.where.id === 'hbx-engine-2' && input.data.status === 'stopped'), true);
+  });
+});
+
 test('HBX_ENGINE_COUNT=20 with high queue activates all engines', async () => {
   await withEnv({
     NODE_ENV: 'production',
