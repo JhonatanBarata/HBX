@@ -27,6 +27,13 @@ function parseMaybeJson(value: unknown): Record<string, any> {
   }
 }
 
+// Ranking do "dono" — MESMA ordem do stg_rfb_owner em scripts/import-cnpj-dataset.js:
+// Sócio-Administrador(49) > Administrador(05) > Titular PF(65) > Diretor(10) > Presidente(16)
+// > Titular Emp.Individual(34) > Sócio-Gerente(28) > Sócio(22) > demais. PF ganha de PJ no empate.
+const PARTNER_QUALIFICATION_RANK: Record<string, number> = {
+  '49': 0, '05': 1, '65': 2, '10': 3, '16': 4, '34': 5, '28': 6, '22': 7, '23': 8, '47': 9, '74': 10,
+};
+
 function pickOwnerName(rawJson: Record<string, any> | null): { ownerName: string | null; ownerNames: string[] } {
   if (!rawJson) return { ownerName: null, ownerNames: [] };
   // rawJson pode ter campo "socios", "qsa", "partners" — tenta tudo
@@ -124,7 +131,14 @@ export class RadarCnpjL4EnrichmentService {
       try {
         const row = await prisma.cnpjPublicCompany.findUnique({ where: { cnpj } });
         if (row) {
-          const { ownerName, ownerNames } = pickOwnerName(parseMaybeJson(row.rawJson));
+          // Dono: coluna ownerName do dump RFB primeiro; quadro completo em CnpjPublicPartner;
+          // rawJson (qsa da BrasilAPI cacheado) segue como fallback de linhas antigas.
+          const rawPick = pickOwnerName(parseMaybeJson(row.rawJson));
+          const partnerNames = await this.fetchPartnerNames(prisma, cnpj);
+          const ownerName = String(row.ownerName || '').trim() || rawPick.ownerName || partnerNames[0] || null;
+          const ownerNames = Array.from(new Set(
+            [ownerName, ...partnerNames, ...rawPick.ownerNames].filter((v): v is string => Boolean(v)),
+          ));
           local = {
             found: true,
             cnpj: row.cnpj || cnpj,
@@ -181,6 +195,33 @@ export class RadarCnpjL4EnrichmentService {
       }
     }
     return local;
+  }
+
+  /**
+   * Quadro societário do dump RFB (CnpjPublicPartner, join por cnpjBasico) — melhor sócio
+   * primeiro (mesmo ranking do import). Best-effort: client antigo sem o model ou tabela
+   * vazia devolve [] sem quebrar o lookup.
+   */
+  private async fetchPartnerNames(prisma: any, cnpj: string): Promise<string[]> {
+    if (!prisma?.cnpjPublicPartner?.findMany) return [];
+    try {
+      const rows = await prisma.cnpjPublicPartner.findMany({
+        where: { cnpjBasico: cnpj.slice(0, 8) },
+        select: { nome: true, qualificationCode: true, identificador: true },
+        take: 12,
+      });
+      const rankOf = (row: any) =>
+        (PARTNER_QUALIFICATION_RANK[String(row?.qualificationCode || '')] ?? 20) * 2
+        + (String(row?.identificador || '') === '2' ? 0 : 1);
+      const names = (rows || [])
+        .map((row: any) => ({ name: String(row?.nome || '').trim(), rank: rankOf(row) }))
+        .filter((row: { name: string }) => Boolean(row.name))
+        .sort((a: { rank: number }, b: { rank: number }) => a.rank - b.rank)
+        .map((row: { name: string }) => row.name);
+      return Array.from(new Set(names));
+    } catch {
+      return [];
+    }
   }
 
   private brasilApiEnabled() {
@@ -296,6 +337,7 @@ export class RadarCnpjL4EnrichmentService {
       searchText,
       porte: r.porte,
       matrizFilial: r.matrizFilial,
+      ownerName: r.ownerName,
       rawJson,
     };
 

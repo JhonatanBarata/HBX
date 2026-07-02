@@ -40,12 +40,17 @@ export class CnpjPublicDatasetService {
     const city = normalizeText(input.normalized?.city);
     const state = String(input.normalized?.state || '').trim().toUpperCase();
     const variants = segmentTokenVariants(input.normalized?.segment);
+    // Segmento pode vir como código CNAE (4-7 dígitos, ex. "5611" ou "5611203") — com o dump
+    // da RFB carregado, cidade×CNAE resolve direto no índice (normalizedCity, cnae).
+    const cnaeCode = (normalizeText(input.normalized?.segment).match(/\b\d{4,7}\b/) || [])[0] || null;
     const take = Math.max(200, Math.min(2000, (Number(input.limit) || 20) * 25));
 
     const where: Record<string, any> = {};
     if (city) where.normalizedCity = city;
     if (state) where.state = state;
-    if (variants.length) where.OR = variants.map((token) => ({ searchText: { contains: token } }));
+    const matchers: Array<Record<string, any>> = variants.map((token) => ({ searchText: { contains: token } }));
+    if (cnaeCode) matchers.push({ cnae: { startsWith: cnaeCode } });
+    if (matchers.length) where.OR = matchers;
 
     let rows: any[] = [];
     try {
@@ -75,6 +80,8 @@ export class CnpjPublicDatasetService {
       phone: row.phone ? (normalizeLegacyBrCellphone(row.phone) || row.phone) : null,
       website: row.website || null,
       address: row.address || null,
+      ownerName: row.ownerName || null,
+      ownerQualification: row.ownerQualification || null,
       raw: parseRawJson(row.rawJson),
     }));
   }

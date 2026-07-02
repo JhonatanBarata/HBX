@@ -163,6 +163,9 @@ export class CnpjPublicProviderService {
           cnaeDescription: record.cnaeDescription || null,
           porte: record.porte || null,
           matrizFilial: record.matrizFilial || null,
+          // sócio-administrador do dump RFB — opcional, o L4 promove pro metadataJson
+          ownerName: record.ownerName || null,
+          ownerQualification: record.ownerQualification || null,
           raw: record.raw || null,
         },
       },

@@ -3167,13 +3167,39 @@ model CnpjPublicCompany {
   // nomeFantasia + razaoSocial + cnae normalizados (minusculo, sem acento) p/ matching de segmento
   searchText      String    @default("")
   rawJson         String?
+  // Sócio-administrador vindo do dump da RFB (Socios*.zip) — denormalizado p/ leitura rápida no L4.
+  // Quadro completo vive em CnpjPublicPartner (join por cnpjBasico = 8 primeiros dígitos do cnpj).
+  ownerName          String?
+  ownerQualification String?
   importedAt      DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([normalizedCity, state])
+  @@index([normalizedCity, cnae])
   @@index([state, cnae])
   @@index([phoneDigits])
+}
+
+// Quadro societário do dump aberto da RFB (Socios*.zip). Liga em CnpjPublicCompany pelo
+// cnpjBasico (8 primeiros dígitos do cnpj) — sócio pertence à EMPRESA, não ao estabelecimento.
+// Carga bulk via scripts/import-cnpj-dataset.js (TRUNCATE + reload por mês de referência);
+// id BigInt autoincrement de propósito: INSERT cru em SQL não passa pelo cuid() do client.
+model CnpjPublicPartner {
+  id                       BigInt    @id @default(autoincrement())
+  cnpjBasico               String
+  // 1 = pessoa jurídica, 2 = pessoa física, 3 = estrangeiro
+  identificador            String?
+  nome                     String
+  // CPF mascarado (***XXXXXX**) ou CNPJ do sócio — como vem no dump
+  documento                String?
+  qualificationCode        String?
+  qualificationDescription String?
+  entradaAt                DateTime?
+  faixaEtaria              String?
+  importedAt               DateTime  @default(now())
+
+  @@index([cnpjBasico])
 }
 
 model GmailConnection {
