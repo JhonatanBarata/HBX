@@ -972,4 +972,97 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
 
     return { items, total };
   }
+
+  /**
+   * GET /modules/owner/radar/export-all — OWNERV2 (02/07): dump COMPLETO do banco de leads
+   * (RadarLeadPool) em CSV gzipado, direto no response. Memória CONSTANTE mesmo com milhões de
+   * linhas: paginação por keyset em `id` (cuid crescente e estável), lote de 1.000, cada lote é
+   * escrito no gzip e o backpressure do stream é respeitado (drain). Nunca acumula o dataset em
+   * memória e nunca faz um findMany gigante. Somente leitura — não toca radar core nem debita nada.
+   */
+  async streamAllDatabaseCardsCsv(res: import('express').Response): Promise<void> {
+    const zlib = await import('zlib');
+    const prisma = this.internalPrisma as any;
+
+    // Colunas exportadas — as úteis pra planilha do dono (contato + qualificação + origem).
+    const COLUMNS: Array<[string, (row: any) => any]> = [
+      ['id', (r) => r.id],
+      ['name', (r) => r.name],
+      ['phone', (r) => r.phone],
+      ['phoneDigits', (r) => r.phoneDigits],
+      ['email', (r) => r.email],
+      ['website', (r) => r.website],
+      ['instagramUrl', (r) => r.instagramUrl],
+      ['facebookUrl', (r) => r.facebookUrl],
+      ['address', (r) => r.address],
+      ['city', (r) => r.city],
+      ['state', (r) => r.state],
+      ['segment', (r) => r.segment],
+      ['businessCategory', (r) => r.businessCategory],
+      ['recommendedChannel', (r) => r.recommendedChannel],
+      ['opportunityScore', (r) => r.opportunityScore],
+      ['status', (r) => r.status],
+      ['source', (r) => r.source],
+      ['sourceEngine', (r) => r.sourceEngine],
+      ['rating', (r) => r.rating],
+      ['reviews', (r) => r.reviews],
+      ['firstSeenAt', (r) => (r.firstSeenAt ? new Date(r.firstSeenAt).toISOString() : '')],
+      ['lastSeenAt', (r) => (r.lastSeenAt ? new Date(r.lastSeenAt).toISOString() : '')],
+    ];
+    const SELECT = COLUMNS.reduce((acc, [key]) => { acc[key] = true; return acc; }, { id: true } as Record<string, boolean>);
+
+    const escapeCsv = (value: any): string => {
+      if (value == null) return '';
+      const str = String(value);
+      // aspas duplas + escape de "; newlines viram espaço pra não quebrar a linha do CSV.
+      if (/[";\n\r]/.test(str)) return '"' + str.replace(/\r?\n/g, ' ').replace(/"/g, '""') + '"';
+      return str;
+    };
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="hbx-leads-${stamp}.csv.gz"`);
+    res.setHeader('Cache-Control', 'no-store');
+
+    const gzip = zlib.createGzip();
+    gzip.pipe(res);
+
+    // Escrita respeitando backpressure: se o buffer encher, espera o 'drain'.
+    const write = (chunk: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        gzip.write(chunk, (err) => (err ? reject(err) : undefined));
+        if (gzip.writableNeedDrain) gzip.once('drain', resolve);
+        else resolve();
+      });
+
+    try {
+      // BOM UTF-8 pro Excel abrir acentos certo + cabeçalho.
+      await write('﻿' + COLUMNS.map(([key]) => key).join(';') + '\r\n');
+
+      const PAGE = 1000;
+      let cursorId: string | null = null;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const rows: any[] = await prisma.radarLeadPool.findMany({
+          where: cursorId ? { id: { gt: cursorId } } : undefined,
+          orderBy: { id: 'asc' },
+          take: PAGE,
+          select: SELECT,
+        });
+        if (!rows.length) break;
+        let buffer = '';
+        for (const row of rows) {
+          buffer += COLUMNS.map(([, get]) => escapeCsv(get(row))).join(';') + '\r\n';
+        }
+        await write(buffer);
+        cursorId = rows[rows.length - 1].id;
+        if (rows.length < PAGE) break;
+      }
+      await new Promise<void>((resolve, reject) => gzip.end((err?: Error | null) => (err ? reject(err) : resolve())));
+    } catch (err) {
+      // Já pode ter mandado header 200 + bytes → não dá pra trocar pra 500; encerra o stream.
+      try { gzip.destroy(err as Error); } catch { /* noop */ }
+      if (!res.writableEnded) { try { res.end(); } catch { /* noop */ } }
+    }
+  }
 }

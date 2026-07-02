@@ -957,6 +957,45 @@ async function ckExportUnclaimedContacts() {
   }
 }
 
+/* ---------- Exportar TUDO (banco inteiro, stream csv.gz — OWNERV2) ---------- */
+async function ckExportAll() {
+  const btn = $("#btn-export-all");
+  const fb  = $("#export-feedback");
+  if (btn) btn.disabled = true;
+  if (fb)  { fb.textContent = "gerando o dump completo… (o backend faz stream, pode levar um pouco)"; fb.className = "delta"; }
+  try {
+    // Stream autenticado: o token vai no header, então NÃO dá pra usar <a href>/window.open.
+    // fetch → blob (o navegador escoa pro disco) → download. O servidor é memória-constante.
+    const res = await fetch("/owner/export-all", {
+      method: "GET",
+      headers: { Authorization: "Bearer " + TOKEN },
+    });
+    if (!res.ok) {
+      let reason = "http_" + res.status;
+      try { const j = await res.json(); reason = j.reason || j.message || reason; } catch (e) { /* corpo não-json */ }
+      throw new Error(reason);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const ts = new Date().toISOString().slice(0, 10);
+    a.download = `hbx-leads-${ts}.csv.gz`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    const mb = (blob.size / (1024 * 1024)).toFixed(1);
+    if (fb) { fb.textContent = `banco exportado (${mb} MB compactado).`; fb.className = "delta up"; }
+    pushFeed(`Exportar tudo: dump completo baixado (${mb} MB .csv.gz).`, "ok");
+  } catch (err) {
+    if (fb) { fb.textContent = "falha ao exportar tudo: " + err.message; fb.className = "delta"; }
+    pushFeed(`Erro ao exportar tudo: ${err.message}`, "warn");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* ---------- Mover TUDO pro VPS (envia tudo + limpa o local; SEM cópia) ---------- */
 async function ckSendToVps() {
   const fb = $("#export-feedback");
@@ -1342,6 +1381,7 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const enrichBtn      = $("#btn-cockpit-enrich");
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
   const exportUnclaimedBtn = $("#btn-export-unclaimed");
+  const exportAllBtn   = $("#btn-export-all");
   const discoverBtn    = $("#btn-cockpit-discover");
   const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
@@ -1355,6 +1395,7 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (exportUnclaimedBtn) exportUnclaimedBtn.addEventListener("click", ckExportUnclaimedContacts);
+  if (exportAllBtn) exportAllBtn.addEventListener("click", ckExportAll);
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 

@@ -921,6 +921,51 @@ async function backendRequest(method, route, payload, options = {}) {
   return response;
 }
 
+// Passthrough de STREAM do backend → cliente (sem bufferizar). Usado pelo "Exportar tudo":
+// o backend manda um csv.gz de milhões de linhas; aqui a gente só re-encana byte a byte, então
+// a memória do agente fica constante. Re-tenta 1x com token novo se o backend responder 401.
+function streamBackendToClient(method, route, clientRes, token) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(`${backendUrl}${route}`);
+    } catch (error) {
+      resolve({ ok: false, error: `URL backend invalida: ${error.message}` });
+      return;
+    }
+    const headers = { Accept: "application/gzip, */*" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const req = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: 15 * 60 * 1000 },
+      (backendRes) => {
+        if (backendRes.statusCode === 401) {
+          backendRes.resume(); // drena e descarta
+          resolve({ ok: false, statusCode: 401 });
+          return;
+        }
+        if (backendRes.statusCode < 200 || backendRes.statusCode >= 300) {
+          let raw = "";
+          backendRes.on("data", (c) => { if (raw.length < 4000) raw += c.toString("utf8"); });
+          backendRes.on("end", () => resolve({ ok: false, statusCode: backendRes.statusCode, raw }));
+          return;
+        }
+        // Repassa os headers relevantes do gzip/attachment e emenda os streams.
+        clientRes.writeHead(200, {
+          "Content-Type": backendRes.headers["content-type"] || "application/gzip",
+          "Content-Disposition": backendRes.headers["content-disposition"] || 'attachment; filename="hbx-leads.csv.gz"',
+          "Cache-Control": "no-store",
+        });
+        backendRes.pipe(clientRes);
+        backendRes.on("end", () => resolve({ ok: true, streamed: true }));
+        backendRes.on("error", () => { try { clientRes.destroy(); } catch { /* noop */ } resolve({ ok: false, error: "stream_backend_erro", streamed: true }); });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => resolve({ ok: false, error: error.message }));
+    req.end();
+  });
+}
+
 async function readLeadsBank() {
   // VERDADE AO VIVO: a headline "SUA MÁQUINA" agora conta o MESMO pool que o transfer mexe
   // (database-cards / RadarLeadPool), lido na hora. Antes vinha de /night-factory/leads-bank
@@ -1830,6 +1875,53 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/owner/system") {
     sendJson(res, 200, await readSystemSnapshot());
+    return;
+  }
+
+  // "Exportar tudo": stream do banco INTEIRO de leads (RadarLeadPool) como csv.gz.
+  // Proxy de STREAM puro pro backend LOCAL (/modules/owner/radar/export-all) — memória constante
+  // aqui e lá. Não usa backendRequest (que bufferiza); usa o passthrough dedicado.
+  if (req.method === "GET" && url.pathname === "/owner/export-all") {
+    if (!backendToken) {
+      const refreshed = await refreshBackendToken();
+      if (!refreshed.ok) { sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." }); return; }
+    }
+    let r = await streamBackendToClient("GET", "/modules/owner/radar/export-all", res, backendToken);
+    if (!r.ok && r.statusCode === 401) {
+      const refreshed = await refreshBackendToken();
+      if (refreshed.ok && backendToken) r = await streamBackendToClient("GET", "/modules/owner/radar/export-all", res, backendToken);
+    }
+    // Se falhou ANTES de começar o stream (headers ainda não enviados), responde erro legível.
+    if (!r.ok && !r.streamed && !res.headersSent) {
+      sendJson(res, 200, { ok: false, reason: r.statusCode ? `http_${r.statusCode}` : (r.error || "export_falhou") });
+    }
+    return;
+  }
+
+  // ── FÁBRICA de leads (contrato OWNERV2 — outro worker implementa o backend em paralelo) ──
+  // GET status · POST start {budget} · POST stop. Enquanto o backend LOCAL não tiver as rotas
+  // /modules/owner/fabrica/*, isto DEGRADA gracioso: devolve { ok:false, offline:true } e a UI
+  // mostra "fábrica offline" em vez de quebrar. Proxy pelo padrão backendRequest do server.
+  if (req.method === "GET" && url.pathname === "/owner/fabrica/status") {
+    const r = await backendRequest("GET", "/modules/owner/fabrica/status", null, { timeoutMs: 15000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/fabrica/start") {
+    let body = {};
+    try { body = await readBody(req); } catch { body = {}; }
+    const budget = Number(body && body.budget);
+    const payload = Number.isFinite(budget) && budget > 0 ? { budget: Math.trunc(budget) } : {};
+    const r = await backendRequest("POST", "/modules/owner/fabrica/start", payload, { timeoutMs: 30000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/fabrica/stop") {
+    const r = await backendRequest("POST", "/modules/owner/fabrica/stop", {}, { timeoutMs: 30000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
     return;
   }
 
