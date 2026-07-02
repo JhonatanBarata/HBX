@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { normalizeLegacyBrCellphone } from '../providers/cnpj-public/cnpj-public-types';
+import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 
 /**
  * L4 — Cofre CNPJ público (grátis).
@@ -81,6 +82,13 @@ function normalizeSearchText(value: unknown) {
 
 @Injectable()
 export class RadarCnpjL4EnrichmentService {
+  constructor(@Optional() private readonly leadContactWrite?: LeadContactWriteService) {}
+
+  private getLeadContactWrite(): LeadContactWriteService {
+    // Vários call sites instanciam na mão (`new RadarCnpjL4EnrichmentService()`) — lazy fallback.
+    return this.leadContactWrite || new LeadContactWriteService();
+  }
+
   private static readonly brasilApiCache = new Map<string, CnpjL4Result>();
 
   // --- Throttle global da BrasilAPI ---
@@ -371,6 +379,17 @@ export class RadarCnpjL4EnrichmentService {
       where: { id: row.id },
       data: { metadataJson: nextMetadataJson },
     }).catch(() => null); // additive — ignora falha
+
+    // Escrita dupla ADITIVA em LeadContact (Sprint 5 MOTOR-RFB-FILA): telefone/e-mail do
+    // registro público (dataset local + BrasilAPI) viram linha consultável com origem e
+    // confiança explícitas. Registro oficial = confiança alta. Best-effort, nunca quebra o L4.
+    const l4Contacts = [
+      ...(l4.phone ? [{ kind: 'phone' as const, value: l4.phone, source: 'cnpj_l4', confidence: 85 }] : []),
+      ...(l4.email ? [{ kind: 'email' as const, value: l4.email, source: 'cnpj_l4', confidence: 85 }] : []),
+    ];
+    if (l4Contacts.length) {
+      await this.getLeadContactWrite().writeContacts(prisma, row.id, l4Contacts).catch(() => null);
+    }
 
     return nextMetadataJson;
   }

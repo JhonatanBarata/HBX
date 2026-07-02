@@ -1321,4 +1321,30 @@ export class MasterWebscrapingController {
       limit: query?.limit ? Number(query.limit) : undefined,
     });
   }
+
+  /**
+   * POST /modules/owner/radar/ai-extract-contacts { items: [{ radarLeadId, sourceText }] }
+   * Sprint 5 MOTOR-RFB-FILA (02/07): extração de contato por IA local (30B) com gate
+   * anti-alucinação OBRIGATÓRIO — telefone/e-mail só gravam em LeadContact se passarem
+   * formato (DDD + regra-do-9 + blocklist) E existirem literalmente na `sourceText`.
+   * Gate de env `HBX_AI_EXTRACTION_ENABLED` (default OFF). Lote capado em 50.
+   * Devolve { enabled, scanned, contactsWritten, rejectedByGate, ownersFound, errors }.
+   */
+  @Post('ai-extract-contacts')
+  aiExtractContacts(@Body() body: { items?: Array<{ radarLeadId?: string; sourceText?: string }> }) {
+    return this.webscrapingService.aiExtractContactsForMaster(body?.items || []);
+  }
+
+  /**
+   * GET /modules/owner/radar/contacts/audit?sample=200
+   * Auditoria do aceite Sprint 5: nenhum contato novo nasce SÓ no blob. Amostra leads
+   * recentes com email/telefone e confere cobertura na tabela LeadContact.
+   * Devolve { totalContacts, bySource, sample: { scanned, covered, uncovered, uncoveredLeadIds } }.
+   */
+  @Get('contacts/audit')
+  auditContacts(@Query('sample') sample?: string) {
+    return this.webscrapingService.auditLeadContactsForMaster({
+      sample: sample ? Number(sample) : undefined,
+    });
+  }
 }
