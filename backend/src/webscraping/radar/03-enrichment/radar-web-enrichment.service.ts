@@ -723,6 +723,36 @@ export class RadarWebEnrichmentService {
       return false;
     }
   }
+  // ── FREIO do PARAR (Sprint 1 MOTOR-RFB-FILA): emergencyStop do turbo_noturno congela o Brave ────
+  // O botão "Parar" do MASTER grava emergencyStop=true no WebscrapingOperationalConfig, mas o
+  // enriquecimento em voo (search runs, jobs) continuava queimando cota Brave. Este gate corta TODA
+  // chamada Brave na fonte enquanto o PARAR estiver ativo. Cache de 8s: o searchBrave roda em rajada
+  // (1 chamada/1.1s) e não pode bater no banco a cada query. Mesmo PrismaClient estático do disjuntor
+  // mensal (serviço é instanciado na mão em 4 lugares — ver comentário do counterDb acima).
+  private static _emergencyStopCache: { value: boolean; checkedAt: number } = { value: false, checkedAt: 0 };
+  private static readonly EMERGENCY_STOP_CACHE_MS = 8_000;
+  private static async factoryEmergencyStopped(): Promise<boolean> {
+    const now = Date.now();
+    const cache = RadarWebEnrichmentService._emergencyStopCache;
+    if (now - cache.checkedAt < RadarWebEnrichmentService.EMERGENCY_STOP_CACHE_MS) return cache.value;
+    let value = false;
+    try {
+      const db = RadarWebEnrichmentService.counterDb() as any;
+      const row = await db.webscrapingOperationalConfig.findUnique({
+        where: { key: 'turbo_noturno' },
+        select: { metadataJson: true },
+      });
+      const parsed = JSON.parse(String(row?.metadataJson || '{}'));
+      value = parsed?.emergencyStop === true || String(parsed?.emergencyStop || '').toLowerCase() === 'true';
+    } catch {
+      // Fail-open (mesma regra do braveBudgetExceeded): sem banco, o fluxo inteiro já está quebrado —
+      // não derrubar a busca por blip transitório de leitura.
+      value = false;
+    }
+    RadarWebEnrichmentService._emergencyStopCache = { value, checkedAt: now };
+    return value;
+  }
+
   /** incrementa o contador do mês — chamado SÓ quando a chamada vai mesmo bater na API Brave. */
   private static async braveBudgetIncrement(): Promise<void> {
     try {
@@ -1068,6 +1098,10 @@ export class RadarWebEnrichmentService {
       // Double-check cache after queue wait — another item may have populated it.
       const inCache = RadarWebEnrichmentService._braveCache.get(query);
       if (inCache) return inCache;
+      // FREIO do PARAR: com emergencyStop ativo no turbo_noturno, NENHUMA chamada sai — o botão
+      // "Parar" congela o contador BraveApiUsage em até 8s (TTL do cache). Degrada gracioso ([]),
+      // igual o disjuntor mensal logo abaixo; volta sozinho quando o MASTER retoma a agenda.
+      if (await RadarWebEnrichmentService.factoryEmergencyStopped()) return [];
       // DISJUNTOR MENSAL: query cacheada nem chega aqui (não gasta cota). Se o teto do mês estourou,
       // NÃO bate na API — degrada gracioso (devolve [], igual o backstop de 429 logo abaixo). O
       // incremento só acontece quando a chamada VAI mesmo ser feita (serializado pelo throttle).
