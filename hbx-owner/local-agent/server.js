@@ -2091,6 +2091,32 @@ async function route(req, res) {
     return;
   }
 
+  // Agregador da aba "Árvore do motor" (F3, 02/07): 1 chamada só, cache 10s no PRÓPRIO backend
+  // (server.js só repassa) — a árvore não faz 12 fetches. Lido do backend LOCAL (mesma verdade
+  // que o resto do painel usa pro que é "sua máquina"); a VPS ainda não tem rota espelhada.
+  if (req.method === "GET" && url.pathname === "/owner/radar/tree-status") {
+    const r = await backendRequest("GET", "/modules/owner/radar/tree-status", null, { timeoutMs: 15000 });
+    if (r.ok && r.data) {
+      sendJson(res, 200, r.data);
+    } else {
+      sendJson(res, 200, { ok: false, reason: r.error || r.data?.message || `http_${r.statusCode || "?"}` });
+    }
+    return;
+  }
+
+  // Redrive de dead-letter da fila de missões S4 (botão da árvore) — repassa pro backend local,
+  // que já tem a rota /modules/owner/missions/redrive protegida por JWT+Master.
+  if (req.method === "POST" && url.pathname === "/owner/missions/redrive") {
+    const body = await readBody(req);
+    const r = await backendRequest("POST", "/modules/owner/missions/redrive", body || {}, { timeoutMs: 20000 });
+    if (r.ok && r.data) {
+      sendJson(res, 200, r.data);
+    } else {
+      sendJson(res, 200, { ok: false, reason: r.error || r.data?.message || `http_${r.statusCode || "?"}` });
+    }
+    return;
+  }
+
   // Limpar o LIXO do banco local (#3): cards com nome que não é empresa. Preview por padrão; confirm:true apaga.
   if (req.method === "POST" && url.pathname === "/owner/clean-junk-leads") {
     const body = await readBody(req);
