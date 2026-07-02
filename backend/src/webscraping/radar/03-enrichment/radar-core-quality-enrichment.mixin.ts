@@ -1240,6 +1240,42 @@ export class RadarCoreQualityEnrichmentMixin {
       const segment = finalStatus === 'found'
         ? resultSegment || null
         : this.getResultSegmentForRejected(result as any);
+      // Fusão por campo no dedup web×receita (PR01072026/80): antes de persistir o
+      // duplicado, o descartado DOA os campos que o sobrevivente não tem (fill-empty;
+      // nunca sobrescreve não-nulo) + proveniência mergedFrom na evidência. Falha aqui
+      // NUNCA derruba o save (best-effort, log warn).
+      if (finalStatus === 'duplicate') {
+        try {
+          const donation = await this.getRadarDuplicateFieldDonation().donate({
+            prisma: this.prisma,
+            logger: this.logger,
+            runId,
+            duplicate: resultForQuality,
+            classified: {
+              placeId: classified.placeId,
+              phoneDigits: classified.phoneDigits,
+              websiteKey: classified.websiteKey,
+            },
+            duplicateReason: classified.duplicateReason,
+            compositeKey: this.buildRunCompositeKey({
+              name: String(result.name || '').trim(),
+              city: resultCity,
+              state: resultState,
+              segment: resultSegment,
+            }),
+            buildRunCompositeKey: (row) => this.buildRunCompositeKey(row),
+          });
+          // Mantém o snapshot de dedup do batch coerente: chave doada agora pertence ao sobrevivente.
+          if (donation?.donatedFields?.includes('website') && classified.websiteKey) {
+            dedup.websiteKeys.add(classified.websiteKey);
+          }
+          if (donation?.donatedFields?.includes('phone') && classified.phoneDigits) {
+            dedup.phoneDigits.add(classified.phoneDigits);
+          }
+        } catch (error) {
+          this.logger?.warn?.(`[radar-fusao-dedup] doação de campos do duplicado falhou sem bloquear o save: ${String((error as any)?.message || error)}`);
+        }
+      }
       const savedItem = await this.prisma.webscrapingSearchRunItem.create({
         data: {
           runId,

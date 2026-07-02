@@ -58,6 +58,7 @@ import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
 import { RadarWebSourceGateService } from './02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
+import { RadarDuplicateFieldDonationService } from './03-enrichment/radar-duplicate-field-donation.service';
 import { RadarWebEnrichmentJobService, type RadarWebEnrichmentJobHost } from './03-enrichment/radar-web-enrichment-job.service';
 import { GoogleSearchProviderService } from './providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
@@ -219,6 +220,9 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
   private readonly leadPlusSignalEnrichmentInFlight = new Set<string>();
   private readonly requiredChannelEnrichmentInFlight = new Set<string>();
+  // Lazy (não entra no construtor: mudar a assinatura quebraria o super() posicional
+  // de webscraping.service.ts, fora do escopo do radar).
+  private radarDuplicateFieldDonation?: RadarDuplicateFieldDonationService;
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private hbxEnginePool?: HbxEnginePoolService,
@@ -423,6 +427,13 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarRunItemFilter() {
     return this.radarRunItemFilter || new RadarRunItemFilterService();
+  }
+
+  private getRadarDuplicateFieldDonation() {
+    if (!this.radarDuplicateFieldDonation) {
+      this.radarDuplicateFieldDonation = new RadarDuplicateFieldDonationService();
+    }
+    return this.radarDuplicateFieldDonation;
   }
 
   private getRadarScoreEnrichment() {
