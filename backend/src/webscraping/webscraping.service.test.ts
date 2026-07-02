@@ -3970,6 +3970,11 @@ test('runtime sem config retorna mensagem publica limpa', async () => {
 
 test('busca valida retorna contatos e persiste historico nativo', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  // PINA o papel: este teste cobre o comportamento de PRODUÇÃO (VPS), onde fonte paga é permitida
+  // via governor. Sem pinar, a trava Lei nº1 (HBX_ROLE ausente/local ⇒ pago recusado) muda o resultado
+  // conforme o ambiente. O cenário local é coberto pelo teste irmão da trava logo abaixo.
+  const previousRole = process.env.HBX_ROLE;
+  process.env.HBX_ROLE = 'vps';
   process.env.GOOGLE_PLACES_API_KEY = 'test-key';
 
   const fetchCalls: string[] = [];
@@ -4027,6 +4032,51 @@ test('busca valida retorna contatos e persiste historico nativo', async () => {
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+    if (previousRole === undefined) delete process.env.HBX_ROLE;
+    else process.env.HBX_ROLE = previousRole;
+  }
+});
+
+test('TRAVA LEI Nº1: mesmo cenário com HBX_ROLE=local → Google Places RECUSADO sem chamada paga', async () => {
+  // Teste irmão do de cima: idêntico, só muda o papel. No localhost do dono a fonte paga NUNCA
+  // dispara — a trava física (role-guard) recusa ANTES de qualquer fetch cobrado. Trava o
+  // comportamento nos DOIS mundos: vps=permite (acima), local=recusa (aqui).
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  const previousRole = process.env.HBX_ROLE;
+  process.env.HBX_ROLE = 'local';
+  process.env.GOOGLE_PLACES_API_KEY = 'test-key';
+
+  const paidFetchCalls: string[] = [];
+  const previousFetch = global.fetch;
+  global.fetch = (async (input: any) => {
+    const url = String(input);
+    if (url.includes('googleapis.com')) paidFetchCalls.push(url);
+    return createResponse(200, { places: [] }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    await assert.rejects(
+      () => service.searchContactsForUser(createUser(), {
+        city: 'Sao Paulo - SP',
+        segment: 'Clinicas',
+        quantity: 5,
+        onlyWithWebsite: true,
+      }),
+      (error: any) => {
+        assert.equal(Number(error?.status), 503, 'trava deve surfar como ServiceUnavailable (503)');
+        assert.match(String(error?.message || ''), /governor por fonte/i);
+        return true;
+      },
+    );
+    assert.equal(paidFetchCalls.length, 0, 'NENHUMA chamada paga pode sair no papel local (R$0)');
+  } finally {
+    global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+    if (previousRole === undefined) delete process.env.HBX_ROLE;
+    else process.env.HBX_ROLE = previousRole;
   }
 });
 
@@ -4089,6 +4139,9 @@ test('Google e bloqueado para finalidade automatica e cai para HBX', async () =>
 
 test('Google e permitido quando radar pull manual pede engine google', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  // comportamento de PRODUÇÃO (VPS): pago permitido via governor — pinar papel (trava Lei nº1).
+  const previousRole = process.env.HBX_ROLE;
+  process.env.HBX_ROLE = 'vps';
   process.env.GOOGLE_PLACES_API_KEY = 'test-key';
 
   const fetchCalls: string[] = [];
@@ -4143,6 +4196,8 @@ test('Google e permitido quando radar pull manual pede engine google', async () 
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+    if (previousRole === undefined) delete process.env.HBX_ROLE;
+    else process.env.HBX_ROLE = previousRole;
   }
 });
 
@@ -4465,6 +4520,10 @@ test('cache tecnico global reaproveita busca publica entre empresas sem chamar G
 
 test('quota comercial bloqueia terceira busca Google do dia e registra tentativa bloqueada', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  // pina papel de PRODUÇÃO: o que este teste cobre é a QUOTA COMERCIAL bloqueando — sem pinar,
+  // a trava Lei nº1 (papel local) poderia bloquear antes e o teste passaria pelo motivo errado.
+  const previousRole = process.env.HBX_ROLE;
+  process.env.HBX_ROLE = 'vps';
   process.env.GOOGLE_PLACES_API_KEY = 'test-key';
 
   const previousFetch = global.fetch;
@@ -4515,6 +4574,8 @@ test('quota comercial bloqueia terceira busca Google do dia e registra tentativa
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+    if (previousRole === undefined) delete process.env.HBX_ROLE;
+    else process.env.HBX_ROLE = previousRole;
   }
 });
 
@@ -4587,6 +4648,9 @@ test('exportacao XLSX nativa gera arquivo com colunas esperadas', async () => {
 
 test('engine google continua como padrao e limita quantidade a 20', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  // comportamento de PRODUÇÃO (VPS): pago permitido via governor — pinar papel (trava Lei nº1).
+  const previousRole = process.env.HBX_ROLE;
+  process.env.HBX_ROLE = 'vps';
   process.env.GOOGLE_PLACES_API_KEY = 'test-key';
 
   const previousFetch = global.fetch;
@@ -4627,6 +4691,8 @@ test('engine google continua como padrao e limita quantidade a 20', async () => 
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+    if (previousRole === undefined) delete process.env.HBX_ROLE;
+    else process.env.HBX_ROLE = previousRole;
   }
 });
 
