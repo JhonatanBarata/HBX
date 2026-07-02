@@ -617,6 +617,51 @@ FROM email_counts ec
 WHERE lower(c."email") = ec.key AND c."situacao" = 'ativa'
   AND c."emailShareCount" IS DISTINCT FROM ec.n;`;
 
+// HOT-02: contagem por opção de filtro (estilo "Empresário (Individual) (44.889.600)"), cacheada
+// na tabela CnpjBaseStats — o endpoint /modules/owner/cnpj-base/stats só LÊ esta tabela, nunca
+// faz GROUP BY ao vivo em 28M linhas. Roda 1x pós-import, junto do anti-contador.
+const SQL_BASE_STATS = `${TUNING}
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('naturezaJuridica|' || COALESCE("naturezaJuridica", '')), 'naturezaJuridica',
+       COALESCE("naturezaJuridica", '(vazio)'), COALESCE("naturezaJuridica", '(vazio)'), count(*), now()
+FROM "CnpjPublicCompany" WHERE "situacao" = 'ativa' GROUP BY "naturezaJuridica"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();
+
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('porte|' || COALESCE("porte", '')), 'porte',
+       COALESCE("porte", '(vazio)'), COALESCE("porte", '(vazio)'), count(*), now()
+FROM "CnpjPublicCompany" WHERE "situacao" = 'ativa' GROUP BY "porte"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();
+
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('situacao|' || "situacao"), 'situacao', "situacao", "situacao", count(*), now()
+FROM "CnpjPublicCompany" GROUP BY "situacao"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();
+
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('matrizFilial|' || COALESCE("matrizFilial", '')), 'matrizFilial',
+       COALESCE("matrizFilial", '(vazio)'), COALESCE("matrizFilial", '(vazio)'), count(*), now()
+FROM "CnpjPublicCompany" WHERE "situacao" = 'ativa' GROUP BY "matrizFilial"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();
+
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('state|' || COALESCE("state", '')), 'state',
+       COALESCE("state", '(vazio)'), COALESCE("state", '(vazio)'), count(*), now()
+FROM "CnpjPublicCompany" WHERE "situacao" = 'ativa' GROUP BY "state"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();
+
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('mei|' || COALESCE("mei"::text, '')), 'mei',
+       COALESCE("mei"::text, '(vazio)'), CASE WHEN "mei" THEN 'MEI' WHEN "mei" IS FALSE THEN 'Nao MEI' ELSE '(vazio)' END, count(*), now()
+FROM "CnpjPublicCompany" WHERE "situacao" = 'ativa' GROUP BY "mei"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();
+
+INSERT INTO "CnpjBaseStats" ("id", "group", "key", "label", "count", "updatedAt")
+SELECT 'stat_' || md5('simples|' || COALESCE("simples"::text, '')), 'simples',
+       COALESCE("simples"::text, '(vazio)'), CASE WHEN "simples" THEN 'Simples Nacional' WHEN "simples" IS FALSE THEN 'Nao optante' ELSE '(vazio)' END, count(*), now()
+FROM "CnpjPublicCompany" WHERE "situacao" = 'ativa' GROUP BY "simples"
+ON CONFLICT ("group", "key") DO UPDATE SET "count" = EXCLUDED."count", "updatedAt" = now();`;
+
 const SQL_CREATE_INDEXES = `${TUNING}
 CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_normalizedCity_state_idx"
   ON "CnpjPublicCompany"("normalizedCity", "state");
@@ -725,6 +770,9 @@ async function runRfb() {
     // Depois dos índices: phoneDigits/email já indexados, o GROUP BY do anti-contador
     // (base do HOT-03) fica mais barato correndo por cima da tabela final já pronta.
     ['transform:anti_counter', SQL_ANTI_COUNTER],
+    // HOT-02: contagem por opção de filtro cacheada (CnpjBaseStats) — mesma lógica, roda
+    // depois dos índices pelo mesmo motivo (GROUP BY em cima da tabela final indexada).
+    ['transform:base_stats', SQL_BASE_STATS],
   ];
   for (const [step, sql] of phases) {
     if (ledgerDone(month, step)) { log(`pulo ${step} (já feito)`); continue; }

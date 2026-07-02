@@ -56,6 +56,8 @@ import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-
 import { CnpjPublicDatasetService } from './radar/providers/cnpj-public/cnpj-public-dataset.service';
 import { CnpjPublicProviderService } from './radar/providers/cnpj-public/cnpj-public-provider.service';
 import { CnpjDiscoveryService } from './radar/providers/cnpj-public/cnpj-discovery.service';
+import { CnpjBaseQueryService } from './radar/providers/cnpj-public/cnpj-base-query.service';
+import { CnpjBaseController } from './radar/providers/cnpj-public/cnpj-base.controller';
 import { LocalDirectoryProviderService } from './radar/providers/local-directories/local-directory-provider.service';
 import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
@@ -146,6 +148,7 @@ const RADAR_PROVIDER_SERVICES = [
   CnpjPublicDatasetService,
   CnpjPublicProviderService,
   CnpjDiscoveryService,
+  CnpjBaseQueryService,
   LocalDirectoryProviderService,
   VerticalSourceProviderService,
   WebsiteCrawlProviderService,
@@ -165,7 +168,7 @@ const RADAR_SERVICES = [
 
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, EnrichmentCostModule, forwardRef(() => VendasModule)],
-  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController],
+  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController],
   providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, ...RADAR_SERVICES],
   exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService],
 })

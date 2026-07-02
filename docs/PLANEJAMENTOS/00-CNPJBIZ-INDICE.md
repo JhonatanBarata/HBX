@@ -13,8 +13,7 @@
 | # | Arquivo | O quê | Depende de |
 |---|---|---|---|
 | 1 | [hot/01-base-receita-dump.md](hot/01-base-receita-dump.md) | Ingerir dump RFB completo (a fundação de TUDO) | — |
-| 2 | [hot/02-tela-filtros-avancados.md](hot/02-tela-filtros-avancados.md) | Construtor de listas com filtros Receita no Owner | 01 |
-| 3 | [hot/03-opcoes-contato-anti-contab.md](hot/03-opcoes-contato-anti-contab.md) | Filtros de contato + anti-contador + dedup | 01 |
+| 2+3 | ✅ CONCLUÍDO 02/07 (fundidos, `.md` deletados) | Base Receita: `POST /modules/owner/cnpj-base/query`+`materialize`, cache `CnpjBaseStats`, picker cidade/CNAE, anti-contador+selo, aba no Owner :3107 | 01 |
 | 4 | [hot/04-enriquecimento-lote.md](hot/04-enriquecimento-lote.md) | "Raio-X": cola CNPJs → planilha (deles) + camada viva (nossa) | 01 |
 | 5 | [hot/05-links-whatsapp-1clique.md](hot/05-links-whatsapp-1clique.md) | wa.me em todo lugar (trivial, fazer hoje) | — |
 | 6 | [hot/06-marketing-video-demo.md](hot/06-marketing-video-demo.md) | O OURO: fórmula do vídeo deles + 3 roteiros prontos do HBX | — |

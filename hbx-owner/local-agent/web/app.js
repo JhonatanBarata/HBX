@@ -1838,6 +1838,244 @@ async function treeCardsRender() {
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
 
+/* ================= HOT-02 + HOT-03 (fundidos) — Base Receita ================= */
+/* Pesquisa avançada em cima do dump local da RFB (CnpjPublicCompany) + anti-contador.
+   Endpoints via proxy do local-agent (server.js) → backend `/modules/owner/cnpj-base/*`. */
+let cbSelectedCities = []; // [{ normalizedCity, city, state }]
+let cbLastQuery = null;    // guarda o último filtro usado no "Contar" p/ materializar/exportar sem reconstruir
+
+function cbSeloLabel(selo) {
+  if (selo === "whatsapp_validado") return "🟢 WhatsApp";
+  if (selo === "celular_provavel") return "🟡 Celular";
+  if (selo === "fixo") return "🟠 Fixo";
+  if (selo === "provavel_contador") return "🔴 Contador";
+  return "⚪ Sem contato";
+}
+
+function cbDatePresetToRange(preset) {
+  if (!preset) return { de: null, ate: null };
+  const now = new Date();
+  const ate = now.toISOString().slice(0, 10);
+  const days = { "7d": 7, "1m": 30, "6m": 182, "1y": 365, "3y": 365 * 3, "5y": 365 * 5 }[preset];
+  if (preset === "today") { const t = now.toISOString().slice(0, 10); return { de: t, ate: t }; }
+  if (!days) return { de: null, ate: null };
+  const de = new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10);
+  return { de, ate };
+}
+
+function cbBuildFilters() {
+  const cnaeRaw = ($("#cb-cnae-search")?.value || "").trim();
+  const cnaeCodes = /^\d[\d-]*$/.test(cnaeRaw) ? [cnaeRaw.replace(/\D/g, "")] : [];
+  const selMulti = (sel) => Array.from(sel?.selectedOptions || []).map((o) => o.value).filter(Boolean);
+  const dateSlider = $("#cb-data-slider")?.value || "";
+  const sliderRange = cbDatePresetToRange(dateSlider);
+  const contatoTipo = $("#cb-contato-tipo")?.value || "";
+  const contato = {
+    comEmail: ["celular_email", "tel_ou_celular_email", "tel_ou_celular_ou_email"].includes(contatoTipo) || contatoTipo === "email" ? true : undefined,
+    comCelular: ["celular", "celular_email"].includes(contatoTipo) ? true : undefined,
+    comTelefone: ["telefone", "tel_ou_celular", "tel_ou_celular_email", "tel_ou_celular_ou_email"].includes(contatoTipo) ? true : undefined,
+    maxPhoneShare: Number($("#cb-max-phone-share")?.value || 3),
+    blocklistEmail: Boolean($("#cb-blocklist-email")?.checked),
+  };
+  return {
+    cnaes: cnaeCodes.length ? cnaeCodes : undefined,
+    cnaePrincipalOnly: Boolean($("#cb-cnae-principal")?.checked) || undefined,
+    naturezas: selMulti($("#cb-natureza")).length ? selMulti($("#cb-natureza")) : undefined,
+    situacoes: selMulti($("#cb-situacao")).length ? selMulti($("#cb-situacao")) : undefined,
+    porte: selMulti($("#cb-porte")).length ? selMulti($("#cb-porte")) : undefined,
+    matrizFilial: $("#cb-matriz-filial")?.value || undefined,
+    // cb-regime fica desabilitado no HTML (fase 2 RFB, coluna sempre NULL hoje) — não envia.
+    capitalMin: $("#cb-capital-min")?.value ? Number($("#cb-capital-min").value) : undefined,
+    capitalMax: $("#cb-capital-max")?.value ? Number($("#cb-capital-max").value) : undefined,
+    mei: $("#cb-mei")?.checked || undefined,
+    simples: $("#cb-simples")?.checked || undefined,
+    keyword: ($("#cb-keyword")?.value || "").trim() || undefined,
+    cities: cbSelectedCities.length ? cbSelectedCities.map((c) => c.normalizedCity) : undefined,
+    states: ($("#cb-states")?.value || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).length
+      ? ($("#cb-states").value || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean) : undefined,
+    ddd: ($("#cb-ddd")?.value || "").trim() || undefined,
+    abertaDe: $("#cb-data-de")?.value || sliderRange.de || undefined,
+    abertaAte: $("#cb-data-ate")?.value || sliderRange.ate || undefined,
+    contato,
+    excluirJaEntregues: Boolean($("#cb-excluir-entregues")?.checked),
+    limit: 20,
+  };
+}
+
+function cbApplyPreset(preset) {
+  // Presets de 1 clique — só os que mapeiam em filtro real da base fria (correção de escopo 02/07).
+  if (preset === "abriu-mes-cidade") { $("#cb-data-slider").value = "1m"; }
+  else if (preset === "mei-crescendo") { $("#cb-mei").checked = true; $("#cb-capital-min").value = "1000"; }
+  else if (preset === "capital-alto") { $("#cb-capital-min").value = "100000"; }
+  cbCount();
+}
+
+async function cbCount() {
+  const btn = $("#btn-cb-count");
+  const fb = $("#cb-feedback");
+  const result = $("#cb-result");
+  if (btn) btn.disabled = true;
+  if (fb) { fb.textContent = "contando…"; fb.className = "delta"; }
+  try {
+    const filters = cbBuildFilters();
+    cbLastQuery = filters;
+    const r = await api("POST", "/owner/cnpj-base/query", filters);
+    if (!r.ok) throw new Error(r.reason || "falha ao contar");
+    const data = r.data || {};
+    if (result) result.style.display = "";
+    const countBig = $("#cb-count-big");
+    if (countBig) countBig.textContent = Number(data.count || 0).toLocaleString("pt-BR");
+    const statsLine = $("#cb-stats-line");
+    if (statsLine) {
+      const s = data.statsAmostra || {};
+      statsLine.textContent = `da amostra: ${s.comCelularProprio || 0} com celular próprio, ${s.provavelContador || 0} prováveis contador` + (data.excludedJaEntregues ? ` · ${data.excludedJaEntregues} já entregues excluídas` : "");
+    }
+    const tbody = $("#cb-sample-tbody");
+    if (tbody) {
+      const sample = Array.isArray(data.sample) ? data.sample : [];
+      tbody.innerHTML = sample.length ? sample.map((row) => `<tr>
+        <td>${esc(cbSeloLabel(row.selo))}</td>
+        <td>${esc(row.nomeFantasia || row.razaoSocial)}</td>
+        <td>${esc(row.city || "—")}/${esc(row.state || "—")}</td>
+        <td title="${esc(row.cnaeDescription || "")}">${esc(row.cnae || "—")}</td>
+        <td>${esc(row.phone || "—")}</td>
+        <td>${esc(row.email || "—")}</td>
+        <td>${row.website ? `<a href="${esc(row.website)}" target="_blank" rel="noopener">site</a>` : "—"}</td>
+      </tr>`).join("") : `<tr><td colspan="7" class="delta">nenhuma empresa encontrada com estes filtros.</td></tr>`;
+    }
+    if (fb) { fb.textContent = `${Number(data.count || 0).toLocaleString("pt-BR")} empresas encontradas.`; fb.className = "delta up"; }
+    const matBtn = $("#btn-cb-materialize");
+    const expBtn = $("#btn-cb-export");
+    const hasResults = Number(data.count || 0) > 0;
+    if (matBtn) matBtn.disabled = !hasResults;
+    if (expBtn) expBtn.disabled = !hasResults;
+  } catch (err) {
+    if (fb) { fb.textContent = `erro: ${err.message}`; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function cbMaterialize() {
+  if (!cbLastQuery) return;
+  const btn = $("#btn-cb-materialize");
+  const fb = $("#cb-feedback");
+  if (!confirm("Virar as empresas encontradas em leads do Radar? (limite de 500 por lote, dedup automático)")) return;
+  if (btn) btn.disabled = true;
+  if (fb) { fb.textContent = "materializando leads…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/cnpj-base/materialize", { ...cbLastQuery, maxItems: 500 });
+    if (!r.ok) throw new Error(r.reason || "falha ao materializar");
+    const d = r.data || {};
+    const counts = d.counts || {};
+    if (fb) { fb.textContent = `lote ${d.batchId || "—"}: ${counts.accepted || 0} aceitos, ${counts.duplicates || 0} duplicados, ${counts.rejected || 0} rejeitados.`; fb.className = "delta up"; }
+  } catch (err) {
+    if (fb) { fb.textContent = `erro: ${err.message}`; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function cbExport() {
+  if (!cbLastQuery) return;
+  const fb = $("#cb-feedback");
+  try {
+    const r = await api("POST", "/owner/cnpj-base/query", { ...cbLastQuery, limit: 20 });
+    if (!r.ok) throw new Error(r.reason || "falha ao exportar");
+    const sample = (r.data && r.data.sample) || [];
+    if (!sample.length) { if (fb) fb.textContent = "nada para exportar."; return; }
+    const cols = ["cnpj", "razaoSocial", "nomeFantasia", "cnae", "cnaeDescription", "porte", "situacao", "city", "state", "phone", "email", "website", "selo"];
+    const csvCell = (v) => { const s = v == null ? "" : String(v); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const bom = "﻿";
+    const csv = bom + [cols.join(";"), ...sample.map((row) => cols.map((c) => csvCell(row[c])).join(";"))].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `base_receita_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if (fb) { fb.textContent = `${sample.length} linhas exportadas (amostra — refine os filtros p/ recortes maiores).`; fb.className = "delta up"; }
+  } catch (err) {
+    if (fb) fb.textContent = `erro: ${err.message}`;
+  }
+}
+
+async function cbSearchCities(q) {
+  const chips = $("#cb-cities-chips");
+  if (!q || q.length < 2) { return; }
+  try {
+    const r = await api("GET", `/owner/cnpj-base/cities?q=${encodeURIComponent(q)}`);
+    if (!r.ok) return;
+    const items = (r.data && r.data.items) || [];
+    if (chips) {
+      chips.innerHTML = items.map((it) => `<button type="button" class="chk cb-city-opt" data-city="${esc(it.normalizedCity)}" data-label="${esc(it.city)}/${esc(it.state || "")}">${esc(it.city)}/${esc(it.state || "")}</button>`).join("");
+    }
+  } catch { /* autocomplete é best-effort */ }
+}
+
+function cbRenderSelectedCities() {
+  const chips = $("#cb-cities-chips");
+  if (!chips) return;
+  const selected = cbSelectedCities.map((c) => `<span class="chk" style="background:var(--brand);color:var(--brand-ink,#fff);">${esc(c.city)}/${esc(c.state || "")} ✕</span>`).join("");
+  chips.innerHTML = selected;
+}
+
+async function cbLoadStaticOptions() {
+  // Natureza jurídica / porte vêm do cache CnpjBaseStats (contagem por opção, HOT-02).
+  try {
+    const r = await api("GET", "/owner/cnpj-base/stats");
+    if (!r.ok) return;
+    const groups = (r.data && r.data.groups) || {};
+    const fill = (selId, group) => {
+      const sel = $(selId);
+      if (!sel || !Array.isArray(groups[group])) return;
+      sel.innerHTML = groups[group].map((opt) => `<option value="${esc(opt.key)}">${esc(opt.label || opt.key)} (${Number(opt.count).toLocaleString("pt-BR")})</option>`).join("");
+    };
+    fill("#cb-natureza", "naturezaJuridica");
+    fill("#cb-porte", "porte");
+  } catch { /* stats ainda pode não existir (base não carregada) — degrada silencioso */ }
+}
+
+{ const b = $("#btn-cb-count"); if (b) b.addEventListener("click", cbCount); }
+{ const b = $("#btn-cb-materialize"); if (b) b.addEventListener("click", cbMaterialize); }
+{ const b = $("#btn-cb-export"); if (b) b.addEventListener("click", cbExport); }
+{
+  const input = $("#cb-city-search");
+  let cbCityTimer = null;
+  if (input) input.addEventListener("input", () => {
+    clearTimeout(cbCityTimer);
+    const q = input.value;
+    cbCityTimer = setTimeout(() => cbSearchCities(q), 250);
+  });
+}
+{
+  const chips = $("#cb-cities-chips");
+  if (chips) chips.addEventListener("click", (ev) => {
+    const opt = ev.target.closest(".cb-city-opt");
+    if (!opt) return;
+    const city = opt.getAttribute("data-city");
+    const label = opt.getAttribute("data-label") || city;
+    const [cityName, state] = label.split("/");
+    if (!cbSelectedCities.some((c) => c.normalizedCity === city)) {
+      cbSelectedCities.push({ normalizedCity: city, city: cityName, state });
+    }
+    $("#cb-city-search").value = "";
+    cbRenderSelectedCities();
+  });
+}
+{
+  const presets = $("#cb-presets");
+  if (presets) presets.addEventListener("click", (ev) => {
+    const b = ev.target.closest(".cb-preset");
+    if (!b) return;
+    cbApplyPreset(b.getAttribute("data-preset"));
+  });
+}
+cbLoadStaticOptions();
+
 /* ---------- Boot ---------- */
 pingStatus();
 renderMotorStrip();

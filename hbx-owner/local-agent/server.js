@@ -2606,6 +2606,56 @@ async function route(req, res) {
     return;
   }
 
+  // ── HOT-02 + HOT-03 (fundidos) — "Base Receita": proxy fino p/ /modules/owner/cnpj-base/*.
+  // Nenhuma lógica de filtro/anti-contador aqui — o backend é o dono da regra, este agent só
+  // repassa (mesmo padrão de /owner/radar/contacts/export). Leitura local, sem fonte paga.
+  if (req.method === "POST" && url.pathname === "/owner/cnpj-base/query") {
+    const body = await readBody(req).catch((err) => ({ __error: err.message }));
+    if (body && body.__error) { sendJson(res, 400, { ok: false, reason: body.__error }); return; }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/cnpj-base/query", body, { timeoutMs: 20000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/cnpj-base/materialize") {
+    const body = await readBody(req).catch((err) => ({ __error: err.message }));
+    if (body && body.__error) { sendJson(res, 400, { ok: false, reason: body.__error }); return; }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/cnpj-base/materialize", body, { timeoutMs: 60000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-base/cities") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const q = url.searchParams.get("q") || "";
+    const r = await backendRequest("GET", `/modules/owner/cnpj-base/cities?q=${encodeURIComponent(q)}`, null, { timeoutMs: 10000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-base/cnaes") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const q = url.searchParams.get("q") || "";
+    const r = await backendRequest("GET", `/modules/owner/cnpj-base/cnaes?q=${encodeURIComponent(q)}`, null, { timeoutMs: 10000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-base/stats") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const group = url.searchParams.get("group") || "";
+    const r = await backendRequest("GET", `/modules/owner/cnpj-base/stats${group ? `?group=${encodeURIComponent(group)}` : ""}`, null, { timeoutMs: 10000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
   // Guia VPS do cockpit: lê os cards da VPS via Ops Control (não junta com o local).
   // O backend DEPLOYADO na VPS TRAVA database-cards em 20/página (sondado 25–26/06 e confirmado ao
   // vivo: qualquer `limit` → 20 itens; e pedir page com limit grande pula o offset de 1000 em 1000 →

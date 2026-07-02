@@ -3313,6 +3313,23 @@ model CnpjPublicCnae {
   updatedAt DateTime @updatedAt
 }
 
+// HOT-02: contagem por opção de filtro ("Empresário (Individual) (44.889.600)") cacheada
+// 1x/mês pós-import — nunca contada ao vivo (GROUP BY em 28M linhas não responde <1s). `group`
+// identifica a dimensão (naturezaJuridica|porte|situacao|matrizFilial|uf), `key` o valor bruto
+// da dimensão e `count` o total. Recalculada por scripts/import-cnpj-dataset.js ao fim da carga;
+// endpoint só LÊ esta tabela (nunca faz GROUP BY em CnpjPublicCompany por request).
+model CnpjBaseStats {
+  id          String   @id @default(cuid())
+  group       String
+  key         String
+  label       String?
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([group, key])
+  @@index([group])
+}
+
 // Quadro societário do dump aberto da RFB (Socios*.zip). Liga em CnpjPublicCompany pelo
 // cnpjBasico (8 primeiros dígitos do cnpj) — sócio pertence à EMPRESA, não ao estabelecimento.
 // Carga bulk via scripts/import-cnpj-dataset.js (TRUNCATE + reload por mês de referência);
