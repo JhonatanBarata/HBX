@@ -216,7 +216,10 @@ test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_E
   );
 }));
 
-test('radar strategy deep inclui stubs como skipped explicito', () => {
+test('radar strategy deep inclui stubs como skipped explicito', () => withEnv({
+  // C1 (01/07): cnpj_public só entra no plano com a flag ligada (em qualquer modo).
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+}, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
     new RadarSourcePlannerService(),
@@ -232,7 +235,7 @@ test('radar strategy deep inclui stubs como skipped explicito', () => {
   assert.equal(plan.diagnostics.every((item) => item.status === 'skipped'), true);
   assert.equal(plan.implementedSources.includes('local_directory'), true);
   assert.equal(plan.implementedSources.includes('vertical_source'), true);
-});
+}));
 
 test('google textual provider monta queries de intencao sem Places', () => {
   const provider = new GoogleSearchProviderService();
@@ -1182,7 +1185,7 @@ test('cnpj_public desativado retorna skipped sem sucesso fake', async () => with
   const result = await source.run({
     normalized: baseInput,
     records: [{
-      cnpj: '12.345.678/0001-90',
+      cnpj: '12.345.678/0001-95',
       nomeFantasia: 'Barbearia X',
       city: 'Rio Claro',
       state: 'SP',
@@ -1216,7 +1219,7 @@ test('cnpj_public normaliza empresa ativa sem inventar social ou telefone', asyn
   const result = await source.run({
     normalized: baseInput,
     records: [{
-      cnpj: '12.345.678/0001-90',
+      cnpj: '12.345.678/0001-95',
       nomeFantasia: 'Barbearia X',
       razaoSocial: 'Barbearia X Servicos Ltda',
       city: 'Rio Claro',
@@ -1232,7 +1235,7 @@ test('cnpj_public normaliza empresa ativa sem inventar social ou telefone', asyn
 
   assert.equal(result.status, 'completed');
   assert.equal(result.results[0].source, 'cnpj_public');
-  assert.equal((result.results[0] as any).cnpj, '12345678000190');
+  assert.equal((result.results[0] as any).cnpj, '12345678000195');
   assert.equal(result.results[0].phone, '');
   assert.equal(result.results[0].instagramUrl, undefined);
   assert.equal(result.issue, null);
@@ -1243,10 +1246,10 @@ test('cnpj_public provider filtra cidade UF segmento e situacao ativa', async ()
   const result = await provider.search({
     normalized: baseInput,
     records: [
-      { cnpj: '11111111000111', nomeFantasia: 'Barbearia Centro', city: 'Rio Claro', state: 'SP', cnaeDescription: 'barbearia', situacao: 'ativa' },
-      { cnpj: '22222222000122', nomeFantasia: 'Restaurante X', city: 'Rio Claro', state: 'SP', cnaeDescription: 'restaurante', situacao: 'ativa' },
-      { cnpj: '33333333000133', nomeFantasia: 'Barbearia Campinas', city: 'Campinas', state: 'SP', cnaeDescription: 'barbearia', situacao: 'ativa' },
-      { cnpj: '44444444000144', nomeFantasia: 'Barbearia Baixada', city: 'Rio Claro', state: 'SP', cnaeDescription: 'barbearia', situacao: 'baixada' },
+      { cnpj: '11111111000191', nomeFantasia: 'Barbearia Centro', city: 'Rio Claro', state: 'SP', cnaeDescription: 'barbearia', situacao: 'ativa' },
+      { cnpj: '22222222000191', nomeFantasia: 'Restaurante X', city: 'Rio Claro', state: 'SP', cnaeDescription: 'restaurante', situacao: 'ativa' },
+      { cnpj: '33333333000191', nomeFantasia: 'Barbearia Campinas', city: 'Campinas', state: 'SP', cnaeDescription: 'barbearia', situacao: 'ativa' },
+      { cnpj: '44444444000191', nomeFantasia: 'Barbearia Baixada', city: 'Rio Claro', state: 'SP', cnaeDescription: 'barbearia', situacao: 'baixada' },
     ],
   });
 
