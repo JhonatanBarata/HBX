@@ -21,6 +21,7 @@
     <nav class="guide-nav">
       <button id="gnav-panel" class="tab is-active" data-guide="panel">Painel</button>
       <button id="gnav-tree" class="tab" data-guide="tree">Árvore HBX</button>
+      <button id="gnav-arvore" class="tab" data-guide="arvore">Árvore do motor</button>
     </nav>
     <div class="topbar-right status-pills">
       <span id="st-agent" class="pill pill-muted" title="Local agent">agente…</span>
@@ -259,9 +260,35 @@
     </div>
   </section>
 
+  <!-- ============ ÁRVORE DO MOTOR (F3, 02/07) — cockpit da árvore mestra ============ -->
+  <section id="guide-arvore" class="tree-guide" hidden>
+    <div class="tree-head">
+      <div class="hero-title">
+        <span class="label">Árvore do motor · seed → rfb → web → portas → fusão → enriquecimento → zap-gate → card</span>
+        <button id="arvore-stopall-btn" class="btn btn-sm btn-red" title="Congela a fábrica (emergencyStop) — corta Brave/ddg/bing">⏸ PARAR TUDO</button>
+        <button id="arvore-resumeall-btn" class="btn btn-sm btn-green" title="Volta a fábrica ao agendamento normal">▶ Religar</button>
+        <span id="arvore-stopall-result" class="tbtn-result"></span>
+      </div>
+      <div class="tree-head-right">
+        <span id="arvore-generated" class="delta">—</span>
+        <button id="arvore-refresh" class="btn btn-sm btn-blue">↺ Reler árvore</button>
+      </div>
+    </div>
+    <div id="arvore-flow" class="tree-flow"><p class="delta">carregando árvore do motor…</p></div>
+
+    <div id="arvore-detail" class="card" hidden style="margin-top:16px;">
+      <div class="cockpit-head">
+        <div class="hero-title"><span class="label" data-detail-title>Detalhe</span></div>
+        <button class="btn btn-sm btn-blue" data-detail-close>Fechar</button>
+      </div>
+      <pre data-detail-body style="white-space:pre-wrap;font-size:12px;max-height:420px;overflow:auto;"></pre>
+    </div>
+  </section>
+
   </main>
 
   <script src="/app.js?v=20260629d"></script>
   <script src="/tree.js?v=20260701t6"></script>
+  <script src="/arvore.js?v=20260702a"></script>
 </body>
 </html>

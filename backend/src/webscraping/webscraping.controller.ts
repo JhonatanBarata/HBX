@@ -9,7 +9,10 @@ import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { EnrichmentCostService } from './enrichment-cost/enrichment-cost.service';
 import { getConfiguredHbxEngineMaxCount, HbxEnginePoolService } from './hbx-engine-pool.service';
 import { LeadHarvestImportService } from './lead-harvest/lead-harvest-import.service';
+import { ZapCheckGuardService } from '../messaging/zap-check-guard.service';
+import { RadarMissionQueueService } from './radar/missions/radar-mission-queue.service';
 import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
+import { RadarTreeStatusService } from './radar-tree-status/radar-tree-status.service';
 import { SourceBudgetService } from './source-budget/source-budget.service';
 import { WebscrapingService } from './webscraping.service';
 
@@ -1113,7 +1116,47 @@ export class MasterWebscrapingController {
   constructor(
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
+    private readonly radarMissionQueue: RadarMissionQueueService,
+    private readonly radarTreeStatus: RadarTreeStatusService,
   ) {}
+
+  // Cache in-memory 10s (F3, 02/07): a árvore faz polling 15s da UI × os blocos batem em Prisma/
+  // serviços que já têm seu próprio custo (engines/status faz health-check real) — sem cache, cada
+  // reload duplica o trabalho. TTL curto de propósito: números "quase ao vivo", nunca contador
+  // preso (nunca > 10s de atraso). Falha não é cacheada (só sucesso, mesmo parcial-tolerante).
+  private treeStatusCache: { at: number; data: any } | null = null;
+  private static readonly TREE_STATUS_CACHE_MS = 10_000;
+
+  /**
+   * GET /modules/owner/radar/tree-status
+   * Agregador da aba "Árvore do motor" (:3107) — a MESMA grade do desenho
+   * docs/PLANEJAMENTOS/ARVORE-MESTRA/pesquisa-vps.svg, com números reais. Tolerante a falha
+   * parcial: cada bloco que falhar volta `{ ok:false, error }`, nunca derruba a resposta inteira.
+   */
+  @Get('tree-status')
+  async getTreeStatus() {
+    const now = Date.now();
+    if (this.treeStatusCache && (now - this.treeStatusCache.at) < MasterWebscrapingController.TREE_STATUS_CACHE_MS) {
+      return { ...this.treeStatusCache.data, cached: true };
+    }
+    const data = await this.radarTreeStatus.build({
+      web: async () => {
+        const status = await this.hbxEnginePool.getDashboardEngineStatus();
+        const cap = status?.capacity || ({} as any);
+        return {
+          alive: Number(cap.activeEngineCount ?? 0),
+          queued: Number(cap.queuedCount ?? 0),
+          running: Number(cap.runningCount ?? 0),
+          operationalStatus: cap.operationalStatus ?? null,
+        };
+      },
+      missions: async () => this.radarMissionQueue.stats(),
+      vault: async () => SourceBudgetService.usageSnapshot(),
+      zapGate: () => ZapCheckGuardService.getStats(),
+    });
+    this.treeStatusCache = { at: now, data };
+    return { ...data, cached: false };
+  }
 
   @Get('engines/status')
   getMasterEngineStatus() {
