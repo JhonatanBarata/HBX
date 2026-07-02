@@ -1,7 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { WebscrapingContactResult } from '../../shared/radar-core-shared';
 import { normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord, CnpjPublicProviderResult, CnpjPublicSearchInput } from './cnpj-public-types';
+
+// Log dos rejeitados da porta receita (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md,
+// tarefa 7): cada registro rejeitado pelos filtros (DV inválido, situação não-ativa, cidade/UF
+// fora, segmento sem match) loga o motivo — sem PII além do necessário (CNPJ mascarado, sem
+// nome/telefone/endereço do registro rejeitado).
+function maskCnpjForLog(value: unknown) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length !== 14) return digits ? `${digits.slice(0, 2)}***` : '(sem_cnpj)';
+  return `${digits.slice(0, 2)}.***.***/****-${digits.slice(-2)}`;
+}
 
 function normalizeText(value: unknown) {
   return String(value || '')
@@ -72,6 +82,15 @@ function locationMatches(record: CnpjPublicCompanyRecord, city: unknown, state: 
 
 @Injectable()
 export class CnpjPublicProviderService {
+  private readonly logger = new Logger(CnpjPublicProviderService.name);
+
+  private logRejected(record: CnpjPublicCompanyRecord, reasonCode: string) {
+    this.logger.log(
+      `[porta-receita] rejeitado cnpj=${maskCnpjForLog(record.cnpj)} motivo=${reasonCode} `
+      + `cidade=${record.city || '-'} uf=${record.state || '-'} cnae=${record.cnae || '-'}`,
+    );
+  }
+
   async search(input: CnpjPublicSearchInput): Promise<CnpjPublicProviderResult> {
     const records = Array.isArray(input.records) ? input.records : [];
     if (!records.length) {
@@ -92,23 +111,28 @@ export class CnpjPublicProviderService {
     for (const record of records) {
       if (!isValidCnpjCheckDigits(record.cnpj)) {
         rejectedCount += 1;
+        this.logRejected(record, 'dv_invalido');
         continue;
       }
       if (!isActiveCompany(record)) {
         rejectedCount += 1;
+        this.logRejected(record, 'situacao_nao_ativa');
         continue;
       }
       if (!locationMatches(record, input.normalized.city, input.normalized.state)) {
         rejectedCount += 1;
+        this.logRejected(record, 'cidade_uf_fora_do_pedido');
         continue;
       }
       if (!segmentMatches(record, input.normalized.segment)) {
         rejectedCount += 1;
+        this.logRejected(record, 'segmento_sem_match_cnae');
         continue;
       }
       const mapped = this.toContactResult(record, input.normalized);
       if (!mapped) {
         rejectedCount += 1;
+        this.logRejected(record, 'sem_cnpj_ou_nome_utilizavel');
         continue;
       }
       accepted.push(mapped);

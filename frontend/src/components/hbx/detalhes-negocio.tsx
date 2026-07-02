@@ -199,6 +199,9 @@ export type NegocioDetail = {
   // origem
   sourceType?: string | null;
   primarySource?: string | null;
+  /** Cadeia de fontes reais do card (P1, 02/07): "rfb" | "web" | "rfb+web". Opcional — ausente
+   * em cards antigos, badge simplesmente não aparece. */
+  sourceChain?: string | null;
 
   // camada de inteligência (leadIntelligence enriquecida)
   leadIntelligence?: {
@@ -311,6 +314,19 @@ function fmtMoney(value: number | null | undefined) {
 function fmtSourceLabel(sourceType?: string | null, primarySource?: string | null) {
   const src = String(primarySource || sourceType || "").trim().toLowerCase();
   return humanize(src) || "—";
+}
+
+// sourceChain (P1, 02/07 — cutover ordem fixa): rótulo amigável da cadeia real de fontes.
+const SOURCE_CHAIN_LABEL: Record<string, string> = {
+  rfb: "Receita Federal",
+  web: "Web",
+  "rfb+web": "Receita Federal + Web",
+};
+
+function fmtSourceChainLabel(sourceChain?: string | null): string | null {
+  const key = String(sourceChain || "").trim().toLowerCase();
+  if (!key) return null;
+  return SOURCE_CHAIN_LABEL[key] || null;
 }
 
 const STATE_FULL: Record<string, string> = {
@@ -1152,17 +1168,30 @@ export function DetalhesNegocio({
   function renderOrigin() {
     if (!n) return null;
     const hasOrigin = Boolean(n.sourceType || n.primarySource);
-    if (!hasOrigin) return null;
+    const sourceChainLabel = fmtSourceChainLabel(n.sourceChain);
+    if (!hasOrigin && !sourceChainLabel) return null;
     return (
       <div className="kv">
-        <div className="row dn-kv-row">
-          <span className="k">Origem</span>
-          <span className="v">
-            <span className="tag teal">
-              <TypedText text={fmtSourceLabel(n.sourceType, n.primarySource)} speed={46} delay={0} />
+        {hasOrigin && (
+          <div className="row dn-kv-row">
+            <span className="k">Origem</span>
+            <span className="v">
+              <span className="tag teal">
+                <TypedText text={fmtSourceLabel(n.sourceType, n.primarySource)} speed={46} delay={0} />
+              </span>
             </span>
-          </span>
-        </div>
+          </div>
+        )}
+        {sourceChainLabel && (
+          <div className="row dn-kv-row">
+            <span className="k">Motores</span>
+            <span className="v">
+              <span className="tag" title="Cadeia de fontes que localizou este card">
+                {sourceChainLabel}
+              </span>
+            </span>
+          </div>
+        )}
       </div>
     );
   }

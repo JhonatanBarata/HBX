@@ -1164,6 +1164,11 @@ export class RadarWebEnrichmentService {
   }
 
   private async searchWeb(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
+    // FREIO do PARAR (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md):
+    // decisão do dono — "parar = nenhuma fonte consultada" cobre TAMBÉM o fallback ddg/bing
+    // (grátis), não só o Brave (já congelado no Sprint 1). searchWeb é o ÚNICO ponto de entrada
+    // pro fallback bing→ddg deste serviço — gate aqui cobre ambos com 1 checagem.
+    if (await RadarWebEnrichmentService.factoryEmergencyStopped()) return [];
     if (process.env.BRAVE_SEARCH_API_KEY) {
       const brave = await this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
       if (brave.length) return brave;

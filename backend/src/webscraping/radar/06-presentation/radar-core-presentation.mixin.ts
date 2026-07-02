@@ -2104,6 +2104,35 @@ export class RadarCorePresentationMixin {
     };
   }
 
+  // sourceChain (P1, 02/07): mapeia as fontes reais em 2 lanes (rfb = Receita/cnpj_public,
+  // web = motor HBX/textual/crawl/diretórios legados) e devolve a cadeia ordenada rfb->web.
+  // Sem fonte mapeável (ex.: reprocessamento interno) devolve null — campo ausente, opcional.
+  private buildRadarLeadSourceChain(sourceEngines: string[], fallbackSource?: string | null): string | null {
+    const lane: Record<string, 'rfb' | 'web'> = {
+      cnpj_public: 'rfb',
+      cnpj_public_stub: 'rfb',
+      hbx_engine: 'web',
+      hbx: 'web',
+      google_textual: 'web',
+      website_crawl_light: 'web',
+      radar_web_enrichment: 'web',
+      local_directory: 'web',
+      local_directories_stub: 'web',
+      vertical_source: 'web',
+    };
+    const engines = Array.isArray(sourceEngines) && sourceEngines.length ? sourceEngines : [fallbackSource].filter(Boolean);
+    const lanes = new Set<'rfb' | 'web'>();
+    for (const engine of engines as string[]) {
+      const key = lane[String(engine || '').trim()];
+      if (key) lanes.add(key);
+    }
+    if (!lanes.size) return null;
+    const ordered: string[] = [];
+    if (lanes.has('rfb')) ordered.push('rfb');
+    if (lanes.has('web')) ordered.push('web');
+    return ordered.join('+');
+  }
+
   private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean } = {}) {
     // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
     // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
@@ -2260,6 +2289,10 @@ export class RadarCorePresentationMixin {
       sourceEngine: row?.sourceEngine || null,
       sourceUrl: row?.sourceUrl || null,
       sourceEngines: parseJsonArray(row?.sourceEngines),
+      // sourceChain (P1, 02/07 — cutover ordem fixa): cadeia amigavel rfb/web/rfb+web pra
+      // exibir no card ("de onde veio"). Campo OPCIONAL — ausente em leads antigos sem
+      // sourceEngines mapeavel, card continua renderizando normal.
+      sourceChain: this.buildRadarLeadSourceChain(parseJsonArray(row?.sourceEngines), row?.source),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: includeSmartFields ? row?.opportunityReason || null : null,
       opportunitySignals: includeSmartFields ? deriveRowSignals(row) : [],
