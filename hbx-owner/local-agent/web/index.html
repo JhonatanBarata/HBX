@@ -4,10 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HBX Owner</title>
-  <link rel="stylesheet" href="/styles.css?v=20260629d" />
-  <link rel="stylesheet" href="/tree.css?v=20260701t6" />
+  <link rel="stylesheet" href="/styles.css?v=20260702v2" />
 </head>
-<body data-guide="panel">
+<body>
   <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
 
   <header class="topbar">
@@ -18,11 +17,6 @@
         <small>Sua máquina e o servidor, numa tela só</small>
       </div>
     </div>
-    <nav class="guide-nav">
-      <button id="gnav-panel" class="tab is-active" data-guide="panel">Painel</button>
-      <button id="gnav-tree" class="tab" data-guide="tree">Árvore HBX</button>
-      <button id="gnav-arvore" class="tab" data-guide="arvore">Árvore do motor</button>
-    </nav>
     <div class="topbar-right status-pills">
       <span id="st-agent" class="pill pill-muted" title="Local agent">agente…</span>
       <span id="st-backend" class="pill pill-muted" title="Backend :3000">backend…</span>
@@ -33,12 +27,17 @@
   </header>
 
   <main class="content">
-  <div id="guide-panel">
 
-    <!-- ============ TOPO: Sua máquina · VPS · Enriquecedor · Banco de leads (1 linha) ============ -->
-    <div class="top-row">
+  <!-- ============ PAINEL ÚNICO (OWNERV2 02/07): LOCAL na esquerda × VPS na direita ============ -->
+  <div class="v2-cols">
+
+    <!-- ════════════════ COLUNA ESQUERDA · SUA MÁQUINA (LOCAL) ════════════════ -->
+    <div class="v2-col" data-env="local">
+      <h3 class="v2-col-title">🖥 Sua máquina (localhost)</h3>
+
+      <!-- Saúde local -->
       <section class="card env-col" data-env="local">
-        <header class="env-head"><h2>Sua máquina</h2></header>
+        <header class="env-head"><h2>Saúde</h2></header>
         <div class="grid-3">
           <div class="metric"><span class="label">Memória</span><strong id="sys-ram">—</strong><div class="bar sm"><div id="sys-ram-bar" class="bar-fill"></div></div><small id="sys-ram-limit" class="delta"></small></div>
           <div class="metric"><span class="label">Processador</span><strong id="sys-cpu">—</strong><div class="bar sm"><div id="sys-cpu-bar" class="bar-fill"></div></div><small id="sys-cpu-limit" class="delta"></small></div>
@@ -50,9 +49,130 @@
         </div>
       </section>
 
+      <!-- Motor de scraping local · Fábrica de enriquecimento (PARAR vive SÓ aqui — risco de ban é do SEU IP) -->
+      <section class="card" id="fabrica-card">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">Motor de scraping local · Fábrica de enriquecimento</span>
+            <span id="fab-status" class="pill pill-muted">lendo…</span>
+          </div>
+          <div class="cockpit-actions">
+            <label class="cf-toggle" title="Orçamento obrigatório: a fábrica para sozinha depois de X leads">só scrapear
+              <input id="fab-budget" class="cf-input" type="number" min="1" step="1" placeholder="X" style="width:80px;" />
+            </label>
+            <button id="btn-fab-start" class="btn btn-sm btn-green" title="Liga a fábrica de enriquecimento com o orçamento informado (obrigatório)">▶ Iniciar</button>
+            <button id="btn-fab-stop" class="btn btn-sm btn-red" title="PARA o scraping local — congela a fábrica (único PARAR do painel; o freio do VPS é o governor)">⏸ Parar</button>
+          </div>
+        </div>
+        <div class="grid-4" style="margin-top:10px;">
+          <div class="metric"><span class="label">Processados</span><strong id="fab-processed">—</strong></div>
+          <div class="metric"><span class="label">Budget restante</span><strong id="fab-budget-left">—</strong></div>
+          <div class="metric"><span class="label">Lead atual</span><strong id="fab-current" style="font-size:13px;">—</strong></div>
+          <div class="metric"><span class="label">Erros</span><strong id="fab-errors">—</strong></div>
+        </div>
+        <p id="fab-feedback" class="delta" style="margin-top:8px;">—</p>
+
+        <div class="hero-strip-row" style="margin-top:12px;">
+          <span class="label">Motores</span>
+          <div id="motor-strip" class="motor-strip"></div>
+          <strong id="sys-engines-counts" class="strip-count">—</strong>
+        </div>
+        <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
+        <strong id="sys-engines-big" class="hidden">—</strong>
+        <div class="chk-row">
+          <span id="chk-elastic" class="chk">Elasticidade</span>
+          <span id="chk-factory" class="chk">Fábrica</span>
+        </div>
+        <div class="btn-row hero-foot">
+          <button id="btn-religar" class="btn btn-sm btn-blue" title="Sobe de volta os motores que caíram">↻ Religar motores</button>
+          <span id="engines-local-feedback" class="delta"></span>
+        </div>
+        <details id="engines-truth" class="motor-details">
+          <summary class="label">Tabela dos motores (drill-down)</summary>
+          <p class="delta" id="et-header">lendo motores…</p>
+          <div style="overflow-x:auto;">
+            <table class="cockpit-table" id="engines-truth-table" style="font-size:12px;">
+              <thead id="engines-truth-thead"></thead>
+              <tbody id="engines-truth-tbody"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <!-- IA LOCAL (Ollama :11434 — o que já existia, renomeado) -->
+      <section class="card" id="ia-local">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">IA LOCAL · Ollama</span>
+            <span id="ai-local-status" class="pill pill-muted">lendo…</span>
+          </div>
+          <button id="btn-ai-warm" class="btn btn-sm btn-blue" title="Pré-carrega o 30b na RAM (evita o 1º hit lento)">🔥 Aquecer 30b</button>
+        </div>
+        <p id="ai-local-models" class="delta" style="margin-top:8px;">—</p>
+        <span id="ai-local-feedback" class="delta"></span>
+      </section>
+
+      <!-- Enriquecedor (roda NESTA máquina, com o SEU IP — mira o VPS) -->
+      <section class="card" id="enricher">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
+            <span class="pill pill-muted">mira o VPS</span>
+            <span id="enr-status" class="pill pill-muted">parado</span>
+          </div>
+          <div class="cockpit-actions enr-controls">
+            <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
+            <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
+            <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
+            <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
+            <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
+            <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
+          </div>
+        </div>
+        <div class="grid-3" style="margin-top:10px;">
+          <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
+          <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
+          <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
+        </div>
+        <div class="grid-3" style="margin-top:8px;">
+          <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
+          <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
+          <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
+        </div>
+        <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
+      </section>
+
+      <!-- Banco de leads LOCAL + transferência local → VPS -->
+      <section class="card env-col" data-env="bank">
+        <header class="env-head"><h2>Banco de leads local</h2></header>
+        <div class="grid-2">
+          <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local">—</strong><small id="sys-bank-local-delta" class="delta"></small></div>
+          <div class="metric"><span class="label">VPS (destino)</span><strong id="sys-bank-vps-mini">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
+        </div>
+        <button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;width:100%;margin-top:12px;" title="MOVE todos os leads locais pro VPS e LIMPA o local (sua máquina zera) — é transferência, não cópia">⬆ Mandar tudo pro VPS</button>
+        <div id="transfer-box" style="display:none;margin-top:12px;">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+            <span id="transfer-status" class="delta" style="font-weight:600;">—</span>
+            <strong id="transfer-pct" style="margin-left:auto;font-size:18px;line-height:1;">0%</strong>
+          </div>
+          <div style="height:12px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;">
+            <div id="transfer-bar" style="height:100%;width:0%;background:#39d98a;transition:width .35s ease;"></div>
+          </div>
+        </div>
+        <button id="btn-export-local" class="btn btn-sm btn-blue" style="display:block;width:100%;margin-top:8px;" title="Baixa o banco LOCAL inteiro em CSV compactado (.csv.gz) — o banco da VPS exporta no card BANCO, na direita">⬇ Exportar banco local (csv.gz)</button>
+        <p class="delta" style="margin-top:8px;">Move os leads prontos do local pro VPS e <strong>limpa o local</strong> — é transferência, não cópia.</p>
+        <span id="export-local-feedback" class="delta"></span>
+      </section>
+    </div><!-- /v2-col local -->
+
+    <!-- ════════════════ COLUNA DIREITA · SERVIDOR (VPS) ════════════════ -->
+    <div class="v2-col" data-env="vps">
+      <h3 class="v2-col-title">☁ Servidor (VPS)</h3>
+
+      <!-- Saúde VPS -->
       <section class="card env-col" data-env="vps">
         <header class="env-head">
-          <h2>Servidor (VPS) <small id="vps-host" class="env-host"></small></h2>
+          <h2>Saúde <small id="vps-host" class="env-host"></small></h2>
           <span id="vps-status" class="tag-ok">—</span>
           <button id="btn-vps-refresh" class="icon-btn" title="Reler a VPS">⟳</button>
         </header>
@@ -65,229 +185,118 @@
           <span id="vps-verdict-icon" class="vdot">•</span><strong id="vps-verdict-title">Lendo…</strong>
           <span id="vps-verdict-detail" class="verdict-detail"></span>
         </div>
+        <p class="delta" style="margin-top:8px;">Motores atendendo cliente: <strong id="vps-engines-big" style="font-size:14px;">—</strong> · <span id="vps-engines-line">—</span></p>
       </section>
 
-      <!-- ============ ENRIQUECEDOR ============ -->
-      <section class="card" id="enricher">
-      <div class="cockpit-head">
-        <div class="hero-title">
-          <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
-          <span class="pill pill-muted">mira o VPS</span>
-          <span id="enr-status" class="pill pill-muted">parado</span>
-        </div>
-        <div class="cockpit-actions enr-controls">
-          <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
-          <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
-          <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
-          <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
-          <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
-          <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
-        </div>
-      </div>
-      <div class="grid-3" style="margin-top:10px;">
-        <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
-        <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
-        <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
-      </div>
-      <div class="grid-3" style="margin-top:8px;">
-        <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
-        <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
-        <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
-      </div>
-      <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
-      </section>
-
-      <!-- ============ BANCO DE LEADS · Sua máquina × VPS + injetar ============ -->
-      <section class="card env-col" data-env="bank">
-        <header class="env-head"><h2>Banco de leads</h2></header>
-        <div class="grid-2">
-          <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local">—</strong><small id="sys-bank-local-delta" class="delta"></small></div>
-          <div class="metric"><span class="label">VPS</span><strong id="sys-bank-vps-mini">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
-        </div>
-        <button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;width:100%;margin-top:12px;" title="MOVE todos os leads locais pro VPS e LIMPA o local (sua máquina zera) — é transferência, não cópia">⬆ Mandar tudo pro VPS</button>
-        <div id="transfer-box" style="display:none;margin-top:12px;">
-          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
-            <span id="transfer-status" class="delta" style="font-weight:600;">—</span>
-            <strong id="transfer-pct" style="margin-left:auto;font-size:18px;line-height:1;">0%</strong>
+      <!-- Motor de leads (números do tree-status: pesquisa + fila de missões) — sem botão de parar: VPS é fluido, o freio de lá é o governor -->
+      <section class="card" id="motor-vps">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">Motor de leads · pesquisa &amp; fila</span>
+            <span id="mv-status" class="pill pill-muted">lendo…</span>
           </div>
-          <div style="height:12px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;">
-            <div id="transfer-bar" style="height:100%;width:0%;background:#39d98a;transition:width .35s ease;"></div>
+          <span id="mv-generated" class="delta"></span>
+        </div>
+        <div class="grid-4" style="margin-top:10px;">
+          <div class="metric"><span class="label">Buscas hoje</span><strong id="mv-runs">—</strong></div>
+          <div class="metric"><span class="label">Cards entregues hoje</span><strong id="mv-delivered">—</strong></div>
+          <div class="metric"><span class="label">Fila (devidas)</span><strong id="mv-queue">—</strong></div>
+          <div class="metric"><span class="label">Fila · estado</span><strong id="mv-fila-estado">—</strong></div>
+        </div>
+        <p id="mv-split" class="delta" style="margin-top:8px;">origem dos cards: —</p>
+        <p id="mv-note" class="delta"></p>
+      </section>
+
+      <!-- Fonte de busca (gauges pagos — SÓ aqui na direita; a esquerda é 100% grátis) -->
+      <section class="card" id="fonte-busca">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">Fonte de busca · grátis primeiro, pago só reforço</span>
+            <span id="fonte-status" class="pill pill-muted">lendo…</span>
           </div>
         </div>
-        <p class="delta" style="margin-top:8px;">Move os leads prontos do local pro VPS e <strong>limpa o local</strong> — é transferência, não cópia.</p>
+        <div id="fonte-gauges" style="margin-top:10px;"><p class="delta">lendo cofre…</p></div>
       </section>
-    </div><!-- /top-row -->
 
-    <!-- ============ FÁBRICA (card herói, honesto) ============ -->
-    <section class="card factory-hero">
-      <div class="hero-top">
-        <div class="hero-title"><span class="label">Fábrica de leads</span><span id="ft-status" class="pill pill-muted">lendo…</span></div>
-        <!-- F0 (02/07): btn-factory e btn-ft-refresh (controle da fábrica de descoberta autônoma)
-             REMOVIDOS junto com a demolição da fábrica antiga. Controle de motores fica. -->
-        <div class="hero-actions">
-          <button id="btn-religar" class="btn btn-sm btn-blue" title="Sobe de volta os motores que caíram">↻ Religar motores</button>
+      <!-- IA VPS (read-only — a definir em testes; NÃO inventar backend de IA na VPS) -->
+      <section class="card" id="ia-vps">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">IA VPS</span>
+            <span class="pill pill-muted">a definir em testes</span>
+          </div>
         </div>
-      </div>
+        <p class="delta" style="margin-top:8px;">Slot reservado: a IA que roda no servidor ainda está em teste. Hoje a inferência é 100% local (coluna esquerda). Quando o dono definir o modelo/host da VPS, este cartão mostra o estado real — nada é inventado aqui.</p>
+      </section>
 
-      <div class="hero-strip-row">
-        <span class="label">Motores</span>
-        <div id="motor-strip" class="motor-strip"></div>
-        <strong id="sys-engines-counts" class="strip-count">—</strong>
-      </div>
-      <div class="bar"><div id="sys-bar-alive" class="bar-fill"></div></div>
-      <strong id="sys-engines-big" class="hidden">—</strong>
+      <!-- BANCO · cockpit de leads da VPS + Exportar tudo -->
+      <section class="card cockpit-card" id="cockpit-card">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">BANCO · leads da VPS</span>
+            <strong id="sys-bank-vps" class="bank-count">—</strong>
+            <span id="cockpit-status" class="pill pill-muted">carregando…</span>
+          </div>
+          <div class="cockpit-actions">
+            <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
+            <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ CSV</button>
+            <button id="btn-cnpj-backfill" class="btn btn-sm btn-green" title="Descobre dono + telefone + redes pelos cards do VPS">✦ Enriquecer no VPS</button>
+            <button id="btn-export-all" class="btn btn-sm btn-green" title="Baixa o banco INTEIRO da VPS em CSV compactado (.csv.gz) — stream direto do servidor, aguenta milhões de linhas">⬇ Exportar tudo (VPS)</button>
+            <button id="btn-export-unclaimed" class="btn btn-sm btn-green" title="Exporta e-mails/telefones em lote que ainda não pertencem a nenhuma empresa (tabela LeadContact)">⬇ Exportar contatos não reivindicados</button>
+          </div>
+        </div>
 
-      <div class="chk-row">
-        <span id="chk-elastic" class="chk">Elasticidade</span>
-        <span id="chk-factory" class="chk">Fábrica</span>
-      </div>
+        <div id="cockpit-filters" class="cockpit-filter-row" style="display:none;">
+          <input id="cf-name" class="cf-input" placeholder="Nome" />
+          <input id="cf-city" class="cf-input" placeholder="Cidade" />
+          <input id="cf-state" class="cf-input" placeholder="UF" maxlength="2" style="width:50px;" />
+          <input id="cf-segment" class="cf-input" placeholder="Segmento" />
+          <input id="cf-phone" class="cf-input" placeholder="Telefone" />
+          <input id="cf-email" class="cf-input" placeholder="E-mail" />
+          <input id="cf-channel" class="cf-input" placeholder="Canal" />
+          <input id="cf-status" class="cf-input" placeholder="Status" />
+          <label class="cf-toggle"><input type="checkbox" id="cf-not-enriched" /> Não enriquecidos</label>
+          <label class="cf-toggle"><input type="checkbox" id="cf-has-site" /> Com site</label>
+          <label class="cf-toggle"><input type="checkbox" id="cf-has-whatsapp" /> Com WhatsApp</label>
+          <label class="cf-toggle"><input type="checkbox" id="cf-hide-empty-cols" /> Esconder vazias</label>
+          <button id="btn-cockpit-clear" class="btn btn-sm btn-amber">Limpar filtros</button>
+        </div>
 
-      <div id="ft-diag" class="diag-box"></div>
-
-      <div class="grid-3 hero-metrics">
-        <div class="metric"><span class="label">Novos na última hora</span><strong id="ft-newhour" class="big">—</strong></div>
-        <div class="metric"><span class="label">Novos hoje</span><strong id="ft-newtoday" class="big">—</strong></div>
-        <div class="metric"><span class="label">Duplicados</span><strong id="ft-dup" class="big">—</strong></div>
-      </div>
-      <p class="delta mission-line" id="ft-mission">missão: —</p>
-
-      <!-- F0 (02/07): btn-ft-purge e btn-ft-next (fila da fábrica de descoberta) REMOVIDOS. -->
-      <div class="btn-row hero-foot">
-        <span id="ft-feedback" class="delta"></span>
-        <span id="engines-local-feedback" class="delta"></span>
-      </div>
-
-      <details id="engines-truth" class="motor-details">
-        <summary class="label">Tabela dos motores (drill-down)</summary>
-        <p class="delta" id="et-header">lendo motores…</p>
-        <div style="overflow-x:auto;">
-          <table class="cockpit-table" id="engines-truth-table" style="font-size:12px;">
-            <thead id="engines-truth-thead"></thead>
-            <tbody id="engines-truth-tbody"></tbody>
+        <div id="cockpit-table-wrap" style="overflow-x:auto;display:none;">
+          <table class="cockpit-table" id="cockpit-table">
+            <thead id="cockpit-thead"></thead>
+            <tbody id="cockpit-tbody"></tbody>
           </table>
         </div>
-      </details>
-    </section>
 
-    <!-- ============ LEADS (Cockpit) ============ -->
-    <section class="card cockpit-card" id="cockpit-card">
-      <div class="cockpit-head">
-        <div class="hero-title">
-          <span class="label">Banco de leads · VPS</span>
-          <strong id="sys-bank-vps" class="bank-count">—</strong>
-          <span id="cockpit-status" class="pill pill-muted">carregando…</span>
+        <div id="cockpit-pagination" class="cockpit-pagination" style="display:none;">
+          <button id="btn-ck-prev" class="btn btn-sm btn-blue">← Anterior</button>
+          <span id="ck-page-info" class="delta" style="margin:0 8px;"></span>
+          <button id="btn-ck-next" class="btn btn-sm btn-blue">Próxima →</button>
         </div>
-        <div class="cockpit-actions">
-          <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
-          <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ CSV</button>
-          <button id="btn-cnpj-backfill" class="btn btn-sm btn-green" title="Descobre dono + telefone + redes pelos cards do VPS">✦ Enriquecer no VPS</button>
-          <button id="btn-export-unclaimed" class="btn btn-sm btn-green" title="Exporta e-mails/telefones em lote que ainda não pertencem a nenhuma empresa (tabela LeadContact)">⬇ Exportar contatos não reivindicados</button>
-        </div>
-      </div>
 
-      <div id="cockpit-filters" class="cockpit-filter-row" style="display:none;">
-        <input id="cf-name" class="cf-input" placeholder="Nome" />
-        <input id="cf-city" class="cf-input" placeholder="Cidade" />
-        <input id="cf-state" class="cf-input" placeholder="UF" maxlength="2" style="width:50px;" />
-        <input id="cf-segment" class="cf-input" placeholder="Segmento" />
-        <input id="cf-phone" class="cf-input" placeholder="Telefone" />
-        <input id="cf-email" class="cf-input" placeholder="E-mail" />
-        <input id="cf-channel" class="cf-input" placeholder="Canal" />
-        <input id="cf-status" class="cf-input" placeholder="Status" />
-        <label class="cf-toggle"><input type="checkbox" id="cf-not-enriched" /> Não enriquecidos</label>
-        <label class="cf-toggle"><input type="checkbox" id="cf-has-site" /> Com site</label>
-        <label class="cf-toggle"><input type="checkbox" id="cf-has-whatsapp" /> Com WhatsApp</label>
-        <label class="cf-toggle"><input type="checkbox" id="cf-hide-empty-cols" /> Esconder vazias</label>
-        <button id="btn-cockpit-clear" class="btn btn-sm btn-amber">Limpar filtros</button>
-      </div>
+        <span id="export-feedback" class="delta" style="display:block;margin-top:6px;"></span>
+        <span id="export-status" style="display:none;"></span>
+      </section>
+    </div><!-- /v2-col vps -->
 
-      <div id="cockpit-table-wrap" style="overflow-x:auto;display:none;">
-        <table class="cockpit-table" id="cockpit-table">
-          <thead id="cockpit-thead"></thead>
-          <tbody id="cockpit-tbody"></tbody>
-        </table>
-      </div>
+  </div><!-- /v2-cols -->
 
-      <div id="cockpit-pagination" class="cockpit-pagination" style="display:none;">
-        <button id="btn-ck-prev" class="btn btn-sm btn-blue">← Anterior</button>
-        <span id="ck-page-info" class="delta" style="margin:0 8px;"></span>
-        <button id="btn-ck-next" class="btn btn-sm btn-blue">Próxima →</button>
-      </div>
-
-      <span id="export-feedback" class="delta" style="display:block;margin-top:6px;"></span>
-      <span id="export-status" style="display:none;"></span>
-    </section>
-
-    <!-- ============ CHAVES DE API / INTEGRAÇÕES ============ -->
-    <section class="card" id="integrations">
-      <div class="cockpit-head">
-        <div class="hero-title">
-          <span class="label">Chaves de API · Integrações</span>
-          <span class="pill pill-muted">Local × VPS</span>
-        </div>
-        <button id="btn-int-refresh" class="btn btn-sm btn-blue">↺ Reler</button>
-      </div>
-      <p class="delta" style="margin:0 0 12px;"><strong>Injetar grava direto no .env da VPS</strong> (produção) e recria o backend — leva alguns segundos pra subir. O Local é só leitura.</p>
-      <div id="integrations-grid" class="int-grid"><p class="delta">lendo…</p></div>
-    </section>
-
-  </div><!-- /#guide-panel -->
-
-  <section id="guide-tree" class="tree-guide" hidden>
-    <div class="tree-head">
-      <div class="tree-legend">
-        <span class="tleg"><i class="tdot ok"></i> fluindo</span>
-        <span class="tleg"><i class="tdot warn"></i> atenção</span>
-        <span class="tleg"><i class="tdot blocked"></i> travado</span>
-        <span class="tleg"><i class="tdot idle"></i> ocioso</span>
-        <span class="tleg"><i class="tdot off"></i> desligado</span>
-      </div>
-      <div class="tree-head-right">
-        <span id="tree-generated" class="delta">—</span>
-        <button id="tree-refresh" class="btn btn-sm btn-blue">↺ Reler árvore</button>
-      </div>
-    </div>
-    <div class="tree-split">
-      <div class="tree-split-col" data-scope="local">
-        <h3 class="tree-split-title">🖥 Sua máquina (localhost)</h3>
-        <div id="tree-flow-local" class="tree-flow"><p class="delta">carregando árvore…</p></div>
-      </div>
-      <div class="tree-split-col tree-split-col--vps" data-scope="vps">
-        <h3 class="tree-split-title">☁ Servidor (VPS)</h3>
-        <div id="tree-flow-vps" class="tree-flow"><p class="delta">carregando árvore…</p></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ ÁRVORE DO MOTOR (F3, 02/07) — cockpit da árvore mestra ============ -->
-  <section id="guide-arvore" class="tree-guide" hidden>
-    <div class="tree-head">
+  <!-- ============ CHAVES DE API / INTEGRAÇÕES (Local × VPS, largura cheia) ============ -->
+  <section class="card" id="integrations">
+    <div class="cockpit-head">
       <div class="hero-title">
-        <span class="label">Árvore do motor · seed → rfb → web → portas → fusão → enriquecimento → zap-gate → card</span>
-        <button id="arvore-stopall-btn" class="btn btn-sm btn-red" title="Congela a fábrica (emergencyStop) — corta Brave/ddg/bing">⏸ PARAR TUDO</button>
-        <button id="arvore-resumeall-btn" class="btn btn-sm btn-green" title="Volta a fábrica ao agendamento normal">▶ Religar</button>
-        <span id="arvore-stopall-result" class="tbtn-result"></span>
+        <span class="label">Chaves de API · Integrações</span>
+        <span class="pill pill-muted">Local × VPS</span>
       </div>
-      <div class="tree-head-right">
-        <span id="arvore-generated" class="delta">—</span>
-        <button id="arvore-refresh" class="btn btn-sm btn-blue">↺ Reler árvore</button>
-      </div>
+      <button id="btn-int-refresh" class="btn btn-sm btn-blue">↺ Reler</button>
     </div>
-    <div id="arvore-flow" class="tree-flow"><p class="delta">carregando árvore do motor…</p></div>
-
-    <div id="arvore-detail" class="card" hidden style="margin-top:16px;">
-      <div class="cockpit-head">
-        <div class="hero-title"><span class="label" data-detail-title>Detalhe</span></div>
-        <button class="btn btn-sm btn-blue" data-detail-close>Fechar</button>
-      </div>
-      <pre data-detail-body style="white-space:pre-wrap;font-size:12px;max-height:420px;overflow:auto;"></pre>
-    </div>
+    <p class="delta" style="margin:0 0 12px;"><strong>Injetar grava direto no .env da VPS</strong> (produção) e recria o backend — leva alguns segundos pra subir. O Local é só leitura.</p>
+    <div id="integrations-grid" class="int-grid"><p class="delta">lendo…</p></div>
   </section>
 
   </main>
 
-  <script src="/app.js?v=20260629d"></script>
-  <script src="/tree.js?v=20260701t6"></script>
-  <script src="/arvore.js?v=20260702a"></script>
+  <script src="/app.js?v=20260702v2"></script>
 </body>
 </html>

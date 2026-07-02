@@ -972,4 +972,135 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
 
     return { items, total };
   }
+
+  /**
+   * GET /modules/owner/radar/export-all — OWNERV2 (02/07): dump COMPLETO do banco de leads
+   * (RadarLeadPool) em CSV gzipado, direto no response. Memória CONSTANTE mesmo com milhões de
+   * linhas: paginação por keyset em `id` (cuid crescente e estável), lote de 1.000, cada lote é
+   * escrito no gzip e o backpressure do stream é respeitado (drain). Nunca acumula o dataset em
+   * memória e nunca faz um findMany gigante. Somente leitura — não toca radar core nem debita nada.
+   */
+  async streamAllDatabaseCardsCsv(res: import('express').Response): Promise<void> {
+    const zlib = await import('zlib');
+    const prisma = this.internalPrisma as any;
+
+    // Colunas exportadas — briefing OWNERV2 exigência 6: colunas do lead + CONTATOS ACHATADOS
+    // (tel1..3, email1..3, insta, fb, site, nota). `_c` é o mapa de contatos daquela página
+    // (LeadContact agrupado por radarLeadId), injetado por lote — memória constante.
+    const COLUMNS: Array<[string, (row: any) => any]> = [
+      ['id', (r) => r.id],
+      ['name', (r) => r.name],
+      ['tel1', (r) => r._c?.phone?.[0] ?? r.phone ?? ''],
+      ['tel2', (r) => r._c?.phone?.[1] ?? ''],
+      ['tel3', (r) => r._c?.phone?.[2] ?? ''],
+      ['email1', (r) => r._c?.email?.[0] ?? r.email ?? ''],
+      ['email2', (r) => r._c?.email?.[1] ?? ''],
+      ['email3', (r) => r._c?.email?.[2] ?? ''],
+      ['insta', (r) => r._c?.instagram?.[0] ?? r.instagramUrl ?? ''],
+      ['fb', (r) => r._c?.facebook?.[0] ?? r.facebookUrl ?? ''],
+      ['site', (r) => r.website ?? ''],
+      ['nota', (r) => r.opportunityScore],
+      ['motivo', (r) => r.opportunityReason ?? ''],
+      ['canal', (r) => r.recommendedChannel ?? ''],
+      ['address', (r) => r.address],
+      ['city', (r) => r.city],
+      ['state', (r) => r.state],
+      ['segment', (r) => r.segment],
+      ['businessCategory', (r) => r.businessCategory],
+      ['status', (r) => r.status],
+      ['source', (r) => r.source],
+      ['sourceEngine', (r) => r.sourceEngine],
+      ['rating', (r) => r.rating],
+      ['reviews', (r) => r.reviews],
+      ['firstSeenAt', (r) => (r.firstSeenAt ? new Date(r.firstSeenAt).toISOString() : '')],
+      ['lastSeenAt', (r) => (r.lastSeenAt ? new Date(r.lastSeenAt).toISOString() : '')],
+    ];
+    // Campos crus do lead que os getters acima consultam (o `_c` NÃO é do banco).
+    const SELECT: Record<string, boolean> = {
+      id: true, name: true, phone: true, email: true, instagramUrl: true, facebookUrl: true,
+      website: true, opportunityScore: true, opportunityReason: true, recommendedChannel: true,
+      address: true, city: true, state: true, segment: true, businessCategory: true, status: true,
+      source: true, sourceEngine: true, rating: true, reviews: true, firstSeenAt: true, lastSeenAt: true,
+    };
+
+    // Contatos achatados de UMA página: 1 query batelada (in: pageIds) + agrupamento por lead/kind
+    // ordenado por rank. Bounded pela página (1000 leads) → memória constante. Falha aqui degrada
+    // gracioso (usa só os campos crus do lead), nunca derruba o export inteiro.
+    const loadContactsForPage = async (ids: string[]): Promise<Map<string, Record<string, string[]>>> => {
+      const byLead = new Map<string, Record<string, string[]>>();
+      if (!ids.length) return byLead;
+      let contacts: any[] = [];
+      try {
+        contacts = await prisma.leadContact.findMany({
+          where: { radarLeadId: { in: ids } },
+          orderBy: [{ radarLeadId: 'asc' }, { kind: 'asc' }, { rank: 'asc' }],
+          select: { radarLeadId: true, kind: true, value: true },
+        });
+      } catch { contacts = []; }
+      for (const c of contacts) {
+        const bucket = byLead.get(c.radarLeadId) || {};
+        // whatsapp entra junto com phone (é telefone).
+        const kind = c.kind === 'whatsapp' ? 'phone' : c.kind;
+        (bucket[kind] = bucket[kind] || []).push(c.value);
+        byLead.set(c.radarLeadId, bucket);
+      }
+      return byLead;
+    };
+
+    const escapeCsv = (value: any): string => {
+      if (value == null) return '';
+      const str = String(value);
+      // aspas duplas + escape de "; newlines viram espaço pra não quebrar a linha do CSV.
+      if (/[";\n\r]/.test(str)) return '"' + str.replace(/\r?\n/g, ' ').replace(/"/g, '""') + '"';
+      return str;
+    };
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="hbx-leads-${stamp}.csv.gz"`);
+    res.setHeader('Cache-Control', 'no-store');
+
+    const gzip = zlib.createGzip();
+    gzip.pipe(res);
+
+    // Escrita respeitando backpressure: se o buffer encher, espera o 'drain'.
+    const write = (chunk: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        gzip.write(chunk, (err) => (err ? reject(err) : undefined));
+        if (gzip.writableNeedDrain) gzip.once('drain', resolve);
+        else resolve();
+      });
+
+    try {
+      // BOM UTF-8 pro Excel abrir acentos certo + cabeçalho.
+      await write('﻿' + COLUMNS.map(([key]) => key).join(';') + '\r\n');
+
+      const PAGE = 1000;
+      let cursorId: string | null = null;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const rows: any[] = await prisma.radarLeadPool.findMany({
+          where: cursorId ? { id: { gt: cursorId } } : undefined,
+          orderBy: { id: 'asc' },
+          take: PAGE,
+          select: SELECT,
+        });
+        if (!rows.length) break;
+        const contactsByLead = await loadContactsForPage(rows.map((r) => r.id));
+        let buffer = '';
+        for (const row of rows) {
+          row._c = contactsByLead.get(row.id) || null;
+          buffer += COLUMNS.map(([, get]) => escapeCsv(get(row))).join(';') + '\r\n';
+        }
+        await write(buffer);
+        cursorId = rows[rows.length - 1].id;
+        if (rows.length < PAGE) break;
+      }
+      await new Promise<void>((resolve, reject) => gzip.end((err?: Error | null) => (err ? reject(err) : resolve())));
+    } catch (err) {
+      // Já pode ter mandado header 200 + bytes → não dá pra trocar pra 500; encerra o stream.
+      try { gzip.destroy(err as Error); } catch { /* noop */ }
+      if (!res.writableEnded) { try { res.end(); } catch { /* noop */ } }
+    }
+  }
 }

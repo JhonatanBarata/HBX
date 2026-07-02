@@ -1334,4 +1334,15 @@ export class MasterWebscrapingController {
       sample: sample ? Number(sample) : undefined,
     });
   }
+
+  /**
+   * GET /modules/owner/radar/export-all — OWNERV2 (02/07): "Exportar tudo" do painel HBX Owner.
+   * Faz stream do banco INTEIRO de leads (RadarLeadPool) como CSV gzipado, com memória constante
+   * (keyset por id, gzip com backpressure) — aguenta milhões de linhas sem estourar o backend.
+   * O service escreve direto no `res`; NÃO retornar nada aqui (o Nest não deve serializar).
+   */
+  @Get('export-all')
+  async exportAll(@Res() res: Response) {
+    await this.webscrapingService.streamAllDatabaseCardsCsv(res);
+  }
 }

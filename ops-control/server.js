@@ -2464,6 +2464,47 @@ app.get('/api/radar/vps/database-cards', async (req, res) => {
   }
 });
 
+// "Exportar tudo (VPS)" do HBX Owner (OWNERV2 02/07): passthrough de STREAM do dump csv.gz do
+// backend da VPS (/modules/owner/radar/export-all). NÃO bufferiza — o corpo é re-encanado byte a
+// byte (Readable.fromWeb → pipe), então memória constante mesmo com milhões de linhas. Autentica
+// com a MESMA sessão operacional dos demais proxies VPS; re-tenta 1x se a sessão expirou (401).
+app.get('/api/radar/vps/export-all', async (req, res) => {
+  try {
+    const config = backendConfigForEnvironment('vps', 'vps');
+    if (!config.baseUrl || !backendHasAuth(config)) {
+      return res.status(503).json({ ok: false, error: config.missingReason || 'Backend VPS nao configurado.' });
+    }
+    const doFetch = async (force) => {
+      const authToken = await resolveBackendAuthToken('vps', config, force);
+      return fetch(joinUrl(config.baseUrl, '/modules/owner/radar/export-all'), {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${authToken}` },
+        signal: timeoutSignal(15 * 60 * 1000),
+      });
+    };
+    let upstream = await doFetch(false);
+    if (upstream.status === 401 && !config.authToken) {
+      backendLoginCache.delete(backendLoginCacheKey('vps', config));
+      upstream = await doFetch(true);
+    }
+    if (!upstream.ok) {
+      const text = await upstream.text().catch(() => '');
+      return res.status(upstream.status || 502).json({ ok: false, error: `Backend VPS respondeu HTTP ${upstream.status}${text ? ` · ${text.slice(0, 300)}` : ''}` });
+    }
+    res.status(200);
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/gzip');
+    res.setHeader('Content-Disposition', upstream.headers.get('content-disposition') || 'attachment; filename="hbx-leads-vps.csv.gz"');
+    res.setHeader('Cache-Control', 'no-store');
+    const { Readable } = require('node:stream');
+    const body = Readable.fromWeb(upstream.body);
+    body.on('error', () => { try { res.destroy(); } catch { /* noop */ } });
+    body.pipe(res);
+  } catch (error) {
+    if (!res.headersSent) res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao exportar banco VPS.' });
+    else { try { res.destroy(); } catch { /* noop */ } }
+  }
+});
+
 // Worker "Enriquecedor de Cards" (HBX Owner): aplica IN-PLACE no VPS o que o crawl local achou
 // (e-mail/telefone/CNPJ/redes), casando por id. Aditivo — o backend só preenche campo vazio.
 // Contrato: POST /api/radar/vps/apply-contacts  { items: [{ id, email?, emails?, phones?, cnpj?, ... }] }
