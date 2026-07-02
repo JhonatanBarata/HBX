@@ -16,10 +16,12 @@ import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
+import { LimiteAtingidoModal } from "@/components/hbx/limite-atingido-modal";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };
 
@@ -73,6 +75,9 @@ type RadarLead = {
   vendasSaleValue?: number | null;
   // sourceChain (P1, 02/07 — cutover ordem fixa): "rfb" | "web" | "rfb+web". Opcional.
   sourceChain?: string | null;
+  // HOT-07 (empresa recém-aberta): badge de urgência + prioridade na entrega. Opcional.
+  isFreshCompany?: boolean | null;
+  daysSinceOpened?: number | null;
 };
 
 type LeadsResponse = {
@@ -189,6 +194,72 @@ type StandingOrder = {
   alcance: string;
   quantos: number;
 };
+
+// WORM-15 — pesquisa salva (recorte de filtros nomeado). filtro = subset dos
+// filtros do Radar. O backend guarda o mesmo shape em filtroJson.
+type SavedFiltro = Record<string, unknown>;
+type SavedSearch = {
+  id: string;
+  nome: string;
+  filtro: SavedFiltro;
+  assignedSellerId: number | null;
+  lastRunAt: string | null;
+  lastCount: number | null;
+};
+type SavedSeller = { id: number; name: string };
+
+// Snapshot dos filtros atuais da tela → objeto que o backend guarda. So manda o
+// que esta preenchido (o resto o sanitizador do backend descarta de qualquer jeito).
+function buildFiltroSnapshot(input: {
+  uf: string;
+  city: string;
+  segment: string;
+  alcance: string;
+  quantos: number;
+  requiredChannels: string[];
+}): SavedFiltro {
+  const f: SavedFiltro = {};
+  if (input.city.trim()) f.city = input.city.trim();
+  if (input.uf.trim()) f.state = input.uf.trim();
+  if (input.segment.trim()) f.segment = input.segment.trim();
+  if (input.alcance.trim()) f.alcance = input.alcance.trim();
+  if (input.quantos > 0) f.quantos = input.quantos;
+  if (input.requiredChannels.length) {
+    f.requiredChannels = input.requiredChannels;
+    f.channelMatchMode = "all_required";
+  }
+  return f;
+}
+
+// Resumo LEGIVEL do filtro salvo → frases (igual "deles"). Traduz o filtroJson em
+// texto para o usuario saber exatamente o que pediu sem abrir nada. Sem valores R$.
+const CANAL_LABEL_PT: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  email: "E-mail",
+  telefone: "Telefone",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  site: "Site",
+};
+function describeFiltro(filtro: SavedFiltro): string {
+  const parts: string[] = [];
+  const seg = String(filtro?.segment || "").trim();
+  if (seg) parts.push(seg);
+  const city = String(filtro?.city || "").trim();
+  const uf = String(filtro?.state || "").trim();
+  if (city && uf) parts.push(`${city}/${uf}`);
+  else if (city) parts.push(city);
+  else if (uf) parts.push(uf);
+  const alc = String(filtro?.alcance || "").trim();
+  if (alc) parts.push(`+ ${alc} km`);
+  const req = Array.isArray(filtro?.requiredChannels) ? (filtro.requiredChannels as string[]) : [];
+  if (req.length) {
+    parts.push(`com ${req.map((c) => CANAL_LABEL_PT[c] || c).join(", ")}`);
+  }
+  const quantos = Number(filtro?.quantos || 0);
+  if (quantos > 0) parts.push(`${quantos} por vez`);
+  return parts.length ? parts.join(" · ") : "Todos os leads";
+}
 
 // Extrai operationalState do run
 function getOpState(run: RunResponse): "funcionando" | "pausado" | "parado" | null {
@@ -314,6 +385,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [pullBusyId, setPullBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [pullMsg, setPullMsg] = useState<string | null>(null);
+  // WORM-17: paywall de cota MENSAL do plano (empresa/admin) atingida.
+  const [limiteOpen, setLimiteOpen] = useState(false);
 
   // busca ao vivo (search-on-miss)
   const [run, setRun] = useState<RunResponse>(null);
@@ -335,6 +408,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // Automático (standing order)
   const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
+
+  // WORM-15 — pesquisas salvas (recorte de filtros nomeado)
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [savedSellers, setSavedSellers] = useState<SavedSeller[]>([]);
+  const [canAssignSaved, setCanAssignSaved] = useState(false);
+  const [savedBar, setSavedBar] = useState(false); // accordion aberto/fechado
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveSeller, setSaveSeller] = useState<number | "">("");
+  const [savedBusy, setSavedBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   // WhatsApp action: sessão QR + acesso ao Atendimento
   const [waQrActive, setWaQrActive] = useState(false);
@@ -462,6 +546,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order")
       .then(res => { if (res?.standingOrder) setStandingOrder(res.standingOrder); })
       .catch(() => null);
+    // WORM-15 — carrega pesquisas salvas do usuario (+ vendedores, se admin/gerente)
+    apiFetch<{ searches?: SavedSearch[]; sellers?: SavedSeller[]; canAssignSeller?: boolean }>("/saved-search")
+      .then(res => {
+        setSavedSearches(Array.isArray(res?.searches) ? res.searches : []);
+        setSavedSellers(Array.isArray(res?.sellers) ? res.sellers : []);
+        setCanAssignSaved(res?.canAssignSeller === true);
+      })
+      .catch(() => { setSavedSearches([]); setSavedSellers([]); setCanAssignSaved(false); });
     apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
       .then(res => setWaQrActive(res?.whatsappSession?.accessible === true))
       .catch(() => setWaQrActive(false));
@@ -610,6 +702,85 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setTab("shelf");
     try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
     loadList("shelf", { page: 1, quantosOverride: 5 });
+  }
+
+  // ── WORM-15: pesquisas salvas ────────────────────────────────────────────
+  async function reloadSavedSearches() {
+    try {
+      const res = await apiFetch<{ searches?: SavedSearch[]; sellers?: SavedSeller[]; canAssignSeller?: boolean }>("/saved-search");
+      setSavedSearches(Array.isArray(res?.searches) ? res.searches : []);
+      setSavedSellers(Array.isArray(res?.sellers) ? res.sellers : []);
+      setCanAssignSaved(res?.canAssignSeller === true);
+    } catch { /* mantem lista atual */ }
+  }
+
+  // Aplica um recorte salvo aos filtros da tela e recarrega a prateleira.
+  function applySavedSearch(s: SavedSearch) {
+    const f = s.filtro || {};
+    const nextUf = String((f as SavedFiltro).state || "").trim();
+    const nextCity = String((f as SavedFiltro).city || "").trim();
+    const nextSeg = String((f as SavedFiltro).segment || "").trim();
+    const nextAlc = String((f as SavedFiltro).alcance || "").trim();
+    const nextQtd = Number((f as SavedFiltro).quantos || 0) || 5;
+    const req = Array.isArray((f as SavedFiltro).requiredChannels) ? ((f as SavedFiltro).requiredChannels as string[]) : [];
+    setUf(nextUf);
+    setCity(nextCity);
+    setSegment(nextSeg);
+    setAlcance(nextAlc);
+    setQuantos(nextQtd);
+    if (req.length) {
+      setCanalAtivos(new Set(req.filter(c => (ALL_CANAIS as string[]).includes(c)) as CanalKey[]));
+      setForcarCanais(true);
+    } else {
+      setCanalAtivos(new Set());
+      setForcarCanais(false);
+    }
+    setPage(1);
+    setTab("shelf");
+    setSavedBar(false);
+    setSavedMsg(`Pesquisa "${s.nome}" aplicada.`);
+    loadList("shelf", { page: 1, quantosOverride: nextQtd });
+  }
+
+  function openSaveModal() {
+    setSaveName("");
+    setSaveSeller("");
+    setSavedMsg(null);
+    setSaveModalOpen(true);
+  }
+
+  // Salva o recorte atual (nome + filtros + vendedor opcional).
+  async function saveCurrentFilter() {
+    const nome = saveName.trim();
+    if (!nome) { setSavedMsg("Dê um nome para a pesquisa."); return; }
+    const filtro = buildFiltroSnapshot({
+      uf, city, segment, alcance, quantos,
+      requiredChannels: forcarCanais ? Array.from(canalAtivos) : [],
+    });
+    setSavedBusy(true);
+    setSavedMsg(null);
+    try {
+      const body: Record<string, unknown> = { nome, filtro };
+      if (canAssignSaved && saveSeller !== "") body.assignedSellerId = Number(saveSeller);
+      await apiFetch("/saved-search", { method: "POST", body: JSON.stringify(body) });
+      setSaveModalOpen(false);
+      setSavedMsg(`Pesquisa "${nome}" salva.`);
+      setSavedBar(true);
+      await reloadSavedSearches();
+    } catch (e) {
+      setSavedMsg(e instanceof Error ? e.message : "Não foi possível salvar a pesquisa.");
+    } finally {
+      setSavedBusy(false);
+    }
+  }
+
+  async function deleteSavedSearch(id: string) {
+    setSavedBusy(true);
+    try {
+      await apiFetch(`/saved-search/${encodeURIComponent(id)}`, { method: "DELETE" });
+      setSavedSearches(prev => prev.filter(s => s.id !== id));
+    } catch { /* mantem */ }
+    finally { setSavedBusy(false); }
   }
 
   // operationalState atual (do run mais recente)
@@ -901,11 +1072,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  function abrirWhatsAppExterno(phone: string | null | undefined) {
-    if (!phone) return;
-    const digits = phone.replace(/\D/g, "");
-    const target = digits.length >= 12 ? digits : `55${digits}`;
-    window.open(`https://wa.me/${target}`, "_blank", "noopener");
+  function abrirWhatsAppExterno(phone: string | null | undefined, text?: string) {
+    const link = buildWaLink(phone, { text });
+    if (link) window.open(link, "_blank", "noopener");
   }
 
   async function abrirWhatsAppInterno(lead: { phone: string | null; name: string | null }) {
@@ -990,6 +1159,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       ownerFacebook: revealed ? (lead.ownerFacebook ?? null) : null,
       companySituation: revealed ? (lead.companySituation ?? null) : null,
       sourceChain: lead.sourceChain ?? null,
+      isFreshCompany: lead.isFreshCompany ?? null,
+      daysSinceOpened: lead.daysSinceOpened ?? null,
       leadIntelligence: {
         whatsappStatus: lead.hasWhatsapp ? "confirmed" : null,
         emailStatus: lead.hasEmail ? "confirmed" : null,
@@ -1026,7 +1197,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         enriching={enriching}
         onClose={opts?.onClose}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
-        onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone) : undefined}
+        onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone, buildWaMessage({ name: lead.name, segment: lead.segment, city: lead.city })) : undefined}
         onWaOpenInternal={revealed ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
         waQrActive={waQrActive}
         waCanInternal={canAtendimento}
@@ -1120,6 +1291,58 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         </div>
 
         <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
+
+        {/* WORM-15: Minhas pesquisas salvas — accordion ACIMA dos filtros */}
+        <div className="radar-saved">
+          <button
+            type="button"
+            className="radar-saved__head"
+            onClick={() => setSavedBar(v => !v)}
+            aria-expanded={savedBar}
+          >
+            <span className="radar-saved__title">
+              Minhas pesquisas salvas
+              {savedSearches.length > 0 && <span className="radar-saved__count">{savedSearches.length}</span>}
+            </span>
+            <span className="radar-saved__chev" aria-hidden>{savedBar ? "▾" : "▸"}</span>
+          </button>
+          {savedBar && (
+            <div className="radar-saved__body">
+              {savedSearches.length === 0 ? (
+                <p className="radar-saved__empty">Nenhuma pesquisa salva ainda. Monte um filtro e clique em “Salvar filtro”.</p>
+              ) : (
+                <ul className="radar-saved__list">
+                  {savedSearches.map(s => (
+                    <li key={s.id} className="radar-saved__item">
+                      <button
+                        type="button"
+                        className="radar-saved__apply"
+                        onClick={() => applySavedSearch(s)}
+                        title="Aplicar este recorte aos filtros"
+                      >
+                        <span className="radar-saved__name">{s.nome}</span>
+                        <span className="radar-saved__desc">{describeFiltro(s.filtro)}</span>
+                        {s.lastCount != null && (
+                          <span className="radar-saved__meta">{s.lastCount} leads na última busca</span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-xs radar-saved__del"
+                        onClick={() => deleteSavedSearch(s.id)}
+                        disabled={savedBusy}
+                        title="Remover pesquisa salva"
+                        aria-label={`Remover ${s.nome}`}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
         {geo && (
@@ -1253,7 +1476,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           >
             Limpar
           </button>
+          {/* WORM-15: salvar o recorte atual como pesquisa nomeada */}
+          <button
+            className="btn-ghost radar-actions__save"
+            onClick={openSaveModal}
+            disabled={!segment.trim() && !city.trim() && !uf.trim()}
+            title="Salvar este filtro como pesquisa"
+          >
+            Salvar filtro
+          </button>
         </div>
+        {savedMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{savedMsg}</p>}
 
         {/* P5: avisos de parada com atalhos clicáveis */}
         {isPausadoCarteira && (
@@ -1328,6 +1561,32 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   // ── Vista mobile: lista vertical ──────────────────────────────────────────
+  // Paywall "momento de desejo" (WORM-17): cota MENSAL de cards do plano estourada.
+  // Só empresa/admin — vendedor de carteira cheia NÃO é paywall (não compra plano).
+  // Reusa .radar-expand (mesmo card do banner de oferta esgotada) — zero CSS novo.
+  function renderQuotaPaywall() {
+    if (!meterBlocked || isSeller) return null;
+    const waiting = pageTotal || counts.shelf || 0;
+    const limitTxt = fmtInt(usage?.cards?.limit);
+    return (
+      <div className="radar-expand" role="status">
+        <div className="radar-expand__head">
+          <span className="radar-expand__icon" aria-hidden>🔒</span>
+          <p className="radar-expand__headline">
+            {waiting > 0
+              ? <>Mais <strong>{fmtInt(waiting)}</strong> leads esperando — você usou os {limitTxt} cards do seu plano este mês.</>
+              : <>Você usou os {limitTxt} cards do seu plano este mês.</>}
+          </p>
+        </div>
+        <div className="radar-expand__actions">
+          <button type="button" className="btn-teal radar-expand__btn" onClick={() => setLimiteOpen(true)}>
+            Aumentar meu plano
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   function renderListMobile() {
     return (
       <>
@@ -1385,6 +1644,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         )}
 
+        {renderQuotaPaywall()}
         {pullMsg && <p className="radar2-pull-msg" style={{ padding: "0 14px" }}>{pullMsg}</p>}
       </>
     );
@@ -1746,6 +2006,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       Carteira cheia — feche ou agende um retorno pra liberar vaga.
                     </p>
                   )}
+                  {renderQuotaPaywall()}
                   {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
 
                   <div className="pager">
@@ -1813,6 +2074,53 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         </div>
       )}
 
+      {/* WORM-15: Modal "Salvar filtro" — nome + (admin) atribuir a vendedor */}
+      {saveModalOpen && (
+        <div className="hbx-veil" onClick={() => setSaveModalOpen(false)}>
+          <div className="hbx-modal" style={{ width: "min(420px, 92vw)" }} onClick={e => e.stopPropagation()}>
+            <div className="radar-save-modal">
+              <h3>Salvar pesquisa</h3>
+              <p className="radar-save-modal__desc">{describeFiltro(buildFiltroSnapshot({ uf, city, segment, alcance, quantos, requiredChannels: forcarCanais ? Array.from(canalAtivos) : [] }))}</p>
+              <div className="f">
+                <label htmlFor="save-name">Nome da pesquisa</label>
+                <input
+                  id="save-name"
+                  className="field-dark"
+                  value={saveName}
+                  maxLength={120}
+                  placeholder="Ex.: Arquitetos de SP"
+                  onChange={e => setSaveName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !savedBusy) saveCurrentFilter(); }}
+                  autoFocus
+                />
+              </div>
+              {canAssignSaved && savedSellers.length > 0 && (
+                <div className="f">
+                  <label htmlFor="save-seller">Atribuir a um vendedor (opcional)</label>
+                  <select
+                    id="save-seller"
+                    className="select-dark"
+                    value={saveSeller === "" ? "" : String(saveSeller)}
+                    onChange={e => setSaveSeller(e.target.value === "" ? "" : Number(e.target.value))}
+                  >
+                    <option value="">Ninguém (só minha)</option>
+                    {savedSellers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <p className="hint" style={{ margin: "2px 0 0" }}>O vendedor passa a receber este recorte como fonte preferencial.</p>
+                </div>
+              )}
+              {savedMsg && <p className="radar-save-modal__err">{savedMsg}</p>}
+              <div className="radar-save-modal__actions">
+                <button className="btn-ghost" onClick={() => setSaveModalOpen(false)} disabled={savedBusy}>Cancelar</button>
+                <button className="btn-teal" onClick={saveCurrentFilter} disabled={savedBusy || !saveName.trim()}>
+                  {savedBusy ? "Salvando…" : "Salvar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* P5/EFEITO: chips voando do disco pra aba Minha carteira */}
       {flyChips.length > 0 && (
         <div className="radar-fly-layer" aria-hidden>
@@ -1840,6 +2148,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         <div className="radar-fly-toast" aria-live="polite">
           ✓ {flyToast}
         </div>
+      )}
+
+      {limiteOpen && (
+        <LimiteAtingidoModal
+          title="Cota de leads do plano atingida"
+          scope="do plano"
+          renewsLabel="no início do próximo mês"
+          reason={<>Você usou os <strong>{fmtInt(usage?.cards?.limit)}</strong> cards do seu plano neste mês.{pageTotal > 0 ? <> Há <strong>{fmtInt(pageTotal)}</strong> leads no Radar prontos assim que você aumentar o plano.</> : null}</>}
+          waMessage="Olá! Bati a cota de leads do meu plano no HBX e quero aumentar."
+          onClose={() => setLimiteOpen(false)}
+        />
       )}
     </div>
   );

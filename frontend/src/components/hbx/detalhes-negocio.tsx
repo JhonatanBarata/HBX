@@ -22,11 +22,13 @@
 // NÃO editar essas classes. Todo campo novo entra na estrutura .dn-kv-row
 // para herdar o efeito automaticamente.
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, PhotoLightbox, useEntitlements } from "@/components/hbx/shell";
+import { Av, I, ICONS, PhotoLightbox, WhatsAppMark, useEntitlements } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
+import { apiFetch, type ApiError } from "@/lib/api";
+import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 // ── Humanização: mapa de snake_case → label legível ──────────────────────────
 // Tudo que pode aparecer cru (painType, recommendedChannel, tags, status) passa
@@ -155,6 +157,9 @@ export type NegocioDetail = {
   razaoSocial?: string | null;
   ownerName?: string | null;
   ownerNames?: string[] | null;
+  // WORM-16: PESSOAS estruturadas (sócio da Receita = nome + cargo). Cada uma vira linha na
+  // seção "Pessoas" com botão wa.me + copiar. Opcional — card antigo sem `people` não mostra a seção.
+  people?: Array<{ name: string; role?: string | null; source?: string | null; phoneDigits?: string | null }> | null;
   // Dados PESSOAIS do dono/sócio (L4 CNPJ→qsa) — sensíveis, gate por tier.
   ownerPhone?: string | null;
   ownerInstagram?: string | null;
@@ -204,6 +209,12 @@ export type NegocioDetail = {
   /** Cadeia de fontes reais do card (P1, 02/07): "rfb" | "web" | "rfb+web". Opcional — ausente
    * em cards antigos, badge simplesmente não aparece. */
   sourceChain?: string | null;
+  /** HOT-07 (empresa recém-aberta): true quando a empresa abriu há ≤30 dias
+   * (openedAt do CnpjPublicCompany, casado no enriquecimento). Opcional — ausente
+   * em leads sem CNPJ casado, badge 🐣 simplesmente não aparece. */
+  isFreshCompany?: boolean | null;
+  /** Dias desde a abertura da empresa (companheiro de isFreshCompany). */
+  daysSinceOpened?: number | null;
 
   // camada de inteligência (leadIntelligence enriquecida)
   leadIntelligence?: {
@@ -291,6 +302,18 @@ export type DetalhesNegocioProps = {
   onSemInteresse?: (reason: string) => void;
   historyLabel?: string;
   kvExtra?: React.ReactNode;
+
+  /**
+   * WORM-11 — conversa WhatsApp embutida no card (não alterna de tela).
+   * Quando `true` e o lead tem telefone, o CENTRO do card ganha as abas
+   * WhatsApp / E-mail com o thread da conversa (lido/enviado pela rotina NORMAL
+   * do Atendimento — `/inbox/conversations/*`), mais o toggle "IA por conversa".
+   * Default `true`: o painel é o CENTRO do card (spec WORM-11). É "click-to-open" —
+   * NÃO bate no motor até o usuário clicar "Abrir conversa", então aparecer em todo
+   * card é barato (nenhuma chamada automática ao Webwhats). Uma tela que já tem o
+   * thread cheio (Atendimento) pode passar `showConversation={false}` para suprimir.
+   */
+  showConversation?: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -329,6 +352,16 @@ function fmtSourceChainLabel(sourceChain?: string | null): string | null {
   const key = String(sourceChain || "").trim().toLowerCase();
   if (!key) return null;
   return SOURCE_CHAIN_LABEL[key] || null;
+}
+
+// HOT-07 (empresa recém-aberta): rótulo do badge de urgência. Só monta texto
+// quando o backend confirma isFreshCompany — sem isso o badge nem entra no DOM.
+function fmtFreshCompanyBadge(isFreshCompany?: boolean | null, daysSinceOpened?: number | null): string | null {
+  if (!isFreshCompany) return null;
+  const days = Math.max(0, Math.trunc(Number(daysSinceOpened ?? 0)) || 0);
+  if (days <= 0) return "🐣 Aberta hoje";
+  if (days === 1) return "🐣 Aberta há 1 dia";
+  return `🐣 Aberta há ${days} dias`;
 }
 
 const STATE_FULL: Record<string, string> = {
@@ -482,6 +515,65 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
+// ── Pessoa (WORM-16): sócio da Receita / contato estruturado ──────────────────
+// Nome + cargo + (quando houver) botão wa.me e copiar. Fonte "receita_qsa" = sócio
+// oficial da Receita. Visual 100% em classes centrais (kit.css .dn-person*).
+type PersonView = { name: string; role?: string | null; source?: string | null; phoneDigits?: string | null };
+
+function waHrefFromDigits(digits: string): string {
+  const d = String(digits || "").replace(/\D/g, "");
+  const withCountry = /^(\d{10,11})$/.test(d) ? `55${d}` : d;
+  return `https://wa.me/${withCountry}`;
+}
+
+function PersonRow({ person }: { person: PersonView }) {
+  const [copied, setCopied] = useState(false);
+  const digits = String(person.phoneDigits || "").replace(/\D/g, "");
+  const fromReceita = String(person.source || "") === "receita_qsa";
+
+  function copiar() {
+    const text = digits ? `${person.name} — ${digits}` : person.name;
+    navigator.clipboard?.writeText(text).then(
+      () => { setCopied(true); setTimeout(() => setCopied(false), 1600); },
+      () => undefined,
+    );
+  }
+
+  return (
+    <div className="dn-person">
+      <span className="dn-person__ico"><I d={ICONS.users} size={13} /></span>
+      <span className="dn-person__body">
+        <span className="dn-person__name">{person.name}</span>
+        {person.role && <span className="dn-person__role">{humanize(person.role)}</span>}
+      </span>
+      <span className="dn-person__acts">
+        {fromReceita && <span className="tag teal dn-person__badge">Receita</span>}
+        {digits && (
+          <a
+            href={waHrefFromDigits(digits)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="dn-person__btn"
+            aria-label={`WhatsApp de ${person.name}`}
+            title="Abrir no WhatsApp"
+          >
+            <WhatsAppMark size={14} />
+          </a>
+        )}
+        <button
+          type="button"
+          className="dn-person__btn"
+          onClick={copiar}
+          aria-label={`Copiar contato de ${person.name}`}
+          title={copied ? "Copiado" : "Copiar"}
+        >
+          <I d={copied ? ICONS.check : ICONS.doc} size={13} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
 // ── Fileira dos 6 ícones de canal — tri-cor: verde/vermelho/cinza ─────────────
 
 const CANAIS_ORDEM: Canal[] = ["whatsapp", "telefone", "email", "instagram", "facebook", "site"];
@@ -518,8 +610,10 @@ function ChannelRow({
 
   function getHref(canal: Canal): string | null {
     switch (canal) {
-      case "whatsapp":
-        return n.phone ? `https://wa.me/${n.phone.replace(/\D/g, "").replace(/^(\d{10,11})$/, "55$1")}` : null;
+      case "whatsapp": {
+        const text = buildWaMessage({ name: n.name, segment: n.segment, city: n.city });
+        return buildWaLink(n.phone, { text });
+      }
       case "telefone":
         return n.phone ? `tel:${n.phone.replace(/[^\d+]/g, "")}` : null;
       case "email":
@@ -648,6 +742,300 @@ function ChannelRow({
   );
 }
 
+// ── ConversationPanel (WORM-11) — thread WhatsApp embutido no card ────────────
+// Núcleo do aceite: ler o thread da conversa do lead SEM sair da tela, responder
+// pela rotina NORMAL do Atendimento e ligar/desligar a IA por conversa.
+//
+// REGRA DURA (Webwhats): envio usa EXATAMENTE `/inbox/conversations/:id/message`
+// (mesma sessão, mesmo disjuntor/outbox do Atendimento). NUNCA API crua do motor,
+// NUNCA socket novo. A resolução da conversa é `/inbox/conversations/start`, o
+// mesmo caminho que o botão "WhatsApp interno" do Vendas já usa (valida QR/número
+// no motor). Handoff da IA: enviar humano já derruba o bot no backend (a rotina
+// grava humanAssigned:true/botActive:false); "devolver pra IA" religa via bulk-bot.
+
+type ConvoMessage = {
+  id: string;
+  direction: string; // "inbound" | "outbound"
+  content: string;
+  createdAt: string | null;
+  messageType?: string;
+  status?: string;
+  error?: string | null;
+};
+
+type ConvoStart = { id?: number | string; botActive?: boolean | null; humanAssigned?: boolean | null };
+type ConvoMessagesResponse = { messages?: ConvoMessage[]; hasMore?: boolean; nextBefore?: string | null };
+
+function fmtMsgTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function ConversationPanel({
+  phone,
+  name,
+}: {
+  phone: string;
+  name?: string | null;
+}) {
+  const [tab, setTab] = useState<"whatsapp" | "email">("whatsapp");
+  const [opened, setOpened] = useState(false); // só bate no motor após clique explícito
+  const [convoId, setConvoId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<ConvoMessage[]>([]);
+  const [botActive, setBotActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextBefore, setNextBefore] = useState<string | null>(null);
+  const [olderBusy, setOlderBusy] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiHint, setAiHint] = useState<string | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  // Resolve a conversa (find-or-create) pela rotina do Atendimento e carrega o thread.
+  // SÓ é chamado após o usuário clicar "Abrir conversa" — nunca no simples abrir do card
+  // (evita bater no motor a cada card aberto; respeita a cautela Webwhats).
+  const resolveThread = useCallback(async () => {
+    setOpened(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const started = await apiFetch<ConvoStart>("/inbox/conversations/start", {
+        method: "POST",
+        body: JSON.stringify({ phone: phone.trim(), ...(name ? { name: name.trim() } : {}) }),
+      });
+      const id = started?.id != null ? Number(started.id) : null;
+      if (!id || Number.isNaN(id)) {
+        throw new Error("Não foi possível abrir a conversa.");
+      }
+      setConvoId(id);
+      setBotActive(Boolean(started.botActive));
+      const res = await apiFetch<ConvoMessagesResponse>(
+        `/inbox/conversations/${encodeURIComponent(id)}/messages?limit=30`,
+      );
+      const msgs = Array.isArray(res?.messages) ? res.messages : [];
+      setMessages(msgs);
+      setHasMore(Boolean(res?.hasMore));
+      setNextBefore(res?.nextBefore ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
+    } finally {
+      setLoading(false);
+    }
+  }, [phone, name]);
+
+  // Rola pro fim quando o thread muda (mensagem nova / carga inicial).
+  useEffect(() => {
+    if (tab === "whatsapp" && endRef.current) {
+      endRef.current.scrollTop = endRef.current.scrollHeight;
+    }
+  }, [messages, tab]);
+
+  async function carregarMaisAntigas() {
+    if (!convoId || !nextBefore || olderBusy) return;
+    setOlderBusy(true);
+    try {
+      const res = await apiFetch<ConvoMessagesResponse>(
+        `/inbox/conversations/${encodeURIComponent(convoId)}/messages?limit=30&before=${encodeURIComponent(nextBefore)}`,
+      );
+      const older = Array.isArray(res?.messages) ? res.messages : [];
+      setMessages((cur) => [...older, ...cur]);
+      setHasMore(Boolean(res?.hasMore));
+      setNextBefore(res?.nextBefore ?? null);
+    } catch {
+      // silencioso — o botão fica; o usuário tenta de novo
+    } finally {
+      setOlderBusy(false);
+    }
+  }
+
+  async function enviar() {
+    const content = draft.trim();
+    if (!content || !convoId || sendBusy) return;
+    setSendBusy(true);
+    setSendError(null);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(convoId)}/message`, {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      });
+      setDraft("");
+      // Handoff: o backend já derruba o bot ao enviar humano. Espelha na UI.
+      setBotActive(false);
+      // Recarrega a janela recente pra ver a mensagem enviada assentar.
+      const res = await apiFetch<ConvoMessagesResponse>(
+        `/inbox/conversations/${encodeURIComponent(convoId)}/messages?limit=30`,
+      );
+      const msgs = Array.isArray(res?.messages) ? res.messages : [];
+      setMessages(msgs);
+      setHasMore(Boolean(res?.hasMore));
+      setNextBefore(res?.nextBefore ?? null);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Não foi possível enviar a mensagem.");
+    } finally {
+      setSendBusy(false);
+    }
+  }
+
+  // Toggle IA por conversa via bulk-bot (mesma rotina do Atendimento). Ligar =
+  // "devolver pra IA"; desligar = "assumo eu". Erros de bot-não-armado/setup viram hint.
+  async function toggleIa() {
+    if (!convoId || aiBusy) return;
+    const next = !botActive;
+    setAiBusy(true);
+    setAiHint(null);
+    try {
+      await apiFetch("/inbox/conversations/bulk-bot", {
+        method: "PATCH",
+        body: JSON.stringify({ ids: [convoId], enabled: next }),
+      });
+      setBotActive(next);
+    } catch (err) {
+      const payload = (err as ApiError)?.payload as { message?: string } | undefined;
+      setAiHint(payload?.message || (err instanceof Error ? err.message : "Não foi possível alternar a IA."));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <div className="dn-convo">
+      <div className="dn-convo__tabs">
+        <button
+          type="button"
+          className={"dn-convo__tab" + (tab === "whatsapp" ? " is-active" : "")}
+          onClick={() => setTab("whatsapp")}
+        >
+          <I d={ICONS.msg} size={14} /> WhatsApp
+        </button>
+        <button
+          type="button"
+          className={"dn-convo__tab" + (tab === "email" ? " is-active" : "")}
+          onClick={() => setTab("email")}
+        >
+          <I d={ICONS.mail} size={14} /> E-mail
+        </button>
+        {tab === "whatsapp" && convoId != null && (
+          <span className="dn-convo__ai" title="Deixar a IA responder esta conversa (some quando você digita)">
+            <span className="dn-convo__ai-label">
+              <I d={ICONS.bot} size={12} /> IA
+            </span>
+            <button
+              type="button"
+              className={"dn-ai-switch" + (botActive ? " is-on" : "")}
+              onClick={toggleIa}
+              disabled={aiBusy}
+              aria-pressed={botActive}
+              aria-label={botActive ? "IA no ar — clique para assumir" : "Devolver conversa para a IA"}
+            />
+          </span>
+        )}
+      </div>
+
+      {tab === "email" ? (
+        <div className="dn-convo__hint">
+          E-mail ainda não tem caixa de entrada embutida no card. Use o e-mail do lead
+          acima para escrever pelo seu cliente de e-mail.
+        </div>
+      ) : !opened ? (
+        <div className="dn-convo__body">
+          <div className="dn-convo__hint">
+            Veja e responda a conversa deste lead sem sair do card.
+          </div>
+          <button
+            type="button"
+            className="btn-teal"
+            style={{ margin: "0 auto 14px", minWidth: 160 }}
+            onClick={() => void resolveThread()}
+          >
+            <I d={ICONS.msg} size={15} /> Abrir conversa
+          </button>
+        </div>
+      ) : loading ? (
+        <div className="dn-convo__load">Abrindo conversa…</div>
+      ) : error ? (
+        <div className="dn-convo__body">
+          <div className="dn-convo__hint">{error}</div>
+          <button type="button" className="dn-convo__more" onClick={() => void resolveThread()}>
+            Tentar de novo
+          </button>
+        </div>
+      ) : (
+        <div className="dn-convo__body">
+          <div className="msgs" ref={endRef}>
+            {hasMore && (
+              <button type="button" className="dn-convo__more" onClick={carregarMaisAntigas} disabled={olderBusy}>
+                {olderBusy ? "Carregando…" : "Carregar anteriores ▴"}
+              </button>
+            )}
+            {messages.length === 0 ? (
+              <div className="dn-convo__hint">Sem mensagens ainda. Envie a primeira abaixo.</div>
+            ) : (
+              messages.map((m) => {
+                const out = m.direction === "outbound";
+                const failed = String(m.status || "").toUpperCase() === "FAILED";
+                return (
+                  <div key={m.id} className={"msg " + (out ? "out" : "in")}>
+                    {!out && <Av name={name || "—"} size={26} />}
+                    <div style={{ display: "grid", minWidth: 0 }}>
+                      <div className={"bubble" + (failed ? " deleted" : "")}>
+                        <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {m.content || (m.messageType && m.messageType !== "text" ? `[${humanize(m.messageType)}]` : "")}
+                        </span>
+                        <div className="tm">
+                          {fmtMsgTime(m.createdAt)}
+                          {out && failed && <span className="muted-note" style={{ margin: 0 }}> · falhou</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {aiHint && <div className="dn-convo__ai-armhint">{aiHint}</div>}
+          {sendError && <div className="dn-convo__err">{sendError}</div>}
+
+          <div className="dn-convo__composer">
+            <textarea
+              className="field-dark"
+              rows={2}
+              maxLength={4000}
+              placeholder={`Responder ${name || "o lead"} no WhatsApp…`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void enviar();
+                }
+              }}
+              disabled={sendBusy || convoId == null}
+            />
+            <button
+              type="button"
+              className="btn-teal"
+              style={{ minWidth: 44, alignSelf: "stretch" }}
+              onClick={() => void enviar()}
+              disabled={sendBusy || convoId == null || !draft.trim()}
+              aria-label="Enviar mensagem"
+              title="Enviar (Enter)"
+            >
+              {sendBusy ? "…" : <I d={ICONS.send} size={16} />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 export function DetalhesNegocio({
@@ -675,6 +1063,7 @@ export function DetalhesNegocio({
   onSemInteresse,
   historyLabel = "Histórico",
   kvExtra,
+  showConversation = true,
   onDelete,
   // compat props not used in render (kept for API compat)
   waPhone: _waPhone,
@@ -696,6 +1085,8 @@ export function DetalhesNegocio({
 
   const li = n?.leadIntelligence;
   const recChannel = li?.recommendedChannel ? toCanal(li.recommendedChannel) : null;
+  // HOT-07 (empresa recém-aberta): badge só monta texto quando o backend confirma.
+  const freshCompanyBadge = fmtFreshCompanyBadge(n?.isFreshCompany, n?.daysSinceOpened);
 
   // ── Estado "enriquecendo agora" — só acende no MEIO: card já carregou do
   // backend (!loading) e o motor ainda trabalha (enriching). A coroa (enriched)
@@ -773,6 +1164,15 @@ export function DetalhesNegocio({
     // E-mails extras (2/3): além do principal, já validados na captura. Sem extra → card idêntico.
     const extraEmails = (Array.isArray(n.emails) ? n.emails : [])
       .filter((e) => e && e !== n.email).filter((e, i, a) => a.indexOf(e) === i).slice(0, 3);
+    // Pessoas estruturadas (WORM-16): sócio da Receita etc. Cai no fallback ownerName quando o
+    // backend não mandou `people` (blob antigo). Dedup por nome; teto discreto.
+    const peopleList: PersonView[] = (Array.isArray(n.people) ? n.people : [])
+      .filter((p) => p && String(p.name || "").trim())
+      .filter((p, i, a) => a.findIndex((x) => String(x.name).trim().toLowerCase() === String(p.name).trim().toLowerCase()) === i)
+      .slice(0, 6);
+    if (!peopleList.length && n.ownerName) {
+      peopleList.push({ name: n.ownerName, role: null, source: "receita_qsa", phoneDigits: n.ownerPhone || null });
+    }
     return (
       <div style={{ display: "grid", gap: 6 }}>
         {n.phone ? (
@@ -865,6 +1265,21 @@ export function DetalhesNegocio({
                   </span>
                 </div>
               )}
+            </div>
+          </LockGate>
+        )}
+
+        {/* Bloco PESSOAS (WORM-16) — sócio da Receita e contatos estruturados, com wa.me + copiar.
+            Mesmo gate de tier do bloco Empresa (dado cadastral/pessoal). */}
+        {peopleList.length > 0 && (
+          <LockGate locked={!canSeeCompany} ctaText="Disponível no HBX Pro">
+            <div style={{ display: "grid", gap: 4 }}>
+              <span className="dn-section-head">
+                <I d={ICONS.users} size={11} /> {peopleList.length > 1 ? "Pessoas" : "Pessoa"}
+              </span>
+              {peopleList.map((p, i) => (
+                <PersonRow key={`person-${i}-${p.name}`} person={p} />
+              ))}
             </div>
           </LockGate>
         )}
@@ -1475,6 +1890,11 @@ export function DetalhesNegocio({
                         {humanize(n.leadTemperature)}
                       </span>
                     )}
+                    {freshCompanyBadge && (
+                      <span className="tag teal" title="Empresa aberta recentemente — urgência real de venda">
+                        {freshCompanyBadge}
+                      </span>
+                    )}
                     {renderStatusChip()}
                     {loading && !n.statusLabel && !n.leadTemperature && (
                       <span className="dn-skel dn-skel-pill" />
@@ -1507,6 +1927,13 @@ export function DetalhesNegocio({
             {renderContacts()}
 
           </div>
+
+          {/* ── WORM-11: conversa WhatsApp embutida (centro do card) ──── */}
+          {showConversation && !loading && n.phone && (
+            <div className="dn-zone dn-zone--convo">
+              <ConversationPanel key={n.phone} phone={n.phone} name={n.name} />
+            </div>
+          )}
 
           {/* ── COSTURA "O que fazer" ─────────────────────────────────── */}
           {hasZone2 && (

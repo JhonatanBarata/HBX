@@ -33,6 +33,10 @@ const META: Record<string, Meta> = {
   // ("Buscar empresas"), acessada de dentro de Vendas — não é mais irmã no menu.
   "/leads": { active: "vendas", title: "Buscar empresas", crumbs: crumb("Buscar empresas", "Vendas") },
   "/vendas": { active: "vendas", title: "Vendas", crumbs: crumb("Vendas") },
+  // WORM-12: agenda do vendedor ("Hoje") — realça o próprio item na sidebar.
+  "/agenda": { active: "agenda", title: "Agenda", crumbs: crumb("Agenda") },
+  // WORM-13: automações (cadência com persona + gatilhos + rotinas).
+  "/automacoes": { active: "automacao", title: "Automações", crumbs: crumb("Automações", "Vendas") },
   "/atendimento": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
   "/bot": { active: "bot", title: "Bot", crumbs: crumb("Construtor", "Bot") },
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },

@@ -167,7 +167,7 @@ import type {
   WebscrapingSearchRunResponse,
   WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
-import { deriveRowSignals } from '../03-enrichment/lead-signals.util';
+import { deriveRowSignals, parseSignalsJson } from '../03-enrichment/lead-signals.util';
 import { RadarPublicDataService } from '../03-enrichment/radar-public-data.service';
 import { IcpFingerprintService } from '../../icp/icp-fingerprint.service';
 
@@ -2133,6 +2133,60 @@ export class RadarCorePresentationMixin {
     return ordered.join('+');
   }
 
+  /**
+   * WORM-16: PESSOAS estruturadas do card. Fonte primária = meta.people (persistido pelo L4 a
+   * partir do QSA da Receita, com cargo). Fallback ADITIVO p/ blobs antigos sem `people`:
+   * sintetiza do ownerName/ownerNames (o 1º ganha o ownerPhone). Nunca inventa nome — só
+   * reprojeta o que já está no blob. Retorna [] quando não há nenhuma pessoa.
+   */
+  private buildRadarLeadPeople(meta: Record<string, any>): Array<{ name: string; role: string | null; source: string; phoneDigits: string | null }> {
+    const seen = new Set<string>();
+    const norm = (n: unknown) => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const out: Array<{ name: string; role: string | null; source: string; phoneDigits: string | null }> = [];
+    const ownerPhoneDigits = String((meta as any)?.ownerPhone || '').replace(/\D/g, '') || null;
+
+    const push = (name: unknown, role: unknown, source: string, phoneDigits: string | null) => {
+      const clean = String(name || '').trim();
+      const key = norm(clean);
+      if (!clean || key.length < 2 || seen.has(key)) return;
+      seen.add(key);
+      out.push({ name: clean, role: String(role || '').trim() || null, source, phoneDigits });
+    };
+
+    const structured = Array.isArray((meta as any)?.people) ? (meta as any).people : [];
+    for (const person of structured) {
+      push(person?.name, person?.role, String(person?.source || 'receita_qsa'), out.length === 0 ? ownerPhoneDigits : null);
+    }
+    // Fallback dos blobs antigos: ownerName + ownerNames viram Pessoa sem cargo.
+    if (!out.length) {
+      const names = [
+        ...((meta as any)?.ownerName ? [String((meta as any).ownerName)] : []),
+        ...(Array.isArray((meta as any)?.ownerNames) ? (meta as any).ownerNames : []),
+      ];
+      for (const name of names) push(name, null, 'receita_qsa', out.length === 0 ? ownerPhoneDigits : null);
+    }
+    return out;
+  }
+
+  // HOT-07 (empresa recém-aberta): janela de urgência p/ badge + prioridade na
+  // entrega. Reusa o `diasAberto` já calculado em RadarPublicDataService a
+  // partir de CnpjPublicCompany.openedAt (persistido em signalsJson) — não
+  // recalcula, só decide a janela de exibição/priorização (30d, mais estrita
+  // que o sinal `recem_aberto` de 180d usado no card do Radar).
+  private static readonly FRESH_COMPANY_WINDOW_DAYS = 30;
+
+  private resolveFreshCompanyState(row: any): { isFreshCompany: boolean; daysSinceOpened: number | null } {
+    const stored = parseSignalsJson(row?.signalsJson);
+    const days = stored.diasAberto;
+    if (typeof days !== 'number' || !Number.isFinite(days) || days < 0) {
+      return { isFreshCompany: false, daysSinceOpened: null };
+    }
+    return {
+      isFreshCompany: days <= RadarCorePresentationMixin.FRESH_COMPANY_WINDOW_DAYS,
+      daysSinceOpened: days,
+    };
+  }
+
   private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean } = {}) {
     // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
     // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
@@ -2271,6 +2325,10 @@ export class RadarCorePresentationMixin {
       ownerInstagram: (meta as any)?.ownerInstagram || null,
       ownerFacebook: (meta as any)?.ownerFacebook || null,
       ownerSocialCandidates: Array.isArray((meta as any)?.ownerSocialCandidates) ? (meta as any).ownerSocialCandidates : [],
+      // WORM-16: PESSOAS estruturadas (nome + cargo + fonte). Deriva de meta.people (persistido
+      // pelo L4/QSA) e cai no fallback ownerName/ownerNames quando o blob antigo não tem `people`.
+      // Campo OPCIONAL — card antigo sem `people` continua renderizando (a seção some).
+      people: this.buildRadarLeadPeople(meta),
       // Worker 2 "Email finder": e-mails 1/2/3 e telefones 1/2/3 achados no crawl (teto 3).
       // `phonesWhatsapp` = mapa digits→bool da verificação WhatsApp (motor dedicado). O DISPLAY
       // só exibe telefone com `true`; sem mapa = nenhum extra aparece (card idêntico). Cru nunca descartado.
@@ -2296,6 +2354,11 @@ export class RadarCorePresentationMixin {
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: includeSmartFields ? row?.opportunityReason || null : null,
       opportunitySignals: includeSmartFields ? deriveRowSignals(row) : [],
+      // HOT-07 (empresa recém-aberta): badge de urgência + prioridade na fila de
+      // entrega. isFreshCompany = abriu há ≤30 dias (openedAt do CnpjPublicCompany,
+      // já calculado em RadarPublicDataService). Campo OPCIONAL — ausente/false
+      // em leads sem CNPJ casado, card renderiza normal sem o badge.
+      ...this.resolveFreshCompanyState(row),
       evidenceJson: includeSmartFields && Object.keys(evidenceJson).length ? evidenceJson : null,
       rejectReasons: includeSmartFields ? rejectReasons : [],
       qualityReason: includeSmartFields ? row?.qualityReason || null : null,
@@ -2739,17 +2802,22 @@ export class RadarCorePresentationMixin {
       if (this.isCompanySellerUser(user)) {
         const me = await this.prisma.user.findUnique({
           where: { id: context.userId },
-          select: { segmentAffinityJson: true } as any,
+          select: { segmentAffinityJson: true, preferredSegmentsJson: true } as any,
         }).catch(() => null);
         for (const s of confirmedSegments((me as any)?.segmentAffinityJson, 3)) add(s);
+        // HOT-07: preferência EXPLÍCITA do vendedor (cadastro), não só a
+        // afinidade observada — é o campo que o lead recém-aberto precisa
+        // casar para furar a fila.
+        for (const s of this.extractPreferredSegmentList((me as any)?.preferredSegmentsJson)) add(s);
       } else {
         const sellers = await this.prisma.user.findMany({
           where: { companyId: context.companyId, isActive: true, isSystemMaster: false },
-          select: { segmentAffinityJson: true } as any,
+          select: { segmentAffinityJson: true, preferredSegmentsJson: true } as any,
           take: 200,
         }).catch(() => []);
         for (const row of sellers || []) {
           for (const s of confirmedSegments((row as any)?.segmentAffinityJson, 3)) add(s);
+          for (const s of this.extractPreferredSegmentList((row as any)?.preferredSegmentsJson)) add(s);
         }
       }
     } catch {
@@ -2758,17 +2826,27 @@ export class RadarCorePresentationMixin {
     return set;
   }
 
-  // Partição estável: leads do(s) segmento(s) preferido(s) primeiro, o resto
-  // depois, preservando a ordem comercial já calculada dentro de cada grupo.
+  // Partição estável: leads FRESCOS (HOT-07, ≤30d) que casam com a preferência
+  // primeiro, depois o resto do(s) segmento(s) preferido(s), depois o resto —
+  // preservando a ordem comercial já calculada dentro de cada grupo. É BOOST
+  // (reordena), nunca filtro — nenhum lead é escondido.
   private boostRadarRowsByPreference(rows: any[], preferenceSet: Set<string>) {
     if (!preferenceSet.size) return rows;
+    const freshPreferred: any[] = [];
     const preferred: any[] = [];
     const rest: any[] = [];
     for (const row of rows) {
       const seg = normalizeLookupValue(String(row?.normalizedSegment || row?.segment || ''));
-      (seg && preferenceSet.has(seg) ? preferred : rest).push(row);
+      const isPreferred = Boolean(seg && preferenceSet.has(seg));
+      if (isPreferred && this.resolveFreshCompanyState(row).isFreshCompany) {
+        freshPreferred.push(row);
+      } else if (isPreferred) {
+        preferred.push(row);
+      } else {
+        rest.push(row);
+      }
     }
-    return preferred.concat(rest);
+    return freshPreferred.concat(preferred, rest);
   }
 
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {

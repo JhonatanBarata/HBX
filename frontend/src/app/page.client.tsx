@@ -153,6 +153,8 @@ export function MarketingClient() {
 
   // Dot ativo do carrossel de planos (mobile scroll-snap)
   const [activePlanDot, setActivePlanDot] = useState(0);
+  // WORM-17: ciclo de cobrança da vitrine — ancora no anual. Default mensal.
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
   const plansTrackRef = useRef<HTMLDivElement>(null);
 
   const advance = useCallback(() => {
@@ -839,6 +841,16 @@ export function MarketingClient() {
               <h2 className="site-esteira-title">{c.pre}<span className="site-accent">{c.accent}</span>{c.pos}</h2>
               <p className="site-sub">{c.sub}</p>
             </>); })()}
+            {planMode === "list" && (
+              <div className="seg-toggle site-plan-cycle" role="tablist" aria-label="Ciclo de cobrança">
+                <button type="button" role="tab" aria-selected={billingCycle === "monthly"}
+                  className={"seg" + (billingCycle === "monthly" ? " on" : "")}
+                  onClick={() => setBillingCycle("monthly")}>Mensal</button>
+                <button type="button" role="tab" aria-selected={billingCycle === "annual"}
+                  className={"seg" + (billingCycle === "annual" ? " on" : "")}
+                  onClick={() => setBillingCycle("annual")}>Anual −{getLivePlan("hbx_padrao").annualDiscountPercent}%</button>
+              </div>
+            )}
             <div ref={plansTrackRef} className={"site-plans" + (lado ? " is-filtered" : "") + (planMode !== "list" ? " is-choosing is-" + planMode : "")}>
                 {planOrder.map((key) => {
                   const s = PLAN_STATIC[key];
@@ -848,6 +860,7 @@ export function MarketingClient() {
                       key={key}
                       planKey={key}
                       live={lp}
+                      billingCycle={billingCycle}
                       as="button"
                       onClick={() => choosePlan(key)}
                       className={[

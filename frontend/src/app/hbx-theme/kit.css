@@ -38,6 +38,15 @@ html, body { margin: 0; }
 .plan-card button { min-height: 32px; border-radius: var(--radius-xs); border: 1px solid var(--hbx-brand); background: transparent; color: var(--hbx-brand); font-family: var(--font-body); font-size: 0.74rem; font-weight: 700; cursor: pointer; }
 /* Trial: CTA de upgrade preenchido (chama pra ação) — destaca o "Assinar agora". */
 .plan-card button.plan-card__upgrade { background: var(--login-accent); border-color: transparent; color: var(--hbx-brand-ink, #fff); }
+/* WORM-17: medidor de consumo do plano na sidebar — sempre visível. Tokens only. */
+.plan-card__meter { display: grid; gap: 4px; }
+.plan-card__meter-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.plan-card__meter-lbl { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.plan-card__meter-val { font-size: 0.66rem; font-weight: 700; color: var(--text-strong); }
+.plan-card__bar { height: 5px; border-radius: 99px; background: color-mix(in srgb, var(--text-muted) 22%, transparent); overflow: hidden; }
+.plan-card__bar-fill { height: 100%; border-radius: 99px; background: var(--login-accent); transition: width 0.5s ease; }
+.plan-card__meter.is-danger .plan-card__bar-fill { background: var(--hbx-danger); }
+.plan-card__meter.is-danger .plan-card__meter-val { color: var(--hbx-danger); }
 .user-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); }
 .user-card strong { display: block; font-size: 0.78rem; }
 .user-card small { font-size: 0.66rem; color: var(--text-muted); }
@@ -125,6 +134,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .seg { border: none; background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; padding: 4px 12px; border-radius: calc(var(--control-radius) - 2px); cursor: pointer; }
 .seg:hover { color: var(--text-strong); }
 .seg.on { background: var(--hbx-surface); color: var(--hbx-brand-strong); box-shadow: var(--shadow-xs); }
+/* WORM-17: toggle Mensal/Anual da vitrine de planos — só espaçamento (visual = .seg central). */
+.site-plan-cycle { margin: 2px auto 8px; }
 
 /* ---------- Kanban (Vendas) ---------- */
 .board { display: grid; grid-auto-flow: column; grid-auto-columns: 252px; gap: 12px; padding: 14px 16px 18px; overflow-x: auto; }
@@ -197,6 +208,16 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-chip-row .tag { background: color-mix(in srgb, var(--text-muted) 8%, transparent); color: var(--text-body); border-color: var(--border-hairline); }
 /* Cabeçalho de seção interna (inteligência, venda) — divisor com overline */
 .dn-section-head { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border-hairline); font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); width: 100%; }
+/* Pessoa (WORM-16): sócio da Receita / contato estruturado com wa.me + copiar */
+.dn-person { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); animation: dn-row-in 0.28s ease both; }
+.dn-person__ico { display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); flex: 0 0 auto; }
+.dn-person__body { display: grid; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.dn-person__name { font-size: 0.82rem; font-weight: 700; color: var(--text-body); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dn-person__role { font-size: 0.66rem; color: var(--text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dn-person__acts { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.dn-person__badge { font-size: 0.58rem; }
+.dn-person__btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--hbx-surface); color: var(--hbx-brand-strong); cursor: pointer; text-decoration: none; }
+.dn-person__btn:hover { background: color-mix(in srgb, var(--hbx-brand) 10%, var(--hbx-surface)); }
 /* Slot de ações do DetalhesNegocio */
 .dn-actions { display: grid; gap: 8px; }
 /* Bloco de observação */
@@ -291,6 +312,33 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-history-title { font-size: 0.62rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .dn-history-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem; font-weight: 700; flex-shrink: 0; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); color: var(--text-body); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
 .dn-history-toggle:hover { background: var(--hbx-surface-sunken, var(--hbx-surface-raised)); border-color: var(--border-strong); }
+
+/* ─── WORM-11: conversa embutida no card (WhatsApp/E-mail) + toggle IA ─────── */
+/* Painel central: abas + thread + composer, reusa .msgs/.msg/.bubble/.composer  */
+.dn-convo { display: grid; gap: 8px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); overflow: hidden; }
+.dn-convo__tabs { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-surface); }
+.dn-convo__tab { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); cursor: pointer; padding: 6px 11px; border-radius: var(--radius-xs); transition: background var(--motion-fast), color var(--motion-fast); }
+.dn-convo__tab:hover { color: var(--text-body); }
+.dn-convo__tab.is-active { color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
+.dn-convo__tab:disabled { opacity: 0.5; cursor: not-allowed; }
+.dn-convo__ai { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; }
+.dn-convo__ai-label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+/* interruptor IA — pill que herda tokens (verde=IA no ar, cinza=humano assumiu) */
+.dn-ai-switch { position: relative; width: 40px; height: 22px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised); cursor: pointer; padding: 0; flex: 0 0 auto; transition: background var(--motion-fast), border-color var(--motion-fast); }
+.dn-ai-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px; background: var(--text-muted); transition: transform var(--motion-fast), background var(--motion-fast); }
+.dn-ai-switch.is-on { background: var(--hbx-brand-soft); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
+.dn-ai-switch.is-on::after { transform: translateX(18px); background: var(--hbx-brand-strong); }
+.dn-ai-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.dn-convo__body { display: flex; flex-direction: column; min-height: 180px; max-height: 340px; }
+.dn-convo .msgs { flex: 1 1 auto; min-height: 120px; max-height: 260px; }
+.dn-convo__hint { padding: 14px 16px; font-size: 0.74rem; line-height: 1.5; color: var(--text-muted); text-align: center; }
+.dn-convo__err { padding: 8px 12px; font-size: 0.72rem; font-weight: 700; color: var(--hbx-danger); }
+.dn-convo__more { align-self: center; margin: 8px 0; font-size: 0.68rem; font-weight: 700; color: var(--hbx-brand-strong); background: transparent; border: none; cursor: pointer; }
+.dn-convo__composer { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border-hairline); background: var(--hbx-surface); }
+.dn-convo__composer textarea { flex: 1 1 auto; resize: none; }
+.dn-convo__load { padding: 22px; text-align: center; font-size: 0.74rem; color: var(--text-muted); }
+.dn-convo__ai-armhint { padding: 6px 12px; font-size: 0.66rem; color: var(--text-muted); border-top: 1px solid var(--border-hairline); }
+
 /* nota discreta de estado vazio (substitui style inline repetido — 5 Leis, 15/06) */
 .muted-note { margin: 12px 0; font-size: 0.74rem; color: var(--text-muted); }
 /* feedback inline (✓ sucesso / erro) do painel e modais — substitui color inline */
@@ -1266,6 +1314,11 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 /* Zona 2 "O que fazer": ações + KVs + obs empilhados. */
 .dn-zone--2 {
   gap: 12px;
+  padding-top: 4px;
+}
+
+/* WORM-11: banda central da conversa embutida (entre "quem é" e "o que fazer"). */
+.dn-zone--convo {
   padding-top: 4px;
 }
 

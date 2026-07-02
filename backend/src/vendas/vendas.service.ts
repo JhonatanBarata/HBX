@@ -50,6 +50,7 @@ import {
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
+import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
 import {
@@ -1235,6 +1236,24 @@ export class VendasService {
     };
   }
 
+  // HOT-07 (empresa recém-aberta): mesma janela de urgência do card do Radar
+  // (RadarCorePresentationMixin.FRESH_COMPANY_WINDOW_DAYS) — reusa o `diasAberto`
+  // já calculado em RadarPublicDataService/signalsJson, hidratado no VendasLead
+  // via RADAR_POOL_ENRICHMENT_FIELDS. Sem CNPJ casado = ausente, badge não aparece.
+  private static readonly FRESH_COMPANY_WINDOW_DAYS = 30;
+
+  private buildFreshCompanyState(row: any): { isFreshCompany: boolean; daysSinceOpened: number | null } {
+    const stored = parseSignalsJson(row?.signalsJson);
+    const days = stored.diasAberto;
+    if (typeof days !== 'number' || !Number.isFinite(days) || days < 0) {
+      return { isFreshCompany: false, daysSinceOpened: null };
+    }
+    return {
+      isFreshCompany: days <= VendasService.FRESH_COMPANY_WINDOW_DAYS,
+      daysSinceOpened: days,
+    };
+  }
+
   private normalizeWhatsappAvailabilityStatus(value: unknown): VendasWhatsappAvailabilityStatus {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'available') return 'available';
@@ -1394,6 +1413,7 @@ export class VendasService {
     const block = this.classifyLeadBlock(row);
     const primarySource = String(row?.primarySource || row?.sourceType || 'manual');
     const signals = this.buildSignalState(row);
+    const freshCompany = this.buildFreshCompanyState(row);
     const timeline = Array.isArray(row?.timelineEvents)
       ? row.timelineEvents.map((event: any) => {
           const conversationReference = this.extractLeadClosureConversationReference(event?.description);
@@ -1462,6 +1482,8 @@ export class VendasService {
       primarySource,
       sourceHistoryId: row?.sourceHistoryId ? String(row.sourceHistoryId) : null,
       sourceSignature: row?.sourceSignature ? String(row.sourceSignature) : null,
+      // HOT-07 (empresa recém-aberta): badge de urgência no card de Vendas.
+      ...freshCompany,
       timesSeen: Math.max(1, Math.trunc(Number(row?.timesSeen || 0) || 1)),
       name: row?.name ? String(row.name) : null,
       phone: row?.phone ? String(row.phone) : null,
@@ -5834,6 +5856,9 @@ export class VendasService {
     'qualityReason',
     'enrichmentJson',
     'metadataJson',
+    // HOT-07 (empresa recém-aberta): diasAberto/recem_aberto vêm calculados aqui
+    // (RadarPublicDataService, a partir de CnpjPublicCompany.openedAt).
+    'signalsJson',
   ] as const;
 
   // Re-lê o RadarLeadPool (fonte única) pelos ids carimbados em sourceHistoryId
@@ -5881,6 +5906,7 @@ export class VendasService {
           qualityReason: true,
           enrichmentJson: true,
           metadataJson: true,
+          signalsJson: true,
         },
       });
     } catch (error: any) {
@@ -7580,6 +7606,10 @@ export class VendasService {
       planTier: planAccess.planTier,
       capabilities: planAccess.capabilities,
       sellsHbxPlans,
+      // LEI DO VENDEDOR (docs/Rules/PAGAMENTOS.md): valores R$ (soma por coluna do
+      // kanban + valor no card) só aparecem para quem pode ver preço. Vendedor
+      // comum (products.viewPrice=false) vê o funil em CONTAGEM, nunca em dinheiro.
+      canViewValues: Boolean(context.access?.canViewProductPrice),
       usage,
       radarSupply,
       team,

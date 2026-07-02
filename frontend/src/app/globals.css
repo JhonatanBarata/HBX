@@ -45,6 +45,8 @@
 @import "./hbx-theme/bot-variables.css";
 @import "./hbx-theme/bot-builder.css";
 @import "./hbx-theme/bot-prospeccao.css";
+/* WORM-14 — Assistente IA (wizard + fluxo em lista + sandbox "Teste sua IA"). */
+@import "./hbx-theme/assistente.css";
 
 /* Preview padrão do sistema (cara fiel de WhatsApp) + tutofig da Prospecção +
    onboarding gamificado dos bots de menu + gate de Termos de Uso.

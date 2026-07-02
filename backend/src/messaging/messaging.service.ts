@@ -9039,6 +9039,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    // WORM-13 (13b) — gatilho reativo "lead respondeu WhatsApp". Best-effort, sem
+    // bloquear o inbound; nao dispara WhatsApp automatico (so move funil / cria
+    // atividade / notifica vendedor). O detector e este mesmo inbound (nao criamos
+    // outro). O relay so faz algo se a empresa tiver gatilho ativo pro telefone.
+    void this.conversations.dispatchCadenciaInbound({
+      companyId,
+      fromPhone: from,
+      conversationId: inboundConversationId || null,
+      text,
+    });
+
     const isHistoricalWebwhatsSync =
       String(input.scope || '').trim().toLowerCase() === 'webwhats_sync' &&
       input.timestamp instanceof Date &&

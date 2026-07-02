@@ -31,7 +31,11 @@ function createFakeResponse() {
 
 // Prisma fake com keyset por id: findMany({ where:{id:{gt}}, take }) fatia o dataset em ordem.
 // leadContact.findMany({ where:{ radarLeadId:{ in } } }) devolve os contatos daqueles leads.
-function createPrismaWithRows(rows: Array<Record<string, any>>, contacts: Array<Record<string, any>> = []) {
+function createPrismaWithRows(
+  rows: Array<Record<string, any>>,
+  contacts: Array<Record<string, any>> = [],
+  people: Array<Record<string, any>> = [],
+) {
   const sorted = [...rows].sort((a, b) => String(a.id).localeCompare(String(b.id)));
   return {
     radarLeadPool: {
@@ -51,6 +55,15 @@ function createPrismaWithRows(rows: Array<Record<string, any>>, contacts: Array<
         return contacts
           .filter((c) => ids.has(String(c.radarLeadId)))
           .sort((a, b) => String(a.radarLeadId).localeCompare(String(b.radarLeadId)) || (a.rank - b.rank));
+      },
+    },
+    leadPerson: {
+      findMany: async ({ where }: any) => {
+        const ids = new Set((where?.radarLeadId?.in || []).map(String));
+        const src = where?.source;
+        return people
+          .filter((p) => ids.has(String(p.radarLeadId)) && (!src || p.source === src))
+          .sort((a, b) => String(a.radarLeadId).localeCompare(String(b.radarLeadId)) || ((a.rank || 1) - (b.rank || 1)));
       },
     },
   };
@@ -94,7 +107,7 @@ test('export-all: gzip descompacta em CSV com cabeçalho + todas as linhas (keys
   assert.ok(csv.startsWith('﻿'), 'faltou BOM UTF-8');
   const lines = csv.replace(/^﻿/, '').split('\r\n').filter((l) => l.length > 0);
   const header = lines[0].split(';');
-  for (const col of ['id', 'name', 'tel1', 'email1', 'insta', 'fb', 'site', 'nota']) {
+  for (const col of ['id', 'name', 'tel1', 'link_whatsapp', 'email1', 'insta', 'fb', 'site', 'nota']) {
     assert.ok(header.includes(col), `cabeçalho sem coluna ${col}`);
   }
 
@@ -134,6 +147,7 @@ test('export-all: contatos da LeadContact achatam em tel1..3 / email1..3 / insta
   assert.equal(rowA[col('tel1')], '11911111111');
   assert.equal(rowA[col('tel2')], '11922222222');
   assert.equal(rowA[col('tel3')], '11933333333', 'whatsapp devia virar tel3');
+  assert.equal(rowA[col('link_whatsapp')], 'https://wa.me/5511911111111', 'link_whatsapp devia usar o tel1 (principal)');
   assert.equal(rowA[col('email1')], 'a1@a.com');
   assert.equal(rowA[col('insta')], 'insta.com/a');
   assert.equal(rowA[col('fb')], 'fb.com/a');
@@ -141,7 +155,34 @@ test('export-all: contatos da LeadContact achatam em tel1..3 / email1..3 / insta
   // Lead SEM contatos na tabela cai no campo cru do próprio lead (fallback).
   const rowB = lines[2].split(';');
   assert.equal(rowB[col('tel1')], '1130000000', 'fallback pro phone cru do lead falhou');
+  assert.equal(rowB[col('link_whatsapp')], 'https://wa.me/551130000000', 'link_whatsapp devia cair no fallback do phone cru');
   assert.equal(rowB[col('email1')], 'cru@b.com', 'fallback pro email cru do lead falhou');
+});
+
+test('export-all: coluna dono_qsa marca lead com sócio da Receita (nome + cargo)', async () => {
+  const rows = [
+    { id: 'idA', name: 'Empresa A', phone: null, email: null, opportunityScore: 90, reviews: 0 },
+    { id: 'idB', name: 'Empresa B', phone: null, email: null, opportunityScore: 10, reviews: 0 },
+  ];
+  const people = [
+    { radarLeadId: 'idA', name: 'Martin Hirke Bijsterveld', role: 'Sócio-Administrador', source: 'receita_qsa', rank: 1 },
+    { radarLeadId: 'idA', name: 'Outro Sócio', role: 'Sócio', source: 'receita_qsa', rank: 2 },
+  ];
+  const svc = buildService(createPrismaWithRows(rows, [], people));
+  const res = createFakeResponse();
+  await svc.streamAllDatabaseCardsCsv(res as any);
+  await res.__done;
+  const csv = gunzipSync(res.__collect()).toString('utf8').replace(/^﻿/, '');
+  const lines = csv.split('\r\n').filter((l) => l.length > 0);
+  const header = lines[0].split(';');
+  const col = (name: string) => header.indexOf(name);
+  assert.ok(col('dono_qsa') >= 0, 'faltou coluna dono_qsa');
+  const rowA = lines[1].split(';');
+  const rowB = lines[2].split(';');
+  assert.equal(rowA[col('dono_qsa')], '1', 'lead A tem sócio → flag 1');
+  assert.equal(rowA[col('dono_nome')], 'Martin Hirke Bijsterveld', 'top-rank vence');
+  assert.equal(rowA[col('dono_cargo')], 'Sócio-Administrador');
+  assert.equal(rowB[col('dono_qsa')], '0', 'lead B sem sócio → flag 0');
 });
 
 test('export-all: banco vazio ainda produz gzip válido só com cabeçalho', async () => {

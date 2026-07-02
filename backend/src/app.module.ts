@@ -23,6 +23,9 @@ import { MasterContextModule } from './master-context/master-context.module';
 import { WebscrapingModule } from './webscraping/webscraping.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { VendasModule } from './vendas/vendas.module';
+import { AtividadesModule } from './atividades/atividades.module';
+import { SavedSearchModule } from './saved-search/saved-search.module';
+import { CadenciaModule } from './cadencia/cadencia.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { getBackendPublicRoot } from './public-assets';
 import { AdminModule } from './admin/admin.module';
@@ -35,8 +38,10 @@ import { TenantCommunicationModule } from './tenant-communication/tenant-communi
 import { NightFactoryModule } from './night-factory/night-factory.module';
 import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
 import { BotModule } from './bot/bot.module';
+import { AssistenteModule } from './assistente/assistente.module';
 import { MasterCockpitModule } from './master-cockpit/master-cockpit.module';
 import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-capture.module';
+import { RelatoriosModule } from './relatorios/relatorios.module';
 
 @Module({
   imports: [
@@ -69,6 +74,9 @@ import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-ca
     WebscrapingModule,
     IntegrationsModule,
     VendasModule,
+    AtividadesModule,
+    SavedSearchModule,
+    CadenciaModule,
     FinanceiroModule,
     CommercialPlansModule,
     PulseModule,
@@ -79,9 +87,11 @@ import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-ca
     NightFactoryModule,
     MetaLeadAdsModule,
     BotModule,
+    AssistenteModule,
     AdminModule,
     MasterCockpitModule,
     WebsiteLeadCaptureModule,
+    RelatoriosModule,
   ],
   controllers: [AppController],
   providers: [

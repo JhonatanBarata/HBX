@@ -36,6 +36,8 @@ import { RadarMissionQueueService } from './radar/missions/radar-mission-queue.s
 import { RadarMissionsController } from './radar/missions/radar-missions.controller';
 import { RadarFabricaService } from './radar/fabrica/radar-fabrica.service';
 import { RadarFabricaController } from './radar/fabrica/radar-fabrica.controller';
+import { CnpjXrayService } from './radar/cnpj-xray/cnpj-xray.service';
+import { CnpjXrayController } from './radar/cnpj-xray/cnpj-xray.controller';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
@@ -56,6 +58,8 @@ import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-
 import { CnpjPublicDatasetService } from './radar/providers/cnpj-public/cnpj-public-dataset.service';
 import { CnpjPublicProviderService } from './radar/providers/cnpj-public/cnpj-public-provider.service';
 import { CnpjDiscoveryService } from './radar/providers/cnpj-public/cnpj-discovery.service';
+import { CnpjBaseQueryService } from './radar/providers/cnpj-public/cnpj-base-query.service';
+import { CnpjBaseController } from './radar/providers/cnpj-public/cnpj-base.controller';
 import { LocalDirectoryProviderService } from './radar/providers/local-directories/local-directory-provider.service';
 import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
@@ -64,6 +68,7 @@ import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-d
 import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
 import { RadarPostDeliveryAiSaneamentoService } from './radar/05-delivery/radar-post-delivery-ai-saneamento.service';
 import { LeadContactWriteService } from './radar/persistence/lead-contact-write.service';
+import { LeadPersonWriteService } from './radar/persistence/lead-person-write.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarDiagnosticService } from './radar/shared/radar-diagnostic.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
@@ -80,6 +85,7 @@ const RADAR_SHARED_SERVICES = [
 const RADAR_PERSISTENCE_SERVICES = [
   RadarRunRepositoryService,
   LeadContactWriteService,
+  LeadPersonWriteService,
 ];
 
 const RADAR_SEARCH_SERVICES = [
@@ -146,6 +152,7 @@ const RADAR_PROVIDER_SERVICES = [
   CnpjPublicDatasetService,
   CnpjPublicProviderService,
   CnpjDiscoveryService,
+  CnpjBaseQueryService,
   LocalDirectoryProviderService,
   VerticalSourceProviderService,
   WebsiteCrawlProviderService,
@@ -165,8 +172,8 @@ const RADAR_SERVICES = [
 
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, EnrichmentCostModule, forwardRef(() => VendasModule)],
-  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController],
-  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, ...RADAR_SERVICES],
-  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService],
+  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController, CnpjXrayController],
+  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, CnpjXrayService, ...RADAR_SERVICES],
+  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, CnpjXrayService],
 })
 export class WebscrapingModule {}

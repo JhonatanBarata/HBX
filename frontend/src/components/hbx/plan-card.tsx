@@ -33,15 +33,24 @@ type Props = {
   ariaLabel?: string;
   // Conteúdo do CTA (.site-plan2__cta). Casca: <div>texto</div>; Config: <button>.
   cta: ReactNode;
+  // Ciclo de cobrança exibido (WORM-17). Ausente/"monthly" = idêntico ao de hoje —
+  // a Configurações não passa e segue igual. "annual" mostra o /mês já com desconto.
+  billingCycle?: "monthly" | "annual";
 };
 
-export function PlanCard({ planKey, live, className, as = "div", onClick, disabled, ariaLabel, cta }: Props) {
+export function PlanCard({ planKey, live, className, as = "div", onClick, disabled, ariaLabel, cta, billingCycle }: Props) {
   const s = PLAN_STATIC[planKey] ?? PLAN_STATIC.hbx_lite;
   // Self-Checkout (F2): plano pausado pelo master → card embaçado e inclicável.
   const paused = Boolean(live.paused);
   const trialText = live.trialDays > 0 ? `${live.trialDays} dias grátis` : undefined;
   const price = live.monthlyPrice !== null ? formatBRL(live.monthlyPrice) : null;
   const discountMonths = Math.floor(12 * (live.annualDiscountPercent / 100));
+  // Anual (WORM-17): /mês equivalente JÁ com o desconto — ancora sem virar taxímetro.
+  const isAnnual = billingCycle === "annual" && !live.contactOnly && live.monthlyPrice !== null;
+  const annualMonthly = live.monthlyPrice !== null
+    ? formatBRL(live.monthlyPrice * (1 - live.annualDiscountPercent / 100))
+    : null;
+  const displayPrice = isAnnual ? annualMonthly : price;
   const allFeats = live.contactOnly
     ? s.feats
     : [...s.feats, ...(live.cardsPerMonth ? [`${live.cardsPerMonth.toLocaleString("pt-BR")} leads por mês`] : [])];
@@ -54,9 +63,9 @@ export function PlanCard({ planKey, live, className, as = "div", onClick, disabl
       <span className="site-plan2__ic"><Ic paths={s.ic} /></span>
       <strong className="site-plan2__name">HBX <span className="site-accent">{s.accent}</span></strong>
       {trialText
-        ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{trialText}</span><span className="site-plan2__trial-price">{price}<em>/mês</em></span></span>
-        : !live.contactOnly && price
-          ? <span className="site-plan2__price"><b>{price}</b><em>/mês</em></span>
+        ? <span className="site-plan2__trial-wrap"><span className="site-plan2__trial">{trialText}</span><span className="site-plan2__trial-price">{displayPrice}<em>/mês</em>{isAnnual && <small> no anual</small>}</span></span>
+        : !live.contactOnly && displayPrice
+          ? <span className="site-plan2__price"><b>{displayPrice}</b><em>/mês</em>{isAnnual && <small>no anual</small>}</span>
           : null}
       <span className="site-plan2__tag">{s.tag}</span>
       <ul className="site-plan2__feats">

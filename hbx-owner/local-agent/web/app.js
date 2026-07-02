@@ -23,6 +23,18 @@ async function api(method, route, body) {
 function $(sel) { return document.querySelector(sel); }
 function esc(value) { return String(value == null ? "" : value).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+// HOT-05 — link WhatsApp (wa.me) de 1 clique. Mesma regra do front/backend
+// (frontend/src/lib/wa-link.ts, backend/src/webscraping/radar/shared/radar-core-shared.ts):
+// normaliza pra 55+DDD+número e monta https://wa.me/<digits>. Ação HUMANA do dono clicando
+// no painel — não passa pelo motor/Webwhats.
+function owWaLink(rawPhone) {
+  let digits = String(rawPhone || "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("55") && digits.length > 11) digits = digits.slice(2);
+  if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+  return digits ? `https://wa.me/${digits}` : null;
+}
+
 /* ---------- Tema ---------- */
 const savedTheme = localStorage.getItem("hbx-owner-theme") || "light";
 document.documentElement.dataset.theme = savedTheme;
@@ -528,6 +540,7 @@ const CK_COLS = [
   { key: "phone",              label: "Telefone",        w: 110 },
   { key: "_ownerPhone",        label: "Tel. do dono",    w: 110 },
   { key: "_whatsapp",          label: "WhatsApp",        w: 90  },
+  { key: "_waAction",          label: "Abrir WhatsApp",  w: 90  },
   { key: "website",            label: "Website",         w: 130 },
   { key: "email",              label: "E-mail",          w: 140 },
   { key: "_ownerSocial",       label: "Social do dono",  w: 120 },
@@ -579,6 +592,11 @@ function ckGetValue(row, key) {
     const phone = row.phone || row.phoneDigits || "";
     if (!phone) return "";
     return ws === "valid" || ws === "confirmed" ? phone : "";
+  }
+  // HOT-05: telefone usado no botão "Abrir WhatsApp" (principal verificado > principal cru).
+  if (key === "_waAction") {
+    const primary = ckDisplayPhones(row)[0] || row.phone || row.phoneDigits || "";
+    return primary || "";
   }
   if (key === "website") return row.website || "";
   if (key === "email") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(", ");
@@ -643,6 +661,20 @@ function ckApplySort(rows) {
 }
 
 function ckCellHtml(row, key) {
+  // HOT-05: botão "Abrir WhatsApp" — 1 clique no wa.me do vendedor com o lead (ação humana,
+  // não passa pelo motor/Webwhats). Verde = WhatsApp validado no gate do motor; cinza =
+  // não validado (ainda abre, só não tem a garantia do gate — CNPJ Biz não tem essa distinção).
+  if (key === "_waAction") {
+    const primary = ckDisplayPhones(row)[0] || row.phone || row.phoneDigits || "";
+    const link = owWaLink(primary);
+    if (!link) return '<span style="color:var(--text-muted);">—</span>';
+    const ws = String(row.whatsappStatus || row.whatsappCheckStatus || "").toLowerCase();
+    const validated = ws === "valid" || ws === "confirmed";
+    const cls = validated ? "ck-pill ok" : "ck-pill muted";
+    const title = validated ? "WhatsApp validado — abrir conversa" : "WhatsApp não validado — abrir mesmo assim";
+    return `<a href="${esc(link)}" target="_blank" rel="noopener" class="${cls}" title="${esc(title)}">${validated ? "✓" : ""} WhatsApp</a>`;
+  }
+
   // E-mail e Telefone: mostram até 3 (dos arrays emails[]/phones[] achados no scraper).
   if (key === "email" || key === "phone") {
     const arr = key === "email"
@@ -859,6 +891,7 @@ function ckExportCsv() {
     { key: "ownerFacebook",      label: "Facebook do dono" },
     { key: "phone",              label: "Telefone" },
     { key: "phoneDigits",        label: "Telefone (digits)" },
+    { key: "_linkWhatsapp",      label: "Link WhatsApp" },
     { key: "_emails",            label: "E-mails (1/2/3)" },
     { key: "_phones",            label: "Telefones (1/2/3)" },
     { key: "email",              label: "E-mail" },
@@ -888,6 +921,7 @@ function ckExportCsv() {
   const csvVal = (row, key) => {
     if (key === "_emails") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(" | ");
     if (key === "_phones") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(" | ");
+    if (key === "_linkWhatsapp") return owWaLink(ckDisplayPhones(row)[0] || row.phone || row.phoneDigits) || "";
     if (key === "ownerName") return (Array.isArray(row.ownerNames) && row.ownerNames.length ? row.ownerNames : [row.ownerName]).filter(Boolean).join(" | ");
     return row[key];
   };
@@ -1834,9 +1868,465 @@ async function treeCardsRender() {
   }
 }
 
+/* ---------- Raio-X de CNPJ em lote (HOT-04) ---------- */
+function xraySelectedLayers() {
+  const layers = ["cadastral"]; // sempre ligada (grátis, instantânea) — checkbox fica disabled
+  if ($("#xray-layer-vivo")?.checked) layers.push("vivo");
+  if ($("#xray-layer-ia")?.checked) layers.push("ia");
+  return layers;
+}
+function xrayParsedLines() {
+  const raw = String($("#xray-input")?.value || "");
+  return raw.split("\n").map((l) => l.trim()).filter(Boolean);
+}
+function xrayUpdateLineCount() {
+  const el = $("#xray-line-count");
+  if (el) el.textContent = `${xrayParsedLines().length} linha(s)`;
+}
+{ const t = $("#xray-input"); if (t) t.addEventListener("input", xrayUpdateLineCount); }
+
+async function xrayEstimate() {
+  const fb = $("#xray-estimate");
+  const lines = xrayParsedLines();
+  if (!lines.length) { if (fb) fb.textContent = "Cole ao menos 1 CNPJ antes de estimar."; return; }
+  try {
+    const r = await api("POST", "/owner/cnpj-xray/estimate", { cnpjs: lines, layers: xraySelectedLayers() });
+    if (!r || !r.ok) { if (fb) fb.textContent = r && r.offline ? "Raio-X offline (backend ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`; return; }
+    const est = r.estimate || {};
+    const perLayer = (est.perLayer || []).map((l) => `${esc(l.label)}: ~${Math.round(l.secondsEstimate)}s`).join(" · ");
+    if (fb) fb.textContent = `Válidos: ${r.validCount} · Inválidos: ${r.invalidCount} · Tempo estimado total: ~${est.totalSecondsEstimate || 0}s (${perLayer})`;
+  } catch (err) {
+    if (fb) fb.textContent = `erro: ${err.message}`;
+  }
+}
+
+async function xrayStart() {
+  const fb = $("#xray-feedback");
+  const btn = $("#btn-xray-start");
+  const lines = xrayParsedLines();
+  if (!lines.length) { if (fb) fb.textContent = "Cole ao menos 1 CNPJ antes de iniciar."; return; }
+  if (lines.length > 10000) { if (fb) fb.textContent = "Máximo de 10.000 CNPJs por lote."; return; }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("POST", "/owner/cnpj-xray/start", { cnpjs: lines, layers: xraySelectedLayers() });
+    if (r && r.ok && r.started) {
+      if (fb) fb.textContent = `Job iniciado (${r.jobId}) — ${r.validCount} CNPJ(s) válido(s), ${r.invalidCount} descartado(s). Acompanhe na tabela abaixo.`;
+      $("#xray-input").value = "";
+      xrayUpdateLineCount();
+      xrayJobsRender();
+    } else {
+      if (fb) fb.textContent = r && r.offline ? "Raio-X offline (backend ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`;
+    }
+  } catch (err) {
+    if (fb) fb.textContent = `erro: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+const XRAY_STATUS_LABEL = {
+  queued: "na fila", running_cadastral: "cadastral…", running_vivo: "vivo…",
+  running_ia: "IA…", done: "concluído", error: "erro",
+};
+function xrayStatusPillClass(status) {
+  if (status === "done") return "pill-ok";
+  if (status === "error") return "pill-bad";
+  return "pill-muted";
+}
+async function xrayJobsRender() {
+  const tbody = $("#xray-jobs-tbody");
+  if (!tbody) return;
+  let r;
+  try { r = await api("GET", "/owner/cnpj-xray/jobs"); }
+  catch (err) { r = { ok: false, reason: err.message }; }
+  if (!r || !r.ok || !Array.isArray(r.jobs)) {
+    tbody.innerHTML = `<tr><td colspan="10" class="delta">${r && r.offline ? "Raio-X offline (backend ainda não publicado)." : "sem leitura do histórico."}</td></tr>`;
+    return;
+  }
+  if (!r.jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="delta">nenhum job ainda.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = r.jobs.map((j) => {
+    const created = j.createdAt ? new Date(j.createdAt).toLocaleString("pt-BR") : "—";
+    const layers = (j.layers || []).join(", ");
+    const action = j.downloadReady
+      ? `<button class="btn btn-sm btn-blue xray-dl-btn" data-job-id="${esc(j.id)}">⬇ XLSX</button>`
+      : (j.status === "error" ? `<span class="delta" title="${esc(j.lastError || "")}">falhou</span>` : "—");
+    return `<tr>
+      <td style="font-size:11px;">${esc(j.id.slice(0, 12))}…</td>
+      <td><span class="pill ${xrayStatusPillClass(j.status)}">${esc(XRAY_STATUS_LABEL[j.status] || j.status)}</span></td>
+      <td>${esc(layers)}</td>
+      <td>${esc(j.validCount)}</td>
+      <td>${esc(j.invalidCount)}</td>
+      <td>${esc(j.processedCount)}</td>
+      <td>${esc(j.missionsDone)}/${esc(j.missionsQueued)}</td>
+      <td>${esc(j.aiDone)}</td>
+      <td>${esc(created)}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join("");
+}
+
+/** Download autenticado (token no header — mesmo motivo do ckExportAllStream: <a href> não manda o Bearer). */
+async function xrayDownload(jobId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/owner/cnpj-xray/jobs/${encodeURIComponent(jobId)}/download`, {
+      method: "GET",
+      headers: { Authorization: "Bearer " + TOKEN },
+    });
+    const ct = String(res.headers.get("content-type") || "");
+    if (!res.ok || ct.includes("application/json")) {
+      let reason = "http_" + res.status;
+      try { const j = await res.json(); reason = j.reason || j.message || reason; } catch (e) { /* corpo não-json */ }
+      throw new Error(reason);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `raio-x-cnpj-${jobId}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    const fb = $("#xray-feedback");
+    if (fb) fb.textContent = `falha ao baixar: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+{
+  const tbody = $("#xray-jobs-tbody");
+  if (tbody) tbody.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".xray-dl-btn");
+    if (btn) xrayDownload(btn.dataset.jobId, btn);
+  });
+}
+
+{ const b = $("#btn-xray-estimate"); if (b) b.addEventListener("click", xrayEstimate); }
+{ const b = $("#btn-xray-start"); if (b) b.addEventListener("click", xrayStart); }
+
 { const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
+
+/* ================= HOT-02 + HOT-03 (fundidos) — Base Receita ================= */
+/* Pesquisa avançada em cima do dump local da RFB (CnpjPublicCompany) + anti-contador.
+   Endpoints via proxy do local-agent (server.js) → backend `/modules/owner/cnpj-base/*`. */
+let cbSelectedCities = []; // [{ normalizedCity, city, state }]
+let cbLastQuery = null;    // guarda o último filtro usado no "Contar" p/ materializar/exportar sem reconstruir
+
+function cbSeloLabel(selo) {
+  if (selo === "whatsapp_validado") return "🟢 WhatsApp";
+  if (selo === "celular_provavel") return "🟡 Celular";
+  if (selo === "fixo") return "🟠 Fixo";
+  if (selo === "provavel_contador") return "🔴 Contador";
+  return "⚪ Sem contato";
+}
+
+function cbDatePresetToRange(preset) {
+  if (!preset) return { de: null, ate: null };
+  const now = new Date();
+  const ate = now.toISOString().slice(0, 10);
+  const days = { "7d": 7, "1m": 30, "6m": 182, "1y": 365, "3y": 365 * 3, "5y": 365 * 5 }[preset];
+  if (preset === "today") { const t = now.toISOString().slice(0, 10); return { de: t, ate: t }; }
+  if (!days) return { de: null, ate: null };
+  const de = new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10);
+  return { de, ate };
+}
+
+function cbBuildFilters() {
+  const cnaeRaw = ($("#cb-cnae-search")?.value || "").trim();
+  const cnaeCodes = /^\d[\d-]*$/.test(cnaeRaw) ? [cnaeRaw.replace(/\D/g, "")] : [];
+  const selMulti = (sel) => Array.from(sel?.selectedOptions || []).map((o) => o.value).filter(Boolean);
+  const dateSlider = $("#cb-data-slider")?.value || "";
+  const sliderRange = cbDatePresetToRange(dateSlider);
+  const contatoTipo = $("#cb-contato-tipo")?.value || "";
+  const contato = {
+    comEmail: ["celular_email", "tel_ou_celular_email", "tel_ou_celular_ou_email"].includes(contatoTipo) || contatoTipo === "email" ? true : undefined,
+    comCelular: ["celular", "celular_email"].includes(contatoTipo) ? true : undefined,
+    comTelefone: ["telefone", "tel_ou_celular", "tel_ou_celular_email", "tel_ou_celular_ou_email"].includes(contatoTipo) ? true : undefined,
+    maxPhoneShare: Number($("#cb-max-phone-share")?.value || 3),
+    blocklistEmail: Boolean($("#cb-blocklist-email")?.checked),
+  };
+  return {
+    cnaes: cnaeCodes.length ? cnaeCodes : undefined,
+    cnaePrincipalOnly: Boolean($("#cb-cnae-principal")?.checked) || undefined,
+    naturezas: selMulti($("#cb-natureza")).length ? selMulti($("#cb-natureza")) : undefined,
+    situacoes: selMulti($("#cb-situacao")).length ? selMulti($("#cb-situacao")) : undefined,
+    porte: selMulti($("#cb-porte")).length ? selMulti($("#cb-porte")) : undefined,
+    matrizFilial: $("#cb-matriz-filial")?.value || undefined,
+    // cb-regime fica desabilitado no HTML (fase 2 RFB, coluna sempre NULL hoje) — não envia.
+    capitalMin: $("#cb-capital-min")?.value ? Number($("#cb-capital-min").value) : undefined,
+    capitalMax: $("#cb-capital-max")?.value ? Number($("#cb-capital-max").value) : undefined,
+    mei: $("#cb-mei")?.checked || undefined,
+    simples: $("#cb-simples")?.checked || undefined,
+    keyword: ($("#cb-keyword")?.value || "").trim() || undefined,
+    cities: cbSelectedCities.length ? cbSelectedCities.map((c) => c.normalizedCity) : undefined,
+    states: ($("#cb-states")?.value || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).length
+      ? ($("#cb-states").value || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean) : undefined,
+    ddd: ($("#cb-ddd")?.value || "").trim() || undefined,
+    abertaDe: $("#cb-data-de")?.value || sliderRange.de || undefined,
+    abertaAte: $("#cb-data-ate")?.value || sliderRange.ate || undefined,
+    contato,
+    excluirJaEntregues: Boolean($("#cb-excluir-entregues")?.checked),
+    limit: 20,
+  };
+}
+
+function cbApplyPreset(preset) {
+  // Presets de 1 clique — só os que mapeiam em filtro real da base fria (correção de escopo 02/07).
+  if (preset === "abriu-mes-cidade") { $("#cb-data-slider").value = "1m"; }
+  else if (preset === "mei-crescendo") { $("#cb-mei").checked = true; $("#cb-capital-min").value = "1000"; }
+  else if (preset === "capital-alto") { $("#cb-capital-min").value = "100000"; }
+  cbCount();
+}
+
+async function cbCount() {
+  const btn = $("#btn-cb-count");
+  const fb = $("#cb-feedback");
+  const result = $("#cb-result");
+  if (btn) btn.disabled = true;
+  if (fb) { fb.textContent = "contando…"; fb.className = "delta"; }
+  try {
+    const filters = cbBuildFilters();
+    cbLastQuery = filters;
+    const r = await api("POST", "/owner/cnpj-base/query", filters);
+    if (!r.ok) throw new Error(r.reason || "falha ao contar");
+    const data = r.data || {};
+    if (result) result.style.display = "";
+    const countBig = $("#cb-count-big");
+    if (countBig) countBig.textContent = Number(data.count || 0).toLocaleString("pt-BR");
+    const statsLine = $("#cb-stats-line");
+    if (statsLine) {
+      const s = data.statsAmostra || {};
+      statsLine.textContent = `da amostra: ${s.comCelularProprio || 0} com celular próprio, ${s.provavelContador || 0} prováveis contador` + (data.excludedJaEntregues ? ` · ${data.excludedJaEntregues} já entregues excluídas` : "");
+    }
+    const tbody = $("#cb-sample-tbody");
+    if (tbody) {
+      const sample = Array.isArray(data.sample) ? data.sample : [];
+      tbody.innerHTML = sample.length ? sample.map((row) => `<tr>
+        <td>${esc(cbSeloLabel(row.selo))}</td>
+        <td>${esc(row.nomeFantasia || row.razaoSocial)}</td>
+        <td>${esc(row.city || "—")}/${esc(row.state || "—")}</td>
+        <td title="${esc(row.cnaeDescription || "")}">${esc(row.cnae || "—")}</td>
+        <td>${esc(row.phone || "—")}</td>
+        <td>${esc(row.email || "—")}</td>
+        <td>${row.website ? `<a href="${esc(row.website)}" target="_blank" rel="noopener">site</a>` : "—"}</td>
+      </tr>`).join("") : `<tr><td colspan="7" class="delta">nenhuma empresa encontrada com estes filtros.</td></tr>`;
+    }
+    if (fb) { fb.textContent = `${Number(data.count || 0).toLocaleString("pt-BR")} empresas encontradas.`; fb.className = "delta up"; }
+    const matBtn = $("#btn-cb-materialize");
+    const expBtn = $("#btn-cb-export");
+    const hasResults = Number(data.count || 0) > 0;
+    if (matBtn) matBtn.disabled = !hasResults;
+    if (expBtn) expBtn.disabled = !hasResults;
+  } catch (err) {
+    if (fb) { fb.textContent = `erro: ${err.message}`; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function cbMaterialize() {
+  if (!cbLastQuery) return;
+  const btn = $("#btn-cb-materialize");
+  const fb = $("#cb-feedback");
+  if (!confirm("Virar as empresas encontradas em leads do Radar? (limite de 500 por lote, dedup automático)")) return;
+  if (btn) btn.disabled = true;
+  if (fb) { fb.textContent = "materializando leads…"; fb.className = "delta"; }
+  try {
+    const r = await api("POST", "/owner/cnpj-base/materialize", { ...cbLastQuery, maxItems: 500 });
+    if (!r.ok) throw new Error(r.reason || "falha ao materializar");
+    const d = r.data || {};
+    const counts = d.counts || {};
+    if (fb) { fb.textContent = `lote ${d.batchId || "—"}: ${counts.accepted || 0} aceitos, ${counts.duplicates || 0} duplicados, ${counts.rejected || 0} rejeitados.`; fb.className = "delta up"; }
+  } catch (err) {
+    if (fb) { fb.textContent = `erro: ${err.message}`; fb.className = "delta"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function cbExport() {
+  if (!cbLastQuery) return;
+  const fb = $("#cb-feedback");
+  try {
+    const r = await api("POST", "/owner/cnpj-base/query", { ...cbLastQuery, limit: 20 });
+    if (!r.ok) throw new Error(r.reason || "falha ao exportar");
+    const sample = (r.data && r.data.sample) || [];
+    if (!sample.length) { if (fb) fb.textContent = "nada para exportar."; return; }
+    const cols = ["cnpj", "razaoSocial", "nomeFantasia", "cnae", "cnaeDescription", "porte", "situacao", "city", "state", "phone", "email", "website", "selo"];
+    const csvCell = (v) => { const s = v == null ? "" : String(v); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const bom = "﻿";
+    const csv = bom + [cols.join(";"), ...sample.map((row) => cols.map((c) => csvCell(row[c])).join(";"))].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `base_receita_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if (fb) { fb.textContent = `${sample.length} linhas exportadas (amostra — refine os filtros p/ recortes maiores).`; fb.className = "delta up"; }
+  } catch (err) {
+    if (fb) fb.textContent = `erro: ${err.message}`;
+  }
+}
+
+async function cbSearchCities(q) {
+  const chips = $("#cb-cities-chips");
+  if (!q || q.length < 2) { return; }
+  try {
+    const r = await api("GET", `/owner/cnpj-base/cities?q=${encodeURIComponent(q)}`);
+    if (!r.ok) return;
+    const items = (r.data && r.data.items) || [];
+    if (chips) {
+      chips.innerHTML = items.map((it) => `<button type="button" class="chk cb-city-opt" data-city="${esc(it.normalizedCity)}" data-label="${esc(it.city)}/${esc(it.state || "")}">${esc(it.city)}/${esc(it.state || "")}</button>`).join("");
+    }
+  } catch { /* autocomplete é best-effort */ }
+}
+
+function cbRenderSelectedCities() {
+  const chips = $("#cb-cities-chips");
+  if (!chips) return;
+  const selected = cbSelectedCities.map((c) => `<span class="chk" style="background:var(--brand);color:var(--brand-ink,#fff);">${esc(c.city)}/${esc(c.state || "")} ✕</span>`).join("");
+  chips.innerHTML = selected;
+}
+
+async function cbLoadStaticOptions() {
+  // Natureza jurídica / porte vêm do cache CnpjBaseStats (contagem por opção, HOT-02).
+  try {
+    const r = await api("GET", "/owner/cnpj-base/stats");
+    if (!r.ok) return;
+    const groups = (r.data && r.data.groups) || {};
+    const fill = (selId, group) => {
+      const sel = $(selId);
+      if (!sel || !Array.isArray(groups[group])) return;
+      sel.innerHTML = groups[group].map((opt) => `<option value="${esc(opt.key)}">${esc(opt.label || opt.key)} (${Number(opt.count).toLocaleString("pt-BR")})</option>`).join("");
+    };
+    fill("#cb-natureza", "naturezaJuridica");
+    fill("#cb-porte", "porte");
+  } catch { /* stats ainda pode não existir (base não carregada) — degrada silencioso */ }
+}
+
+{ const b = $("#btn-cb-count"); if (b) b.addEventListener("click", cbCount); }
+{ const b = $("#btn-cb-materialize"); if (b) b.addEventListener("click", cbMaterialize); }
+{ const b = $("#btn-cb-export"); if (b) b.addEventListener("click", cbExport); }
+{
+  const input = $("#cb-city-search");
+  let cbCityTimer = null;
+  if (input) input.addEventListener("input", () => {
+    clearTimeout(cbCityTimer);
+    const q = input.value;
+    cbCityTimer = setTimeout(() => cbSearchCities(q), 250);
+  });
+}
+{
+  const chips = $("#cb-cities-chips");
+  if (chips) chips.addEventListener("click", (ev) => {
+    const opt = ev.target.closest(".cb-city-opt");
+    if (!opt) return;
+    const city = opt.getAttribute("data-city");
+    const label = opt.getAttribute("data-label") || city;
+    const [cityName, state] = label.split("/");
+    if (!cbSelectedCities.some((c) => c.normalizedCity === city)) {
+      cbSelectedCities.push({ normalizedCity: city, city: cityName, state });
+    }
+    $("#cb-city-search").value = "";
+    cbRenderSelectedCities();
+  });
+}
+{
+  const presets = $("#cb-presets");
+  if (presets) presets.addEventListener("click", (ev) => {
+    const b = ev.target.closest(".cb-preset");
+    if (!b) return;
+    cbApplyPreset(b.getAttribute("data-preset"));
+  });
+}
+cbLoadStaticOptions();
+
+/* ================= HOT-06 — ▶️ tutoriais + página Treinamentos =================
+   Vídeos ainda não existem (dono vai gravar os roteiros de docs/PLANEJAMENTOS/hot/06-marketing-video-demo.md).
+   As URLs vêm de um config editável (web/tutoriais.json) — enquanto a URL está vazia (""),
+   o ícone mostra "em breve" sem link, e o item some da lista de Treinamentos (o roteiro já
+   existe, só falta gravar). Assim não fica ninguém clicando em vídeo que não existe. */
+let tutoriaisConfig = null;
+
+async function loadTutoriaisConfig() {
+  if (tutoriaisConfig) return tutoriaisConfig;
+  try {
+    const res = await fetch("/tutoriais.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    tutoriaisConfig = await res.json();
+    return tutoriaisConfig;
+  } catch {
+    return null; // config é best-effort — painel funciona normalmente sem ela
+  }
+}
+
+function tutBuildIcon(item) {
+  const a = document.createElement("a");
+  const hasUrl = Boolean(item && item.url);
+  a.className = "tut-link" + (hasUrl ? "" : " tut-pending");
+  a.textContent = hasUrl ? "▶ vídeo" : "▶ em breve";
+  if (hasUrl) {
+    a.href = item.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = `Micro-tutorial: ${item.titulo || ""}`;
+  } else {
+    a.href = "#";
+    a.title = "Vídeo ainda não gravado — roteiro em docs/PLANEJAMENTOS/hot/06-marketing-video-demo.md";
+    a.addEventListener("click", (ev) => ev.preventDefault());
+  }
+  return a;
+}
+
+async function renderTutorialIcons() {
+  const cfg = await loadTutoriaisConfig();
+  const blocos = (cfg && Array.isArray(cfg.blocosFiltro)) ? cfg.blocosFiltro : [];
+  if (!blocos.length) return;
+  blocos.forEach((item) => {
+    const summary = document.querySelector(`summary[data-tutorial="${item.id}"]`);
+    if (!summary || summary.querySelector(".tut-link")) return; // já injetado
+    summary.appendChild(tutBuildIcon(item));
+  });
+}
+
+async function renderTreinamentos() {
+  const box = $("#treinamentos-list");
+  if (!box) return;
+  const cfg = await loadTutoriaisConfig();
+  const playlist = (cfg && Array.isArray(cfg.playlistTreinamentos)) ? cfg.playlistTreinamentos : [];
+  const prontos = playlist.filter((v) => v && v.url);
+  if (!cfg) {
+    box.innerHTML = `<p class="tr-empty">config de vídeos indisponível (tutoriais.json).</p>`;
+    return;
+  }
+  if (!prontos.length) {
+    box.innerHTML = `<p class="tr-empty">nenhum vídeo gravado ainda — ${playlist.length} roteiro(s) prontos esperando gravação (ver docs/PLANEJAMENTOS/hot/06-marketing-video-demo.md).</p>`;
+    return;
+  }
+  box.innerHTML = prontos.map((v) => `
+    <div class="tr-item">
+      <span class="tr-item-icon">▶</span>
+      <div class="tr-item-body">
+        <div class="tr-item-title">${esc(v.titulo || "")}</div>
+        <div class="tr-item-desc">${esc(v.descricao || "")}</div>
+      </div>
+      <a class="btn btn-sm btn-green tr-item-action" href="${esc(v.url)}" target="_blank" rel="noopener">Assistir</a>
+    </div>
+  `).join("");
+}
+
+renderTutorialIcons();
+renderTreinamentos();
 
 /* ---------- Boot ---------- */
 pingStatus();
@@ -1852,6 +2342,8 @@ loadCockpit();
 fabRender();
 aiLocalRender();
 treeCardsRender();
+xrayJobsRender();
+xrayUpdateLineCount();
 setInterval(renderSistema, 5000);
 setInterval(renderMotorStrip, 12000);
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
@@ -1861,3 +2353,4 @@ setInterval(pingStatus, 20000);
 setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
 setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tree-status, cache 10s no backend)
+setInterval(xrayJobsRender, 8000);       // histórico de jobs do Raio-X de CNPJ (HOT-04)

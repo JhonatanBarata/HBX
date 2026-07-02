@@ -183,6 +183,8 @@ const STATIC_TYPES = {
   ".js": "application/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
+  // HOT-06: config de vídeos/tutoriais (tutoriais.json) servida como estática, mesma regra do resto de web/.
+  ".json": "application/json; charset=utf-8",
 };
 
 if (!TOKEN) {
@@ -1943,6 +1945,47 @@ async function route(req, res) {
     return;
   }
 
+  // ── RAIO-X DE CNPJ EM LOTE (HOT-04) — cola até 10k CNPJs, camadas cadastral/vivo/ia. ──
+  // Mesmo padrão de proxy da fábrica: degrade gracioso (offline) se o backend ainda não tiver
+  // as rotas /modules/owner/cnpj-xray/*. Download é STREAM puro (mesma função da export-all).
+  if (req.method === "POST" && url.pathname === "/owner/cnpj-xray/estimate") {
+    let body = {};
+    try { body = await readBody(req); } catch { body = {}; }
+    const r = await backendRequest("POST", "/modules/owner/cnpj-xray/estimate", body, { timeoutMs: 15000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "xray_nao_publicado" : (r.error || `http_${r.statusCode || "?"}`) });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/cnpj-xray/start") {
+    let body = {};
+    try { body = await readBody(req); } catch { body = {}; }
+    const r = await backendRequest("POST", "/modules/owner/cnpj-xray/start", body, { timeoutMs: 30000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "xray_nao_publicado" : (r.error || `http_${r.statusCode || "?"}`) });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-xray/jobs") {
+    const r = await backendRequest("GET", "/modules/owner/cnpj-xray/jobs", null, { timeoutMs: 15000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "xray_nao_publicado" : (r.error || `http_${r.statusCode || "?"}`) });
+    return;
+  }
+  if (req.method === "GET" && url.pathname.startsWith("/owner/cnpj-xray/jobs/") && !url.pathname.endsWith("/download")) {
+    const id = decodeURIComponent(url.pathname.slice("/owner/cnpj-xray/jobs/".length));
+    const r = await backendRequest("GET", `/modules/owner/cnpj-xray/jobs/${encodeURIComponent(id)}`, null, { timeoutMs: 15000 });
+    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
+    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "job_nao_encontrado" : (r.error || `http_${r.statusCode || "?"}`) });
+    return;
+  }
+  if (req.method === "GET" && url.pathname.match(/^\/owner\/cnpj-xray\/jobs\/[^/]+\/download$/)) {
+    const id = decodeURIComponent(url.pathname.split("/")[4]);
+    const r = await streamBackendToClient("GET", `/modules/owner/cnpj-xray/jobs/${encodeURIComponent(id)}/download`, res, backendToken);
+    if (!r.ok && !r.streamed && !res.headersSent) {
+      sendJson(res, 200, { ok: false, reason: r.statusCode ? `http_${r.statusCode}` : (r.error || "download_falhou") });
+    }
+    return;
+  }
+
   // Integrações: status das chaves (presença, nunca o valor) + injeção no .env LOCAL.
   if (req.method === "GET" && url.pathname === "/owner/integrations") {
     const items = INTEGRATION_CATALOG.map((i) => ({ ...i, ...readIntegrationPresence(i.key) }));
@@ -2602,6 +2645,56 @@ async function route(req, res) {
       sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` });
       return;
     }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  // ── HOT-02 + HOT-03 (fundidos) — "Base Receita": proxy fino p/ /modules/owner/cnpj-base/*.
+  // Nenhuma lógica de filtro/anti-contador aqui — o backend é o dono da regra, este agent só
+  // repassa (mesmo padrão de /owner/radar/contacts/export). Leitura local, sem fonte paga.
+  if (req.method === "POST" && url.pathname === "/owner/cnpj-base/query") {
+    const body = await readBody(req).catch((err) => ({ __error: err.message }));
+    if (body && body.__error) { sendJson(res, 400, { ok: false, reason: body.__error }); return; }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/cnpj-base/query", body, { timeoutMs: 20000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/owner/cnpj-base/materialize") {
+    const body = await readBody(req).catch((err) => ({ __error: err.message }));
+    if (body && body.__error) { sendJson(res, 400, { ok: false, reason: body.__error }); return; }
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const r = await backendRequest("POST", "/modules/owner/cnpj-base/materialize", body, { timeoutMs: 60000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-base/cities") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const q = url.searchParams.get("q") || "";
+    const r = await backendRequest("GET", `/modules/owner/cnpj-base/cities?q=${encodeURIComponent(q)}`, null, { timeoutMs: 10000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-base/cnaes") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const q = url.searchParams.get("q") || "";
+    const r = await backendRequest("GET", `/modules/owner/cnpj-base/cnaes?q=${encodeURIComponent(q)}`, null, { timeoutMs: 10000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/owner/cnpj-base/stats") {
+    if (!backendToken) { await refreshBackendToken().catch(() => null); }
+    const group = url.searchParams.get("group") || "";
+    const r = await backendRequest("GET", `/modules/owner/cnpj-base/stats${group ? `?group=${encodeURIComponent(group)}` : ""}`, null, { timeoutMs: 10000 });
+    if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
     sendJson(res, 200, { ok: true, data: r.data });
     return;
   }

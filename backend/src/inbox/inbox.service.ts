@@ -60,6 +60,7 @@ import { resolveBackendPublicAssetPath } from '../public-assets';
 import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
+import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import type { Request, Response } from 'express';
 
 type BotConfigProviderCapabilities = {
@@ -5056,6 +5057,9 @@ export class InboxService {
               // CNPJ/dono/multi-contatos vivem no metadataJson (cnpj/razaoSocial/ownerName/
               // ownerPhone/emails/phones/phonesWhatsapp). Sem isso, o card de atendimento não exibe.
               metadataJson: true,
+              // HOT-07 (empresa recém-aberta): diasAberto/recem_aberto vêm daqui
+              // (RadarPublicDataService, a partir de CnpjPublicCompany.openedAt).
+              signalsJson: true,
             },
           },
         },
@@ -5164,6 +5168,24 @@ export class InboxService {
     return { conversation, phoneNormalized, profile, atendimentoCustomer, lead };
   }
 
+  // HOT-07 (empresa recém-aberta): mesma janela de urgência do card do Radar
+  // (RadarCorePresentationMixin.FRESH_COMPANY_WINDOW_DAYS) — reusa o `diasAberto`
+  // já calculado em RadarPublicDataService/signalsJson do RadarLeadPool ligado.
+  // Sem CNPJ casado = ausente, badge não aparece.
+  private static readonly FRESH_COMPANY_WINDOW_DAYS = 30;
+
+  private buildFreshCompanyState(pool: any): { isFreshCompany: boolean; daysSinceOpened: number | null } {
+    const stored = parseSignalsJson(pool?.signalsJson);
+    const days = stored.diasAberto;
+    if (typeof days !== 'number' || !Number.isFinite(days) || days < 0) {
+      return { isFreshCompany: false, daysSinceOpened: null };
+    }
+    return {
+      isFreshCompany: days <= InboxService.FRESH_COMPANY_WINDOW_DAYS,
+      daysSinceOpened: days,
+    };
+  }
+
   private buildStatusCardPayload(input: {
     phoneNormalized: string;
     profile: any;
@@ -5236,6 +5258,8 @@ export class InboxService {
             setupValueLabel: lead.setupValue != null && Number(lead.setupValue) > 0 ? this.fmtMoneyBrl(Number(lead.setupValue)) : null,
             setupCommissionValueLabel: lead.setupCommissionAmount != null && Number(lead.setupCommissionAmount) > 0 ? this.fmtMoneyBrl(Number(lead.setupCommissionAmount)) : null,
             updatedAt: lead.updatedAt instanceof Date ? lead.updatedAt.toISOString() : null,
+            // HOT-07 (empresa recém-aberta): badge de urgência no card de Atendimento.
+            ...this.buildFreshCompanyState(input.lead?.radarCompanyStates?.[0]?.radarLead ?? null),
             // Empresa + dono + multi-contatos (do metadataJson do RadarLeadPool ligado). Telefone extra
             // só é exibido no front se confirmado no WhatsApp (phonesWhatsapp). Cru nunca é descartado.
             ...(() => {

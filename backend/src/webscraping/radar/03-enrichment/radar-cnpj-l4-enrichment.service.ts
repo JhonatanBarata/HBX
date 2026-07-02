@@ -2,6 +2,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { SourceBudgetService } from '../../source-budget/source-budget.service';
 import { normalizeLegacyBrCellphone } from '../providers/cnpj-public/cnpj-public-types';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
+import { LeadPersonWriteService, type LeadPersonCandidate } from '../persistence/lead-person-write.service';
 
 /**
  * L4 — Cofre CNPJ público (grátis).
@@ -76,6 +77,9 @@ export type CnpjL4Result = {
   state: string | null;
   porte: string | null;
   matrizFilial: string | null;
+  // WORM-16: quadro societário estruturado (nome + cargo) p/ LeadPerson. OPCIONAL — leads/
+  // linhas antigas sem QSA não trazem, o card cai no fallback de ownerName/ownerNames.
+  people?: Array<{ name: string; role: string | null }>;
 };
 
 /** minúsculo, sem acento — mesmo padrão de normalização usado em cnpj-public-provider/dataset. */
@@ -90,11 +94,18 @@ function normalizeSearchText(value: unknown) {
 
 @Injectable()
 export class RadarCnpjL4EnrichmentService {
-  constructor(@Optional() private readonly leadContactWrite?: LeadContactWriteService) {}
+  constructor(
+    @Optional() private readonly leadContactWrite?: LeadContactWriteService,
+    @Optional() private readonly leadPersonWrite?: LeadPersonWriteService,
+  ) {}
 
   private getLeadContactWrite(): LeadContactWriteService {
     // Vários call sites instanciam na mão (`new RadarCnpjL4EnrichmentService()`) — lazy fallback.
     return this.leadContactWrite || new LeadContactWriteService();
+  }
+
+  private getLeadPersonWrite(): LeadPersonWriteService {
+    return this.leadPersonWrite || new LeadPersonWriteService();
   }
 
   private static readonly brasilApiCache = new Map<string, CnpjL4Result>();
@@ -121,11 +132,19 @@ export class RadarCnpjL4EnrichmentService {
           // Dono: coluna ownerName do dump RFB primeiro; quadro completo em CnpjPublicPartner;
           // rawJson (qsa da BrasilAPI cacheado) segue como fallback de linhas antigas.
           const rawPick = pickOwnerName(parseMaybeJson(row.rawJson));
-          const partnerNames = await this.fetchPartnerNames(prisma, cnpj);
+          const partners = await this.fetchPartners(prisma, cnpj);
+          const partnerNames = partners.map((p) => p.name);
           const ownerName = String(row.ownerName || '').trim() || rawPick.ownerName || partnerNames[0] || null;
           const ownerNames = Array.from(new Set(
             [ownerName, ...partnerNames, ...rawPick.ownerNames].filter((v): v is string => Boolean(v)),
           ));
+          // WORM-16: pessoas estruturadas (cargo do QSA quando houver; nomes soltos do rawJson
+          // entram como pessoa sem cargo). O ownerName do dump RFB (coluna denormalizada) carrega
+          // o cargo em row.ownerQualification.
+          const people = this.buildPeopleFromNames(partners, [
+            ...(row.ownerName ? [{ name: String(row.ownerName).trim(), role: String(row.ownerQualification || '').trim() || null }] : []),
+            ...rawPick.ownerNames.map((n) => ({ name: n, role: null })),
+          ]);
           local = {
             found: true,
             cnpj: row.cnpj || cnpj,
@@ -144,6 +163,7 @@ export class RadarCnpjL4EnrichmentService {
             state: row.state || null,
             porte: row.porte || null,
             matrizFilial: row.matrizFilial || null,
+            people,
           };
         }
       } catch {
@@ -175,6 +195,10 @@ export class RadarCnpjL4EnrichmentService {
           local.state = local.state || api.state;
           local.porte = local.porte || api.porte;
           local.matrizFilial = local.matrizFilial || api.matrizFilial;
+          // WORM-16: se o QSA local veio vazio, herda o da BrasilAPI (nome + cargo).
+          if (!(local.people && local.people.length) && api.people && api.people.length) {
+            local.people = api.people;
+          }
           // Dataset local ganhou dado novo via BrasilAPI (mesmo já existindo a linha) — persiste
           // pra próxima leitura já vir completa (grátis, best-effort).
           await this.cacheIntoLocal(prisma, local);
@@ -190,25 +214,61 @@ export class RadarCnpjL4EnrichmentService {
    * vazia devolve [] sem quebrar o lookup.
    */
   private async fetchPartnerNames(prisma: any, cnpj: string): Promise<string[]> {
+    const partners = await this.fetchPartners(prisma, cnpj);
+    return Array.from(new Set(partners.map((p) => p.name)));
+  }
+
+  /**
+   * Quadro societário COM cargo (nome + qualificação), melhor sócio primeiro. Alimenta o
+   * LeadPerson (WORM-16): a Pessoa "Sócio" no card precisa do cargo, que só existe aqui.
+   */
+  private async fetchPartners(prisma: any, cnpj: string): Promise<Array<{ name: string; role: string | null }>> {
     if (!prisma?.cnpjPublicPartner?.findMany) return [];
     try {
       const rows = await prisma.cnpjPublicPartner.findMany({
         where: { cnpjBasico: cnpj.slice(0, 8) },
-        select: { nome: true, qualificationCode: true, identificador: true },
+        select: { nome: true, qualificationCode: true, qualificationDescription: true, identificador: true },
         take: 12,
       });
       const rankOf = (row: any) =>
         (PARTNER_QUALIFICATION_RANK[String(row?.qualificationCode || '')] ?? 20) * 2
         + (String(row?.identificador || '') === '2' ? 0 : 1);
-      const names = (rows || [])
-        .map((row: any) => ({ name: String(row?.nome || '').trim(), rank: rankOf(row) }))
+      const seen = new Set<string>();
+      return (rows || [])
+        .map((row: any) => ({
+          name: String(row?.nome || '').trim(),
+          role: String(row?.qualificationDescription || '').trim() || null,
+          rank: rankOf(row),
+        }))
         .filter((row: { name: string }) => Boolean(row.name))
         .sort((a: { rank: number }, b: { rank: number }) => a.rank - b.rank)
-        .map((row: { name: string }) => row.name);
-      return Array.from(new Set(names));
+        .filter((row: { name: string }) => (seen.has(row.name) ? false : (seen.add(row.name), true)))
+        .map((row: { name: string; role: string | null }) => ({ name: row.name, role: row.role }));
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Une o quadro societário (com cargo, prioridade) com nomes soltos (sem cargo, fallback),
+   * deduplicando por nome normalizado. Um nome que aparece no QSA COM cargo prevalece sobre o
+   * mesmo nome solto sem cargo. WORM-16.
+   */
+  private buildPeopleFromNames(
+    partners: Array<{ name: string; role: string | null }>,
+    extras: Array<{ name: string; role: string | null }>,
+  ): Array<{ name: string; role: string | null }> {
+    const out: Array<{ name: string; role: string | null }> = [];
+    const seen = new Set<string>();
+    const norm = (n: string) => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    for (const person of [...partners, ...extras]) {
+      const name = String(person?.name || '').trim();
+      const key = norm(name);
+      if (!name || key.length < 2 || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name, role: person?.role || null });
+    }
+    return out;
   }
 
   private brasilApiEnabled() {
@@ -256,6 +316,10 @@ export class RadarCnpjL4EnrichmentService {
         .filter((s) => s.name)
         .sort((a, b) => rank(a.qual) - rank(b.qual));
       const ownerNames = owners.map((o) => o.name).filter((v, i, arr) => arr.indexOf(v) === i);
+      // WORM-16: pessoas estruturadas (nome + cargo) do QSA da BrasilAPI.
+      const people = owners
+        .filter((o, i, arr) => arr.findIndex((x) => x.name === o.name) === i)
+        .map((o) => ({ name: o.name, role: o.qual.trim() || null }));
       const address = [data?.logradouro, data?.numero, data?.bairro, data?.municipio, data?.uf]
         .map((p) => String(p || '').trim())
         .filter(Boolean)
@@ -283,6 +347,7 @@ export class RadarCnpjL4EnrichmentService {
         state: String(data?.uf || '').trim().toUpperCase() || null,
         porte: String(data?.porte || '').trim() || null,
         matrizFilial: String(data?.descricao_identificador_matriz_filial || '').trim() || null,
+        people,
       };
       if (result.razaoSocial) {
         RadarCnpjL4EnrichmentService.brasilApiCache.set(cnpj, result);
@@ -398,6 +463,17 @@ export class RadarCnpjL4EnrichmentService {
     if (l4.email && !row?.email && !meta?.l4Email) patch.l4Email = l4.email;
     if (l4.phone && !meta?.ownerPhone) patch.ownerPhone = l4.phone;
 
+    // WORM-16: pessoas estruturadas (nome + cargo) da Receita. ADITIVO no blob — o presenter
+    // lê meta.people (zero query) e cai no fallback ownerName/ownerNames quando ausente.
+    // Preferimos o QSA estruturado (l4.people, com cargo); sem ele, sintetiza dos ownerNames.
+    const l4People = (Array.isArray(l4.people) && l4.people.length
+      ? l4.people
+      : (l4.ownerNames || []).map((name) => ({ name, role: null }))
+    ).filter((p) => p && String(p.name || '').trim());
+    if (l4People.length && !(Array.isArray(meta?.people) && meta.people.length)) {
+      patch.people = l4People.map((p) => ({ name: String(p.name).trim(), role: p.role || null, source: 'receita_qsa' }));
+    }
+
     const nextMetadataJson = JSON.stringify(patch);
     if (!row?.id || !prisma?.radarLeadPool?.update) return nextMetadataJson;
 
@@ -415,6 +491,20 @@ export class RadarCnpjL4EnrichmentService {
     ];
     if (l4Contacts.length) {
       await this.getLeadContactWrite().writeContacts(prisma, row.id, l4Contacts).catch(() => null);
+    }
+
+    // Escrita dupla ADITIVA em LeadPerson (WORM-16): sócio da Receita vira Pessoa (nome + cargo).
+    // O telefone do registro (l4.phone/ownerPhone) fica no TOP sócio (rank 1). Best-effort.
+    if (l4People.length) {
+      const ownerPhoneDigits = String(patch.ownerPhone || l4.phone || '').replace(/\D/g, '') || null;
+      const peopleCandidates: LeadPersonCandidate[] = l4People.map((p, i) => ({
+        name: String(p.name).trim(),
+        role: p.role || null,
+        source: 'receita_qsa',
+        phoneDigits: i === 0 ? ownerPhoneDigits : null,
+        rank: i + 1,
+      }));
+      await this.getLeadPersonWrite().writePeople(prisma, row.id, peopleCandidates).catch(() => null);
     }
 
     return nextMetadataJson;

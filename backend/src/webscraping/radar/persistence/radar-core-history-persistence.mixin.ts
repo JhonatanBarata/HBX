@@ -52,7 +52,6 @@ import {
   VERTICAL_TOKEN_GROUPS,
   GooglePlacesApiError,
   HbxBatchError,
-  normalizePhoneDigits,
   isLikelyValidBrPhone,
   isLikelyWhatsapp,
   toNumberOrNull,
@@ -95,6 +94,7 @@ import {
   parsePositiveIntegerEnv,
   minutesAgo,
   formatCityWithState,
+  buildWaLink,
 } from '../radar-core-method-imports';
 
 import type {
@@ -584,8 +584,6 @@ export class RadarCoreHistoryPersistenceMixin {
   }
 
   private buildWhatsAppTarget(phone: string, scriptText: string) {
-    const digits = normalizePhoneDigits(phone);
-    if (!digits) return '';
-    return `https://wa.me/55${digits}?text=${encodeURIComponent(scriptText)}`;
+    return buildWaLink(phone, { text: scriptText }) || '';
   }
 }

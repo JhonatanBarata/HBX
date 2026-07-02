@@ -65,12 +65,42 @@ export type ConversationStatePatch = {
   lastInteractionAt?: Date;
 };
 
+// WORM-13 (13b) — hook de inbound para os gatilhos reativos. O CadenciaGatilho
+// service se registra aqui (setCadenciaInboundHook) e o MessagingService dispara
+// (dispatchCadenciaInbound) de dentro de processPersistedInbound, quando um humano
+// real responde. Registrar aqui (nao no MessagingService) evita ciclo de modulo:
+// ConversationsService ja e exportado e injetado nos dois lados.
+export type CadenciaInboundHookInput = {
+  companyId: number;
+  fromPhone: string;
+  conversationId?: number | null;
+  text?: string | null;
+};
+
 @Injectable()
 export class ConversationsService {
+  private cadenciaInboundHook: ((input: CadenciaInboundHookInput) => Promise<void>) | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
+
+  // Registro do relay (chamado pelo CadenciaGatilhoService.onModuleInit).
+  setCadenciaInboundHook(handler: ((input: CadenciaInboundHookInput) => Promise<void>) | null) {
+    this.cadenciaInboundHook = handler;
+  }
+
+  // Dispatch best-effort: nunca lanca (nao pode derrubar o processamento do inbound).
+  async dispatchCadenciaInbound(input: CadenciaInboundHookInput) {
+    const hook = this.cadenciaInboundHook;
+    if (!hook) return;
+    try {
+      await hook(input);
+    } catch {
+      // silencioso: gatilho reativo e aditivo, nunca bloqueia o inbound.
+    }
+  }
 
   private async supportsWhatsAppEndpointTable() {
     return this.prisma.hasTable('CompanyWhatsAppEndpoint');

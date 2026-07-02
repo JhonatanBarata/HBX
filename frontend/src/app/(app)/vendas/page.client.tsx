@@ -21,6 +21,7 @@ import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type VendasLead = {
   id: string;
@@ -64,6 +65,9 @@ type VendasLead = {
   // origem do lead
   sourceType?: string | null;
   primarySource?: string | null;
+  // HOT-07 (empresa recém-aberta): badge de urgência. Opcional.
+  isFreshCompany?: boolean | null;
+  daysSinceOpened?: number | null;
   // presença no Atendimento
   isInInbox?: boolean | null;
   timeline?: Array<{
@@ -115,6 +119,10 @@ type BoardResponse = {
   // Opt-in: tenant HBX admin (revende planos HBX) — habilita o seletor de plano
   // no Fechar venda. Cliente comum vem ausente/false e nunca vê o seletor.
   sellsHbxPlans?: boolean;
+  // LEI DO VENDEDOR (docs/Rules/PAGAMENTOS.md): quando false (vendedor comum),
+  // valores R$ SOMEM — soma por coluna e valor no card do quadro nunca aparecem.
+  // Fonte da verdade = backend (products.viewPrice). Ausente = trata como false.
+  canViewValues?: boolean;
   // Capacidade da carteira → faixa "por que o Radar parou de buscar". O motor
   // pausa o reabastecimento quando a lista enche (teto de cards ativos).
   radarSupply?: {
@@ -191,12 +199,15 @@ function fmtWhen(iso: string | null) {
 // ── Quadro (kanban arrastável) — etapas reais do lead (status), independente da
 // agenda (block). Arrastar entre colunas faz PATCH /vendas/lead/:id {status}.
 type VendasStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
-const STAGE_ORDER: { key: VendasStage; label: string; tone: string }[] = [
-  { key: "novo", label: "Novo", tone: "new" },
-  { key: "contato", label: "Em contato", tone: "contact" },
-  { key: "retorno", label: "Retorno", tone: "return" },
-  { key: "qualificado", label: "Qualificado", tone: "qualified" },
-  { key: "encerrado", label: "Encerrado", tone: "ended" },
+// Subtítulo = a AÇÃO da etapa (onboarding embutido): o vendedor lê "o que fazer
+// aqui" sem tour. Mapeado sobre os 5 status reais do VendasLead (nada de máquina
+// de estados nova). Prospecção→Qualificação→Proposta→Negociação→Fechamento.
+const STAGE_ORDER: { key: VendasStage; label: string; sub: string; tone: string }[] = [
+  { key: "novo", label: "Prospecção", sub: "Novos leads — faça o 1º contato", tone: "new" },
+  { key: "contato", label: "Qualificação", sub: "Classifique e ranqueie", tone: "contact" },
+  { key: "retorno", label: "Proposta", sub: "Em negociação — envie a oferta", tone: "return" },
+  { key: "qualificado", label: "Negociação", sub: "Follow-up até o sim", tone: "qualified" },
+  { key: "encerrado", label: "Fechamento", sub: "Contrato e compromissos", tone: "ended" },
 ];
 const STAGE_LABEL: Record<VendasStage, string> = {
   novo: "Novo lead", contato: "Em contato", retorno: "Retorno", qualificado: "Qualificado", encerrado: "Encerrado",
@@ -218,6 +229,34 @@ function agendaInfo(card: VendasLead): { tone: string; label: string } {
   return { tone: "soft", label: fmtWhen(card.returnAt) };
 }
 
+// Termômetro (1–5) DERIVADO — nós = estrela viva (não estrela na mão). Combina o
+// score de oportunidade do Radar (0–100) com sinais de engajamento reais do card:
+// temperatura (frio/morno/quente), tentativas de contato e presença no Atendimento.
+// Retorna a nota + o "porquê" (tooltip) pra ninguém adivinhar de onde saiu.
+function deriveTermometro(card: VendasLead): { score: number; why: string } {
+  const reasons: string[] = [];
+  // Base: score de oportunidade (0–100 → 0–5). Sem score → base 2 (neutro).
+  let pts = 0;
+  const opp = Number(card.opportunityScore ?? 0);
+  if (opp > 0) {
+    pts += (opp / 100) * 3; // até 3 estrelas do score
+    reasons.push(`Score ${opp}/100`);
+  } else {
+    pts += 1;
+  }
+  // Temperatura do lead (sinal do Radar/enriquecimento)
+  const temp = String(card.leadTemperature || "").toLowerCase();
+  if (temp === "quente") { pts += 1.4; reasons.push("Lead quente"); }
+  else if (temp === "morno") { pts += 0.7; reasons.push("Lead morno"); }
+  else if (temp === "frio") { reasons.push("Lead frio"); }
+  // Engajamento: já respondeu no Atendimento? Já teve tentativas de contato?
+  if (card.isInInbox) { pts += 0.8; reasons.push("Respondeu no WhatsApp"); }
+  if ((card.attemptCount ?? 0) >= 2) { pts += 0.4; reasons.push(`${card.attemptCount} contatos`); }
+  const score = Math.max(1, Math.min(5, Math.round(pts)));
+  const why = reasons.length ? reasons.join(" · ") : "Sem sinais suficientes";
+  return { score, why };
+}
+
 // Move otimista: troca o status do card no estado local sem esperar a rede.
 function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): BoardResponse {
   if (!board) return board;
@@ -232,6 +271,18 @@ function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): B
       closed: patch(board.blocks.closed),
     },
   };
+}
+
+// Termômetro visual (1–5 estrelas) — nota derivada + tooltip do porquê. Só
+// classes/tokens centrais (Lei nº4): a cor nasce do .vnd-therm em screens.css.
+function Termometro({ score, why }: { score: number; why: string }) {
+  return (
+    <span className="vnd-therm" data-score={score} title={`Termômetro ${score}/5 — ${why}`} aria-label={`Termômetro ${score} de 5: ${why}`}>
+      {[1, 2, 3, 4, 5].map(i => (
+        <span key={i} className={"vnd-therm__pip" + (i <= score ? " is-on" : "")} aria-hidden="true" />
+      ))}
+    </span>
+  );
 }
 
 // 4º botão do topo (visual DIFERENTÃO): os dados da faixa "Buscando empresas"
@@ -620,11 +671,9 @@ export function VendasClient() {
 
   // Abre no WhatsApp Externo (wa.me) direto do ícone de ação — sem link pré-digitado
   // (o link pré-digitado só existe depois de gerar o link de contratação no fecharOpen).
-  function abrirWhatsAppExterno(phone: string | null | undefined) {
-    if (!phone) return;
-    const digits = phone.replace(/\D/g, "");
-    const target = digits.length >= 12 ? digits : `55${digits}`;
-    window.open(`https://wa.me/${target}`, "_blank", "noopener");
+  function abrirWhatsAppExterno(phone: string | null | undefined, text?: string) {
+    const link = buildWaLink(phone, { text });
+    if (link) window.open(link, "_blank", "noopener");
   }
 
   // Abre o WhatsApp Interno: POST /inbox/conversations/start → navega pro /atendimento
@@ -856,6 +905,8 @@ export function VendasClient() {
       updatedAt: d.updatedAt ?? null,
       sourceType: d.sourceType ?? null,
       primarySource: d.primarySource ?? null,
+      isFreshCompany: d.isFreshCompany ?? null,
+      daysSinceOpened: d.daysSinceOpened ?? null,
       owner: d.owner ? { name: d.owner.name } : null,
       leadIntelligence: d.leadIntelligence
         ? {
@@ -1183,7 +1234,7 @@ export function VendasClient() {
                                 </span>
                               </div>
                               <div className="vnd-row-end">
-                                <span className="vnd-row-val">{leadValueLabel(card)}</span>
+                                {board.canViewValues && <span className="vnd-row-val">{leadValueLabel(card)}</span>}
                                 <span className={"vnd-row-when" + (isWarn ? " vnd-row-when--warn" : "")}>{when}</span>
                               </div>
                               <span className="vnd-row-arrow" aria-hidden="true">›</span>
@@ -1228,7 +1279,7 @@ export function VendasClient() {
                           <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
                             aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
                         </th>
-                        <th>Empresa</th><th>Segmento</th><th>Etapa</th><th>Valor</th>
+                        <th>Empresa</th><th>Segmento</th><th>Etapa</th>{board.canViewValues && <th>Valor</th>}
                         <th>Próximo passo</th><th>Responsável</th><th>Data</th>
                       </tr>
                     </thead>
@@ -1246,7 +1297,7 @@ export function VendasClient() {
                               <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}</div></td>
                               <td>{card.segment || "—"}</td>
                               <td><span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>{card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}</td>
-                              <td className="hbx-mono">{leadValueLabel(card)}</td>
+                              {board.canViewValues && <td className="hbx-mono">{leadValueLabel(card)}</td>}
                               <td><span className="nowrap-cell" style={{ maxWidth: 240, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }} title={card.nextAction || card.shortNote || ""}>{card.nextAction || card.statusLabel || "—"}</span></td>
                               <td>{card.owner?.name ? <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Av name={card.owner.name} size={20} />{card.owner.name}</span> : "—"}</td>
                               <td className="hbx-mono">{fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt)}</td>
@@ -1266,6 +1317,9 @@ export function VendasClient() {
               {!isMobile && view === "board" && board && (summary?.total ?? 0) > 0 && (() => {
                 const stageCards: Record<VendasStage, VendasLead[]> = { novo: [], contato: [], retorno: [], qualificado: [], encerrado: [] };
                 for (const c of flatLeads) stageCards[normalizeStage(c.status)].push(c);
+                // LEI DO VENDEDOR: valores R$ (soma por coluna + valor no card) só
+                // aparecem quando o backend autoriza. Vendedor comum → funil em contagem.
+                const canViewValues = Boolean(board.canViewValues);
                 return (
                   <div className={"vnd-pipe" + (dragId ? " is-dragging" : "")}>
                     {STAGE_ORDER.map(stage => {
@@ -1283,9 +1337,12 @@ export function VendasClient() {
                         >
                           <header className="vnd-pipe-col__head">
                             <span className="vnd-pipe-col__dot" aria-hidden="true" />
-                            <strong className="vnd-pipe-col__name">{stage.label}</strong>
+                            <span className="vnd-pipe-col__titles">
+                              <strong className="vnd-pipe-col__name">{stage.label}</strong>
+                              <span className="vnd-pipe-col__sub">{stage.sub}</span>
+                            </span>
                             <span className="vnd-pipe-col__count">{cards.length}</span>
-                            {sumCents > 0 && <span className="vnd-pipe-col__sum">{fmtMoney(sumCents)}</span>}
+                            {canViewValues && sumCents > 0 && <span className="vnd-pipe-col__sum">{fmtMoney(sumCents)}</span>}
                           </header>
                           <div className="vnd-pipe-col__body">
                             {cards.length === 0 && (
@@ -1293,6 +1350,7 @@ export function VendasClient() {
                             )}
                             {cards.map(card => {
                               const ag = agendaInfo(card);
+                              const therm = deriveTermometro(card);
                               return (
                                 <article
                                   key={card.id}
@@ -1309,7 +1367,8 @@ export function VendasClient() {
                                   </div>
                                   <span className="vnd-card__sub">{card.segment || card.city || card.phone || "—"}</span>
                                   <div className="vnd-card__row">
-                                    <span className="vnd-card__val">{leadValueLabel(card)}</span>
+                                    <Termometro score={therm.score} why={therm.why} />
+                                    {canViewValues && <span className="vnd-card__val">{leadValueLabel(card)}</span>}
                                     <span className={"vnd-chip vnd-chip--" + ag.tone}>{ag.label}</span>
                                   </div>
                                   <div className="vnd-card__foot">
@@ -1335,7 +1394,7 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
-                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone) : undefined}
+                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
                 waQrActive={waQrActive}
                 waCanInternal={canAtendimento}
@@ -1401,7 +1460,7 @@ export function VendasClient() {
               detail={toNegocioDetail(sel)}
               title={sel.name || "Negócio"}
               onClose={() => setMobileDetailOpen(false)}
-              onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone) : undefined}
+              onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone, buildWaMessage({ name: sel.name, segment: sel.segment, city: sel.city })) : undefined}
               onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
               waQrActive={waQrActive}
               waCanInternal={canAtendimento}

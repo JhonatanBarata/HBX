@@ -52,7 +52,7 @@ import { RadarRunRepositoryService } from './radar/persistence/radar-run-reposit
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
-import { normalizeLookupValue, normalizePhoneDigits } from './radar/shared/radar-core-shared';
+import { normalizeLookupValue, normalizePhoneDigits, buildWaLink } from './radar/shared/radar-core-shared';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { RadarWebscrapingCoreService } from './radar/radar-webscraping-core.service';
 
@@ -993,11 +993,19 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       ['tel1', (r) => r._c?.phone?.[0] ?? r.phone ?? ''],
       ['tel2', (r) => r._c?.phone?.[1] ?? ''],
       ['tel3', (r) => r._c?.phone?.[2] ?? ''],
+      // HOT-05: link wa.me pronto do telefone principal — 1 clique abre o WhatsApp do
+      // vendedor com o lead (ação humana, não passa pelo motor/Webwhats).
+      ['link_whatsapp', (r) => buildWaLink(r._c?.phone?.[0] ?? r.phone ?? '') ?? ''],
       ['email1', (r) => r._c?.email?.[0] ?? r.email ?? ''],
       ['email2', (r) => r._c?.email?.[1] ?? ''],
       ['email3', (r) => r._c?.email?.[2] ?? ''],
       ['insta', (r) => r._c?.instagram?.[0] ?? r.instagramUrl ?? ''],
       ['fb', (r) => r._c?.facebook?.[0] ?? r.facebookUrl ?? ''],
+      // WORM-16: flag "tem contato de DONO (qsa)" + nome/cargo do sócio da Receita. `_p` é a
+      // pessoa top-rank daquele lead (LeadPerson source=receita_qsa), injetada por lote.
+      ['dono_qsa', (r) => (r._p ? 1 : 0)],
+      ['dono_nome', (r) => r._p?.name ?? ''],
+      ['dono_cargo', (r) => r._p?.role ?? ''],
       ['site', (r) => r.website ?? ''],
       ['nota', (r) => r.opportunityScore],
       ['motivo', (r) => r.opportunityReason ?? ''],
@@ -1047,6 +1055,26 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       return byLead;
     };
 
+    // WORM-16: pessoa DONO (sócio da Receita) da página — top-rank por lead com source=receita_qsa.
+    // Bounded pela página → memória constante; degrada gracioso (sem flag) se a tabela não existir.
+    const loadOwnerPeopleForPage = async (ids: string[]): Promise<Map<string, { name: string; role: string | null }>> => {
+      const byLead = new Map<string, { name: string; role: string | null }>();
+      if (!ids.length || !prisma?.leadPerson?.findMany) return byLead;
+      let people: any[] = [];
+      try {
+        people = await prisma.leadPerson.findMany({
+          where: { radarLeadId: { in: ids }, source: 'receita_qsa' },
+          orderBy: [{ radarLeadId: 'asc' }, { rank: 'asc' }],
+          select: { radarLeadId: true, name: true, role: true },
+        });
+      } catch { people = []; }
+      for (const p of people) {
+        // primeiro por rank vence (findMany já vem ordenado) — não sobrescreve.
+        if (!byLead.has(p.radarLeadId)) byLead.set(p.radarLeadId, { name: p.name, role: p.role || null });
+      }
+      return byLead;
+    };
+
     const escapeCsv = (value: any): string => {
       if (value == null) return '';
       const str = String(value);
@@ -1086,10 +1114,15 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           select: SELECT,
         });
         if (!rows.length) break;
-        const contactsByLead = await loadContactsForPage(rows.map((r) => r.id));
+        const pageIds = rows.map((r) => r.id);
+        const [contactsByLead, ownerByLead] = await Promise.all([
+          loadContactsForPage(pageIds),
+          loadOwnerPeopleForPage(pageIds),
+        ]);
         let buffer = '';
         for (const row of rows) {
           row._c = contactsByLead.get(row.id) || null;
+          row._p = ownerByLead.get(row.id) || null;
           buffer += COLUMNS.map(([, get]) => escapeCsv(get(row))).join(';') + '\r\n';
         }
         await write(buffer);

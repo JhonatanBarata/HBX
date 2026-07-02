@@ -634,3 +634,48 @@ body {
 .fonte-gauge .bar { margin-top: 4px; }
 .fonte-gauge .bar-fill.warn { background: var(--amber); }
 .fonte-gauge .bar-fill.blocked { background: var(--red); }
+
+/* ══════════ HOT-06 — ▶️ tutorial ao lado de cada bloco de filtro + página Treinamentos ══════════ */
+/* Ícone injetado via JS dentro do <summary> de cada bloco de #cnpj-base (data-tutorial="..."). */
+.tut-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+  text-decoration: none;
+  background: rgba(22, 163, 74, .12);
+  color: var(--green);
+  border: 1px solid transparent;
+  vertical-align: middle;
+}
+.tut-link:hover { filter: brightness(1.08); }
+/* Ainda sem vídeo gravado (url vazia no tutoriais.json) — mostra "em breve", sem link clicável, sem cor de ação */
+.tut-link.tut-pending {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border-color: var(--border);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Lista da seção Treinamentos — mesmo padrão visual de .list/.list-item já usado no painel */
+.tr-list { display: flex; flex-direction: column; gap: 10px; }
+.tr-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 12px 14px;
+}
+.tr-item-icon { font-size: 1.3rem; line-height: 1; flex: none; color: var(--green); }
+.tr-item-body { min-width: 0; flex: 1 1 auto; }
+.tr-item-title { font-size: .9rem; font-weight: 700; }
+.tr-item-desc { font-size: .78rem; color: var(--text-muted); margin-top: 2px; }
+.tr-item-action { flex: none; }
+.tr-empty { color: var(--text-muted); font-size: .85rem; padding: 8px 0; }

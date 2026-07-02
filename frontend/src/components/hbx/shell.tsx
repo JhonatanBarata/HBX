@@ -54,6 +54,9 @@ export const ICONS: Record<string, string[]> = {
   leads: ["M16 18c0-2.2-1.8-4-4-4s-4 1.8-4 4", "M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M19 8v4M21 10h-4"],
   scrape: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M3.5 12h17", "M12 3a14 14 0 0 1 0 18"],
   vendas: ["M7 17l4-6 3 3 4-7", "M3 3v18h18"],
+  agenda: ["M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z", "M4 9h16", "M8 3v3M16 3v3", "M9 14l2 2 4-4"],
+  // WORM-13 — Automações (raio: cadência que dispara sozinha).
+  automacao: ["M13 2 4 14h6l-1 8 9-12h-6l1-8Z"],
   atend: ["M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2", "M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z", "M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z"],
   bot: ["M8 4L7 7M16 4L17 7", "M7 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z", "M9 11l2 2M11 11l-2 2M13 11l2 2M15 11l-2 2", "M9.5 15c1-1.5 4-1.5 5 0", "M9 17v2M15 17v2"],
   relat: ["M5 20V10M12 20V4M19 20v-7"],
@@ -249,8 +252,15 @@ export const NAV_LINKS = [
   // empresas" é a boca dele, acessado de DENTRO de Vendas, por isso /leads saiu do
   // menu) e CONVERSAS = a caixa. "Fechados" não é tela, é a última etapa do funil.
   { id: "vendas", label: "Vendas", href: "/vendas" },
+  // WORM-12: agenda do vendedor ("o que eu faço hoje") — dentro da superfície Vendas.
+  { id: "agenda", label: "Agenda", href: "/agenda" },
+  // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
+  { id: "automacao", label: "Automações", href: "/automacoes" },
   { id: "atend", label: "Conversas", href: "/atendimento" },
   { id: "bot", label: "Bot", href: "/bot" },
+  // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
+  // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
+  { id: "assistente", label: "Assistente IA", href: "/assistente" },
   { id: "relat", label: "Relatórios", href: "/relatorios" },
   { id: "config", label: "Configurações", href: "/configuracoes" },
 ];
@@ -462,6 +472,29 @@ export function usePlanSummary(): PlanSummary {
   return state;
 }
 
+// Consumo de leads do mês para o medidor da sidebar (WORM-17). Mesmo endpoint que o
+// radar usa (/vendas/usage → cards {used,limit,remaining}). Só busca quando habilitado
+// (não-vendedor); "sempre visível" = ansiedade boa ("usei 80% e é dia 20").
+export type CardUsage = { used: number; limit: number; remaining: number } | null;
+export function useCardUsage(enabled: boolean): CardUsage {
+  const [usage, setUsage] = useState<CardUsage>(null);
+  useEffect(() => {
+    if (!enabled || !getToken()) return;
+    let alive = true;
+    apiFetch<{ cards?: { used?: number; limit?: number; remaining?: number } }>("/vendas/usage")
+      .then(res => {
+        if (!alive) return;
+        const c = res?.cards;
+        if (c && typeof c.limit === "number" && c.limit > 0) {
+          setUsage({ used: c.used ?? 0, limit: c.limit, remaining: c.remaining ?? Math.max(0, c.limit - (c.used ?? 0)) });
+        }
+      })
+      .catch(() => { /* medidor some silencioso se o endpoint falhar */ });
+    return () => { alive = false; };
+  }, [enabled]);
+  return usage;
+}
+
 // ---------------------------------------------------------------
 // Acesso por USUÁRIO (GET /modules/me): o plano libera o módulo para a
 // EMPRESA; isto responde se ESTE usuário pode ABRIR o módulo (papel +
@@ -507,8 +540,11 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   leads: "webscraping",
   scrape: "webscraping",
   vendas: "vendas",
+  agenda: "vendas",
+  automacao: "vendas",
   atend: "atendimento_chat",
   bot: null,
+  assistente: null,
   relat: "vendas",
   config: null,
 };
@@ -520,8 +556,11 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   leads: "webscraping",
   scrape: "webscraping",
   vendas: "vendas",
+  agenda: "vendas",
+  automacao: "vendas",
   atend: "atendimento",
   bot: null,
+  assistente: null,
   relat: "vendas",
   config: null,
 };
@@ -610,6 +649,7 @@ export function Sidebar({ active }: { active: string }) {
   const mods = useMyModules();
   const router = useRouter();
   const plan = usePlanSummary();
+  const cardUsage = useCardUsage(Boolean(user) && user?.userKind !== "seller");
   const radarNavState = useRadarNavState();
   // Vendedor (role USER) NUNCA vê plano/cobrança (PAGAMENTOS.md). O backend já
   // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura vazia.
@@ -649,6 +689,19 @@ export function Sidebar({ active }: { active: string }) {
               <strong>{plan.title || "Seu plano"}</strong>
               {planSub && <><br /><small>{planSub}</small></>}
             </div>
+            {cardUsage && (() => {
+              const pct = Math.min(100, Math.round((cardUsage.used / cardUsage.limit) * 100));
+              const danger = cardUsage.remaining <= 0;
+              return (
+                <div className={"plan-card__meter" + (danger ? " is-danger" : "")}>
+                  <div className="plan-card__meter-top">
+                    <span className="plan-card__meter-lbl">Leads do mês</span>
+                    <span className="plan-card__meter-val">{cardUsage.used.toLocaleString("pt-BR")} / {cardUsage.limit.toLocaleString("pt-BR")}</span>
+                  </div>
+                  <div className="plan-card__bar"><div className="plan-card__bar-fill" style={{ width: `${pct}%` }} /></div>
+                </div>
+              );
+            })()}
             <button className={showUpgrade ? "plan-card__upgrade" : undefined} onClick={() => abrirPlanoECobranca(router)}>{showUpgrade ? "Assinar agora" : "Gerenciar plano"}</button>
           </div>
         )}

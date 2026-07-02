@@ -1,0 +1,13 @@
+{
+  "_comment": "HOT-05 — templates de abertura por CATEGORIA de segmento, usados no `?text=` do link wa.me. Chaves casam com HBX_CATEGORY_SEGMENTS (backend/src/webscraping/radar/shared/radar-core-shared.ts) em minúsculo sem acento. Placeholders: {nome} {segmento} {cidade}. Cópia IDÊNTICA de backend/src/webscraping/radar/shared/wa-message-templates.json (sem infra de monorepo pra importar direto do backend) — mantenha as duas em sincronia ao editar.",
+  "default": "Olá{nome}! Vi que vocês são de {segmento}{cidade}. Posso te explicar em 1 minuto uma solução que pode ajudar o negócio de vocês?",
+  "alimentacao": "Olá{nome}! Vi que vocês trabalham com {segmento}{cidade}. Tenho uma solução que ajuda negócios do setor de alimentação a vender mais — posso te explicar rapidinho?",
+  "beleza": "Olá{nome}! Vi que vocês são de {segmento}{cidade}. Trabalho com soluções pra quem é do ramo de beleza e estética — posso te mostrar em 1 minuto?",
+  "automotivo": "Olá{nome}! Vi que vocês atuam com {segmento}{cidade}. Tenho uma solução pensada pro setor automotivo — posso te explicar rapidinho?",
+  "pneus": "Olá{nome}! Vi que vocês trabalham com {segmento}{cidade}. Posso te mostrar em 1 minuto uma solução pro seu negócio?",
+  "saude": "Olá{nome}! Vi que vocês são de {segmento}{cidade}. Tenho uma solução voltada pra área da saúde — posso te explicar em 1 minuto?",
+  "comercio": "Olá{nome}! Vi que vocês são de {segmento}{cidade}. Posso te mostrar rapidinho uma solução que pode ajudar o negócio de vocês?",
+  "industria": "Olá{nome}! Vi que vocês atuam com {segmento}{cidade}. Tenho uma solução pensada pro setor industrial — posso te explicar em 1 minuto?",
+  "atacado": "Olá{nome}! Vi que vocês trabalham com {segmento}{cidade}. Posso te mostrar rapidinho uma solução pro seu negócio?",
+  "agro": "Olá{nome}! Vi que vocês são de {segmento}{cidade}. Tenho uma solução pro setor do agronegócio — posso te explicar em 1 minuto?"
+}

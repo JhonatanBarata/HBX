@@ -20,6 +20,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { stampOnboardingEvent } from "@/lib/onboarding";
+import { buildWaLink } from "@/lib/wa-link";
 
 export type FecharVendaMode =
   | { kind: "lead"; leadId: string }
@@ -281,9 +282,8 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
   }
   function enviarWhats() {
     if (!link || !phone) return;
-    const digits = phone.replace(/\D/g, "");
-    const target = digits.length >= 12 ? digits : `55${digits}`;
-    window.open(`https://wa.me/${target}?text=${encodeURIComponent(link.message)}`, "_blank", "noopener");
+    const target = buildWaLink(phone, { text: link.message });
+    if (target) window.open(target, "_blank", "noopener");
   }
 
   const step = link ? 3 : valorNum > 0 ? 2 : 1;

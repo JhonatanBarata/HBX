@@ -20,6 +20,45 @@ import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
 type Ranking = { label: string; count: number };
 
+// ── WORM-18 — "Acompanhe sua equipe" (6 widgets, pro dono/admin) ─────────────
+// SO LEITURA: agrega VendasLead + conversas do Webwhats no banco + distribuicao.
+// Gate real no backend (/relatorios/*): vendedor = 403; Gerente (ADMIN sem
+// billing) recebe R$ zerado (canViewValues=false).
+type EquipeDashboard = {
+  funnelRevenue: {
+    stages: { stage: string; count: number }[];
+    won: { count: number; value: number | null };
+    lost: { count: number; value: number | null };
+    canViewValues: boolean;
+  };
+  unansweredChats: {
+    thresholdHours: number;
+    total: number;
+    rows: { userId: number | null; seller: string; count: number; waitingHours: number }[];
+  };
+  sellerFunnel: {
+    rows: { userId: number; seller: string; delivered: number; worked: number; converted: number }[];
+  };
+  firstResponse: {
+    rows: { userId: number | null; seller: string; samples: number; avgMinutes: number }[];
+  };
+  freshLeads: { opened: number; usedIn48h: number; stillWaiting: number; missed: number; ratePct: number };
+  botFunnel: { touched: number; handedToHuman: number; converted: number };
+} | null;
+
+function brl(value: number | null): string {
+  if (value == null) return "—";
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function humanMinutes(min: number): string {
+  if (!Number.isFinite(min) || min <= 0) return "—";
+  if (min < 60) return `${Math.round(min)} min`;
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
 type ReportResponse = {
   ok?: boolean;
   metrics?: {
@@ -105,6 +144,12 @@ export function RelatoriosClient() {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const isMaster = Boolean((user as { isSystemMaster?: boolean } | null)?.isSystemMaster);
+  // WORM-18: "Acompanhe sua equipe" e pro dono/admin. Vendedor nao ve (o backend
+  // ja barra com 403; aqui evitamos disparar a chamada e mostrar a secao).
+  const isSeller = (user as { userKind?: string | null } | null)?.userKind === "seller";
+  const podeVerEquipe = Boolean(user) && !isSeller;
+  const [equipe, setEquipe] = useState<EquipeDashboard>(null);
+  const [equipeErr, setEquipeErr] = useState<string | null>(null);
   // master bypass: sempre pode exportar (backend bypassa entitlements para isSystemMaster)
   const podeExportarPdf = isMaster || canExportPdf(ent.planKey, ent.loaded);
   const [per, setPer] = useState("7d");
@@ -147,6 +192,23 @@ export function RelatoriosClient() {
   }, []);
 
   useEffect(() => { load(per); }, [load, per]);
+
+  // WORM-18: dashboard da equipe (6 widgets em 1 chamada). So dispara pra admin.
+  // A secao so renderiza com podeVerEquipe; nao precisamos limpar o estado
+  // sincronamente aqui (evita cascading render — react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!podeVerEquipe) return;
+    let alive = true;
+    apiFetch<EquipeDashboard>(`/relatorios/dashboard?period=${encodeURIComponent(per)}`)
+      .then(data => { if (alive) { setEquipe(data); setEquipeErr(null); } })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        const e = err as Error & { status?: number };
+        setEquipe(null);
+        setEquipeErr(e?.status === 403 ? null : (e?.message || "Não foi possível carregar os relatórios da equipe."));
+      });
+    return () => { alive = false; };
+  }, [podeVerEquipe, per]);
 
   async function exportarPdf() {
     if (pdfBusy) return;
@@ -288,6 +350,10 @@ export function RelatoriosClient() {
               <button className="btn-teal" onClick={exportarCsv} disabled={!report?.metrics}><I d={ICONS.doc} size={13} /> Exportar CSV</button>
             </div>
           </div>
+
+          {podeVerEquipe && (
+            <EquipeSection data={equipe} err={equipeErr} periodoLabel={PERIODOS.find(p => p.value === per)?.label || per} />
+          )}
 
           {loadError && !report && (
             <section className="panel">
@@ -483,5 +549,214 @@ export function RelatoriosClient() {
             </section>
           </div>
         </div>
+  );
+}
+
+// ── WORM-18 — "Acompanhe sua equipe" (6 widgets) ────────────────────────────
+// Todo visual sai de classe/token central (5 Leis): .panel/.panel-head/.hbar/
+// .kpi + variaveis --hbx-*. Inline style so p/ layout (grid/gap/width/height).
+function EquipeSection({ data, err, periodoLabel }: { data: EquipeDashboard; err: string | null; periodoLabel: string }) {
+  if (err) {
+    return (
+      <section className="panel">
+        <div className="panel-head"><h2>Acompanhe sua equipe</h2></div>
+        <div style={{ padding: 18 }}>
+          <span style={{ fontSize: "0.74rem", color: "var(--hbx-danger)", fontWeight: 700 }}>{err}</span>
+        </div>
+      </section>
+    );
+  }
+
+  const fr = data?.funnelRevenue;
+  const uc = data?.unansweredChats;
+  const sf = data?.sellerFunnel;
+  const rt = data?.firstResponse;
+  const fl = data?.freshLeads;
+  const bot = data?.botFunnel;
+
+  const maxStage = Math.max(1, ...(fr?.stages || []).map(s => s.count));
+  const maxDeliver = Math.max(1, ...(sf?.rows || []).map(r => r.delivered || 0));
+  const botMax = Math.max(1, bot?.touched || 0);
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Acompanhe sua equipe</h2>
+        <div className="meta"><span>{periodoLabel}</span></div>
+      </div>
+
+      <div style={{ padding: 16, display: "grid", gap: 14 }}>
+        {/* 💰 Widget 1 — Funil em R$ por etapa */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14 }}>
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-head"><h2>💰 Funil por etapa</h2></div>
+            <div style={{ padding: "12px 16px 16px" }}>
+              {(!fr || fr.stages.length === 0) && (
+                <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem cards no período.</p>
+              )}
+              {fr && fr.stages.length > 0 && (
+                <div className="bars" style={{ height: 170 }}>
+                  {fr.stages.map(s => (
+                    <div className="b" key={s.stage}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)" }}>{s.count}</span>
+                      <div className="bar" style={{ height: Math.max(8, Math.round((s.count / maxStage) * 130)) }}></div>
+                      <span className="lbl">{s.stage}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
+            <div className="kpi">
+              <span className="kpi-icon"><I d={ICONS.check} size={16} /></span>
+              <div>
+                <div className="kpi-label">Ganho no período</div>
+                <div className="kpi-value">{fr ? brl(fr.won.value) : "—"}</div>
+                <div className="kpi-foot"><span className="kpi-delta">{fr ? `${fr.won.count} venda(s)` : "—"}</span></div>
+                {fr && !fr.canViewValues && (
+                  <div className="kpi-foot"><span className="kpi-delta"><small>valores só para o dono</small></span></div>
+                )}
+              </div>
+            </div>
+            <div className="kpi">
+              <span className="kpi-icon"><I d={ICONS.x} size={16} /></span>
+              <div>
+                <div className="kpi-label">Perdidos (encerrados)</div>
+                <div className="kpi-value">{fr ? String(fr.lost.count) : "—"}</div>
+                <div className="kpi-foot"><span className="kpi-delta down">cards fechados sem venda</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 🔕 Widget 2 — Chats sem resposta >2h + ⏱️ Widget 4 — tempo 1ª resposta */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-head">
+              <h2>🔕 Chats sem resposta &gt;2h</h2>
+              <div className="meta"><span>{uc ? `${uc.total} no total` : "—"}</span></div>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th>Vendedor</th><th>Chats</th><th>Espera</th></tr></thead>
+                <tbody>
+                  {(!uc || uc.rows.length === 0) && (
+                    <tr style={{ cursor: "default" }}><td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "18px 12px" }}>Ninguém deixando lead esperando. 👏</td></tr>
+                  )}
+                  {uc?.rows.map(r => (
+                    <tr key={String(r.userId ?? r.seller)} style={{ cursor: "default" }}>
+                      <td>{r.seller}</td>
+                      <td style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-danger)", fontWeight: 700 }}>{r.count}</td>
+                      <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{humanMinutes(r.waitingHours * 60)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-head"><h2>⏱️ Tempo médio 1ª resposta</h2></div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th>Vendedor</th><th>Média</th><th>Amostras</th></tr></thead>
+                <tbody>
+                  {(!rt || rt.rows.length === 0) && (
+                    <tr style={{ cursor: "default" }}><td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "18px 12px" }}>Sem respostas humanas no período.</td></tr>
+                  )}
+                  {rt?.rows.map(r => (
+                    <tr key={String(r.userId ?? r.seller)} style={{ cursor: "default" }}>
+                      <td>{r.seller}</td>
+                      <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{humanMinutes(r.avgMinutes)}</td>
+                      <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{r.samples}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* 📈 Widget 3 — Entregues × trabalhados × convertidos por vendedor */}
+        <div className="panel" style={{ padding: 0 }}>
+          <div className="panel-head"><h2>📈 Leads entregues × trabalhados × convertidos</h2></div>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>Vendedor</th><th>Entregues</th><th>Trabalhados</th><th>Convertidos</th><th style={{ minWidth: 120 }}>Volume</th></tr></thead>
+              <tbody>
+                {(!sf || sf.rows.length === 0) && (
+                  <tr style={{ cursor: "default" }}><td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: "18px 12px" }}>Sem distribuição no período.</td></tr>
+                )}
+                {sf?.rows.map(r => (
+                  <tr key={r.userId} style={{ cursor: "default" }}>
+                    <td>{r.seller}</td>
+                    <td style={{ fontFamily: "var(--font-mono)" }}>{r.delivered}</td>
+                    <td style={{ fontFamily: "var(--font-mono)" }}>{r.worked}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-brand-strong)", fontWeight: 700 }}>{r.converted}</td>
+                    <td>
+                      <span style={{ display: "block", height: 7, borderRadius: 999, background: "var(--hbx-surface-raised)" }}>
+                        <span style={{ display: "block", height: "100%", borderRadius: 999, width: `${Math.round(((r.delivered || 0) / maxDeliver) * 100)}%`, background: "linear-gradient(90deg, var(--hbx-brand), var(--hbx-brand-strong))" }}></span>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 🐣 Widget 5 — Recém-abertas aproveitadas + 🤖 Widget 6 — IA */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-head"><h2>🐣 Recém-abertas aproveitadas (&lt;48h)</h2></div>
+            <div style={{ padding: "14px 16px 16px", display: "grid", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gap: 2 }}>
+                  <span className="kpi-value">{fl ? `${fl.ratePct}%` : "—"}</span>
+                  <span className="kpi-label">aproveitamento</span>
+                </div>
+                <div style={{ display: "grid", gap: 2 }}>
+                  <span className="kpi-value">{fl ? `${fl.usedIn48h}/${fl.opened}` : "—"}</span>
+                  <span className="kpi-label">contatadas em &lt;48h</span>
+                </div>
+              </div>
+              <div className="hbar">
+                <div className="r">
+                  <span className="lab">Ainda na janela</span>
+                  <span className="track"><span className="fill" style={{ display: "block", width: fl && fl.opened ? `${Math.round((fl.stillWaiting / fl.opened) * 100)}%` : "0%", background: "var(--hbx-warning)" }}></span></span>
+                  <span className="num">{fl?.stillWaiting ?? "—"}</span>
+                </div>
+                <div className="r">
+                  <span className="lab">Perdidas (&gt;48h)</span>
+                  <span className="track"><span className="fill" style={{ display: "block", width: fl && fl.opened ? `${Math.round((fl.missed / fl.opened) * 100)}%` : "0%", background: "var(--hbx-danger)" }}></span></span>
+                  <span className="num">{fl?.missed ?? "—"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-head"><h2>🤖 IA: tocou × devolveu × converteu</h2></div>
+            <div style={{ padding: "14px 16px 16px" }}>
+              <div className="fleg">
+                <div className="row">
+                  <span className="swatch" style={{ background: "var(--hbx-info)" }}></span>Conversas tocadas pela IA
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700 }}>{bot?.touched ?? "—"}</span>
+                </div>
+                <div className="row">
+                  <span className="swatch" style={{ background: "var(--hbx-warning)" }}></span>Devolvidas pro humano
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{bot ? `${bot.handedToHuman} (${botMax ? Math.round((bot.handedToHuman / botMax) * 100) : 0}%)` : "—"}</span>
+                </div>
+                <div className="row">
+                  <span className="swatch" style={{ background: "var(--hbx-brand-strong)" }}></span>Viraram venda
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700, color: "var(--hbx-brand-strong)" }}>{bot ? `${bot.converted} (${botMax ? Math.round((bot.converted / botMax) * 100) : 0}%)` : "—"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

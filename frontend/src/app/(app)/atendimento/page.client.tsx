@@ -152,6 +152,9 @@ type StatusCardLead = {
   emails?: string[] | null;
   phones?: string[] | null;
   phonesWhatsapp?: Record<string, boolean> | null;
+  // HOT-07 (empresa recém-aberta): badge de urgência. Opcional.
+  isFreshCompany?: boolean | null;
+  daysSinceOpened?: number | null;
   leadIntelligence?: {
     whatsappStatus?: string | null;
     emailStatus?: string | null;
@@ -2403,6 +2406,8 @@ export function AtendimentoClient() {
                 emails: card?.lead?.emails ?? null,
                 phones: card?.lead?.phones ?? null,
                 phonesWhatsapp: card?.lead?.phonesWhatsapp ?? null,
+                isFreshCompany: card?.lead?.isFreshCompany ?? null,
+                daysSinceOpened: card?.lead?.daysSinceOpened ?? null,
                 city: card?.lead?.city ?? null,
                 state: card?.lead?.state ?? null,
                 segment: card?.lead?.segment ?? null,

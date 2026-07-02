@@ -1797,6 +1797,7 @@ model RadarLeadPool {
   companyStates        RadarLeadCompanyState[]
   events               RadarLeadEvent[]
   contacts             LeadContact[]
+  people               LeadPerson[]
 
   @@index([companyId, status])
   @@index([ownerCompanyId, status])
@@ -1829,6 +1830,35 @@ model LeadContact {
   @@index([radarLeadId, kind, rank])
   @@index([kind, valueNormalized])
   @@index([claimedByCompanyId])
+}
+
+// WORM-16 (02/07, docs/PLANEJAMENTOS/worm/16-tela-contatos-empresas-crm.md): contato por PESSOA
+// (nome + cargo), separado do LeadContact (que é por CANAL). O sócio do QSA da Receita
+// (CnpjPublicPartner) é o caso primário — pessoa com NOME e CARGO, mas normalmente SEM
+// telefone/e-mail (o dump RFB não traz). Por isso NÃO cabe no LeadContact (que exige
+// kind/value de um canal) nem passa pelo gate anti-alucinação de telefone/e-mail (o nome
+// cadastral da Receita é dado oficial, não canal scrapeado). ADITIVA: populada por backfill dos
+// blobs (metadataJson people/ownerNames) + QSA existente, sem destruir o blob; NÃO é fonte do
+// presenter (metadataJson continua a evidência) — serve consulta/filtro/export e o card lê
+// meta.people. Idempotência por (radarLeadId, personKey).
+model LeadPerson {
+  id           String   @id @default(cuid())
+  radarLead    RadarLeadPool @relation(fields: [radarLeadId], references: [id], onDelete: Cascade)
+  radarLeadId  String
+  name         String
+  role         String?  // cargo/qualificação (ex.: "Sócio-Administrador") — do QSA quando houver
+  // canais opcionais e ADITIVOS: só preenchidos quando a fonte já os traz (ex.: ownerPhone do L4).
+  // Canal scrapeado real continua em LeadContact via LeadContactWriteService (caminho único).
+  phoneDigits  String?
+  email        String?
+  source       String   // 'receita_qsa' | 'crawl' | 'manual' | 'ia'
+  // chave de idempotência dentro do lead: source + nome normalizado (sem acento/caixa).
+  personKey    String
+  rank         Int      @default(1)
+  createdAt    DateTime @default(now())
+
+  @@unique([radarLeadId, personKey])
+  @@index([radarLeadId, rank])
 }
 
 // DISJUNTOR MENSAL do Brave (30/06 — incidente "estourou 1000"): contador persistente de chamadas
@@ -2459,6 +2489,7 @@ model VendasLead {
   automationJobs    VendasAutomationJob[]
   radarCompanyStates RadarLeadCompanyState[]
   commissionReceivables VendasCommissionReceivable[]
+  atividades        Atividade[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, status, returnAt])
@@ -2539,6 +2570,56 @@ model VendasLeadTimelineEvent {
   createdAt       DateTime   @default(now())
 
   @@index([leadId, createdAt])
+}
+
+// WORM-12 (02/07, docs/PLANEJAMENTOS/worm/12-tela-atividades-agenda.md): agenda do
+// vendedor. Cada Atividade e uma tarefa datada amarrada a um card (VendasLead) — a
+// tela "Hoje" a le por responsavel+vencimento. Concluir (realizadaEm+resultado) escreve
+// UM evento na VendasLeadTimelineEvent (reuso; sem timeline nova) e alimenta o
+// engajamento/termometro do card (WORM-10). WORM-13 cria por automacao via criadaPor.
+model Atividade {
+  id             String     @id @default(cuid())
+  lead           VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId         String
+  companyId      Int
+  tipo           String     @default("ligacao") // ligacao | reuniao | visita | mensagem
+  titulo         String
+  vencimento     DateTime
+  duracao        Int?       // minutos; null = "dia inteiro"
+  responsavelId  Int?       // User.id — vendedor dono da tarefa
+  realizadaEm    DateTime?  // null = pendente; preenchido ao concluir
+  resultado      String?    // sim | nao | remarcar (ou texto livre) — alimenta engajamento
+  criadaPor      String     @default("user") // user | automacao | ia
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([companyId, responsavelId, vencimento])
+  @@index([leadId])
+  @@index([companyId, realizadaEm, vencimento])
+}
+
+// WORM-15 (02/07) — pesquisa SALVA nomeada pelo usuario (diferente do
+// WebscrapingSearchHistory, que e historico automatico de busca). Guarda um
+// recorte de filtros do Radar (filtroJson = subset de RadarFiltersInput) para
+// re-rodar depois (`POST /saved-search/:id/run` reusa listRadarLeadsForUser) e,
+// quando atribuida a um vendedor (assignedSellerId), vira fonte preferencial da
+// distribuicao daquele vendedor (grava no radarSellerStandingOrderJson dele).
+// Colunas Int cruas (companyId/ownerId/assignedSellerId) sem back-relation,
+// mesmo padrao do Atividade — migration escrita a mao (banco dev desligado).
+model SavedSearch {
+  id               String   @id @default(cuid())
+  companyId        Int
+  ownerId          Int      // User.id que criou a pesquisa
+  nome             String
+  filtroJson       String   // JSON com o recorte de filtros do Radar
+  assignedSellerId Int?     // User.id do vendedor "dono do recorte" (opcional)
+  lastRunAt        DateTime? // ultima vez que rodou
+  lastCount        Int?     // quantos leads a ultima execucao devolveu
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([companyId, ownerId, createdAt])
+  @@index([companyId, assignedSellerId])
 }
 
 model SalesProfile {
@@ -2641,6 +2722,109 @@ model VendasAutomationJob {
   @@index([campaignId, status, scheduledAt])
   @@index([leadId, status])
   @@index([conversationId])
+}
+
+// ================================================================
+// WORM-13 (02/07) — Automacoes: cadencia com PERSONA + gatilhos + rotinas.
+// A EMBALAGEM: o cliente nao monta fluxo, ESCOLHE uma PERSONALIDADE de cadencia
+// (Conservador/Moderado/Agressivo). Cada passo e {dia, canal, template}. O canal
+// WhatsApp NAO usa API crua: o runner reusa o caminho ja provado do bot de
+// prospeccao (ConversationsService.queueOutboundForCompany, sourceModule
+// 'vendas_prospeccao_bot') — que ja tem disjuntor, 1 numero=1 conexao, teto
+// diario/warmup. "Agressiva" = mais TOQUES (email/atividade), NUNCA mais pressao
+// no chip: o teto de WhatsApp/dia e tecnico e fixo, nao configuravel pelo cliente.
+// TODO auto-disparo fica atras da flag HBX_CADENCIA_RUNNER_ENABLED (default OFF).
+// Colunas Int cruas (companyId/etc) sem back-relation, mesmo padrao do Atividade/
+// SavedSearch — migration escrita a mao (banco dev desligado).
+model Cadencia {
+  id          String   @id @default(cuid())
+  companyId   Int
+  ownerId     Int?     // User.id que criou/aplicou
+  nome        String
+  persona     String   @default("conservador") // conservador | moderado | agressivo | custom
+  descricao   String?
+  passosJson  String   // JSON [{dia:int, canal:'whats'|'email'|'atividade', titulo?, corpo?, templateId?, atividadeTipo?}]
+  ativa       Boolean  @default(true)
+  isSeed      Boolean  @default(false) // seed de persona (nao editavel/removivel pela UI)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  inscricoes  CadenciaInscricao[]
+
+  @@index([companyId, ativa, createdAt])
+}
+
+// Um lead INSCRITO numa cadencia. O runner diario avanca currentStep respeitando
+// os dias (nextStepAt) e os tetos de chip. Unico por (cadencia,lead) ativo — o
+// runner nao inscreve duas vezes o mesmo lead na mesma cadencia.
+model CadenciaInscricao {
+  id           String   @id @default(cuid())
+  cadencia     Cadencia @relation(fields: [cadenciaId], references: [id], onDelete: Cascade)
+  cadenciaId   String
+  companyId    Int
+  leadId       String
+  responsavelId Int?    // vendedor dono (para atividades/notificacao)
+  status       String   @default("ativa") // ativa | concluida | pausada | cancelada
+  currentStep  Int      @default(0) // proximo passo a executar (indice no passosJson)
+  startedAt    DateTime @default(now())
+  nextStepAt   DateTime // quando o proximo passo fica devido
+  lastStepAt   DateTime?
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([cadenciaId, leadId])
+  @@index([companyId, status, nextStepAt])
+  @@index([leadId, status])
+}
+
+// 13b — Gatilho reativo: evento (ex.: lead respondeu WhatsApp) -> acoes. As acoes
+// sao seguras e reusam superficies existentes: mover status (funil), criar
+// atividade (hook WORM-12) e notificar vendedor (timeline/realtime). Nenhuma acao
+// dispara WhatsApp automatico (o inbound ja significa que o humano falou; o bot de
+// atendimento cuida da resposta).
+model CadenciaGatilho {
+  id          String   @id @default(cuid())
+  companyId   Int
+  ownerId     Int?
+  nome        String
+  evento      String   @default("lead_respondeu_whatsapp") // lead_respondeu_whatsapp | email_lido
+  acoesJson   String   // JSON [{tipo:'mover_status'|'criar_atividade'|'notificar_vendedor', ...params}]
+  ativo       Boolean  @default(true)
+  lastFiredAt DateTime?
+  fireCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, evento, ativo])
+}
+
+// 13c — Rotina recorrente em cima do WORM-15 (SavedSearch): "toda segunda, puxa N
+// leads do filtro Y pro vendedor Z". O runner diario dispara SavedSearch.run
+// quando o dia da semana bate e a janela de recorrencia esta aberta. Atras da
+// mesma flag do runner (default OFF).
+model CadenciaRotina {
+  id             String   @id @default(cuid())
+  companyId      Int
+  ownerId        Int?
+  nome           String
+  savedSearchId  String   // SavedSearch.id (WORM-15)
+  assignedSellerId Int?   // vendedor destino (Z)
+  everyWeeks     Int      @default(1) // repete a cada N semanas
+  weekdaysJson   String   @default("[1]") // JSON int[] 0=Dom..6=Sab
+  maxLeads       Int      @default(50)
+  startsAt       DateTime @default(now())
+  endsAt         DateTime? // null = nunca termina
+  visibleOnlyToOwner Boolean @default(false)
+  ativa          Boolean  @default(true)
+  lastRunAt      DateTime?
+  lastRunCount   Int?
+  lastRunStatus  String?  // sucesso | erro | pulada
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId, ativa, lastRunAt])
 }
 
 model TechAssistantInteraction {
@@ -3280,6 +3464,21 @@ model CnpjPublicCompany {
   // Quadro completo vive em CnpjPublicPartner (join por cnpjBasico = 8 primeiros dígitos do cnpj).
   ownerName          String?
   ownerQualification String?
+  // HOT-01: colunas aditivas do dump RFB (Empresas/Simples/Estabelecimentos) — dado de graça
+  // capturado na carga, não descartado. NULL = ainda não carregado/fase 2 (regimeTributario).
+  capitalSocial    Decimal?  @db.Decimal(18, 2)
+  naturezaJuridica String?
+  simples          Boolean?
+  mei              Boolean?
+  // Lucro Real/Presumido/Arbitrado é dataset separado da RFB, não vem no dump padrão — fase 2.
+  regimeTributario String?
+  phone2           String?
+  // CSV dos códigos de CNAE secundário (cnae_secundario do dump); catálogo em CnpjPublicCnae.
+  cnaeSecundarias  String?
+  // Anti-contador (base do HOT-03): quantos CNPJs ativos compartilham este phone/email.
+  phoneShareCount  Int?
+  emailShareCount  Int?
+  firstSeenAt      DateTime  @default(now())
   importedAt      DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -3288,6 +3487,31 @@ model CnpjPublicCompany {
   @@index([normalizedCity, cnae])
   @@index([state, cnae])
   @@index([phoneDigits])
+}
+
+// Catálogo de CNAE (dump Cnaes.zip da RFB) — código→descrição, usado pelo HOT-02 (picker de
+// CNAE por texto). Populado a partir da staging stg_rfb_cnaes no import-cnpj-dataset.js.
+model CnpjPublicCnae {
+  codigo    String   @id
+  descricao String
+  updatedAt DateTime @updatedAt
+}
+
+// HOT-02: contagem por opção de filtro ("Empresário (Individual) (44.889.600)") cacheada
+// 1x/mês pós-import — nunca contada ao vivo (GROUP BY em 28M linhas não responde <1s). `group`
+// identifica a dimensão (naturezaJuridica|porte|situacao|matrizFilial|uf), `key` o valor bruto
+// da dimensão e `count` o total. Recalculada por scripts/import-cnpj-dataset.js ao fim da carga;
+// endpoint só LÊ esta tabela (nunca faz GROUP BY em CnpjPublicCompany por request).
+model CnpjBaseStats {
+  id          String   @id @default(cuid())
+  group       String
+  key         String
+  label       String?
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([group, key])
+  @@index([group])
 }
 
 // Quadro societário do dump aberto da RFB (Socios*.zip). Liga em CnpjPublicCompany pelo
@@ -3309,6 +3533,58 @@ model CnpjPublicPartner {
   importedAt               DateTime  @default(now())
 
   @@index([cnpjBasico])
+}
+
+// RAIO-X DE CNPJ EM LOTE (HOT-04, 02/07 — docs/PLANEJAMENTOS/hot/04-enriquecimento-lote.md).
+// Histórico/estado de um job de lote colado no painel Owner (:3107): cola até 10k CNPJs → cadastral
+// instantâneo (CnpjPublicCompany/BrasilAPI) + enfileira `enrich_lead` (camada vivo, mesma fila da
+// fábrica) + IA opcional → gera XLSX em background. ADITIVA: tabela nova isolada, não toca em
+// CnpjPublicCompany/Partner (outro worker mexe nelas) nem em RadarFabricaRun/RadarMission.
+model CnpjXrayJob {
+  id              String    @id @default(cuid())
+  status          String    @default("queued") // queued | running_cadastral | running_vivo | running_ia | done | error
+  layers          String    // JSON string ["cadastral","vivo","ia"]
+  requestedCount  Int       @default(0) // linhas coladas (bruto, antes de validar)
+  validCount      Int       @default(0) // CNPJs válidos após DV mod-11 + dedup
+  invalidCount    Int       @default(0)
+  processedCount  Int       @default(0) // já resolvidos na camada cadastral
+  missionsQueued  Int       @default(0) // missões enrich_lead enfileiradas (camada vivo)
+  missionsDone    Int       @default(0) // missões enrich_lead já completas
+  aiDone          Int       @default(0) // notas/resumo IA já gerados
+  invalidReportJson Json?   // relatório do que caiu na validação: [{ raw, reason }]
+  resultFileName  String?   // nome do XLSX gerado (histórico/download)
+  resultPath      String?   // caminho relativo no disco onde o XLSX foi salvo
+  lastError       String?
+  requestedByUserId Int?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// WORM-14 (02/07, docs/PLANEJAMENTOS/worm/14-assistente-ia-wizard.md):
+// Assistente IA por empresa. `fluxoJson` guarda o fluxo em LISTA (passos +
+// condicoes com few-shots) montado no wizard; o compilador (assistente-flow.ts)
+// vira prompt-sistema do MESMO pipeline do bot (Ollama local). `testCounter`
+// numera os testes do sandbox ("Teste nº"). `published` = intencao de ligar no
+// chip (so efetiva com HBX_ASSISTENTE_PUBLISH_ENABLED). ADITIVA: tabela isolada.
+model AssistenteConfig {
+  id          String   @id @default(cuid())
+  companyId   Int
+  nome        String   @default("Assistente")
+  tom         String   @default("normal") // formal | normal | descontraido
+  perfil      String   @default("vendas") // vendas | suporte
+  produtos    String?
+  empresaNome String?
+  fluxoJson   String   @default("{}")
+  published   Boolean  @default(false)
+  testCounter Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, updatedAt])
 }
 
 model GmailConnection {
