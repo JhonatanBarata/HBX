@@ -1842,6 +1842,20 @@ model BraveApiUsage {
   updatedAt DateTime @updatedAt
 }
 
+// FREIO ÚNICO POR FONTE (Sprint 3 MOTOR-RFB-FILA, 02/07) — generaliza o disjuntor do Brave num
+// contador persistente por fonte × período, lido/gravado SÓ pelo SourceBudgetService
+// (backend/src/webscraping/source-budget/). yearMonth guarda a CHAVE DO PERÍODO: "YYYY-MM" p/ cap
+// mensal (brave), "YYYY-MM-DD" p/ cap diário (google_places). BraveApiUsage acima fica de pé como
+// compat até o cutover; a migration copia o histórico dele pra cá.
+model SourceApiUsage {
+  source    String
+  yearMonth String
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([source, yearMonth])
+}
+
 model RadarLeadCompanyState {
   id             String   @id @default(cuid())
   company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)

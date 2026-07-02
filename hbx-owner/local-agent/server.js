@@ -2079,6 +2079,18 @@ async function route(req, res) {
     return;
   }
 
+  // Gauge do governor por fonte (Sprint 3 MOTOR-RFB-FILA): usado/teto/período do SourceApiUsage,
+  // lido do backend LOCAL (a leitura da VPS ainda não tem rota no Ops Control — coluna VPS degrada).
+  if (req.method === "GET" && url.pathname === "/owner/source-budget") {
+    const r = await backendRequest("GET", "/modules/owner/radar/source-budget", null, { timeoutMs: 15000 });
+    if (r.ok && r.data) {
+      sendJson(res, 200, r.data);
+    } else {
+      sendJson(res, 200, { ok: false, reason: r.error || r.data?.message || `http_${r.statusCode || "?"}`, sources: [] });
+    }
+    return;
+  }
+
   // Limpar o LIXO do banco local (#3): cards com nome que não é empresa. Preview por padrão; confirm:true apaga.
   if (req.method === "POST" && url.pathname === "/owner/clean-junk-leads") {
     const body = await readBody(req);

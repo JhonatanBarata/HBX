@@ -335,6 +335,69 @@
 }
 
 /* ---------------------------------------------------------------
+   GAUGES do governor por fonte (usado/teto — Sprint 3 MOTOR-RFB-FILA)
+   Tudo em token do tema; estado pinta a barra/texto (ok/warn/blocked/muted).
+--------------------------------------------------------------- */
+.tgauges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tgauge {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.tgauge-name {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+
+.tgauge-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+  overflow: hidden;
+}
+
+.tgauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green);
+}
+
+.tgauge[data-state="warn"]    .tgauge-fill { background: var(--amber); }
+.tgauge[data-state="blocked"] .tgauge-fill { background: var(--red); }
+
+.tgauge-text {
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.tgauge[data-state="warn"]    .tgauge-text { color: var(--amber); }
+.tgauge[data-state="blocked"] .tgauge-text { color: var(--red); }
+.tgauge[data-state="muted"]   .tgauge-text { color: var(--text-muted); }
+
+/* sem barra (fonte sem teto numérico): o texto ocupa as duas colunas restantes */
+.tgauge:not(:has(.tgauge-bar)) { grid-template-columns: 96px 1fr; }
+.tgauge:not(:has(.tgauge-bar)) .tgauge-text { white-space: normal; justify-self: start; }
+
+/* ---------------------------------------------------------------
    NOTA E MISSÃO
 --------------------------------------------------------------- */
 .tnode-note {

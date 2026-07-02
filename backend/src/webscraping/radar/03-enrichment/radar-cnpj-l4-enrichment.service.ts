@@ -1,4 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
+import { SourceBudgetService } from '../../source-budget/source-budget.service';
 import { normalizeLegacyBrCellphone } from '../providers/cnpj-public/cnpj-public-types';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 
@@ -98,31 +99,9 @@ export class RadarCnpjL4EnrichmentService {
 
   private static readonly brasilApiCache = new Map<string, CnpjL4Result>();
 
-  // --- Throttle global da BrasilAPI ---
-  // Garante: 1 chamada em voo por vez + intervalo mínimo de 700 ms entre disparos.
-  // Todas as chamadas entram numa fila promise-chain única (estática = compartilhada
-  // entre instâncias do serviço).
-  private static readonly BRASILAPI_MIN_INTERVAL_MS = 700;
-  private static _brasilApiQueue: Promise<void> = Promise.resolve();
-  private static _brasilApiLastCallAt = 0;
-
-  private static enqueueThrottled<T>(fn: () => Promise<T>): Promise<T> {
-    const queued = RadarCnpjL4EnrichmentService._brasilApiQueue.then(async () => {
-      const now = Date.now();
-      const elapsed = now - RadarCnpjL4EnrichmentService._brasilApiLastCallAt;
-      const wait = RadarCnpjL4EnrichmentService.BRASILAPI_MIN_INTERVAL_MS - elapsed;
-      if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
-      RadarCnpjL4EnrichmentService._brasilApiLastCallAt = Date.now();
-      return fn();
-    });
-    // A fila só avança quando a chamada anterior terminar (sucesso ou erro).
-    // Usamos .then(noop, noop) para que um erro num item não quebre a fila.
-    RadarCnpjL4EnrichmentService._brasilApiQueue = queued.then(
-      () => undefined,
-      () => undefined,
-    );
-    return queued;
-  }
+  // Throttle da BrasilAPI (1 em voo + 700ms, env HBX_BRASILAPI_MIN_INTERVAL_MS) agora vive no
+  // SourceBudgetService (fila por fonte + respeito a 429/Retry-After) — Sprint 3 MOTOR-RFB-FILA.
+  // Grátis = FAIL-OPEN: a fila/contagem nunca derruba o lookup por blip de banco.
 
   /**
    * Lookup by CNPJ: dataset local primeiro (bulk, instantâneo), depois BrasilAPI
@@ -241,8 +220,8 @@ export class RadarCnpjL4EnrichmentService {
     if (!this.brasilApiEnabled()) return null;
     const cached = RadarCnpjL4EnrichmentService.brasilApiCache.get(cnpj);
     if (cached) return cached;
-    // Throttle: entra na fila global (1 chamada em voo + 700 ms entre disparos).
-    return RadarCnpjL4EnrichmentService.enqueueThrottled(() =>
+    // Fila do governor: 1 chamada em voo por fonte + intervalo mínimo + backoff de 429.
+    return SourceBudgetService.schedule('brasilapi', () =>
       this._fetchBrasilApi(cnpj),
     );
   }
@@ -253,6 +232,7 @@ export class RadarCnpjL4EnrichmentService {
     const cached = RadarCnpjL4EnrichmentService.brasilApiCache.get(cnpj);
     if (cached) return cached;
     try {
+      void SourceBudgetService.countFreeCall('brasilapi'); // gauge do cockpit — best-effort
       const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
         headers: {
           Accept: 'application/json',
@@ -261,8 +241,12 @@ export class RadarCnpjL4EnrichmentService {
         },
         signal: AbortSignal.timeout(8000),
       });
-      // 429 Too Many Requests: backoff gracioso — devolve null sem cachear o erro.
-      if (resp.status === 429) return null;
+      // 429 Too Many Requests: devolve null sem cachear o erro E avisa o governor — a fila da
+      // fonte segura o próximo disparo pelo Retry-After (default 30s) em vez de martelar.
+      if (resp.status === 429) {
+        SourceBudgetService.reportRateLimited('brasilapi', Number(resp.headers?.get?.('retry-after')) || null);
+        return null;
+      }
       if (!resp.ok) return null;
       const data: any = await resp.json();
       const qsa: any[] = Array.isArray(data?.qsa) ? data.qsa : [];

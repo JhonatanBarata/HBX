@@ -779,6 +779,7 @@ test('automatic queue honors factory max while manual priority still sees the fu
     HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
     HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // isola a mecânica sob teste do teto por fonte (Sprint 3)
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
     service.isWithinClientPriorityWindow = () => false;
@@ -801,6 +802,7 @@ test('automatic queue reserves engines during client priority window', async () 
     HBX_FACTORY_MEMORY_SOFT_PRESSURE_PERCENT: '100',
     HBX_FACTORY_MEMORY_HARD_PRESSURE_PERCENT: '100',
     HBX_FACTORY_MEMORY_PANIC_PRESSURE_PERCENT: '100',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // isola a mecânica sob teste do teto por fonte (Sprint 3)
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
     service.isWithinClientPriorityWindow = () => true;
@@ -848,6 +850,7 @@ test('automatic eligibility can use the full common pool when factory limit allo
     HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
     HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // isola a mecânica sob teste do teto por fonte (Sprint 3)
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
     service.healthCheckEngines = async () => buildEngineRows(50);
@@ -1286,6 +1289,7 @@ test('eligible engines reach the full allowed count when the fleet is healthy un
     HBX_AUTONOMOUS_MAX_MEMORY_PRESSURE_PERCENT: '100',
     HBX_RADAR_CLIENT_PRIORITY_START_HOUR: '23',
     HBX_RADAR_CLIENT_PRIORITY_END_HOUR: '0',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // isola a mecânica sob teste do teto por fonte (Sprint 3)
   }, async () => {
     const service = createPoolForCapacity({ queuedCount: 100 }) as any;
     service.isWithinClientPriorityWindow = () => false;
@@ -1354,7 +1358,7 @@ test('parseProcStatCpuSample reads idle+iowait and total from the aggregate cpu 
 });
 
 test('elastic headroom never exceeds the declared fleet even with idle CPU and RAM', () => {
-  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1' }, () => {
+  withEnv({ NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1', HBX_SOURCE_FREE_MAX_CONCURRENCY: '0' }, () => {
     const service = new HbxEnginePoolService({} as any) as any;
     service.resolveMemoryPressurePercent = () => 10;
     service.resolveCpuPressurePercent = () => 5;
@@ -1388,6 +1392,7 @@ test('elastic ON neutralizes a forced low factoryMaxEngines from the DB metadata
     NODE_ENV: 'production',
     HBX_ENGINE_COUNT: '20',
     HBX_ENGINE_WARM_MIN: '1',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // isola a mecânica sob teste do teto por fonte (Sprint 3)
     HBX_FACTORY_MAX_ENGINES: '',
     HBX_FACTORY_START_HOUR: '0',
     HBX_FACTORY_END_HOUR: '0',
@@ -1485,6 +1490,7 @@ test('source headroom allows the full fleet when timeout rate is low (<10%)', as
   await withEnv({
     NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
     HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // sem clamp: testa a HEURÍSTICA pura (clamp tem teste próprio)
   }, async () => {
     // 0 timeouts em 10 batches = 0% → libera tudo (físico=20).
     const rows = Array.from({ length: 10 }, () => ({ status: 'completed', errorMessage: null }));
@@ -1516,6 +1522,7 @@ test('small batch sample does not invent source pressure', async () => {
   await withEnv({
     NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
     HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+    HBX_SOURCE_FREE_MAX_CONCURRENCY: '0', // sem clamp: testa a HEURÍSTICA pura (clamp tem teste próprio)
   }, async () => {
     // Só 2 batches (< minSample 6) → não confia, pressão decai, headroom permanece físico.
     const rows = [{ status: 'failed', errorMessage: 'timeout' }, { status: 'failed', errorMessage: 'timeout' }];
@@ -1523,5 +1530,47 @@ test('small batch sample does not invent source pressure', async () => {
     const pressure = await service.sampleSourcePressurePercent();
     assert.equal(pressure, 0);
     assert.equal(service.getSourceHeadroomEngineCount(), 20);
+  });
+});
+
+// ── Teto ESTÁTICO por fonte grátis (Sprint 3 MOTOR-RFB-FILA): clamp DENTRO da elasticidade ───────
+// Dado medido: 20 motores na mesma fonte = timeout; 6–8 = ótimo. A heurística acima redescobre
+// esse ponto QUEIMANDO timeout a cada ciclo; o clamp (env HBX_SOURCE_FREE_MAX_CONCURRENCY,
+// default 8) corta a oscilação na origem. Só o caminho AUTOMÁTICO — manual/cliente não passa aqui.
+
+test('teto por fonte grátis clampa o headroom no default 8 mesmo sem pressão', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6',
+  }, async () => {
+    // 0% de timeout: a heurística liberaria os 20 físicos, mas o teto estático segura em 8.
+    const rows = Array.from({ length: 10 }, () => ({ status: 'completed', errorMessage: null }));
+    const service = poolWithBatches(rows);
+    await service.sampleSourcePressurePercent();
+    assert.equal(service.getSourceHeadroomEngineCount(), 8);
+  });
+});
+
+test('teto por fonte grátis obedece o env (GATE G2: número final é do dono)', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '1',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6', HBX_SOURCE_FREE_MAX_CONCURRENCY: '6',
+  }, async () => {
+    const rows = Array.from({ length: 10 }, () => ({ status: 'completed', errorMessage: null }));
+    const service = poolWithBatches(rows);
+    await service.sampleSourcePressurePercent();
+    assert.equal(service.getSourceHeadroomEngineCount(), 6);
+  });
+});
+
+test('teto por fonte nunca fura o piso warm (disponibilidade vence o clamp)', async () => {
+  await withEnv({
+    NODE_ENV: 'production', HBX_ENGINE_COUNT: '20', HBX_ENGINE_WARM_MIN: '3',
+    HBX_FACTORY_SOURCE_MIN_SAMPLE: '6', HBX_SOURCE_FREE_MAX_CONCURRENCY: '2',
+  }, async () => {
+    const rows = Array.from({ length: 10 }, () => ({ status: 'completed', errorMessage: null }));
+    const service = poolWithBatches(rows);
+    await service.sampleSourcePressurePercent();
+    assert.equal(service.getSourceHeadroomEngineCount(), 3);
   });
 });

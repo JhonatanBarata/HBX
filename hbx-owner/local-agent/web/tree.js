@@ -145,8 +145,11 @@
     /* Cérebro IA (Ollama) é LOCAL — só faz sentido no escopo local; VPS recebe stub */
     var aiP        = isVps ? Promise.resolve({ ok: false, err: "vps" })
                            : safe(tapi("GET", "/owner/ai/status"));
+    /* Governor por fonte (gauge usado/teto): lê o backend LOCAL; leitura da VPS ainda sem rota ops */
+    var budgetP    = isVps ? Promise.resolve({ ok: false, err: "vps" })
+                           : safe(tapi("GET", "/owner/source-budget"));
 
-    Promise.all([cockpitP, systemP, engP, enrichP, intLocalP, intVpsP, leadsP, factoryP, aiP])
+    Promise.all([cockpitP, systemP, engP, enrichP, intLocalP, intVpsP, leadsP, factoryP, aiP, budgetP])
       .then(function (results) {
         var cockpitR = results[0];
         var systemR  = results[1];
@@ -157,6 +160,7 @@
         var leadsR   = results[6];
         var factR    = results[7];
         var aiR      = results[8];
+        var budgetR  = results[9];
 
         /* guarda presença de chave no cache client-side (evita SSH a cada poll) */
         if (!intFresh) tState.intCache = { at: Date.now(), local: intLocR, vps: intVpsR };
@@ -303,11 +307,50 @@
             },
           ];
 
+          /* ── gauge do governor por fonte (usado/teto/período — SourceApiUsage) ──
+             Só o escopo LOCAL tem leitura (backend local); a VPS degrada honesto (sem gauge). */
+          var gauges = [];
+          var budget = budgetR && budgetR.ok ? budgetR.data : null;
+          if (budget && Array.isArray(budget.sources)) {
+            var gaugeLabels = {
+              brave: "Brave", google_places: "Google Places", serper: "Serper",
+              brasilapi: "BrasilAPI", ddg: "DuckDuckGo", bing: "Bing", searxng: "SearXNG",
+            };
+            budget.sources.forEach(function (s) {
+              var label = gaugeLabels[s.source] || s.source;
+              var g = { label: label, tier: s.tier, text: "", pct: null, state: "ok" };
+              if (s.counterError) {
+                g.text = s.tier === "paid" ? "contador ilegível → PAUSADA (fail-closed)" : "contador ilegível (segue — fail-open)";
+                g.state = s.tier === "paid" ? "blocked" : "warn";
+              } else if (s.source === "serper") {
+                g.text = s.allowed ? "liberado por env (roda no motor)" : "OFF (HBX_ENRICH_ALLOW_PAID)";
+                g.state = s.allowed ? "ok" : "muted";
+              } else if (s.cap != null) {
+                var used = Number(s.used || 0);
+                g.pct = Math.max(0, Math.min(100, Math.round((used / s.cap) * 100)));
+                g.text = used.toLocaleString("pt-BR") + " / " + s.cap.toLocaleString("pt-BR")
+                  + (s.period === "day" ? " hoje" : " no mês");
+                g.state = g.pct >= 100 ? "blocked" : g.pct >= 70 ? "warn" : "ok";
+              } else if (s.concurrencyCap != null) {
+                g.text = (s.activeNow || 0) + "/" + s.concurrencyCap + " simultâneas agora · "
+                  + Number(s.usedMonth || 0).toLocaleString("pt-BR") + " no mês";
+                g.state = "ok";
+              } else {
+                g.text = Number(s.usedMonth || 0).toLocaleString("pt-BR") + " no mês"
+                  + (s.minIntervalMs ? " · 1 req/" + (s.minIntervalMs / 1000) + "s" : "");
+                g.state = "ok";
+              }
+              if (s.backoffUntil) { g.text += " · em backoff (429)"; if (g.state === "ok") g.state = "warn"; }
+              gauges.push(g);
+            });
+          }
+
           nodes.push({
             stage: "source", icon: "🔎", title: "Fonte de busca · grátis primeiro, pago só reforço",
             status: "ok", metrics: [],
-            note: "Grátis (IP residencial) sustenta a busca; pago (Places/Serper) entra só como reforço no lead que passou no score.",
-            actions: [], branches: branches,
+            note: "Grátis (IP residencial) sustenta a busca; pago (Places/Serper) entra só como reforço no lead que passou no score."
+              + (gauges.length ? " Governor por fonte abaixo: pago corta duro no teto (fail-closed); grátis tem teto de concorrência." : ""),
+            actions: [], branches: branches, gauges: gauges,
           });
         })();
 
@@ -798,6 +841,23 @@
       ? '<p class="tnode-note">' + tesc(n.note) + "</p>"
       : "";
 
+    /* gauges do governor por fonte (usado/teto) — barra só quando existe teto numérico */
+    var gaugesHtml = "";
+    if (n.gauges && n.gauges.length) {
+      gaugesHtml = '<div class="tgauges">'
+        + n.gauges.map(function (g) {
+            var bar = g.pct != null
+              ? '<span class="tgauge-bar"><span class="tgauge-fill" style="width:' + Math.max(2, g.pct) + '%"></span></span>'
+              : "";
+            return '<div class="tgauge" data-state="' + tesc(g.state) + '" data-tier="' + tesc(g.tier) + '">'
+              + '<span class="tgauge-name">' + tesc(g.label) + '</span>'
+              + bar
+              + '<span class="tgauge-text">' + tesc(g.text) + '</span>'
+              + "</div>";
+          }).join("")
+        + "</div>";
+    }
+
     var missionHtml = n.mission
       ? '<div class="tnode-mission">' + tesc(n.mission) + "</div>"
       : "";
@@ -845,6 +905,7 @@
       + metricsHtml
       + missionHtml
       + noteHtml
+      + gaugesHtml
       + branchesHtml
       + actionsHtml
       + '</div>'
