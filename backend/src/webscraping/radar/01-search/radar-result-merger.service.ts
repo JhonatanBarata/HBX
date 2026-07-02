@@ -14,6 +14,55 @@ function normalizePhoneDigits(raw: string | null | undefined) {
   return String(raw || '').replace(/\D/g, '');
 }
 
+function normalizeCnpjDigits(raw: unknown) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  return digits.length === 14 ? digits : '';
+}
+
+/**
+ * Chave canônica de telefone: BR celular tem DDD(2) + 9 + número(8) = 11 dígitos;
+ * o mesmo aparelho pode ser capturado sem o 9º dígito (10 dígitos, DDD+8).
+ * Gera as variantes com/sem 9 (só quando plausível: DDD válido e 3º dígito after DDD == '9')
+ * e, se vier com DDI 55, também gera a forma sem DDI — assim `5588912345678`,
+ * `558812345678`, `88912345678` e `8812345678` colidem na MESMA chave canônica.
+ */
+function phoneCanonicalVariants(raw: string | null | undefined): string[] {
+  let digits = normalizePhoneDigits(raw);
+  if (!digits) return [];
+  // remove DDI 55 quando o restante já parece um nacional válido (10 ou 11 dígitos)
+  if (digits.length > 11 && digits.startsWith('55')) {
+    const withoutDdi = digits.slice(2);
+    if (withoutDdi.length === 10 || withoutDdi.length === 11) digits = withoutDdi;
+  }
+  const variants = new Set<string>();
+  if (digits.length === 11 && digits[2] === '9') {
+    variants.add(digits);
+    variants.add(digits.slice(0, 2) + digits.slice(3)); // remove o 9º dígito
+  } else if (digits.length === 10) {
+    variants.add(digits);
+    variants.add(digits.slice(0, 2) + '9' + digits.slice(2)); // injeta o 9º dígito
+  } else {
+    variants.add(digits);
+  }
+  return Array.from(variants);
+}
+
+/** Chave canônica única (determinística) representando o telefone, independente do formato capturado. */
+function phoneCanonicalKey(raw: string | null | undefined): string {
+  const variants = phoneCanonicalVariants(raw);
+  if (!variants.length) return '';
+  // menor variante (10 dígitos, sem o 9º) como representante estável da chave
+  return variants.slice().sort((a, b) => a.length - b.length)[0];
+}
+
+/** Primeira palavra "significativa" do nome normalizado — desempate barato pra fone compartilhado. */
+function firstNameToken(name: string | null | undefined): string {
+  const normalized = normalizeLookupValue(name);
+  const stopwords = new Set(['a', 'o', 'as', 'os', 'de', 'da', 'do', 'das', 'dos']);
+  const tokens = normalized.split(' ').filter((token) => token && !stopwords.has(token));
+  return tokens[0] || '';
+}
+
 function normalizeSource(source: string | null | undefined) {
   const normalized = String(source || '').trim();
   const aliases: Record<string, string> = {
@@ -172,9 +221,20 @@ function isBetterEvidence(current: FieldEvidence | null, incoming: FieldEvidence
 
 @Injectable()
 export class RadarResultMergerService {
+  /**
+   * Hierarquia de chave canônica (ordem = prioridade, mas TODAS convivem no array —
+   * o match acontece por interseção, então qualquer nível que bater já funde):
+   *   1. CNPJ (14 dígitos) — chave absoluta, funde mesmo com nome/fone divergentes.
+   *   2. placeId — quando a fonte já dedupe (Google/Places).
+   *   3. phoneDigits canônico (equivalente com/sem 9º dígito).
+   *   4. website/domínio.
+   *   5. instagram/facebook.
+   *   6. nome normalizado + cidade/endereço (conservador: igualdade exata pós-normalização).
+   */
   buildKeys(result: WebscrapingContactResult) {
     const name = normalizeLookupValue(result.name || '');
-    const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
+    const cnpj = normalizeCnpjDigits((result as any).cnpj);
+    const phone = phoneCanonicalKey(result.phoneDigits || result.phone);
     const website = normalizeWebsiteKey(result.website);
     const domain = normalizeWebsiteDomain(result.website);
     const instagram = String(result.instagramUrl || '').trim().replace(/\/+$/, '').toLowerCase();
@@ -182,6 +242,7 @@ export class RadarResultMergerService {
     const city = normalizeLookupValue(String((result as any).city || ''));
     const location = normalizeLookupValue(String(result.address || result.city || ''));
     return [
+      cnpj ? `cnpj:${cnpj}` : '',
       result.placeId ? `place:${String(result.placeId).trim()}` : '',
       phone ? `phone:${phone}` : '',
       name && phone ? `name_phone:${name}:${phone}` : '',
@@ -194,8 +255,26 @@ export class RadarResultMergerService {
     ].filter(Boolean);
   }
 
+  /**
+   * Guarda anti-falso-positivo: quando o ÚNICO motivo de match é telefone (sem CNPJ, sem
+   * website/domínio, sem social, sem nome+cidade), o fone pode ser genérico/compartilhado
+   * (linha de galeria, shopping, central de terceiros). Nesse caso exige desempate barato:
+   * a primeira palavra do nome normalizado precisa bater. Qualquer outra chave (CNPJ,
+   * website, nome+cidade) já é evidência forte o bastante e dispensa esse desempate.
+   */
+  private isSafeMatch(candidateKeys: string[], existingKeys: string[], matchedKeys: string[], candidate: WebscrapingContactResult, existing: WebscrapingContactResult) {
+    const strongKinds = ['cnpj:', 'place:', 'website:', 'domain:', 'instagram:', 'facebook:', 'name_city:', 'name_location:', 'name_phone:'];
+    const hasStrongMatch = matchedKeys.some((key) => strongKinds.some((kind) => key.startsWith(kind)));
+    if (hasStrongMatch) return true;
+    const onlyPhoneMatch = matchedKeys.every((key) => key.startsWith('phone:'));
+    if (!onlyPhoneMatch) return true;
+    const candidateToken = firstNameToken(candidate.name);
+    const existingToken = firstNameToken(existing.name);
+    if (!candidateToken || !existingToken) return true; // sem nome pra comparar, não bloqueia (conservador)
+    return candidateToken === existingToken;
+  }
+
   mergeSources(sources: Array<{ source: string; results: WebscrapingContactResult[] }>) {
-    const seen = new Set<string>();
     const merged: WebscrapingContactResult[] = [];
     const counts: Record<string, number> = {};
     for (const source of sources) {
@@ -203,13 +282,21 @@ export class RadarResultMergerService {
       for (const result of source.results || []) {
         const keys = this.buildKeys(result);
         if (!keys.length) continue;
-        const existing = merged.find((item) => this.buildKeys(item).some((key) => keys.includes(key)));
+        let existing: WebscrapingContactResult | undefined;
+        let matchedKeys: string[] = [];
+        for (const item of merged) {
+          const itemKeys = this.buildKeys(item);
+          const overlap = itemKeys.filter((key) => keys.includes(key));
+          if (!overlap.length) continue;
+          if (!this.isSafeMatch(keys, itemKeys, overlap, result, item)) continue;
+          existing = item;
+          matchedKeys = overlap;
+          break;
+        }
         if (existing) {
           this.mergeInto(existing, result, source.source);
-          this.buildKeys(existing).forEach((key) => seen.add(key));
           continue;
         }
-        keys.forEach((key) => seen.add(key));
         merged.push(this.withSource(result, source.source));
         counts[source.source] += 1;
       }
@@ -221,8 +308,13 @@ export class RadarResultMergerService {
     requirePublicContact?: (candidate: WebscrapingContactResult) => boolean;
   } = {}) {
     if (options.requirePublicContact && !options.requirePublicContact(candidate)) return false;
-    const seen = new Set(existing.flatMap((item) => this.buildKeys(item)));
-    return !this.buildKeys(candidate).some((key) => seen.has(key));
+    const candidateKeys = this.buildKeys(candidate);
+    for (const item of existing) {
+      const itemKeys = this.buildKeys(item);
+      const overlap = itemKeys.filter((key) => candidateKeys.includes(key));
+      if (overlap.length && this.isSafeMatch(candidateKeys, itemKeys, overlap, candidate, item)) return false;
+    }
+    return true;
   }
 
   private withSource(result: WebscrapingContactResult, source: string): WebscrapingContactResult {
