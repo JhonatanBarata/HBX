@@ -97,6 +97,10 @@ function createExecutorHost(overrides: Record<string, any> = {}) {
 
 test('radar search orchestrator planeja fontes por estrategia rapida (HBX_LEGACY_SOURCES default OFF: radar_database-first fora da rota do cliente)', () => withEnv({
   HBX_LEGACY_SOURCES: 'false',
+  // Pinado (integração 02/07): sem isto o teste herda o .env do ambiente (o working copy
+  // principal roda com a flag true) e o cnpj_public entra no plano, mudando implementedSources.
+  // A intenção AQUI é testar só o legado — o mundo inteiro que afeta o plano fica controlado.
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
 }, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
@@ -122,6 +126,8 @@ test('radar search orchestrator planeja fontes por estrategia rapida (HBX_LEGACY
 
 test('radar search orchestrator com HBX_LEGACY_SOURCES=true: radar_database-first volta pra rota do cliente (rollback barato)', () => withEnv({
   HBX_LEGACY_SOURCES: 'true',
+  // Pinado (integração 02/07): mesmo motivo do teste acima — controla o mundo inteiro do plano.
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
 }, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
@@ -139,6 +145,35 @@ test('radar search orchestrator com HBX_LEGACY_SOURCES=true: radar_database-firs
 
   assert.equal(plan.strategy.mode, 'fast');
   assert.deepEqual(plan.implementedSources.slice(0, 4), ['radar_database', 'company_history', 'global_cache', 'hbx_engine']);
+}));
+
+test('radar search orchestrator com cnpj_public ligado (mundo real do VPS): RFB entra ANTES do hbx_engine no plano fast', () => withEnv({
+  HBX_LEGACY_SOURCES: 'false',
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+}, () => {
+  // Irmão do teste acima cobrindo o OUTRO mundo (flag da Receita ligada, como no VPS):
+  // trava a ordem fixa da árvore mestra — RFB (cnpj_public) antes do web (hbx_engine).
+  const orchestrator = new RadarSearchOrchestratorService(
+    new RadarSearchStrategyService(),
+    new RadarSourcePlannerService(),
+    new RadarSourceExpansionService(),
+  );
+  const plan = orchestrator.plan(baseInput, {
+    purpose: 'manual',
+    flags: {
+      radarEnabled: true,
+      historyEnabled: true,
+      globalCacheEnabled: true,
+    },
+  });
+
+  assert.equal(plan.strategy.mode, 'fast');
+  assert.equal(plan.implementedSources.includes('cnpj_public'), true);
+  assert.equal(
+    plan.implementedSources.indexOf('cnpj_public') < plan.implementedSources.indexOf('hbx_engine'),
+    true,
+    'cnpj_public (RFB) deve vir ANTES do hbx_engine (web) na ordem fixa RFB->web',
+  );
 }));
 
 test('radar search orchestrator night_factory nunca é afetada pela flag HBX_LEGACY_SOURCES (fábrica não é rota de cliente)', () => withEnv({
