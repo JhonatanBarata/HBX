@@ -2249,6 +2249,31 @@ model RadarCoverage {
   @@index([status, nextRevisitAt])
 }
 
+// FÁBRICA DE ENRIQUECIMENTO (F2, 02/07 — docs/PLANEJAMENTOS/ARVORE-MESTRA lane FÁBRICA). Estado
+// durável de uma corrida da fábrica: ela LÊ a lista RFB local (CnpjPublicCompany) e enriquece TUDO
+// (tel/email/insta/fb/site/sócio) atrás da fila `enrich_lead`. Linha única (key='main').
+// `budget` = quantos leads processar nesta corrida; para SOZINHA ao atingir. `stopRequested` = PARE
+// AGORA (congela com segurança). É crash-safe/idempotente: sobrevive a restart e o start retoma sem
+// duplicar (lead materializado por placeId `cnpj_public:<cnpj>` único; missão idempotente por dedupeKey).
+// NÃO substitui o PARAR TUDO global (RadarFactoryCursor.enabled) — a fábrica RESPEITA os dois freios.
+model RadarFabricaRun {
+  id             String    @id @default(cuid())
+  key            String    @unique @default("main")
+  running        Boolean   @default(false)
+  stopRequested  Boolean   @default(false)
+  budget         Int       @default(0) // alvo desta corrida (leads a enriquecer)
+  processed      Int       @default(0) // já enriquecidos nesta corrida
+  materialized   Int       @default(0) // leads criados a partir da RFB nesta corrida
+  contactsWritten Int      @default(0) // linhas LeadContact gravadas (grátis) nesta corrida
+  paidAttempts   Int       @default(0) // DEVE ficar 0 no local (prova de R$0)
+  lastLeadId     String?
+  lastError      String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
 model WebscrapingCampaignBatch {
   id              String   @id @default(cuid())
   campaign        WebscrapingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)

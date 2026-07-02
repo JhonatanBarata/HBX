@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { paidSourcesAllowed, logRoleBlocked } from './role-guard';
 
 /**
  * SourceBudgetService — FREIO ÚNICO por fonte (Sprint 3 MOTOR-RFB-FILA, 02/07).
@@ -94,6 +95,9 @@ export class SourceBudgetService {
   }
   /** Serper: OFF por default — mesma env que o resolveEnrichmentPaidFlags repassa ao motor. */
   static serperAllowed(): boolean {
+    // TRAVA FÍSICA ANTI-PAGO (Lei nº1): em localhost, Serper fica OFF por código — o repasse ao
+    // motor Python nunca liga a torneira paga, independente de HBX_ENRICH_ALLOW_PAID.
+    if (!paidSourcesAllowed()) return false;
     return TRUTHY.has(String(process.env.HBX_ENRICH_ALLOW_PAID ?? '').trim().toLowerCase());
   }
   /**
@@ -186,6 +190,12 @@ export class SourceBudgetService {
    * e limitado à concorrência do processo).
    */
   static async tryConsumePaid(source: 'brave' | 'google_places'): Promise<boolean> {
+    // TRAVA FÍSICA ANTI-PAGO (Lei nº1): localhost NUNCA gasta. Recusa ANTES de qualquer leitura
+    // de contador/API — mesmo com chave paga vazada no .env local. Só o VPS (HBX_ROLE=vps) passa.
+    if (!paidSourcesAllowed()) {
+      logRoleBlocked(source);
+      return false;
+    }
     const cap = source === 'brave'
       ? SourceBudgetService.braveMonthlyCap()
       : SourceBudgetService.googlePlacesDailyCap();

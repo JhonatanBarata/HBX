@@ -11,6 +11,8 @@
  * nenhum provider pago dispara mesmo com allowPaid=true.
  */
 
+import { paidSourcesAllowed } from '../source-budget/role-guard';
+
 const TRUTHY_VALUES = new Set(['true', '1', 'on', 'yes', 'sim']);
 
 function envFlag(name: string): boolean {
@@ -27,6 +29,11 @@ export interface EnrichmentPaidFlags {
  * Ambos são false por padrão — torneira fechada até que as envs sejam definidas.
  */
 export function resolveEnrichmentPaidFlags(): EnrichmentPaidFlags {
+  // TRAVA FÍSICA ANTI-PAGO (Lei nº1): em localhost, o repasse pro motor Python vem SEMPRE fechado —
+  // nenhum provider pago/premium liga, independente das envs. Só o VPS (HBX_ROLE=vps) reabre.
+  if (!paidSourcesAllowed()) {
+    return { allowPaid: false, allowPremium: false };
+  }
   return {
     allowPaid: envFlag('HBX_ENRICH_ALLOW_PAID'),
     allowPremium: envFlag('HBX_ENRICH_ALLOW_PREMIUM'),
