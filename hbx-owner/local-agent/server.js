@@ -1369,12 +1369,8 @@ async function readRadarCockpit(force) {
   return out;
 }
 
-// Cache curto do factory-status do backend. A rota /modules/owner/radar/factory-status dispara o
-// caminho pesado do pool (healthcheck HTTP em cada motor) e o painel a chama em rajada → era ~20s.
-// O backend já ganhou cache de 4s; aqui guardamos 3s a mais pra suavizar polling e quedas de rede.
-// Invalidado por força/purga da fila (mudam o estado da fábrica) p/ não mostrar dado velho.
-let factoryStatusCache = { at: 0, data: null };
-function invalidateFactoryStatusCache() { factoryStatusCache = { at: 0, data: null }; }
+// F0 (02/07): cache do factory-status (factoryStatusCache/invalidateFactoryStatusCache) removido
+// junto com as rotas de proxy da fábrica de descoberta demolida.
 
 // Espelha o looksLikeNonBusinessName do backend (radar-core-shared) pra limpar o banco local
 // pelo MESMO critério do filtro: script estrangeiro, título de página, frase em inglês, nome comprido.
@@ -1871,100 +1867,9 @@ async function route(req, res) {
     return;
   }
 
-  // Controle da fábrica de motores (runtime, sem subir container): freio do dono.
-  if (req.method === "POST" && (url.pathname === "/owner/factory/stop" || url.pathname === "/owner/factory/resume")) {
-    if (!backendToken) {
-      const refreshed = await refreshBackendToken();
-      if (!refreshed.ok) {
-        sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure HBX_OWNER_BACKEND_TOKEN." });
-        return;
-      }
-    }
-    const route = url.pathname.endsWith("/stop")
-      ? "/modules/owner/radar/factory/stop"
-      : "/modules/owner/radar/factory/resume-schedule";
-    const response = await backendRequest("POST", route, {});
-    const backendMessage = Array.isArray(response.data?.message)
-      ? response.data.message.join(" · ")
-      : response.data?.message;
-    const reason = response.error || backendMessage || response.data?.error || `http_${response.statusCode || "?"}`;
-    const payload = {
-      ok: response.ok,
-      action: url.pathname.endsWith("/stop") ? "stop" : "resume",
-      backend: response.data,
-    };
-    if (!response.ok) {
-      payload.reason = reason;
-      payload.error = reason;
-    }
-    sendJson(res, response.ok ? 200 : 502, payload);
-    return;
-  }
-
-  // Status REAL da fábrica LOCAL (factory-status do backend): missão atual/próxima, net-new da
-  // última hora, motores liberados, por que parou. Fonte da verdade pro painel "por que não raspa".
-  if (req.method === "GET" && url.pathname === "/owner/factory/status") {
-    if (!backendToken) await refreshBackendToken().catch(() => null);
-    if (!backendToken) {
-      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
-      return;
-    }
-    if (factoryStatusCache.data && Date.now() - factoryStatusCache.at < 3000) {
-      sendJson(res, 200, { ok: true, cached: true, ...factoryStatusCache.data });
-      return;
-    }
-    const response = await backendRequest("GET", "/modules/owner/radar/factory-status", null, { timeoutMs: 20000, maxBytes: 400000 });
-    const data = (response && response.data) || null;
-    const ok = Boolean(response && response.ok && data);
-    if (ok) factoryStatusCache = { at: Date.now(), data };
-    sendJson(res, ok ? 200 : 502, ok
-      ? { ok: true, ...data }
-      : { ok: false, reason: response?.error || data?.message || `http_${response?.statusCode || "?"}` });
-    return;
-  }
-
-  // Limpar a FILA MORTA da fábrica LOCAL (espelha o botão da VPS, mas via backend local). Não é SQL
-  // cru, não para produção, não toca estoque — tira o entulho de combo vazio pro pump reabastecer.
-  if (req.method === "POST" && url.pathname === "/owner/factory/purge-dead-queue") {
-    if (!backendToken) await refreshBackendToken().catch(() => null);
-    if (!backendToken) {
-      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
-      return;
-    }
-    const response = await backendRequest("POST", "/modules/owner/radar/factory/purge-dead-queue", {}, { timeoutMs: 60000 });
-    const data = (response && response.data) || {};
-    const ok = Boolean(response && response.ok);
-    invalidateFactoryStatusCache();
-    sendJson(res, ok ? 200 : 502, {
-      ok,
-      deletedNeverRun: data.deletedNeverRun ?? null,
-      exhaustedAttempted: data.exhaustedAttempted ?? null,
-      canceledCampaigns: data.canceledCampaigns ?? null,
-      remainingQueued: data.remainingQueued ?? null,
-      backend: data,
-      reason: ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`),
-    });
-    return;
-  }
-
-  // Forçar a PRÓXIMA missão da fábrica LOCAL (pula o combo travado e parte pra próxima cidade/segmento).
-  if (req.method === "POST" && url.pathname === "/owner/factory/force-next") {
-    if (!backendToken) await refreshBackendToken().catch(() => null);
-    if (!backendToken) {
-      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
-      return;
-    }
-    const response = await backendRequest("POST", "/modules/owner/radar/factory/force-next", {}, { timeoutMs: 60000 });
-    const data = (response && response.data) || {};
-    const ok = Boolean(response && response.ok);
-    invalidateFactoryStatusCache();
-    sendJson(res, ok ? 200 : 502, {
-      ok,
-      backend: data,
-      reason: ok ? undefined : (response?.error || data?.message || `http_${response?.statusCode || "?"}`),
-    });
-    return;
-  }
+  // F0 (02/07): rotas de proxy da FÁBRICA de descoberta (/owner/factory/stop|resume|status|
+  // purge-dead-queue|force-next) REMOVIDAS — os endpoints backend /modules/owner/radar/factory-*
+  // foram demolidos. O proxy /owner/night-factory/* (módulo night-factory preservado) FICA.
 
   // LIGAR a frota LOCAL de motores (docker nativo do agent + keep-warm). É a via que OBEDECE: o
   // governor do backend não sobe motor local. Sobe a frota INTEIRA (parcial envenena o health-check)
@@ -2687,36 +2592,8 @@ async function route(req, res) {
     return;
   }
 
-  // --- Campanhas mass-data: ler / criar / pausar / retomar / cancelar ---
-  if (req.method === "GET" && url.pathname === "/owner/radar/mass-data") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/radar/mass-data");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/owner/radar/mass-data") {
-    const body = await readBody(req);
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/radar/mass-data", body, { timeoutMs: 30000 });
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  const massCampaignMatch = url.pathname.match(/^\/owner\/radar\/mass-data\/([^/]+)\/(pause|resume|cancel)$/);
-  if (req.method === "POST" && massCampaignMatch) {
-    const campaignId = massCampaignMatch[1];
-    const action = massCampaignMatch[2];
-    const body = await readBody(req);
-    if (action === "cancel" && body.confirm !== true) {
-      sendError(res, 400, `Confirmacao obrigatoria para cancelar a campanha ${campaignId}.`);
-      return;
-    }
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", `/modules/owner/radar/mass-data/${encodeURIComponent(campaignId)}/${action}`, body);
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, campaignId, action, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
+  // F0 (02/07): rotas de proxy das campanhas mass-data (/owner/radar/mass-data + :id/pause|resume|
+  // cancel) REMOVIDAS — os endpoints backend /modules/owner/radar/mass-data foram demolidos.
 
   // ================================================================
   // NIGHT FACTORY — P3

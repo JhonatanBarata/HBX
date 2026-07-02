@@ -1098,15 +1098,8 @@ export class WebscrapingController {
     return this.webscrapingService.markRadarLeadNegativeForUser(req.user, id, dto || {});
   }
 
-  @Get('campaigns')
-  radarCampaigns(@Req() req: any) {
-    return this.webscrapingService.listRadarCampaignsForUser(req.user);
-  }
-
-  @Get('campaigns/:id')
-  radarCampaign(@Req() req: any, @Param('id') id: string) {
-    return this.webscrapingService.getRadarCampaignForUser(req.user, id);
-  }
+  // F0 (02/07): endpoints GET campaigns / campaigns/:id REMOVIDOS junto com a fábrica de
+  // descoberta autônoma (mixins mass-data/campaign-planner/factory-admin deletados).
 
 }
 
@@ -1185,11 +1178,6 @@ export class MasterWebscrapingController {
     return this.webscrapingService.permanentDeleteMasterDatabaseCards(req.user, dto || {});
   }
 
-  @Get('export-targets')
-  getExportTargets() {
-    return this.webscrapingService.listRadarExportTargetsForMaster();
-  }
-
   @Get('radar-auto-distribution')
   getRadarAutoDistribution(@Req() req: any) {
     return this.webscrapingService.getRadarTenantAutoDistributionPanel(req.user);
@@ -1205,50 +1193,11 @@ export class MasterWebscrapingController {
     return this.webscrapingService.runRadarTenantDistributionForUser(req.user, dto || {});
   }
 
-  @Get('factory-status')
-  getFactoryStatus(@Req() req: any) {
-    return this.webscrapingService.getRadarFactoryStatus(req.user);
-  }
-
-  @Post('elastic/cancel-forced')
-  cancelForcedFactory(@Req() req: any, @Body() dto: MasterEngineStopDto) {
-    return this.webscrapingService.cancelForcedRadarFactory(req.user, dto || {});
-  }
-
-  @Post('factory/stop')
-  stopFactory(@Req() req: any) {
-    return this.webscrapingService.stopRadarFactory(req.user);
-  }
-
-  @Post('factory/resume-schedule')
-  resumeFactorySchedule(@Req() req: any) {
-    return this.webscrapingService.resumeFactorySchedule(req.user);
-  }
-
-  @Post('factory/force-next')
-  forceNextFactory(@Req() req: any) {
-    return this.webscrapingService.forceNextRadarFactoryMission(req.user);
-  }
-
-  @Post('factory/purge-dead-queue')
-  purgeDeadQueue(@Req() req: any) {
-    return this.webscrapingService.purgeDeadMassDataQueue(req.user);
-  }
-
-  @Get('mass-data')
-  getMassDataControl(@Req() req: any) {
-    return this.webscrapingService.getMasterMassDataControl(req.user);
-  }
-
-  @Post('turbo-noturno/force-now')
-  forceTurboNow(@Req() req: any, @Body() dto: MasterTurboConfigDto) {
-    return this.webscrapingService.forceMasterTurboNow(req.user, dto || {});
-  }
-
-  @Post('mass-data')
-  createMassDataCampaign(@Req() req: any, @Body() dto: MasterMassDataDto) {
-    return this.webscrapingService.createMasterMassDataCampaign(req.user, dto || ({} as any));
-  }
+  // F0 (02/07): endpoints de fábrica de DESCOBERTA autônoma REMOVIDOS (factory-status,
+  // elastic/cancel-forced, factory/stop, factory/resume-schedule, factory/force-next,
+  // factory/purge-dead-queue, GET+POST mass-data, turbo-noturno/force-now e mass-data/:id/*)
+  // junto com os mixins mass-data/campaign-planner/factory-admin. Elástica/motores (engines/*,
+  // elastic/enable|disable|stop-all) e o Cockpit Leads (database-*) FICAM.
 
   // "Parar/Ligar faixa" do painel do dono → parada MANUAL durável (manualPaused) que o governor
   // honra e a elástica NÃO desfaz. Substitui o docker stop cru (ops-control) que o governor re-ligava.
@@ -1278,20 +1227,7 @@ export class MasterWebscrapingController {
     return ids;
   }
 
-  @Post('mass-data/:id/pause')
-  pauseMassDataCampaign(@Param('id') id: string) {
-    return this.webscrapingService.pauseRadarCampaignByMaster(id);
-  }
-
-  @Post('mass-data/:id/resume')
-  resumeMassDataCampaign(@Param('id') id: string) {
-    return this.webscrapingService.resumeRadarCampaignByMaster(id);
-  }
-
-  @Post('mass-data/:id/cancel')
-  cancelMassDataCampaign(@Param('id') id: string) {
-    return this.webscrapingService.cancelRadarCampaignByMaster(id);
-  }
+  // F0 (02/07): mass-data/:id/pause|resume|cancel REMOVIDOS (campanhas autônomas demolidas).
 
   // --- Elástica pura (contrato fixo: Worker A) ---
 

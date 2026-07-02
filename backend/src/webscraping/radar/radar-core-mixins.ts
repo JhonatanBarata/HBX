@@ -5,9 +5,7 @@ import { RadarCoreSearchLoopMixin } from './01-search/radar-core-search-loop.mix
 import { RadarCorePresentationMixin } from './06-presentation/radar-core-presentation.mixin';
 import { RadarCoreDeliveryMixin } from './05-delivery/radar-core-delivery.mixin';
 import { RadarCoreDistributionMixin } from './05-delivery/radar-core-distribution.mixin';
-import { RadarCoreCampaignPlannerMixin } from './01-search/radar-core-campaign-planner.mixin';
-import { RadarCoreFactoryAdminMixin } from './01-search/radar-core-factory-admin.mixin';
-import { RadarCoreMassDataMixin } from './01-search/mass-data/radar-core-mass-data.mixin';
+import { RadarCoreMasterDatabaseMixin } from './01-search/radar-core-master-database.mixin';
 import { RadarCoreHistoryPersistenceMixin } from './persistence/radar-core-history-persistence.mixin';
 import { RadarCoreProviderMixin } from './providers/hbx-engine/radar-core-provider.mixin';
 
@@ -19,9 +17,7 @@ const RADAR_CORE_MIXINS = [
   RadarCorePresentationMixin,
   RadarCoreDeliveryMixin,
   RadarCoreDistributionMixin,
-  RadarCoreCampaignPlannerMixin,
-  RadarCoreFactoryAdminMixin,
-  RadarCoreMassDataMixin,
+  RadarCoreMasterDatabaseMixin,
   RadarCoreHistoryPersistenceMixin,
   RadarCoreProviderMixin,
 ];

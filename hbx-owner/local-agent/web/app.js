@@ -190,13 +190,12 @@ async function renderVpsEngines() {
    guarda uma INTENÇÃO ({desired, deadline}) ao ser clicado: fica âmbar "aplicando…" até o
    FRONT entregar o novo estado (real === desired) — aí solta e mostra a verdade. Se estourar
    o prazo sem o front confirmar, volta a mostrar o estado real honesto (sem mentir/fixar). */
+// F0 (02/07): toggle 'factory' REMOVIDO (fábrica de descoberta demolida). Lab permanece.
 const TOGGLE = {
   lab:        { sel: "#btn-lab-toggle",    on: "Desligar Lab",      off: "Ligar Lab",       window: 18000 },
-  factory:    { sel: "#btn-factory",       on: "⏹ Parar fábrica",    off: "▶ Ligar fábrica", window: 20000 },
 };
 const APPLY_TEXT = { // texto âmbar enquanto o front não confirma
   lab:        (d) => d ? "ligando Lab…"       : "desligando Lab…",
-  factory:    (d) => d ? "ligando fábrica…"   : "parando fábrica…",
 };
 const toggleReal = {};   // key -> último estado REAL entregue pelo front (true/false), ou undefined
 const toggleIntent = {}; // key -> { desired, deadline } enquanto aplica, ou null
@@ -247,7 +246,6 @@ function markToggleUnknown(key) {
   b.disabled = true;
 }
 function paintLabToggle(on) { setToggleReal("lab", on); }
-function paintFactory(on)   { setToggleReal("factory", on); }
 
 async function renderSistema() {
   const bankPromise = renderLocalBank();
@@ -286,15 +284,13 @@ async function renderSistema() {
     // mora no painel "🏭 Fábrica · a verdade" logo abaixo — aqui não duplicamos pra não brigar.
     $("#sys-engines-counts").textContent = `${realRunning} de ${cap.ceiling} motores ligados${ghost}`;
     paintChk("#chk-elastic", cap.elastic);
+    // F0 (02/07): chk-factory / toggle da fábrica removidos (fábrica de descoberta demolida).
     paintChk("#chk-factory", !cap.factoryStopped);
-    paintFactory(!cap.factoryStopped);      // verde rodando, vermelho parada
   } else {
     $("#sys-engines-big").textContent = "—";
     $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "sem token do backend";
     paintChk("#chk-elastic", false);
     paintChk("#chk-factory", false);
-    // Sem leitura confiável: não flipa pra "Ligar" (isso invertia o próximo clique). Segura o último real.
-    markToggleUnknown("factory");
   }
 
   await bankPromise.catch(() => ({ total: null }));
@@ -352,204 +348,9 @@ async function renderVps() {
   // Frota (motores/elástica/fábrica) NÃO sai daqui: renderVpsEngines() já leu o estado REAL do
   // backend da VPS (chamado no topo). O snapshot de containers é só pressão de host.
 }
-
-/* ---------- Fábrica LOCAL: parar/ligar DE VERDADE (emergencyStop, durável) ---------- */
-async function factoryStop() {
-  const fb = $("#engines-local-feedback");
-  if (fb) { fb.textContent = "parando a fábrica de leads…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/factory/stop", {});
-    if (r.ok) {
-      if (fb) { fb.textContent = "Fábrica PARADA ✓ — fica parada até você ligar."; fb.className = "delta up"; }
-      paintChk("#chk-factory", false);
-      pushFeed("Você parou a fábrica de leads — produção zerada.", "warn");
-    } else if (fb) { fb.textContent = r.message || r.reason || "falhou"; }
-  } catch (err) { if (fb) fb.textContent = err.message; }
-}
-async function factoryResume() {
-  const fb = $("#engines-local-feedback");
-  if (fb) { fb.textContent = "religando a fábrica…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/factory/resume", {});
-    if (r.ok) {
-      if (fb) { fb.textContent = "Fábrica LIGADA ✓"; fb.className = "delta up"; }
-      paintChk("#chk-factory", true);
-      pushFeed("Você religou a fábrica de leads.", "ok");
-    } else if (fb) { fb.textContent = r.message || r.reason || "falhou"; }
-  } catch (err) { if (fb) fb.textContent = err.message; }
-}
-async function toggleFactory() {
-  if (toggleApplying("factory")) return;
-  const turnOn = beginToggle("factory");  // ligar fábrica = resume; desligar = stop
-  try { await (turnOn ? factoryResume() : factoryStop()); }
-  finally { renderSistema(); }
-}
-{
-  const fb = $("#btn-factory"); if (fb) fb.addEventListener("click", toggleFactory);
-}
-
-/* ---------- Painel da verdade da FÁBRICA LOCAL (net-new + por que não raspa) ---------- */
-// Enumera a causa REAL de net-new=0, derivada do factory-status do backend. Cada causa tem uma
-// frase clara e (quando aplica) o botão que resolve. Não inventa: se net-new>0, diz que está OK.
-function ftDiagnose(s) {
-  const causes = [];
-  const newHour = Number(s.cardsSavedLastHour || 0);
-  const prot = s.protection || {};
-  const status = String(s.status || "").toLowerCase();
-  const allowed = Number(s.activeEngines ?? prot.automaticAllowedEngines ?? 0);
-  const reserved = Number(s.reservedClientEngines ?? prot.manualReservedEngines ?? 0);
-  const maxEng = prot.maxEngines;
-  const memGuard = Number(prot.memoryGuardEngines || 0);
-
-  if (newHour > 0) {
-    return { ok: true, lines: [{ tone: "ok", text: `Raspando: ${newHour.toLocaleString("pt-BR")} cards novos na última hora.` }] };
-  }
-  // net-new = 0 → procura a causa real, em ordem de prioridade.
-  if (s.enabled === false || status === "stopped" || s.reasonStopped) {
-    causes.push({ tone: "bad", text: `Fábrica PARADA${s.reasonStopped ? ` — ${s.reasonStopped}` : " (freio do dono)"}. Religue a fábrica pra voltar a produzir.`, fix: "factory" });
-  }
-  if (allowed <= 0) {
-    const why = reserved > 0
-      ? `Sem motor livre pra fábrica: ${reserved} motor(es) reservado(s) pro cliente (Radar Digital).`
-      : (maxEng != null && Number(maxEng) <= 0)
-        ? "Teto de motores em 0 — a elástica não libera nenhum pra fábrica."
-        : "Nenhum motor liberado pra automação (automaticAllowedEngines=0).";
-    causes.push({ tone: "bad", text: why });
-  }
-  const memCut = Math.max(0, (maxEng != null ? Number(maxEng) : memGuard) - memGuard);
-  if (memCut > 0) {
-    causes.push({ tone: "warn", text: `Pressão de memória: o guard cortou ${memCut} motor(es). Libera sozinho quando a RAM aliviar.` });
-  }
-  const mission = s.currentMission || {};
-  const hasMission = mission.city || mission.segment;
-  if (!hasMission && !s.nextMission) {
-    causes.push({ tone: "warn", text: "Fila vazia: nenhuma missão atual nem próxima. Limpe a fila morta pra reabastecer com cidade boa.", fix: "purge" });
-  }
-  const dup = Number(s.duplicateRatio || 0);
-  if (causes.length === 0 && dup >= 0.9) {
-    causes.push({ tone: "warn", text: `Combo esgotado: ${Math.round(dup * 100)}% do que vem é duplicado (cidade/segmento já raspado). Limpe a fila morta / pule pra próxima missão.`, fix: "purge" });
-  }
-  if (prot.reason) {
-    causes.push({ tone: "muted", text: `Proteção: ${prot.reason}` });
-  }
-  if (causes.length === 0) {
-    causes.push({ tone: "muted", text: "Net-new 0 na última hora, mas sem causa óbvia — fábrica ligada e com motor. Pode ser missão lenta/grande. Acompanhe o próximo ciclo." });
-  }
-  return { ok: false, lines: causes };
-}
-
-async function renderFactoryTruth() {
-  const st = $("#ft-status");
-  let s;
-  try {
-    s = await api("GET", "/owner/factory/status");
-  } catch (err) {
-    if (st) { st.textContent = "erro"; st.className = "pill pill-bad"; }
-    const diag = $("#ft-diag"); if (diag) diag.innerHTML = `<p class="delta">não consegui ler: ${esc(err.message)}</p>`;
-    return;
-  }
-  if (!s.ok) {
-    if (st) { st.textContent = s.reason === "backend_token_ausente" ? "sem token backend" : "indisponível"; st.className = "pill pill-muted"; }
-    const diag = $("#ft-diag"); if (diag) diag.innerHTML = `<p class="delta">${esc(s.message || s.reason || "fábrica não respondeu")}</p>`;
-    return;
-  }
-
-  const newHour = Number(s.cardsSavedLastHour || 0);
-  const newToday = Number(s.cardsSavedToday || 0);
-  const dup = Number(s.duplicateRatio || 0);
-  $("#ft-newhour").textContent = newHour.toLocaleString("pt-BR");
-  $("#ft-newtoday").textContent = newToday.toLocaleString("pt-BR");
-  $("#ft-dup").textContent = dup ? `${Math.round(dup * 100)}%` : "0%";
-
-  if (st) {
-    const running = newHour > 0;
-    st.textContent = running ? "raspando ✓" : (s.enabled === false || s.reasonStopped ? "parada" : "ociosa");
-    st.className = "pill " + (running ? "pill-ok" : (s.enabled === false || s.reasonStopped ? "pill-bad" : "pill-muted"));
-  }
-
-  const m = s.currentMission || {};
-  const where = [m.city, m.state].filter(Boolean).join("/");
-  const missionTxt = (where || m.segment)
-    ? `missão atual: ${esc(m.segment || "—")}${where ? ` · ${esc(where)}` : ""}` + (s.nextMission && (s.nextMission.city || s.nextMission.segment) ? ` → próxima: ${esc(s.nextMission.segment || "")}${s.nextMission.city ? ` · ${esc(s.nextMission.city)}/${esc(s.nextMission.state || "")}` : ""}` : "")
-    : "missão: nenhuma cidade/segmento ativo no momento.";
-  const eng = `motores: ${Number(s.activeEngines || 0)} liberados${s.reservedClientEngines ? ` · ${s.reservedClientEngines} reservados pro cliente` : ""}`;
-  const mission = $("#ft-mission");
-  if (mission) mission.innerHTML = `${missionTxt}<br><span style="color:var(--text-muted);">${eng}</span>`;
-
-  // Diagnóstico "por que não está raspando?"
-  const d = ftDiagnose(s);
-  const diag = $("#ft-diag");
-  if (diag) {
-    const title = d.ok
-      ? ""
-      : `<p class="delta" style="font-weight:600;margin:0 0 4px;">Por que não está raspando agora?</p>`;
-    diag.innerHTML = title + d.lines.map((ln) => {
-      const color = ln.tone === "bad" ? "#ff6b6b" : ln.tone === "warn" ? "#ffb454" : ln.tone === "ok" ? "#39d98a" : "var(--text-muted)";
-      const fix = ln.fix === "purge" ? ' <span class="pill pill-amber" style="cursor:pointer;" data-ft-fix="purge">Limpar fila morta</span>'
-        : ln.fix === "factory" ? ' <span class="pill pill-amber" style="cursor:pointer;" data-ft-fix="factory">Religar fábrica</span>'
-        : "";
-      return `<p class="delta" style="margin:2px 0;color:${color};">• ${ln.text}${fix}</p>`;
-    }).join("");
-    // Liga os atalhos de correção embutidos no diagnóstico.
-    diag.querySelectorAll("[data-ft-fix]").forEach((node) => {
-      node.addEventListener("click", () => {
-        const fix = node.getAttribute("data-ft-fix");
-        if (fix === "purge") ftPurgeQueue();
-        else if (fix === "factory") factoryResume();
-      });
-    });
-  }
-}
-
-async function ftPurgeQueue() {
-  const btn = $("#btn-ft-purge");
-  const fb = $("#ft-feedback");
-  if (!confirm("Limpar a fila morta da fábrica LOCAL?\n\nApaga tarefas que nunca renderam (combo vazio) e exaure as que deram 0. NÃO para a produção nem mexe no estoque — o motor volta a abastecer com cidade boa.")) return;
-  if (btn) btn.disabled = true;
-  if (fb) { fb.textContent = "limpando fila morta…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/factory/purge-dead-queue", {});
-    if (r.ok) {
-      const del = (r.deletedNeverRun ?? 0).toLocaleString("pt-BR");
-      const exh = (r.exhaustedAttempted ?? 0).toLocaleString("pt-BR");
-      const camp = (r.canceledCampaigns ?? 0).toLocaleString("pt-BR");
-      const rest = r.remainingQueued != null ? r.remainingQueued.toLocaleString("pt-BR") : "—";
-      if (fb) { fb.textContent = `fila reiniciada: ${del} apagadas + ${exh} exauridas + ${camp} campanhas zeradas · restam ${rest}`; fb.className = "delta up"; }
-      pushFeed(`Fila morta local limpa: ${del} apagadas, ${exh} exauridas, ${camp} campanhas zeradas.`, "ok");
-    } else if (fb) { fb.textContent = `limpar fila: ${r.message || r.reason || "falhou"}`; fb.className = "delta"; }
-  } catch (err) {
-    if (fb) fb.textContent = `limpar fila: ${err.message}`;
-  } finally {
-    if (btn) btn.disabled = false;
-    setTimeout(renderFactoryTruth, 1500);
-  }
-}
-
-async function ftForceNext() {
-  const btn = $("#btn-ft-next");
-  const fb = $("#ft-feedback");
-  if (!confirm("Pular o combo atual e forçar a PRÓXIMA missão da fábrica local agora?")) return;
-  if (btn) btn.disabled = true;
-  if (fb) { fb.textContent = "forçando próxima missão…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/factory/force-next", {});
-    if (r.ok) {
-      if (fb) { fb.textContent = "próxima missão acionada ✓"; fb.className = "delta up"; }
-      pushFeed("Fábrica local pulou pra próxima missão.", "ok");
-    } else if (fb) { fb.textContent = `próxima missão: ${r.message || r.reason || "falhou"}`; fb.className = "delta"; }
-  } catch (err) {
-    if (fb) fb.textContent = `próxima missão: ${err.message}`;
-  } finally {
-    if (btn) btn.disabled = false;
-    setTimeout(renderFactoryTruth, 1500);
-  }
-}
-
-{
-  const p = $("#btn-ft-purge"); if (p) p.addEventListener("click", ftPurgeQueue);
-  const n = $("#btn-ft-next"); if (n) n.addEventListener("click", ftForceNext);
-  const r = $("#btn-ft-refresh"); if (r) r.addEventListener("click", renderFactoryTruth);
-}
+/* F0 (02/07): bloco da FÁBRICA LOCAL de descoberta (toggle/parar/religar/fila/força-próxima +
+   painel da verdade + diagnóstico) REMOVIDO junto com a demolição da fábrica antiga.
+   A fábrica nova (enriquecimento) é da fila S4/missions, não vive aqui. */
 
 /* ---------- Tabela honesta de motores LOCAIS (backend × docker × health × produção) ---------- */
 async function renderEnginesTruth() {
@@ -1811,14 +1612,13 @@ renderMotorStrip();
 renderIntegrations();
 refreshLabState();
 renderSistema();
-renderFactoryTruth();         // verdade da fábrica local (net-new + por que não raspa)
+// F0 (02/07): renderFactoryTruth (painel da fábrica de descoberta) removido.
 renderEnginesTruth();         // tabela honesta de motores (só lê se o details estiver aberto)
 renderVps();
 renderVpsEngines();
 loadCockpit();
 setInterval(renderSistema, 5000);
 setInterval(renderMotorStrip, 12000);
-setInterval(renderFactoryTruth, 10000);  // net-new/diagnóstico ao vivo
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);
 setInterval(renderVpsEngines, 15000);  // releitura read-only dos motores que atendem cliente no VPS

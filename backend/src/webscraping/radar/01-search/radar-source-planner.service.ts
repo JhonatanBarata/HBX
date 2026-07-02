@@ -10,8 +10,8 @@ export type RadarSearchSourcePlanItem = RadarLeadSourceStep;
 // docs/PLANEJAMENTOS/ARVORE-MESTRA/ARVORE-MESTRA.md, lei nº3: "sem caminho legado convivendo").
 // Default OFF: as rotas legadas (radar_database-first, google_textual, local_directory,
 // vertical_source) saem da rota do CLIENTE (fast/quality/deep). Ligar HBX_LEGACY_SOURCES=true
-// traz tudo de volta (rollback barato). night_factory NUNCA é afetada — fábrica não é rota de
-// cliente, mantém os reprocess_* e as fontes legadas de descoberta em volume.
+// traz tudo de volta (rollback barato).
+// F0 (02/07): modo `night_factory` REMOVIDO junto com a fábrica de descoberta autônoma.
 const RADAR_LEGACY_CLIENT_SOURCES = new Set<RadarLeadSourceKind>([
   'radar_database',
   'google_textual',
@@ -45,9 +45,9 @@ export class RadarSourcePlannerService {
     // ver byStrategy abaixo — antes vinha depois).
     const cnpjPublicEnabledByFlag = String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED || '').trim().toLowerCase() === 'true';
     const cnpjPublicEnabled = input.targetType === 'pj' && cnpjPublicEnabledByFlag;
-    // HBX_LEGACY_SOURCES (default OFF, P1): fora de night_factory, as 4 fontes legadas só
-    // habilitam com a flag ligada. night_factory nunca é afetada (fábrica não é rota de cliente).
-    const legacyAllowedHere = strategy.mode === 'night_factory' || legacySourcesEnabled();
+    // HBX_LEGACY_SOURCES (default OFF, P1): as 4 fontes legadas só habilitam com a flag ligada.
+    // (F0: modo night_factory removido — não há mais exceção de fábrica que force o legado.)
+    const legacyAllowedHere = legacySourcesEnabled();
     const enabledBySource: Record<RadarLeadSourceKind, boolean> = {
       radar_database: legacyAllowedHere && allowStored && flags.skipRadarLookup !== true && input.targetType === 'pj' && flags.radarEnabled !== false,
       company_history: allowStored && flags.skipPrivateHistory !== true && flags.historyEnabled !== false,
@@ -59,10 +59,10 @@ export class RadarSourcePlannerService {
       reprocess_old_cards: input.targetType === 'pj',
       website_crawl_light: strategy.allowLightCrawl,
       cnpj_public: cnpjPublicEnabled,
-      local_directory: legacyAllowedHere && input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
-      vertical_source: legacyAllowedHere && input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
+      local_directory: legacyAllowedHere && input.targetType === 'pj' && strategy.mode === 'deep',
+      vertical_source: legacyAllowedHere && input.targetType === 'pj' && strategy.mode === 'deep',
       local_directories_stub: strategy.mode === 'deep',
-      cnpj_public_stub: strategy.mode === 'deep' || strategy.mode === 'night_factory',
+      cnpj_public_stub: strategy.mode === 'deep',
     };
     // Cutover ordem fixa (P1): lane do cliente é semente → RFB (cnpj_public) → web (hbx_engine)
     // → portas → fusão → crawl. cnpj_public agora vem ANTES do hbx_engine em fast/quality/deep
@@ -73,7 +73,6 @@ export class RadarSourcePlannerService {
       fast: ['radar_database', 'company_history', 'global_cache', 'cnpj_public', 'hbx_engine'],
       quality: ['radar_database', 'cnpj_public', 'hbx_engine', 'google_textual', 'reprocess_missing_social'],
       deep: ['cnpj_public', 'hbx_engine', 'google_textual', 'website_crawl_light', 'local_directory', 'vertical_source'],
-      night_factory: ['reprocess_old_cards', 'reprocess_missing_social', 'cnpj_public', 'google_textual', 'website_crawl_light', 'local_directory', 'vertical_source'],
     };
     const implemented = new Set<RadarLeadSourceKind>([
       'radar_database',
