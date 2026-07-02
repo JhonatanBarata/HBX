@@ -36,6 +36,8 @@ import { RadarMissionQueueService } from './radar/missions/radar-mission-queue.s
 import { RadarMissionsController } from './radar/missions/radar-missions.controller';
 import { RadarFabricaService } from './radar/fabrica/radar-fabrica.service';
 import { RadarFabricaController } from './radar/fabrica/radar-fabrica.controller';
+import { CnpjXrayService } from './radar/cnpj-xray/cnpj-xray.service';
+import { CnpjXrayController } from './radar/cnpj-xray/cnpj-xray.controller';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
@@ -168,8 +170,8 @@ const RADAR_SERVICES = [
 
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, EnrichmentCostModule, forwardRef(() => VendasModule)],
-  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController],
-  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, ...RADAR_SERVICES],
-  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService],
+  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController, CnpjXrayController],
+  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, CnpjXrayService, ...RADAR_SERVICES],
+  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, CnpjXrayService],
 })
 export class WebscrapingModule {}

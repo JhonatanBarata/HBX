@@ -3351,6 +3351,35 @@ model CnpjPublicPartner {
   @@index([cnpjBasico])
 }
 
+// RAIO-X DE CNPJ EM LOTE (HOT-04, 02/07 — docs/PLANEJAMENTOS/hot/04-enriquecimento-lote.md).
+// Histórico/estado de um job de lote colado no painel Owner (:3107): cola até 10k CNPJs → cadastral
+// instantâneo (CnpjPublicCompany/BrasilAPI) + enfileira `enrich_lead` (camada vivo, mesma fila da
+// fábrica) + IA opcional → gera XLSX em background. ADITIVA: tabela nova isolada, não toca em
+// CnpjPublicCompany/Partner (outro worker mexe nelas) nem em RadarFabricaRun/RadarMission.
+model CnpjXrayJob {
+  id              String    @id @default(cuid())
+  status          String    @default("queued") // queued | running_cadastral | running_vivo | running_ia | done | error
+  layers          String    // JSON string ["cadastral","vivo","ia"]
+  requestedCount  Int       @default(0) // linhas coladas (bruto, antes de validar)
+  validCount      Int       @default(0) // CNPJs válidos após DV mod-11 + dedup
+  invalidCount    Int       @default(0)
+  processedCount  Int       @default(0) // já resolvidos na camada cadastral
+  missionsQueued  Int       @default(0) // missões enrich_lead enfileiradas (camada vivo)
+  missionsDone    Int       @default(0) // missões enrich_lead já completas
+  aiDone          Int       @default(0) // notas/resumo IA já gerados
+  invalidReportJson Json?   // relatório do que caiu na validação: [{ raw, reason }]
+  resultFileName  String?   // nome do XLSX gerado (histórico/download)
+  resultPath      String?   // caminho relativo no disco onde o XLSX foi salvo
+  lastError       String?
+  requestedByUserId Int?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
 model GmailConnection {
   id                     String   @id @default(uuid())
   userId                 Int      @unique

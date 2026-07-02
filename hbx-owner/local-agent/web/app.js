@@ -1834,6 +1834,147 @@ async function treeCardsRender() {
   }
 }
 
+/* ---------- Raio-X de CNPJ em lote (HOT-04) ---------- */
+function xraySelectedLayers() {
+  const layers = ["cadastral"]; // sempre ligada (grátis, instantânea) — checkbox fica disabled
+  if ($("#xray-layer-vivo")?.checked) layers.push("vivo");
+  if ($("#xray-layer-ia")?.checked) layers.push("ia");
+  return layers;
+}
+function xrayParsedLines() {
+  const raw = String($("#xray-input")?.value || "");
+  return raw.split("\n").map((l) => l.trim()).filter(Boolean);
+}
+function xrayUpdateLineCount() {
+  const el = $("#xray-line-count");
+  if (el) el.textContent = `${xrayParsedLines().length} linha(s)`;
+}
+{ const t = $("#xray-input"); if (t) t.addEventListener("input", xrayUpdateLineCount); }
+
+async function xrayEstimate() {
+  const fb = $("#xray-estimate");
+  const lines = xrayParsedLines();
+  if (!lines.length) { if (fb) fb.textContent = "Cole ao menos 1 CNPJ antes de estimar."; return; }
+  try {
+    const r = await api("POST", "/owner/cnpj-xray/estimate", { cnpjs: lines, layers: xraySelectedLayers() });
+    if (!r || !r.ok) { if (fb) fb.textContent = r && r.offline ? "Raio-X offline (backend ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`; return; }
+    const est = r.estimate || {};
+    const perLayer = (est.perLayer || []).map((l) => `${esc(l.label)}: ~${Math.round(l.secondsEstimate)}s`).join(" · ");
+    if (fb) fb.textContent = `Válidos: ${r.validCount} · Inválidos: ${r.invalidCount} · Tempo estimado total: ~${est.totalSecondsEstimate || 0}s (${perLayer})`;
+  } catch (err) {
+    if (fb) fb.textContent = `erro: ${err.message}`;
+  }
+}
+
+async function xrayStart() {
+  const fb = $("#xray-feedback");
+  const btn = $("#btn-xray-start");
+  const lines = xrayParsedLines();
+  if (!lines.length) { if (fb) fb.textContent = "Cole ao menos 1 CNPJ antes de iniciar."; return; }
+  if (lines.length > 10000) { if (fb) fb.textContent = "Máximo de 10.000 CNPJs por lote."; return; }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("POST", "/owner/cnpj-xray/start", { cnpjs: lines, layers: xraySelectedLayers() });
+    if (r && r.ok && r.started) {
+      if (fb) fb.textContent = `Job iniciado (${r.jobId}) — ${r.validCount} CNPJ(s) válido(s), ${r.invalidCount} descartado(s). Acompanhe na tabela abaixo.`;
+      $("#xray-input").value = "";
+      xrayUpdateLineCount();
+      xrayJobsRender();
+    } else {
+      if (fb) fb.textContent = r && r.offline ? "Raio-X offline (backend ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`;
+    }
+  } catch (err) {
+    if (fb) fb.textContent = `erro: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+const XRAY_STATUS_LABEL = {
+  queued: "na fila", running_cadastral: "cadastral…", running_vivo: "vivo…",
+  running_ia: "IA…", done: "concluído", error: "erro",
+};
+function xrayStatusPillClass(status) {
+  if (status === "done") return "pill-ok";
+  if (status === "error") return "pill-bad";
+  return "pill-muted";
+}
+async function xrayJobsRender() {
+  const tbody = $("#xray-jobs-tbody");
+  if (!tbody) return;
+  let r;
+  try { r = await api("GET", "/owner/cnpj-xray/jobs"); }
+  catch (err) { r = { ok: false, reason: err.message }; }
+  if (!r || !r.ok || !Array.isArray(r.jobs)) {
+    tbody.innerHTML = `<tr><td colspan="10" class="delta">${r && r.offline ? "Raio-X offline (backend ainda não publicado)." : "sem leitura do histórico."}</td></tr>`;
+    return;
+  }
+  if (!r.jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="delta">nenhum job ainda.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = r.jobs.map((j) => {
+    const created = j.createdAt ? new Date(j.createdAt).toLocaleString("pt-BR") : "—";
+    const layers = (j.layers || []).join(", ");
+    const action = j.downloadReady
+      ? `<button class="btn btn-sm btn-blue xray-dl-btn" data-job-id="${esc(j.id)}">⬇ XLSX</button>`
+      : (j.status === "error" ? `<span class="delta" title="${esc(j.lastError || "")}">falhou</span>` : "—");
+    return `<tr>
+      <td style="font-size:11px;">${esc(j.id.slice(0, 12))}…</td>
+      <td><span class="pill ${xrayStatusPillClass(j.status)}">${esc(XRAY_STATUS_LABEL[j.status] || j.status)}</span></td>
+      <td>${esc(layers)}</td>
+      <td>${esc(j.validCount)}</td>
+      <td>${esc(j.invalidCount)}</td>
+      <td>${esc(j.processedCount)}</td>
+      <td>${esc(j.missionsDone)}/${esc(j.missionsQueued)}</td>
+      <td>${esc(j.aiDone)}</td>
+      <td>${esc(created)}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join("");
+}
+
+/** Download autenticado (token no header — mesmo motivo do ckExportAllStream: <a href> não manda o Bearer). */
+async function xrayDownload(jobId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/owner/cnpj-xray/jobs/${encodeURIComponent(jobId)}/download`, {
+      method: "GET",
+      headers: { Authorization: "Bearer " + TOKEN },
+    });
+    const ct = String(res.headers.get("content-type") || "");
+    if (!res.ok || ct.includes("application/json")) {
+      let reason = "http_" + res.status;
+      try { const j = await res.json(); reason = j.reason || j.message || reason; } catch (e) { /* corpo não-json */ }
+      throw new Error(reason);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `raio-x-cnpj-${jobId}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    const fb = $("#xray-feedback");
+    if (fb) fb.textContent = `falha ao baixar: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+{
+  const tbody = $("#xray-jobs-tbody");
+  if (tbody) tbody.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".xray-dl-btn");
+    if (btn) xrayDownload(btn.dataset.jobId, btn);
+  });
+}
+
+{ const b = $("#btn-xray-estimate"); if (b) b.addEventListener("click", xrayEstimate); }
+{ const b = $("#btn-xray-start"); if (b) b.addEventListener("click", xrayStart); }
+
 { const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
@@ -2090,6 +2231,8 @@ loadCockpit();
 fabRender();
 aiLocalRender();
 treeCardsRender();
+xrayJobsRender();
+xrayUpdateLineCount();
 setInterval(renderSistema, 5000);
 setInterval(renderMotorStrip, 12000);
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
@@ -2099,3 +2242,4 @@ setInterval(pingStatus, 20000);
 setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
 setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tree-status, cache 10s no backend)
+setInterval(xrayJobsRender, 8000);       // histórico de jobs do Raio-X de CNPJ (HOT-04)
