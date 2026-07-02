@@ -95,7 +95,34 @@ function createExecutorHost(overrides: Record<string, any> = {}) {
   };
 }
 
-test('radar search orchestrator planeja fontes por estrategia rapida', () => {
+test('radar search orchestrator planeja fontes por estrategia rapida (HBX_LEGACY_SOURCES default OFF: radar_database-first fora da rota do cliente)', () => withEnv({
+  HBX_LEGACY_SOURCES: 'false',
+}, () => {
+  const orchestrator = new RadarSearchOrchestratorService(
+    new RadarSearchStrategyService(),
+    new RadarSourcePlannerService(),
+    new RadarSourceExpansionService(),
+  );
+  const plan = orchestrator.plan(baseInput, {
+    purpose: 'manual',
+    flags: {
+      radarEnabled: true,
+      historyEnabled: true,
+      globalCacheEnabled: true,
+    },
+  });
+
+  assert.equal(plan.strategy.mode, 'fast');
+  // Cutover P1 (02/07): radar_database-first é fonte legada, sai da rota do cliente com a
+  // flag OFF (default). company_history/global_cache/hbx_engine continuam (não são legado).
+  assert.deepEqual(plan.implementedSources.slice(0, 3), ['company_history', 'global_cache', 'hbx_engine']);
+  assert.equal(plan.activeSources.includes('radar_database'), false);
+  assert.equal(plan.activeSources.includes('google_textual'), false);
+}));
+
+test('radar search orchestrator com HBX_LEGACY_SOURCES=true: radar_database-first volta pra rota do cliente (rollback barato)', () => withEnv({
+  HBX_LEGACY_SOURCES: 'true',
+}, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
     new RadarSourcePlannerService(),
@@ -112,8 +139,21 @@ test('radar search orchestrator planeja fontes por estrategia rapida', () => {
 
   assert.equal(plan.strategy.mode, 'fast');
   assert.deepEqual(plan.implementedSources.slice(0, 4), ['radar_database', 'company_history', 'global_cache', 'hbx_engine']);
-  assert.equal(plan.activeSources.includes('google_textual'), false);
-});
+}));
+
+test('radar search orchestrator night_factory nunca é afetada pela flag HBX_LEGACY_SOURCES (fábrica não é rota de cliente)', () => withEnv({
+  HBX_LEGACY_SOURCES: 'false',
+}, () => {
+  const orchestrator = new RadarSearchOrchestratorService(
+    new RadarSearchStrategyService(),
+    new RadarSourcePlannerService(),
+    new RadarSourceExpansionService(),
+  );
+  const plan = orchestrator.plan({ ...baseInput, quantity: 100 }, { purpose: 'factory' });
+
+  assert.equal(plan.strategy.mode, 'night_factory');
+  assert.equal(plan.activeSources.includes('google_textual'), true);
+}));
 
 test('radar source expansion gera fontes novas da fase 6', () => {
   const orchestrator = new RadarSearchOrchestratorService(
@@ -176,8 +216,9 @@ test('radar result merger deduplica por telefone antes de misturar fontes', () =
   assert.equal(merged.counts.hbx_engine, 0);
 });
 
-test('radar strategy nao muda por lead_plus antes dos resultados', () => withEnv({
+test('radar strategy nao muda por lead_plus antes dos resultados (HBX_LEGACY_SOURCES default OFF)', () => withEnv({
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
+  HBX_LEGACY_SOURCES: 'false',
 }, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
@@ -187,17 +228,21 @@ test('radar strategy nao muda por lead_plus antes dos resultados', () => withEnv
   const plan = orchestrator.plan({ ...baseInput}, { purpose: 'manual' });
 
   assert.equal(plan.strategy.mode, 'fast');
-  assert.deepEqual(plan.activeSources, ['radar_database', 'company_history', 'global_cache', 'hbx_engine']);
+  // Cutover P1: radar_database-first é legado, sai por default (flag OFF).
+  assert.deepEqual(plan.activeSources, ['company_history', 'global_cache', 'hbx_engine']);
   assert.equal(plan.activeSources.includes('google_textual'), false);
 }));
 
 test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_ENABLED=true (C1, calibracao round-2)', () => withEnv({
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+  HBX_LEGACY_SOURCES: 'false',
 }, () => {
   // Furo medido 01/07 (barbearia/Goiânia): planner so incluia cnpj_public em deep/night_factory;
   // runs de cliente (fast/quality) reconstroem input sem freshness e nunca alcancavam a Receita
   // mesmo com a fonte local/gratis pronta e a flag ligada. Fix: flag ligada + targetType pj =>
-  // cnpj_public ativo em QUALQUER modo, prioridade sempre DEPOIS do hbx_engine.
+  // cnpj_public ativo em QUALQUER modo. Cutover P1 (02/07): cnpj_public (RFB) agora entra
+  // ANTES do hbx_engine na ordem fixa 1→8 (RFB→web); radar_database-first é legado (fora por
+  // default).
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
     new RadarSourcePlannerService(),
@@ -205,20 +250,28 @@ test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_E
   );
   const fastPlan = orchestrator.plan({ ...baseInput }, { purpose: 'manual' });
   assert.equal(fastPlan.strategy.mode, 'fast');
-  assert.deepEqual(fastPlan.activeSources, ['radar_database', 'company_history', 'global_cache', 'hbx_engine', 'cnpj_public']);
+  assert.deepEqual(fastPlan.activeSources, ['company_history', 'global_cache', 'cnpj_public', 'hbx_engine']);
+  assert.equal(
+    fastPlan.activeSources.indexOf('cnpj_public') < fastPlan.activeSources.indexOf('hbx_engine'),
+    true,
+    'cnpj_public (RFB) deve vir ANTES do hbx_engine (web) na ordem fixa RFB->web',
+  );
 
   const qualityPlan = orchestrator.plan({ ...baseInput, freshness: 'live' }, { purpose: 'manual' });
   assert.equal(qualityPlan.activeSources.includes('cnpj_public'), true);
   assert.equal(
-    qualityPlan.activeSources.indexOf('cnpj_public') > qualityPlan.activeSources.indexOf('hbx_engine'),
+    qualityPlan.activeSources.indexOf('cnpj_public') < qualityPlan.activeSources.indexOf('hbx_engine'),
     true,
-    'cnpj_public deve vir depois do hbx_engine',
+    'cnpj_public deve vir antes do hbx_engine tambem em quality',
   );
 }));
 
-test('radar strategy deep inclui stubs como skipped explicito', () => withEnv({
+test('radar strategy deep inclui stubs como skipped explicito (HBX_LEGACY_SOURCES=true traz local_directory/vertical_source de volta)', () => withEnv({
   // C1 (01/07): cnpj_public só entra no plano com a flag ligada (em qualquer modo).
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+  // local_directory/vertical_source são fontes legadas (P1) — precisam da flag ligada pra
+  // aparecerem em deep, que também é rota de cliente.
+  HBX_LEGACY_SOURCES: 'true',
 }, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
@@ -235,6 +288,24 @@ test('radar strategy deep inclui stubs como skipped explicito', () => withEnv({
   assert.equal(plan.diagnostics.every((item) => item.status === 'skipped'), true);
   assert.equal(plan.implementedSources.includes('local_directory'), true);
   assert.equal(plan.implementedSources.includes('vertical_source'), true);
+}));
+
+test('radar strategy deep com HBX_LEGACY_SOURCES default OFF: local_directory/vertical_source/google_textual fora da rota', () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+  HBX_LEGACY_SOURCES: 'false',
+}, () => {
+  const orchestrator = new RadarSearchOrchestratorService(
+    new RadarSearchStrategyService(),
+    new RadarSourcePlannerService(),
+    new RadarSourceExpansionService(),
+  );
+  const plan = orchestrator.plan({ ...baseInput, freshness: 'hybrid', quantity: 100 }, { purpose: 'manual' });
+
+  assert.equal(plan.strategy.mode, 'deep');
+  assert.equal(plan.activeSources.includes('cnpj_public'), true);
+  assert.equal(plan.activeSources.includes('local_directory'), false);
+  assert.equal(plan.activeSources.includes('vertical_source'), false);
+  assert.equal(plan.activeSources.includes('google_textual'), false);
 }));
 
 test('google textual provider monta queries de intencao sem Places', () => {
@@ -341,6 +412,8 @@ test('fonte opcional nao altera deliveryStatus para blocked ou error', () => {
 
 test('executor executa google_textual e preserva origem real', async () => withEnv({
   HBX_RADAR_GOOGLE_TEXTUAL_ENABLED: 'true',
+  // google_textual e fonte legada (P1) — precisa da flag ligada pro planner habilitar.
+  HBX_LEGACY_SOURCES: 'true',
 }, async () => {
   const executor = new RadarSourceExecutorService();
   const liveInput = { ...baseInput, freshness: 'live' as const };

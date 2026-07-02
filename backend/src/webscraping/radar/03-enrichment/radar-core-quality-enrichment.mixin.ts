@@ -168,6 +168,40 @@ import type {
   WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
 
+// sourceChain (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md): mapeia as
+// fontes reais que contribuíram pro card em 2 lanes ("rfb" = Receita/cnpj_public, "web" =
+// motor HBX/textual/crawl/diretórios) e devolve a cadeia ordenada. Card só de 1 fonte não-mapeada
+// (ex.: reprocessamento interno) não gera cadeia — campo fica ausente (opcional, nunca quebra
+// card antigo).
+const RADAR_SOURCE_CHAIN_LANE: Record<string, 'rfb' | 'web'> = {
+  cnpj_public: 'rfb',
+  cnpj_public_stub: 'rfb',
+  hbx_engine: 'web',
+  hbx: 'web',
+  google_textual: 'web',
+  website_crawl_light: 'web',
+  radar_web_enrichment: 'web',
+  local_directory: 'web',
+  local_directories_stub: 'web',
+  vertical_source: 'web',
+};
+
+function buildRadarSourceChain(result: Record<string, any>, fallbackSource?: string | null): string | null {
+  const rawEngines = Array.isArray(result?.sourceEngines) && result.sourceEngines.length
+    ? result.sourceEngines
+    : [result?.source || fallbackSource].filter(Boolean);
+  const lanes = new Set<'rfb' | 'web'>();
+  for (const engine of rawEngines) {
+    const lane = RADAR_SOURCE_CHAIN_LANE[String(engine || '').trim()];
+    if (lane) lanes.add(lane);
+  }
+  if (!lanes.size) return null;
+  const ordered: string[] = [];
+  if (lanes.has('rfb')) ordered.push('rfb');
+  if (lanes.has('web')) ordered.push('web');
+  return ordered.join('+');
+}
+
 export class RadarCoreQualityEnrichmentMixin {
   [key: string]: any;
   private normalizeQualityText(value: unknown) {
@@ -1236,6 +1270,12 @@ export class RadarCoreQualityEnrichmentMixin {
         ...((resultInstagramUrl || resultFacebookUrl) && (result as any).socialConfidence == null ? { socialConfidence: 80 } : {}),
         ...(quality ? { quality, qualityV2, qualityGate } : {}),
       };
+      // sourceChain (P1): campo OPCIONAL — card antigo sem ele continua renderizando normal.
+      // Só grava quando dá pra mapear pra rfb/web (evita "unknown" poluindo o card).
+      const sourceChain = finalStatus === 'found'
+        ? buildRadarSourceChain(resultForQuality, source)
+        : null;
+      if (sourceChain) (rawPayload as any).sourceChain = sourceChain;
       const rawJson = JSON.stringify(rawPayload);
       const segment = finalStatus === 'found'
         ? resultSegment || null

@@ -71,6 +71,8 @@ type RadarLead = {
   vendasLastResult?: string | null;
   vendasSaleStatus?: string | null;
   vendasSaleValue?: number | null;
+  // sourceChain (P1, 02/07 — cutover ordem fixa): "rfb" | "web" | "rfb+web". Opcional.
+  sourceChain?: string | null;
 };
 
 type LeadsResponse = {
@@ -987,6 +989,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       ownerInstagram: revealed ? (lead.ownerInstagram ?? null) : null,
       ownerFacebook: revealed ? (lead.ownerFacebook ?? null) : null,
       companySituation: revealed ? (lead.companySituation ?? null) : null,
+      sourceChain: lead.sourceChain ?? null,
       leadIntelligence: {
         whatsappStatus: lead.hasWhatsapp ? "confirmed" : null,
         emailStatus: lead.hasEmail ? "confirmed" : null,

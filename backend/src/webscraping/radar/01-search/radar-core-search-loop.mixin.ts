@@ -201,25 +201,28 @@ export class RadarCoreSearchLoopMixin {
 
   /**
    * Fonte Receita (cnpj_public) soldada no run de cliente — aditivo, flag-gated
-   * (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md). Roda no MÁXIMO 1x por
-   * batch; se já rodou neste run OU já devolveu 0 aceitos neste run, não repete (evita moer
-   * discovery/dataset a cada batch). Erro aqui NUNCA derruba o batch do engine — quem chama
-   * já terminou de salvar o lote principal antes desta chamada.
+   * (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md).
+   *
+   * CUTOVER ORDEM FIXA (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md):
+   * a lane do cliente é semente → RFB → web → fusão. Este método agora é chamado ANTES do
+   * batch do motor web (ver processSearchRun) — RFB roda primeiro na ordem fixa 1→8 da árvore
+   * mestra. Continua rodando no MÁXIMO 1x por run (ranThisRun/zeroAccepted); erro aqui NUNCA
+   * bloqueia o batch web que vem depois (degrade gracioso).
    */
   private async runCnpjPublicSourceForClientRunIfEligible(
     context: SearchExecutionContext,
     normalized: NormalizedSearchInput,
     runId: string,
     remainingQuantity: number,
-  ): Promise<void> {
-    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return;
-    if (normalized?.targetType !== 'pj') return;
-    if (remainingQuantity <= 0) return;
+  ): Promise<{ accepted: number; ran: boolean }> {
+    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return { accepted: 0, ran: false };
+    if (normalized?.targetType !== 'pj') return { accepted: 0, ran: false };
+    if (remainingQuantity <= 0) return { accepted: 0, ran: false };
 
     const now = Date.now();
     pruneRadarCnpjPublicClientRunState(now);
     const state = radarCnpjPublicClientRunState.get(runId);
-    if (state?.ranThisRun || state?.zeroAccepted) return;
+    if (state?.ranThisRun || state?.zeroAccepted) return { accepted: 0, ran: false };
     radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: state?.zeroAccepted || false, updatedAt: now });
 
     try {
@@ -248,12 +251,14 @@ export class RadarCoreSearchLoopMixin {
         radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: true, updatedAt: now });
       }
       this.logger?.log?.(
-        `[radar-cnpj] fonte receita no run ${runId}: found=${sourceResult?.foundCount ?? results.length} accepted=${accepted} reason=${sourceResult?.reason || '-'}`,
+        `[radar-cadeia] run ${runId}: 1=rfb found=${sourceResult?.foundCount ?? results.length} accepted=${accepted} reason=${sourceResult?.reason || '-'}`,
       );
+      return { accepted, ran: true };
     } catch (error) {
       this.logger?.warn?.(
         `[radar-cnpj] fonte receita falhou sem derrubar o batch run=${runId}: ${String((error as any)?.message || error)}`,
       );
+      return { accepted: 0, ran: true };
     }
   }
 
@@ -1033,6 +1038,18 @@ export class RadarCoreSearchLoopMixin {
         requiredChannels: [],
         channelMatchMode: 'prefer',
       };
+
+      // CUTOVER ORDEM FIXA (P1, 02/07): lane do cliente é semente → RFB → web → fusão (árvore
+      // mestra, docs/PLANEJAMENTOS/ARVORE-MESTRA/ARVORE-MESTRA.md). RFB roda ANTES do motor web
+      // — antes rodava depois (furo do PR01072026/60), invertendo a prioridade "formais primeiro".
+      // Erro/flag-off aqui nunca bloqueia o batch web que vem a seguir (degrade gracioso).
+      const cnpjOutcome = await this.runCnpjPublicSourceForClientRunIfEligible(
+        context,
+        normalized,
+        runId,
+        Math.max(0, safeInteger(normalized.quantity) - safeInteger(current.foundCount)),
+      ).catch(() => ({ accepted: 0, ran: false }));
+
       const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput) || this.isSocialDiscoveryQuery(queryUsed);
       const batchResponse = await this.searchHbxEngine(
         engineBatchInput,
@@ -1079,15 +1096,12 @@ export class RadarCoreSearchLoopMixin {
       const rejectedCount = batchResponse.rejectedCount + savedCounts.invalid + savedCounts.skipped;
       const duplicateCount = batchResponse.duplicateCount + savedCounts.duplicate;
 
-      // Aditivo/flag-gated (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md): solda a
-      // fonte Receita (cnpj_public) no run de cliente, que só falava com o motor web. Nunca
-      // derruba o batch do engine — o save acima já concluiu antes desta chamada.
-      await this.runCnpjPublicSourceForClientRunIfEligible(
-        context,
-        normalized,
-        runId,
-        Math.max(0, safeInteger(normalized.quantity) - safeInteger(counters.foundCount)),
-      ).catch(() => null);
+      // Log da cadeia executada NA ORDEM (aceite do P1): mostra exatamente os motores e a
+      // ordem real desta tentativa — RFB (se rodou) sempre antes do web.
+      this.logger?.log?.(
+        `[radar-cadeia] run ${runId} attempt ${attempt}: ordem=${cnpjOutcome.ran ? 'rfb->web' : 'web'} `
+        + `rfb_accepted=${cnpjOutcome.accepted} web_accepted=${approvedCount}`,
+      );
 
       if (approvedCount > 0) {
         if (await autoImportAndStopIfPaused('incremental')) return;

@@ -244,6 +244,9 @@ export class RadarRunPresenterService {
       nonBlockingIssues: issueSummary.nonBlockingIssues,
       deliveryBlockers: issueSummary.blockers,
       source: String(item.source || raw.source || '').trim() || null,
+      // sourceChain (P1, 02/07): cadeia real de fontes do card (rfb / web / rfb+web).
+      // Opcional — ausente em cards antigos, que continuam renderizando normalmente.
+      sourceChain: String(raw.sourceChain || '').trim() || null,
       quality: host.extractLeadQualityFromObject(raw),
     };
   }
@@ -450,6 +453,8 @@ export class RadarRunPresenterService {
           state: item.state || raw.state || null,
           segment: item.segment || raw.segment || null,
           source: item.source || raw.source || null,
+          // sourceChain (P1, 02/07): campo opcional — ausente em cards antigos.
+          sourceChain: String(raw.sourceChain || '').trim() || null,
           status: host.normalizeRunItemStatus(item.status),
           duplicateReason: item.duplicateReason || null,
           sourceDiagnostics: this.getDiagnostics().normalizeSourceDiagnostics(raw.sourceDiagnostics),
