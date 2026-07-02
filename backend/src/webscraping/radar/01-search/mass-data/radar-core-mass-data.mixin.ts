@@ -161,6 +161,12 @@ import type {
   WebscrapingSearchRunStatus,
 } from '../../radar-core-method-imports';
 
+import {
+  isMissionQueueEnabled,
+  resolveMissionLeaseTtlMs,
+  type RadarMissionLeaseDto,
+} from '../../missions/radar-mission-queue.service';
+
 export class RadarCoreMassDataMixin {
   [key: string]: any;
   async getMasterMassDataControl(user: any) {
@@ -1337,6 +1343,16 @@ export class RadarCoreMassDataMixin {
       });
     }
 
+    // SPRINT 4 MOTOR-RFB-FILA (02/07): com a fila de missões LIGADA (HBX_MISSION_QUEUE_ENABLED), o
+    // dispatch da fábrica passa pela RadarMission (lease TTL+heartbeat, retry/backoff, dead-letter,
+    // pausa real). Tarefa/lote/campanha continuam sendo escritos pelo MESMO executor
+    // (processMassDataTask) → o painel segue lendo WebscrapingCampaign* até o cutover. Flag OFF
+    // (default) = rota clássica intacta (aditivo/reversível).
+    if (isMissionQueueEnabled() && (await this.getMissionQueue().supportsMissionPersistence().catch(() => false))) {
+      await this.processMassDataCampaignViaMissions(campaign, maxParallel);
+      return;
+    }
+
     let started = 0;
     let highestEngineIndex = 0;
     for (let index = 0; index < maxParallel; index += 1) {
@@ -1385,6 +1401,164 @@ export class RadarCoreMassDataMixin {
       }
     }
     return null;
+  }
+
+  // SPRINT 4 MOTOR-RFB-FILA (02/07): dispatch da fábrica via fila de missões. Emite missão 'alvo'
+  // idempotente por tarefa (dedupeKey task:{id}) e arrenda motor+missão em par — motor primeiro,
+  // como a rota clássica, pra nunca segurar missão sem motor. Pausa (PARAR TUDO) é honrada DENTRO
+  // do lease(): fila pausada devolve vazio e nada drena.
+  private async processMassDataCampaignViaMissions(campaign: any, maxParallel: number) {
+    const queue = this.getMissionQueue();
+    const queuedTasks = await (this.prisma as any).webscrapingCampaignTask.findMany({
+      where: { campaignId: campaign.id, status: 'queued' },
+      orderBy: [{ updatedAt: 'asc' }, { createdAt: 'asc' }],
+      take: 50,
+      select: { id: true, city: true, state: true, segment: true, targetType: true, maxAttempts: true },
+    }).catch(() => []);
+    for (const task of queuedTasks) {
+      await queue.enqueue({
+        stage: 'alvo',
+        dedupeKey: `task:${task.id}`,
+        correlationId: campaign.id,
+        maxAttempts: Math.max(1, safeInteger(task.maxAttempts, 3)),
+        payload: {
+          taskId: task.id,
+          campaignId: campaign.id,
+          city: task.city,
+          state: task.state,
+          segment: task.segment,
+          targetType: task.targetType,
+        },
+      }).catch((error: any) => {
+        this.logger.warn(`[mission-queue] enqueue falhou task=${task.id}: ${error instanceof Error ? error.message : String(error || 'erro desconhecido')}`);
+        return { created: false, missionId: null };
+      });
+    }
+
+    let started = 0;
+    for (let index = 0; index < maxParallel; index += 1) {
+      const engineLease = await this.getEnginePool().acquireEngine(
+        `${campaign.id}:mass:${index}:${Date.now()}`,
+        campaign.companyId,
+        campaign.userId,
+        { purpose: 'mass_data' },
+      );
+      if (!engineLease) break;
+      const leased = await queue.lease({
+        workerId: String(engineLease.engineId || 'backend-factory'),
+        stages: ['alvo'],
+        batchSize: 1,
+        correlationId: campaign.id,
+      }).catch(() => ({ supported: false, paused: false, missions: [] }));
+      const mission = leased.missions[0];
+      if (!mission) {
+        await this.getEnginePool().releaseEngine(engineLease.engineId);
+        if (leased.paused) this.logger.log('[mission-queue] fila PAUSADA (PARAR TUDO) — nenhuma missão drenada neste ciclo');
+        break;
+      }
+      const taskId = String((mission.payload as any)?.taskId || '');
+      const taskRow = taskId
+        ? await (this.prisma as any).webscrapingCampaignTask.findUnique({ where: { id: taskId }, select: { id: true, status: true, startedAt: true } }).catch(() => null)
+        : null;
+      const claimed = taskRow && String(taskRow.status) === 'queued'
+        ? await (this.prisma as any).webscrapingCampaignTask.updateMany({
+            where: { id: taskId, status: 'queued' },
+            data: {
+              status: 'running',
+              lockedByEngineId: engineLease.engineId,
+              lockedUntil: engineLease.lockedUntil,
+              startedAt: taskRow.startedAt || new Date(),
+            },
+          }).catch(() => ({ count: 0 }))
+        : { count: 0 };
+      if (!claimed.count) {
+        // tarefa já não está em fila (cancelada/completada/reclamada) → missão fecha sem retrabalho.
+        await queue.complete(mission.id, mission.leaseId, { skipped: true, reason: 'task_not_queued', taskId }).catch(() => null);
+        await this.getEnginePool().releaseEngine(engineLease.engineId);
+        continue;
+      }
+      started += 1;
+      void this.processMassDataTaskViaMission(campaign.id, taskId, engineLease, mission);
+    }
+    this.logger.log(`[factoryPump] (missões) leased ${started} engines this cycle; maxParallel=${maxParallel}; campaign=${campaign.id}`);
+    if (started === 0) {
+      await this.refreshMassDataCampaignState(campaign.id);
+    }
+  }
+
+  // Executor da missão 'alvo': roda o MESMO processMassDataTask da rota clássica (tarefa/lote/
+  // campanha/painel intactos) com heartbeat de lease durante o batch. O resultado da TAREFA decide
+  // o destino da missão: queued (erro retryable) → fail c/ backoff; failed → dead-letter;
+  // completed/exhausted → complete.
+  private async processMassDataTaskViaMission(campaignId: string, taskId: string, lease: HbxEngineLease, mission: RadarMissionLeaseDto) {
+    const queue = this.getMissionQueue();
+    const heartbeatMs = Math.max(15_000, Math.trunc(resolveMissionLeaseTtlMs() / 3));
+    const heartbeatTimer = setInterval(() => {
+      void queue.heartbeat(mission.id, mission.leaseId).catch(() => null);
+    }, heartbeatMs);
+    (heartbeatTimer as any).unref?.();
+    try {
+      await this.processMassDataTask(campaignId, taskId, lease);
+      const task = await (this.prisma as any).webscrapingCampaignTask.findUnique({
+        where: { id: taskId },
+        select: { status: true, foundCount: true, lastError: true },
+      }).catch(() => null);
+      const status = String(task?.status || 'unknown');
+      if (status === 'queued' || status === 'running') {
+        await queue.fail(mission.id, mission.leaseId, task?.lastError || 'tarefa devolvida pra fila (erro retryable)', true);
+      } else if (status === 'failed') {
+        await queue.fail(mission.id, mission.leaseId, task?.lastError || 'tarefa falhou sem retry', false);
+      } else {
+        await queue.complete(mission.id, mission.leaseId, { taskStatus: status, foundCount: safeInteger(task?.foundCount) });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || 'erro desconhecido');
+      await queue.fail(mission.id, mission.leaseId, message, true).catch(() => null);
+    } finally {
+      clearInterval(heartbeatTimer);
+    }
+  }
+
+  // SPRINT 4 MOTOR-RFB-FILA (02/07): plano de cobertura durável por combo. Só o caminho de SUCESSO
+  // grava (resultado real do motor); erro/timeout não prova cidade vazia. exhausted ganha
+  // nextRevisitAt (default 90d) — o planner não re-emite o combo antes disso e REABRE depois.
+  private async recordRadarCoverageResult(task: any, counts: { approvedCount: number; duplicateCount: number; rejectedCount: number }) {
+    if (!(await this.prisma.hasTable('RadarCoverage').catch(() => false))) return;
+    const state = String(task?.state || '').trim().toUpperCase();
+    const city = String(task?.city || '').trim();
+    const segment = String(task?.segment || '').trim();
+    const targetType = normalizeTargetType(task?.targetType);
+    if (!state || !city || !segment) return;
+    const approved = safeInteger(counts.approvedCount);
+    const duplicate = safeInteger(counts.duplicateCount);
+    const total = Math.max(1, approved + duplicate + safeInteger(counts.rejectedCount));
+    const now = new Date();
+    const revisitDays = clampInteger(process.env.HBX_RADAR_COVERAGE_REVISIT_DAYS, 90, 1, 365);
+    const status = approved <= 0 ? 'exhausted' : duplicate / total > 0.5 ? 'partial' : 'fresh';
+    const nextRevisitAt = status === 'exhausted' ? new Date(now.getTime() + revisitDays * 86_400_000) : null;
+    await (this.prisma as any).radarCoverage.upsert({
+      where: { state_city_segment_targetType: { state, city, segment, targetType } },
+      create: {
+        state,
+        city,
+        segment,
+        targetType,
+        status,
+        attempts: 1,
+        approvedTotal: approved,
+        duplicateTotal: duplicate,
+        lastResultAt: now,
+        nextRevisitAt,
+      },
+      update: {
+        status,
+        attempts: { increment: 1 },
+        approvedTotal: { increment: approved },
+        duplicateTotal: { increment: duplicate },
+        lastResultAt: now,
+        nextRevisitAt,
+      },
+    }).catch(() => null);
   }
 
   private async processMassDataTask(campaignId: string, taskId: string, lease: HbxEngineLease) {
@@ -1502,6 +1676,13 @@ export class RadarCoreMassDataMixin {
         },
       });
       await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
+      // Cobertura durável do combo (sprint 4): resultado real do lote alimenta RadarCoverage —
+      // 0 aprovado = exhausted c/ nextRevisitAt; o planner respeita antes de re-emitir.
+      void this.recordRadarCoverageResult(task, {
+        approvedCount,
+        duplicateCount,
+        rejectedCount: batchRejectedCount,
+      }).catch(() => null);
       await this.refreshMassDataCampaignState(campaignId);
     } catch (error) {
       const message = this.extractHbxErrorMessage(error);

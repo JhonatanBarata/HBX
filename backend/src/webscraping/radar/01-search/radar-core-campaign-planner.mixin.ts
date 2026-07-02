@@ -588,6 +588,23 @@ export class RadarCoreCampaignPlannerMixin {
     };
   }
 
+  // SPRINT 4 MOTOR-RFB-FILA (02/07): leitura do plano de cobertura durável (quem grava é o
+  // recordRadarCoverageResult no caminho de sucesso do lote). hasTable é cacheado no PrismaService —
+  // chamar no loop de candidatos não custa introspecção repetida.
+  private async getRadarCoverageForCombo(combo: { state: string; city: string; segment: string; targetType: string }) {
+    if (!(await this.prisma.hasTable('RadarCoverage').catch(() => false))) return null;
+    return (this.prisma as any).radarCoverage.findUnique({
+      where: {
+        state_city_segment_targetType: {
+          state: String(combo.state || '').trim().toUpperCase(),
+          city: String(combo.city || '').trim(),
+          segment: String(combo.segment || '').trim(),
+          targetType: normalizeTargetType(combo.targetType),
+        },
+      },
+    }).catch(() => null);
+  }
+
   private async rankAutonomousMassDataWorkCandidates(
     campaign: any,
     options: { limit?: number; excludeKeys?: Set<string>; now?: Date } = {},
@@ -649,9 +666,22 @@ export class RadarCoreCampaignPlannerMixin {
         this.getAutonomousMassDataCombinationMetrics(candidate),
       ]);
       if (taskExists) continue;
+      // COBERTURA (sprint 4 MOTOR-RFB-FILA): combo com RadarCoverage 'exhausted' NÃO volta antes do
+      // nextRevisitAt; vencido o prazo, REABRE (inclusive combo 'dead' antigo — cidade pode ter
+      // negócio novo meses depois). Sem tabela/linha de cobertura → cai no freio clássico abaixo.
+      const coverage = await this.getRadarCoverageForCombo(candidate);
+      const revisitDue = Boolean(
+        coverage
+        && String(coverage.status) === 'exhausted'
+        && coverage.nextRevisitAt instanceof Date
+        && coverage.nextRevisitAt.getTime() <= now.getTime(),
+      );
+      const coverageBlocked = Boolean(coverage && String(coverage.status) === 'exhausted' && !revisitDue);
+      if (coverageBlocked && !hasGuidedFilter) continue;
       // FREIO: combo já explorado que nunca rendeu nada = cidade vazia → NÃO re-enfileira (a não ser
       // que o dono tenha guiado essa cidade/segmento de propósito). Mata o ciclo Acarape na fonte.
-      if (metrics.dead && !hasGuidedFilter) continue;
+      // `revisitDue` da cobertura REABRE o combo morto (o freio clássico era permanente).
+      if (metrics.dead && !hasGuidedFilter && !revisitDue) continue;
       const lowStock = metrics.stockCount < minimumStock;
       const lowDuplicateRecent = metrics.explored && metrics.duplicateRatio <= 0.35;
       const reason: AutonomousMassDataWorkReason = hasGuidedFilter

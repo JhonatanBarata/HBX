@@ -32,6 +32,8 @@ import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-o
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './radar/01-search/radar-source-planner.service';
+import { RadarMissionQueueService } from './radar/missions/radar-mission-queue.service';
+import { RadarMissionsController } from './radar/missions/radar-missions.controller';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
@@ -154,8 +156,8 @@ const RADAR_SERVICES = [
 
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, EnrichmentCostModule, forwardRef(() => VendasModule)],
-  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController],
-  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, ...RADAR_SERVICES],
-  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService],
+  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController],
+  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, ...RADAR_SERVICES],
+  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService],
 })
 export class WebscrapingModule {}

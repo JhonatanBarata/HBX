@@ -2165,6 +2165,60 @@ model RadarFactoryWorkLog {
   @@index([status, createdAt])
 }
 
+// SPRINT 4 MOTOR-RFB-FILA (02/07): fila de missões REAL substituindo o controle por loops da fábrica.
+// Lease com TTL + heartbeat (lease vencido volta pra fila sozinho), retry com backoff (nextAttemptAt),
+// dead-letter (status 'dead'). O nó LOCAL PUXA missão por HTTP (pull; ver /modules/owner/missions).
+// `correlationId` = chave de agrupamento do estágio (ex.: campaignId no estágio 'alvo').
+model RadarMission {
+  id             String    @id @default(cuid())
+  stage          String    // alvo | receita | base_rica | cerebro | validacao_zap | card
+  status         String    @default("queued") // queued | leased | completed | dead | canceled
+  priority       Int       @default(0)
+  payloadVersion Int       @default(1)
+  payloadJson    Json
+  dedupeKey      String?
+  correlationId  String?
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  nextAttemptAt  DateTime  @default(now())
+  leaseId        String?
+  leasedBy       String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  lastError      String?
+  resultJson     Json?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([stage, dedupeKey])
+  @@index([stage, status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([correlationId, status])
+}
+
+// SPRINT 4 MOTOR-RFB-FILA (02/07): plano de cobertura durável por combo (evolui o freio combo-morto,
+// que era permanente). `exhausted` REABRE sozinho no nextRevisitAt (default 90d) — cidade esgotada
+// nunca volta antes disso, mas também não morre pra sempre.
+model RadarCoverage {
+  id             String    @id @default(cuid())
+  state          String
+  city           String
+  segment        String
+  targetType     String    @default("pj")
+  status         String    @default("fresh") // fresh | partial | exhausted
+  attempts       Int       @default(0)
+  approvedTotal  Int       @default(0)
+  duplicateTotal Int       @default(0)
+  lastResultAt   DateTime?
+  nextRevisitAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([state, city, segment, targetType])
+  @@index([status, nextRevisitAt])
+}
+
 model WebscrapingCampaignBatch {
   id              String   @id @default(cuid())
   campaign        WebscrapingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
