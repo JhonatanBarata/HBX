@@ -34,6 +34,7 @@ import { RadarSourcePlannerService } from './radar/01-search/radar-source-planne
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
+import { RadarWebSourceGateService } from './radar/02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
 import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
@@ -89,6 +90,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() radarQualityGate?: RadarQualityGateService,
+    @Optional() radarWebSourceGate?: RadarWebSourceGateService,
     @Optional() radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() radarScoreEnrichment?: RadarScoreEnrichmentService,
     @Optional() radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
@@ -129,6 +131,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarWebsiteCrawlSource,
       radarDuplicateFilter,
       radarQualityGate,
+      radarWebSourceGate,
       radarRunItemFilter,
       radarScoreEnrichment,
       radarWebEnrichmentJob,

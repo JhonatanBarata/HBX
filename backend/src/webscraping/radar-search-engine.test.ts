@@ -176,7 +176,9 @@ test('radar result merger deduplica por telefone antes de misturar fontes', () =
   assert.equal(merged.counts.hbx_engine, 0);
 });
 
-test('radar strategy nao muda por lead_plus antes dos resultados', () => {
+test('radar strategy nao muda por lead_plus antes dos resultados', () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
+}, () => {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
     new RadarSourcePlannerService(),
@@ -187,7 +189,32 @@ test('radar strategy nao muda por lead_plus antes dos resultados', () => {
   assert.equal(plan.strategy.mode, 'fast');
   assert.deepEqual(plan.activeSources, ['radar_database', 'company_history', 'global_cache', 'hbx_engine']);
   assert.equal(plan.activeSources.includes('google_textual'), false);
-});
+}));
+
+test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_ENABLED=true (C1, calibracao round-2)', () => withEnv({
+  HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+}, () => {
+  // Furo medido 01/07 (barbearia/Goiânia): planner so incluia cnpj_public em deep/night_factory;
+  // runs de cliente (fast/quality) reconstroem input sem freshness e nunca alcancavam a Receita
+  // mesmo com a fonte local/gratis pronta e a flag ligada. Fix: flag ligada + targetType pj =>
+  // cnpj_public ativo em QUALQUER modo, prioridade sempre DEPOIS do hbx_engine.
+  const orchestrator = new RadarSearchOrchestratorService(
+    new RadarSearchStrategyService(),
+    new RadarSourcePlannerService(),
+    new RadarSourceExpansionService(),
+  );
+  const fastPlan = orchestrator.plan({ ...baseInput }, { purpose: 'manual' });
+  assert.equal(fastPlan.strategy.mode, 'fast');
+  assert.deepEqual(fastPlan.activeSources, ['radar_database', 'company_history', 'global_cache', 'hbx_engine', 'cnpj_public']);
+
+  const qualityPlan = orchestrator.plan({ ...baseInput, freshness: 'live' }, { purpose: 'manual' });
+  assert.equal(qualityPlan.activeSources.includes('cnpj_public'), true);
+  assert.equal(
+    qualityPlan.activeSources.indexOf('cnpj_public') > qualityPlan.activeSources.indexOf('hbx_engine'),
+    true,
+    'cnpj_public deve vir depois do hbx_engine',
+  );
+}));
 
 test('radar strategy deep inclui stubs como skipped explicito', () => {
   const orchestrator = new RadarSearchOrchestratorService(

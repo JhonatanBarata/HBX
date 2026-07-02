@@ -1161,10 +1161,22 @@ export class RadarCoreQualityEnrichmentMixin {
         state: resultState || normalized.state,
         segment: resultSegment || normalized.segment,
       };
-      const quality = classified.status === 'found'
+      // Gate web (blacklist agressiva) — SÓ fonte web (não cnpj_public/radar_database), SÓ
+      // sobre quem ainda seria 'found'. Roda antes da avaliação de qualidade/classifyRunItem
+      // ter chance de virar card: lixo de web morre aqui como 'invalid', nunca chega na IA.
+      const webSourceGate = classified.status === 'found'
+        ? this.getRadarWebSourceGate().evaluate({ candidate: resultForQuality, filters: normalized })
+        : { passed: true, reason: null };
+      const classified2Status: WebscrapingSearchRunItemStatus = classified.status === 'found' && !webSourceGate.passed
+        ? 'invalid'
+        : classified.status;
+      const classified2DuplicateReason = classified.status === 'found' && !webSourceGate.passed
+        ? webSourceGate.reason
+        : classified.duplicateReason;
+      const quality = classified2Status === 'found'
         ? this.evaluateResultQualityForInput(resultForQuality, normalized)
         : this.extractLeadQualityFromObject(result as any);
-      const qualityV2 = classified.status === 'found'
+      const qualityV2 = classified2Status === 'found'
         ? this.getCandidateQualityV2(resultForQuality, normalized)
         : this.extractLeadQualityV2FromObject(result as any);
       const qualityGate = this.getRadarQualityGate().evaluate({
@@ -1174,13 +1186,13 @@ export class RadarCoreQualityEnrichmentMixin {
         qualityV2,
         host: this.buildRadarQualityGateHost(),
       });
-      const qualityDeliverable = classified.status === 'found' && qualityGate.deliverable;
-      const finalStatus: WebscrapingSearchRunItemStatus = classified.status === 'found' && !qualityDeliverable
+      const qualityDeliverable = classified2Status === 'found' && qualityGate.deliverable;
+      const finalStatus: WebscrapingSearchRunItemStatus = classified2Status === 'found' && !qualityDeliverable
         ? 'skipped'
-        : classified.status;
-      const duplicateReason = classified.status === 'found' && !qualityDeliverable
+        : classified2Status;
+      const duplicateReason = classified2Status === 'found' && !qualityDeliverable
         ? qualityGate.reason || quality.reasons.join('; ') || quality.status
-        : classified.duplicateReason;
+        : classified2DuplicateReason;
       const resultInstagramUrl = String((result as any).instagramUrl || '').trim();
       const resultFacebookUrl = String((result as any).facebookUrl || '').trim();
       const resultWebsite = String((result as any).website || '').trim();

@@ -310,6 +310,15 @@
   min-width: 60px;
 }
 
+/* Estoque em DESTAQUE (o que dá pra puxar/enriquecer agora) — tinta verde do tema */
+.tnode-metric--hi {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.tnode-metric--hi .tm-val { color: var(--green); }
+
 .tm-label {
   font-size: .7rem;
   font-weight: 700;

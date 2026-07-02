@@ -1021,7 +1021,14 @@ export function calculateLeadQualityV2(input: {
     row?.lastResult,
   ].map(normalizeKey).filter(Boolean).join(' ');
   const protectedStatus = Array.from(PROTECTED_STATUSES).some((status) => statusText.includes(status));
-  const directoryLike = includesAny(`${nameKey} ${normalizeKey(row?.source)} ${normalizeKey(row?.sourceUrl)}`, DIRECTORY_PATTERNS);
+  // C2 (calibracao round-2, 01/07): separar sinal de NOME (confiavel: o proprio negocio se
+  // chamando de "guia"/"lista") do sinal de PROCEDENCIA (source/sourceUrl de diretorio tipo
+  // Booksy/Trinks) — o motor web agora extrai negocio individual real dessas paginas. Sinal de
+  // nome ainda mata (discard/generic_directory); sinal de procedencia vira SO penalidade de
+  // identityScore (nunca derruba decision quando ha canal proprio acionavel).
+  const directoryLikeName = includesAny(nameKey, DIRECTORY_PATTERNS);
+  const directoryLikeSource = includesAny(`${normalizeKey(row?.source)} ${normalizeKey(row?.sourceUrl)}`, DIRECTORY_PATTERNS);
+  const directoryLike = directoryLikeName || directoryLikeSource;
   const badContentTitle = looksLikeBadContentTitle({ rawName: name, nameKey, cityKey, requestedSegmentKey });
   const genericName = !name || nameKey.length < 3 || badContentTitle || GENERIC_NAME_PATTERNS.some((term) => nameKey === normalizeKey(term) || nameKey.includes(normalizeKey(term)));
   const salesProfile = input.context?.salesProfile || null;
@@ -1315,7 +1322,11 @@ export function calculateLeadQualityV2(input: {
     decision = 'protect';
     protectionReason = protectionReasons.join(', ') || 'protected_status';
     reasons.push(`Protegido: ${protectionReason}.`);
-  } else if (directoryLike) {
+  } else if (directoryLikeName) {
+    // C2: SO o nome do proprio negocio parecendo diretorio/guia/lista mata por
+    // generic_directory. directoryLikeSource (procedencia de Booksy/Trinks/etc.) NUNCA
+    // entra aqui — vira so penalidade de identityScore (ver acima), preservando lead real
+    // com canal proprio acionavel (fone valido/whatsapp/instagram).
     decision = 'discard';
     discardReason = 'generic_directory';
   } else if (badContentTitle) {

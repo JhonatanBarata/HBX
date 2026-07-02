@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { LeadQualityV2 } from '../../lead-quality-v2';
-import { looksLikeNonBusinessName, isRealisticBrPhone } from '../shared/radar-core-shared';
+import { looksLikeNonBusinessName, isRealisticBrPhone, RADAR_MARKETPLACE_HOST_HINTS } from '../shared/radar-core-shared';
 import type { LeadQualityResult } from '../shared/radar-core-shared';
 import type { NormalizedRadarFilters, NormalizedSearchInput } from '../shared/radar-types';
 
@@ -22,17 +22,6 @@ export type RadarQualityGateHost = {
   hasUsablePublicContactChannel: (candidate: Record<string, any>) => boolean;
   isBlockedLeadOfficialWebsite: (value: string | null | undefined) => boolean;
 };
-
-const MARKETPLACE_HOST_HINTS = [
-  'catalogo',
-  'getninjas',
-  'ifood',
-  'mercadolivre',
-  'olx',
-  'portal',
-  'solutudo',
-  'telelistas',
-];
 
 function normalizeText(value: unknown) {
   return String(value || '').trim();
@@ -169,6 +158,10 @@ export class RadarQualityGateService {
   }): RadarQualityGateResult {
     const candidate = input.candidate || {};
     const filters = input.filters || {};
+    // Receita (cnpj_public) é inocente até prova: razão social/MEI não é titulo de pagina,
+    // e segmento ja foi validado por CNAE na porta do provider — pular heuristicas de nome
+    // feitas pra lixo de scraping web.
+    const isCnpjPublic = normalizeKey(candidate.source ?? candidate.sourceEngine) === 'cnpj_public';
     const missing: string[] = [];
     const name = normalizeText(candidate.name);
     const requestedCity = normalizeText((filters as any).city);
@@ -203,15 +196,15 @@ export class RadarQualityGateService {
       hardBlockers.push('missing_name');
       return buildReject({ reason: 'Nome ausente.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
-    if (input.host.isGenericDirectoryName(name, { city: candidateCity || requestedCity, segment: requestedSegment })) {
+    if (!isCnpjPublic && input.host.isGenericDirectoryName(name, { city: candidateCity || requestedCity, segment: requestedSegment })) {
       hardBlockers.push('generic_directory');
       return buildReject({ reason: 'Resultado generico ou diretorio.', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
     }
-    if (looksLikeNonBusinessName(name)) {
+    if (!isCnpjPublic && looksLikeNonBusinessName(name)) {
       hardBlockers.push('non_business_name');
       return buildReject({ reason: 'Nome nao parece empresa (titulo de pagina/portal global/idioma estrangeiro).', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
     }
-    if (requestedSegment && input.host.nameConflictsWithRequestedSegment(name, requestedSegment)) {
+    if (!isCnpjPublic && requestedSegment && input.host.nameConflictsWithRequestedSegment(name, requestedSegment)) {
       hardBlockers.push('segment_mismatch');
       return buildReject({ reason: 'Nome indica outro segmento comercial.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
@@ -271,7 +264,7 @@ export class RadarQualityGateService {
       return buildReview({ reason: 'Lead exige revisao manual.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
 
-    if (host && MARKETPLACE_HOST_HINTS.some((hint) => host.includes(hint)) && !websiteValid && !phoneValid && !whatsappValid) {
+    if (host && RADAR_MARKETPLACE_HOST_HINTS.some((hint) => host.includes(hint)) && !websiteValid && !phoneValid && !whatsappValid) {
       hardBlockers.push('marketplace_without_own_contact');
       return buildReject({ reason: 'Marketplace ou listagem de terceiro sem contato proprio.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
@@ -298,12 +291,14 @@ export class RadarQualityGateService {
         weakSignals,
       });
     }
-    if (qualityScore < minQualityScore) {
+    // Score baixo em lead Receita = "sem sinais web ainda" (nao teve tempo de enriquecer),
+    // nao lixo — nao cortar aqui, segue pro deliver_with_pending_enrichment abaixo.
+    if (!isCnpjPublic && qualityScore < minQualityScore) {
       hardBlockers.push('quality_below_minimum');
       return buildReject({ reason: 'Qualidade abaixo do minimo.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
 
-    const hasPendingEnrichment = weakSignals.some((signal) => (
+    const hasPendingEnrichment = (isCnpjPublic && qualityScore < minQualityScore) || weakSignals.some((signal) => (
       signal.startsWith('social_')
       || signal.startsWith('website_')
       || signal.startsWith('email_')

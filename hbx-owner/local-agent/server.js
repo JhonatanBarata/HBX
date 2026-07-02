@@ -18,6 +18,12 @@ const logsDir = path.join(__dirname, "logs");
 const webDir = path.join(__dirname, "web");
 const localLabDir = path.join(rootDir, "hbx-local-lab");
 const localLabUrl = "http://127.0.0.1:3098";
+// Ollama LOCAL (Cérebro IA) — mesma máquina; nunca sai daqui. /api/tags lista presentes,
+// /api/ps lista os que estão QUENTES (carregados em RAM/VRAM). Allowlist p/ o warm.
+const ollamaUrl = String(process.env.HBX_OWNER_OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+const AI_MODEL_30B = "qwen3:30b-a3b";
+const AI_MODEL_7B = "qwen2.5:7b";
+const AI_MODEL_ALLOWLIST = new Set([AI_MODEL_30B, AI_MODEL_7B]);
 // Backend do produto (para Banco de Leads e import local→VPS). Token opcional.
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
@@ -502,6 +508,79 @@ function localLabRequest(method, route, payload, timeoutMs = 20000, maxBytes = 8
     if (data) req.write(data);
     req.end();
   });
+}
+
+// Chamada HTTP ao Ollama LOCAL (11434) — DIRETO, "localhost apenas" igual ao Local Lab.
+// Degrade gracioso: qualquer falha (Ollama off, timeout) volta { ok:false, error } — nunca lança.
+function ollamaRequest(method, route, payload, timeoutMs = 4000, maxBytes = 4_000_000) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(`${ollamaUrl}${route}`);
+    } catch (error) {
+      resolve({ ok: false, error: `URL ollama invalida: ${error.message}` });
+      return;
+    }
+    const data = payload ? Buffer.from(JSON.stringify(payload)) : null;
+    const headers = { Accept: "application/json" };
+    if (data) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = data.length;
+    }
+    const req = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: timeoutMs },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => { if (body.length < maxBytes) body += chunk.toString("utf8"); });
+        response.on("end", () => {
+          let parsed = null;
+          try { parsed = body ? JSON.parse(body) : null; } catch { parsed = null; }
+          resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, statusCode: response.statusCode, data: parsed, raw: body });
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => resolve({ ok: false, error: error.message }));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+// Junta /api/tags (presentes) + /api/ps (quentes) num status honesto p/ o painel.
+// Se o Ollama estiver off, ollamaUp=false e models=[] — a árvore degrada, nunca trava.
+async function readAiStatus() {
+  const [tagsR, psR] = await Promise.all([
+    ollamaRequest("GET", "/api/tags", null, 4000),
+    ollamaRequest("GET", "/api/ps", null, 4000),
+  ]);
+  const ollamaUp = Boolean(tagsR.ok || psR.ok);
+  const tagList = (tagsR.ok && tagsR.data && Array.isArray(tagsR.data.models)) ? tagsR.data.models : [];
+  const psList = (psR.ok && psR.data && Array.isArray(psR.data.models)) ? psR.data.models : [];
+  const warmNames = new Set(psList.map((m) => String(m && m.name || "")));
+
+  const models = tagList.map((m) => {
+    const name = String(m && m.name || "");
+    const sizeBytes = Number(m && m.size || 0);
+    return {
+      name,
+      present: true,
+      warm: warmNames.has(name),
+      sizeGb: sizeBytes > 0 ? Math.round((sizeBytes / 1e9) * 10) / 10 : null,
+    };
+  });
+
+  const find = (needle) => models.find((m) => m.name === needle || m.name.indexOf(needle) === 0);
+  const m30 = find(AI_MODEL_30B);
+  const m7 = find(AI_MODEL_7B);
+  return {
+    ok: true,
+    ollamaUp,
+    models,
+    has30b: Boolean(m30),
+    has7b: Boolean(m7),
+    warm30b: Boolean(m30 && m30.warm),
+    warm7b: Boolean(m7 && m7.warm),
+  };
 }
 
 // Garante o Local Lab no ar (sobe se preciso) e espera o /health responder.
@@ -2320,6 +2399,40 @@ async function route(req, res) {
       await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(enricherJob.localLabJobId)}/cancel`, {}, 8000).catch(() => {});
     }
     sendJson(res, 200, { ok: true, message: "Enriquecedor desligado." });
+    return;
+  }
+
+  // ================================================================
+  // CÉREBRO IA (Ollama LOCAL) — status ao vivo + aquecer modelo.
+  // 100% local (127.0.0.1:11434). Degrade gracioso se o Ollama estiver off.
+  // ================================================================
+
+  // Status ao vivo: quais modelos existem (present) e quais estão quentes (warm).
+  if (req.method === "GET" && url.pathname === "/owner/ai/status") {
+    sendJson(res, 200, await readAiStatus());
+    return;
+  }
+
+  // Aquecer UM modelo: dispara /api/chat SEM esperar terminar (fire-and-forget).
+  // O 30B leva ~12min p/ carregar em CPU → NUNCA bloquear a resposta HTTP.
+  if (req.method === "POST" && url.pathname === "/owner/ai/warm") {
+    let body;
+    try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }
+    const model = String(body && body.model || "").trim();
+    if (!AI_MODEL_ALLOWLIST.has(model)) {
+      sendJson(res, 200, { ok: false, reason: "modelo_nao_permitido", message: "Modelo fora da allowlist." });
+      return;
+    }
+    // Fire-and-forget: não damos await. keep_alive 30m mantém o modelo quente na RAM.
+    ollamaRequest("POST", "/api/chat", {
+      model,
+      messages: [{ role: "user", content: "ok" }],
+      stream: false,
+      think: false,
+      keep_alive: "30m",
+      options: { num_predict: 1 },
+    }, 900000).catch(() => {});
+    sendJson(res, 200, { ok: true, warming: model, message: "Aquecendo " + model + " — o 30B leva ~12min em CPU. Acompanhe o status." });
     return;
   }
 

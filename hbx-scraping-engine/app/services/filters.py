@@ -506,6 +506,29 @@ def is_generic_name(name: str | None, city: str | None = None, target_type: str 
     return any(key.startswith(prefix) for prefix in GENERIC_NAME_PREFIXES)
 
 
+LIST_PAGE_TITLE_PATTERNS = (
+    re.compile(r"^top\s+\d+\b", re.I),
+    re.compile(r"^(as\s+)?\d+\s+melhores\b", re.I),
+    re.compile(r"^\d+\s+.+\s+que\b", re.I),
+    re.compile(r"mais\s+bem\s+avaliad", re.I),
+    re.compile(r"^lista\s+de\b", re.I),
+    re.compile(r"^guia\s+(de|dos|das|do)?\b", re.I),
+    re.compile(r"\branking\b", re.I),
+    re.compile(r"^onde\s+\w+", re.I),
+)
+
+
+def looks_like_list_page_title(title: str | None) -> bool:
+    """Detecta titulo de pagina-lista/artigo ('10 melhores barbearias...', 'guia de...',
+    'onde comer em...') pra impedir que o titulo da pagina vire nome de lead (M1).
+    Independe de segment/city pedidos -- e sobre o FORMATO do titulo, nao sobre
+    bater com o que foi buscado."""
+    key = text_key(title)
+    if not key:
+        return False
+    return any(pattern.search(key) for pattern in LIST_PAGE_TITLE_PATTERNS)
+
+
 def is_blocked_phone_digits(digits: str | None) -> bool:
     value = re.sub(r"\D", "", str(digits or ""))
     if not value:

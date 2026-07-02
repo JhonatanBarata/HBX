@@ -19,6 +19,14 @@ export class RadarSourcePlannerService {
     engine?: string | null;
   } = {}): RadarSearchSourcePlanItem[] {
     const allowStored = flags.allowStoredLeadLookup !== false && input.freshness !== 'live';
+    // C1 (calibracao round-2, 01/07): cnpj_public e fonte local/gratis (Receita) — nao ha
+    // razao pra ficar deep-only; o freio real ja mora dentro do proprio service (flag
+    // HBX_RADAR_CNPJ_PUBLIC_ENABLED, ver radar-cnpj-public-source.service.ts). Runs de
+    // cliente (mode 'quality'/'fast') reconstroem input sem freshness e nunca alcancavam
+    // a Receita. Habilita em QUALQUER modo pra targetType pj quando a flag estiver ligada;
+    // prioridade continua DEPOIS do hbx_engine (ordem por strategy.mode abaixo).
+    const cnpjPublicEnabledByFlag = String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED || '').trim().toLowerCase() === 'true';
+    const cnpjPublicEnabled = input.targetType === 'pj' && cnpjPublicEnabledByFlag;
     const enabledBySource: Record<RadarLeadSourceKind, boolean> = {
       radar_database: allowStored && flags.skipRadarLookup !== true && input.targetType === 'pj' && flags.radarEnabled !== false,
       company_history: allowStored && flags.skipPrivateHistory !== true && flags.historyEnabled !== false,
@@ -29,15 +37,16 @@ export class RadarSourcePlannerService {
       reprocess_missing_social: input.targetType === 'pj',
       reprocess_old_cards: input.targetType === 'pj',
       website_crawl_light: strategy.allowLightCrawl,
-      cnpj_public: input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
+      cnpj_public: cnpjPublicEnabled,
       local_directory: input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
       vertical_source: input.targetType === 'pj' && (strategy.mode === 'deep' || strategy.mode === 'night_factory'),
       local_directories_stub: strategy.mode === 'deep',
       cnpj_public_stub: strategy.mode === 'deep' || strategy.mode === 'night_factory',
     };
     const byStrategy: Record<string, RadarLeadSourceKind[]> = {
-      fast: ['radar_database', 'company_history', 'global_cache', 'hbx_engine'],
-      quality: ['radar_database', 'hbx_engine', 'google_textual', 'reprocess_missing_social'],
+      // cnpj_public entra em fast/quality (C1): prioridade sempre DEPOIS do hbx_engine.
+      fast: ['radar_database', 'company_history', 'global_cache', 'hbx_engine', 'cnpj_public'],
+      quality: ['radar_database', 'hbx_engine', 'google_textual', 'reprocess_missing_social', 'cnpj_public'],
       deep: ['hbx_engine', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
       night_factory: ['reprocess_old_cards', 'reprocess_missing_social', 'google_textual', 'website_crawl_light', 'cnpj_public', 'local_directory', 'vertical_source'],
     };

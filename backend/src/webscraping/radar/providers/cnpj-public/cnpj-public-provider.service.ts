@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { WebscrapingContactResult } from '../../shared/radar-core-shared';
+import { normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord, CnpjPublicProviderResult, CnpjPublicSearchInput } from './cnpj-public-types';
 
 function normalizeText(value: unknown) {
@@ -17,6 +18,27 @@ function normalizePhoneDigits(value: unknown) {
 
 function normalizeCnpj(value: unknown) {
   return String(value || '').replace(/\D/g, '');
+}
+
+// DV do CNPJ — mod-11 clássico (2 dígitos verificadores), pesos padrão da Receita.
+// CNPJ com todos os dígitos iguais (ex. "00000000000000") é sequência degenerada, não passa.
+const CNPJ_DV_WEIGHTS_1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+const CNPJ_DV_WEIGHTS_2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+
+function cnpjCheckDigit(digits: string, weights: number[]) {
+  const sum = weights.reduce((acc, weight, index) => acc + weight * Number(digits[index]), 0);
+  const remainder = sum % 11;
+  return remainder < 2 ? 0 : 11 - remainder;
+}
+
+export function isValidCnpjCheckDigits(value: unknown): boolean {
+  const digits = normalizeCnpj(value);
+  if (digits.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(digits)) return false;
+  const base = digits.slice(0, 12);
+  const dv1 = cnpjCheckDigit(base, CNPJ_DV_WEIGHTS_1);
+  const dv2 = cnpjCheckDigit(base + String(dv1), CNPJ_DV_WEIGHTS_2);
+  return digits === `${base}${dv1}${dv2}`;
 }
 
 function isActiveCompany(record: CnpjPublicCompanyRecord) {
@@ -68,6 +90,10 @@ export class CnpjPublicProviderService {
     const accepted: WebscrapingContactResult[] = [];
     let rejectedCount = 0;
     for (const record of records) {
+      if (!isValidCnpjCheckDigits(record.cnpj)) {
+        rejectedCount += 1;
+        continue;
+      }
       if (!isActiveCompany(record)) {
         rejectedCount += 1;
         continue;
@@ -104,12 +130,15 @@ export class CnpjPublicProviderService {
     const cnpj = normalizeCnpj(record.cnpj);
     const name = String(record.nomeFantasia || record.razaoSocial || '').trim();
     if (!cnpj || !name) return null;
-    const phoneDigits = normalizePhoneDigits(record.phone);
+    // Fonte cnpj_public: cadastro pode ser celular legado (10 dig, 3º dígito 6-9) —
+    // normaliza pra nono-dígito atual da Anatel na FONTE, nunca no filtro.
+    const phoneDigits = normalizeLegacyBrCellphone(normalizePhoneDigits(record.phone));
+    const phone = phoneDigits || record.phone || '';
     return {
       placeId: `cnpj_public:${cnpj}`,
       name,
       legalName: record.razaoSocial || null,
-      phone: record.phone || '',
+      phone,
       phoneDigits,
       rating: null,
       reviews: null,

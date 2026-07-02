@@ -56,6 +56,7 @@ import { RadarWebsiteCrawlSourceService } from './01-search/radar-website-crawl-
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
+import { RadarWebSourceGateService } from './02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
 import { RadarWebEnrichmentJobService, type RadarWebEnrichmentJobHost } from './03-enrichment/radar-web-enrichment-job.service';
 import { GoogleSearchProviderService } from './providers/google-search/google-search-provider.service';
@@ -252,6 +253,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarQualityGate?: RadarQualityGateService,
+    @Optional() private readonly radarWebSourceGate?: RadarWebSourceGateService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
     @Optional() private readonly radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
@@ -413,6 +415,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarQualityGate() {
     return this.radarQualityGate || new RadarQualityGateService();
+  }
+
+  private getRadarWebSourceGate() {
+    return this.radarWebSourceGate || new RadarWebSourceGateService();
   }
 
   private getRadarRunItemFilter() {

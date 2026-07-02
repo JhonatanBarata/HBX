@@ -50,6 +50,7 @@ import { RadarGoogleResponseService } from './radar/providers/google-search/rada
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
 import { CnpjPublicDatasetService } from './radar/providers/cnpj-public/cnpj-public-dataset.service';
 import { CnpjPublicProviderService } from './radar/providers/cnpj-public/cnpj-public-provider.service';
+import { CnpjDiscoveryService } from './radar/providers/cnpj-public/cnpj-discovery.service';
 import { LocalDirectoryProviderService } from './radar/providers/local-directories/local-directory-provider.service';
 import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
@@ -133,6 +134,7 @@ const RADAR_PROVIDER_SERVICES = [
   RadarHbxEngineErrorsService,
   CnpjPublicDatasetService,
   CnpjPublicProviderService,
+  CnpjDiscoveryService,
   LocalDirectoryProviderService,
   VerticalSourceProviderService,
   WebsiteCrawlProviderService,

@@ -109,6 +109,13 @@ class WebSearchService:
                         continue
                     seen.add(key)
                     candidates.append(item)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                # searxng (ou outro provider http local) com host indisponivel --
+                # comum quando HBX_SEARXNG_URL aponta pro default do docker-compose
+                # e nao existe servico searxng rodando localmente. Degrada em
+                # silencio pros demais providers (DDG/Bing) sem sujar `errors`.
+                if provider is not self._search_searxng:
+                    errors.append(f"{provider.__name__.removeprefix('_search_')}: {type(exc).__name__}")
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{provider.__name__.removeprefix('_search_')}: {type(exc).__name__}")
 

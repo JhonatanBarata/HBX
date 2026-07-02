@@ -142,8 +142,11 @@
     /* factory/status só existe local */
     var factoryP   = isVps ? Promise.resolve({ ok: false, err: "vps" })
                            : safe(tapi("GET", "/owner/factory/status"));
+    /* Cérebro IA (Ollama) é LOCAL — só faz sentido no escopo local; VPS recebe stub */
+    var aiP        = isVps ? Promise.resolve({ ok: false, err: "vps" })
+                           : safe(tapi("GET", "/owner/ai/status"));
 
-    Promise.all([cockpitP, systemP, engP, enrichP, intLocalP, intVpsP, leadsP, factoryP])
+    Promise.all([cockpitP, systemP, engP, enrichP, intLocalP, intVpsP, leadsP, factoryP, aiP])
       .then(function (results) {
         var cockpitR = results[0];
         var systemR  = results[1];
@@ -153,6 +156,7 @@
         var intVpsR  = results[5];
         var leadsR   = results[6];
         var factR    = results[7];
+        var aiR      = results[8];
 
         /* guarda presença de chave no cache client-side (evita SSH a cada poll) */
         if (!intFresh) tState.intCache = { at: Date.now(), local: intLocR, vps: intVpsR };
@@ -486,6 +490,17 @@
           var intLocal = intLocR.ok ? intLocR.data : null;
           var intVps   = intVpsR.ok ? intVpsR.data : null;
 
+          /* ESTOQUE PRA PUXAR/ENRIQUECER: total de leads no VPS × pendentes de enriquecimento.
+             vpsTotal vem do enricher (pendentes de enriquecimento); leadsR (aba VPS) é o total do banco.
+             Só temos o "total do banco" com certeza no escopo VPS — no local mostramos honesto ("—"). */
+          var enrVpsPending = enr && enr.vpsTotal != null ? Number(enr.vpsTotal) : null;
+          var leadsTotal = (isVps && leadsR && leadsR.ok && leadsR.data && leadsR.data.total != null)
+                             ? Number(leadsR.data.total) : null;
+          var estoquePartes = [];
+          estoquePartes.push("Estoque VPS: " + (leadsTotal != null ? leadsTotal.toLocaleString("pt-BR") : "—") + " leads");
+          estoquePartes.push("pendentes de enriquecimento: " + (enrVpsPending != null ? enrVpsPending.toLocaleString("pt-BR") : "—"));
+          var estoqueNote = estoquePartes.join(" · ") + " — puxa e enriquece do SEU IP (local) → salva de volta no VPS.";
+
           function keyPresent2(key) {
             if (isVps) { var vm = intVps && intVps.items ? intVps.items : null; return Boolean(vm && vm[key] && vm[key].present); }
             if (!intLocal) return false;
@@ -502,16 +517,20 @@
           var metrics2 = [];
           var hasError = enr && enr.error;
 
+          /* estoque em DESTAQUE como 1ª métrica (o que dá pra puxar/enriquecer agora) */
+          metrics2.push({ label: "Estoque VPS", val: leadsTotal != null ? leadsTotal.toLocaleString("pt-BR") : "—", hi: true });
+          metrics2.push({ label: "Pendentes p/ enriquecer", val: enrVpsPending != null ? enrVpsPending.toLocaleString("pt-BR") : "—", hi: true });
+
           if (enr && enr.metrics) {
             var m = enr.metrics;
-            metrics2 = [
+            metrics2 = metrics2.concat([
               { label: "Varridos",   val: String(m.cardsScanned  || 0) },
               { label: "Sites",      val: String(m.sitesCrawled  || 0) },
               { label: "E-mails",    val: String(m.emailsFound   || 0) },
               { label: "Telefones",  val: String(m.phonesFound   || 0) },
               { label: "CNPJ",       val: String(m.cnpjsFound    || 0) },
               { label: "Aplicados",  val: String(m.applied       || 0) },
-            ];
+            ]);
             if (phase) metrics2.push({ label: "Fase", val: tesc(phase) });
           }
 
@@ -560,15 +579,15 @@
           ];
 
           nodes.push({
-            stage: "enrichment", icon: "✨", title: "Enriquecimento · base rica (contato)",
+            stage: "enrichment", icon: "✨", title: "Enriquecimento · puxa estoque do VPS & enriquece (local→VPS)",
             status: enrStatus,
             metrics: metrics2,
             note: hasError ? ("Erro: " + tesc(enr.error))
-                : (running ? ("Rodando · fase " + tesc(phase) + " — coleta o contato bruto que o Cérebro IA (abaixo) vai sanear e pontuar.")
-                           : "Coleta o contato bruto (e-mail/tel/CNPJ/dono) que alimenta o Cérebro IA logo abaixo."),
+                : (running ? (estoqueNote + " · Rodando · fase " + tesc(phase) + " — coleta o contato bruto que o Cérebro IA (abaixo) vai sanear e pontuar.")
+                           : (estoqueNote + " · O botão \"Puxar & enriquecer\" liga o worker que puxa o card do VPS, crawleia do seu IP e salva de volta.")),
             actions: [
               { act: "lab-toggle",     label: labUp ? "⏹ Desligar Lab" : "▶ Lab on", cls: "btn-blue" },
-              { act: "enricher-toggle", label: running ? "⏸ Parar enriquecedor" : "▶ Ligar enriquecedor", cls: running ? "btn-red" : "btn-green" },
+              { act: "enricher-toggle", label: running ? "⏸ Parar enriquecedor" : "▶ Puxar & enriquecer (local→VPS)", cls: running ? "btn-red" : "btn-green" },
             ],
             branches: enrBranches,
             toggles: toggles,
@@ -583,60 +602,107 @@
            honesto "aguardando túnel/heartbeat (PR4)". Sem ação/botão (nenhuma
            rota nova no backend). */
         (function () {
-          var enr = enrichR.ok ? enrichR.data : null;
+          /* AGORA COM SINAL REAL: /owner/ai/status lê o Ollama LOCAL (127.0.0.1:11434).
+             É LOCAL — só o escopo local tem aiR de verdade; o VPS mostra a nota honesta do PR4.
+             Degrade gracioso: Ollama off → ai=null → branches caem p/ "ausente/aguardando". */
+          var ai = aiR && aiR.ok ? aiR.data : null;
+          var ollamaUp = Boolean(ai && ai.ollamaUp);
 
-          /* sinal aproveitável SEM inventar endpoint: o enricher já chama Ollama
-             p/ saneamento. Se o status trouxer algo de IA, aproveita; senão placeholder. */
-          function firstDefined() {
-            for (var i = 0; i < arguments.length; i++) {
-              if (arguments[i] !== undefined && arguments[i] !== null) return arguments[i];
+          /* helper: acha o modelo pelo prefixo do nome dentro de ai.models */
+          function aiModelInfo(prefix) {
+            if (!ai || !Array.isArray(ai.models)) return null;
+            for (var i = 0; i < ai.models.length; i++) {
+              var mm = ai.models[i];
+              if (mm && mm.name && (mm.name === prefix || mm.name.indexOf(prefix) === 0)) return mm;
             }
             return null;
           }
-          var ai = enr && (enr.ai || enr.brain || enr.saneamento) ? (enr.ai || enr.brain || enr.saneamento) : null;
-          var aiEnabled = enr ? firstDefined(enr.aiSaneamentoEnabled, enr.aiEnabled, ai && ai.enabled) : null;
-          var aiModel   = enr ? firstDefined(enr.aiModel, ai && ai.model) : null;
+          var info30 = aiModelInfo("qwen3:30b-a3b");
+          var info7  = aiModelInfo("qwen2.5:7b");
+          var has30  = Boolean(ai ? ai.has30b : false) || Boolean(info30);
+          var warm30 = Boolean(ai ? ai.warm30b : false) || Boolean(info30 && info30.warm);
+          var has7   = Boolean(ai ? ai.has7b : false) || Boolean(info7);
+          var warm7  = Boolean(ai ? ai.warm7b : false) || Boolean(info7 && info7.warm);
+          var size30 = info30 && info30.sizeGb != null ? (info30.sizeGb + " GB") : "";
+          var size7  = info7  && info7.sizeGb  != null ? (info7.sizeGb  + " GB") : "";
 
-          /* 30B é do PC LOCAL; 7B é do VPS. Sem heartbeat → status "waiting". */
-          var localBrainStatus = "waiting";  // 30B: só sabemos ao vivo (túnel PR4)
-          var vpsBrainStatus   = "waiting";   // 7B: idem
-          var noteExtra = "";
+          /* rótulo de estado do 30B (🔵 presente/frio · 🟢 quente · ⚪ ausente) */
+          function brainStateLabel(present, warm) {
+            if (warm) return "🟢 quente";
+            if (present) return "🔵 presente (frio)";
+            return "⚪ ausente";
+          }
 
-          if (aiEnabled === true) {
-            /* há sinal de saneamento IA ligado no lado renderizado */
-            if (isVps) { vpsBrainStatus = "ok"; } else { localBrainStatus = "ok"; }
-            noteExtra = aiModel ? (" · modelo em uso: " + tesc(String(aiModel))) : "";
-          } else if (aiEnabled === false) {
-            noteExtra = " · saneamento IA desligado (flag OFF).";
+          /* branch do 30B LOCAL — status/desc guiados pelo sinal REAL do Ollama */
+          var branch30status = warm30 ? "ok" : (has30 ? "idle" : "off");
+          var branch30desc;
+          if (warm30) {
+            branch30desc = "🟢 QUENTE" + (size30 ? " (" + size30 + ")" : "") + " — pronto p/ sanear nome+segmento, extrair e-mail/tel/dono, dar nota ICP e escrever a 1ª msg.";
+          } else if (has30) {
+            branch30desc = "🔵 presente e FRIO" + (size30 ? " (" + size30 + ")" : "") + " — clique \"Aquecer 30B\" p/ carregar na RAM (leva ~12min em CPU). Depois roda batch pesado com o PC ON.";
+          } else if (ollamaUp) {
+            branch30desc = "⚪ ausente no Ollama — baixe o modelo qwen3:30b-a3b p/ habilitar o batch pesado local.";
+          } else {
+            branch30desc = "Ollama local off — não deu p/ ler o modelo. Suba o Ollama (127.0.0.1:11434) p/ ver o 30B.";
+          }
+
+          var branch7status = warm7 ? "ok" : (has7 ? "idle" : "off");
+          var branch7desc;
+          if (warm7) {
+            branch7desc = "🟢 quente" + (size7 ? " (" + size7 + ")" : "") + " — realtime do cliente e fallback quando o PC está OFF.";
+          } else if (has7) {
+            branch7desc = "🔵 presente" + (size7 ? " (" + size7 + ")" : "") + " — realtime do cliente + fallback (leve, sobe rápido).";
+          } else if (ollamaUp) {
+            branch7desc = "⚪ ausente no Ollama — modelo leve p/ realtime + fallback.";
+          } else {
+            branch7desc = "Ollama local off. Realtime do cliente + fallback quando o PC está OFF.";
           }
 
           var brainBranches = [
             {
               cost: "free",
-              status: localBrainStatus === "ok" ? "ok" : "idle",
-              name: "30B LOCAL · qwen3:30b-a3b (batch pesado)",
-              desc: localBrainStatus === "ok"
-                ? "Saneia nome+segmento · extrai e-mail/tel/dono · nota ICP · escreve 1ª msg. Roda no PC quando ON."
-                : "Trabalho pesado/batch quando o PC está ON. Sinal ao vivo depende do túnel Tailscale + heartbeat (PR4).",
+              status: branch30status,
+              name: "30B LOCAL · qwen3:30b-a3b · " + brainStateLabel(has30, warm30) + (size30 ? " · " + size30 : ""),
+              desc: branch30desc,
               tokenSlots: [],
             },
             {
               cost: "paid",
-              status: vpsBrainStatus === "ok" ? "ok" : "idle",
-              name: "7B VPS · qwen2.5:7b (realtime + fallback)",
-              desc: vpsBrainStatus === "ok"
-                ? "Realtime do cliente e fallback quando o PC está OFF."
-                : "Realtime do cliente + fallback quando o PC está OFF. Sinal ao vivo depende do heartbeat (PR4).",
+              status: branch7status,
+              name: "7B · qwen2.5:7b · " + brainStateLabel(has7, warm7) + (size7 ? " · " + size7 : ""),
+              desc: branch7desc,
               tokenSlots: [],
             },
           ];
 
-          /* estado do nó: honesto. Sem heartbeat = "idle" com nota de espera —
-             nunca "ok" fantasiado nem "blocked" (não está quebrado, só não plugado). */
-          var brainStatus = (aiEnabled === true) ? "ok" : "idle";
-          var brainNote = (aiEnabled === true)
-            ? ("Cérebro parcialmente ativo (saneamento IA ligado)" + noteExtra + ". Roteador 30B↔7B + heartbeat = sessão ao vivo (PR4).")
-            : ("Aguardando túnel/heartbeat (PR4): o roteador 30B↔7B ainda não está plugado — sessão conjunta ao vivo." + noteExtra);
+          /* AÇÃO: aquecer 30B (só faz sentido no escopo local, onde o Ollama vive).
+             Quando quente, vira um botão "✓ 30B quente" desabilitado (sem re-disparar). */
+          var brainActions = [];
+          if (!isVps) {
+            if (warm30) {
+              brainActions.push({ act: "ai-warm-30b", label: "✓ 30B quente", cls: "btn-green", state: "warm", disabled: true });
+            } else if (has30) {
+              brainActions.push({ act: "ai-warm-30b", label: "🔥 Aquecer 30B", cls: "btn-amber" });
+            }
+          }
+
+          /* estado do nó: honesto. Quente = ok; presente-frio = warn (dá p/ aquecer);
+             ausente/off = idle. Nunca "blocked" (não está quebrado, só não plugado). */
+          var brainStatus;
+          if (warm30 || warm7) brainStatus = "ok";
+          else if (has30 || has7) brainStatus = "warn";
+          else brainStatus = "idle";
+
+          var liveLine;
+          if (isVps) {
+            liveLine = "O Cérebro IA roda na SUA MÁQUINA (Ollama local) — veja o status ao vivo na coluna da esquerda.";
+          } else if (!ollamaUp) {
+            liveLine = "Ollama local off (127.0.0.1:11434) — suba p/ ver 30B/7B ao vivo.";
+          } else {
+            liveLine = "Ollama ON · 30B " + brainStateLabel(has30, warm30) + " · 7B " + brainStateLabel(has7, warm7) + ".";
+          }
+          var brainNote = liveLine
+            + " Status do MODELO já é ao vivo; o roteador 30B↔7B + túnel/heartbeat (PR4) ainda NÃO está plugado — sessão conjunta ao vivo.";
 
           nodes.push({
             stage: "brain", icon: "🧠", title: "Cérebro IA · saneia · extrai · nota ICP · escreve msg",
@@ -644,7 +710,7 @@
             metrics: [],
             note: brainNote,
             branches: brainBranches,
-            actions: [],  // sem botão: nenhuma rota nova no backend
+            actions: brainActions,
           });
         })();
 
@@ -723,7 +789,7 @@
     if (n.metrics && n.metrics.length) {
       metricsHtml = '<div class="tnode-metrics">'
         + n.metrics.map(function (m) {
-            return '<div class="tnode-metric"><span class="tm-label">' + tesc(m.label) + '</span><strong class="tm-val">' + tesc(m.val) + '</strong></div>';
+            return '<div class="tnode-metric' + (m.hi ? ' tnode-metric--hi' : '') + '"><span class="tm-label">' + tesc(m.label) + '</span><strong class="tm-val">' + tesc(m.val) + '</strong></div>';
           }).join("")
         + "</div>";
     }
@@ -999,6 +1065,11 @@
           });
         }
       }
+
+      case "ai-warm-30b":
+        /* aquece o 30B local (fire-and-forget no server; a resposta volta na hora).
+           timeout curto — o server NÃO bloqueia esperando o modelo carregar. */
+        return tapi("POST", "/owner/ai/warm", { model: "qwen3:30b-a3b" }, 15000);
 
       default:
         return Promise.reject(new Error("ação desconhecida: " + act));

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { NormalizedSearchInput } from '../../shared/radar-types';
+import { normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord } from './cnpj-public-types';
 
 function normalizeText(value: unknown) {
@@ -69,7 +70,9 @@ export class CnpjPublicDatasetService {
       porte: row.porte || null,
       matrizFilial: row.matrizFilial || null,
       email: row.email || null,
-      phone: row.phone || null,
+      // Linha pode ter sido gravada com celular legado (10 dig, 3º dígito 6-9) antes deste
+      // fix — normaliza na leitura pra nono-dígito atual da Anatel, na FONTE cnpj_public.
+      phone: row.phone ? (normalizeLegacyBrCellphone(row.phone) || row.phone) : null,
       website: row.website || null,
       address: row.address || null,
       raw: parseRawJson(row.rawJson),

@@ -1,11 +1,12 @@
 import json
 import re
+import unicodedata
 from collections.abc import Iterable
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from .filters import domain_from_url, is_blocked_domain, is_directory_domain, is_directory_listing_url, is_social_signal_domain
+from .filters import domain_from_url, is_blocked_domain, is_directory_domain, is_directory_listing_url, is_social_signal_domain, looks_like_list_page_title
 from .normalizer import clean_name, extract_phone_from_url, fallback_name, format_phone, normalize_phone_digits
 from .social import extract_social_links_from_html, is_valid_social_profile_url, normalize_social_url, social_field_for_url
 
@@ -46,18 +47,50 @@ def _flatten_jsonld(value) -> Iterable[dict]:
         yield value
 
 
+def _address_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    # mantem espacos (vira 1 espaco) em vez de colapsar tudo -- precisa de
+    # fronteira de palavra pra nao confundir UF "GO" com o "go" dentro de "Goiania".
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", ascii_text.lower())).strip()
+
+
+def _address_part_already_present(part_key: str, accumulated_key: str) -> bool:
+    if not part_key:
+        return False
+    # partes com "espacos" (nomes/CEP com >=4 chars) -- basta a substring aparecer
+    # em fronteira de palavra; siglas curtas (UF de 2 letras) exigem token exato
+    # pra nao bater em substring de outra palavra (ex.: "go" dentro de "goiania").
+    if len(part_key) <= 3:
+        return part_key in accumulated_key.split()
+    return re.search(rf"(?:^|\s){re.escape(part_key)}(?:\s|$)", accumulated_key) is not None
+
+
 def _jsonld_address(address) -> str | None:
     if isinstance(address, str):
         return address.strip() or None
     if not isinstance(address, dict):
         return None
-    parts = [
-        address.get("streetAddress"),
+    street = str(address.get("streetAddress") or "").strip()
+    tail_parts = [
         address.get("addressLocality"),
         address.get("addressRegion"),
         address.get("postalCode"),
     ]
-    text = ", ".join(str(part).strip() for part in parts if str(part or "").strip())
+    parts = [street] if street else []
+    for part in tail_parts:
+        text = str(part or "").strip()
+        if not text:
+            continue
+        # Evita concatenacao duplicada quando o streetAddress ja veio "sujo" do
+        # site com cidade/UF/CEP embutidos (ex.: schema.org mal preenchido) --
+        # so acrescenta o que ainda nao esta contido no texto acumulado.
+        part_key = _address_key(text)
+        accumulated_key = _address_key(", ".join(parts))
+        if _address_part_already_present(part_key, accumulated_key):
+            continue
+        parts.append(text)
+    text = ", ".join(parts)
     return text or None
 
 
@@ -160,18 +193,99 @@ def _external_website_from_links(soup: BeautifulSoup, page_url: str) -> str | No
     return None
 
 
-def _title_name(soup: BeautifulSoup, target_type: str = "pj") -> str | None:
+TITLE_SEPARATOR_RE = re.compile(r"\s+[–—|]\s+|\s+-\s+")
+
+
+def _title_business_side(raw_title: str, target_type: str = "pj") -> str | None:
+    """Quando o titulo tem separador (-, |, – ou —) e um dos lados carrega o nome
+    proprio do negocio e o outro e slogan/descricao, prefere o lado curto que
+    parece nome comercial (M2) em vez do titulo inteiro com o slogan junto."""
+    parts = [part.strip() for part in TITLE_SEPARATOR_RE.split(raw_title) if part.strip()]
+    if len(parts) < 2:
+        return None
+    # lado "nome de negocio" = curto (<=6 palavras), sem terminar em frase (ponto
+    # final de slogan) e sem ser so uma preposicao/artigo vazio.
+    candidates = []
+    for part in parts:
+        words = part.split()
+        if not words or len(words) > 6:
+            continue
+        if part.rstrip().endswith((".", "!", "?")):
+            continue
+        candidates.append(part)
+    if not candidates:
+        return None
+    # entre os candidatos curtos, prefere o mais informativo (mais palavras, ate 6)
+    best = max(candidates, key=lambda part: len(part.split()))
+    return clean_name(best, allow_generic=target_type == "pf")
+
+
+def _jsonld_business_name(soup: BeautifulSoup, city: str | None, target_type: str) -> str | None:
+    """Identidade do negocio via schema.org (LocalBusiness/Organization) fora do
+    padrao ItemList -- e a fonte mais confiavel de nome (M2), preferida antes de
+    qualquer titulo/h1/og:title que possa carregar slogan."""
+    for script in soup.find_all("script", attrs={"type": re.compile("ld\\+json", re.I)}):
+        raw = script.string or script.get_text()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        # ItemList (pagina-lista com varios negocios) nao representa UMA identidade
+        # de negocio -- ignora aqui, quem trata isso e o loop de contacts por item.
+        top_types = {str(t).lower() for t in _as_list(data.get("@type"))} if isinstance(data, dict) else set()
+        if "itemlist" in top_types:
+            continue
+        for item in _flatten_jsonld(data):
+            types = {str(t).lower() for t in _as_list(item.get("@type"))}
+            if not types & {"localbusiness", "organization", "professionalservice", "store", "autorepair", "restaurant"}:
+                continue
+            name = fallback_name(item.get("name"), city, target_type)
+            if name:
+                return name
+    return None
+
+
+def _title_name(soup: BeautifulSoup, target_type: str = "pj", city: str | None = None, jsonld_name: str | None = None) -> str | None:
+    # M2 -- identidade do negocio, nao titulo de pagina com slogan. Ordem:
+    # schema.org name -> og:site_name -> h1 -> lado util do titulo (separador) -> titulo puro.
+    # jsonld_name e opcionalmente pre-calculado por quem chama (parse_page precisa
+    # capturar antes do decompose remover os <script> do soup); se nao vier,
+    # tenta calcular na hora (soup ainda intacto, ex.: chamada direta/testes).
+    if jsonld_name is None:
+        jsonld_name = _jsonld_business_name(soup, city, target_type)
+    if jsonld_name:
+        return jsonld_name
+
+    og_site_name = soup.find("meta", attrs={"property": "og:site_name"})
+    if og_site_name:
+        name = clean_name(og_site_name.get("content"), allow_generic=target_type == "pf")
+        if name:
+            return name
+
     h1 = soup.find("h1")
     if h1:
         name = clean_name(h1.get_text(" ", strip=True), allow_generic=target_type == "pf")
         if name:
             return name
+
     og_title = soup.find("meta", attrs={"property": "og:title"})
-    if og_title:
-        name = clean_name(og_title.get("content"), allow_generic=target_type == "pf")
+    raw_og_title = str(og_title.get("content") or "").strip() if og_title else ""
+    if raw_og_title:
+        business_side = _title_business_side(raw_og_title, target_type)
+        if business_side:
+            return business_side
+        name = clean_name(raw_og_title, allow_generic=target_type == "pf")
         if name:
             return name
-    return clean_name(soup.title.get_text(" ", strip=True) if soup.title else None, allow_generic=target_type == "pf")
+
+    raw_title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    if raw_title:
+        business_side = _title_business_side(raw_title, target_type)
+        if business_side:
+            return business_side
+    return clean_name(raw_title, allow_generic=target_type == "pf")
 
 
 def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = None) -> tuple[list[dict], str]:
@@ -225,10 +339,27 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                         contact["website"] = website
                     contacts.append(_apply_social_links(contact, social_links))
 
+    # precisa capturar ANTES do decompose abaixo remover os <script type=ld+json>
+    # do soup -- senao _title_name nunca mais enxerga o schema.org (M2).
+    jsonld_business_name = _jsonld_business_name(soup, city, target_type)
+
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     visible_text = soup.get_text(" ", strip=True)[:20000]
-    resolved_fallback_name = fallback_name(_title_name(soup, target_type), city, target_type)
+
+    # M1 -- pagina-lista/artigo ("10 melhores barbearias...", "guia de...") nao
+    # tem UMA identidade de negocio: o titulo e do artigo, nao de uma empresa.
+    # Contato minerado do texto (telefone de QUALQUER empresa citada no artigo)
+    # nao pode sair carimbado com o nome do artigo -- e o pior tipo de lixo,
+    # porque passa em filtro de "tem contato" com dado roubado de outra empresa.
+    raw_page_title = str(
+        (soup.title.get_text(" ", strip=True) if soup.title else "")
+        or (soup.find("meta", attrs={"property": "og:title"}) or {}).get("content", "")
+        or ""
+    )
+    is_list_page = looks_like_list_page_title(raw_page_title)
+
+    resolved_fallback_name = None if is_list_page else fallback_name(_title_name(soup, target_type, city, jsonld_business_name), city, target_type)
     fallback_website = _external_website_from_links(soup, url) if social_field else _official_website(url, None, directory)
     phones: set[str] = set()
     for link in soup.find_all("a", href=True):
@@ -253,6 +384,11 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
                 "source": "hbx_scraping:web",
                 "_domain": page_domain,
                 "_pageUrl": url,
+                # M1(b) -- nome veio do titulo da pagina (nao de JSON-LD/schema.org),
+                # marca pra deteccao de dominio-com-varios-titulos-de-artigo no
+                # search_service (mesmo dominio produzindo 2+ "leads" com nomes de
+                # artigos diferentes na mesma busca == pagina de conteudo, nao lead).
+                "_fromArticleFallback": True,
             }
             if directory_listing:
                 contact["_directoryListingSource"] = True
@@ -266,6 +402,7 @@ def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = 
             "name": resolved_fallback_name,
             "phone": "",
             "phoneDigits": "",
+            "_fromArticleFallback": True,
             "rating": None,
             "reviews": None,
             "address": None,

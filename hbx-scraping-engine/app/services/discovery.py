@@ -307,6 +307,11 @@ def search_searxng_rows(query: str, deadline: float, max_results: int = 8) -> li
         if response.status_code >= 400:
             return None
         data = response.json()
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        # searxng configurado (env HBX_SEARXNG_URL) mas host indisponivel localmente
+        # (ex.: default do docker-compose apontando pra um servico que nao sobe fora
+        # da VPS) -- degradar pro DDG/Bing em silencio, sem logar como erro real.
+        return None
     except Exception as error:
         print(f"[discovery] searxng falhou: {query} error={error}")
         return None

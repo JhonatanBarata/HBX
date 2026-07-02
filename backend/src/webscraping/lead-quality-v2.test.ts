@@ -735,7 +735,11 @@ test('RadarVisibility score baixo vira review_backup, nao bloqueio', () => {
   assert.equal(visibility.visibilityTier, 'review_backup');
 });
 
-test('RadarVisibility diretorio com empresa real e telefone vira revisao', () => {
+test('RadarVisibility C2: procedencia de diretorio (source) com empresa real e telefone NAO descarta mais (so penaliza score)', () => {
+  // Antes da calibracao round-2 (01/07) isso virava discard/generic_directory so por
+  // `source: 'diretorio'` — matava lead real (medido: DON Barbearia Marista, Soul Blues
+  // Barbearia etc. vindos de Booksy/Trinks). Agora directoryLikeSource so penaliza
+  // identityScore (-22); a decisao de discard usa so o NOME (directoryLikeName).
   const lead = {
     name: 'Pizzaria Bella Massa',
     phoneDigits: '1933334444',
@@ -747,9 +751,46 @@ test('RadarVisibility diretorio com empresa real e telefone vira revisao', () =>
   const quality = calculateLeadQualityV2({ lead, context: { requestedSegment: 'pizzaria'} });
   const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'pizzaria' });
 
-  assert.equal(quality.discardReason, 'generic_directory');
+  // A penalidade de identityScore (-22) continua valendo — pode render 'review' em vez de
+  // 'deliver' dependendo do score total. O que a spec garante e' NUNCA MAIS discard por
+  // generic_directory so por procedencia, e visibilidade NUNCA bloqueada (hardBlocked=false).
+  assert.notEqual(quality.decision, 'discard');
+  assert.notEqual(quality.discardReason, 'generic_directory');
   assert.equal(visibility.hardBlocked, false);
-  assert.equal(visibility.visibilityTier, 'review_backup');
+  assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
+});
+
+test('LeadQualityV2 C2: nome real + sourceUrl booksy + fone valido NAO descarta (canal proprio acionavel)', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'DON Barbearia Marista',
+      phoneDigits: '62999990001',
+      city: 'Goiânia',
+      state: 'GO',
+      segment: 'barbearia',
+      sourceUrl: 'https://booksy.com/pt-br/dsdb/barbearia-marista',
+    },
+    context: { requestedSegment: 'barbearia' },
+  });
+
+  assert.notEqual(quality.discardReason, 'generic_directory');
+  assert.equal(quality.decision, 'deliver');
+});
+
+test('LeadQualityV2 C2: nome "Guia de Barbearias" continua discard/generic_directory (sinal e do NOME)', () => {
+  const quality = calculateLeadQualityV2({
+    lead: {
+      name: 'Guia de Barbearias',
+      phoneDigits: '62999990001',
+      city: 'Goiânia',
+      state: 'GO',
+      segment: 'barbearia',
+    },
+    context: { requestedSegment: 'barbearia' },
+  });
+
+  assert.equal(quality.decision, 'discard');
+  assert.equal(quality.discardReason, 'generic_directory');
 });
 
 test('RadarVisibility nomes genericos bloqueiam como generic_name', () => {

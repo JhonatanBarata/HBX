@@ -2832,6 +2832,28 @@ class SearchService:
                 contact["_pageUrl"] = contact.get("_pageUrl") or page.url
                 parsed.append(contact)
 
+        # M1(b) -- mesmo dominio produzindo 2+ "leads" com nomes de artigo
+        # diferentes na mesma busca == pagina de conteudo/blog (curtamais.com.br
+        # e afins), nao lead de verdade. So se aplica a contatos vindos do
+        # fallback de titulo de pagina (parser.py marca _fromArticleFallback);
+        # contatos de JSON-LD/schema.org carregam nome real por item e não entram
+        # nessa contagem.
+        article_names_by_domain: dict[str, set[str]] = {}
+        for contact in parsed:
+            if not contact.get("_fromArticleFallback"):
+                continue
+            domain = str(contact.get("_domain") or "").lower()
+            name_key = text_key(contact.get("name"))
+            if domain and name_key:
+                article_names_by_domain.setdefault(domain, set()).add(name_key)
+        list_page_domains = {domain for domain, names in article_names_by_domain.items() if len(names) >= 2}
+        if list_page_domains:
+            parsed = [
+                contact
+                for contact in parsed
+                if not (contact.get("_fromArticleFallback") and str(contact.get("_domain") or "").lower() in list_page_domains)
+            ]
+
         deduped = dedupe_contacts(parsed, request.city, request.targetType)
         social_discovery_stats = {
             "profilesDiscovered": len(social_profiles),

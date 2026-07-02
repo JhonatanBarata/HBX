@@ -688,6 +688,10 @@ export const GENERIC_DIRECTORY_PREFIXES = [
   'confira as melhores',
   'procurando',
   'encontre aqui',
+  // C4 (calibracao round-2, 01/07): prefixo "encontre"/"encontrar" — medido: "Encontre
+  // Salões de beleza: Goiânia, Go" passou como card.
+  'encontre',
+  'encontrar',
   'conheca',
   'portal',
   'guia',
@@ -737,6 +741,46 @@ export const GENERIC_DIRECTORY_CONTAINS = [
   'estancia hidromineral',
   'estância hidromineral',
   'gastronomia completo',
+];
+
+// Hosts de marketplace/listagem de terceiro (sem contato próprio) — usado pelo quality
+// gate comum e pelo web gate. FONTE ÚNICA: não duplicar em outro arquivo.
+export const RADAR_MARKETPLACE_HOST_HINTS = [
+  'catalogo',
+  'getninjas',
+  'ifood',
+  'mercadolivre',
+  'olx',
+  'portal',
+  'solutudo',
+  'telelistas',
+];
+
+// Domínios de "site oficial" que na verdade são diretório/agregador (nunca o site real
+// do lead) — usado por isBlockedLeadOfficialWebsite e pelo web gate. FONTE ÚNICA.
+export const RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS = [
+  'cardapio.menu',
+  'restaurantguru.com',
+  'restaurantguru.com.br',
+  'econodata.com.br',
+  'solutudo.com.br',
+  'benditoguia.com.br',
+  'polomap.com',
+  'top-rated.online',
+  'locaisdobrasil.com.br',
+  'directmap.biz',
+  'listaamarela.com.br',
+  'paginasamarelas.cybo.com',
+  'cybo.com',
+  'gupy.io',
+  'aguasdesaopedro.com.br',
+  'linkedin.com',
+  'pizzariaspertodemim.com',
+  'siteindices.com',
+  'tripadvisor.com',
+  'tripadvisor.com.br',
+  'urlm.com.br',
+  'visitmestre.com',
 ];
 
 // Palavras GRAMATICAIS do inglês que não existem em nome de empresa brasileira.

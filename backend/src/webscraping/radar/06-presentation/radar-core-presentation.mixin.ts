@@ -97,6 +97,7 @@ import {
   minutesAgo,
   formatCityWithState,
   buildRadarStageSnapshot,
+  RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS,
 } from '../radar-core-method-imports';
 import { resolveEnrichmentPaidFlags } from '../../enrichment-cost/enrichment-paid-policy';
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
@@ -2923,30 +2924,7 @@ export class RadarCorePresentationMixin {
 
   private isBlockedLeadOfficialWebsite(value: any) {
     const normalized = String(value || '').trim().toLowerCase();
-    return Boolean(normalized && [
-      'cardapio.menu',
-      'restaurantguru.com',
-      'restaurantguru.com.br',
-      'econodata.com.br',
-      'solutudo.com.br',
-      'benditoguia.com.br',
-      'polomap.com',
-      'top-rated.online',
-      'locaisdobrasil.com.br',
-      'directmap.biz',
-      'listaamarela.com.br',
-      'paginasamarelas.cybo.com',
-      'cybo.com',
-      'gupy.io',
-      'aguasdesaopedro.com.br',
-      'linkedin.com',
-      'pizzariaspertodemim.com',
-      'siteindices.com',
-      'tripadvisor.com',
-      'tripadvisor.com.br',
-      'urlm.com.br',
-      'visitmestre.com',
-    ].some((domain) => normalized.includes(domain)));
+    return Boolean(normalized && RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS.some((domain) => normalized.includes(domain)));
   }
 
   private compactLeadPlusEnrichmentPayload(leadPlus: any) {

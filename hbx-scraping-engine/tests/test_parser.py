@@ -245,3 +245,235 @@ def test_parse_blocks_directory_listing_title_as_generic_name() -> None:
     contacts, _ = parse_page(html, "https://www.solutudo.com.br/empresas/sp/boituva/farmacias", city="Boituva")
 
     assert contacts == []
+
+
+# M1 -- resultado de pagina-lista ("10 melhores barbearias...", curtamais.com.br
+# e afins) nao pode virar lead com nome de artigo + telefone minerado de dentro
+# do artigo (de OUTRA empresa). Domino generico (nao esta em DIRECTORY_HOST_HINTS),
+# a deteccao tem que vir do FORMATO do titulo, nao de lista de dominios conhecidos.
+def test_parse_blocks_generic_article_list_page_by_title_pattern() -> None:
+    html = """
+    <html>
+      <head><title>10 Barbearias mais bem avaliadas de Goiânia</title></head>
+      <body>
+        <h1>10 Barbearias mais bem avaliadas de Goiânia</h1>
+        <p>Confira as melhores barbearias da cidade. Fale com a Barbearia do Zé: (62) 99999-1234</p>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://curtamais.com.br/blog/10-barbearias-goiania", city="Goiânia")
+
+    assert contacts == []
+
+
+def test_parse_list_page_jsonld_items_still_emit_real_business_names() -> None:
+    # Pagina-lista com ItemList schema.org: cada item TEM identidade propria (nome
+    # do proprio negocio dentro do JSON-LD), entao esses contatos continuam validos
+    # -- M1 bloqueia so o fallback de titulo-de-artigo+telefone-minerado-do-texto.
+    html = """
+    <html><head>
+      <title>10 Barbearias mais bem avaliadas de Goiânia</title>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "item": {
+              "@type": "LocalBusiness",
+              "name": "Barbearia Vintage Goiânia",
+              "telephone": "+55 62 99999-1111"
+            }
+          }
+        ]
+      }
+      </script>
+    </head><body></body></html>
+    """
+
+    contacts, _ = parse_page(html, "https://curtamais.com.br/blog/10-barbearias-goiania", city="Goiânia")
+
+    assert len(contacts) == 1
+    assert contacts[0]["name"] == "Barbearia Vintage Goiânia"
+
+
+def test_parse_same_domain_multiple_article_titles_blocks_fallback_leads() -> None:
+    # M1(b) -- mesmo dominio produzindo 2+ "leads" com nomes de artigo diferentes
+    # na mesma busca == pagina de conteudo, nao lead (mesmo quando o titulo
+    # individual nao bate no padrao regex de lista).
+    from app.services.search_service import SearchService
+
+    parsed = [
+        {
+            "name": "Dicas de cuidados com a barba no verão",
+            "phoneDigits": "62999991111",
+            "phone": "(62) 99999-1111",
+            "_domain": "curtamais.com.br",
+            "_fromArticleFallback": True,
+        },
+        {
+            "name": "Como escolher a barbearia ideal",
+            "phoneDigits": "62999992222",
+            "phone": "(62) 99999-2222",
+            "_domain": "curtamais.com.br",
+            "_fromArticleFallback": True,
+        },
+    ]
+    article_names_by_domain: dict[str, set[str]] = {}
+    for contact in parsed:
+        if not contact.get("_fromArticleFallback"):
+            continue
+        domain = str(contact.get("_domain") or "").lower()
+        from app.services.filters import text_key
+
+        name_key = text_key(contact.get("name"))
+        if domain and name_key:
+            article_names_by_domain.setdefault(domain, set()).add(name_key)
+    list_page_domains = {domain for domain, names in article_names_by_domain.items() if len(names) >= 2}
+
+    assert "curtamais.com.br" in list_page_domains
+
+
+# M2 -- nome do lead precisa ser a identidade do negocio, nao o titulo da pagina
+# com slogan. Ex. real da spec: "Invicttus Barbearia – Para quem entende que a
+# imagem é o seu primeiro cartão de visita." deve virar so "Invicttus Barbearia".
+def test_parse_title_with_separator_extracts_business_side_not_slogan() -> None:
+    html = """
+    <html>
+      <head><title>Invicttus Barbearia – Para quem entende que a imagem é o seu primeiro cartão de visita.</title></head>
+      <body>
+        <a href="tel:+551934611234">Ligar</a>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://invicttusbarbearia.example.com.br")
+
+    assert len(contacts) == 1
+    assert contacts[0]["name"] == "Invicttus Barbearia"
+
+
+def test_parse_prefers_og_site_name_over_title_slogan() -> None:
+    html = """
+    <html>
+      <head>
+        <title>Bem vindo ao nosso site incrível de barbearia premium para você</title>
+        <meta property="og:site_name" content="Don Barbearia" />
+      </head>
+      <body>
+        <a href="tel:+551934611234">Ligar</a>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://donbarbearia.example.com.br")
+
+    assert len(contacts) == 1
+    assert contacts[0]["name"] == "Don Barbearia"
+
+
+def test_parse_pure_slogan_title_without_separator_keeps_title_never_empty() -> None:
+    # Slogan puro sem nome (ex. real da spec: "Viva a vida como um don.") --
+    # sem fonte melhor disponivel, mantem o titulo (nunca corta pra string vazia).
+    html = """
+    <html>
+      <head><title>Viva a vida como um don.</title></head>
+      <body>
+        <a href="tel:+551934611234">Ligar</a>
+      </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://donbarbearia.example.com.br")
+
+    assert len(contacts) == 1
+    assert contacts[0]["name"]
+    assert contacts[0]["name"] != ""
+
+
+def test_parse_jsonld_business_name_preferred_over_h1_and_title() -> None:
+    # M2 -- schema.org LocalBusiness/Organization name e a fonte MAIS confiavel de
+    # identidade, preferida antes de h1/titulo (que podem carregar slogan).
+    html = """
+    <html><head>
+      <title>Bem vindo - promoções incríveis esse mês inteiro para você aproveitar</title>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        "name": "Barbearia Nome Certo"
+      }
+      </script>
+    </head>
+    <body>
+      <h1>Confira nossas promoções</h1>
+      <a href="tel:+551934611234">Ligar</a>
+    </body>
+    </html>
+    """
+
+    contacts, _ = parse_page(html, "https://barbearianomecerto.example.com.br")
+
+    assert len(contacts) == 1
+    assert contacts[0]["name"] == "Barbearia Nome Certo"
+
+
+# M3 -- corrigir concatenacao dupla de endereco (streetAddress ja vem "sujo" com
+# cidade/UF/CEP embutidos do proprio site, e o parser nao pode duplicar isso ao
+# concatenar addressLocality/postalCode por cima). Exemplo real da spec.
+def test_jsonld_address_does_not_duplicate_postal_code_already_in_street() -> None:
+    html = """
+    <html><head>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        "name": "Studio Bueno",
+        "telephone": "+55 62 99999-3333",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Av. T-1, 2630 - St. Bueno, Goiânia - GO, 74210-045, Brazil",
+          "addressLocality": "Atibaia",
+          "postalCode": "74210-045"
+        }
+      }
+      </script>
+    </head><body></body></html>
+    """
+
+    contacts, _ = parse_page(html, "https://studiobueno.example.com.br")
+
+    assert len(contacts) == 1
+    address = contacts[0]["address"]
+    # o CEP so pode aparecer 1x (nao duplicado no final)
+    assert address.count("74210-045") == 1
+
+
+def test_jsonld_address_appends_locality_when_not_already_in_street() -> None:
+    html = """
+    <html><head>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        "name": "Studio Bueno",
+        "telephone": "+55 62 99999-3333",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Av. T-1, 2630",
+          "addressLocality": "Goiânia",
+          "addressRegion": "GO",
+          "postalCode": "74210-045"
+        }
+      }
+      </script>
+    </head><body></body></html>
+    """
+
+    contacts, _ = parse_page(html, "https://studiobueno.example.com.br")
+
+    assert len(contacts) == 1
+    assert contacts[0]["address"] == "Av. T-1, 2630, Goiânia, GO, 74210-045"

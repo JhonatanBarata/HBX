@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { normalizeLegacyBrCellphone } from '../providers/cnpj-public/cnpj-public-types';
 
 /**
  * L4 — Cofre CNPJ público (grátis).
@@ -59,7 +60,24 @@ export type CnpjL4Result = {
   email: string | null;
   phone: string | null;
   website: string | null;
+  // Aditivos (01/07, ver docs/PLANEJAMENTOS/PR01072026/30-motor-receita.md) — BrasilAPI:
+  // nome_fantasia, municipio, uf, porte, descricao_identificador_matriz_filial.
+  nomeFantasia: string | null;
+  city: string | null;
+  state: string | null;
+  porte: string | null;
+  matrizFilial: string | null;
 };
+
+/** minúsculo, sem acento — mesmo padrão de normalização usado em cnpj-public-provider/dataset. */
+function normalizeSearchText(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 @Injectable()
 export class RadarCnpjL4EnrichmentService {
@@ -120,6 +138,11 @@ export class RadarCnpjL4EnrichmentService {
             email: row.email || null,
             phone: row.phone || null,
             website: row.website || null,
+            nomeFantasia: row.nomeFantasia || null,
+            city: row.city || null,
+            state: row.state || null,
+            porte: row.porte || null,
+            matrizFilial: row.matrizFilial || null,
           };
         }
       } catch {
@@ -146,6 +169,14 @@ export class RadarCnpjL4EnrichmentService {
           local.address = local.address || api.address;
           local.email = local.email || api.email;
           local.phone = local.phone || api.phone;
+          local.nomeFantasia = local.nomeFantasia || api.nomeFantasia;
+          local.city = local.city || api.city;
+          local.state = local.state || api.state;
+          local.porte = local.porte || api.porte;
+          local.matrizFilial = local.matrizFilial || api.matrizFilial;
+          // Dataset local ganhou dado novo via BrasilAPI (mesmo já existindo a linha) — persiste
+          // pra próxima leitura já vir completa (grátis, best-effort).
+          await this.cacheIntoLocal(prisma, local);
         }
       }
     }
@@ -197,7 +228,9 @@ export class RadarCnpjL4EnrichmentService {
         .filter(Boolean)
         .join(', ') || null;
       // Telefone do registro público (DDD + número). BrasilAPI manda em `ddd_telefone_1/2`.
-      const phoneDigits = String(data?.ddd_telefone_1 || data?.ddd_telefone_2 || '').replace(/\D/g, '');
+      // Cadastro pode ser anterior ao nono-dígito (celular 10-dig, 3º dígito 6-9) —
+      // normaliza pra formato atual da Anatel na FONTE (só este caminho BrasilAPI).
+      const phoneDigits = normalizeLegacyBrCellphone(data?.ddd_telefone_1 || data?.ddd_telefone_2 || '');
       const phone = phoneDigits.length >= 10 ? phoneDigits : null;
       const result: CnpjL4Result = {
         found: true,
@@ -212,6 +245,11 @@ export class RadarCnpjL4EnrichmentService {
         email: String(data?.email || '').trim().toLowerCase() || null,
         phone,
         website: null,
+        nomeFantasia: String(data?.nome_fantasia || '').trim() || null,
+        city: String(data?.municipio || '').trim() || null,
+        state: String(data?.uf || '').trim().toUpperCase() || null,
+        porte: String(data?.porte || '').trim() || null,
+        matrizFilial: String(data?.descricao_identificador_matriz_filial || '').trim() || null,
       };
       if (result.razaoSocial) {
         RadarCnpjL4EnrichmentService.brasilApiCache.set(cnpj, result);
@@ -223,24 +261,67 @@ export class RadarCnpjL4EnrichmentService {
     }
   }
 
-  /** Best-effort: grava o resultado da API no dataset local p/ ele crescer sozinho. */
+  /**
+   * Best-effort: grava o resultado da API no dataset local p/ ele crescer sozinho.
+   *
+   * Furo comprovado 01/07 (docs/PLANEJAMENTOS/PR01072026/30-motor-receita.md): esta função
+   * gravava a linha SEM phone/city/state/normalizedCity/searchText → mesmo quando o dataset
+   * cresce, a linha nascia invisível pro `CnpjPublicDatasetService.fetchRecords`
+   * (filtra por `normalizedCity` e `searchText`) e sem contato. Agora grava TUDO que o L4 trouxe
+   * e o `update` PREENCHE campos vazios (nunca sobrescreve valor já existente e não-nulo) — o
+   * dataset acumula em vez de nascer morto.
+   */
   private async cacheIntoLocal(prisma: any, r: CnpjL4Result): Promise<void> {
-    if (!prisma?.cnpjPublicCompany?.upsert || !r.cnpj || !r.razaoSocial) return;
+    if (!prisma?.cnpjPublicCompany?.findUnique || !r.cnpj || !r.razaoSocial) return;
     const rawJson = JSON.stringify({ qsa: (r.ownerNames || []).map((nome) => ({ nome })) });
-    await prisma.cnpjPublicCompany.upsert({
-      where: { cnpj: r.cnpj },
-      create: {
-        cnpj: r.cnpj,
-        razaoSocial: r.razaoSocial,
-        cnae: r.cnae,
-        cnaeDescription: r.cnaeDescription,
-        situacao: r.companySituation || 'ativa',
-        address: r.address,
-        email: r.email,
-        rawJson,
-      },
-      update: {},
-    }).catch(() => null);
+    const phoneDigits = String(r.phone || '').replace(/\D/g, '') || null;
+    const normalizedCity = normalizeSearchText(r.city);
+    const searchText = normalizeSearchText(
+      [r.nomeFantasia, r.razaoSocial, r.cnae, r.cnaeDescription].filter(Boolean).join(' '),
+    );
+
+    const baseData = {
+      razaoSocial: r.razaoSocial,
+      nomeFantasia: r.nomeFantasia,
+      cnae: r.cnae,
+      cnaeDescription: r.cnaeDescription,
+      situacao: r.companySituation || 'ativa',
+      address: r.address,
+      email: r.email,
+      phone: r.phone,
+      phoneDigits,
+      city: r.city,
+      state: r.state,
+      normalizedCity,
+      searchText,
+      porte: r.porte,
+      matrizFilial: r.matrizFilial,
+      rawJson,
+    };
+
+    try {
+      const existing = await prisma.cnpjPublicCompany.findUnique({ where: { cnpj: r.cnpj } }).catch(() => null);
+      if (existing) {
+        // update PREENCHE só o que está vazio no banco — nunca sobrescreve valor não-nulo já gravado.
+        const fillIfEmpty: Record<string, any> = {};
+        for (const [key, value] of Object.entries(baseData)) {
+          if (value == null || value === '') continue;
+          const current = (existing as Record<string, any>)[key];
+          if (current == null || current === '') {
+            fillIfEmpty[key] = value;
+          }
+        }
+        if (Object.keys(fillIfEmpty).length && prisma.cnpjPublicCompany.update) {
+          await prisma.cnpjPublicCompany.update({ where: { cnpj: r.cnpj }, data: fillIfEmpty }).catch(() => null);
+        }
+        return;
+      }
+      if (prisma.cnpjPublicCompany.create) {
+        await prisma.cnpjPublicCompany.create({ data: { cnpj: r.cnpj, ...baseData } }).catch(() => null);
+      }
+    } catch {
+      // degrade gracioso: cache é best-effort, nunca quebra o lookup por causa dele
+    }
   }
 
   /**
