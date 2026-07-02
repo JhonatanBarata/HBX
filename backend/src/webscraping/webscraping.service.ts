@@ -9,7 +9,10 @@ import {
 import { RadarCnpjL4EnrichmentService } from './radar/03-enrichment/radar-cnpj-l4-enrichment.service';
 import { RadarPublicDataService } from './radar/03-enrichment/radar-public-data.service';
 import { AiSaneamentoService } from './radar/03-enrichment/ai-saneamento.service';
+import { AiContactExtractionService } from './radar/03-enrichment/ai-contact-extraction.service';
 import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
+import { LeadContactWriteService } from './radar/persistence/lead-contact-write.service';
+import type { LeadContactCandidate } from './radar/persistence/lead-contact-gate';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { HbxPresentationEmailService } from '../mail/hbx-presentation-email.service';
 import { MasterContextService } from '../master-context/master-context.service';
@@ -139,6 +142,14 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarGoogleResponse,
       radarHbxEngineErrors,
     );
+  }
+
+  // Caminho ÚNICO de escrita da tabela LeadContact (gate anti-alucinação embutido) —
+  // extraído do antigo `upsertLeadContactsForRadarLead` (Sprint 5 MOTOR-RFB-FILA, 02/07).
+  private _leadContactWrite: LeadContactWriteService | null = null;
+  private getLeadContactWrite(): LeadContactWriteService {
+    if (!this._leadContactWrite) this._leadContactWrite = new LeadContactWriteService();
+    return this._leadContactWrite;
   }
 
   async webSearch(input: {
@@ -551,6 +562,13 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
             }).catch(() => null);
             row.metadataJson = patchedMeta;
             socialsFound += 1;
+            // Escrita dupla ADITIVA em LeadContact (Sprint 5): social do DONO é candidato
+            // (matching por nome), não confirmação — confiança baixa e origem própria.
+            const ownerSocialContacts: LeadContactCandidate[] = [
+              ...(social.instagramUrl ? [{ kind: 'instagram' as const, value: social.instagramUrl, source: 'owner_social', confidence: 55 }] : []),
+              ...(social.facebookUrl ? [{ kind: 'facebook' as const, value: social.facebookUrl, source: 'owner_social', confidence: 55 }] : []),
+            ];
+            await this.getLeadContactWrite().writeContacts(prisma, row.id, ownerSocialContacts).catch(() => null);
           }
         }
 
@@ -686,17 +704,28 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           updated += 1;
         }
 
-        // Escrita dupla ADITIVA (PR1 30/06): além do metadataJson (fonte do presenter, intocada
-        // acima), grava cada contato descoberto em LeadContact p/ permitir busca/filtro/export em
-        // lote sem varrer o JSON blob inteiro. Nunca falha o fluxo principal por erro aqui.
+        // Escrita dupla ADITIVA (PR1 30/06 + gate Sprint 5): além do metadataJson (fonte do
+        // presenter, intocada acima), grava cada contato descoberto em LeadContact p/ busca/
+        // filtro/export em lote sem varrer o JSON blob. Telefone com WhatsApp confirmado pelo
+        // motor ganha confiança maior. Nunca falha o fluxo principal por erro aqui.
         try {
-          await this.upsertLeadContactsForRadarLead(prisma, id, {
-            emails: incomingEmails,
-            phones: incomingPhones,
-            cnpj: cnpj.length === 14 ? cnpj : null,
-            instagramUrl: ig || null,
-            facebookUrl: fb || null,
-          });
+          const contactCandidates: LeadContactCandidate[] = [
+            ...incomingEmails.map((value, idx) => ({
+              kind: 'email' as const, value, source: 'website_crawl', confidence: 70, rank: idx + 1,
+            })),
+            ...incomingPhones.map((value, idx) => ({
+              kind: 'phone' as const,
+              value,
+              source: 'website_crawl',
+              confidence: waMap[String(value).replace(/\D/g, '')] === true ? 85 : 50,
+              rank: idx + 1,
+            })),
+            ...(ig ? [{ kind: 'instagram' as const, value: ig, source: 'website_crawl', confidence: 60 }] : []),
+            ...(fb ? [{ kind: 'facebook' as const, value: fb, source: 'website_crawl', confidence: 60 }] : []),
+          ];
+          if (contactCandidates.length) {
+            await this.getLeadContactWrite().writeContacts(prisma, id, contactCandidates);
+          }
         } catch { /* best-effort — LeadContact é índice de consulta, não fonte de verdade */ }
       } catch {
         errors += 1;
@@ -789,58 +818,125 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
   }
 
   /**
-   * Escrita dupla ADITIVA p/ a tabela normalizada LeadContact (PR1 30/06,
-   * docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md). Idempotente: pula se já
-   * existe linha com a mesma (radarLeadId, kind, valueNormalized). NUNCA é a fonte do presenter —
-   * só serve consulta/filtro/export em lote.
+   * POST /modules/owner/radar/ai-extract-contacts — extração de contato por IA local
+   * (Sprint 5 MOTOR-RFB-FILA, 02/07). Roteamento fixo do benchmark 01/07: extração →
+   * modelo 30B MoE local. Recebe itens com a FONTE crawleada explícita; o
+   * AiContactExtractionService aplica o gate anti-alucinação (formato + literal-na-fonte)
+   * e SÓ o aprovado grava em LeadContact (source='ai_extraction'). Nome do dono aprovado
+   * vai pra metadataJson.aiOwnerName (separado do ownerName do L4, que é registro oficial).
+   * Gate de env: default OFF (`HBX_AI_EXTRACTION_ENABLED`). A "extração como missão da
+   * fila" chega com o sprint 4 — este é o acionador manual/lote do owner.
    */
-  private async upsertLeadContactsForRadarLead(
-    prisma: any,
-    radarLeadId: string,
-    discovered: { emails?: string[]; phones?: string[]; cnpj?: string | null; instagramUrl?: string | null; facebookUrl?: string | null },
-  ): Promise<void> {
-    const candidates: Array<{ kind: string; value: string; valueNormalized: string; rank: number }> = [];
+  async aiExtractContactsForMaster(
+    items: Array<{ radarLeadId?: string; sourceText?: string }> = [],
+  ): Promise<
+    | { enabled: false; reason: 'disabled' }
+    | { enabled: true; scanned: number; contactsWritten: number; rejectedByGate: number; ownersFound: number; errors: number }
+  > {
+    const enabled = ['true', '1', 'yes', 'on'].includes(
+      String(process.env.HBX_AI_EXTRACTION_ENABLED || '').trim().toLowerCase(),
+    );
+    if (!enabled) return { enabled: false, reason: 'disabled' };
 
-    (discovered.emails || []).forEach((value, idx) => {
-      const normalized = String(value).trim().toLowerCase();
-      if (normalized) candidates.push({ kind: 'email', value: String(value).trim(), valueNormalized: normalized, rank: idx + 1 });
-    });
+    const prisma = this.internalPrisma as any;
+    const list = (Array.isArray(items) ? items : []).slice(0, 50); // lote capado — IA local é lenta
+    const extractor = new AiContactExtractionService();
 
-    (discovered.phones || []).forEach((value, idx) => {
-      const normalized = String(value).replace(/\D/g, '');
-      if (normalized) candidates.push({ kind: 'phone', value: String(value).trim(), valueNormalized: normalized, rank: idx + 1 });
-    });
+    let scanned = 0;
+    let contactsWritten = 0;
+    let rejectedByGate = 0;
+    let ownersFound = 0;
+    let errors = 0;
 
-    if (discovered.instagramUrl) {
-      const normalized = discovered.instagramUrl.trim().toLowerCase();
-      if (normalized) candidates.push({ kind: 'instagram', value: discovered.instagramUrl.trim(), valueNormalized: normalized, rank: 1 });
+    for (const item of list) {
+      const radarLeadId = String(item?.radarLeadId || '').trim();
+      const sourceText = String(item?.sourceText || '').trim();
+      if (!radarLeadId || !sourceText) { errors += 1; continue; }
+      try {
+        const row = await prisma.radarLeadPool.findUnique({
+          where: { id: radarLeadId },
+          select: { id: true, name: true, metadataJson: true },
+        });
+        if (!row) { errors += 1; continue; }
+        scanned += 1;
+
+        const result = await extractor.extract({ leadName: row.name, sourceText });
+        if (!result.ok) { errors += 1; continue; }
+        rejectedByGate += result.rejected.length;
+
+        if (result.contacts.length) {
+          // passa a MESMA fonte pro serviço de escrita — proveniência revalidada no gravador
+          const written = await this.getLeadContactWrite().writeContacts(prisma, radarLeadId, result.contacts, { sourceText });
+          contactsWritten += written.written;
+        }
+
+        // evidência ADITIVA no blob (nunca sobrescreve ownerName oficial do L4)
+        const meta = this.parseInternalJsonObject(row.metadataJson);
+        const patchedMeta = {
+          ...meta,
+          aiExtractionAt: Date.now(),
+          ...(result.ownerName ? { aiOwnerName: result.ownerName } : {}),
+        };
+        if (result.ownerName) ownersFound += 1;
+        await prisma.radarLeadPool.update({
+          where: { id: radarLeadId },
+          data: { metadataJson: JSON.stringify(patchedMeta) },
+        }).catch(() => null);
+      } catch {
+        errors += 1;
+      }
     }
 
-    if (discovered.facebookUrl) {
-      const normalized = discovered.facebookUrl.trim().toLowerCase();
-      if (normalized) candidates.push({ kind: 'facebook', value: discovered.facebookUrl.trim(), valueNormalized: normalized, rank: 1 });
-    }
+    return { enabled: true, scanned, contactsWritten, rejectedByGate, ownersFound, errors };
+  }
 
-    if (!candidates.length) return;
+  /**
+   * GET /modules/owner/radar/contacts/audit — auditoria do ACEITE do Sprint 5: nenhum contato
+   * novo pode nascer SÓ no blob. Amostra os leads mais recentes com email/telefone nas colunas
+   * e confere se existe linha correspondente em LeadContact; devolve contagens por source e os
+   * primeiros IDs descobertos sem cobertura (pra investigar/backfillar).
+   */
+  async auditLeadContactsForMaster(opts: { sample?: number } = {}): Promise<{
+    totalContacts: number;
+    bySource: Array<{ source: string | null; count: number }>;
+    sample: { scanned: number; covered: number; uncovered: number; uncoveredLeadIds: string[] };
+  }> {
+    const prisma = this.internalPrisma as any;
+    const sampleSize = Math.max(10, Math.min(Number(opts.sample) || 200, 1000));
 
-    for (const candidate of candidates) {
-      const exists = await prisma.leadContact.findFirst({
-        where: { radarLeadId, kind: candidate.kind, valueNormalized: candidate.valueNormalized },
+    const [totalContacts, groups] = await Promise.all([
+      prisma.leadContact.count().catch(() => 0),
+      prisma.leadContact.groupBy({ by: ['source'], _count: { _all: true } }).catch(() => []),
+    ]);
+
+    const rows = await prisma.radarLeadPool.findMany({
+      where: { OR: [{ email: { not: null } }, { phoneDigits: { not: null } }] },
+      orderBy: { createdAt: 'desc' },
+      take: sampleSize,
+      select: { id: true, email: true, phoneDigits: true },
+    }).catch(() => []);
+
+    let covered = 0;
+    const uncoveredLeadIds: string[] = [];
+    for (const row of rows) {
+      const hasContactRow = await prisma.leadContact.findFirst({
+        where: { radarLeadId: row.id },
         select: { id: true },
-      });
-      if (exists) continue;
-      await prisma.leadContact.create({
-        data: {
-          radarLeadId,
-          kind: candidate.kind,
-          value: candidate.value,
-          valueNormalized: candidate.valueNormalized,
-          rank: candidate.rank,
-          source: 'website_crawl',
-          confidence: 0,
-        },
-      }).catch(() => { /* best-effort */ });
+      }).catch(() => null);
+      if (hasContactRow) covered += 1;
+      else if (uncoveredLeadIds.length < 20) uncoveredLeadIds.push(row.id);
     }
+
+    return {
+      totalContacts,
+      bySource: (groups as any[]).map((g) => ({ source: g.source ?? null, count: Number(g?._count?._all || 0) })),
+      sample: {
+        scanned: rows.length,
+        covered,
+        uncovered: rows.length - covered,
+        uncoveredLeadIds,
+      },
+    };
   }
 
   /**

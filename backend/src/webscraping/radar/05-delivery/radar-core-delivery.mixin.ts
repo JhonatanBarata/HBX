@@ -168,12 +168,18 @@ import {
   resolveTeamPolicyAccessAllowed,
 } from '../../../team/team-policy-persistence';
 import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enrichment.service';
+import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 
 export class RadarCoreDeliveryMixin {
   private _cnpjL4Enrichment: RadarCnpjL4EnrichmentService | null = null;
   private getCnpjL4Enrichment(): RadarCnpjL4EnrichmentService {
     if (!this._cnpjL4Enrichment) this._cnpjL4Enrichment = new RadarCnpjL4EnrichmentService();
     return this._cnpjL4Enrichment;
+  }
+  private _leadContactWrite: LeadContactWriteService | null = null;
+  private getLeadContactWrite(): LeadContactWriteService {
+    if (!this._leadContactWrite) this._leadContactWrite = new LeadContactWriteService();
+    return this._leadContactWrite;
   }
   [key: string]: any;
   private async getTeamPolicyRequiredRadarChannels(userIdRaw: unknown): Promise<RadarChannelFilter[]> {
@@ -2769,6 +2775,20 @@ export class RadarCoreDeliveryMixin {
       if (savedId && savedCnpj.length >= 14) {
         const l4Row = { id: savedId, metadataJson: data.metadataJson, evidenceJson: data.evidenceJson, cnpj: savedCnpj };
         this.getCnpjL4Enrichment().enrichRow(this.prisma, l4Row).catch(() => null);
+      }
+      // Escrita dupla ADITIVA em LeadContact (Sprint 5 MOTOR-RFB-FILA): todo contato que chega
+      // no pool (busca + L2 síncrono) vira linha consultável/exportável — com gate de formato.
+      // Fire-and-forget: nunca atrasa nem falha a persistência do lote.
+      if (savedId) {
+        const contactCandidates = [
+          ...((data as any).email ? [{ kind: 'email' as const, value: String((data as any).email), source: sourceEngine, confidence: safeInteger((data as any).emailConfidence) || 60 }] : []),
+          ...(phoneDigits ? [{ kind: 'phone' as const, value: phoneDigits, source: sourceEngine, confidence: 75 }] : []),
+          ...((data as any).instagramUrl ? [{ kind: 'instagram' as const, value: String((data as any).instagramUrl), source: sourceEngine, confidence: safeInteger((data as any).socialConfidence) || 60 }] : []),
+          ...((data as any).facebookUrl ? [{ kind: 'facebook' as const, value: String((data as any).facebookUrl), source: sourceEngine, confidence: safeInteger((data as any).socialConfidence) || 60 }] : []),
+        ];
+        if (contactCandidates.length) {
+          this.getLeadContactWrite().writeContacts(this.prisma, savedId, contactCandidates).catch(() => null);
+        }
       }
       counts.savedCount += 1;
     }

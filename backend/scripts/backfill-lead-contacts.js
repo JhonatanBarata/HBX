@@ -98,9 +98,29 @@ function extractContactsFromMeta(meta) {
   return out;
 }
 
+// Sprint 5 MOTOR-RFB-FILA (02/07): a auditoria (`GET /modules/owner/radar/contacts/audit`)
+// mostrou lead com contato SÓ nas colunas (email/phone/phoneDigits/instagramUrl/facebookUrl),
+// invisível pro backfill original que só lia metadataJson. Extrai também das colunas,
+// com source próprio ('columns_backfill') pra auditoria distinguir a origem.
+function extractContactsFromColumns(lead) {
+  const out = [];
+  const email = normalizeEmail(lead.email);
+  if (email) out.push({ kind: 'email', value: String(lead.email).trim(), valueNormalized: email, rank: 1 });
+  const phone = normalizePhoneDigits(lead.phoneDigits || lead.phone);
+  if (phone) out.push({ kind: 'phone', value: String(lead.phone || lead.phoneDigits).trim(), valueNormalized: phone, rank: 1 });
+  const instagram = normalizeSocialUrl(lead.instagramUrl);
+  if (instagram) out.push({ kind: 'instagram', value: String(lead.instagramUrl).trim(), valueNormalized: instagram, rank: 1 });
+  const facebook = normalizeSocialUrl(lead.facebookUrl);
+  if (facebook) out.push({ kind: 'facebook', value: String(lead.facebookUrl).trim(), valueNormalized: facebook, rank: 1 });
+  return out;
+}
+
 async function backfillLead(lead, existingKeys) {
   const meta = parseMaybeJson(lead.metadataJson);
-  const candidates = extractContactsFromMeta(meta);
+  const candidates = [
+    ...extractContactsFromMeta(meta).map((c) => ({ ...c, source: 'metadataJson_backfill' })),
+    ...extractContactsFromColumns(lead).map((c) => ({ ...c, source: 'columns_backfill' })),
+  ];
   let inserted = 0;
 
   for (const candidate of candidates) {
@@ -114,7 +134,7 @@ async function backfillLead(lead, existingKeys) {
         value: candidate.value,
         valueNormalized: candidate.valueNormalized,
         rank: candidate.rank,
-        source: 'metadataJson_backfill',
+        source: candidate.source,
         confidence: 0,
       },
     });
@@ -151,14 +171,14 @@ async function main() {
       take: pageSize,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       orderBy: { id: 'asc' },
-      select: { id: true, metadataJson: true },
+      select: { id: true, metadataJson: true, email: true, phone: true, phoneDigits: true, instagramUrl: true, facebookUrl: true },
     });
 
     if (!page.length) break;
 
     for (const lead of page) {
       leadsProcessed += 1;
-      if (!lead.metadataJson) continue;
+      // (Sprint 5) não pula lead sem metadataJson — as COLUNAS também são fonte agora.
       try {
         const inserted = await backfillLead(lead, existingKeys);
         if (inserted > 0) {

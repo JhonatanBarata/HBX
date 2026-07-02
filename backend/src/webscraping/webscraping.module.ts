@@ -44,6 +44,7 @@ import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-e
 import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
 import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
 import { AiSaneamentoService } from './radar/03-enrichment/ai-saneamento.service';
+import { AiContactExtractionService } from './radar/03-enrichment/ai-contact-extraction.service';
 import { IcpFingerprintService } from './icp/icp-fingerprint.service';
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { GoogleSearchQueryBuilder } from './radar/providers/google-search/google-search-query-builder';
@@ -59,6 +60,7 @@ import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/web
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
+import { LeadContactWriteService } from './radar/persistence/lead-contact-write.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarDiagnosticService } from './radar/shared/radar-diagnostic.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
@@ -73,6 +75,7 @@ const RADAR_SHARED_SERVICES = [
 
 const RADAR_PERSISTENCE_SERVICES = [
   RadarRunRepositoryService,
+  LeadContactWriteService,
 ];
 
 const RADAR_SEARCH_SERVICES = [
@@ -106,6 +109,7 @@ const RADAR_ENRICHMENT_SERVICES = [
   RadarWebEnrichmentService,
   RadarWebEnrichmentJobService,
   AiSaneamentoService,
+  AiContactExtractionService,
   IcpFingerprintService,
 ];
 

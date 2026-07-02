@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeLookupValue } from '../radar/04-socials/radar-social-matching';
+import { LeadContactWriteService } from '../radar/persistence/lead-contact-write.service';
 import { LeadHarvestNormalizerService } from './lead-harvest-normalizer.service';
 import type {
   EmailHarvestCandidate,
@@ -62,7 +64,12 @@ export class LeadHarvestImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly normalizer: LeadHarvestNormalizerService,
+    @Optional() private readonly leadContactWrite?: LeadContactWriteService,
   ) {}
+
+  private getLeadContactWrite(): LeadContactWriteService {
+    return this.leadContactWrite || new LeadContactWriteService();
+  }
 
   async importBatchForUser(user: any, body: Record<string, any>) {
     this.assertAdminOrMaster(user);
@@ -426,6 +433,21 @@ export class LeadHarvestImportService {
       try {
         const row = await (this.prisma as any).radarLeadPool.create({ data });
         item.importedRadarLeadId = row?.id || null;
+        // Escrita dupla ADITIVA em LeadContact (Sprint 5 MOTOR-RFB-FILA): contato importado
+        // pelo harvest vira linha consultável/exportável com origem e confiança do batch.
+        // Best-effort: falha aqui nunca reprova o item importado.
+        if (row?.id) {
+          const contacts = [
+            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: 'lead_harvest_import', confidence: item.confidence || 50 }] : []),
+            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: 'lead_harvest_import', confidence: item.confidence || 50 }] : []),
+            ...(item.normalizedWhatsapp && item.normalizedWhatsapp !== item.normalizedPhone
+              ? [{ kind: 'whatsapp' as const, value: item.normalizedWhatsapp, source: 'lead_harvest_import', confidence: item.confidence || 50 }]
+              : []),
+          ];
+          if (contacts.length) {
+            await this.getLeadContactWrite().writeContacts(this.prisma, row.id, contacts).catch(() => null);
+          }
+        }
       } catch {
         const reason = await this.findDuplicateReason(item);
         item.status = 'duplicate';
