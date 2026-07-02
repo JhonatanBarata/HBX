@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { getBackendPublicUploadDir } from '../public-assets';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
 import { isModalSendReady } from './whatsapp-connection-state';
+import { ZapCheckGuardService } from './zap-check-guard.service';
 
 type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio' | 'sticker';
 
@@ -681,13 +682,18 @@ export class WebwhatsBridgeService {
     return this.getCachedContacts(companyId, session.tenantKey);
   }
 
+  // FREIO do zap-gate (W4, PR02072026): esta é a ÚNICA porta por onde TODO check de WhatsApp
+  // passa (Radar via applyRadarWhatsappCheck, Vendas, Inbox) — cache TTL + rate limit + disjuntor
+  // próprio vivem no ZapCheckGuardService, injetados aqui ANTES de qualquer chamada de rede ao
+  // motor. Números "frescos" no cache nem chegam a sair daqui; só os pendentes viram request real,
+  // e só se o disjuntor deixar. Disjuntor aberto = lança WEBWHATS_UNAVAILABLE (mesmo tratamento
+  // de indisponibilidade que os chamadores já tinham pra qualquer falha do motor — Radar degrada
+  // pra unverified, Inbox recusa pedindo retry). Nunca faz retry-loop por conta própria.
   async checkWhatsappNumbers(
     companyId: number,
     numbersRaw: Array<string | null | undefined>,
     selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId, selector);
-    const tenantKey = company.session.tenantKey;
     const normalizedNumbers = Array.from(
       new Set(
         (Array.isArray(numbersRaw) ? numbersRaw : [])
@@ -700,51 +706,63 @@ export class WebwhatsBridgeService {
       return [] as WebwhatsWhatsappNumberCheckResult[];
     }
 
-    const response = await this.requestRead<any>({
-      method: 'POST',
-      path: `/chat/whatsappNumbers/${encodeURIComponent(tenantKey)}`,
-      purpose: 'verificacao rapida de numeros com WhatsApp',
-      data: {
-        numbers: normalizedNumbers,
+    const rawByDigits = new Map<string, unknown>();
+    const { results, breakerOpen } = await ZapCheckGuardService.guardedCheck(
+      normalizedNumbers,
+      async (pending) => {
+        const company = await this.requireConnectedCompany(companyId, selector);
+        const tenantKey = company.session.tenantKey;
+        const response = await this.requestRead<any>({
+          method: 'POST',
+          path: `/chat/whatsappNumbers/${encodeURIComponent(tenantKey)}`,
+          purpose: 'verificacao rapida de numeros com WhatsApp',
+          data: {
+            numbers: pending,
+          },
+        });
+
+        const rows = Array.isArray(response?.numbers)
+          ? response.numbers
+          : Array.isArray(response)
+            ? response
+            : [];
+        const resultByDigits = new Map<string, { phoneDigits: string; exists: boolean; remoteJid: string | null }>();
+
+        for (const row of rows) {
+          const rawNumber = this.normalizeOptionalString(
+            row?.number || row?.phone || row?.contact || row?.remoteJid,
+          );
+          const normalizedNumber = String(rawNumber || '').replace(/\D/g, '');
+          if (!normalizedNumber) continue;
+          const exists = this.normalizeOptionalBoolean(row?.exists) === true;
+          const remoteJid = this.normalizeOptionalString(row?.remoteJid || row?.jid)
+            || (exists ? this.normalizeRemoteJid(normalizedNumber) : null);
+          rawByDigits.set(normalizedNumber, row);
+          resultByDigits.set(normalizedNumber, { phoneDigits: normalizedNumber, exists, remoteJid });
+        }
+
+        // Pendente sem linha na resposta do motor = "não existe" (mesmo default de antes) —
+        // ainda assim entra no cache pra não bater de novo até o TTL vencer.
+        return pending.map((digits) => resultByDigits.get(digits) || { phoneDigits: digits, exists: false, remoteJid: null });
       },
-    });
+    );
 
-    const rows = Array.isArray(response?.numbers)
-      ? response.numbers
-      : Array.isArray(response)
-        ? response
-        : [];
-    const resultByDigits = new Map<string, WebwhatsWhatsappNumberCheckResult>();
-
-    for (const row of rows) {
-      const rawNumber = this.normalizeOptionalString(
-        row?.number || row?.phone || row?.contact || row?.remoteJid,
+    if (breakerOpen) {
+      throw new WebwhatsProviderError(
+        'WEBWHATS_UNAVAILABLE',
+        `Freio do zap-gate aberto (${ZapCheckGuardService.breakerThreshold()} erros consecutivos) — checagem de WhatsApp pausada por cooldown.`,
       );
-      const normalizedNumber = String(rawNumber || '').replace(/\D/g, '');
-      if (!normalizedNumber) continue;
-      const exists = this.normalizeOptionalBoolean(row?.exists) === true;
-      const remoteJid = this.normalizeOptionalString(row?.remoteJid || row?.jid)
-        || (exists ? this.normalizeRemoteJid(normalizedNumber) : null);
-      resultByDigits.set(normalizedNumber, {
-        input: rawNumber || normalizedNumber,
-        normalizedNumber,
-        exists,
-        remoteJid,
-        raw: row,
-      });
     }
 
-    return normalizedNumbers.map((normalizedNumber) => {
-      const matched = resultByDigits.get(normalizedNumber);
-      return (
-        matched || {
-          input: normalizedNumber,
-          normalizedNumber,
-          exists: false,
-          remoteJid: null,
-          raw: null,
-        }
-      );
+    return normalizedNumbers.map((normalizedNumber): WebwhatsWhatsappNumberCheckResult => {
+      const matched = results.get(normalizedNumber);
+      return {
+        input: normalizedNumber,
+        normalizedNumber,
+        exists: Boolean(matched?.exists),
+        remoteJid: matched?.remoteJid ?? null,
+        raw: rawByDigits.get(normalizedNumber) ?? null,
+      };
     });
   }
 

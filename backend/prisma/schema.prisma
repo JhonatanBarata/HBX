@@ -1856,6 +1856,22 @@ model SourceApiUsage {
   @@id([source, yearMonth])
 }
 
+// FREIO do zap-gate (W4, PR02072026 — docs/PLANEJAMENTOS/PR02072026/W4-freio-zapgate.md): cache
+// TTL persistente do resultado de "número tem WhatsApp?" checado no motor Webwhats. Chave = número
+// (phoneDigits), NÃO radarLeadId — o mesmo número aparece em vários LeadContact/leads e o freio
+// precisa deduplicar globalmente, não por linha. Lido/gravado SÓ pelo ZapCheckGuardService
+// (backend/src/messaging/zap-check-guard.service.ts), que intercepta
+// WebwhatsBridgeService.checkWhatsappNumbers — porta única por onde passa TODO check de WhatsApp
+// (Radar via applyRadarWhatsappCheck, Vendas, Inbox). TTL default 168h (HBX_ZAP_CHECK_TTL_HOURS).
+model WhatsappNumberCheckCache {
+  phoneDigits String   @id
+  exists      Boolean
+  remoteJid   String?
+  checkedAt   DateTime @default(now())
+
+  @@index([checkedAt])
+}
+
 model RadarLeadCompanyState {
   id             String   @id @default(cuid())
   company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
