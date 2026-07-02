@@ -70,6 +70,27 @@ const SYSTEM_PROMPT = [
   'Nome bruto: "CLINICA ODONTOLOGICA SORRISO LTDA - www.sorriso.com.br" => {"nome_limpo":"Clinica Odontologica Sorriso","segmento":"Odontologia"}',
 ].join('\n');
 
+// Etapa 7 da árvore mestra (02/07, docs/PLANEJAMENTOS/ARVORE-MESTRA/ARVORE-MESTRA.md): mesmo
+// saneamento de nome+segmento, ACRESCIDO de nota ICP 0-10 + razão — usado só no disparo pós-
+// entrega (`HBX_RADAR_AI_SANEAMENTO_ENABLED`), nunca no worker manual/batch (`saneia()`, que
+// mantém o contrato antigo intacto p/ não quebrar o endpoint owner já em uso).
+const SYSTEM_PROMPT_COM_NOTA = [
+  'Voce e um assistente de qualificacao de leads B2B no Brasil (ICP - Ideal Customer Profile).',
+  'Recebe o nome bruto de uma empresa (com ruido do scraping) e devolve SOMENTE JSON valido,',
+  'nada fora dele, com: nome_limpo (nome comercial limpo, sem LTDA/ME/EIRELI/matriz/filial/',
+  'telefone/url/ruido), segmento (categoria em pt-br), nota (numero inteiro 0 a 10 — o quao',
+  'provavel e que isto seja uma empresa real e legitima, NAO um pedaco de texto generico,',
+  'nome de rua, categoria de diretorio ou lixo de scraping) e razao (frase curta explicando a nota).',
+  'Nota baixa (0-3): nome parece lixo/generico/nao-empresa (ex: "Restaurantes em SP", "Tasting Table",',
+  'endereco solto, categoria de diretorio). Nota alta (7-10): claramente um nome comercial real.',
+  'Formato exato: {"nome_limpo":"...","segmento":"...","nota":N,"razao":"..."}',
+  '',
+  'Exemplos:',
+  'Nome bruto: "PADARIA DOIS IRMAOS LTDA ME - matriz" => {"nome_limpo":"Padaria Dois Irmaos","segmento":"Padaria","nota":9,"razao":"Nome comercial claro e especifico"}',
+  'Nome bruto: "Restaurantes em SP" => {"nome_limpo":"Restaurantes em SP","segmento":"Desconhecido","nota":1,"razao":"Titulo de categoria/diretorio, nao e nome de empresa"}',
+  'Nome bruto: "Tasting Table" => {"nome_limpo":"Tasting Table","segmento":"Desconhecido","nota":2,"razao":"Parece nome de publicacao/blog, nao empresa local"}',
+].join('\n');
+
 export type AiSaneamentoInput = {
   name: string;
   city?: string | null;
@@ -81,6 +102,14 @@ export type AiSaneamentoResult = {
   ok: boolean;
   nomeLimpo: string | null;
   segmento: string | null;
+};
+
+export type AiSaneamentoComNotaResult = {
+  ok: boolean;
+  nomeLimpo: string | null;
+  segmento: string | null;
+  nota: number | null;
+  razao: string | null;
 };
 
 function safeParseJson(raw: string): Record<string, unknown> | null {
@@ -122,6 +151,47 @@ export class AiSaneamentoService {
     const name = String(input?.name || '').trim();
     if (!name) return { ok: false, nomeLimpo: null, segmento: null };
 
+    const parsed = await this.callOllama(name, SYSTEM_PROMPT, buildUserPrompt(input));
+    if (!parsed) return { ok: false, nomeLimpo: null, segmento: null };
+
+    const nomeLimpo = String((parsed as any).nome_limpo || '').trim() || null;
+    const segmento = String((parsed as any).segmento || '').trim() || null;
+    if (!nomeLimpo && !segmento) return { ok: false, nomeLimpo: null, segmento: null };
+
+    return { ok: true, nomeLimpo, segmento };
+  }
+
+  /**
+   * Etapa 7 da árvore mestra (02/07): mesmo saneamento de nome+segmento, ACRESCIDO de nota ICP
+   * 0-10 + razão — usado só pelo disparo pós-entrega (`HBX_RADAR_AI_SANEAMENTO_ENABLED`).
+   * MESMA infra HTTP/retry/degrade de `saneia()` (reuso via `callOllama`), prompt diferente.
+   * Degrada gracioso igual: nunca joga exceção pra cima.
+   */
+  async saneiaComNota(input: AiSaneamentoInput): Promise<AiSaneamentoComNotaResult> {
+    const name = String(input?.name || '').trim();
+    if (!name) return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
+
+    const parsed = await this.callOllama(name, SYSTEM_PROMPT_COM_NOTA, buildUserPrompt(input));
+    if (!parsed) return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
+
+    const nomeLimpo = String((parsed as any).nome_limpo || '').trim() || null;
+    const segmento = String((parsed as any).segmento || '').trim() || null;
+    const notaRaw = Number((parsed as any).nota);
+    const nota = Number.isFinite(notaRaw) ? Math.max(0, Math.min(10, Math.round(notaRaw))) : null;
+    const razao = String((parsed as any).razao || '').trim() || null;
+    if (!nomeLimpo && !segmento && nota == null) {
+      return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
+    }
+
+    return { ok: true, nomeLimpo, segmento, nota, razao };
+  }
+
+  /**
+   * Chamada HTTP compartilhada por `saneia()` e `saneiaComNota()` — mesmo endpoint, retry,
+   * timeout e resolução de IPv4; só o prompt de sistema muda. Devolve o objeto JSON já
+   * parseado (ou `null` em qualquer falha — offline, timeout, HTTP != ok, JSON inválido).
+   */
+  private async callOllama(name: string, systemPrompt: string, userPrompt: string): Promise<Record<string, unknown> | null> {
     const baseUrl = await resolvePreferIPv4BaseUrl(ollamaBaseUrl());
     const model = envStr('HBX_AI_SANEAMENTO_MODEL', 'qwen2.5:7b');
     const timeoutMs = envInt('HBX_AI_SANEAMENTO_TIMEOUT_MS', 20000);
@@ -150,8 +220,8 @@ export class AiSaneamentoService {
             format: 'json',
             options: { temperature: 0.2 },
             messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: buildUserPrompt(input) },
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
             ],
           }),
           signal: controller.signal,
@@ -159,7 +229,7 @@ export class AiSaneamentoService {
 
         if (!response.ok) {
           this.logger.warn(`saneamento IA respondeu HTTP ${response.status} para "${name}"`);
-          return { ok: false, nomeLimpo: null, segmento: null };
+          return null;
         }
 
         const data = (await response.json()) as { message?: { content?: string } };
@@ -167,14 +237,10 @@ export class AiSaneamentoService {
         const parsed = safeParseJson(raw);
         if (!parsed) {
           this.logger.warn(`saneamento IA devolveu JSON invalido para "${name}"`);
-          return { ok: false, nomeLimpo: null, segmento: null };
+          return null;
         }
 
-        const nomeLimpo = String((parsed as any).nome_limpo || '').trim() || null;
-        const segmento = String((parsed as any).segmento || '').trim() || null;
-        if (!nomeLimpo && !segmento) return { ok: false, nomeLimpo: null, segmento: null };
-
-        return { ok: true, nomeLimpo, segmento };
+        return parsed;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // Cobre erro de conexão E timeout/abort — modelo local pode levar >timeoutMs em cold-load
@@ -188,11 +254,11 @@ export class AiSaneamentoService {
           continue;
         }
         this.logger.warn(`saneamento IA indisponivel (${message}) para "${name}"`);
-        return { ok: false, nomeLimpo: null, segmento: null };
+        return null;
       } finally {
         clearTimeout(timeoutHandle);
       }
     }
-    return { ok: false, nomeLimpo: null, segmento: null };
+    return null;
   }
 }

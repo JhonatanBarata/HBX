@@ -2549,8 +2549,36 @@ export class RadarCoreDeliveryMixin {
       else counts.approvedCount += 1;
       const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), sourceEngine, result.source].filter(Boolean).map(String)));
       const existingWasDddMismatch = String(existing?.status || '') === 'rejected' && String(existing?.rejectionReason || '') === 'ddd_mismatch';
-      const nextStatus = dddMismatch ? 'rejected' : existingWasDddMismatch ? 'clean' : existing?.status || 'clean';
-      const nextRejectionReason = dddMismatch ? 'ddd_mismatch' : existingWasDddMismatch ? null : existing?.rejectionReason || null;
+      // Quarentena pré-estoque (etapa 7 da árvore mestra, 02/07): SÓ no caminho que abastece o
+      // ESTOQUE da fábrica (`hbx_mass_data`/`hbx_campaign` — night_factory/mass-data mixin), NUNCA
+      // na lane síncrona do cliente (`hbx`). Se a etapa 7 (pós-entrega de OUTRO lead, mesma linha
+      // já vista antes) marcou nota IA ≤3 em `metadataJson.aiSaneamento`, o card NÃO promove pra
+      // 'clean' (pronto) — fica represado (não é descartado; sem migration: reusa o status
+      // 'rejected' existente, já excluído de toda query de "disponível" via
+      // `RADAR_PROTECTED_STATUSES`/`notIn:['rejected', ...]`). Reversível: se um saneamento futuro
+      // subir a nota, ou o dono revisar manualmente, o card reabre normalmente.
+      const isFactorySource = sourceEngine === 'hbx_mass_data' || sourceEngine === 'hbx_campaign';
+      const existingAiNota = Number(this.parseMaybeJsonObject(existing?.metadataJson)?.aiSaneamento?.nota);
+      const isQuarantinedByLowAiScore = isFactorySource
+        && !dddMismatch
+        && Number.isFinite(existingAiNota)
+        && existingAiNota <= 3
+        && String(existing?.status || '') !== 'sent_to_vendas'
+        && !this.isRadarProtectedStatus(existing?.status);
+      const nextStatus = dddMismatch
+        ? 'rejected'
+        : isQuarantinedByLowAiScore
+          ? 'rejected'
+          : existingWasDddMismatch
+            ? 'clean'
+            : existing?.status || 'clean';
+      const nextRejectionReason = dddMismatch
+        ? 'ddd_mismatch'
+        : isQuarantinedByLowAiScore
+          ? 'ai_score_low'
+          : existingWasDddMismatch
+            ? null
+            : existing?.rejectionReason || null;
       const resultIdentity = {
         ...(result as any),
         name: result.name || existing?.name || '',
@@ -3399,6 +3427,88 @@ export class RadarCoreDeliveryMixin {
     }).catch(() => null);
   }
 
+  /**
+   * Zap-gate porta 8 (árvore mestra 02/07): único ponto de entrega — TODO card que vira card
+   * de Vendas passa por `importRadarLeadToVendasForUser`, então é aqui que a porta 8 mora.
+   * Semântica exata do briefing (docs/PLANEJAMENTOS/PR02072026/W2-ia7b-etapa7-zapgate-porta8.md):
+   *   - flag `HBX_RADAR_ZAP_GATE_REQUIRED` false → comportamento atual, nunca bloqueia (rollback barato).
+   *   - já `confirmed` (cache do enrichmentJson OU checagem viva) → libera.
+   *   - checagem viva responde "NÃO tem WhatsApp" (`exists:false`) → BLOQUEIA a entrega. O card
+   *     NÃO é descartado (regra de ouro: histórico negativo nunca se apaga) — continua no pool
+   *     pronto pra enriquecimento/nova tentativa; só não vira card de Vendas agora.
+   *   - checker indisponível, sem sessão, timeout ou qualquer erro → NÃO bloqueia (fail-open por
+   *     design do briefing) — segue com `whatsappStatus:'unverified'`. `confirmed` só pode vir
+   *     do Webwhats de verdade, nunca inferido aqui.
+   * O freio físico (cache/TTL/rate-limit/disjuntor) do check em si mora no SERVIÇO (W4, em
+   * paralelo) — este método só decide a política de gate, não fala HTTP direto com o motor.
+   */
+  private async enforceRadarZapGateForDelivery(row: any): Promise<{ blocked: boolean; message?: string }> {
+    const required = String(process.env.HBX_RADAR_ZAP_GATE_REQUIRED ?? 'true').trim().toLowerCase() !== 'false';
+    if (!required) return { blocked: false };
+
+    const phoneDigits = normalizePhoneDigits(row?.phoneDigits || row?.phone);
+    if (!phoneDigits) return { blocked: false };
+
+    const existingStatus = String(
+      this.parseMaybeJsonObject(row?.enrichmentJson)?.whatsappStatus
+      || this.parseMaybeJsonObject(row?.metadataJson)?.whatsappStatus
+      || '',
+    ).trim().toLowerCase();
+    if (existingStatus === 'confirmed') return { blocked: false };
+
+    try {
+      const results = await this.radarCheckWhatsappNumbers([phoneDigits]);
+      const match = Array.isArray(results)
+        ? results.find((item: any) => normalizePhoneDigits(item?.normalizedNumber || item?.input) === phoneDigits)
+        : null;
+      if (!match) return { blocked: false }; // motor indisponivel/sem sessao (radarCheckWhatsappNumbers degrada p/ [])
+      if (match.exists === false) {
+        return {
+          blocked: true,
+          message: 'Numero sem WhatsApp confirmado pelo motor. Card segue disponivel para enriquecimento, nao foi descartado.',
+        };
+      }
+      return { blocked: false };
+    } catch (error: any) {
+      // Indisponivel/timeout/erro do motor: fail-open (nunca bloqueia por indisponibilidade).
+      this.logger?.warn?.(`[radar-zap-gate] check indisponivel lead=${row?.id || '-'}: ${String(error?.message || error)}`);
+      return { blocked: false };
+    }
+  }
+
+  /**
+   * Etapa 7 (IA 7b pós-entrega só-aditiva): agenda o saneamento em memória, sem bloquear a
+   * resposta da entrega. `RadarPostDeliveryAiSaneamentoService.enqueue` já é no-op se a flag
+   * `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default) — chamada sempre segura.
+   */
+  private enqueueRadarPostDeliveryAiSaneamento(row: any) {
+    const radarLeadId = String(row?.id || '').trim();
+    const name = String(row?.name || '').trim();
+    if (!radarLeadId || !name) return;
+    this.getRadarPostDeliveryAiSaneamento().enqueue(
+      {
+        radarLeadId,
+        name,
+        city: row?.city || null,
+        state: row?.state || null,
+        segment: row?.segment || null,
+      },
+      {
+        loadRadarLeadPoolRow: (id: string) => (this.prisma as any).radarLeadPool.findUnique({
+          where: { id },
+          select: { id: true, metadataJson: true },
+        }).catch(() => null),
+        updateRadarLeadPoolMetadata: async (id: string, metadataJson: string) => {
+          await (this.prisma as any).radarLeadPool.update({
+            where: { id },
+            data: { metadataJson },
+          }).catch(() => null);
+        },
+        logger: this.logger,
+      },
+    );
+  }
+
   async importRadarLeadToVendasForUser(
     user: any,
     radarLeadId: string,
@@ -3426,6 +3536,13 @@ export class RadarCoreDeliveryMixin {
     let leadRow = row;
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
+    }
+    // Zap-gate porta 8 da entrega (árvore mestra 02/07, docs/PLANEJAMENTOS/ARVORE-MESTRA/).
+    // `HBX_RADAR_ZAP_GATE_REQUIRED` default true. Único ponto de entrega: TODO caminho
+    // (envio manual, auto-import, distribuição em massa/território) converge aqui.
+    const zapGate = await this.enforceRadarZapGateForDelivery(leadRow);
+    if (zapGate.blocked) {
+      throw new BadRequestException(zapGate.message || 'Numero sem WhatsApp confirmado. Card segue para enriquecimento, nao foi descartado.');
     }
     // Quando o vendedor puxa um card livre para si (sem assignedUserId explícito),
     // o card passa a ser dele: usa context.userId como assignedUserId.
@@ -3612,6 +3729,10 @@ export class RadarCoreDeliveryMixin {
     if (!assignedUserId && leadRow?.segment) {
       this._bumpSegmentAffinity(context.userId, String(leadRow.segment)).catch(() => null);
     }
+    // Etapa 7 da árvore mestra: dispara DEPOIS que a entrega já respondeu (fire-and-forget,
+    // igual ao padrão L4/web-enrichment desta mesma função) — nunca atrasa nem falha a
+    // entrega. No-op silencioso se `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default).
+    this.enqueueRadarPostDeliveryAiSaneamento(leadRow);
     return {
       ok: true,
       radarLeadId: leadRow.id,

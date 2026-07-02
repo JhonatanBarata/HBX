@@ -35,6 +35,7 @@ import { RadarSocialLookupService, type RadarSocialLookupHost } from './04-socia
 import { RadarDeliveryOrchestratorService } from './05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './05-delivery/radar-post-delivery-vendas-update.service';
+import { RadarPostDeliveryAiSaneamentoService } from './05-delivery/radar-post-delivery-ai-saneamento.service';
 import { RadarVendasSyncService, type RadarVendasSyncHost } from './05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './06-presentation/radar-run-presenter.service';
@@ -240,6 +241,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
     @Optional() private readonly radarPostDeliveryVendasUpdate?: RadarPostDeliveryVendasUpdateService,
     @Optional() private readonly radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
+    @Optional() private readonly radarPostDeliveryAiSaneamento?: RadarPostDeliveryAiSaneamentoService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchGeo?: RadarSearchGeoService,
@@ -358,6 +360,10 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarDeliveryOrchestrator() {
     return this.radarDeliveryOrchestrator || new RadarDeliveryOrchestratorService(this.getRadarPostDeliveryUpdate());
+  }
+
+  private getRadarPostDeliveryAiSaneamento() {
+    return this.radarPostDeliveryAiSaneamento || new RadarPostDeliveryAiSaneamentoService();
   }
 
   private getRadarSharedNormalizer() {

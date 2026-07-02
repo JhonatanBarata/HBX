@@ -60,6 +60,7 @@ import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/web
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
+import { RadarPostDeliveryAiSaneamentoService } from './radar/05-delivery/radar-post-delivery-ai-saneamento.service';
 import { LeadContactWriteService } from './radar/persistence/lead-contact-write.service';
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarDiagnosticService } from './radar/shared/radar-diagnostic.service';
@@ -125,6 +126,7 @@ const RADAR_DELIVERY_SERVICES = [
   RadarPostDeliveryVendasUpdateService,
   RadarDeliveryOrchestratorService,
   RadarVendasSyncService,
+  RadarPostDeliveryAiSaneamentoService,
 ];
 
 const RADAR_PRESENTATION_SERVICES = [

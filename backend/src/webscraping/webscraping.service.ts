@@ -44,6 +44,7 @@ import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
+import { RadarPostDeliveryAiSaneamentoService } from './radar/05-delivery/radar-post-delivery-ai-saneamento.service';
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
@@ -75,6 +76,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
     @Optional() radarPostDeliveryVendasUpdate?: RadarPostDeliveryVendasUpdateService,
     @Optional() radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
+    @Optional() radarPostDeliveryAiSaneamento?: RadarPostDeliveryAiSaneamentoService,
     @Optional() radarVendasSync?: RadarVendasSyncService,
     @Optional() radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() radarSearchGeo?: RadarSearchGeoService,
@@ -116,6 +118,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarPostDeliveryUpdate,
       radarPostDeliveryVendasUpdate,
       radarDeliveryOrchestrator,
+      radarPostDeliveryAiSaneamento,
       radarVendasSync,
       radarSharedNormalizer,
       radarSearchGeo,
