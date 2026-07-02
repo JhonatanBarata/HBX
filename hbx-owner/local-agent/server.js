@@ -183,6 +183,8 @@ const STATIC_TYPES = {
   ".js": "application/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
+  // HOT-06: config de vídeos/tutoriais (tutoriais.json) servida como estática, mesma regra do resto de web/.
+  ".json": "application/json; charset=utf-8",
 };
 
 if (!TOKEN) {

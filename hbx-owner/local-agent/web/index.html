@@ -300,7 +300,7 @@
     </div>
 
     <details class="motor-details" open>
-      <summary class="label">Características da empresa</summary>
+      <summary class="label" data-tutorial="cb-caracteristicas">Características da empresa</summary>
       <div class="form-grid" style="margin-top:10px;">
         <label>CNAE (código ou texto)
           <input id="cb-cnae-search" class="cf-input" placeholder="ex. salão de beleza ou 9602-5" autocomplete="off" />
@@ -336,7 +336,7 @@
     </details>
 
     <details class="motor-details">
-      <summary class="label">Localização</summary>
+      <summary class="label" data-tutorial="cb-localizacao">Localização</summary>
       <div class="form-grid" style="margin-top:10px;">
         <label>Cidade (autocomplete)
           <input id="cb-city-search" class="cf-input" placeholder="digite pra buscar…" autocomplete="off" />
@@ -352,7 +352,7 @@
     </details>
 
     <details class="motor-details">
-      <summary class="label">Datas de abertura</summary>
+      <summary class="label" data-tutorial="cb-datas">Datas de abertura</summary>
       <div class="form-grid" style="margin-top:10px;">
         <label>Abrangência
           <select id="cb-data-slider">
@@ -376,7 +376,7 @@
     </details>
 
     <details class="motor-details">
-      <summary class="label">Opções de contato (anti-contador — HOT-03)</summary>
+      <summary class="label" data-tutorial="cb-contato">Opções de contato (anti-contador — HOT-03)</summary>
       <div class="form-grid" style="margin-top:10px;">
         <label>Apenas empresas com
           <select id="cb-contato-tipo">
@@ -466,6 +466,18 @@
     </div>
     <p class="delta" style="margin:0 0 12px;"><strong>Injetar grava direto no .env da VPS</strong> (produção) e recria o backend — leva alguns segundos pra subir. O Local é só leitura.</p>
     <div id="integrations-grid" class="int-grid"><p class="delta">lendo…</p></div>
+  </section>
+
+  <!-- ============ TREINAMENTOS (HOT-06) — playlist de vídeos, mesma fonte do ▶️ dos filtros ============ -->
+  <section class="card" id="treinamentos">
+    <div class="cockpit-head">
+      <div class="hero-title">
+        <span class="label">Treinamentos</span>
+        <span class="pill pill-muted">onboarding em vídeo</span>
+      </div>
+    </div>
+    <p class="delta" style="margin:0 0 12px;">Vídeos curtos de como usar o HBX — mesmo mapa de URLs do ▶️ ao lado dos filtros. Preencha <code>hbx-owner/local-agent/web/tutoriais.json</code> conforme grava; enquanto não grava, o item some daqui (fica só no roteiro).</p>
+    <div id="treinamentos-list" class="tr-list"><p class="delta">lendo…</p></div>
   </section>
 
   </main>
