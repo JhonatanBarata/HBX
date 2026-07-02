@@ -1207,6 +1207,18 @@ export class RadarCoreMassDataMixin {
       this.scheduleRadarCampaignPump(8_000);
       return;
     }
+    // FREIO do PARAR (Sprint 1 MOTOR-RFB-FILA): "Parar" grava emergencyStop=true no turbo_noturno
+    // MANTENDO enabled=true (stopFactoryNow), então o gate do cursor acima era a única trava — e
+    // qualquer fluxo que religa o cursor (ex.: createMasterMassDataCampaign preserva o emergencyStop
+    // antigo do metadata) voltava a drenar campanha com o PARAR ainda ativo. Config manda:
+    // emergencyStop OU enabled=false = pump parado, sem exceção; só o Retomar (emergencyStop=false)
+    // libera. Row ausente cai nos defaults (enabled=true, emergencyStop=false) — banco virgem não trava.
+    const opConfig = await this.getOperationalConfig().catch(() => null);
+    if (opConfig && (opConfig.emergencyStop === true || opConfig.enabled === false)) {
+      this.logger.log(`[factoryPump] pausada: ${opConfig.emergencyStop === true ? 'PARAR TUDO ativo (emergencyStop no turbo_noturno)' : 'config operacional desligada (enabled=false)'} — ciclo autônomo pulado; reagendando em 8s`);
+      this.scheduleRadarCampaignPump(8_000);
+      return;
+    }
     this.radarCampaignPumpActive = true;
     try {
       const [capacity, scheduler] = await Promise.all([
