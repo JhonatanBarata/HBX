@@ -47,6 +47,7 @@ import { RadarSearchRunConfigService } from './01-search/radar-search-run-config
 import { RadarSourceExpansionService } from './01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
+import { RadarMissionQueueService } from './missions/radar-mission-queue.service';
 import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './01-search/radar-source-executor.service';
 import { RadarCnpjPublicSourceService } from './01-search/radar-cnpj-public-source.service';
@@ -315,6 +316,16 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       this.hbxEnginePool = new HbxEnginePoolService(this.prisma);
     }
     return this.hbxEnginePool;
+  }
+
+  // SPRINT 4 MOTOR-RFB-FILA (02/07): fila de missões acessível aos mixins (mesmo padrão lazy do
+  // getEnginePool — instância `new` não registra timers de lifecycle; o sweeper vive na instância DI).
+  private radarMissionQueueLazy: RadarMissionQueueService | null = null;
+  private getMissionQueue() {
+    if (!this.radarMissionQueueLazy) {
+      this.radarMissionQueueLazy = new RadarMissionQueueService(this.prisma);
+    }
+    return this.radarMissionQueueLazy;
   }
 
   private getRadarRunRepository() {

@@ -2,6 +2,12 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { readFileSync } from 'fs';
 import { cpus as osCpus } from 'os';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  computeMissionLagEngineTarget,
+  isMissionQueueEnabled,
+  RadarMissionQueueService,
+  type RadarMissionQueueLag,
+} from './radar/missions/radar-mission-queue.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 3;
 export const PRODUCTION_HBX_ENGINE_COUNT = 20;
@@ -1628,7 +1634,8 @@ export class HbxEnginePoolService implements OnModuleInit {
       this.healthCheckEngines(),
     ]);
     const scheduler = await this.buildSchedulerStatus(capacity, rows).catch(() => capacity.scheduler || null);
-    const desiredRunningCount = this.resolveElasticDesiredRunningCount(capacity, scheduler, operationalConfig);
+    const missionLag = isMissionQueueEnabled() ? await this.getMissionQueueLagSafe() : null;
+    const desiredRunningCount = this.resolveElasticDesiredRunningCount(capacity, scheduler, operationalConfig, missionLag);
     const result = await this.applyElasticDesiredStates(rows, desiredRunningCount);
 
     return {
@@ -1639,6 +1646,20 @@ export class HbxEnginePoolService implements OnModuleInit {
       updatedStoppingCount: result.updatedStoppingCount,
       scheduler,
     };
+  }
+
+  // SPRINT 4 MOTOR-RFB-FILA (02/07): amostra do lag da fila de missões pro resolver síncrono da
+  // elástica. Instância lazy `new` (sem lifecycle/timers — o sweeper vive na instância DI do módulo).
+  private missionQueueForLag: RadarMissionQueueService | null = null;
+  private async getMissionQueueLagSafe(): Promise<RadarMissionQueueLag | null> {
+    try {
+      if (!this.missionQueueForLag) {
+        this.missionQueueForLag = new RadarMissionQueueService(this.prisma);
+      }
+      return await this.missionQueueForLag.getQueueLagSnapshot();
+    } catch {
+      return null;
+    }
   }
 
   private normalizePurpose(value: unknown): HbxEnginePurpose {
@@ -1680,10 +1701,25 @@ export class HbxEnginePoolService implements OnModuleInit {
     capacity?: CapacityLevel | null,
     scheduler?: HbxEngineSchedulerStatus | null,
     operationalConfig?: any,
+    missionLag?: RadarMissionQueueLag | null,
   ) {
     const configuredCount = getConfiguredHbxEngineCount();
     const warmMin = this.resolveElasticWarmMinEngines(configuredCount);
-    const automaticTarget = Math.max(0, Math.trunc(Number(scheduler?.automaticAllowedEngines || 0)));
+    let automaticTarget = Math.max(0, Math.trunc(Number(scheduler?.automaticAllowedEngines || 0)));
+    // SPRINT 4 MOTOR-RFB-FILA (02/07): com a fila de missões LIGADA, a produção automática escala
+    // pelo LAG REAL da fila (profundidade × idade) em vez da permissão sintética — fila vazia deixa
+    // a frota no warm (mata a "demanda falsa religando motor"). O teto por fonte/proteções
+    // (automaticAllowedEngines, sprint 3) vale ACIMA de qualquer escala: o lag só REDUZ, nunca excede.
+    if (missionLag && isMissionQueueEnabled()) {
+      automaticTarget = Math.min(
+        automaticTarget,
+        computeMissionLagEngineTarget({
+          queuedDue: missionLag.queuedDue,
+          oldestQueuedAgeMs: missionLag.oldestQueuedAgeMs,
+          allowedEngines: automaticTarget,
+        }),
+      );
+    }
     const activeTarget = Math.max(0, Math.trunc(Number(capacity?.activeEngineCount || 0)));
     const manualReserve = scheduler?.clientPriorityActive
       ? Math.max(0, Math.trunc(Number(scheduler.manualReservedEngines || 0)))
