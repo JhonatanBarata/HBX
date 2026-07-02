@@ -39,6 +39,20 @@ export class WebsiteController {
     return this.websiteService.getPortalForCompanyByMaster(Number(req.user?.id), companyId, target);
   }
 
+  // COLD-22: token opaco pro form do site apontar o POST público de captura de lead.
+  // Emite na primeira chamada (idempotente); rotação é ação explícita (invalida o form antigo).
+  @Get('master/company/:companyId/capture-token')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  getCaptureTokenForMaster(@Req() req: any, @Param('companyId', ParseIntPipe) companyId: number) {
+    return this.websiteService.getOrCreateCaptureTokenByMaster(Number(req.user?.id), companyId);
+  }
+
+  @Post('master/company/:companyId/capture-token/rotate')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  rotateCaptureTokenForMaster(@Req() req: any, @Param('companyId', ParseIntPipe) companyId: number) {
+    return this.websiteService.rotateCaptureTokenByMaster(Number(req.user?.id), companyId);
+  }
+
   @Post('admin/exchange')
   exchangeAdminEntry(@Body() dto: WebsiteAdminExchangeDto, @Ip() ip?: string) {
     return this.websiteService.exchangeAdminEntry(dto, ip);

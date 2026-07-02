@@ -1,0 +1,101 @@
+<!--
+  COLD-22 — formulário de captura de lead do site do cliente -> CRM HBX (card de Atendimento).
+
+  COMO USAR (por site/cliente do website-kit):
+    1. Peça ao MASTER o token de captura da empresa:
+       GET /website/master/company/:companyId/capture-token  (JwtAuthGuard + MasterGuard)
+       -> { companyId, companyName, captureToken, captureEndpoint }
+    2. Cole esse HTML no lugar do formulário de contato do site (ex.: sobre.html#contato-remocao).
+    3. Preencha as duas constantes abaixo: HBX_BACKEND_BASE_URL e HBX_SITE_CAPTURE_TOKEN.
+    4. Publique o site (npm run firebase:<cliente>:deploy:hosting) — nenhuma mudança de backend
+       é necessária por site, o endpoint já é multi-tenant pelo token.
+
+  O QUE ESTE FORM FAZ:
+    - Envia POST para {HBX_BACKEND_BASE_URL}/public/lead-capture/{HBX_SITE_CAPTURE_TOKEN}.
+    - Endpoint público, sem login — a segurança vem do token opaco, não de sessão.
+    - Campo "_hp" é um honeypot invisível: bots que preenchem tudo (inclusive campos ocultos)
+      caem nele; humanos nunca veem nem preenchem. Não remova nem exiba esse campo.
+    - Exige telefone OU e-mail preenchido (o back rejeita se os dois vierem vazios).
+    - Rate-limit e dedup são responsabilidade do backend — este snippet só envia.
+
+  NÃO É preciso instalar nada: é fetch() puro, funciona em qualquer site estático Firebase.
+-->
+<section class="section section-alt" id="hbx-lead-capture">
+  <div class="shell highlight-grid">
+    <div class="card reveal">
+      <span class="eyebrow">Fale com a gente</span>
+      <h2>Deixe seu contato que respondemos rápido</h2>
+      <form id="hbx-lead-capture-form" novalidate>
+        <div style="margin-bottom:12px;">
+          <label for="hbx-lc-name">Nome</label><br>
+          <input id="hbx-lc-name" name="name" type="text" autocomplete="name" maxlength="200">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="hbx-lc-phone">Telefone / WhatsApp</label><br>
+          <input id="hbx-lc-phone" name="phone" type="tel" autocomplete="tel" maxlength="30">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="hbx-lc-email">E-mail</label><br>
+          <input id="hbx-lc-email" name="email" type="email" autocomplete="email" maxlength="200">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="hbx-lc-message">Mensagem</label><br>
+          <textarea id="hbx-lc-message" name="message" rows="3" maxlength="1000"></textarea>
+        </div>
+        <!-- Honeypot: campo escondido, só bot preenche. Não remover, não mostrar ao usuário. -->
+        <div aria-hidden="true" style="position:absolute; left:-9999px; top:-9999px;">
+          <label for="hbx-lc-hp">Não preencha este campo</label>
+          <input id="hbx-lc-hp" name="_hp" type="text" tabindex="-1" autocomplete="off">
+        </div>
+        <button class="button" type="submit">Enviar</button>
+        <p id="hbx-lc-feedback" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    // Preencha estas duas constantes por site/cliente antes de publicar.
+    var HBX_BACKEND_BASE_URL = 'https://SEU_BACKEND_HBX.com'; // sem barra no final
+    var HBX_SITE_CAPTURE_TOKEN = 'COLE_AQUI_O_TOKEN_DA_EMPRESA';
+
+    var form = document.getElementById('hbx-lead-capture-form');
+    var feedback = document.getElementById('hbx-lc-feedback');
+    if (!form) return;
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (feedback) feedback.textContent = 'Enviando...';
+
+      var payload = {
+        name: (document.getElementById('hbx-lc-name') || {}).value || '',
+        phone: (document.getElementById('hbx-lc-phone') || {}).value || '',
+        email: (document.getElementById('hbx-lc-email') || {}).value || '',
+        message: (document.getElementById('hbx-lc-message') || {}).value || '',
+        _hp: (document.getElementById('hbx-lc-hp') || {}).value || '',
+      };
+
+      var endpoint = HBX_BACKEND_BASE_URL.replace(/\/$/, '') + '/public/lead-capture/' + encodeURIComponent(HBX_SITE_CAPTURE_TOKEN);
+
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(function (response) {
+          if (response.ok) {
+            if (feedback) feedback.textContent = 'Recebemos seu contato! Vamos responder em breve.';
+            form.reset();
+            return;
+          }
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            if (feedback) feedback.textContent = (data && data.message) || 'Informe telefone ou e-mail para contato.';
+          });
+        })
+        .catch(function () {
+          if (feedback) feedback.textContent = 'Não foi possível enviar agora. Tente pelo WhatsApp.';
+        });
+    });
+  })();
+</script>

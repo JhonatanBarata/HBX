@@ -36,6 +36,7 @@ import { NightFactoryModule } from './night-factory/night-factory.module';
 import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
 import { BotModule } from './bot/bot.module';
 import { MasterCockpitModule } from './master-cockpit/master-cockpit.module';
+import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-capture.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { MasterCockpitModule } from './master-cockpit/master-cockpit.module';
     BotModule,
     AdminModule,
     MasterCockpitModule,
+    WebsiteLeadCaptureModule,
   ],
   controllers: [AppController],
   providers: [

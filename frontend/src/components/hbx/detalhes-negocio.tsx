@@ -75,6 +75,8 @@ const LABEL_MAP: Record<string, string> = {
   // Source
   webscraping: "Radar Digital",
   manual: "Manual",
+  meta_lead_ads: "Anúncio (Meta)",
+  website_form: "Site próprio",
   // leadTemperature
   quente: "Quente",
   morno: "Morno",

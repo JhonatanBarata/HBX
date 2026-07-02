@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type WebsiteLaunchMode = 'public' | 'admin';
@@ -11,6 +12,7 @@ export type CompanyWebsiteConfigRecord = {
   websiteProjectId: string | null;
   websiteAdminEnabled: boolean;
   websiteLaunchMode: WebsiteLaunchMode;
+  websiteCaptureToken: string | null;
   createdAt: Date | null;
   updatedAt: Date | null;
 };
@@ -44,6 +46,7 @@ function mapConfigRow(row: any): CompanyWebsiteConfigRecord {
     websiteProjectId: normalizeOptionalString(row.websiteProjectId),
     websiteAdminEnabled: Boolean(row.websiteAdminEnabled),
     websiteLaunchMode: normalizeLaunchMode(row.websiteLaunchMode),
+    websiteCaptureToken: normalizeOptionalString(row.websiteCaptureToken),
     createdAt: row.createdAt instanceof Date ? row.createdAt : row.createdAt ? new Date(row.createdAt) : null,
     updatedAt: row.updatedAt instanceof Date ? row.updatedAt : row.updatedAt ? new Date(row.updatedAt) : null,
   };
@@ -99,6 +102,15 @@ async function ensureWebsiteRuntimeSchemaUncached(prisma: PrismaService) {
     'CREATE INDEX IF NOT EXISTS "CompanyWebsiteConfig_project_idx" ON "CompanyWebsiteConfig"("websiteProjectId")',
   );
 
+  // COLD-22: token opaco de captura pública (form do site → lead). Nunca expor companyId cru
+  // na URL pública; o site do cliente aponta pro endpoint com este token, não com o id.
+  await prisma.$executeRawUnsafe(
+    'ALTER TABLE "CompanyWebsiteConfig" ADD COLUMN IF NOT EXISTS "websiteCaptureToken" TEXT',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "CompanyWebsiteConfig_captureToken_key" ON "CompanyWebsiteConfig"("websiteCaptureToken")',
+  );
+
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "WebsiteAdminEntryToken" (
       "id" TEXT PRIMARY KEY,
@@ -142,6 +154,7 @@ export async function listCompanyWebsiteConfigs(
       c."websiteProjectId",
       c."websiteAdminEnabled",
       c."websiteLaunchMode",
+      c."websiteCaptureToken",
       c."createdAt",
       c."updatedAt"
     FROM "CompanyWebsiteConfig" c
@@ -216,11 +229,89 @@ export async function upsertCompanyWebsiteConfig(
       "websiteProjectId",
       "websiteAdminEnabled",
       "websiteLaunchMode",
+      "websiteCaptureToken",
       "createdAt",
       "updatedAt"
   `);
 
   return rows[0] ? mapConfigRow(rows[0]) : null;
+}
+
+// COLD-22: token opaco (nunca companyId cru na URL pública) que o site do cliente usa pra
+// apontar o formulário de captura pro backend. Emite se a empresa ainda não tiver um; se já
+// tiver linha de config sem token (empresa criada antes desta feature), gera e grava agora.
+function generateCaptureToken() {
+  return randomBytes(24).toString('hex'); // 48 chars hex — opaco, não sequencial.
+}
+
+export async function ensureWebsiteCaptureToken(prisma: PrismaService, companyId: number): Promise<string> {
+  await ensureWebsiteRuntimeSchema(prisma);
+  const normalizedCompanyId = Number(companyId || 0);
+
+  const existing = await prisma.$queryRaw<Array<any>>(Prisma.sql`
+    SELECT "websiteCaptureToken" FROM "CompanyWebsiteConfig" WHERE "companyId" = ${normalizedCompanyId} LIMIT 1
+  `);
+  const currentToken = normalizeOptionalString(existing[0]?.websiteCaptureToken);
+  if (currentToken) return currentToken;
+
+  // Tenta algumas vezes por causa da chance (mínima) de colisão no índice único.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const token = generateCaptureToken();
+    try {
+      const rows = await prisma.$queryRaw<Array<any>>(Prisma.sql`
+        INSERT INTO "CompanyWebsiteConfig" ("companyId", "websiteCaptureToken", "createdAt", "updatedAt")
+        VALUES (${normalizedCompanyId}, ${token}, ${new Date()}, ${new Date()})
+        ON CONFLICT ("companyId") DO UPDATE SET
+          "websiteCaptureToken" = COALESCE("CompanyWebsiteConfig"."websiteCaptureToken", EXCLUDED."websiteCaptureToken"),
+          "updatedAt" = CASE
+            WHEN "CompanyWebsiteConfig"."websiteCaptureToken" IS NULL THEN EXCLUDED."updatedAt"
+            ELSE "CompanyWebsiteConfig"."updatedAt"
+          END
+        RETURNING "websiteCaptureToken"
+      `);
+      const savedToken = normalizeOptionalString(rows[0]?.websiteCaptureToken);
+      if (savedToken) return savedToken;
+    } catch (error: any) {
+      if (error?.code === 'P2010' || error?.code === '23505') continue; // colisão de índice único — tenta outro token
+      throw error;
+    }
+  }
+  throw new Error('Nao foi possivel gerar um websiteCaptureToken unico apos varias tentativas.');
+}
+
+export async function rotateWebsiteCaptureToken(prisma: PrismaService, companyId: number): Promise<string> {
+  await ensureWebsiteRuntimeSchema(prisma);
+  const normalizedCompanyId = Number(companyId || 0);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const token = generateCaptureToken();
+    try {
+      const rows = await prisma.$queryRaw<Array<any>>(Prisma.sql`
+        INSERT INTO "CompanyWebsiteConfig" ("companyId", "websiteCaptureToken", "createdAt", "updatedAt")
+        VALUES (${normalizedCompanyId}, ${token}, ${new Date()}, ${new Date()})
+        ON CONFLICT ("companyId") DO UPDATE SET
+          "websiteCaptureToken" = EXCLUDED."websiteCaptureToken",
+          "updatedAt" = EXCLUDED."updatedAt"
+        RETURNING "websiteCaptureToken"
+      `);
+      const savedToken = normalizeOptionalString(rows[0]?.websiteCaptureToken);
+      if (savedToken) return savedToken;
+    } catch (error: any) {
+      if (error?.code === 'P2010' || error?.code === '23505') continue;
+      throw error;
+    }
+  }
+  throw new Error('Nao foi possivel rotacionar o websiteCaptureToken apos varias tentativas.');
+}
+
+export async function getCompanyIdByCaptureToken(prisma: PrismaService, token: string): Promise<number | null> {
+  await ensureWebsiteRuntimeSchema(prisma);
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedToken) return null;
+  const rows = await prisma.$queryRaw<Array<any>>(Prisma.sql`
+    SELECT "companyId" FROM "CompanyWebsiteConfig" WHERE "websiteCaptureToken" = ${normalizedToken} LIMIT 1
+  `);
+  const companyId = Number(rows[0]?.companyId || 0);
+  return companyId > 0 ? companyId : null;
 }
 
 export async function createWebsiteAdminEntryTokenRecord(

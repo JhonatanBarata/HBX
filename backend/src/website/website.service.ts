@@ -11,9 +11,11 @@ import {
   CompanyWebsiteConfigRecord,
   consumeWebsiteAdminEntryTokenRecord,
   createWebsiteAdminEntryTokenRecord,
+  ensureWebsiteCaptureToken,
   ensureWebsiteRuntimeSchema,
   getCompanyWebsiteConfig,
   getWebsiteAdminEntryTokenRecord,
+  rotateWebsiteCaptureToken,
   upsertCompanyWebsiteConfig,
 } from './website-runtime';
 
@@ -756,6 +758,51 @@ export class WebsiteService implements OnModuleInit {
         name: user.name || null,
         role: user.role || null,
       },
+    };
+  }
+
+  // COLD-22: token opaco pro form do site apontar o POST público de captura de lead — nunca
+  // expor companyId cru na URL pública. Idempotente: emite se a empresa ainda não tiver um.
+  async getOrCreateCaptureTokenByMaster(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!company) throw new NotFoundException('Empresa nao encontrada.');
+
+    const captureToken = await ensureWebsiteCaptureToken(this.prisma, company.id);
+    return {
+      companyId: company.id,
+      companyName: company.name,
+      captureToken,
+      captureEndpoint: `/public/lead-capture/${captureToken}`,
+    };
+  }
+
+  async rotateCaptureTokenByMaster(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!company) throw new NotFoundException('Empresa nao encontrada.');
+
+    const captureToken = await rotateWebsiteCaptureToken(this.prisma, company.id);
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId: company.id,
+      scope: 'master_website',
+      action: 'WEBSITE_CAPTURE_TOKEN_ROTATED',
+      metadata: { companyId: company.id },
+    });
+
+    this.websiteWarn('WEBSITE_CAPTURE_TOKEN_ROTATED', { companyId: company.id, masterUserId });
+    return {
+      companyId: company.id,
+      companyName: company.name,
+      captureToken,
+      captureEndpoint: `/public/lead-capture/${captureToken}`,
     };
   }
 }
