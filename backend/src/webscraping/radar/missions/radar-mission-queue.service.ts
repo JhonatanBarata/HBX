@@ -9,7 +9,11 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // A família de bugs caros (pump moendo cidade esgotada, lease órfão → deadlock todos-busy, Parar que
 // não para, demanda falsa religando motor) era toda sintoma da fila improvisada.
 
-export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card'] as const;
+// `enrich_lead` (F2, 02/07): missão da FÁBRICA DE ENRIQUECIMENTO. Diferente das etapas da lane de
+// pesquisa (alvo→…→card), ela pega um lead JÁ existente na base (materializado da lista RFB local) e
+// completa contato/site/social/sócio — SEMPRE grátis no local (trava Lei nº1), sempre via
+// LeadContactWriteService (gate anti-alucinação). Ver RadarFabricaService.
+export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead'] as const;
 export type RadarMissionStage = (typeof RADAR_MISSION_STAGES)[number];
 
 export const RADAR_MISSION_PAYLOAD_VERSION = 1;

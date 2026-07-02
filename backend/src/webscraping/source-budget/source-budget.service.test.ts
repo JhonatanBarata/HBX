@@ -90,6 +90,9 @@ test('cap=2 no Brave: 2 consomem, a 3ª bloqueia; contador não passa do teto', 
   resetGovernorRuntime();
   const db = makeFakeDb();
   injectDb(db);
+  // Cap do teto pago só é exercível quando a trava de papel LIBERA (VPS). No local a trava recusa
+  // ANTES do contador — cenário coberto pelo teste da trava logo abaixo.
+  process.env.HBX_ROLE = 'vps';
   process.env.HBX_BRAVE_MONTHLY_CAP = '2';
   assert.equal(await SourceBudgetService.tryConsumePaid('brave'), true);
   assert.equal(await SourceBudgetService.tryConsumePaid('brave'), true);
@@ -97,6 +100,27 @@ test('cap=2 no Brave: 2 consomem, a 3ª bloqueia; contador não passa do teto', 
   const ym = new Date().toISOString().slice(0, 7);
   assert.equal(db.rows.get(`brave|${ym}`)?.count, 2);
   process.env.HBX_BRAVE_MONTHLY_CAP = '900';
+  delete process.env.HBX_ROLE;
+});
+
+test('TRAVA LEI Nº1: HBX_ROLE=local recusa tryConsumePaid ANTES do contador (R$0)', async () => {
+  resetGovernorRuntime();
+  // banco QUEBRADO de propósito: se a trava não recusasse antes, o fail-closed do contador
+  // também devolveria false — aqui a distinção é que NADA de banco é tocado. O ponto: no local,
+  // pago é false SEM depender do contador.
+  const db = makeFakeDb();
+  injectDb(db);
+  process.env.HBX_ROLE = 'local';
+  process.env.HBX_BRAVE_MONTHLY_CAP = '900';
+  process.env.HBX_GOOGLE_PLACES_DAILY_CAP = '200';
+  assert.equal(await SourceBudgetService.tryConsumePaid('brave'), false);
+  assert.equal(await SourceBudgetService.tryConsumePaid('google_places'), false);
+  // contador NÃO foi incrementado (trava cortou antes de tocar o banco)
+  const ym = new Date().toISOString().slice(0, 7);
+  assert.equal(db.rows.get(`brave|${ym}`), undefined);
+  // Serper e o repasse pro motor também ficam OFF no local
+  assert.equal(SourceBudgetService.serperAllowed(), false);
+  delete process.env.HBX_ROLE;
 });
 
 test('searchBrave degrada gracioso no teto: [] e ZERO chamada real na API', async () => {
