@@ -13,17 +13,31 @@
  *
  *   Fonte: repositório Nextcloud oficial da RFB (URL vigente desde jan/2026):
  *     https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9  (pasta <AAAA-MM>/)
- *   Arquivos: Empresas0-9.zip, Estabelecimentos0-9.zip, Socios0-9.zip + auxiliares
+ *   Se o share oficial cair de novo (já mudou 1x em jan/26), aponte pro mirror sem editar
+ *   código: HBX_RFB_WEBDAV_BASE=https://dados-abertos-rf-cnpj.casadosdados.com.br/... ou
+ *   --webdav-base <url> (ambos por cima do default acima).
+ *   Arquivos: Empresas0-9.zip, Estabelecimentos0-9.zip, Socios0-9.zip, Simples.zip + auxiliares
  *   (Cnaes, Municipios, Qualificacoes). CSV ';' com aspas, SEM cabeçalho, LATIN1.
  *
  *   Estratégia de carga (escala 28M — upsert de 1000 em 1000 NÃO escala):
  *     1. unzip -p (stream) → docker exec psql COPY FROM STDIN → staging UNLOGGED
  *     2. transform set-based: INSERT ... SELECT ... ON CONFLICT (cnpj) DO UPDATE
- *        (só estabelecimentos ATIVOS/situacao 02; join Empresas+Municipios+Cnaes+Sócios)
- *     3. índices secundários derrubados ANTES da carga e recriados DEPOIS
- *     4. VACUUM ANALYZE no fim
+ *        (só estabelecimentos ATIVOS/situacao 02; join Empresas+Municipios+Cnaes+Sócios+Simples)
+ *     3. catálogo CnpjPublicCnae (código→descrição) upsertado do dump Cnaes.zip (HOT-02)
+ *     4. anti-contador HOT-03 (phoneShareCount/emailShareCount via GROUP BY na tabela final)
+ *     5. índices secundários derrubados ANTES da carga e recriados DEPOIS
+ *     6. VACUUM ANALYZE no fim
  *   Idempotente e retomável POR ARQUIVO/ETAPA: ledger cnpj_import_ledger no próprio banco;
  *   re-rodar não duplica (ON CONFLICT + TRUNCATE/reload dos sócios) e pula o que já foi.
+ *
+ *   Colunas de enriquecimento (HOT-01, aditivas): capitalSocial + naturezaJuridica (Empresas),
+ *   simples/mei (Simples.zip), phone2/cnaeSecundarias (Estabelecimentos). regimeTributario
+ *   (Lucro Real/Presumido/Arbitrado) é dataset separado da RFB, não vem neste dump — fica NULL,
+ *   fase 2.
+ *
+ *   Matching em 28M: ancorado em normalizedCity+state primeiro (índice composto já existe;
+ *   toda query do Radar filtra cidade antes de qualquer LIKE) — dispensa pg_trgm pro caso comum.
+ *   pg_trgm em searchText fica como reforço pro recorte dentro da cidade (CREATE_INDEXES).
  *
  *   Requisitos: docker (container Postgres local, default app-db-1), unzip OU tar (bsdtar),
  *   curl. Roda 100% LOCAL — o VPS NUNCA recebe a base crua (decisão travada do dono).
@@ -63,11 +77,17 @@ function log(msg) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Token do share público oficial (link publicado em dados.gov.br / gov.br/receitafederal).
-const RFB_SHARE_TOKEN = 'YggdBLfdninEJX9';
-const RFB_WEBDAV_BASE = 'https://arquivos.receitafederal.gov.br/public.php/webdav';
+// Layout/URL mudou jan/26 — se o share WebDAV oficial cair de novo, aponte pro mirror
+// (ex.: dados-abertos-rf-cnpj.casadosdados.com.br) via env/flag SEM editar código:
+//   HBX_RFB_WEBDAV_BASE=https://mirror/... node scripts/import-cnpj-dataset.js rfb
+//   node scripts/import-cnpj-dataset.js rfb --webdav-base https://mirror/...
+const RFB_SHARE_TOKEN = process.env.HBX_RFB_SHARE_TOKEN || 'YggdBLfdninEJX9';
+const RFB_WEBDAV_BASE = arg('webdav-base', process.env.HBX_RFB_WEBDAV_BASE
+  || 'https://arquivos.receitafederal.gov.br/public.php/webdav');
 
 // Grupos de arquivos do dump. Shards são descobertos no servidor (hoje 0-9, pode mudar).
-const RFB_GROUPS = ['Empresas', 'Estabelecimentos', 'Socios', 'Cnaes', 'Municipios', 'Qualificacoes'];
+// Simples entra aqui pro flag simples/mei (SQL_UPSERT_COMPANIES) — sem ele, ficam sempre NULL.
+const RFB_GROUPS = ['Empresas', 'Estabelecimentos', 'Socios', 'Simples', 'Cnaes', 'Municipios', 'Qualificacoes'];
 
 const STAGING_DDL = `
 CREATE TABLE IF NOT EXISTS cnpj_import_ledger (
@@ -95,6 +115,11 @@ CREATE UNLOGGED TABLE IF NOT EXISTS stg_rfb_socios (
   qualificacao text, data_entrada text, pais text, representante_doc text,
   representante_nome text, representante_qualificacao text, faixa_etaria text
 );
+-- Simples.zip: 1 linha por cnpj_basico. opcao_simples/opcao_mei = 'S'/'N' (raramente vazio).
+CREATE UNLOGGED TABLE IF NOT EXISTS stg_rfb_simples (
+  cnpj_basico text, opcao_simples text, data_opcao_simples text, data_exclusao_simples text,
+  opcao_mei text, data_opcao_mei text, data_exclusao_mei text
+);
 CREATE UNLOGGED TABLE IF NOT EXISTS stg_rfb_cnaes (codigo text, descricao text);
 CREATE UNLOGGED TABLE IF NOT EXISTS stg_rfb_municipios (codigo text, descricao text);
 CREATE UNLOGGED TABLE IF NOT EXISTS stg_rfb_qualificacoes (codigo text, descricao text);
@@ -121,6 +146,7 @@ const COPY_COLUMNS = {
   Empresas: 'cnpj_basico, razao_social, natureza_juridica, qualificacao_responsavel, capital_social, porte, ente_federativo',
   Estabelecimentos: 'cnpj_basico, cnpj_ordem, cnpj_dv, matriz_filial, nome_fantasia, situacao, data_situacao, motivo_situacao, cidade_exterior, pais, data_inicio, cnae_principal, cnae_secundario, tipo_logradouro, logradouro, numero, complemento, bairro, cep, uf, municipio, ddd1, telefone1, ddd2, telefone2, ddd_fax, fax, email, situacao_especial, data_situacao_especial',
   Socios: 'cnpj_basico, identificador, nome_socio, documento_socio, qualificacao, data_entrada, pais, representante_doc, representante_nome, representante_qualificacao, faixa_etaria',
+  Simples: 'cnpj_basico, opcao_simples, data_opcao_simples, data_exclusao_simples, opcao_mei, data_opcao_mei, data_exclusao_mei',
   Cnaes: 'codigo, descricao',
   Municipios: 'codigo, descricao',
   Qualificacoes: 'codigo, descricao',
@@ -130,6 +156,7 @@ const STAGING_TABLE = {
   Empresas: 'stg_rfb_empresas',
   Estabelecimentos: 'stg_rfb_estabelecimentos',
   Socios: 'stg_rfb_socios',
+  Simples: 'stg_rfb_simples',
   Cnaes: 'stg_rfb_cnaes',
   Municipios: 'stg_rfb_municipios',
   Qualificacoes: 'stg_rfb_qualificacoes',
@@ -407,17 +434,30 @@ DROP INDEX IF EXISTS "CnpjPublicCompany_phoneDigits_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_searchText_trgm_idx";`;
 
 // Telefone: ddd1+telefone1 só dígitos; celular legado 10-dig (3º dígito 6-9) ganha o 9 da Anatel
-// (mesma regra de normalizeLegacyBrCellphone do backend). `pd.d` vem do LATERAL no FROM.
+// (mesma regra de normalizeLegacyBrCellphone do backend). `pd.d`/`pd2.d` vêm do LATERAL no FROM.
 const PHONE_EXPR = `
   CASE WHEN length(pd.d) = 10 AND substr(pd.d, 3, 1) BETWEEN '6' AND '9'
        THEN substr(pd.d, 1, 2) || '9' || substr(pd.d, 3)
        ELSE pd.d END`;
+const PHONE2_EXPR = `
+  CASE WHEN length(pd2.d) = 10 AND substr(pd2.d, 3, 1) BETWEEN '6' AND '9'
+       THEN substr(pd2.d, 1, 2) || '9' || substr(pd2.d, 3)
+       ELSE pd2.d END`;
+
+// capital_social do dump vem "1000,00" (vírgula decimal, PT-BR) — troca por ponto antes do cast.
+// Lixo ('', não-numérico) vira NULL em vez de estourar a carga inteira.
+const CAPITAL_SOCIAL_EXPR = `
+  CASE WHEN NULLIF(btrim(emp.capital_social), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
+       THEN replace(btrim(emp.capital_social), ',', '.')::numeric(18,2)
+       ELSE NULL END`;
 
 const SQL_UPSERT_COMPANIES = `${TUNING}
 INSERT INTO "CnpjPublicCompany" (
   "id", "cnpj", "razaoSocial", "nomeFantasia", "situacao", "cnae", "cnaeDescription", "porte",
   "matrizFilial", "openedAt", "phone", "phoneDigits", "email", "address", "city", "state",
-  "normalizedCity", "searchText", "ownerName", "ownerQualification", "importedAt", "createdAt", "updatedAt"
+  "normalizedCity", "searchText", "ownerName", "ownerQualification",
+  "capitalSocial", "naturezaJuridica", "simples", "mei", "phone2", "cnaeSecundarias",
+  "firstSeenAt", "importedAt", "createdAt", "updatedAt"
 )
 SELECT DISTINCT ON (full_cnpj) * FROM (
   SELECT
@@ -446,15 +486,27 @@ SELECT DISTINCT ON (full_cnpj) * FROM (
                        NULLIF(btrim(e.cnae_principal), ''), cn.descricao)),
     own.nome,
     own.qualificacao_descricao,
-    now(), now(), now()
+    ${CAPITAL_SOCIAL_EXPR},
+    NULLIF(btrim(emp.natureza_juridica), ''),
+    CASE WHEN btrim(sim.opcao_simples) = 'S' THEN true
+         WHEN btrim(sim.opcao_simples) = 'N' THEN false ELSE NULL END,
+    CASE WHEN btrim(sim.opcao_mei) = 'S' THEN true
+         WHEN btrim(sim.opcao_mei) = 'N' THEN false ELSE NULL END,
+    NULLIF(${PHONE2_EXPR}, ''),
+    NULLIF(btrim(e.cnae_secundario), ''),
+    now(), now(), now(), now()
   FROM stg_rfb_estabelecimentos e
   CROSS JOIN LATERAL (
     SELECT regexp_replace(coalesce(e.ddd1, '') || coalesce(e.telefone1, ''), '\\D', '', 'g') AS d
   ) pd
+  CROSS JOIN LATERAL (
+    SELECT regexp_replace(coalesce(e.ddd2, '') || coalesce(e.telefone2, ''), '\\D', '', 'g') AS d
+  ) pd2
   JOIN stg_rfb_empresas emp ON emp.cnpj_basico = e.cnpj_basico
   LEFT JOIN stg_rfb_municipios mun ON mun.codigo = e.municipio
   LEFT JOIN stg_rfb_cnaes cn ON cn.codigo = e.cnae_principal
   LEFT JOIN stg_rfb_owner own ON own.cnpj_basico = e.cnpj_basico
+  LEFT JOIN stg_rfb_simples sim ON sim.cnpj_basico = e.cnpj_basico
   WHERE e.situacao = '02' AND coalesce(btrim(emp.razao_social), '') <> ''
 ) src
 ON CONFLICT ("cnpj") DO UPDATE SET
@@ -478,9 +530,18 @@ ON CONFLICT ("cnpj") DO UPDATE SET
                       ELSE "CnpjPublicCompany"."searchText" END,
   "ownerName" = COALESCE(EXCLUDED."ownerName", "CnpjPublicCompany"."ownerName"),
   "ownerQualification" = COALESCE(EXCLUDED."ownerQualification", "CnpjPublicCompany"."ownerQualification"),
+  "capitalSocial" = COALESCE(EXCLUDED."capitalSocial", "CnpjPublicCompany"."capitalSocial"),
+  "naturezaJuridica" = COALESCE(EXCLUDED."naturezaJuridica", "CnpjPublicCompany"."naturezaJuridica"),
+  "simples" = COALESCE(EXCLUDED."simples", "CnpjPublicCompany"."simples"),
+  "mei" = COALESCE(EXCLUDED."mei", "CnpjPublicCompany"."mei"),
+  "phone2" = COALESCE(EXCLUDED."phone2", "CnpjPublicCompany"."phone2"),
+  "cnaeSecundarias" = COALESCE(EXCLUDED."cnaeSecundarias", "CnpjPublicCompany"."cnaeSecundarias"),
   "importedAt" = now(),
   "updatedAt" = now();
--- website e rawJson preservados de propósito: acumulados pelo L4/BrasilAPI, o dump não os tem.`;
+-- website e rawJson preservados de propósito: acumulados pelo L4/BrasilAPI, o dump não os tem.
+-- regimeTributario fica de fora (dataset separado da RFB, não vem neste dump) — fase 2.
+-- firstSeenAt só entra no INSERT (default now()); update de conflito nunca o toca de propósito
+-- (é a data em que o HBX viu o CNPJ pela 1ª vez, não a data do dump).`;
 
 // Linha antiga que o dump do mês diz não estar mais ativa → recebe a situação real.
 // Cobre tanto linhas rfb_ de meses anteriores quanto cache BrasilAPI que fechou.
@@ -517,6 +578,45 @@ WHERE coalesce(btrim(s.nome_socio), '') <> ''
   AND EXISTS (SELECT 1 FROM stg_rfb_estabelecimentos e
               WHERE e.cnpj_basico = s.cnpj_basico AND e.situacao = '02');`;
 
+// Catálogo CNAE (código→descrição) do dump Cnaes.zip — usado pelo HOT-02 (picker por texto).
+// upsert simples: o catálogo da RFB não muda de sentido mês a mês, só ganha/perde código.
+const SQL_UPSERT_CNAE_CATALOG = `${TUNING}
+INSERT INTO "CnpjPublicCnae" ("codigo", "descricao", "updatedAt")
+SELECT DISTINCT ON (btrim(codigo)) btrim(codigo), btrim(descricao), now()
+FROM stg_rfb_cnaes
+WHERE coalesce(btrim(codigo), '') <> ''
+ORDER BY btrim(codigo)
+ON CONFLICT ("codigo") DO UPDATE SET
+  "descricao" = EXCLUDED."descricao",
+  "updatedAt" = now();`;
+
+// Anti-contador (base do HOT-03): quantos CNPJs ATIVOS compartilham o mesmo phone/email —
+// sinal de "central telefônica"/franquia/contador terceirizado, não dono real do negócio.
+// Roda DEPOIS do upsert de companies (precisa dos valores finais na tabela real, não na
+// staging) e cobre a base inteira via GROUP BY, não só o lote do mês corrente.
+const SQL_ANTI_COUNTER = `${TUNING}
+WITH phone_counts AS (
+  SELECT "phoneDigits" AS key, count(*) AS n
+  FROM "CnpjPublicCompany"
+  WHERE "situacao" = 'ativa' AND "phoneDigits" IS NOT NULL AND "phoneDigits" <> ''
+  GROUP BY "phoneDigits"
+)
+UPDATE "CnpjPublicCompany" c SET "phoneShareCount" = pc.n
+FROM phone_counts pc
+WHERE c."phoneDigits" = pc.key AND c."situacao" = 'ativa'
+  AND c."phoneShareCount" IS DISTINCT FROM pc.n;
+
+WITH email_counts AS (
+  SELECT lower("email") AS key, count(*) AS n
+  FROM "CnpjPublicCompany"
+  WHERE "situacao" = 'ativa' AND "email" IS NOT NULL AND "email" <> ''
+  GROUP BY lower("email")
+)
+UPDATE "CnpjPublicCompany" c SET "emailShareCount" = ec.n
+FROM email_counts ec
+WHERE lower(c."email") = ec.key AND c."situacao" = 'ativa'
+  AND c."emailShareCount" IS DISTINCT FROM ec.n;`;
+
 const SQL_CREATE_INDEXES = `${TUNING}
 CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_normalizedCity_state_idx"
   ON "CnpjPublicCompany"("normalizedCity", "state");
@@ -530,7 +630,10 @@ CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_phoneDigits_idx"
 -- em cidade grande precisa de trigram pra ficar <500ms.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_searchText_trgm_idx"
-  ON "CnpjPublicCompany" USING gin ("searchText" gin_trgm_ops);`;
+  ON "CnpjPublicCompany" USING gin ("searchText" gin_trgm_ops);
+-- HOT-02: picker de CNAE por texto livre (ex. "salao de beleza" → lista de códigos).
+CREATE INDEX IF NOT EXISTS "CnpjPublicCnae_descricao_trgm_idx"
+  ON "CnpjPublicCnae" USING gin ("descricao" gin_trgm_ops);`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline RFB
@@ -564,7 +667,7 @@ async function runRfb() {
   if (force) {
     log('--force: limpando ledger e staging do mês');
     ledgerClear(month);
-    psql('TRUNCATE stg_rfb_empresas, stg_rfb_estabelecimentos, stg_rfb_socios, stg_rfb_cnaes, stg_rfb_municipios, stg_rfb_qualificacoes;');
+    psql('TRUNCATE stg_rfb_empresas, stg_rfb_estabelecimentos, stg_rfb_socios, stg_rfb_simples, stg_rfb_cnaes, stg_rfb_municipios, stg_rfb_qualificacoes;');
   }
 
   // 1. inventário remoto + download (retomável: curl -C - e checagem de tamanho)
@@ -617,7 +720,11 @@ async function runRfb() {
     ['transform:companies', SQL_UPSERT_COMPANIES],
     ['transform:situacao_sync', SQL_SITUACAO_SYNC],
     ['transform:partners', SQL_RELOAD_PARTNERS],
+    ['transform:cnae_catalog', SQL_UPSERT_CNAE_CATALOG],
     ['transform:create_indexes', SQL_CREATE_INDEXES],
+    // Depois dos índices: phoneDigits/email já indexados, o GROUP BY do anti-contador
+    // (base do HOT-03) fica mais barato correndo por cima da tabela final já pronta.
+    ['transform:anti_counter', SQL_ANTI_COUNTER],
   ];
   for (const [step, sql] of phases) {
     if (ledgerDone(month, step)) { log(`pulo ${step} (já feito)`); continue; }
@@ -633,6 +740,7 @@ async function runRfb() {
     log('VACUUM ANALYZE...');
     psql('VACUUM ANALYZE "CnpjPublicCompany";');
     psql('VACUUM ANALYZE "CnpjPublicPartner";');
+    psql('VACUUM ANALYZE "CnpjPublicCnae";');
     ledgerMark(month, 'vacuum');
   }
 
@@ -650,9 +758,13 @@ async function runRfb() {
 function verifyAcceptance(month) {
   const companies = psqlValue('SELECT count(*) FROM "CnpjPublicCompany";');
   const withOwner = psqlValue('SELECT count(*) FROM "CnpjPublicCompany" WHERE "ownerName" IS NOT NULL;');
+  const withCapital = psqlValue('SELECT count(*) FROM "CnpjPublicCompany" WHERE "capitalSocial" IS NOT NULL;');
+  const withSimples = psqlValue('SELECT count(*) FROM "CnpjPublicCompany" WHERE "simples" IS NOT NULL;');
+  const withShareCount = psqlValue('SELECT count(*) FROM "CnpjPublicCompany" WHERE "phoneShareCount" IS NOT NULL;');
   const partners = psqlValue('SELECT count(*) FROM "CnpjPublicPartner";');
+  const cnaes = psqlValue('SELECT count(*) FROM "CnpjPublicCnae";');
   const size = psqlValue(`SELECT pg_size_pretty(pg_total_relation_size('"CnpjPublicCompany"') + pg_total_relation_size('"CnpjPublicPartner"'));`);
-  log(`mês ${month} → CnpjPublicCompany=${Number(companies).toLocaleString('pt-BR')} (com dono: ${Number(withOwner).toLocaleString('pt-BR')}) | CnpjPublicPartner=${Number(partners).toLocaleString('pt-BR')} | tamanho=${size}`);
+  log(`mês ${month} → CnpjPublicCompany=${Number(companies).toLocaleString('pt-BR')} (com dono: ${Number(withOwner).toLocaleString('pt-BR')}, capital: ${Number(withCapital).toLocaleString('pt-BR')}, simples/mei: ${Number(withSimples).toLocaleString('pt-BR')}, phoneShareCount: ${Number(withShareCount).toLocaleString('pt-BR')}) | CnpjPublicPartner=${Number(partners).toLocaleString('pt-BR')} | CnpjPublicCnae=${Number(cnaes).toLocaleString('pt-BR')} | tamanho=${size}`);
 
   // Timing medido NO SERVIDOR (EXPLAIN ANALYZE) — sem o overhead do docker exec (~200ms).
   const timingSamples = [

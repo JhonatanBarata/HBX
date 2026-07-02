@@ -3280,6 +3280,21 @@ model CnpjPublicCompany {
   // Quadro completo vive em CnpjPublicPartner (join por cnpjBasico = 8 primeiros dígitos do cnpj).
   ownerName          String?
   ownerQualification String?
+  // HOT-01: colunas aditivas do dump RFB (Empresas/Simples/Estabelecimentos) — dado de graça
+  // capturado na carga, não descartado. NULL = ainda não carregado/fase 2 (regimeTributario).
+  capitalSocial    Decimal?  @db.Decimal(18, 2)
+  naturezaJuridica String?
+  simples          Boolean?
+  mei              Boolean?
+  // Lucro Real/Presumido/Arbitrado é dataset separado da RFB, não vem no dump padrão — fase 2.
+  regimeTributario String?
+  phone2           String?
+  // CSV dos códigos de CNAE secundário (cnae_secundario do dump); catálogo em CnpjPublicCnae.
+  cnaeSecundarias  String?
+  // Anti-contador (base do HOT-03): quantos CNPJs ativos compartilham este phone/email.
+  phoneShareCount  Int?
+  emailShareCount  Int?
+  firstSeenAt      DateTime  @default(now())
   importedAt      DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -3288,6 +3303,14 @@ model CnpjPublicCompany {
   @@index([normalizedCity, cnae])
   @@index([state, cnae])
   @@index([phoneDigits])
+}
+
+// Catálogo de CNAE (dump Cnaes.zip da RFB) — código→descrição, usado pelo HOT-02 (picker de
+// CNAE por texto). Populado a partir da staging stg_rfb_cnaes no import-cnpj-dataset.js.
+model CnpjPublicCnae {
+  codigo    String   @id
+  descricao String
+  updatedAt DateTime @updatedAt
 }
 
 // Quadro societário do dump aberto da RFB (Socios*.zip). Liga em CnpjPublicCompany pelo
