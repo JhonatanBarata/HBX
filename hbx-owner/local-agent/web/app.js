@@ -957,20 +957,24 @@ async function ckExportUnclaimedContacts() {
   }
 }
 
-/* ---------- Exportar TUDO (banco inteiro, stream csv.gz — OWNERV2) ---------- */
-async function ckExportAll() {
-  const btn = $("#btn-export-all");
-  const fb  = $("#export-feedback");
+/* ---------- Exportar TUDO (stream csv.gz — OWNERV2) ----------
+   Dois caminhos ROTULADOS (pedido do dono): o card BANCO (direita) exporta o banco da VPS
+   (/owner/vps/export-all → ops-control → backend da VPS); o card do banco local (esquerda)
+   exporta o banco desta máquina (/owner/export-all → backend local). Stream autenticado: o
+   token vai no header, então NÃO dá pra usar <a href>/window.open — fetch → blob → download.
+   O servidor é memória-constante nos dois caminhos. */
+async function ckExportAllStream(route, btnSel, fbSel, filePrefix, label) {
+  const btn = $(btnSel);
+  const fb  = $(fbSel);
   if (btn) btn.disabled = true;
-  if (fb)  { fb.textContent = "gerando o dump completo… (o backend faz stream, pode levar um pouco)"; fb.className = "delta"; }
+  if (fb)  { fb.textContent = `gerando o dump ${label}… (o servidor faz stream, pode levar um pouco)`; fb.className = "delta"; }
   try {
-    // Stream autenticado: o token vai no header, então NÃO dá pra usar <a href>/window.open.
-    // fetch → blob (o navegador escoa pro disco) → download. O servidor é memória-constante.
-    const res = await fetch("/owner/export-all", {
+    const res = await fetch(route, {
       method: "GET",
       headers: { Authorization: "Bearer " + TOKEN },
     });
-    if (!res.ok) {
+    const ct = String(res.headers.get("content-type") || "");
+    if (!res.ok || ct.includes("application/json")) {
       let reason = "http_" + res.status;
       try { const j = await res.json(); reason = j.reason || j.message || reason; } catch (e) { /* corpo não-json */ }
       throw new Error(reason);
@@ -980,21 +984,23 @@ async function ckExportAll() {
     const a = document.createElement("a");
     a.href = url;
     const ts = new Date().toISOString().slice(0, 10);
-    a.download = `hbx-leads-${ts}.csv.gz`;
+    a.download = `${filePrefix}-${ts}.csv.gz`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     const mb = (blob.size / (1024 * 1024)).toFixed(1);
-    if (fb) { fb.textContent = `banco exportado (${mb} MB compactado).`; fb.className = "delta up"; }
-    pushFeed(`Exportar tudo: dump completo baixado (${mb} MB .csv.gz).`, "ok");
+    if (fb) { fb.textContent = `banco ${label} exportado (${mb} MB compactado).`; fb.className = "delta up"; }
+    pushFeed(`Exportar tudo (${label}): dump baixado (${mb} MB .csv.gz).`, "ok");
   } catch (err) {
-    if (fb) { fb.textContent = "falha ao exportar tudo: " + err.message; fb.className = "delta"; }
-    pushFeed(`Erro ao exportar tudo: ${err.message}`, "warn");
+    if (fb) { fb.textContent = `falha ao exportar ${label}: ` + err.message; fb.className = "delta"; }
+    pushFeed(`Erro ao exportar ${label}: ${err.message}`, "warn");
   } finally {
     if (btn) btn.disabled = false;
   }
 }
+function ckExportAllVps()   { return ckExportAllStream("/owner/vps/export-all", "#btn-export-all", "#export-feedback", "hbx-leads-vps", "da VPS"); }
+function ckExportAllLocal() { return ckExportAllStream("/owner/export-all", "#btn-export-local", "#export-local-feedback", "hbx-leads-local", "local"); }
 
 /* ---------- Mover TUDO pro VPS (envia tudo + limpa o local; SEM cópia) ---------- */
 async function ckSendToVps() {
@@ -1381,7 +1387,8 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const enrichBtn      = $("#btn-cockpit-enrich");
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
   const exportUnclaimedBtn = $("#btn-export-unclaimed");
-  const exportAllBtn   = $("#btn-export-all");
+  const exportAllVpsBtn   = $("#btn-export-all");
+  const exportLocalBtn    = $("#btn-export-local");
   const discoverBtn    = $("#btn-cockpit-discover");
   const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
@@ -1395,7 +1402,8 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (exportUnclaimedBtn) exportUnclaimedBtn.addEventListener("click", ckExportUnclaimedContacts);
-  if (exportAllBtn) exportAllBtn.addEventListener("click", ckExportAll);
+  if (exportAllVpsBtn) exportAllVpsBtn.addEventListener("click", ckExportAllVps);
+  if (exportLocalBtn) exportLocalBtn.addEventListener("click", ckExportAllLocal);
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 
@@ -1647,6 +1655,189 @@ async function intSave(key) {
 }
 { const ir = $("#btn-int-refresh"); if (ir) ir.addEventListener("click", renderIntegrations); }
 
+/* ══════════ OWNERV2 (02/07) — painel único: cartões novos ══════════ */
+
+/* ---------- Fábrica de enriquecimento (coluna LOCAL) ----------
+   Contrato F2 (outro worker implementa o backend): GET /owner/fabrica/status ·
+   POST /owner/fabrica/start {budget} · POST /owner/fabrica/stop. Até o F2 aterrissar,
+   o proxy devolve { ok:false, offline:true } e o card mostra "fábrica offline" — degrade
+   honesto, sem quebrar. O PARAR daqui é o ÚNICO parar do painel (scraping local = seu IP). */
+async function fabRender() {
+  let r;
+  try { r = await api("GET", "/owner/fabrica/status"); }
+  catch (err) { r = { ok: false, reason: err.message }; }
+  const pill = $("#fab-status");
+  const fb = $("#fab-feedback");
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "—" : String(v); };
+  if (!r || !r.ok) {
+    if (pill) { pill.textContent = r && r.offline ? "fábrica offline" : "sem leitura"; pill.className = "pill pill-muted"; }
+    if (fb) fb.textContent = r && r.offline
+      ? "Backend da fábrica ainda não publicado (F2) — o card liga sozinho quando a rota existir."
+      : `sem leitura: ${(r && (r.reason || r.error)) || "?"}`;
+    set("#fab-processed"); set("#fab-budget-left"); set("#fab-current"); set("#fab-errors");
+    return;
+  }
+  const running = Boolean(r.running || r.active || r.status === "running");
+  if (pill) {
+    pill.textContent = running ? "rodando" : "parada";
+    pill.className = "pill " + (running ? "pill-ok" : "pill-muted");
+  }
+  set("#fab-processed", r.processed);
+  set("#fab-budget-left", r.budgetLeft != null ? r.budgetLeft : (r.budget != null && r.processed != null ? Math.max(0, r.budget - r.processed) : null));
+  set("#fab-current", r.currentLead || r.current || null);
+  set("#fab-errors", r.errors);
+  if (fb) fb.textContent = r.message || (running ? "Enriquecendo a base — para sozinha no fim do budget." : "Parada. Informe o budget e aperte Iniciar.");
+}
+
+async function fabStart() {
+  const input = $("#fab-budget");
+  const fb = $("#fab-feedback");
+  const budget = input ? Math.trunc(Number(input.value)) : NaN;
+  if (!Number.isFinite(budget) || budget < 1) {
+    if (fb) fb.textContent = "Budget obrigatório: diga QUANTOS leads scrapear (ex.: 200) antes de iniciar.";
+    if (input) input.focus();
+    return;
+  }
+  const btn = $("#btn-fab-start");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("POST", "/owner/fabrica/start", { budget });
+    if (fb) fb.textContent = r && r.ok ? `Fábrica iniciada — para sozinha depois de ${budget} leads.`
+      : (r && r.offline ? "Fábrica offline (backend F2 ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`);
+  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+  finally { if (btn) btn.disabled = false; fabRender(); }
+}
+
+async function fabStop() {
+  const fb = $("#fab-feedback");
+  const btn = $("#btn-fab-stop");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("POST", "/owner/fabrica/stop", {});
+    if (fb) fb.textContent = r && r.ok ? "PARADA — o scraping local congelou."
+      : (r && r.offline ? "Fábrica offline (nada rodando pra parar)." : `falhou: ${(r && r.reason) || "?"}`);
+  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+  finally { if (btn) btn.disabled = false; fabRender(); }
+}
+
+/* ---------- IA LOCAL (Ollama :11434 — o que já existia, renomeado) ---------- */
+async function aiLocalRender() {
+  let r;
+  try { r = await api("GET", "/owner/ai/status"); }
+  catch (err) { r = { ok: false, reason: err.message }; }
+  const pill = $("#ai-local-status");
+  const models = $("#ai-local-models");
+  if (!r || !r.ok || !r.ollamaUp) {
+    if (pill) { pill.textContent = "fora do ar"; pill.className = "pill pill-bad"; }
+    if (models) models.textContent = `Ollama não respondeu${r && r.reason ? ` · ${r.reason}` : ""} — confira o serviço em 127.0.0.1:11434.`;
+    return;
+  }
+  if (pill) { pill.textContent = "no ar"; pill.className = "pill pill-ok"; }
+  const list = Array.isArray(r.models) ? r.models : [];
+  if (models) {
+    models.textContent = list.length
+      ? `Modelos: ${list.map((m) => `${m.name}${m.warm ? " 🔥" : ""}${m.sizeGb ? ` (${m.sizeGb}GB)` : ""}`).join(" · ")}`
+      : "No ar, sem modelos baixados.";
+  }
+}
+
+async function aiWarmClick() {
+  const fb = $("#ai-local-feedback");
+  const btn = $("#btn-ai-warm");
+  if (btn) btn.disabled = true;
+  if (fb) fb.textContent = "aquecendo o 30b…";
+  try {
+    const r = await api("POST", "/owner/ai/warm", { model: "qwen3:30b-a3b" });
+    if (fb) fb.textContent = r && r.ok ? "30b aquecido (na RAM)." : `falhou: ${(r && r.reason) || "?"}`;
+  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+  finally { if (btn) btn.disabled = false; }
+}
+
+/* ---------- Cartões do tree-status (coluna VPS: motor de leads + fonte de busca) ----------
+   A aba "Árvore do motor" morreu como aba (OWNERV2); os números dela viram ESTES cartões,
+   lendo o MESMO endpoint agregador (GET /owner/radar/tree-status, cache 10s no backend).
+   Falha parcial = null honesto (padrão herdado do F3): bloco sem leitura mostra "—". */
+function tsBlock(b) { return b && b.ok !== false && !b.error ? (b.data !== undefined ? b.data : b) : null; }
+
+async function treeCardsRender() {
+  let d;
+  try { d = await api("GET", "/owner/radar/tree-status"); }
+  catch (err) { d = { ok: false, reason: err.message }; }
+  const mvPill = $("#mv-status");
+  const fontePill = $("#fonte-status");
+  const gaugesEl = $("#fonte-gauges");
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "—" : String(v); };
+
+  if (!d || (d.ok === false && !d.seed)) {
+    const why = (d && (d.reason || d.error)) || "sem leitura";
+    if (mvPill) { mvPill.textContent = "sem leitura"; mvPill.className = "pill pill-muted"; }
+    if (fontePill) { fontePill.textContent = "sem leitura"; fontePill.className = "pill pill-muted"; }
+    if (gaugesEl) gaugesEl.innerHTML = `<p class="delta">cofre sem leitura: ${esc(why)}</p>`;
+    return;
+  }
+
+  /* Motor de leads: pesquisa (seed/card) + fila (missions) */
+  const seed = tsBlock(d.seed);
+  const card = tsBlock(d.card);
+  const missions = tsBlock(d.missions);
+  set("#mv-runs", seed ? seed.runsToday : null);
+  set("#mv-delivered", card ? card.deliveredToday : null);
+  const lag = missions && missions.lag ? missions.lag : null;
+  set("#mv-queue", missions ? (missions.supported ? (lag ? lag.queuedDue : 0) : "off") : null);
+  set("#mv-fila-estado", !missions ? null : (!missions.supported ? "sem fila" : (missions.paused ? "PAUSADA" : "fluindo")));
+  const split = card && card.split ? card.split : null;
+  const splitEl = $("#mv-split");
+  if (splitEl) {
+    splitEl.textContent = split
+      ? `origem dos cards: rfb+web ${split.rfb_web} · só web ${split.web} · só rfb ${split.rfb} · sem mapa ${split.unmapped}`
+      : "origem dos cards: —";
+  }
+  const noteEl = $("#mv-note");
+  if (noteEl) noteEl.textContent = missions && missions.paused ? "Fila PAUSADA — cursor PARAR TUDO do backend (governor)." : "";
+  if (mvPill) {
+    const paused = Boolean(missions && missions.paused);
+    mvPill.textContent = paused ? "fila pausada" : "fluindo";
+    mvPill.className = "pill " + (paused ? "pill-amber" : "pill-ok");
+  }
+  const genEl = $("#mv-generated");
+  if (genEl && d.generatedAt) genEl.textContent = `lido ${new Date(d.generatedAt).toLocaleTimeString("pt-BR")}`;
+
+  /* Fonte de busca: gauges do cofre (governor por fonte) — SÓ neste lado (direita) */
+  const vault = tsBlock(d.vault);
+  const sources = vault && Array.isArray(vault.sources) ? vault.sources : [];
+  if (fontePill) {
+    fontePill.textContent = sources.length ? `${sources.length} fontes` : "sem leitura";
+    fontePill.className = "pill " + (sources.length ? "pill-ok" : "pill-muted");
+  }
+  if (gaugesEl) {
+    gaugesEl.innerHTML = sources.length ? sources.map((s) => {
+      let text = "";
+      let pct = null;
+      let state = "ok";
+      if (s.counterError) {
+        text = s.tier === "paid" ? "contador ilegível → PAUSADA (fail-closed)" : "contador ilegível (segue)";
+        state = s.tier === "paid" ? "blocked" : "warn";
+      } else if (s.cap != null) {
+        const used = Number(s.used || 0);
+        pct = Math.max(0, Math.min(100, Math.round((used / s.cap) * 100)));
+        text = `${used.toLocaleString("pt-BR")} / ${Number(s.cap).toLocaleString("pt-BR")}${s.period === "day" ? " hoje" : " no mês"}`;
+        state = pct >= 100 ? "blocked" : pct >= 70 ? "warn" : "ok";
+      } else {
+        text = s.allowed === false ? "OFF" : "sem teto fixo";
+      }
+      const barHtml = pct == null ? "" :
+        `<div class="bar sm"><div class="bar-fill ${state === "ok" ? "" : state}" style="width:${pct}%"></div></div>`;
+      return `<div class="fonte-gauge"><div class="fg-head"><span class="fg-name">${esc(s.source)}</span>` +
+        `<span class="pill ${s.tier === "paid" ? "pill-amber" : "pill-muted"}">${s.tier === "paid" ? "pago" : "grátis"}</span>` +
+        `<span class="fg-text">${esc(text)}</span></div>${barHtml}</div>`;
+    }).join("") : '<p class="delta">cofre sem fontes monitoradas.</p>';
+  }
+}
+
+{ const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
+{ const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
+{ const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
+
 /* ---------- Boot ---------- */
 pingStatus();
 renderMotorStrip();
@@ -1658,9 +1849,15 @@ renderEnginesTruth();         // tabela honesta de motores (só lê se o details
 renderVps();
 renderVpsEngines();
 loadCockpit();
+fabRender();
+aiLocalRender();
+treeCardsRender();
 setInterval(renderSistema, 5000);
 setInterval(renderMotorStrip, 12000);
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);
 setInterval(renderVpsEngines, 15000);  // releitura read-only dos motores que atendem cliente no VPS
 setInterval(pingStatus, 20000);
+setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
+setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
+setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tree-status, cache 10s no backend)

@@ -921,16 +921,17 @@ async function backendRequest(method, route, payload, options = {}) {
   return response;
 }
 
-// Passthrough de STREAM do backend → cliente (sem bufferizar). Usado pelo "Exportar tudo":
-// o backend manda um csv.gz de milhões de linhas; aqui a gente só re-encana byte a byte, então
-// a memória do agente fica constante. Re-tenta 1x com token novo se o backend responder 401.
-function streamBackendToClient(method, route, clientRes, token) {
+// Passthrough de STREAM upstream → cliente (sem bufferizar). Usado pelo "Exportar tudo":
+// o upstream (backend local OU ops-control→backend da VPS) manda um csv.gz de milhões de
+// linhas; aqui a gente só re-encana byte a byte, então a memória do agente fica constante.
+// O caller re-tenta 1x com token novo se o upstream responder 401.
+function streamUpstreamToClient(baseUrl, method, route, clientRes, token) {
   return new Promise((resolve) => {
     let target;
     try {
-      target = new URL(`${backendUrl}${route}`);
+      target = new URL(`${baseUrl}${route}`);
     } catch (error) {
-      resolve({ ok: false, error: `URL backend invalida: ${error.message}` });
+      resolve({ ok: false, error: `URL upstream invalida: ${error.message}` });
       return;
     }
     const headers = { Accept: "application/gzip, */*" };
@@ -964,6 +965,10 @@ function streamBackendToClient(method, route, clientRes, token) {
     req.on("error", (error) => resolve({ ok: false, error: error.message }));
     req.end();
   });
+}
+
+function streamBackendToClient(method, route, clientRes, token) {
+  return streamUpstreamToClient(backendUrl, method, route, clientRes, token);
 }
 
 async function readLeadsBank() {
@@ -1894,6 +1899,19 @@ async function route(req, res) {
     // Se falhou ANTES de começar o stream (headers ainda não enviados), responde erro legível.
     if (!r.ok && !r.streamed && !res.headersSent) {
       sendJson(res, 200, { ok: false, reason: r.statusCode ? `http_${r.statusCode}` : (r.error || "export_falhou") });
+    }
+    return;
+  }
+
+  // "Exportar tudo (VPS)": o card BANCO da direita exporta o banco da PRODUÇÃO. Cadeia de
+  // stream com memória constante em TODOS os elos: :3107 → ops-control (/api/radar/vps/
+  // export-all) → backend da VPS (/modules/owner/radar/export-all) → csv.gz re-encanado
+  // byte a byte até o navegador. O ops-control autentica na VPS com a sessão operacional dele.
+  if (req.method === "GET" && url.pathname === "/owner/vps/export-all") {
+    if (!opsToken) { sendJson(res, 200, { ok: false, configured: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    const r = await streamUpstreamToClient(opsUrl, "GET", "/api/radar/vps/export-all", res, opsToken);
+    if (!r.ok && !r.streamed && !res.headersSent) {
+      sendJson(res, 200, { ok: false, reason: r.statusCode ? `http_${r.statusCode}` : (r.error || "export_vps_falhou") });
     }
     return;
   }
