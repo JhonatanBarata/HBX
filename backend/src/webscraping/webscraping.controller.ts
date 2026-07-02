@@ -10,6 +10,7 @@ import { EnrichmentCostService } from './enrichment-cost/enrichment-cost.service
 import { getConfiguredHbxEngineMaxCount, HbxEnginePoolService } from './hbx-engine-pool.service';
 import { LeadHarvestImportService } from './lead-harvest/lead-harvest-import.service';
 import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
+import { SourceBudgetService } from './source-budget/source-budget.service';
 import { WebscrapingService } from './webscraping.service';
 
 @ValidatorConstraint({ name: 'MaxConfiguredHbxEngineCount', async: false })
@@ -1117,6 +1118,13 @@ export class MasterWebscrapingController {
   @Get('engines/status')
   getMasterEngineStatus() {
     return this.hbxEnginePool.getDashboardEngineStatus();
+  }
+
+  // Gauge do governor FÍSICO por fonte (Sprint 3 MOTOR-RFB-FILA): usado/teto/período lendo
+  // SourceApiUsage via SourceBudgetService (estático — mesma verdade que os call-sites usam).
+  @Get('source-budget')
+  getSourceBudget() {
+    return SourceBudgetService.usageSnapshot();
   }
 
   @Get('database-audit')

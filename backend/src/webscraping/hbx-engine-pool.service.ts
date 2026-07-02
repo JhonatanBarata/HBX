@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { readFileSync } from 'fs';
 import { cpus as osCpus } from 'os';
 import { PrismaService } from '../prisma/prisma.service';
+import { SourceBudgetService } from './source-budget/source-budget.service';
 
 export const DEFAULT_HBX_ENGINE_COUNT = 3;
 export const PRODUCTION_HBX_ENGINE_COUNT = 20;
@@ -2027,6 +2028,19 @@ export class HbxEnginePoolService implements OnModuleInit {
       candidate = physical;
     }
 
+    // Teto ESTÁTICO por fonte grátis (Sprint 3 MOTOR-RFB-FILA): dado medido — 20 motores na mesma
+    // fonte = timeout; 6–8 = ótimo. A heurística acima REDESCOBRE esse ponto queimando timeout a
+    // cada ciclo; o clamp corta a oscilação na origem. Entra DENTRO da elasticidade (mesmo termo
+    // de headroom, sem mecanismo novo de parada) e aplica na SAÍDA — não passa pela histerese,
+    // que só encolhe com pressão ≥ hard e deixaria o teto estático letra morta em pressão baixa.
+    // Cada motor ≈ 1 busca em voo (HBX_WEB_SEARCH_CONCURRENCY=1) → motores vivos ≤ teto ⇒
+    // concorrência por fonte ≤ teto. Env HBX_SOURCE_FREE_MAX_CONCURRENCY (default 8; <=0 = sem
+    // clamp) — GATE G2, número final é decisão do dono.
+    const freeSourceCeiling = SourceBudgetService.freeSourceEngineCeiling();
+    const clampByFreeSource = (value: number) => (
+      freeSourceCeiling > 0 ? Math.max(warm, Math.min(value, freeSourceCeiling)) : value
+    );
+
     const nowMs = Date.now();
     const current = this.sourceHeadroomCurrent ?? physical;
     const cooldownMs = this.governorHeadroomCooldownMs();
@@ -2036,17 +2050,17 @@ export class HbxEnginePoolService implements OnModuleInit {
         this.sourceHeadroomCurrent = candidate;
         this.sourceHeadroomLastActionAt = nowMs;
       }
-      return candidate;
+      return clampByFreeSource(candidate);
     }
 
     const wantsGrow = candidate > current && pressure < soft;
     const wantsShrink = candidate < current && pressure >= hard;
-    if (!wantsGrow && !wantsShrink) return current;
-    if (this.sourceHeadroomLastActionAt > 0 && nowMs - this.sourceHeadroomLastActionAt < cooldownMs) return current;
+    if (!wantsGrow && !wantsShrink) return clampByFreeSource(current);
+    if (this.sourceHeadroomLastActionAt > 0 && nowMs - this.sourceHeadroomLastActionAt < cooldownMs) return clampByFreeSource(current);
 
     this.sourceHeadroomCurrent = candidate;
     this.sourceHeadroomLastActionAt = nowMs;
-    return candidate;
+    return clampByFreeSource(candidate);
   }
 
   /** Pressão atual da fonte (% de timeout cacheado) — exposta no scheduler/factory-status. */

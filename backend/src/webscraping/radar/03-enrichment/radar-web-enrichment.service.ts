@@ -1,5 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { SourceBudgetService } from '../../source-budget/source-budget.service';
 import type { NormalizedSearchInput } from '../shared/radar-types';
 import type { HbxEngineSearchOutput, WebscrapingContactResult } from '../shared/radar-core-shared';
 import { buildRadarStageIssue } from '../shared/radar-stage-policy';
@@ -683,54 +683,11 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
 export class RadarWebEnrichmentService {
   constructor(@Optional() private readonly websiteCrawl?: RadarWebsiteCrawlSourceService) {}
 
-  // ── DISJUNTOR MENSAL do Brave (30/06, incidente "estourou 1000") ────────────────────────────
-  // Contador estático dedicado: o serviço é instanciado na mão em 4 lugares (`new
-  // RadarWebEnrichmentService()`) → injetar Prisma no constructor quebraria esses call sites. Um
-  // PrismaClient estático LAZY serve pra TODA instância (DI ou manual), persiste no banco (sobrevive a
-  // restart/recreate — contador em memória zerava e a trava virava inútil) e não toca o DI. Uso: só a
-  // tabela BraveApiUsage. Serializado de fato pelo `_enqueueThrottledBrave` (1 chamada Brave por vez).
-  private static _counterDb: PrismaClient | null = null;
-  private static _braveBudgetBlockedLoggedAt = 0; // throttle do log de "teto atingido" (1x/min)
-  private static counterDb(): PrismaClient {
-    if (!RadarWebEnrichmentService._counterDb) {
-      RadarWebEnrichmentService._counterDb = new PrismaClient();
-    }
-    return RadarWebEnrichmentService._counterDb;
-  }
-  private static braveMonthlyCap(): number {
-    const raw = Number.parseInt(String(process.env.HBX_BRAVE_MONTHLY_CAP ?? '').trim(), 10);
-    return Number.isFinite(raw) ? raw : 900; // default 900 (margem sob o teto real ~1000); <=0 = ilimitado
-  }
-  private static currentYearMonth(): string {
-    return new Date().toISOString().slice(0, 7); // "YYYY-MM"
-  }
-  /** true quando o teto mensal de Brave já foi atingido → searchBrave NÃO bate na API. */
-  private static async braveBudgetExceeded(): Promise<boolean> {
-    const cap = RadarWebEnrichmentService.braveMonthlyCap();
-    if (cap <= 0) return false; // ilimitado (escape hatch)
-    try {
-      const ym = RadarWebEnrichmentService.currentYearMonth();
-      const db = RadarWebEnrichmentService.counterDb() as any;
-      const row = await db.braveApiUsage.upsert({
-        where: { yearMonth: ym },
-        create: { yearMonth: ym, count: 0 },
-        update: {},
-      });
-      return Number(row?.count || 0) >= cap;
-    } catch {
-      // Falha ao LER o contador = provavelmente o banco inteiro do app está fora → enriquecimento já
-      // estaria quebrado de qualquer jeito. Fail-open pra não derrubar o fluxo por um blip transitório.
-      return false;
-    }
-  }
-  /** incrementa o contador do mês — chamado SÓ quando a chamada vai mesmo bater na API Brave. */
-  private static async braveBudgetIncrement(): Promise<void> {
-    try {
-      const ym = RadarWebEnrichmentService.currentYearMonth();
-      const db = RadarWebEnrichmentService.counterDb() as any;
-      await db.braveApiUsage.update({ where: { yearMonth: ym }, data: { count: { increment: 1 } } });
-    } catch { /* best-effort — não quebra a busca por erro de contador */ }
-  }
+  // ── DISJUNTOR do Brave → generalizado no SourceBudgetService (Sprint 3 MOTOR-RFB-FILA, 02/07).
+  // O contador estático + PrismaClient lazy que nasceram aqui viraram o freio ÚNICO por fonte em
+  // ../../source-budget/source-budget.service.ts (tabela SourceApiUsage; a migration copiou o
+  // histórico de BraveApiUsage). MUDANÇA DE POLÍTICA consciente: fonte PAGA agora é FAIL-CLOSED —
+  // erro ao ler o contador = NÃO chama (antes era fail-open).
 
   async run(input: {
     normalized: NormalizedSearchInput;
@@ -1034,54 +991,25 @@ export class RadarWebEnrichmentService {
     };
   }
 
-  // --- Brave Search API throttle (free tier ≈ 1 req/s) ---
-  // 1 in-flight at a time + minimum 1100 ms between dispatches.
-  // Static = shared across all instances (same process).
-  private static readonly BRAVE_MIN_INTERVAL_MS = 1100;
-  private static _braveQueue: Promise<void> = Promise.resolve();
-  private static _braveLastCallAt = 0;
+  // Cache local por query (não gasta cota). Throttle (1 em voo + 1100ms) e disjuntor mensal
+  // agora vivem no SourceBudgetService — este é o gargalo ÚNICO por onde TODA chamada Brave passa.
   private static readonly _braveCache = new Map<string, WebCandidate[]>();
-
-  private static _enqueueThrottledBrave<T>(fn: () => Promise<T>): Promise<T> {
-    const queued = RadarWebEnrichmentService._braveQueue.then(async () => {
-      const now = Date.now();
-      const elapsed = now - RadarWebEnrichmentService._braveLastCallAt;
-      const wait = RadarWebEnrichmentService.BRAVE_MIN_INTERVAL_MS - elapsed;
-      if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
-      RadarWebEnrichmentService._braveLastCallAt = Date.now();
-      return fn();
-    });
-    // Prevent errors from breaking the queue.
-    RadarWebEnrichmentService._braveQueue = queued.then(
-      () => undefined,
-      () => undefined,
-    );
-    return queued;
-  }
 
   private async searchBrave(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
     const key = process.env.BRAVE_SEARCH_API_KEY;
     if (!key) return [];
     const cached = RadarWebEnrichmentService._braveCache.get(query);
     if (cached) return cached;
-    return RadarWebEnrichmentService._enqueueThrottledBrave(async () => {
+    return SourceBudgetService.schedule('brave', async () => {
       // Double-check cache after queue wait — another item may have populated it.
       const inCache = RadarWebEnrichmentService._braveCache.get(query);
       if (inCache) return inCache;
-      // DISJUNTOR MENSAL: query cacheada nem chega aqui (não gasta cota). Se o teto do mês estourou,
-      // NÃO bate na API — degrada gracioso (devolve [], igual o backstop de 429 logo abaixo). O
-      // incremento só acontece quando a chamada VAI mesmo ser feita (serializado pelo throttle).
-      if (await RadarWebEnrichmentService.braveBudgetExceeded()) {
-        RadarWebEnrichmentService._braveBudgetBlockedLoggedAt = RadarWebEnrichmentService._braveBudgetBlockedLoggedAt || 0;
-        const now = Date.now();
-        if (now - RadarWebEnrichmentService._braveBudgetBlockedLoggedAt > 60_000) {
-          RadarWebEnrichmentService._braveBudgetBlockedLoggedAt = now;
-          // eslint-disable-next-line no-console
-          console.warn(`[brave-disjuntor] teto mensal atingido (HBX_BRAVE_MONTHLY_CAP=${RadarWebEnrichmentService.braveMonthlyCap()}) — chamadas Brave pausadas até virar o mês.`);
-        }
+      // GOVERNOR POR FONTE: teto mensal estourado OU contador ilegível (fail-closed) → NÃO bate na
+      // API, degrada gracioso (devolve [], igual o backstop de 429 abaixo). O incremento acontece
+      // dentro do tryConsumePaid, só quando a chamada VAI mesmo ser feita (serializada pela fila).
+      if (!(await SourceBudgetService.tryConsumePaid('brave'))) {
         return [];
       }
-      await RadarWebEnrichmentService.braveBudgetIncrement();
       try {
         // BUG-FIX (30/06): `search_lang=pt` (e `pt-BR`) faz a Brave responder 422 Unprocessable
         // Entity → searchBrave devolvia [] SEMPRE → todo enriquecimento via Brave (CNPJ-por-nome,
@@ -1097,7 +1025,10 @@ export class RadarWebEnrichmentService {
           signal: AbortSignal.timeout(Math.min(timeoutMs, 8000)),
         });
         // 429 = rate-limit: return empty without caching so next call can retry.
-        if (response.status === 429) return [];
+        if (response.status === 429) {
+          SourceBudgetService.reportRateLimited('brave', Number(response.headers?.get?.('retry-after')) || null);
+          return [];
+        }
         if (!response.ok) return [];
         const data: any = await response.json();
         const results: WebCandidate[] = (Array.isArray(data?.web?.results) ? data.web.results : [])
@@ -1199,32 +1130,38 @@ export class RadarWebEnrichmentService {
     }
   }
 
+  // Fontes GRÁTIS passam pelo semáforo de concorrência do governor (teto por fonte, default 8 —
+  // dado medido: 20 batendo juntos = timeout). Fail-open: semáforo é in-memory, sem banco no caminho.
   private async searchBing(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
-    const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=pt-BR`;
-    const response = await fetcher(url, {
-      headers: {
-        accept: 'text/html,application/xhtml+xml',
-        'user-agent': 'HBX Radar Web Enrichment',
-      },
-      signal: AbortSignal.timeout(timeoutMs),
+    return SourceBudgetService.withFreeSlot('bing', async () => {
+      const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=pt-BR`;
+      const response = await fetcher(url, {
+        headers: {
+          accept: 'text/html,application/xhtml+xml',
+          'user-agent': 'HBX Radar Web Enrichment',
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) throw new Error(`radar_web_bing_http_${response.status}`);
+      const html = await response.text();
+      return this.parseBingResults(html).slice(0, 10);
     });
-    if (!response.ok) throw new Error(`radar_web_bing_http_${response.status}`);
-    const html = await response.text();
-    return this.parseBingResults(html).slice(0, 10);
   }
 
   private async searchDuckDuckGo(fetcher: typeof fetch, query: string, timeoutMs: number): Promise<WebCandidate[]> {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const response = await fetcher(url, {
-      headers: {
-        accept: 'text/html,application/xhtml+xml',
-        'user-agent': 'HBX Radar Web Enrichment',
-      },
-      signal: AbortSignal.timeout(timeoutMs),
+    return SourceBudgetService.withFreeSlot('ddg', async () => {
+      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const response = await fetcher(url, {
+        headers: {
+          accept: 'text/html,application/xhtml+xml',
+          'user-agent': 'HBX Radar Web Enrichment',
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) throw new Error(`radar_web_search_http_${response.status}`);
+      const html = await response.text();
+      return this.parseDuckDuckGoResults(html).slice(0, 10);
     });
-    if (!response.ok) throw new Error(`radar_web_search_http_${response.status}`);
-    const html = await response.text();
-    return this.parseDuckDuckGoResults(html).slice(0, 10);
   }
 
   private parseBingResults(html: string): WebCandidate[] {
