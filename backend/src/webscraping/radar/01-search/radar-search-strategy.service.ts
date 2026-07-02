@@ -14,19 +14,10 @@ export type RadarSearchStrategy = {
 
 @Injectable()
 export class RadarSearchStrategyService {
-  resolve(input: NormalizedSearchInput, context: { purpose?: string | null } = {}): RadarSearchStrategy {
-    const purpose = String(context.purpose || '').trim().toLowerCase();
-    if (purpose.includes('factory') || purpose.includes('mass_data') || purpose.includes('campaign')) {
-      return {
-        mode: 'night_factory',
-        targetCards: Math.max(input.quantity, 100),
-        allowSecondaryProviders: true,
-        allowAsyncSocial: true,
-        allowLightCrawl: true,
-        maxProviderRounds: 6,
-        reason: 'fabrica_precisa_repor_estoque_com_multiplas_fontes',
-      };
-    }
+  resolve(input: NormalizedSearchInput, _context: { purpose?: string | null } = {}): RadarSearchStrategy {
+    // Modo `night_factory` REMOVIDO (F0, 02/07): a fábrica de descoberta autônoma foi demolida.
+    // Nenhum purpose factory/mass_data/campaign produz mais estratégia — os callers viviam nos
+    // mixins mass-data/campaign-planner/factory-admin, já deletados. Rotas de cliente: fast/quality/deep.
     if (input.freshness === 'live') {
       return {
         mode: 'quality',

@@ -14,7 +14,8 @@ test('master elastic and engine lifecycle routes stay behind MasterGuard', () =>
   assert.equal(controllerPath, 'modules/owner/radar');
   assert.equal(guards.includes(JwtAuthGuard), true);
   assert.equal(guards.includes(MasterGuard), true);
-  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.cancelForcedFactory), 'elastic/cancel-forced');
+  // F0 (02/07): rota de fábrica (elastic/cancel-forced) removida; a elástica de motores fica.
+  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.stopAllEngines), 'elastic/stop-all');
 });
 
 test('lead harvest official routes stay under webscraping guards', () => {

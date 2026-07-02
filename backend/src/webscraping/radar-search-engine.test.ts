@@ -176,19 +176,8 @@ test('radar search orchestrator com cnpj_public ligado (mundo real do VPS): RFB 
   );
 }));
 
-test('radar search orchestrator night_factory nunca é afetada pela flag HBX_LEGACY_SOURCES (fábrica não é rota de cliente)', () => withEnv({
-  HBX_LEGACY_SOURCES: 'false',
-}, () => {
-  const orchestrator = new RadarSearchOrchestratorService(
-    new RadarSearchStrategyService(),
-    new RadarSourcePlannerService(),
-    new RadarSourceExpansionService(),
-  );
-  const plan = orchestrator.plan({ ...baseInput, quantity: 100 }, { purpose: 'factory' });
-
-  assert.equal(plan.strategy.mode, 'night_factory');
-  assert.equal(plan.activeSources.includes('google_textual'), true);
-}));
+// F0 (02/07): teste do modo `night_factory` REMOVIDO — a fábrica de descoberta autônoma foi
+// demolida; o purpose 'factory' não produz mais estratégia própria (cai em fast/quality/deep).
 
 test('radar source expansion gera fontes novas da fase 6', () => {
   const orchestrator = new RadarSearchOrchestratorService(

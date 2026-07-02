@@ -213,11 +213,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   [key: string]: any;
   private readonly logger = new Logger('WebscrapingService');
   private searchRunQueuePumpActive = false;
-  private radarCampaignPumpActive = false;
-  private radarFactoryPumpActive = false;
   private radarAutoDistributionPumpActive = false;
-  private radarCampaignTimer: NodeJS.Timeout | null = null;
-  private radarFactoryTimer: NodeJS.Timeout | null = null;
   private radarAutoDistributionTimer: NodeJS.Timeout | null = null;
   private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
   private readonly leadPlusSignalEnrichmentInFlight = new Set<string>();
@@ -270,43 +266,22 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   ) {}
 
   onModuleInit() {
-    this.radarCampaignTimer = setInterval(() => {
-      void this.processNextRadarCampaigns();
-    }, 30_000);
-    this.radarFactoryTimer = setInterval(() => {
-      void this.ensureNightFactoryWork();
-    }, 60_000);
+    // Fábrica de DESCOBERTA autônoma DEMOLIDA (F0, 02/07): os pumps de campanha/night_factory
+    // (processNextRadarCampaigns / ensureNightFactoryWork / recoverRadarCampaignWork) saíram junto
+    // com os mixins mass-data/campaign-planner/factory-admin. A fábrica nova é de ENRIQUECIMENTO,
+    // roda sobre a fila S4 (radar/missions/) via PONTE local — não nasce aqui.
     this.radarAutoDistributionTimer = setInterval(() => {
       void this.processActiveRadarAutoDistributions();
     }, 60_000);
     setTimeout(() => {
-      // force: no boot toda task 'running' é órfã (o processo que a leaseou morreu no restart) → libera já,
-      // sem esperar o lease de ~15min expirar. Mata o stall "fábrica parada pós-publish".
-      void this.recoverRadarCampaignWork({ force: true });
-    }, 1_000);
-    setTimeout(() => {
       void this.processNextQueuedSearchRun();
     }, 2_000);
-    setTimeout(() => {
-      void this.processNextRadarCampaigns();
-    }, 2_000);
-    setTimeout(() => {
-      void this.ensureNightFactoryWork();
-    }, 4_000);
     setTimeout(() => {
       void this.processActiveRadarAutoDistributions();
     }, 7_000);
   }
 
   onModuleDestroy() {
-    if (this.radarCampaignTimer) {
-      clearInterval(this.radarCampaignTimer);
-      this.radarCampaignTimer = null;
-    }
-    if (this.radarFactoryTimer) {
-      clearInterval(this.radarFactoryTimer);
-      this.radarFactoryTimer = null;
-    }
     if (this.radarAutoDistributionTimer) {
       clearInterval(this.radarAutoDistributionTimer);
       this.radarAutoDistributionTimer = null;
