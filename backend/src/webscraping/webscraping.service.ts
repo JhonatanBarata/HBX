@@ -490,9 +490,10 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         const hasSiteBefore = Boolean(String(row?.website || '').trim());
         const hasCnpjBefore = String(metaBefore?.cnpj || row?.cnpj || '').replace(/\D/g, '').length >= 14;
 
-        // (a) CNPJ por NOME (lean, ~1.1s/Brave) p/ lead SEM site e SEM CNPJ. Marca SEMPRE
+        // (a) CNPJ por NOME p/ lead SEM site e SEM CNPJ: base LOCAL da RFB primeiro (SELECT,
+        // zero API — Sprint 2 MOTOR-RFB-FILA), Brave só no que o local não resolve. Marca SEMPRE
         // `cnpjTriedAt` (achando ou não) pra o backfill AVANÇAR e não re-moer o mesmo lead novo.
-        // Teto de Brave por execução (orçamento free 2.000/mês). O run() completo (16s/lead,
+        // Teto de Brave por execução (orçamento free). O run() completo (16s/lead,
         // busca de site/social) foi removido daqui de propósito: estourava o timeout e a
         // descoberta de site rende pouco — quem acha e-mail/telefone é o crawl local (Tipo 2,
         // ilimitado). Com CNPJ em mãos, o passo (b) L4 dispara → razão/dono/telefone do dono.
@@ -502,7 +503,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
             name: String(row.name || ''),
             city: String(row.city || ''),
             state: String(row.state || '') || null,
-          }).catch(() => null);
+          }, prisma).catch(() => null);
           const patchedMeta = { ...metaBefore, cnpjTriedAt: nowMs, ...(found ? { cnpj: found } : {}) };
           await prisma.radarLeadPool.update({
             where: { id: row.id },

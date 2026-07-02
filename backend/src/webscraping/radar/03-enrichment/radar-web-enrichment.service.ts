@@ -87,6 +87,20 @@ function normalizeLookupValue(value: unknown) {
     .trim();
 }
 
+/**
+ * Mesma normaliza\u00e7\u00e3o do searchText/normalizedCity da base CnpjPublicCompany
+ * (rfb_norm do import + normalizeText do dataset service): min\u00fasculo, sem acento,
+ * espa\u00e7os colapsados \u2014 MANT\u00c9M pontua\u00e7\u00e3o, diferente de normalizeLookupValue.
+ */
+function normalizeDatasetText(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function compactLookupValue(value: unknown) {
   return normalizeLookupValue(value).replace(/[^a-z0-9]+/g, '');
 }
@@ -898,26 +912,84 @@ export class RadarWebEnrichmentService {
   }
 
   /**
-   * Descoberta de CNPJ por NOME (1 chamada Brave) — caminho LEAN p/ o backfill.
-   * Sem o peso do run() completo (HBX engine + social probes + 4 fallback queries + crawl
-   * = ~16s/lead que estourava o timeout). Aqui é 1 query "<nome> <cidade> CNPJ" → ~1.1s
-   * (throttle Brave). GRÁTIS, mas consome 1 do orçamento Brave (2.000/mês) → o chamador
-   * aplica teto por execução. Devolve só os 14 dígitos do CNPJ ou null.
+   * Descoberta de CNPJ por NOME — caminho LEAN p/ o backfill.
+   * Ordem travada do Sprint 2 MOTOR-RFB-FILA: base LOCAL da RFB primeiro (SELECT em
+   * CnpjPublicCompany, zero API), Brave só quando o local não resolve. Sem o peso do run()
+   * completo (HBX engine + social probes + 4 fallback queries + crawl = ~16s/lead que
+   * estourava o timeout). No Brave é 1 query "<nome> <cidade> CNPJ" → ~1.1s (throttle),
+   * consumindo 1 do orçamento (teto free) → o chamador aplica teto por execução.
+   * Devolve só os 14 dígitos do CNPJ ou null.
    */
   async discoverCnpjByName(
     fetcher: typeof fetch,
     opts: { name: string; city: string; state?: string | null },
+    prisma?: any,
   ): Promise<string | null> {
-    if (!fetcher || !process.env.BRAVE_SEARCH_API_KEY) return null;
     const name = compactText(opts.name).replace(/"/g, '');
     const city = compactText(opts.city || '').replace(/"/g, '');
     if (name.length < 3) return null;
+
+    const local = await this.discoverCnpjLocal(prisma, { name, city, state: opts.state }).catch(() => null);
+    if (local) return local;
+
+    if (!fetcher || !process.env.BRAVE_SEARCH_API_KEY) return null;
     const query = `"${name}" "${city}" CNPJ`.replace(/\s+/g, ' ').trim();
     const timeoutMs = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_TIMEOUT_MS', 4500, 15000);
     const candidates = await this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
     if (!candidates.length) return null;
     const allText = candidates.map((c) => `${c.title} ${c.snippet} ${c.url}`).join(' ');
     return extractCnpjFromText(allText);
+  }
+
+  /**
+   * Descoberta LOCAL de CNPJ por nome+cidade no dump da RFB (CnpjPublicCompany) — inverte o
+   * funil: SELECT local ANTES de queimar Brave (teto 900/mês) ou BrasilAPI (throttle+429).
+   * Só devolve CNPJ quando o match na cidade é INEQUÍVOCO (todos os hits do mesmo cnpjBasico,
+   * ou nome fantasia/razão EXATOS apontando pra uma única empresa) — CNPJ errado envenena o
+   * lead; ambiguidade devolve null e o chamador cai pro Brave.
+   */
+  private async discoverCnpjLocal(
+    prisma: any,
+    opts: { name: string; city: string; state?: string | null },
+  ): Promise<string | null> {
+    if (!prisma?.cnpjPublicCompany?.findMany) return null;
+    const normName = normalizeDatasetText(opts.name);
+    const normCity = normalizeDatasetText(opts.city);
+    // nome muito curto = genérico demais pra afirmar identidade sem verificação humana
+    if (normName.length < 5 || !normCity) return null;
+    const state = String(opts.state || '').trim().toUpperCase();
+    let rows: Array<{ cnpj?: string | null; nomeFantasia?: string | null; razaoSocial?: string | null }> = [];
+    try {
+      rows = await prisma.cnpjPublicCompany.findMany({
+        where: {
+          normalizedCity: normCity,
+          ...(state ? { state } : {}),
+          situacao: 'ativa',
+          searchText: { contains: normName },
+        },
+        select: { cnpj: true, nomeFantasia: true, razaoSocial: true },
+        take: 8,
+        orderBy: { cnpj: 'asc' }, // matriz (…0001…) vem antes das filiais
+      });
+    } catch {
+      return null;
+    }
+    if (!rows?.length) return null;
+    const basicoOf = (row: { cnpj?: string | null }) => String(row.cnpj || '').replace(/\D/g, '').slice(0, 8);
+    const basicos = new Set(rows.map(basicoOf).filter(Boolean));
+    if (basicos.size === 1) {
+      const cnpj = String(rows[0]?.cnpj || '').replace(/\D/g, '');
+      return cnpj.length === 14 ? cnpj : null;
+    }
+    // várias empresas contêm o nome → só aceita match EXATO de fantasia/razão em UMA única empresa
+    const exact = rows.filter((row) =>
+      normalizeDatasetText(row.nomeFantasia) === normName || normalizeDatasetText(row.razaoSocial) === normName);
+    const exactBasicos = new Set(exact.map(basicoOf).filter(Boolean));
+    if (exactBasicos.size === 1) {
+      const cnpj = String(exact[0]?.cnpj || '').replace(/\D/g, '');
+      return cnpj.length === 14 ? cnpj : null;
+    }
+    return null;
   }
 
   private async searchHbxForLead(

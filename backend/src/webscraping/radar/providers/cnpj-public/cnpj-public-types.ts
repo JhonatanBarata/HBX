@@ -16,6 +16,10 @@ export type CnpjPublicCompanyRecord = {
   phone?: string | null;
   website?: string | null;
   address?: string | null;
+  // Sócio-administrador do dump da RFB (coluna ownerName da CnpjPublicCompany) — opcional,
+  // registro antigo sem ele continua válido.
+  ownerName?: string | null;
+  ownerQualification?: string | null;
   raw?: Record<string, any> | null;
 };
 
