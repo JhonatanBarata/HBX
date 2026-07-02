@@ -92,6 +92,20 @@ visuais do próprio :3107.
 - Playwright L2 só se M1 provar falha em % relevante de site JS.
 - Meta: 12 → <6 mixins no core.
 
+## ADENDO 02/07 noite — decisões do dono (mudam F2 e F3)
+1. **Refazer sem legado** (escolhido contra "destruir tudo"): código antigo morre FÍSICO no
+   cutover, workers do novo não leem o antigo (quarentena de contexto), lint proíbe import de
+   legado, flag de rollout tem data de morte. IP/VPS, chips, banco e Webwhats NÃO se destroem.
+2. **Fábrica (F2 re-escopado)**: motor que LÊ a lista RFB e enriquece TUDO (tel 1-3, email 1-3,
+   insta, fb, site, avaliações). **Localhost NUNCA acessa pago — trava física `HBX_ROLE`** +
+   chaves pagas removidas do `.env` local. Pago = só reforço, só VPS, só pós-score.
+3. **Owner v2 (substitui o F3 como alvo)**: UM painel, LOCAL esquerda × VPS direita; PARAR TUDO
+   do VPS MORRE (freio de lá é o governor) — Parar vive no motor de scraping local com "só X";
+   painel de fontes pagas só na direita; IA LOCAL × IA VPS; BANCO com export tudo (csv.gz
+   streaming); aba "Árvore do motor" vira cartões e some como aba; **:3107 é a única tela**
+   (3199 não existe — confirmado 02/07; ops-control segue headless).
+   Briefings: `PR02072026/F2-fabrica-enriquecimento.md` (v2) e `PR02072026/OWNERV2-painel-unico.md`.
+
 ## Ordem e dependências
 F0 já · F1 espera G1+G2 · F2 espera F0 (e rende mais após F1) · F3 incremental desde já ·
 F4 tem datas externas (01/08) · F5 por último. Nada aqui liga flag nova na VPS sem gate.

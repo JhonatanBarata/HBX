@@ -1,54 +1,59 @@
-# F2 — Fábrica de ENRIQUECIMENTO (missão `enrich_lead` M1-M6 sobre a fila S4, roda LOCAL)
+# F2v2 — Fábrica de ENRIQUECIMENTO: lê a lista RFB e enriquece TUDO (local, grátis-absoluto)
 
-> Worker Opus. Leia ANTES: `docs/PLANEJAMENTOS/ARVORE-MESTRA/PLANO-FECHAMENTO.md` (F2),
-> `docs/PLANEJAMENTOS/MOTOR-RFB-FILA/sprint4-fila-missoes-RESULTADO.md` (a fila que você usa),
-> `docs/PLANEJAMENTOS/MOTOR-RFB-FILA/sprint5-RESULTADO.md` (gate anti-alucinação/30b),
-> `docs/Rules/MOTOR.md`. Pré-requisito já aterrissado: F0 demoliu a fábrica de descoberta —
-> você constrói a substituta. A fábrica NÃO descobre nada: pega lead SEM contato quente e completa.
+> Worker Opus. RE-ESCOPADO 02/07 noite pelo dono (substitui o escopo anterior deste arquivo).
+> Leia ANTES: `docs/PLANEJAMENTOS/ARVORE-MESTRA/PLANO-FECHAMENTO.md` (F2 + adendo 02/07),
+> `docs/PLANEJAMENTOS/MOTOR-RFB-FILA/sprint4-fila-missoes-RESULTADO.md` (fila S4),
+> `docs/PLANEJAMENTOS/MOTOR-RFB-FILA/sprint5-RESULTADO.md` (gate anti-alucinação),
+> `docs/Rules/MOTOR.md`. Pré-requisito: F0 demoliu a fábrica de descoberta.
 
-## Missão
-Missão `enrich_lead` de ponta a ponta, alimentador por DEMANDA, validada AO VIVO local com R$ 0.
+## As 3 leis do dono (invioláveis, custam o trabalho inteiro se quebradas)
+1. **LOCALHOST NUNCA ACESSA NADA PAGO.** Não é config, é FÍSICA: implementar `HBX_ROLE`
+   (`local`|`vps`); todo provider pago (Places, Serper, qualquer `HBX_ENRICH_ALLOW_PAID`)
+   **recusa em código** quando `HBX_ROLE=local` (throw/log, teste cobrindo). Além disso:
+   backup `.env.bak-f2` e REMOVER as chaves pagas do `.env` LOCAL (nunca tocar o da VPS).
+2. **Pago = só reforço, só no VPS, só pós-score.** M4 não roda local: a fábrica marca o lead
+   que passou no score e ainda ficou sem contato → fila de reforço que SÓ o backend da VPS
+   consome (atrás do governor fail-closed). Implementar a marcação + o consumo VPS-side
+   (flag própria, default OFF — liga no recreate final do orquestrador).
+3. **A fábrica NÃO descobre** — ela lê a lista gigante da RFB (base local de 28M, carga do F1)
+   e completa o lead com TUDO que for grátis.
 
-## Estágios (REUSAR serviços existentes — você solda, não reinventa)
-- **M1 crawl profundo**: site inteiro do lead (base: radar-web-enrichment crawl; nível estático).
-- **M2 caça-contato web**: nome+cidade → fone/insta/site (`searchWeb` L3: Brave→ddg/bing, respeitando
-  governor e emergencyStop).
-- **M3 sociais**: probe direto insta/fb (04-socials).
-- **M4 pagos — último recurso**: SÓ se M1-M3 não acharam contato E `SourceBudgetService` tem saldo
-  (fail-closed; Serper continua OFF por env; Places teto 200/dia). Registrar uso no gauge.
-- **M5 extração 30b + nota ICP**: extração via caminho `HBX_AI_EXTRACTION_ENABLED` com gate
-  anti-alucinação (`LeadContactWriteService` é o ÚNICO caminho de escrita de contato) + nota ICP
-  pela 7b (`saneiaComNota` do AiSaneamento — já existe). Nota ≤3 → quarentena W2
-  (`rejected`/`ai_score_low`) antes do estoque.
-- **M6 zap-gate**: validação via `WebwhatsBridge.checkWhatsappNumbers` (freio W4 já cobre:
-  cache/rate/disjuntor). Resultado: estoque pronto (card esperando vendedor).
+## O que a fábrica enche por lead (contato é 1ª classe — N por lead via `LeadContact`)
+telefone 1..3 · email 1..3 · instagram · facebook · site · avaliações (nota/qtd do scraping
+google) · sócio/dono. Tudo pelo caminho ÚNICO `LeadContactWriteService` (gate anti-alucinação).
 
-## Alimentador por DEMANDA (não varrer a base!)
-Prioriza cidade×nicho por: buscas recentes (runs) × `RadarCoverage` fraco/esgotado × estoque baixo.
-Seleciona leads do pool SEM contato quente (sem `LeadContact` válido/fresco) → cria missões
-`enrich_lead` com cap de fila (ex.: `HBX_ENRICH_QUEUE_CAP`, default 200 pendentes) — nunca inunda.
-CPU local é o ativo escasso: enriquecer o que VENDE.
+## Estágios (missão `enrich_lead` sobre a fila S4 — reusar lease/heartbeat/backoff/dead-letter)
+- M1 crawl profundo do site · M2 caça-contato web (searxng/ddg/bing grátis; respeita
+  emergencyStop) · M3 sociais (probe insta/fb) · M3b avaliações via scraping google
+  (**motor de risco de IP**: ver controles abaixo) · M5 extração 30b + nota ICP 7b
+  (`saneiaComNota`; nota ≤3 → quarentena W2) · M6 zap-gate (freio W4 cobre).
+- M4 (pago) local NÃO EXISTE — vira a marcação da lei 2.
 
-## Execução (PONTE — decisão do S4)
-O processamento roda no backend LOCAL puxando da fila (padrão pull `/modules/owner/missions/*` do
-S4, adaptando o executor que o S4 deixou atrás de `HBX_MISSION_QUEUE_ENABLED`). Lease TTL +
-heartbeat + backoff + dead-letter: JÁ EXISTEM — use. PARAR pausa fila E estágios (cursor do S4).
-Documente como o dono liga/desliga o worker local (script npm claro, ex. `npm run fabrica`).
+## Alimentador por DEMANDA
+Lê a base RFB local (cidade×cnae) priorizando: buscas recentes × `RadarCoverage` fraco ×
+estoque baixo. Cap de fila (`HBX_ENRICH_QUEUE_CAP` default 200). Nunca varre em ordem cega.
 
-## Validação ao vivo (obrigatória antes de commitar como pronto)
-Local, com Ollama vivo e flags locais ON (`HBX_MISSION_QUEUE_ENABLED`, `HBX_AI_EXTRACTION_ENABLED`,
-`HBX_RADAR_AI_SANEAMENTO_ENABLED` no `.env` local — cuidado: só o LOCAL, jamais VPS):
-1 missão real de ponta a ponta: lead sem contato → M1-M3 (→M4 só se saldo) → M5 (contato via gate,
-nota) → M6 → estoque, com custo R$ 0, PARAR congelando no meio e retomando. Registre a evidência
-no relatório (ids, logs). VPS: flags ficam OFF — o recreate final é do orquestrador.
+## Controles operacionais (contrato com o Owner v2 — EXATAMENTE estas rotas, no backend LOCAL)
+- `GET  /modules/owner/fabrica/status` → `{running, budget, processed, remaining, currentLead,
+  errors, lastError, ipRiskEngineOn}`
+- `POST /modules/owner/fabrica/start` body `{budget: N}` → roda até N leads e PARA SOZINHO
+  ("só scrapear X" do dono; sem budget = recusa).
+- `POST /modules/owner/fabrica/stop` → para AGORA (congela missões em curso com segurança).
+Guards das rotas owner existentes. O painel (outro worker) consome via proxy — se as rotas
+divergirem do contrato, o painel quebra: NÃO divergir.
+
+## Validação AO VIVO obrigatória (o dono começa os testes em cima disso)
+Local, Ollama vivo, flags locais ON: start com budget=5 → 5 leads da RFB enriquecidos de ponta
+a ponta (contatos gravados via gate, nota, zap-gate, estoque/quarentena), custo R$ 0 comprovado
+(nenhuma chamada paga nem tentativa — provar pelo log da trava), stop no meio congela e start
+retoma sem duplicar. Registrar ids/logs no relatório.
 
 ## Regras duras
-- Você é o ÚNICO desta fase autorizado a tocar `backend/prisma/schema.prisma` — e SÓ migration
-  aditiva mínima se a `RadarMission`/pool realmente não comportar (justifique; provavelmente não precisa).
-- NÃO tocar: `Webwhats/`, reconexão de chip, internals do governor/freio (só consumir), fusão,
-  planner do cliente, entrega do cliente.
-- Testes que leem env: SEMPRE pinar (worktree não tem `.env`; host tem — lição de hoje).
-- Validação: `cd backend && npm run build` + `node --test dist/...` (missions, estágios novos,
-  alimentador) + a validação ao vivo acima.
-- Commit na branch do worktree. Relatório: arquitetura final (1 parágrafo), arquivos, flags e
-  defaults, evidência da validação ao vivo, migration (se houve), pendências.
+- Único autorizado a tocar `backend/prisma/schema.prisma` (aditivo mínimo, se precisar; justifique).
+- NÃO tocar: `Webwhats/`, reconexão, internals do governor/freios (só consumir), fusão, planner
+  e entrega do cliente, `hbx-owner/` (painel é de outro worker).
+- Testes que leem env: SEMPRE pinar. Junction node_modules:
+  `New-Item -ItemType Junction -Path .\backend\node_modules -Target C:\Users\Jhonatan\Desktop\App\backend\node_modules`.
+- Validação: `cd backend && npm run build` + `node --test dist/...` dos módulos + validação viva.
+- Commit na branch do worktree. Relatório: arquitetura (1 parágrafo), rotas do contrato,
+  flags+defaults, evidência da validação viva, prova da trava anti-pago, migration se houve, pendências.
