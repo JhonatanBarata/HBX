@@ -49,7 +49,12 @@
 | Crawl lvl 2 (Playwright) | 🔴 adiado por decisão | P5 (só se M1 falhar em site JS) |
 | sourceChain visível no card | 🔴 não existe | **P1 (é a cura da dor nº1)** |
 
-## Plano de conclusão (ordem de execução; 1 worker por P, .md na pasta do dia)
+## Plano de conclusão — SUBSTITUÍDO 02/07 noite por [PLANO-FECHAMENTO.md](./PLANO-FECHAMENTO.md)
+> Decisão do dono: fábrica de descoberta atual será DELETADA (F0); fábrica nova = enriquecimento
+> sobre a fila S4, local. Desenho detalhado da pesquisa na VPS: [pesquisa-vps.svg](./pesquisa-vps.svg).
+> O plano abaixo fica como histórico.
+
+## (histórico) Plano de conclusão (ordem de execução; 1 worker por P, .md na pasta do dia)
 - **P0 — Carga RFB (gate do dono: "roda hoje?").** Script COPY+staging do S2 pronto; ~7,3GB,
   rodar de madrugada; aceite: SELECT cidade+cnae <500ms e re-rodar não duplica.
 - **P1 — Pesquisa determinística (cutover).** Ordem fixa 1→8 na rota do cliente; RFB SELECT
