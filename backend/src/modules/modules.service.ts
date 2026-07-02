@@ -17,6 +17,7 @@ import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
 import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT, isPlatformInfraCompany } from '../common/company-kind';
+import { buildWaLink } from '../webscraping/radar/shared/radar-core-shared';
 import {
   getMasterGlobalIntegrationConfig,
   normalizeMasterGlobalIntegrationConfig,
@@ -5046,7 +5047,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private buildVendasComplaintPayload(row: any) {
     const leadPhone = this.normalizeNullableText(row.leadPhone, 40);
     const companyPhone = this.normalizeNullableText(row.companyContactPhone || row.companyWhatsappNumber, 40);
-    const contactDigits = String(companyPhone || '').replace(/\D/g, '');
     return {
       id: String(row.id),
       companyId: Number(row.companyId || 0),
@@ -5069,7 +5069,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       resolvedAt: row.resolvedAt instanceof Date ? row.resolvedAt.toISOString() : null,
       contactPhone: companyPhone,
-      contactWhatsappUrl: contactDigits ? `https://wa.me/55${contactDigits.replace(/^55/, '')}` : null,
+      contactWhatsappUrl: buildWaLink(companyPhone),
     };
   }
 

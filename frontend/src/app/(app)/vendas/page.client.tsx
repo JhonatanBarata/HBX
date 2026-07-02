@@ -21,6 +21,7 @@ import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type VendasLead = {
   id: string;
@@ -620,11 +621,9 @@ export function VendasClient() {
 
   // Abre no WhatsApp Externo (wa.me) direto do ícone de ação — sem link pré-digitado
   // (o link pré-digitado só existe depois de gerar o link de contratação no fecharOpen).
-  function abrirWhatsAppExterno(phone: string | null | undefined) {
-    if (!phone) return;
-    const digits = phone.replace(/\D/g, "");
-    const target = digits.length >= 12 ? digits : `55${digits}`;
-    window.open(`https://wa.me/${target}`, "_blank", "noopener");
+  function abrirWhatsAppExterno(phone: string | null | undefined, text?: string) {
+    const link = buildWaLink(phone, { text });
+    if (link) window.open(link, "_blank", "noopener");
   }
 
   // Abre o WhatsApp Interno: POST /inbox/conversations/start → navega pro /atendimento
@@ -1335,7 +1334,7 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
-                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone) : undefined}
+                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
                 waQrActive={waQrActive}
                 waCanInternal={canAtendimento}
@@ -1401,7 +1400,7 @@ export function VendasClient() {
               detail={toNegocioDetail(sel)}
               title={sel.name || "Negócio"}
               onClose={() => setMobileDetailOpen(false)}
-              onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone) : undefined}
+              onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone, buildWaMessage({ name: sel.name, segment: sel.segment, city: sel.city })) : undefined}
               onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
               waQrActive={waQrActive}
               waCanInternal={canAtendimento}

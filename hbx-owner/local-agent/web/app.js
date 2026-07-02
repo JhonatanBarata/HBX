@@ -23,6 +23,18 @@ async function api(method, route, body) {
 function $(sel) { return document.querySelector(sel); }
 function esc(value) { return String(value == null ? "" : value).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+// HOT-05 — link WhatsApp (wa.me) de 1 clique. Mesma regra do front/backend
+// (frontend/src/lib/wa-link.ts, backend/src/webscraping/radar/shared/radar-core-shared.ts):
+// normaliza pra 55+DDD+número e monta https://wa.me/<digits>. Ação HUMANA do dono clicando
+// no painel — não passa pelo motor/Webwhats.
+function owWaLink(rawPhone) {
+  let digits = String(rawPhone || "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("55") && digits.length > 11) digits = digits.slice(2);
+  if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+  return digits ? `https://wa.me/${digits}` : null;
+}
+
 /* ---------- Tema ---------- */
 const savedTheme = localStorage.getItem("hbx-owner-theme") || "light";
 document.documentElement.dataset.theme = savedTheme;
@@ -528,6 +540,7 @@ const CK_COLS = [
   { key: "phone",              label: "Telefone",        w: 110 },
   { key: "_ownerPhone",        label: "Tel. do dono",    w: 110 },
   { key: "_whatsapp",          label: "WhatsApp",        w: 90  },
+  { key: "_waAction",          label: "Abrir WhatsApp",  w: 90  },
   { key: "website",            label: "Website",         w: 130 },
   { key: "email",              label: "E-mail",          w: 140 },
   { key: "_ownerSocial",       label: "Social do dono",  w: 120 },
@@ -579,6 +592,11 @@ function ckGetValue(row, key) {
     const phone = row.phone || row.phoneDigits || "";
     if (!phone) return "";
     return ws === "valid" || ws === "confirmed" ? phone : "";
+  }
+  // HOT-05: telefone usado no botão "Abrir WhatsApp" (principal verificado > principal cru).
+  if (key === "_waAction") {
+    const primary = ckDisplayPhones(row)[0] || row.phone || row.phoneDigits || "";
+    return primary || "";
   }
   if (key === "website") return row.website || "";
   if (key === "email") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(", ");
@@ -643,6 +661,20 @@ function ckApplySort(rows) {
 }
 
 function ckCellHtml(row, key) {
+  // HOT-05: botão "Abrir WhatsApp" — 1 clique no wa.me do vendedor com o lead (ação humana,
+  // não passa pelo motor/Webwhats). Verde = WhatsApp validado no gate do motor; cinza =
+  // não validado (ainda abre, só não tem a garantia do gate — CNPJ Biz não tem essa distinção).
+  if (key === "_waAction") {
+    const primary = ckDisplayPhones(row)[0] || row.phone || row.phoneDigits || "";
+    const link = owWaLink(primary);
+    if (!link) return '<span style="color:var(--text-muted);">—</span>';
+    const ws = String(row.whatsappStatus || row.whatsappCheckStatus || "").toLowerCase();
+    const validated = ws === "valid" || ws === "confirmed";
+    const cls = validated ? "ck-pill ok" : "ck-pill muted";
+    const title = validated ? "WhatsApp validado — abrir conversa" : "WhatsApp não validado — abrir mesmo assim";
+    return `<a href="${esc(link)}" target="_blank" rel="noopener" class="${cls}" title="${esc(title)}">${validated ? "✓" : ""} WhatsApp</a>`;
+  }
+
   // E-mail e Telefone: mostram até 3 (dos arrays emails[]/phones[] achados no scraper).
   if (key === "email" || key === "phone") {
     const arr = key === "email"
@@ -859,6 +891,7 @@ function ckExportCsv() {
     { key: "ownerFacebook",      label: "Facebook do dono" },
     { key: "phone",              label: "Telefone" },
     { key: "phoneDigits",        label: "Telefone (digits)" },
+    { key: "_linkWhatsapp",      label: "Link WhatsApp" },
     { key: "_emails",            label: "E-mails (1/2/3)" },
     { key: "_phones",            label: "Telefones (1/2/3)" },
     { key: "email",              label: "E-mail" },
@@ -888,6 +921,7 @@ function ckExportCsv() {
   const csvVal = (row, key) => {
     if (key === "_emails") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(" | ");
     if (key === "_phones") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(" | ");
+    if (key === "_linkWhatsapp") return owWaLink(ckDisplayPhones(row)[0] || row.phone || row.phoneDigits) || "";
     if (key === "ownerName") return (Array.isArray(row.ownerNames) && row.ownerNames.length ? row.ownerNames : [row.ownerName]).filter(Boolean).join(" | ");
     return row[key];
   };

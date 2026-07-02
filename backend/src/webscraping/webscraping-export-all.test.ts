@@ -94,7 +94,7 @@ test('export-all: gzip descompacta em CSV com cabeçalho + todas as linhas (keys
   assert.ok(csv.startsWith('﻿'), 'faltou BOM UTF-8');
   const lines = csv.replace(/^﻿/, '').split('\r\n').filter((l) => l.length > 0);
   const header = lines[0].split(';');
-  for (const col of ['id', 'name', 'tel1', 'email1', 'insta', 'fb', 'site', 'nota']) {
+  for (const col of ['id', 'name', 'tel1', 'link_whatsapp', 'email1', 'insta', 'fb', 'site', 'nota']) {
     assert.ok(header.includes(col), `cabeçalho sem coluna ${col}`);
   }
 
@@ -134,6 +134,7 @@ test('export-all: contatos da LeadContact achatam em tel1..3 / email1..3 / insta
   assert.equal(rowA[col('tel1')], '11911111111');
   assert.equal(rowA[col('tel2')], '11922222222');
   assert.equal(rowA[col('tel3')], '11933333333', 'whatsapp devia virar tel3');
+  assert.equal(rowA[col('link_whatsapp')], 'https://wa.me/5511911111111', 'link_whatsapp devia usar o tel1 (principal)');
   assert.equal(rowA[col('email1')], 'a1@a.com');
   assert.equal(rowA[col('insta')], 'insta.com/a');
   assert.equal(rowA[col('fb')], 'fb.com/a');
@@ -141,6 +142,7 @@ test('export-all: contatos da LeadContact achatam em tel1..3 / email1..3 / insta
   // Lead SEM contatos na tabela cai no campo cru do próprio lead (fallback).
   const rowB = lines[2].split(';');
   assert.equal(rowB[col('tel1')], '1130000000', 'fallback pro phone cru do lead falhou');
+  assert.equal(rowB[col('link_whatsapp')], 'https://wa.me/551130000000', 'link_whatsapp devia cair no fallback do phone cru');
   assert.equal(rowB[col('email1')], 'cru@b.com', 'fallback pro email cru do lead falhou');
 });
 

@@ -52,7 +52,7 @@ import { RadarRunRepositoryService } from './radar/persistence/radar-run-reposit
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
-import { normalizeLookupValue, normalizePhoneDigits } from './radar/shared/radar-core-shared';
+import { normalizeLookupValue, normalizePhoneDigits, buildWaLink } from './radar/shared/radar-core-shared';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { RadarWebscrapingCoreService } from './radar/radar-webscraping-core.service';
 
@@ -993,6 +993,9 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       ['tel1', (r) => r._c?.phone?.[0] ?? r.phone ?? ''],
       ['tel2', (r) => r._c?.phone?.[1] ?? ''],
       ['tel3', (r) => r._c?.phone?.[2] ?? ''],
+      // HOT-05: link wa.me pronto do telefone principal — 1 clique abre o WhatsApp do
+      // vendedor com o lead (ação humana, não passa pelo motor/Webwhats).
+      ['link_whatsapp', (r) => buildWaLink(r._c?.phone?.[0] ?? r.phone ?? '') ?? ''],
       ['email1', (r) => r._c?.email?.[0] ?? r.email ?? ''],
       ['email2', (r) => r._c?.email?.[1] ?? ''],
       ['email3', (r) => r._c?.email?.[2] ?? ''],

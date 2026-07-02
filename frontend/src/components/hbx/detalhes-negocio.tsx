@@ -27,6 +27,7 @@ import React, { useEffect, useState } from "react";
 import { Av, I, ICONS, PhotoLightbox, useEntitlements } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
+import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 // ── Humanização: mapa de snake_case → label legível ──────────────────────────
 // Tudo que pode aparecer cru (painType, recommendedChannel, tags, status) passa
@@ -516,8 +517,10 @@ function ChannelRow({
 
   function getHref(canal: Canal): string | null {
     switch (canal) {
-      case "whatsapp":
-        return n.phone ? `https://wa.me/${n.phone.replace(/\D/g, "").replace(/^(\d{10,11})$/, "55$1")}` : null;
+      case "whatsapp": {
+        const text = buildWaMessage({ name: n.name, segment: n.segment, city: n.city });
+        return buildWaLink(n.phone, { text });
+      }
       case "telefone":
         return n.phone ? `tel:${n.phone.replace(/[^\d+]/g, "")}` : null;
       case "email":

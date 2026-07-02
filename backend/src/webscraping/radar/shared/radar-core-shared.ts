@@ -3,6 +3,7 @@ import type { WebscrapingRuntimeDiagnostic } from '../../../modules/webscraping-
 import { buildLocalHbxEngineUrls, type HbxEnginePurpose } from '../../hbx-engine-pool.service';
 import type { LeadQualityV2, LeadQualityV2SalesProfile } from '../../lead-quality-v2';
 import { BLOCK_GLOBAL_POOL_STATUSES } from './radar-disposition-rules';
+import waMessageTemplates from './wa-message-templates.json';
 
 // Reexporta a FONTE ÚNICA de disposição de card pra quem importa o barrel shared
 // (distribution mixin, e vendas.service.ts via worker C). O mapa mestre + helpers
@@ -2094,6 +2095,68 @@ export function formatCityWithState(city: string, state: string | null | undefin
   if (!safeCity || !safeState) return safeCity;
   if (new RegExp(`\\s-\\s${safeState}$`, 'i').test(safeCity)) return safeCity;
   return `${safeCity} - ${safeState}`;
+}
+
+// ── HOT-05 — link WhatsApp (wa.me) de 1 clique ──────────────────────────────────────────────
+// Fonte ÚNICA do backend (exports/relatórios do Radar; ação HUMANA do vendedor, não passa pelo
+// motor/Webwhats — zero risco de ban). Cópia irmã no front: frontend/src/lib/wa-link.ts (mesma
+// assinatura/regra de normalização; front não importa direto do backend por não terem infra de
+// monorepo). Ver docs/PLANEJAMENTOS/hot/05-links-whatsapp-1clique.md.
+
+/** Normaliza qualquer telefone BR cru pros dígitos que o wa.me espera (55 + DDD + número). */
+export function normalizeWaPhoneDigits(rawPhone: string | null | undefined): string {
+  const digits = normalizePhoneDigits(rawPhone);
+  if (!digits) return '';
+  // normalizePhoneDigits já tira o 55 de duplo-DDI; aqui garantimos o 55 único de volta.
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
+}
+
+export type BuildWaLinkOptions = {
+  /** Texto pré-preenchido (vira `?text=`, já URL-encoded pela função). */
+  text?: string | null;
+};
+
+/**
+ * Monta o link wa.me de 1 clique a partir de um telefone cru (com ou sem DDI/máscara).
+ * `opts.text` vira `?text=` (URL-encoded). Retorna null se não sobrar nenhum dígito.
+ */
+export function buildWaLink(phone: string | null | undefined, opts: BuildWaLinkOptions = {}): string | null {
+  const digits = normalizeWaPhoneDigits(phone);
+  if (!digits) return null;
+  const base = `https://wa.me/${digits}`;
+  const text = String(opts.text || '').trim();
+  return text ? `${base}?text=${encodeURIComponent(text)}` : base;
+}
+
+type WaTemplates = Record<string, string> & { _comment?: string };
+const WA_TEMPLATES = waMessageTemplates as WaTemplates;
+
+function normalizeWaTemplateCategory(category: string | null | undefined): string {
+  const normalized = normalizeLookupValue(category).replace(/\s+/g, '');
+  return normalized && WA_TEMPLATES[normalized] ? normalized : 'default';
+}
+
+/**
+ * Preenche o template de abertura por categoria (wa-message-templates.json) com os dados do
+ * lead. `category` é a chave normalizada (ex.: "alimentacao", espelha HBX_CATEGORY_SEGMENTS);
+ * cai em "default" se não existir ou não vier.
+ */
+export function buildWaMessage(params: {
+  category?: string | null;
+  name?: string | null;
+  segment?: string | null;
+  city?: string | null;
+}): string {
+  const key = normalizeWaTemplateCategory(params.category);
+  const template = WA_TEMPLATES[key] || WA_TEMPLATES.default;
+  const nome = params.name ? ` ${params.name}` : '';
+  const segmento = params.segment ? params.segment.toLowerCase() : 'sua área';
+  const cidade = params.city ? ` em ${params.city}` : '';
+  return template
+    .replace('{nome}', nome)
+    .replace('{segmento}', segmento)
+    .replace('{cidade}', cidade);
 }
 
 export * from './radar-error-codes';

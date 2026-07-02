@@ -20,6 +20,7 @@ import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };
 
@@ -901,11 +902,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  function abrirWhatsAppExterno(phone: string | null | undefined) {
-    if (!phone) return;
-    const digits = phone.replace(/\D/g, "");
-    const target = digits.length >= 12 ? digits : `55${digits}`;
-    window.open(`https://wa.me/${target}`, "_blank", "noopener");
+  function abrirWhatsAppExterno(phone: string | null | undefined, text?: string) {
+    const link = buildWaLink(phone, { text });
+    if (link) window.open(link, "_blank", "noopener");
   }
 
   async function abrirWhatsAppInterno(lead: { phone: string | null; name: string | null }) {
@@ -1026,7 +1025,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         enriching={enriching}
         onClose={opts?.onClose}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
-        onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone) : undefined}
+        onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone, buildWaMessage({ name: lead.name, segment: lead.segment, city: lead.city })) : undefined}
         onWaOpenInternal={revealed ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
         waQrActive={waQrActive}
         waCanInternal={canAtendimento}
