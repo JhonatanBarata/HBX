@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { WebwhatsBridgeService, WebwhatsProviderError } from './webwhats-bridge.service';
+import { ZapCheckGuardService } from './zap-check-guard.service';
 
 const TEST_SESSION = {
   id: 'session-47',
@@ -1607,4 +1608,128 @@ test('normalizeStoredStatus prefere READ sobre DELIVERY_ACK quando ambos em Mess
   const svc = createBareWebwhatsBridgeService();
   const msg = { status: 'DELIVERY_ACK', MessageUpdate: [{ status: 'READ' }] };
   assert.equal(svc.normalizeStoredStatus(msg, 'OUTBOUND'), 'READ');
+});
+
+// ---------------------------------------------------------------------------------------------
+// FREIO do zap-gate (W4, PR02072026): checkWhatsappNumbers passa pelo ZapCheckGuardService antes
+// de qualquer request real ao motor. Aqui testamos a integração ponta-a-ponta: cache evita
+// segunda chamada, e disjuntor aberto lança erro que os chamadores (Radar/Vendas/Inbox) já sabem
+// tratar como indisponibilidade (nunca retry-loop nosso).
+// ---------------------------------------------------------------------------------------------
+
+function makeCheckNumbersPrisma() {
+  return {
+    whatsAppConnectionSession: {
+      findFirst: async () => ({
+        id: 'session-zap-1',
+        tenantKey: 'company-9',
+        phoneNormalized: '5511999998888',
+        displayPhone: '+5511999998888',
+        metadataJson: null,
+      }),
+    },
+    company: {
+      findUnique: async () => ({
+        id: 9,
+        currentWhatsappConnectionSession: null,
+      }),
+    },
+  };
+}
+
+function resetZapGuardRuntime() {
+  (ZapCheckGuardService as any)._windowStartedAt = 0;
+  (ZapCheckGuardService as any)._windowCount = 0;
+  (ZapCheckGuardService as any)._windowMs = 60_000;
+  (ZapCheckGuardService as any)._queue = Promise.resolve();
+  (ZapCheckGuardService as any)._breakerState = 'closed';
+  (ZapCheckGuardService as any)._consecutiveErrors = 0;
+  (ZapCheckGuardService as any)._openedUntil = 0;
+  (ZapCheckGuardService as any)._halfOpenProbeInFlight = false;
+  (ZapCheckGuardService as any)._cacheDb = {
+    whatsappNumberCheckCache: {
+      findMany: async () => [],
+      upsert: async () => ({}),
+    },
+  };
+}
+
+test('checkWhatsappNumbers: cache HIT evita 2ª chamada real ao motor pro mesmo número', async () => {
+  const prev = setPerUserModalEnv();
+  resetZapGuardRuntime();
+  const rows = new Map<string, any>();
+  (ZapCheckGuardService as any)._cacheDb = {
+    whatsappNumberCheckCache: {
+      findMany: async ({ where }: any) => {
+        const wanted: string[] = where.phoneDigits.in;
+        return wanted.filter((d) => rows.has(d)).map((d) => ({ ...rows.get(d) }));
+      },
+      upsert: async ({ where, create, update }: any) => {
+        const existing = rows.get(where.phoneDigits);
+        const next = existing ? { ...existing, ...update } : { phoneDigits: where.phoneDigits, ...create };
+        rows.set(where.phoneDigits, next);
+        return { ...next };
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(makeCheckNumbersPrisma() as any);
+  let realCalls = 0;
+  (service as any).requestRead = async (input: any) => {
+    realCalls += 1;
+    return { numbers: (input.data.numbers as string[]).map((n) => ({ number: n, exists: true, jid: `${n}@s.whatsapp.net` })) };
+  };
+  try {
+    const first = await service.checkWhatsappNumbers(9, ['5511999990001']);
+    assert.equal(realCalls, 1);
+    assert.equal(first[0].exists, true);
+
+    const second = await service.checkWhatsappNumbers(9, ['5511999990001']);
+    assert.equal(realCalls, 1, 'segunda checagem do mesmo número deveria servir do cache, sem 2ª chamada real');
+    assert.equal(second[0].exists, true);
+    assert.equal(second[0].normalizedNumber, '5511999990001');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('checkWhatsappNumbers: disjuntor aberto após erros consecutivos lança erro tratável (sem retry-loop)', async () => {
+  const prev = setPerUserModalEnv();
+  resetZapGuardRuntime();
+  process.env.HBX_ZAP_CHECK_BREAKER_THRESHOLD = '2';
+  process.env.HBX_ZAP_CHECK_BREAKER_COOLDOWN_MIN = '10';
+  const service = new WebwhatsBridgeService(makeCheckNumbersPrisma() as any);
+  (service as any).requestRead = async () => {
+    throw new WebwhatsProviderError('WEBWHATS_UNAVAILABLE', 'motor fora do ar');
+  };
+  try {
+    await assert.rejects(() => service.checkWhatsappNumbers(9, ['5511988880001']));
+    await assert.rejects(() => service.checkWhatsappNumbers(9, ['5511988880002']));
+    assert.equal(ZapCheckGuardService.breakerState(), 'open');
+
+    let realCalls = 0;
+    (service as any).requestRead = async () => { realCalls += 1; return { numbers: [] }; };
+    await assert.rejects(
+      () => service.checkWhatsappNumbers(9, ['5511988880003']),
+      (error: any) => error instanceof WebwhatsProviderError && error.code === 'WEBWHATS_UNAVAILABLE',
+    );
+    assert.equal(realCalls, 0, 'disjuntor aberto não deveria nem tentar a chamada real');
+  } finally {
+    delete process.env.HBX_ZAP_CHECK_BREAKER_THRESHOLD;
+    delete process.env.HBX_ZAP_CHECK_BREAKER_COOLDOWN_MIN;
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('checkWhatsappNumbers: número ausente na resposta do motor vira exists=false e entra no cache', async () => {
+  const prev = setPerUserModalEnv();
+  resetZapGuardRuntime();
+  const service = new WebwhatsBridgeService(makeCheckNumbersPrisma() as any);
+  (service as any).requestRead = async () => ({ numbers: [] }); // motor não devolveu nada pro número pedido
+  try {
+    const result = await service.checkWhatsappNumbers(9, ['5511977770001']);
+    assert.equal(result[0].exists, false);
+    assert.equal(result[0].remoteJid, null);
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
 });
