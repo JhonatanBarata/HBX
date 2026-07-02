@@ -5,6 +5,29 @@ import { join } from 'node:path';
 import * as XLSX from 'xlsx';
 import { WebscrapingService } from './webscraping.service';
 import { shouldRadarIssueBlockDelivery } from './radar/shared/radar-stage-policy';
+import { SourceBudgetService } from './source-budget/source-budget.service';
+
+// SourceBudgetService.tryConsumePaid('google_places') é FAIL-CLOSED e usa um PrismaClient PRÓPRIO,
+// real (`_counterDb`, lazy), independente do mock de Prisma que cada teste injeta no
+// WebscrapingService — este worktree não tem .env/DATABASE_URL, então o PrismaClient real falha ao
+// conectar e o governor bloqueia Google Places em QUALQUER teste que o exercite (estado estático
+// global do processo, mesmo mecanismo coberto em source-budget.service.test.ts). Nenhum teste deste
+// arquivo verifica o governor BLOQUEANDO — quem cobre isso é o teste dedicado do próprio serviço.
+// Injeta aqui um contador fake sempre-abaixo-do-teto pra isolar os testes de Google Places do
+// PrismaClient real, mesmo padrão `injectDb`/`_counterDb` já usado em source-budget.service.test.ts.
+(SourceBudgetService as any)._counterDb = {
+  sourceApiUsage: {
+    async upsert(args: any) {
+      return { source: args?.where?.source_yearMonth?.source, yearMonth: args?.where?.source_yearMonth?.yearMonth, count: 0 };
+    },
+    async update(args: any) {
+      return { source: args?.where?.source_yearMonth?.source, yearMonth: args?.where?.source_yearMonth?.yearMonth, count: 1 };
+    },
+    async findMany() {
+      return [];
+    },
+  },
+};
 
 type FetchResponseLike = {
   ok: boolean;
@@ -1275,53 +1298,67 @@ test('isRunItemQualityDeliverable protege negativo mesmo no List', () => {
 });
 
 test('Radar entrega Facebook obrigatorio sem descartar telefone quando existir', async () => {
-  const { prisma, run, items } = createSearchRunPrisma({
-    segment: 'lanchonete',
-    targetQuantity: 10,
-  });
-  const service = new WebscrapingService(prisma) as any;
-  const normalized = service.normalizeSearchInput({
-    city: 'Campinas',
-    state: 'SP',
-    segment: 'lanchonete',
-    quantity: 10,
-    engine: 'hbx',
-    targetType: 'pj',
-    requiredChannels: ['facebook'],
-    channelMatchMode: 'all_required',
-  });
+  // Sem site/email/instagram, os 2 candidatos caem em hasPoorFields() -> shouldRunFreePreSaveEnrichment
+  // dispara o enriquecimento gratis real (HBX engine + probes sociais + fallback web). Sem mock de
+  // fetch, isso bate em rede de verdade (localhost:8001 + instagram/facebook/bing/ddg) e pode travar
+  // o processo por minutos no Windows. Mesmo padrao do teste irmao abaixo ("Radar corta telefone
+  // obrigatorio..."): fetch falha rapido, o gate de enriquecimento cai no catch e segue com os dados
+  // originais (que ja satisfazem o requiredChannels=['facebook'] deste teste).
+  const previousFetch = global.fetch;
+  global.fetch = (async () => {
+    throw new Error('rede desativada no teste');
+  }) as any;
+  try {
+    const { prisma, run, items } = createSearchRunPrisma({
+      segment: 'lanchonete',
+      targetQuantity: 10,
+    });
+    const service = new WebscrapingService(prisma) as any;
+    const normalized = service.normalizeSearchInput({
+      city: 'Campinas',
+      state: 'SP',
+      segment: 'lanchonete',
+      quantity: 10,
+      engine: 'hbx',
+      targetType: 'pj',
+      requiredChannels: ['facebook'],
+      channelMatchMode: 'all_required',
+    });
 
-  const counts = await service.saveSearchRunResults(
-    { companyId: 7, userId: 9, user: createUser() },
-    normalized,
-    run.id,
-    [
-      {
-        name: 'Lanchonete Social',
-        phone: '',
-        phoneDigits: '',
-        facebookUrl: 'https://facebook.com/lanchonetesocial',
-        businessCategory: 'lanchonete',
-        source: 'hbx_scraping:web',
-      },
-      {
-        name: 'Lanchonete Central',
-        phone: '(19) 99999-0002',
-        phoneDigits: '19999990002',
-        facebookUrl: 'https://facebook.com/lanchonetecentral',
-        businessCategory: 'lanchonete',
-        source: 'hbx_scraping:web',
-      },
-    ],
-    'hbx',
-  );
+    const counts = await service.saveSearchRunResults(
+      { companyId: 7, userId: 9, user: createUser() },
+      normalized,
+      run.id,
+      [
+        {
+          name: 'Lanchonete Social',
+          phone: '',
+          phoneDigits: '',
+          facebookUrl: 'https://facebook.com/lanchonetesocial',
+          businessCategory: 'lanchonete',
+          source: 'hbx_scraping:web',
+        },
+        {
+          name: 'Lanchonete Central',
+          phone: '(19) 99999-0002',
+          phoneDigits: '19999990002',
+          facebookUrl: 'https://facebook.com/lanchonetecentral',
+          businessCategory: 'lanchonete',
+          source: 'hbx_scraping:web',
+        },
+      ],
+      'hbx',
+    );
 
-  assert.equal(counts.found, 2);
-  assert.equal(items.length, 2);
-  assert.equal(items[0].status, 'found');
-  assert.equal(items[0].phoneDigits, '');
-  assert.equal(items[1].status, 'found');
-  assert.equal(items[1].phoneDigits, '19999990002');
+    assert.equal(counts.found, 2);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].status, 'found');
+    assert.equal(items[0].phoneDigits, '');
+    assert.equal(items[1].status, 'found');
+    assert.equal(items[1].phoneDigits, '19999990002');
+  } finally {
+    global.fetch = previousFetch;
+  }
 });
 
 test('Radar corta telefone obrigatorio em all_required quando enriquecimento gratis nao completa o canal', async () => {
@@ -3750,6 +3787,7 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
   const batches: any[] = [];
   const leads: any[] = [];
   const tasks: any[] = Array.isArray(initialCampaign.tasks) ? [...initialCampaign.tasks] : [];
+  const coverageRows: any[] = [];
 
   const applyCampaignData = (data: Record<string, any>) => {
     for (const [key, value] of Object.entries(data || {})) {
@@ -3937,9 +3975,37 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       upsert: async ({ create }: any) => create,
       findMany: async () => [],
     },
+    // SPRINT 4 MOTOR-RFB-FILA: plano de cobertura durável lido por getRadarCoverageForCombo no
+    // ranking de candidatos autônomos. Sem registro prévio == combo nunca coberto (findUnique null),
+    // mesma semântica de banco vazio; upsert guardado pra quem quiser inspecionar gravação em teste.
+    radarCoverage: {
+      findUnique: async ({ where }: any) => {
+        const key = where?.state_city_segment_targetType;
+        return coverageRows.find((row) =>
+          row.state === key?.state &&
+          row.city === key?.city &&
+          row.segment === key?.segment &&
+          row.targetType === key?.targetType) || null;
+      },
+      upsert: async ({ where, create, update }: any) => {
+        const key = where?.state_city_segment_targetType;
+        const existing = coverageRows.find((row) =>
+          row.state === key?.state &&
+          row.city === key?.city &&
+          row.segment === key?.segment &&
+          row.targetType === key?.targetType);
+        if (existing) {
+          Object.assign(existing, update || {}, { updatedAt: new Date() });
+          return existing;
+        }
+        const row = { createdAt: new Date(), updatedAt: new Date(), ...create };
+        coverageRows.push(row);
+        return row;
+      },
+    },
   });
 
-  return { prisma, campaign, batches, leads, tasks };
+  return { prisma, campaign, batches, leads, tasks, coverageRows };
 }
 
 function disableRadarCampaignAutoPump(service: WebscrapingService) {
