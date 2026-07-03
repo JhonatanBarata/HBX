@@ -109,7 +109,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
     inboxRealtime,
-    new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
+    (overrides?.intentEngine || new IntentEngineService(prisma, new AiIntentClassifierService())) as any,
     // GATEWAY-WA S3: freio de envio. Default nos testes = passa tudo (flag OFF na prática) —
     // não muda o comportamento coberto pelos casos existentes.
     ({ evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}), ...(overrides?.waSendThrottle || {}) } as any),
@@ -1150,6 +1150,296 @@ test('handleAtendimentoInbound handles Recovery menu actions inside Atendimento'
   );
   assert.equal(companyMessageUpdateCalls.length, 1);
   assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
+});
+
+// ---------------------------------------------------------------------------
+// INTENTENGINE Sprint 2 — NLU do Atendimento (catálogo fechado + trava de confiança).
+// ---------------------------------------------------------------------------
+
+function createAtendimentoNluTestBase(overrides?: Record<string, any>) {
+  const { prisma: prismaOverrides, ...restOverrides } = overrides || {};
+  return createService({
+    ...restOverrides,
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          name: 'HBX Solutions',
+          timezone: 'America/Sao_Paulo',
+          whatsappConnectionMode: 'TEMPORARY',
+          trialModuleSelection: null,
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          onboardingStatus: 'active_paid',
+          trialEndsAt: null,
+          botArmedAt: new Date(),
+          commercialEntitlements: [{ key: 'vendas', status: 'active', currentPeriodEnd: null }],
+        }),
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify({ cliente: 'Carlos' }),
+          currentFlow: 'atendimento_whatsapp_hibrido',
+          currentStep: 'menu_principal',
+          flowResult: null,
+          botActive: true,
+          humanAssigned: false,
+        }),
+        update: async () => ({}),
+      },
+      atendimentoCustomer: {
+        findUnique: async () => ({
+          name: 'Carlos',
+          registrationStatus: 'confirmed',
+          customerProfile: { name: 'Carlos' },
+        }),
+      },
+      companyMessage: {
+        count: async () => 2,
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: 501, ...data }),
+        update: async () => ({}),
+      },
+      hbxRecoveryFlowStage: {
+        findFirst: async ({ where }: any) =>
+          where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+            ? { template: JSON.stringify(COMPLETED_ATENDIMENTO_BOT_CONFIG) }
+            : null,
+      },
+      ...(prismaOverrides || {}),
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async () => ({ id: 'registry-1' }),
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+      upsertProfile: async () => ({ id: 'profile-1', name: 'Carlos', status: 'active' }),
+    },
+  });
+}
+
+function buildAtendimentoInboundInput(text: string) {
+  return {
+    companyId: 7,
+    from: '+55 19 99887-7766',
+    text,
+    conversationId: 42,
+    inboundMessageId: 91,
+    timestamp: new Date('2026-04-15T10:07:00.000Z'),
+    company: { id: 7, name: 'HBX Solutions', timezone: 'America/Sao_Paulo' },
+    recoveryCustomer: null,
+    rawPayload: {},
+  };
+}
+
+test('NLU atendimento: frase natural resolve para a ação e executa (mesmo caminho de um clique de botão)', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    let receivedActions: any[] = [];
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async (input: any) => {
+        receivedActions = input.actions;
+        return { actionId: 'talk_human', confidence: 0.9 };
+      },
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('meu ar tá vazando, preciso falar com alguém'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.equal((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+    assert.ok(
+      receivedActions.some((action) => action.actionId === 'talk_human'),
+      'catálogo enviado ao LLM deve incluir a ação habilitada talk_human',
+    );
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: confiança abaixo do limiar cai no menu (comportamento atual intacto)', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => ({ actionId: 'talk_human', confidence: 0.4 }),
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('sei la, talvez'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: timeout/erro do classificador cai no menu', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => {
+        throw new Error('timeout simulado');
+      },
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('frase qualquer que não bate em nada'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: classificador retorna null (JSON inválido/rótulo fora do catálogo) cai no menu', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => null,
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('blablabla sem sentido nenhum'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: flag OFF nunca chama o classificador e cai no menu', async () => {
+  delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  let called = false;
+  const intentEngine = {
+    isAtendimentoNluEnabled: () => false,
+    classifyAtendimentoAction: async () => {
+      called = true;
+      return { actionId: 'talk_human', confidence: 0.99 };
+    },
+  };
+
+  const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+  const result = await (service as any).handleAtendimentoInbound(
+    buildAtendimentoInboundInput('quero falar com alguém urgente'),
+  );
+
+  assert.equal(result.handled, true);
+  assert.equal(called, false, 'com a flag off o NLU nunca deve ser chamado');
+  assert.equal(queueCalls.length, 1);
+  assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+});
+
+test('NLU atendimento: sem entitlement comercial (botArmedAt vazio) nunca chama o classificador', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    let called = false;
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => {
+        called = true;
+        return { actionId: 'talk_human', confidence: 0.99 };
+      },
+    };
+
+    const { service } = createAtendimentoNluTestBase({
+      intentEngine,
+      prisma: {
+        company: {
+          findUnique: async () => ({
+            id: 7,
+            name: 'HBX Solutions',
+            timezone: 'America/Sao_Paulo',
+            whatsappConnectionMode: 'TEMPORARY',
+            trialModuleSelection: null,
+            paymentStatus: 'PAID',
+            subscriptionStatus: 'active',
+            onboardingStatus: 'active_paid',
+            trialEndsAt: null,
+            botArmedAt: null,
+            commercialEntitlements: [{ key: 'vendas', status: 'active', currentPeriodEnd: null }],
+          }),
+        },
+      },
+    });
+
+    await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('quero falar com alguém urgente'),
+    );
+
+    assert.equal(called, false, 'sem botArmedAt (gate comercial) o NLU nunca deve ser chamado');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: ação DESABILITADA no catálogo do tenant não é oferecida ao LLM', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    let receivedActions: any[] = [];
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async (input: any) => {
+        receivedActions = input.actions;
+        return null;
+      },
+    };
+
+    const disabledCatalogConfig = {
+      ...COMPLETED_ATENDIMENTO_BOT_CONFIG,
+      actionCatalog: COMPLETED_ATENDIMENTO_BOT_CONFIG.actionCatalog.map((action: any) =>
+        action.actionId === 'talk_human' ? { ...action, enabled: false } : action,
+      ),
+    };
+
+    const { service } = createAtendimentoNluTestBase({
+      intentEngine,
+      prisma: {
+        hbxRecoveryFlowStage: {
+          findFirst: async ({ where }: any) =>
+            where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+              ? { template: JSON.stringify(disabledCatalogConfig) }
+              : null,
+        },
+      },
+    });
+
+    await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('quero falar com alguém urgente'),
+    );
+
+    assert.ok(receivedActions.length > 0, 'outras ações habilitadas continuam sendo oferecidas');
+    assert.ok(
+      !receivedActions.some((action) => action.actionId === 'talk_human'),
+      'talk_human está desabilitada e não deve chegar ao catálogo oferecido ao LLM',
+    );
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
 });
 
 test('Recepcionista IA dynamic menu hides unavailable agenda, recovery and appointment actions', async () => {

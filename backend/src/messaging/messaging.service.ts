@@ -4296,6 +4296,53 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return '';
   }
 
+  /**
+   * INTENTENGINE — Sprint 2: nível SEMÂNTICO de resolução, chamado só depois
+   * que `normalizeAtendimentoActionId` (nível léxico: botão/número/aliasMap)
+   * já devolveu vazio. Oferece ao LLM SÓ o catálogo já sanitizado do tenant
+   * (`config.actionCatalog` — nunca a lista bruta) e usa o `actionId` retornado
+   * SOMENTE quando a confiança bate o limiar (`classifyAtendimentoAction` já
+   * aplica o corte). Qualquer falha (flag off, timeout, JSON inválido, baixa
+   * confiança) devolve string vazia — o caller cai no menu, comportamento atual
+   * intacto.
+   */
+  private async resolveAtendimentoActionIdFromNlu(input: {
+    companyId: number;
+    conversationId: number;
+    text: string;
+    config: AtendimentoBotConfig;
+  }): Promise<string> {
+    const { companyId, conversationId, text, config } = input;
+    const actions = (config.actionCatalog || [])
+      .filter((action) => action?.actionId && action.enabled !== false)
+      .map((action) => ({
+        actionId: String(action.actionId || '').trim().toLowerCase(),
+        title: String(action.title || ''),
+        description: String(action.description || ''),
+      }));
+    if (!actions.length) return '';
+
+    try {
+      const classification = await this.intentEngine.classifyAtendimentoAction({
+        text,
+        actions,
+        context: { companyId, conversationId: conversationId || null },
+      });
+      if (!classification) return '';
+      // Trava de confiança aplicada de novo aqui (defesa em profundidade): mesmo
+      // que o motor de intenção não aplique o corte, o caller do Atendimento
+      // NUNCA executa uma ação com confiança abaixo do limiar configurado.
+      const minConfidence = Number.parseFloat(String(process.env.HBX_ATENDIMENTO_NLU_MIN_CONF || ''));
+      const threshold = Number.isFinite(minConfidence) ? minConfidence : 0.75;
+      if (classification.confidence < threshold) return '';
+      return classification.actionId || '';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`NLU atendimento falhou ao resolver acao (best-effort, caindo no menu): ${message}`);
+      return '';
+    }
+  }
+
   private getAtendimentoButtonsInteractive(
     body: string,
     buttons: AtendimentoBotButton[],
@@ -6719,6 +6766,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         agendaConfig,
         conversation?.currentStep,
       );
+    }
+    if (!actionId && normalizedText && botAiEnabled && this.intentEngine.isAtendimentoNluEnabled()) {
+      actionId = await this.resolveAtendimentoActionIdFromNlu({
+        companyId,
+        conversationId: safeConversationId,
+        text,
+        config,
+      });
     }
     const actionGuide = this.getAtendimentoActionGuide(config, actionId);
     const messageCount = safeConversationId
