@@ -6,17 +6,24 @@
 
 ## Ordem de execução
 
-| Sprint | O quê | Prioridade | Esforço | Por quê ($) |
-|---|---|---|---|---|
-| [SPRINT1](ARQUITETURA04-VENDAS-CRM-SPRINT1.md) | Máquina de inbound ÚNICA (matar a cópia do messaging) | P0 | 1–2 dias | Freio anti-ban/opt-out mora em 2 lugares que JÁ divergiram; fix de compliance 2× = ban esperando data |
-| [SPRINT2](ARQUITETURA04-VENDAS-CRM-SPRINT2.md) | Worker restart-safe (recovery de `sending` + claim atômico) | P0.5 | ~1 dia | `npm run publish` no meio do typing delay (8–20s) deixa job órfão HOJE; duplo envio = risco de ban |
-| [SPRINT3](ARQUITETURA04-VENDAS-CRM-SPRINT3.md) | Comissões em módulo próprio (só movimentação) | P1 | 2–3 dias | Dinheiro do vendedor isolado de mudança de board; confiança do time |
-| [SPRINT4](ARQUITETURA04-VENDAS-CRM-SPRINT4.md) | Estado opt-out/prospecção: JSON metadata → tabela tipada | P1 | ~2 dias | Opt-out auditável (LGPD) e indexável; mata parse manual em 3 módulos |
-| [SPRINT5](ARQUITETURA04-VENDAS-CRM-SPRINT5.md) | Fachada + split por domínio + frontend | contínuo | oportunista | Velocidade de evolução; só quando já for tocar no domínio |
+| Sprint | O quê | Status | Por quê ($) |
+|---|---|---|---|
+| [SPRINT1](ARQUITETURA04-VENDAS-CRM-SPRINT1.md) | Máquina de inbound ÚNICA (matar a cópia morta) | ✅ **FEITO 03/07** (`0387ba2d`, 34/34) | Freio anti-ban/opt-out mora em 2 lugares que JÁ divergiram; fix 2× = ban |
+| [SPRINT2](ARQUITETURA04-VENDAS-CRM-SPRINT2.md) | Worker restart-safe (recovery + claim atômico) | ✅ **FEITO 03/07** (`6c5b7827`, 37/37) | Publish no typing-delay deixa job órfão HOJE; duplo envio = ban |
+| **SPRINT0** (NOVO) | Extrair KERNEL compartilhado (`normalizeCurrencyAmount`/`normalizeText`/status/`resolveVendasUserContext`/…) | ⛔ **pré-req do S3/S5** | Sem o kernel, split duplica matemática de dinheiro ou acopla torto |
+| [SPRINT3](ARQUITETURA04-VENDAS-CRM-SPRINT3.md) | Comissões em módulo próprio | ⛔ **BLOQUEADO** por SPRINT0 (ver doc) | Dinheiro do vendedor isolado; mas 15 helpers de $ compartilhados |
+| [SPRINT4](ARQUITETURA04-VENDAS-CRM-SPRINT4.md) | Estado opt-out: JSON metadata → tabela tipada | ⬜ pronto (precisa Postgres p/ migration) | Opt-out auditável (LGPD); pós-S1 o dual-write é em 1 lugar só |
+| [SPRINT5](ARQUITETURA04-VENDAS-CRM-SPRINT5.md) | Fachada + split por domínio + frontend | ⬜ oportunista (pós-SPRINT0) | Velocidade de evolução; só quando já for tocar no domínio |
 
-**SPRINT1 e SPRINT2 mexem no MESMO arquivo (`vendas-automation.service.ts`) — executar em SÉRIE,
-nunca em paralelo.** Ordem recomendada: 1 → 2 (se o 1 travar em revisão, o 2 pode adiantar por ser
-menor e não tocar a máquina de inbound).
+**✅ P0 ban-risk ENTREGUE (S1+S2):** a duplicação da máquina de inbound e o job órfão pós-restart —
+os dois "ban esperando data" — estão mortos, verificados (build limpo + 37/37) e commitados no master,
+preservando o WIP Contábil/hub-integrações do dono (staging cirúrgico por arquivo).
+
+**Ordem revisada para a próxima sessão FOCADA:** SPRINT0 (kernel) → SPRINT3 (comissão, financeiro,
+Opus direto) → SPRINT4 (com Postgres de pé) → SPRINT5 (split por domínio). O SPRINT0 nasceu de dado
+real: os 7 métodos de comissão dependem de 15 utilitários que são o núcleo do service inteiro
+(`normalizeCurrencyAmount` 83 usos, `normalizeText` 180) — extrair o kernel primeiro destrava TODOS
+os splits sem duplicar dinheiro. Detalhe em [SPRINT3](ARQUITETURA04-VENDAS-CRM-SPRINT3.md).
 
 ## Regras comuns (valem para todos os sprints)
 
