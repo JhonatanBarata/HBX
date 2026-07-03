@@ -1,14 +1,15 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExternalWebhookLedgerService } from '../integrations/external-webhook-ledger.service';
+import { ExternalWebhookLedgerService, externalWebhookPayloadHash } from '../integrations/external-webhook-ledger.service';
 import { IntegrationSecretsService } from '../integrations/integration-secrets.service';
 import { VendasService } from '../vendas/vendas.service';
 import { MetaGraphClient, mapMetaLeadFields } from './meta-graph.client';
 
-const PROVIDER = 'meta_lead_ads';
+export const META_PROVIDER = 'meta_lead_ads';
+const PROVIDER = META_PROVIDER;
 
-type LeadgenChange = {
+export type LeadgenChange = {
   pageId: string;
   leadgenId: string;
   formId: string | null;
@@ -19,10 +20,13 @@ export type MetaWebhookResult = {
   ok: boolean;
   reason?: string;
   received: number;
-  created: number;
+  enqueued: number;
   duplicates: number;
-  skipped: number;
 };
+
+// Resultado do processamento de UM evento pela fila (worker). 'retry'/'dead_letter' são
+// decididos pelo ledger via markRetry — aqui devolvemos o desfecho lógico.
+export type LeadgenProcessOutcome = 'created' | 'duplicate' | 'skipped' | 'transient_error';
 
 @Injectable()
 export class MetaLeadAdsService {
@@ -90,14 +94,29 @@ export class MetaLeadAdsService {
     return changes;
   }
 
+  // ---- WEBHOOK: SÓ RECEBE (ARQ11 S1) ----
+  // Verifica HMAC → extrai changes → grava cada um na fila durável (recordReceived com o
+  // PAYLOAD COMPLETO do change, para replay) → 200. NENHUMA chamada à Graph aqui: o fetch
+  // do lead + intake acontece no worker assíncrono (processLeadgenEvent). Assinatura inválida
+  // deixa rastro via markRejected (eventId = hash do payload). Duplicata não re-enfileira.
   async processWebhook(input: {
     rawBody: Buffer | string | undefined;
     signatureHeader: string | undefined;
     body: any;
   }): Promise<MetaWebhookResult> {
-    const result: MetaWebhookResult = { ok: true, received: 0, created: 0, duplicates: 0, skipped: 0 };
+    const result: MetaWebhookResult = { ok: true, received: 0, enqueued: 0, duplicates: 0 };
 
     if (!this.verifySignature(input.rawBody, input.signatureHeader)) {
+      // Observabilidade de ataque/misconfig: registra a rejeição sem processar nada.
+      // eventId = hash do corpo cru (não temos leadgen_id confiável num payload não verificado).
+      const rejectedEventId = externalWebhookPayloadHash(input.rawBody ?? input.body ?? {});
+      await this.webhookLedger
+        .recordReceived(PROVIDER, rejectedEventId, { rawBodyHash: rejectedEventId }, {
+          eventType: 'invalid_signature',
+          signatureStatus: 'invalid',
+        })
+        .catch(() => null);
+      await this.webhookLedger.markRejected(PROVIDER, rejectedEventId, 'invalid').catch(() => null);
       return { ...result, ok: false, reason: 'invalid_signature' };
     }
 
@@ -106,19 +125,40 @@ export class MetaLeadAdsService {
 
     for (const change of changes) {
       try {
-        const handled = await this.processLeadgenChange(change);
-        if (handled === 'created') result.created += 1;
-        else if (handled === 'duplicate') result.duplicates += 1;
-        else result.skipped += 1;
+        const connection = change.pageId
+          ? await this.connectionDelegate()?.findUnique({ where: { pageId: change.pageId } }).catch(() => null)
+          : null;
+
+        const claim = await this.webhookLedger.recordReceived(PROVIDER, change.leadgenId, change, {
+          companyId: connection?.companyId ?? null,
+          eventType: 'leadgen',
+          signatureStatus: 'valid',
+        });
+
+        // Corrida fechada: recordReceived devolve duplicate=true para a entrega perdedora
+        // (ou reentrega). Não re-enfileira nem reprocessa.
+        if (claim?.duplicate) result.duplicates += 1;
+        else result.enqueued += 1;
       } catch {
-        result.skipped += 1;
+        // Falha ao gravar na fila (banco): NÃO conta como enfileirado. O Meta re-tenta se
+        // não recebeu 200 — mas aqui o controller sempre responde 200; a reconciliação
+        // diária é a rede de segurança para o que não entrou.
       }
     }
 
     return result;
   }
 
-  private async processLeadgenChange(change: LeadgenChange): Promise<'created' | 'duplicate' | 'skipped'> {
+  // ---- WORKER: PROCESSA UM EVENTO DA FILA (ARQ11 S1) ----
+  // Contém a lógica que ANTES rodava síncrona no webhook (fetch Graph → map → intake).
+  // Desfecho:
+  //   'created'         → card criado (worker marca markProcessed)
+  //   'duplicate'       → já processado antes (worker marca markProcessed)
+  //   'skipped'         → falha PERMANENTE de dados (sem token/sem contato/sem responsável):
+  //                        não adianta re-tentar → worker manda para dead_letter direto
+  //   'transient_error' → falha que pode passar (Graph fora, página temporariamente sem
+  //                        conexão ativa) → worker agenda retry com backoff
+  async processLeadgenEvent(change: LeadgenChange): Promise<LeadgenProcessOutcome> {
     const eventId = change.leadgenId;
 
     if (await this.webhookLedger.wasProcessed(PROVIDER, eventId)) {
@@ -129,47 +169,45 @@ export class MetaLeadAdsService {
       ? await this.connectionDelegate()?.findUnique({ where: { pageId: change.pageId } }).catch(() => null)
       : null;
 
-    await this.webhookLedger.recordReceived(PROVIDER, eventId, change, {
-      companyId: connection?.companyId ?? null,
-      eventType: 'leadgen',
-      signatureStatus: 'valid',
-    });
-
     if (!connection || connection.status !== 'active') {
+      // Página pode ter sido reativada / conexão criada depois — transitório, vale re-tentar.
       await this.touchConnectionError(connection?.id, 'Página sem conexão ativa para o lead recebido.');
-      return 'skipped';
+      return 'transient_error';
     }
 
     const accessToken = connection.accessTokenCiphertext
       ? this.safeDecrypt(connection.accessTokenCiphertext)
       : null;
     if (!accessToken) {
+      // Token pode ser recadastrado pelo admin — transitório.
       await this.touchConnectionError(connection.id, 'Token da página ausente ou inválido.');
-      return 'skipped';
+      return 'transient_error';
     }
 
     const lead = await this.graph.fetchLead(change.leadgenId, accessToken);
     if (!lead) {
+      // Graph fora do ar / rate limit / token vencido — transitório por definição do sprint.
       await this.touchConnectionError(connection.id, 'Não foi possível buscar o lead no Graph (token/lead).');
-      return 'skipped';
+      return 'transient_error';
     }
 
     const mapped = mapMetaLeadFields(lead.fieldData);
     if (!mapped.phone && !mapped.email) {
+      // Lead sem forma de contato NUNCA vai melhorar com retry — falha permanente.
       await this.touchConnectionError(connection.id, 'Lead sem telefone nem e-mail — nada para contatar.');
       return 'skipped';
     }
 
     const assignedUserId = await this.resolveAssignee(connection);
     if (!assignedUserId) {
+      // Admin pode definir responsável depois — transitório (não perder o lead pago).
       await this.touchConnectionError(connection.id, 'Nenhum responsável definido para receber leads de anúncio.');
-      return 'skipped';
+      return 'transient_error';
     }
 
-    const noteParts = ['Lead de anúncio (Meta)'];
-    if (lead.campaignName) noteParts.push(lead.campaignName);
-    else if (lead.formId) noteParts.push(`formulário ${lead.formId}`);
-
+    // ARQ11 S2 — a metadata de campanha (campaignName/formId/adId) NÃO vai mais improvisada no
+    // shortNote; vai estruturada para virar metadata do evento de timeline. O shortNote fica com
+    // só o rótulo humano de origem.
     await this.vendas.intakeAdvertisingLead({
       companyId: connection.companyId,
       assignedUserId,
@@ -178,10 +216,15 @@ export class MetaLeadAdsService {
       email: mapped.email,
       city: mapped.city,
       state: mapped.state,
-      shortNote: noteParts.join(' — '),
+      shortNote: 'Lead de anúncio (Meta)',
       source: PROVIDER,
       temperature: 'quente',
       opportunityScore: 80,
+      campaign: {
+        campaignName: lead.campaignName ?? null,
+        formId: lead.formId ?? change.formId ?? null,
+        adId: lead.adId ?? null,
+      },
     });
 
     await this.webhookLedger.markProcessed(PROVIDER, eventId);
@@ -249,6 +292,8 @@ export class MetaLeadAdsService {
       lastEventAt: row.lastEventAt ?? null,
       lastLeadAt: row.lastLeadAt ?? null,
       lastError: row.lastError ?? null,
+      // ARQ11 S2 — a tela precisa mostrar se a página já está assinada no webhook.
+      webhookSubscribedAt: row.webhookSubscribedAt ?? null,
       createdAt: row.createdAt ?? null,
       updatedAt: row.updatedAt ?? null,
     };
@@ -306,5 +351,61 @@ export class MetaLeadAdsService {
     if (!row || row.companyId !== companyId) throw new NotFoundException('Conexão não encontrada.');
     await this.connectionDelegate().delete({ where: { id } });
     return { ok: true, deletedId: id };
+  }
+
+  // ---- Assinatura da página no webhook (ARQ11 S1) ----
+  // Chamado pelo endpoint admin POST /integrations/meta/connections/:id/subscribe-webhook.
+  // Assina a página do Meta no app (subscribed_apps + leadgen) usando o token da conexão e,
+  // em sucesso, grava webhookSubscribedAt. CONTRATO FIXO { subscribed, error? }.
+  async subscribeConnectionWebhook(user: any, id: string): Promise<{ subscribed: boolean; error?: string }> {
+    const { companyId } = this.requireCompanyAdmin(user);
+    const row = await this.connectionDelegate()?.findUnique({ where: { id } }).catch(() => null);
+    if (!row || row.companyId !== companyId) throw new NotFoundException('Conexão não encontrada.');
+
+    const accessToken = row.accessTokenCiphertext ? this.safeDecrypt(row.accessTokenCiphertext) : null;
+    if (!accessToken) return { subscribed: false, error: 'Token da página ausente ou inválido.' };
+    if (!row.pageId) return { subscribed: false, error: 'Conexão sem pageId.' };
+
+    const outcome = await this.graph.subscribePage(String(row.pageId), accessToken);
+    if (outcome.subscribed) {
+      await this.connectionDelegate()
+        ?.update({ where: { id }, data: { webhookSubscribedAt: new Date(), lastError: null } })
+        .catch(() => null);
+    }
+    return outcome.error ? { subscribed: outcome.subscribed, error: outcome.error } : { subscribed: outcome.subscribed };
+  }
+
+  // ---- Helpers usados pelo WORKER (ARQ11 S1) ----
+
+  // Conexões ativas (para a reconciliação diária varrer forms/leads). Cada item já traz o
+  // token DECIFRADO (o worker não tem acesso ao IntegrationSecretsService).
+  async listActiveConnectionsForReconciliation(): Promise<Array<{ id: string; companyId: number; pageId: string; accessToken: string }>> {
+    const rows = await this.connectionDelegate()
+      ?.findMany({ where: { status: 'active' } })
+      .catch(() => []);
+    const out: Array<{ id: string; companyId: number; pageId: string; accessToken: string }> = [];
+    for (const row of rows || []) {
+      const token = row.accessTokenCiphertext ? this.safeDecrypt(row.accessTokenCiphertext) : null;
+      if (row.pageId && token) {
+        out.push({ id: row.id, companyId: row.companyId, pageId: String(row.pageId), accessToken: token });
+      }
+    }
+    return out;
+  }
+
+  // Expõe listForms/listLeads ao worker sem vazar o MetaGraphClient para fora do módulo.
+  listFormsForPage(pageId: string, accessToken: string) {
+    return this.graph.listForms(pageId, accessToken);
+  }
+
+  listLeadsForForm(formId: string, accessToken: string, sinceUnix?: number) {
+    return this.graph.listLeads(formId, accessToken, sinceUnix);
+  }
+
+  // Marca a conexão com erro (usado pelo worker ao mandar um evento para dead_letter).
+  async markConnectionError(pageId: string | null | undefined, message: string): Promise<void> {
+    if (!pageId) return;
+    const row = await this.connectionDelegate()?.findUnique({ where: { pageId } }).catch(() => null);
+    await this.touchConnectionError(row?.id, message);
   }
 }

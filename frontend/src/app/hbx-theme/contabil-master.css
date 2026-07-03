@@ -373,6 +373,41 @@
 }
 .ctb-perfil-locked input, .ctb-perfil-locked button { pointer-events: none; }
 
+/* ---- Cofre do certificado A1 (CONTABIL S6) ------------------------------- */
+.ctb-cofre {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-cofre-hint, .ctb-cofre-line { font-size: 0.7rem; color: var(--text-muted); }
+.ctb-cofre-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ctb-cofre-remove { min-height: 26px; font-size: 0.66rem; }
+.ctb-cofre-upload {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 520px) {
+  .ctb-cofre-upload { grid-template-columns: 1fr; }
+}
+.ctb-cofre-upload input[type="file"] { font-size: 0.68rem; }
+.ctb-cofre-msg { font-size: 0.7rem; color: var(--text-muted); }
+
+/* Tonalidade do .tag por semântica do cofre (não recolorir .tag base). */
+.ctb-tag-ok { color: var(--hbx-success); background: color-mix(in srgb, var(--hbx-success) 12%, transparent); border-color: color-mix(in srgb, var(--hbx-success) 30%, transparent); }
+.ctb-tag-warn { color: var(--hbx-warning); background: color-mix(in srgb, var(--hbx-warning) 12%, transparent); border-color: color-mix(in srgb, var(--hbx-warning) 30%, transparent); }
+.ctb-tag-danger { color: var(--hbx-danger); background: color-mix(in srgb, var(--hbx-danger) 12%, transparent); border-color: color-mix(in srgb, var(--hbx-danger) 30%, transparent); }
+
 /* Empty / erro — mesmo padrão de .ckm-empty (cockpit-master.css). */
 .ctb-empty { padding: 28px 18px; text-align: center; font-size: 0.74rem; color: var(--text-muted); }
 
@@ -600,3 +635,71 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ============================================================
+   CONTABIL S7 — Autopost PGDAS-D/DAS via Serpro (ARMAR → TRANSMITIR).
+   Só aparece com a flag ON (deploy OFF = wizard fica no semi-auto do S5).
+   ============================================================ */
+
+/* Faixa do braço robótico dentro do passo PGDAS-D. */
+.ctb-serpro {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent);
+  background: var(--hbx-brand-soft);
+}
+.ctb-serpro-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ctb-serpro-title { font-size: 0.76rem; font-weight: 800; color: var(--text-strong); }
+.ctb-serpro-custo { margin-left: auto; font-size: 0.68rem; color: var(--text-muted); font-weight: 700; }
+.ctb-serpro-hint { font-size: 0.7rem; color: var(--text-muted); line-height: 1.5; }
+
+/* Bloco de confirmação "digite TRANSMITIR" (o clique-com-confirmação, Lei nº1). */
+.ctb-serpro-confirm { display: grid; gap: 8px; }
+.ctb-serpro-confirm-label { font-size: 0.72rem; color: var(--text-body); font-weight: 600; }
+.ctb-serpro-confirm input {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-field-surface);
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ctb-serpro-confirm input:focus { outline: 2px solid var(--ring-brand); outline-offset: 1px; }
+
+/* PDF do DAS anexado após transmitir. */
+.ctb-serpro-das {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  font-size: 0.72rem;
+  color: var(--text-body);
+}
+.ctb-serpro-das strong { color: var(--text-strong); }
+
+/* Cofre da credencial Serpro (drawer do perfil) — reusa a família .ctb-cofre. */
+.ctb-serpro-cred-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: end;
+}
+@media (max-width: 520px) {
+  .ctb-serpro-cred-form { grid-template-columns: 1fr; }
+}
+.ctb-serpro-cred-form .ctb-serpro-cred-full { grid-column: 1 / -1; }

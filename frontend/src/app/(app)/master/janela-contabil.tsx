@@ -63,6 +63,16 @@ type FiscalProfile = {
   updatedAt?: string;
 };
 
+// CONTABIL S6 — status público do cofre do certificado A1 (espelha nfse-cert.service).
+// NUNCA carrega o segredo — só validade/dias p/ expirar (o backend nunca devolve o cert).
+type CertStatus = {
+  configurado: boolean;
+  certA1ExpiresAt: string | null;
+  diasParaExpirar: number | null;
+  expirado: boolean;
+  renovarEmBreve: boolean;
+};
+
 export type FiscalObligation = {
   id: string;
   competencia: string;
@@ -221,6 +231,23 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
   const [perfilForm, setPerfilForm] = useState<Partial<FiscalProfile>>({});
   const [perfilBusy, setPerfilBusy] = useState(false);
   const [perfilMsg, setPerfilMsg] = useState<string | null>(null);
+
+  // CONTABIL S6 — cofre do certificado A1 (NFS-e). Segredo nunca volta pela API;
+  // só status/validade. Flag da NFS-e é do backend (default OFF) — a UI do cofre
+  // funciona antes de ligar (o dono configura o cert, a emissão é que fica atrás da flag).
+  const [certStatus, setCertStatus] = useState<CertStatus | null>(null);
+  const [certFile, setCertFile] = useState<File | null>(null);
+  const [certSenha, setCertSenha] = useState<string>("");
+  const [certBusy, setCertBusy] = useState(false);
+  const [certMsg, setCertMsg] = useState<string | null>(null);
+
+  // CONTABIL S7 — cofre da credencial Serpro (Integra Contador). Igual ao cert:
+  // o segredo (consumer key/secret) some do estado após o envio e NUNCA volta.
+  const [serproKey, setSerproKey] = useState<string>("");
+  const [serproSecret, setSerproSecret] = useState<string>("");
+  const [serproCnpj, setSerproCnpj] = useState<string>("");
+  const [serproBusy, setSerproBusy] = useState(false);
+  const [serproMsg, setSerproMsg] = useState<string | null>(null);
 
   const [prolaboreBusy, setProlaboreBusy] = useState(false);
   const [ajusteMsg, setAjusteMsg] = useState<string | null>(null);
@@ -407,9 +434,17 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
       .catch(() => { /* perfil é opcional na primeira carga */ });
   }, []);
 
+  // CONTABIL S6 — status do cofre do certificado (validade/dias). Só metadados.
+  const carregarCertStatus = useCallback(() => {
+    return apiFetch<CertStatus>(`/master/contabil/nfse/certificado`)
+      .then((res) => setCertStatus(res))
+      .catch(() => { /* cofre é opcional na primeira carga */ });
+  }, []);
+
   useEffect(() => { carregarMes(); }, [carregarMes]);
   useEffect(() => { carregarObrigacoes(); }, [carregarObrigacoes]);
   useEffect(() => { carregarPerfil(); }, [carregarPerfil]);
+  useEffect(() => { carregarCertStatus(); }, [carregarCertStatus]);
 
   // Badge do seletor de janelas (contagem 🔴 atrasadas / 🟡 próximas 7 dias).
   useEffect(() => {
@@ -518,6 +553,58 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
       .catch((err: unknown) => setPerfilMsg(err instanceof Error ? err.message : "Falha ao salvar o perfil."))
       .finally(() => setPerfilBusy(false));
   }, [perfilForm]);
+
+  // CONTABIL S6 — sobe o .pfx + senha pro cofre (multipart). A senha some do
+  // estado após o envio (não fica pendurada na memória do form) e NUNCA volta.
+  const enviarCertificado = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (!certFile) { setCertMsg("Selecione o arquivo .pfx do certificado."); return; }
+    if (!certSenha) { setCertMsg("Informe a senha do certificado."); return; }
+    setCertBusy(true);
+    setCertMsg(null);
+    const fd = new FormData();
+    fd.append("file", certFile);
+    fd.append("senha", certSenha);
+    apiFetch<{ configurado: boolean; certA1ExpiresAt: string }>(`/master/contabil/nfse/certificado`, { method: "POST", body: fd })
+      .then(() => { setCertMsg("Certificado guardado no cofre."); setCertSenha(""); setCertFile(null); return carregarCertStatus(); })
+      .then(() => { carregarObrigacoes(); })
+      .catch((err: unknown) => setCertMsg(err instanceof Error ? err.message : "Falha ao guardar o certificado."))
+      .finally(() => setCertBusy(false));
+  }, [certFile, certSenha, carregarCertStatus, carregarObrigacoes]);
+
+  const removerCertificado = useCallback(() => {
+    setCertBusy(true);
+    setCertMsg(null);
+    apiFetch(`/master/contabil/nfse/certificado`, { method: "DELETE" })
+      .then(() => { setCertMsg("Certificado removido do cofre."); return carregarCertStatus(); })
+      .catch((err: unknown) => setCertMsg(err instanceof Error ? err.message : "Falha ao remover o certificado."))
+      .finally(() => setCertBusy(false));
+  }, [carregarCertStatus]);
+
+  // CONTABIL S7 — guarda a credencial Serpro no cofre. O secret some do estado
+  // após o envio; o perfil recarrega p/ atualizar o flag serproConfigured.
+  const salvarSerproCred = useCallback(() => {
+    if (!serproKey.trim() || !serproSecret.trim()) { setSerproMsg("Informe a consumer key e o secret."); return; }
+    if (serproCnpj.replace(/\D/g, "").length !== 14) { setSerproMsg("Informe o CNPJ (14 dígitos)."); return; }
+    setSerproBusy(true);
+    setSerproMsg(null);
+    apiFetch(`/master/contabil/serpro/credencial`, {
+      method: "POST",
+      body: JSON.stringify({ consumerKey: serproKey.trim(), consumerSecret: serproSecret.trim(), contratanteCnpj: serproCnpj.trim() }),
+    })
+      .then(() => { setSerproMsg("Credencial Serpro guardada no cofre."); setSerproKey(""); setSerproSecret(""); return carregarPerfil(); })
+      .catch((err: unknown) => setSerproMsg(err instanceof Error ? err.message : "Falha ao guardar a credencial."))
+      .finally(() => setSerproBusy(false));
+  }, [serproKey, serproSecret, serproCnpj, carregarPerfil]);
+
+  const removerSerproCred = useCallback(() => {
+    setSerproBusy(true);
+    setSerproMsg(null);
+    apiFetch(`/master/contabil/serpro/credencial`, { method: "DELETE" })
+      .then(() => { setSerproMsg("Credencial Serpro removida do cofre."); return carregarPerfil(); })
+      .catch((err: unknown) => setSerproMsg(err instanceof Error ? err.message : "Falha ao remover a credencial."))
+      .finally(() => setSerproBusy(false));
+  }, [carregarPerfil]);
 
   // Estado geral do herói: pior sinal entre obrigações + fatorR abaixo do alvo.
   const estadoGeral = useMemo<{ nivel: "ok" | "warn" | "bad"; texto: string }>(() => {
@@ -941,27 +1028,87 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
 
               <div className="ctb-perfil-section">
                 <div className="ctb-perfil-section-head">
-                  <span className="ctb-perfil-section-title">Certificado A1</span>
-                  <span className="tag">ativa no S6</span>
+                  <span className="ctb-perfil-section-title">Certificado A1 (NFS-e)</span>
+                  {certStatus?.configurado
+                    ? <span className={certStatus.expirado ? "tag ctb-tag-danger" : certStatus.renovarEmBreve ? "tag ctb-tag-warn" : "tag ctb-tag-ok"}>
+                        {certStatus.expirado ? "expirado" : certStatus.renovarEmBreve ? "renovar em breve" : "configurado"}
+                      </span>
+                    : <span className="tag">não configurado</span>}
                 </div>
-                <div className="ctb-perfil-locked">
-                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                    {perfil?.certA1Configured ? "Certificado configurado." : "Nenhum certificado configurado."} Upload habilita quando a NFS-e automática (S6) entrar em produção.
-                  </span>
-                  <input disabled placeholder="upload do certificado .pfx (em breve)" />
+                <div className="ctb-cofre">
+                  {certStatus?.configurado ? (
+                    <div className="ctb-cofre-status">
+                      <span className="ctb-cofre-line">
+                        Certificado no cofre{certStatus.certA1ExpiresAt ? ` — válido até ${new Date(certStatus.certA1ExpiresAt).toLocaleDateString("pt-BR")}` : ""}
+                        {certStatus.diasParaExpirar != null ? ` (${certStatus.diasParaExpirar >= 0 ? `${certStatus.diasParaExpirar}d` : "vencido"})` : ""}.
+                      </span>
+                      <button type="button" className="btn-ghost ctb-cofre-remove" onClick={removerCertificado} disabled={certBusy}>remover</button>
+                    </div>
+                  ) : (
+                    <span className="ctb-cofre-hint">
+                      Suba o e-CNPJ A1 (.pfx) + senha. O segredo é criptografado no cofre e nunca sai daqui. A emissão automática de NFS-e só liga quando o dono ativar (produção-restrita primeiro).
+                    </span>
+                  )}
+                  <div className="ctb-cofre-upload">
+                    <input
+                      type="file"
+                      accept=".pfx,.p12"
+                      onChange={(ev) => { setCertFile(ev.target.files?.[0] ?? null); setCertMsg(null); }}
+                    />
+                    <input
+                      type="password"
+                      placeholder="senha do certificado"
+                      value={certSenha}
+                      onChange={(ev) => setCertSenha(ev.target.value)}
+                      autoComplete="off"
+                    />
+                    <button type="button" className="btn-teal" onClick={enviarCertificado} disabled={certBusy || !certFile}>
+                      {certBusy ? "enviando…" : certStatus?.configurado ? "substituir" : "guardar no cofre"}
+                    </button>
+                  </div>
+                  {certMsg && <span className="ctb-cofre-msg">{certMsg}</span>}
                 </div>
               </div>
 
               <div className="ctb-perfil-section">
                 <div className="ctb-perfil-section-head">
                   <span className="ctb-perfil-section-title">Serpro Integra Contador</span>
-                  <span className="tag">ativa no S7</span>
-                </div>
-                <div className="ctb-perfil-locked">
-                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                    {perfil?.serproConfigured ? "Credencial configurada." : "Nenhuma credencial configurada."} Autopost de PGDAS-D/DAS habilita quando o braço robótico (S7) entrar em produção.
+                  <span className={perfil?.serproConfigured ? "tag ctb-tag-ok" : "tag"}>
+                    {perfil?.serproConfigured ? "credencial no cofre" : "não configurada"}
                   </span>
-                  <input disabled placeholder="credenciais Serpro (em breve)" />
+                </div>
+                <div className="ctb-cofre">
+                  <span className="ctb-cofre-hint">
+                    Credencial (consumer key/secret) do Integra Contador — guardada criptografada no cofre. O autopost de PGDAS-D/DAS só age com a flag do S7 ligada; a transmissão sempre exige seu clique-com-confirmação.
+                  </span>
+                  {perfil?.serproConfigured ? (
+                    <div className="ctb-cofre-status">
+                      <span className="ctb-cofre-line">Credencial configurada no cofre.</span>
+                      <button type="button" className="btn-ghost ctb-cofre-remove" onClick={removerSerproCred} disabled={serproBusy}>
+                        {serproBusy ? "removendo…" : "remover"}
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="ctb-serpro-cred-form">
+                    <div className="ctb-field ctb-serpro-cred-full">
+                      <label>CNPJ (contratante/contribuinte)</label>
+                      <input value={serproCnpj} onChange={(e) => setSerproCnpj(e.target.value)} placeholder="00.000.000/0000-00" autoComplete="off" />
+                    </div>
+                    <div className="ctb-field">
+                      <label>Consumer key</label>
+                      <input value={serproKey} onChange={(e) => setSerproKey(e.target.value)} placeholder="consumer key" autoComplete="off" />
+                    </div>
+                    <div className="ctb-field">
+                      <label>Consumer secret</label>
+                      <input type="password" value={serproSecret} onChange={(e) => setSerproSecret(e.target.value)} placeholder="consumer secret" autoComplete="off" />
+                    </div>
+                    <div className="ctb-serpro-cred-full">
+                      <button type="button" className="btn-teal" onClick={salvarSerproCred} disabled={serproBusy}>
+                        {serproBusy ? "guardando…" : perfil?.serproConfigured ? "substituir credencial" : "guardar no cofre"}
+                      </button>
+                    </div>
+                  </div>
+                  {serproMsg && <span className="ctb-cofre-msg">{serproMsg}</span>}
                 </div>
               </div>
 

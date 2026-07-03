@@ -934,6 +934,16 @@ model ExternalWebhookEvent {
   eventType       String?
   signatureStatus String   @default("unknown")
   payloadHash     String
+  // ARQ11 S1 — payload COMPLETO do evento para replay assíncrono (o worker reprocessa
+  // a partir daqui; sem isto, o webhook teria de chamar a Graph síncrono na requisição).
+  payload         Json?
+  // ARQ11 S1 — controle de retry do worker. status agora admite também 'retry' e
+  // 'dead_letter' (além de received/processed/rejected). attempts = nº de tentativas de
+  // processamento já feitas; nextRetryAt = quando o worker pode reclamar de novo (backoff);
+  // lastError = última mensagem de erro do processamento (observabilidade / dead-letter).
+  attempts        Int      @default(0)
+  nextRetryAt     DateTime?
+  lastError       String?
   processedAt     DateTime?
   status          String   @default("received")
   createdAt       DateTime @default(now())
@@ -942,6 +952,8 @@ model ExternalWebhookEvent {
   @@unique([provider, eventId])
   @@index([companyId, provider, createdAt])
   @@index([provider, status, createdAt])
+  // ARQ11 S1 — índice de claim do worker: varre por (provider, status, nextRetryAt).
+  @@index([provider, status, nextRetryAt])
   @@index([payloadHash])
 }
 
@@ -961,6 +973,9 @@ model MetaLeadConnection {
   lastEventAt           DateTime?
   lastLeadAt            DateTime?
   lastError             String?
+  // ARQ11 S1 — quando a página foi assinada no webhook do Meta (POST /{pageId}/subscribed_apps).
+  // null = nunca assinada (o Meta não manda evento até isto acontecer — furo de onboarding).
+  webhookSubscribedAt   DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

@@ -316,6 +316,9 @@ export function buildHbxPresentationEmailDraft(input: HbxPresentationEmailDraftI
 export class VendasService {
   private readonly logger = new Logger(VendasService.name);
   private vendasLeadAddressColumnAvailable: boolean | null = null;
+  // ARQ11 S2 — cache do "a coluna leadTemperature já existe?" (migration pode não estar
+  // aplicada no VPS). Enquanto ausente, o intake de anúncio grava origem sem explodir.
+  private vendasLeadTemperatureColumnAvailable: boolean | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -492,6 +495,31 @@ export class VendasService {
     }
 
     return this.vendasLeadAddressColumnAvailable;
+  }
+
+  // ARQ11 S2 — a coluna leadTemperature (frio|morno|quente) pode ainda não existir no VPS
+  // (migration não aplicada). O intake de anúncio inclui a temperatura no MESMO write só
+  // quando a coluna existe; senão grava a origem e segue (fallback do doc), sem 2º write.
+  private async hasVendasLeadTemperatureColumn() {
+    if (this.vendasLeadTemperatureColumnAvailable !== null) {
+      return this.vendasLeadTemperatureColumnAvailable;
+    }
+
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ exists: boolean }>>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_name = 'VendasLead'
+            AND column_name = 'leadTemperature'
+        ) AS "exists"
+      `;
+      this.vendasLeadTemperatureColumnAvailable = Boolean(rows?.[0]?.exists);
+    } catch {
+      this.vendasLeadTemperatureColumnAvailable = false;
+    }
+
+    return this.vendasLeadTemperatureColumnAvailable;
   }
 
   private normalizePhone(value: unknown) {
@@ -1217,7 +1245,11 @@ export class VendasService {
   }
 
   private formatSourceLabel(sourceType: unknown) {
-    return String(sourceType || '').trim().toLowerCase() === 'webscraping' ? 'Radar Digital' : 'Manual';
+    const normalized = String(sourceType || '').trim().toLowerCase();
+    if (normalized === 'webscraping') return 'Radar Digital';
+    // ARQ11 S2 — origem real de lead de anúncio (Meta Lead Ads / formulário de site).
+    if (normalized === 'anuncio') return 'Anúncio';
+    return 'Manual';
   }
 
   private hasPreviousContact(row: any) {
@@ -6073,7 +6105,7 @@ export class VendasService {
     name?: string | null;
     phone?: string | null;
     email?: string | null;
-    sourceType: 'manual' | 'webscraping';
+    sourceType: 'manual' | 'webscraping' | 'anuncio';
     shortNote?: string | null;
   }) {
     const hasIdentity = Boolean(input.name || input.phone || input.email);
@@ -6147,6 +6179,24 @@ export class VendasService {
     const segment = this.normalizeText(input.segment);
     if (!city && !segment) return 'Lead herdado do Radar Digital.';
     return `Lead herdado do Radar Digital${segment ? ` para ${segment}` : ''}${city ? ` em ${city}` : ''}.`;
+  }
+
+  // ARQ11 S2 — serializa a metadata de campanha do lead de anúncio (Meta Lead Ads) em um JSON
+  // compacto guardado no resultLabel do evento 'origin_registered'. Sem coluna/migration nova.
+  // Retorna null quando não há nenhum campo (mantém o resultLabel vazio para os demais canais).
+  private buildCampaignMetadataLabel(
+    campaign?: { campaignName?: string | null; formId?: string | null; adId?: string | null } | null,
+  ): string | null {
+    if (!campaign) return null;
+    const payload: Record<string, string> = {};
+    const campaignName = this.normalizeText(campaign.campaignName);
+    const formId = this.normalizeText(campaign.formId);
+    const adId = this.normalizeText(campaign.adId);
+    if (campaignName) payload.campaignName = campaignName;
+    if (formId) payload.formId = formId;
+    if (adId) payload.adId = adId;
+    if (Object.keys(payload).length === 0) return null;
+    return JSON.stringify(payload).slice(0, 500);
   }
 
   private buildTimelineEvent(input: TimelineEventInput): TimelineEventRecord {
@@ -6907,7 +6957,14 @@ export class VendasService {
   private async createOrUpdateLead(input: {
     companyId: number;
     userId: number;
-    sourceType: 'manual' | 'webscraping';
+    sourceType: 'manual' | 'webscraping' | 'anuncio';
+    // ARQ11 S2 — temperatura do lead ('frio'|'morno'|'quente'). Gravada no MESMO write só
+    // quando a coluna existe (fallback do doc enquanto a migration não roda no VPS).
+    leadTemperature?: string | null;
+    // ARQ11 S2 — metadata estruturada de campanha (Meta Lead Ads): sai do shortNote improvisado
+    // e vira JSON compacto no resultLabel do evento de origem da timeline (relatório futuro
+    // "qual campanha converte" nasce de graça). Não precisa de coluna/migration nova.
+    campaignMetadata?: { campaignName?: string | null; formId?: string | null; adId?: string | null } | null;
     sourceHistoryId?: string | null;
     sourceSignature?: string | null;
     name?: string | null;
@@ -6962,6 +7019,11 @@ export class VendasService {
     const nextAction = this.normalizeText(input.nextAction) || 'Primeiro contato';
     const status = this.normalizeStatus(input.status);
     const returnAt = input.returnAt || new Date();
+    // ARQ11 S2 — temperatura no MESMO write, mas só quando a coluna existe (senão fallback silencioso).
+    const leadTemperature = this.normalizeText(input.leadTemperature);
+    const temperatureColumnAvailable = leadTemperature ? await this.hasVendasLeadTemperatureColumn() : false;
+    // ARQ11 S2 — metadata de campanha (Meta Lead Ads) serializada p/ o resultLabel do evento de origem.
+    const campaignMetadataLabel = this.buildCampaignMetadataLabel(input.campaignMetadata);
     const customerProfileId = await this.ensureCustomerProfile({
       companyId: input.companyId,
       name,
@@ -6975,6 +7037,7 @@ export class VendasService {
       customerProfileId,
       sourceType: input.sourceType,
       primarySource: input.sourceType,
+      ...(temperatureColumnAvailable ? { leadTemperature } : {}),
       sourceHistoryId: this.normalizeText(input.sourceHistoryId),
       sourceSignature: this.normalizeText(input.sourceSignature),
       timesSeen: 1,
@@ -7044,7 +7107,13 @@ export class VendasService {
         const updateData: any = {
           customerProfileId: customerProfileId || existing.customerProfileId,
           sourceType: input.sourceType,
-          primarySource: existing.primarySource || existing.sourceType || input.sourceType,
+          // ARQ11 S2 — lead de anúncio PROMOVE a origem principal (o antigo stampAdvertisingOrigin
+          // carimbava 'anuncio' sempre, inclusive na dedup); os demais canais preservam a origem original.
+          primarySource:
+            input.sourceType === 'anuncio'
+              ? 'anuncio'
+              : existing.primarySource || existing.sourceType || input.sourceType,
+          ...(temperatureColumnAvailable ? { leadTemperature } : {}),
           sourceHistoryId: baseData.sourceHistoryId || existing.sourceHistoryId,
           sourceSignature: baseData.sourceSignature || existing.sourceSignature,
           timesSeen: Math.max(1, Math.trunc(Number(existing.timesSeen || 0) || 1)) + 1,
@@ -7179,6 +7248,9 @@ export class VendasService {
               title: 'Origem registrada',
               description: `Origem principal definida como ${this.formatSourceLabel(input.sourceType)}.`,
               sourceType: input.sourceType,
+              // ARQ11 S2 — metadata de campanha (campaignName/formId/adId) em JSON compacto,
+              // sem coluna nova; relatório "qual campanha converte" lê deste evento.
+              resultLabel: campaignMetadataLabel,
               createdByUserId: input.userId,
             }),
           },
@@ -7279,10 +7351,12 @@ export class VendasService {
     };
   }
 
-  // Intake de lead vindo de anúncio (Meta Lead Ads e afins). Reusa o caminho
-  // oficial de criação/dedup do CRM (normaliza telefone, deduplica, cria perfil e
-  // timeline) e carimba origem + temperatura "quente" por cima. O lead já cai
-  // atribuído ao responsável de anúncio. PR14062026013.
+  // Intake de lead vindo de anúncio (Meta Lead Ads / formulário de site). Reusa o caminho
+  // oficial de criação/dedup do CRM (normaliza telefone, deduplica, cria perfil e timeline)
+  // já com a ORIGEM canônica 'anuncio' + temperatura 'quente' num ÚNICO write (ARQ11 S2 —
+  // o antigo stampAdvertisingOrigin fazia um 2º write de correção, aposentado). O provedor
+  // concreto (meta_lead_ads/website_form) e a campanha viram metadata da timeline. Pós-criação:
+  // espelha na agenda/inbox do responsável e dispara a notificação best-effort (speed-to-lead).
   async intakeAdvertisingLead(input: {
     companyId: number;
     assignedUserId: number;
@@ -7296,6 +7370,8 @@ export class VendasService {
     source?: string;
     temperature?: string;
     opportunityScore?: number | null;
+    // ARQ11 S2 — metadata estruturada de campanha (sai do shortNote improvisado do worker).
+    campaign?: { campaignName?: string | null; formId?: string | null; adId?: string | null } | null;
   }): Promise<{ leadId: string; action: string; reusedExisting: boolean }> {
     const source = String(input.source || 'meta_lead_ads').trim() || 'meta_lead_ads';
     const temperature = String(input.temperature || 'quente').trim() || 'quente';
@@ -7304,7 +7380,10 @@ export class VendasService {
     const result: any = await this.createOrUpdateLead({
       companyId: input.companyId,
       userId: assignedUserId,
-      sourceType: 'manual',
+      // Origem REAL de anúncio num write só (não é mais 'manual' + carimbo posterior).
+      sourceType: 'anuncio',
+      leadTemperature: temperature,
+      campaignMetadata: input.campaign ?? null,
       name: input.name ?? null,
       phone: input.phone ?? null,
       email: input.email ?? null,
@@ -7320,9 +7399,33 @@ export class VendasService {
     });
 
     const leadId = String(result?.lead?.id || '');
+
+    // Narrativa "veio de anúncio" na timeline (best-effort). NÃO corrige origem/temperatura
+    // do card — essas já entraram no write acima; aqui é só um evento de história.
     if (leadId) {
-      await this.stampAdvertisingOrigin(leadId, source, temperature, assignedUserId);
+      await this.prisma.vendasLeadTimelineEvent
+        .create({
+          data: {
+            leadId,
+            ...this.buildTimelineEvent({
+              eventType: 'ad_lead_intake',
+              title: 'Lead veio de anúncio',
+              description: `Lead capturado por anúncio (${source}). Entrou quente para atendimento imediato.`,
+              sourceType: 'anuncio',
+              createdByUserId: assignedUserId || undefined,
+            }),
+          },
+        })
+        .catch(() => null);
+
+      // Pós-criação (speed-to-lead): espelha o card na agenda/inbox viva do responsável —
+      // MESMO mecanismo que o card manual usa (createManualLeadForUser) — e notifica.
+      await this.syncLeadToInboxAgenda(input.companyId, result.lead, undefined, { forceScheduled: true }).catch(
+        () => null,
+      );
+      await this.notifyAdvertisingLeadOwner(input.companyId, assignedUserId, result.lead).catch(() => null);
     }
+
     return {
       leadId,
       action: String(result?.action || 'created'),
@@ -7330,34 +7433,31 @@ export class VendasService {
     };
   }
 
-  private async stampAdvertisingOrigin(leadId: string, source: string, temperature: string, userId: number) {
-    const data: any = { primarySource: source, leadTemperature: temperature };
+  // ARQ11 S2 — notificação ao responsável pelo lead de anúncio. Reusa o caminho de ENVIO já
+  // existente (WebwhatsBridgeService.sendText, que exige sessão conectada da própria empresa),
+  // atrás de flag DEFAULT OFF. GUARDRAIL Webwhats: NÃO toca conexão/sessão/reconexão/socket —
+  // só consulta se já há sessão operacional e, se sim, prepara o envio. Falha aqui nunca impede
+  // a criação do lead (chamador usa .catch).
+  private async notifyAdvertisingLeadOwner(companyId: number, assignedUserId: number, lead: any): Promise<void> {
+    const enabled = ['true', '1', 'yes', 'on'].includes(
+      String(process.env.HBX_AD_LEAD_NOTIFY_ENABLED || '').trim().toLowerCase(),
+    );
+    if (!enabled) return;
+    if (!this.webwhatsBridge) return;
+
     try {
-      await this.prisma.vendasLead.update({ where: { id: leadId }, data });
-    } catch {
-      // Coluna leadTemperature pode ainda não existir (migration não aplicada);
-      // grava ao menos a origem e segue.
-      try {
-        await this.prisma.vendasLead.update({ where: { id: leadId }, data: { primarySource: source } });
-      } catch {
-        // best-effort: o lead já existe; o carimbo de origem não é crítico.
-      }
-    }
-    try {
-      await this.prisma.vendasLeadTimelineEvent.create({
-        data: {
-          leadId,
-          ...this.buildTimelineEvent({
-            eventType: 'ad_lead_intake',
-            title: 'Lead veio de anúncio',
-            description: 'Lead capturado por anúncio (Meta Lead Ads). Entrou quente para atendimento imediato.',
-            sourceType: source,
-            createdByUserId: userId || undefined,
-          }),
-        },
-      });
-    } catch {
-      // timeline é best-effort no intake.
+      const hasSession = await this.webwhatsBridge.hasOperationalSession(companyId, { userId: assignedUserId });
+      if (!hasSession) return;
+      const name = this.normalizeText(lead?.name) || 'lead';
+      const phone = this.normalizeText(lead?.phone) || 's/ telefone';
+      // Alvo de auto-notificação (número do próprio vendedor) ainda não é canônico no repo —
+      // por ora registra que notificaria; plugar destino quando o "self-notify" existir. NÃO
+      // dispara envio cru sem alvo definido.
+      this.logger.log(
+        `[ad-lead] notificacao pronta (flag ON, sessao ativa) company=${companyId} responsavel=${assignedUserId} lead="${name}" ${phone}`,
+      );
+    } catch (error: any) {
+      this.logger.warn(`[ad-lead] notificacao best-effort falhou: ${String(error?.message || error)}`);
     }
   }
 

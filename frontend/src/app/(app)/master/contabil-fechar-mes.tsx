@@ -83,6 +83,51 @@ type Comprovante = {
   createdAt: string;
 };
 
+// ---- S7 Serpro (autopost) — só ativo com a flag ON no backend -------------
+
+type SerproStatus = {
+  enabled: boolean;
+  ambiente: "demo" | "producao";
+  credencialConfigurada: boolean;
+};
+
+type SerproArmar = {
+  disponivel: boolean;
+  motivoIndisponivel?: string | null;
+  competencia: string;
+  ambiente: "demo" | "producao";
+  payload: {
+    competencia: string;
+    periodoApuracao: string;
+    receitaBrutaMesCents: number;
+    rbt12Cents: number;
+    folha12mCents: number;
+    anexoAplicado: string;
+    aliquotaEfetiva: number;
+    dasPrevistoCents: number;
+  } | null;
+  custoEstimadoCents: number;
+  custoEstimadoLabel: string;
+};
+
+type SerproTransmitir = {
+  ok: boolean;
+  competencia: string;
+  numeroRecibo: string | null;
+  dasPdfB64: string | null;
+  dasNumeroDocumento: string | null;
+  estado: "TRANSMITIDO" | "REVISAR" | "FALLBACK";
+  conferencia: {
+    conferido: boolean;
+    dasNossoCents: number;
+    dasGovernoCents: number | null;
+    diffCents: number | null;
+    diverge: boolean;
+    detalhe: string;
+  } | null;
+  erro?: string | null;
+};
+
 type FecharResp = {
   competencia: string;
   fechadoEm: string;
@@ -420,6 +465,14 @@ function PassoPgdasd({
   const [busy, setBusy] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // S7: o braço robótico Serpro. Só existe com a flag ON no backend + credencial
+  // no cofre; caso contrário este bloco some e o passo fica no semi-auto do S5.
+  const [serpro, setSerpro] = useState<SerproStatus | null>(null);
+  useEffect(() => {
+    apiFetch<SerproStatus>(`/master/contabil/serpro/status`).then(setSerpro).catch(() => setSerpro(null));
+  }, []);
+  const autopostAtivo = Boolean(serpro?.enabled && serpro?.credencialConfigurada);
+
   useEffect(() => {
     if (!dasGoverno.trim()) { setCheck(null); return; }
     if (debounce.current) clearTimeout(debounce.current);
@@ -442,6 +495,10 @@ function PassoPgdasd({
       <p className="ctb-wiz-lead">
         Espelho do PGDAS-D — confira na MESMA ordem que a tela do governo pede, declare, e cole o DAS que o governo calculou.
       </p>
+
+      {autopostAtivo && (
+        <SerproAutopostCard competencia={competencia} ambiente={serpro!.ambiente} onDone={onRecarregar} />
+      )}
       <div className="ctb-wiz-govcard">
         <div className="ctb-wiz-govrow"><span>Receita bruta do mês (PA)</span><strong>{brl(dossie.receita.receitaMesCents)}</strong></div>
         <div className="ctb-wiz-govrow"><span>Folha dos últimos 12 meses</span><strong>{brl(dossie.cadeia.folha12mCents)}</strong></div>
@@ -483,6 +540,153 @@ function PassoPgdasd({
           {divergiu ? "resolva a divergência" : "avançar"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---- S7: cartão ARMAR → TRANSMITIR (autopost via Serpro) ------------------
+// Lei nº1 (copiloto, não piloto): ARMAR só MOSTRA o payload do motor + o custo;
+// TRANSMITIR exige o clique-com-confirmação ("digite TRANSMITIR"). Nenhum envio
+// acontece sem a confirmação. Se o braço falhar, o passo segue no semi-auto do
+// S5 (deep-links + marcar manual, logo abaixo deste cartão) — nunca bloqueia.
+
+function SerproAutopostCard({
+  competencia, ambiente, onDone,
+}: { competencia: string; ambiente: "demo" | "producao"; onDone: () => Promise<void> | void }) {
+  const [armado, setArmado] = useState<SerproArmar | null>(null);
+  const [confirmacao, setConfirmacao] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resultado, setResultado] = useState<SerproTransmitir | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const armar = useCallback(() => {
+    setErro(null);
+    apiFetch<SerproArmar>(`/master/contabil/serpro/armar/${competencia}`)
+      .then(setArmado)
+      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Falha ao armar."));
+  }, [competencia]);
+
+  useEffect(() => { armar(); }, [armar]);
+
+  const transmitir = useCallback(() => {
+    if (confirmacao.trim().toUpperCase() !== "TRANSMITIR") {
+      setErro('Digite TRANSMITIR (em maiúsculas) para autorizar o envio.');
+      return;
+    }
+    setBusy(true);
+    setErro(null);
+    apiFetch<SerproTransmitir>(`/master/contabil/serpro/transmitir/${competencia}`, {
+      method: "POST",
+      body: JSON.stringify({ confirmacao: confirmacao.trim().toUpperCase() }),
+    })
+      .then((res) => { setResultado(res); setConfirmacao(""); return onDone(); })
+      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Falha ao transmitir."))
+      .finally(() => setBusy(false));
+  }, [confirmacao, competencia, onDone]);
+
+  const baixarDas = useCallback((b64: string) => {
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `DAS-${competencia}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { setErro("Falha ao abrir o PDF do DAS."); }
+  }, [competencia]);
+
+  // Resultado da transmissão (TRANSMITIDO / REVISAR / FALLBACK).
+  if (resultado) {
+    if (resultado.estado === "FALLBACK") {
+      return (
+        <div className="ctb-wiz-alert bad">
+          <span>⚠</span>
+          <span>
+            <strong>Serpro indisponível</strong> — {resultado.erro || "use o modo manual abaixo"}. Nada foi transmitido; siga pelos deep-links (semi-auto).
+          </span>
+        </div>
+      );
+    }
+    if (resultado.estado === "REVISAR") {
+      return (
+        <div className="ctb-serpro">
+          <div className="ctb-wiz-alert bad">
+            <span>🔴</span>
+            <span>
+              <strong>Transmitido, mas REVISAR:</strong> {resultado.conferencia?.detalhe}. A obrigação foi marcada REVISAR — confira no portal antes de pagar.
+            </span>
+          </div>
+          {resultado.numeroRecibo && <div className="ctb-serpro-das"><span>Recibo:</span> <strong>{resultado.numeroRecibo}</strong></div>}
+          {resultado.dasPdfB64 && (
+            <div className="ctb-serpro-das">
+              <span>DAS gerado{resultado.dasNumeroDocumento ? ` (${resultado.dasNumeroDocumento})` : ""}.</span>
+              <button type="button" className="btn-ghost ctb-cofre-remove" onClick={() => baixarDas(resultado.dasPdfB64!)}>baixar PDF</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="ctb-serpro">
+        <div className="ctb-wiz-alert ok">
+          <span>✅</span>
+          <span><strong>PGDAS-D transmitido</strong> e conferido pelo Serpro. Recibo <strong>{resultado.numeroRecibo}</strong>.</span>
+        </div>
+        {resultado.dasPdfB64 && (
+          <div className="ctb-serpro-das">
+            <span>Guia DAS{resultado.dasNumeroDocumento ? ` ${resultado.dasNumeroDocumento}` : ""} anexada.</span>
+            <button type="button" className="btn-teal ctb-cofre-remove" onClick={() => baixarDas(resultado.dasPdfB64!)}>baixar DAS (PDF)</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Indisponível para armar → não renderiza (o passo cai no semi-auto abaixo).
+  if (armado && !armado.disponivel) return null;
+
+  return (
+    <div className="ctb-serpro">
+      <div className="ctb-serpro-head">
+        <span className="ctb-serpro-title">Transmitir pelo Serpro {ambiente === "demo" ? "(demonstração)" : ""}</span>
+        {armado && <span className="ctb-serpro-custo">{armado.custoEstimadoLabel}</span>}
+      </div>
+
+      {armado?.payload ? (
+        <>
+          <p className="ctb-serpro-hint">
+            ARMADO — revise o que será enviado (números do motor). Ao transmitir, o app declara o PGDAS-D e baixa o DAS pela API oficial.
+          </p>
+          <div className="ctb-wiz-govcard">
+            <div className="ctb-wiz-govrow"><span>Período de apuração</span><strong>{armado.payload.periodoApuracao}</strong></div>
+            <div className="ctb-wiz-govrow"><span>Receita bruta do mês</span><strong>{brl(armado.payload.receitaBrutaMesCents)}</strong></div>
+            <div className="ctb-wiz-govrow"><span>Folha 12 meses</span><strong>{brl(armado.payload.folha12mCents)}</strong></div>
+            <div className="ctb-wiz-govrow"><span>Anexo · alíquota efetiva</span><strong>{armado.payload.anexoAplicado} · {pct(armado.payload.aliquotaEfetiva, 2)}</strong></div>
+            <div className="ctb-wiz-govrow total"><span>DAS a declarar</span><strong>{brl(armado.payload.dasPrevistoCents)}</strong></div>
+          </div>
+
+          <div className="ctb-serpro-confirm">
+            <label className="ctb-serpro-confirm-label">Digite <strong>TRANSMITIR</strong> para autorizar o envio à Receita:</label>
+            <input value={confirmacao} onChange={(e) => setConfirmacao(e.target.value)} placeholder="TRANSMITIR" autoComplete="off" />
+          </div>
+          {erro && <div className="ctb-wiz-alert bad"><span>⚠</span><span>{erro}</span></div>}
+          <div className="ctb-wiz-actions">
+            <button type="button" className="btn-ghost" onClick={armar} disabled={busy}>re-armar</button>
+            <button
+              type="button"
+              className="btn-teal"
+              disabled={busy || confirmacao.trim().toUpperCase() !== "TRANSMITIR"}
+              onClick={transmitir}
+            >
+              {busy ? "transmitindo…" : "Transmitir agora"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="ctb-serpro-hint">{erro || "Armando o payload do motor…"}</p>
+      )}
     </div>
   );
 }

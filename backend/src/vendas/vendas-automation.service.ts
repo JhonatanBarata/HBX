@@ -2764,6 +2764,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         ...(sourceSignature ? { sourceSignature } : {}),
       },
       { sourceType: 'manual' },
+      // ARQ11 S2 — lead de anúncio (origem 'anuncio') era 'manual' antes e entrava aqui;
+      // mantém a elegibilidade para as campanhas de prospecção via WhatsApp.
+      { sourceType: 'anuncio' },
     ];
     if (activeProspectionLeadIds.size) {
       sourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
@@ -2788,7 +2791,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Sem card exato na fila. Procurando outros cards do Vendas com WhatsApp...', {
         type: 'schedule_similar_pool_started',
       });
-      const broaderSourceFilters: any[] = [{ sourceType: 'webscraping' }, { sourceType: 'manual' }];
+      const broaderSourceFilters: any[] = [{ sourceType: 'webscraping' }, { sourceType: 'manual' }, { sourceType: 'anuncio' }];
       if (activeProspectionLeadIds.size) {
         broaderSourceFilters.push({ id: { in: Array.from(activeProspectionLeadIds) } });
       }

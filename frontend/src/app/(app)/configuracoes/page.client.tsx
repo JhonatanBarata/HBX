@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
+import { MetaLeadAdsSection } from "@/components/hbx/meta-lead-ads-section";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
@@ -38,8 +39,10 @@ import { classifyPlanChange } from "@/lib/plan-rank";
 import { useTabParam } from "@/lib/use-tab-param";
 
 // Equipe saiu de Configurações → vive agora em Gerencial → aba Equipe.
-const SECTIONS = ["Perfil & Empresa", "E-mail", "Notificações", "Plano e cobrança"];
-const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Notificações": "bell", "Plano e cobrança": "money" };
+// "Integrações" (ARQ11 S2 item 3) — hoje só Meta Ads (Leads); admin da empresa configura
+// pageId/token/webhook direto na tela em vez de curl na API.
+const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Notificações", "Plano e cobrança"];
+const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Notificações": "bell", "Plano e cobrança": "money" };
 
 type CurrentUser = {
   name?: string | null;
@@ -330,9 +333,13 @@ export function ConfiguracoesClient() {
   const canSeeEmail = mods.loaded && Boolean(
     user?.userKind === "system_master" || mods.byKey["email"]?.accessible === true
   );
+  // Integrações (Meta Ads): backend exige role === 'ADMIN' ao pé da letra
+  // (MetaLeadAdsService.requireCompanyAdmin) — vendedor nunca vê a aba.
+  const canSeeIntegracoes = String(user?.role || "").toUpperCase() === "ADMIN";
   const sections = SECTIONS
     .filter(s => s !== "Plano e cobrança" || canSeeBilling)
-    .filter(s => s !== "E-mail" || canSeeEmail);
+    .filter(s => s !== "E-mail" || canSeeEmail)
+    .filter(s => s !== "Integrações" || canSeeIntegracoes);
   const current = plansMe?.current;
   // Catálogo visível = cards lindos (PLAN_ORDER) com número da API pública.
   // Estado do contratante (plano atual, acesso, permissão) vem do /me.
@@ -457,6 +464,8 @@ export function ConfiguracoesClient() {
             )}
 
             {sec === "E-mail" && canSeeEmail && <CompanyEmailSection />}
+
+            {sec === "Integrações" && canSeeIntegracoes && <MetaLeadAdsSection />}
 
             {sec === "Notificações" && (
               <section className="panel cfg-section">

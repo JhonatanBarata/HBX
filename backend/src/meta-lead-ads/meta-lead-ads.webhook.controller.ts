@@ -17,8 +17,10 @@ export class MetaLeadAdsWebhookController {
     return challenge;
   }
 
-  // Recebimento de leads. Sempre responde 200 para o Meta não re-tentar em loop;
-  // o resultado do processamento vai no corpo.
+  // Recebimento de leads. Sempre responde 200 para o Meta não re-tentar em loop.
+  // ARQ11 S1: o handler SÓ enfileira (verifica HMAC → grava na fila durável) — o fetch da
+  // Graph + criação do card acontece no worker assíncrono. O corpo reporta received/enqueued/
+  // duplicates (não mais created/skipped, que agora são desfecho do worker).
   @Post()
   @HttpCode(200)
   async receive(

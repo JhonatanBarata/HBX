@@ -33,4 +33,11 @@ export class MetaLeadAdsAdminController {
   remove(@Req() req: any, @Param('id') id: string) {
     return this.metaService.deleteConnectionForUser(req.user, id);
   }
+
+  // ARQ11 S1 — assina a página no webhook do Meta (subscribed_apps + leadgen) usando o token
+  // da conexão. Sem este passo o Meta não manda evento de lead. Contrato fixo { subscribed, error? }.
+  @Post(':id/subscribe-webhook')
+  subscribeWebhook(@Req() req: any, @Param('id') id: string) {
+    return this.metaService.subscribeConnectionWebhook(req.user, id);
+  }
 }

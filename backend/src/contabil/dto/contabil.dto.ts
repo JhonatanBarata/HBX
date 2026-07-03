@@ -150,3 +150,63 @@ export class FecharMesDto {
   @Min(0)
   dasGovernoCents?: number;
 }
+
+// CONTABIL S6 — NFS-e Nacional automática -----------------------------------
+
+// POST /master/contabil/nfse/certificado — senha do .pfx (o arquivo vem no multipart).
+// A senha NUNCA é logada/retornada; entra no cofre AES-256-GCM (Lei nº3).
+export class UploadCertificadoDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  senha!: string;
+}
+
+// POST /master/contabil/nfse/emitir — dispara a emissão da fila (modo manual do dono).
+// Só age com HBX_CONTABIL_NFSE_ENABLED=1 (flag OFF é inerte).
+export class EmitirNfseDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(7)
+  competencia?: string; // 'YYYY-MM' opcional (limita a rodada a uma competência)
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limite?: number;
+}
+
+// CONTABIL S7 — Autopost PGDAS-D/DAS via Serpro Integra Contador ---------------
+
+// POST /master/contabil/serpro/credencial — guarda a credencial Serpro no cofre
+// (AES-256-GCM, Lei nº3). O segredo NUNCA é logado/retornado.
+export class SalvarSerproCredDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  consumerKey!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  consumerSecret!: string;
+
+  @IsString()
+  @MaxLength(18)
+  contratanteCnpj!: string; // CNPJ do contratante/autor (a própria empresa)
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(18)
+  contribuinteCnpj?: string; // default = contratante (1-sócio autoriza a si)
+}
+
+// POST /master/contabil/serpro/transmitir/:competencia — o CLIQUE-COM-CONFIRMAÇÃO
+// do dono (Lei nº1). `confirmacao` DEVE ser a string "TRANSMITIR"; o aprovadoPor
+// (userId) vem do JWT no controller, nunca do body. NUNCA cron/retry.
+export class SerproTransmitirDto {
+  @IsString()
+  @MaxLength(20)
+  confirmacao!: string; // "TRANSMITIR" (confirmação digitada)
+}

@@ -3030,3 +3030,141 @@ test('buildSaleCommissionPatch rejects payable commission before confirmed payme
     /pagamento confirmado/i,
   );
 });
+
+// ============================================================================
+// ARQ11 S2 — intakeAdvertisingLead: origem 'anuncio' num write só, temperatura no
+// mesmo write, metadata de campanha na timeline e espelhamento na agenda/inbox.
+// ============================================================================
+
+// Harness de intake: prisma em memória com $transaction (create + timeline createMany),
+// findFirst de dedup e $queryRaw dos checks de coluna (address/leadTemperature = presentes).
+function createAdIntakeService(opts?: { existingLead?: any; temperatureColumn?: boolean }) {
+  const created: any[] = [];
+  const timelineCreateMany: any[] = [];
+  const timelineCreate: any[] = [];
+  const leadUpdates: any[] = [];
+  const temperatureColumn = opts?.temperatureColumn !== false; // default: coluna existe
+
+  const txClient = {
+    vendasLead: {
+      create: async ({ data }: any) => {
+        const row = { id: `lead-${created.length + 1}`, ...data, timelineEvents: [] };
+        created.push(row);
+        return row;
+      },
+      update: async ({ where, data }: any) => {
+        leadUpdates.push({ where, data });
+        const row = created.find((r) => r.id === where.id) || opts?.existingLead;
+        return { ...(row || {}), ...data };
+      },
+      findUniqueOrThrow: async ({ where }: any) => {
+        const row = created.find((r) => r.id === where.id) || opts?.existingLead;
+        return { ...(row || { id: where.id }), timelineEvents: [] };
+      },
+    },
+    vendasLeadTimelineEvent: {
+      create: async ({ data }: any) => {
+        timelineCreate.push(data);
+        return data;
+      },
+      createMany: async ({ data }: any) => {
+        timelineCreateMany.push(...data);
+        return { count: data.length };
+      },
+    },
+  };
+
+  const { service, getOrCreateCalls, updateConversationStateCalls } = createService({
+    prisma: {
+      $transaction: async (fn: any) => fn(txClient),
+      $queryRaw: async () => [{ exists: temperatureColumn }],
+    },
+    vendasLead: {
+      findFirst: async () => opts?.existingLead || null,
+    },
+  });
+
+  return { service, created, timelineCreateMany, timelineCreate, leadUpdates, getOrCreateCalls, updateConversationStateCalls };
+}
+
+test('intakeAdvertisingLead: card de anúncio nasce com origem anuncio e temperatura no MESMO write', async () => {
+  const { service, created, leadUpdates } = createAdIntakeService();
+
+  const out = await (service as any).intakeAdvertisingLead({
+    companyId: 7,
+    assignedUserId: 99,
+    name: 'Maria Anúncio',
+    phone: '11999990000',
+    source: 'meta_lead_ads',
+    temperature: 'quente',
+  });
+
+  assert.equal(out.action, 'created');
+  assert.equal(created.length, 1);
+  // Origem canônica + temperatura entraram no CREATE (um write só) — não em update posterior.
+  assert.equal(created[0].sourceType, 'anuncio');
+  assert.equal(created[0].primarySource, 'anuncio');
+  assert.equal(created[0].leadTemperature, 'quente');
+  // Nenhum update de origem/temperatura pós-criação (stampAdvertisingOrigin aposentado).
+  assert.equal(leadUpdates.length, 0, 'nenhum 2º write de origem/temperatura');
+});
+
+test('intakeAdvertisingLead: metadata de campanha vai para o resultLabel do evento origin_registered', async () => {
+  const { service, timelineCreateMany } = createAdIntakeService();
+
+  await (service as any).intakeAdvertisingLead({
+    companyId: 7,
+    assignedUserId: 99,
+    name: 'João Campanha',
+    phone: '11988887777',
+    source: 'meta_lead_ads',
+    campaign: { campaignName: 'Campanha Verão', formId: 'form-42', adId: 'ad-7' },
+  });
+
+  const origin = timelineCreateMany.find((e: any) => e.eventType === 'origin_registered');
+  assert.ok(origin, 'evento origin_registered foi criado');
+  assert.ok(origin.resultLabel, 'metadata de campanha serializada no resultLabel');
+  const parsed = JSON.parse(origin.resultLabel);
+  assert.equal(parsed.campaignName, 'Campanha Verão');
+  assert.equal(parsed.formId, 'form-42');
+  assert.equal(parsed.adId, 'ad-7');
+  // Label de origem correto:
+  assert.match(String(origin.description || ''), /Anúncio/);
+});
+
+test('intakeAdvertisingLead: espelha o card na agenda/inbox do responsável (syncLeadToInboxAgenda)', async () => {
+  const { service, getOrCreateCalls, updateConversationStateCalls } = createAdIntakeService();
+
+  await (service as any).intakeAdvertisingLead({
+    companyId: 7,
+    assignedUserId: 99,
+    name: 'Ana Speed',
+    phone: '11977776666',
+    source: 'meta_lead_ads',
+  });
+
+  // syncLeadToInboxAgenda com forceScheduled cria/acha a conversa e grava o estado da agenda.
+  assert.ok(getOrCreateCalls.length >= 1, 'conversa da agenda foi criada/achada para o lead');
+  assert.ok(updateConversationStateCalls.length >= 1, 'estado da agenda/inbox foi atualizado (speed-to-lead)');
+});
+
+test('intakeAdvertisingLead: sem coluna leadTemperature grava origem sem explodir (fallback)', async () => {
+  const { service, created, leadUpdates } = createAdIntakeService({ temperatureColumn: false });
+
+  const out = await (service as any).intakeAdvertisingLead({
+    companyId: 7,
+    assignedUserId: 99,
+    name: 'Lead Sem Coluna',
+    phone: '11966665555',
+    source: 'meta_lead_ads',
+    temperature: 'quente',
+  });
+
+  assert.equal(out.action, 'created');
+  assert.equal(created.length, 1);
+  assert.equal(created[0].sourceType, 'anuncio');
+  assert.equal(created[0].primarySource, 'anuncio');
+  // Coluna ausente: temperatura NÃO entra no write, mas a origem sim e nada explode.
+  assert.equal(created[0].leadTemperature, undefined);
+  assert.equal(leadUpdates.length, 0);
+});
