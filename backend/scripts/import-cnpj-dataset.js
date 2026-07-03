@@ -402,7 +402,11 @@ function stageZip(zipPath, group) {
 // Transform: SQL set-based (cada fase = 1 transação, re-executável)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TUNING = `SET work_mem = '512MB'; SET maintenance_work_mem = '1GB'; SET max_parallel_workers_per_gather = 4;`;
+// Tuning calibrado 02/07 p/ mount degradada do Docker Desktop WSL: work_mem alto mantém o
+// DISTINCT ON de ~28M linhas em RAM (32GB na máquina) e elimina o spill de ~4,5GB em arquivo
+// temp — que era exatamente onde o transform travava (DataFileRead no virtiofs). parallel=0
+// serializa a varredura (paralelo multiplicava a pressão de IO e o consumo de work_mem).
+const TUNING = `SET work_mem = '8GB'; SET maintenance_work_mem = '4GB'; SET max_parallel_workers_per_gather = 0;`;
 
 // Ranking do "dono": Sócio-Administrador > Administrador > Titular PF > Diretor > Presidente >
 // Titular Emp. Individual > Sócio-Gerente > Sócio... ; PF (identificador 2) ganha de PJ no empate.
