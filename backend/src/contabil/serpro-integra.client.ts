@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
 // ===========================================================================
 // CONTABIL S7 — Cliente do Serpro Integra Contador (autopost PGDAS-D + DAS).
@@ -137,7 +137,7 @@ export class SerproIntegraClient {
   private tokenCache: { token: string; expiraEmMs: number } | null = null;
 
   // Transporte default = HTTP real (só EXERCIDO com a flag ON — ver wizard/service).
-  constructor(private readonly transport: SerproTransport = new RealSerproTransport()) {}
+  constructor(@Optional() private readonly transport: SerproTransport = new RealSerproTransport()) {}
 
   static isEnabled(): boolean {
     const v = String(process.env[SERPRO_ENABLED_ENV] || '0').trim().toLowerCase();

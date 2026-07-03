@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash, createSign, createVerify, X509Certificate } from 'crypto';
 import { gzipSync } from 'zlib';
 import type { CertSigningMaterial } from './nfse-cert.service';
@@ -90,7 +90,7 @@ export class NfseNationalClient {
   private readonly logger = new Logger(NfseNationalClient.name);
 
   // Transporte default = HTTP real (só é EXERCIDO com a flag ON — ver emissor).
-  constructor(private readonly transport: NfseTransport = new RealNfseTransport()) {}
+  constructor(@Optional() private readonly transport: NfseTransport = new RealNfseTransport()) {}
 
   static isEnabled(): boolean {
     const v = String(process.env[NFSE_ENABLED_ENV] || '0').trim().toLowerCase();
