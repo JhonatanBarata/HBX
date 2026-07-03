@@ -1178,6 +1178,19 @@ export class MasterWebscrapingController {
     return this.webscrapingService.permanentDeleteMasterDatabaseCards(req.user, dto || {});
   }
 
+  /**
+   * POST /modules/owner/radar/clean-junk  body: { confirm?: boolean }
+   * Sprint 3 HBX-OWNER: limpa "lixo" do pool de leads pela REGRA ÚNICA do backend
+   * (radar-core-shared: looksLikeNonBusinessName + isRealisticBrPhone), acabando com a cópia à mão
+   * que vivia no agent (server.js isJunkLead). Sem `confirm`: preview
+   * { preview:true, scanned, junk, sample }. Com `confirm:true`: apaga pelo mesmo caminho do
+   * database-cards/batch e devolve { scanned, junk, cleared }. NÃO roda sozinho na VPS — sob demanda.
+   */
+  @Post('clean-junk')
+  cleanJunk(@Req() req: any, @Body() body: { confirm?: boolean }) {
+    return this.webscrapingService.cleanJunkMasterDatabaseCards(req.user, { confirm: body?.confirm === true });
+  }
+
   @Get('radar-auto-distribution')
   getRadarAutoDistribution(@Req() req: any) {
     return this.webscrapingService.getRadarTenantAutoDistributionPanel(req.user);
