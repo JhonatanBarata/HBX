@@ -9,7 +9,10 @@ import {
   resolveVendasAccessContext,
 } from './team-access-runtime';
 import { TEAM_ACCESS_CATALOG } from './team-access-catalog';
-import { serializeTeamPolicyModuleAndAccessRows } from './team-policy-persistence';
+import {
+  resolveTeamPolicySubjectKind,
+  serializeTeamPolicyModuleAndAccessRows,
+} from './team-policy-persistence';
 
 function buildUser(overrides: Record<string, any> = {}) {
   const company = overrides.company || {
@@ -184,6 +187,53 @@ test('ADMIN defaults are broad but explicit false remains authoritative', async 
   assert.equal(context.canViewOwnCards, true);
   assert.equal(context.canViewCompanyCards, false);
   assert.equal(context.canDeleteCards, false);
+});
+
+test('resolveTeamPolicySubjectKind maps tenant USERMASTER to company_admin', () => {
+  assert.equal(
+    resolveTeamPolicySubjectKind({ role: 'USERMASTER', isSystemMaster: false }),
+    'company_admin',
+  );
+  // system master continua system_master; ADMIN e USER intactos
+  assert.equal(
+    resolveTeamPolicySubjectKind({ role: 'USERMASTER', isSystemMaster: true }),
+    'system_master',
+  );
+  assert.equal(resolveTeamPolicySubjectKind({ role: 'ADMIN' }), 'company_admin');
+  assert.equal(resolveTeamPolicySubjectKind({ role: 'USER' }), 'common_seller');
+});
+
+test('tenant USERMASTER (dono/admin) sees the whole company funnel by default', async () => {
+  const owner = buildUser({
+    id: 5,
+    role: 'USERMASTER',
+    isSystemMaster: false,
+    company: { id: 1, name: 'Cliente A', companyKind: 'tenant' },
+  });
+  const prisma = buildPrisma({
+    user: owner,
+    policy: buildPolicy({ userId: 5 }),
+  });
+
+  const context = await resolveVendasAccessContext(prisma as any, owner);
+
+  // Regressao do bug "minha vendedora tem leads e eu nao": o dono recebe os
+  // defaults de admin (nao mais de vendedor).
+  assert.equal(context.subjectKind, 'company_admin');
+  assert.equal(context.isAdmin, true);
+  assert.equal(context.canViewCompanyCards, true);
+  assert.equal(context.canViewOwnCards, true);
+});
+
+test('tenant USER keeps seller isolation (only own cards) — company scope is admin-only', async () => {
+  const seller = buildUser();
+  const context = await resolveVendasAccessContext(buildPrisma({ user: seller }) as any, seller);
+
+  // Isolamento do vendedor preservado: NAO ganha visao de empresa por engano.
+  assert.equal(context.subjectKind, 'common_seller');
+  assert.equal(context.isSeller, true);
+  assert.equal(context.canViewOwnCards, true);
+  assert.equal(context.canViewCompanyCards, false);
 });
 
 test('System Master without active tenant context cannot operate Vendas', async () => {

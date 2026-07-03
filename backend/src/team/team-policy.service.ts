@@ -467,7 +467,10 @@ export class TeamPolicyService {
   private getActorKind(user: any, company?: any): TeamPolicyActorKind {
     const role = this.normalizeRole(user?.role);
     if (user?.isSystemMaster) return 'system_master';
-    if (role === 'ADMIN') return 'company_admin';
+    // USERMASTER de tenant (nao isSystemMaster) = admin da empresa: mesmo
+    // mapeamento de resolveTeamPolicySubjectKind para os defaults admin serem
+    // consistentes entre runtime e a policy exibida/salva.
+    if (role === 'ADMIN' || role === 'USERMASTER') return 'company_admin';
     if (role === 'USER') return 'common_seller';
     return 'unknown';
   }

@@ -231,7 +231,12 @@ export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown)
 export function resolveTeamPolicySubjectKind(user: any, company?: any) {
   const role = normalizeRole(user?.role);
   if (user?.isSystemMaster) return 'system_master';
-  if (role === 'ADMIN') return 'company_admin';
+  // USERMASTER de tenant (dono/admin da empresa, NAO isSystemMaster) e admin da
+  // empresa: mapeia para 'company_admin' para receber os defaults de admin
+  // (buildDefaultTeamAccessMapForRole ja trata 'company_admin' como admin).
+  // Sem isso o USERMASTER caia em 'unknown' e herdava defaults de VENDEDOR
+  // (vendas.cards.viewCompany=false), deixando o funil do dono vazio.
+  if (role === 'ADMIN' || role === 'USERMASTER') return 'company_admin';
   if (role === 'USER') return 'common_seller';
   return 'unknown';
 }
