@@ -511,6 +511,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VendasAutomationService.name);
   private workerTimer: NodeJS.Timeout | null = null;
   private workerRunning = false;
+  // Restart-safe (ARQ4 S2): job que ficou preso em 'sending' apos restart/crash
+  // (publish no meio do typing-delay) e reconciliado. Grace > janela de envio
+  // (typing max ~20s) garante que nunca tocamos um envio VIVO em andamento.
+  private static readonly ORPHAN_SENDING_GRACE_MS = 2 * 60 * 1000;
+  private static readonly RECOVERY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+  private lastRecoverySweepAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -524,11 +530,73 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    // Reconcilia jobs orfaos ANTES de ligar o timer: um restart no meio do
+    // typing-delay deixa o job preso em 'sending' (findNextDueJob so pega
+    // 'scheduled') -> lead nunca contatado e live-status mentindo "enviando".
+    void this.recoverOrphanedSendingJobs().catch((error) => {
+      this.logger.warn(`Recovery boot da prospeccao falhou: ${String(error?.message || error)}`);
+    });
     this.workerTimer = setInterval(() => {
       void this.runWorkerCycle().catch((error) => {
         this.logger.warn(`Worker de prospeccao falhou: ${String(error?.message || error)}`);
       });
     }, 15000);
+  }
+
+  // Restart-safe (ARQ4 S2). Reconcilia jobs presos em 'sending' apos restart/crash.
+  // REGRA DE OURO: na duvida, NAO reenviar (reenvio de 1o contato = risco de ban).
+  // Fonte da verdade de "ja enviou?": o companyMessage OUTBOUND que
+  // queueOutboundForCompany grava com o jobId no variablesJson, na MESMA transacao
+  // que retorna o envio. Presente = envio aconteceu (marca sent, nunca reenvia).
+  // Ausente = morreu antes do envio (volta pra scheduled, a fila reespaça).
+  private async recoverOrphanedSendingJobs(graceMs = VendasAutomationService.ORPHAN_SENDING_GRACE_MS) {
+    this.lastRecoverySweepAt = Date.now();
+    const cutoff = new Date(Date.now() - graceMs);
+    const orphans = await this.prisma.vendasAutomationJob.findMany({
+      where: { status: 'sending', updatedAt: { lt: cutoff } },
+      select: { id: true, companyId: true, leadId: true, campaignId: true },
+    });
+    if (!orphans.length) return { recovered: 0, resent: 0, rescheduled: 0 };
+    let markedSent = 0;
+    let rescheduled = 0;
+    for (const job of orphans) {
+      try {
+        const alreadySent = await this.prisma.companyMessage.findFirst({
+          where: {
+            companyId: job.companyId,
+            direction: 'OUTBOUND',
+            sourceModule: 'vendas_prospeccao_bot',
+            variablesJson: { contains: `"jobId":"${job.id}"` },
+          },
+          select: { conversationId: true, timestamp: true },
+        });
+        if (alreadySent) {
+          const result = await this.prisma.vendasAutomationJob.updateMany({
+            where: { id: job.id, status: 'sending' },
+            data: {
+              status: 'sent',
+              sentAt: alreadySent.timestamp || new Date(),
+              conversationId: alreadySent.conversationId ?? undefined,
+              classification: 'recovered_sent_after_restart',
+              errorMessage: null,
+            },
+          });
+          if (result.count) markedSent += 1;
+        } else {
+          const result = await this.prisma.vendasAutomationJob.updateMany({
+            where: { id: job.id, status: 'sending' },
+            data: { status: 'scheduled', classification: 'recovered_rescheduled_after_restart' },
+          });
+          if (result.count) rescheduled += 1;
+        }
+      } catch (error: any) {
+        this.logger.warn(`[vendas-automation] recovery de job orfao falhou job=${job.id}: ${String(error?.message || error)}`);
+      }
+    }
+    this.logger.log(
+      `[vendas-automation] recovery: ${orphans.length} job(s) 'sending' orfao(s) -> ${markedSent} ja-enviado(sent), ${rescheduled} reagendado(scheduled)`,
+    );
+    return { recovered: orphans.length, resent: markedSent, rescheduled };
   }
 
   onModuleDestroy() {
@@ -3140,6 +3208,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (this.workerRunning) return;
     this.workerRunning = true;
     try {
+      // Sweep periodico (ARQ4 S2): cobre crash SEM restart limpo (o boot cobre o
+      // restart). So dispara a cada RECOVERY_SWEEP_INTERVAL_MS -> query barata.
+      if (Date.now() - this.lastRecoverySweepAt >= VendasAutomationService.RECOVERY_SWEEP_INTERVAL_MS) {
+        await this.recoverOrphanedSendingJobs().catch((error) => {
+          this.logger.warn(`Sweep de recovery da prospeccao falhou: ${String(error?.message || error)}`);
+        });
+      }
       await this.archiveNoResponseJobs();
       const blockedCompanies = new Set<number>();
       let skippedThisCycle = 0;
@@ -4028,7 +4103,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return deferredResult('repeated_first_contact_review');
     }
 
-    await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { status: 'sending' } });
+    // Claim atomico (ARQ4 S2): so um ciclo/replica sai de 'scheduled' -> 'sending'.
+    // Se count!=1, outro ja pegou este job -> pula sem erro (nao reprocessa/reenvia).
+    const claim = await this.prisma.vendasAutomationJob.updateMany({
+      where: { id: job.id, status: 'scheduled' },
+      data: { status: 'sending' },
+    });
+    if (claim.count !== 1) {
+      this.logger.log(`[vendas-automation] job ja reivindicado por outro ciclo, pulando jobId=${jobId}`);
+      return { outcome: 'skipped', campaignId, leadId, jobId, classification: 'already_claimed', shouldContinue: true };
+    }
     await this.markCampaignStage(campaign.id, campaign.companyId, 'enviando', `Enviando para ${lead.name || contact}.`, {
       type: 'send_started',
     });

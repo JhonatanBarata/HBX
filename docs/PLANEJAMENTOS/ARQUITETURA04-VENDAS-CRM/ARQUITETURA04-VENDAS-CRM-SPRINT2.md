@@ -2,6 +2,25 @@
 
 > Executar DEPOIS do SPRINT1 (mesmo arquivo, `vendas-automation.service.ts`) — nunca em paralelo.
 
+## ✅ EXECUTADO 03/07 (build limpo, suíte vendas-automation 37/37)
+
+Implementado em `vendas-automation.service.ts`, exatamente como planejado:
+- **Recovery no boot** (`recoverOrphanedSendingJobs`, chamado em `onModuleInit` ANTES do timer): varre
+  jobs `sending` com `updatedAt < now-2min`. Sinal de idempotência = o `companyMessage` OUTBOUND que
+  `queueOutboundForCompany` grava com o `jobId` no `variablesJson` na MESMA transação do envio. Presente
+  → marca `sent` (`recovered_sent_after_restart`), NUNCA reenvia. Ausente → volta a `scheduled`
+  (`recovered_rescheduled_after_restart`), a fila reespaça. Grace 2min > janela de envio (typing ~20s)
+  garante que nunca toca um envio VIVO.
+- **Sweep periódico** (a cada 5min no `runWorkerCycle`): cobre crash SEM restart limpo.
+- **Claim atômico**: `scheduled → sending` virou `updateMany({ where:{ id, status:'scheduled' }})`;
+  `count !== 1` → outro ciclo/réplica pegou → pula sem enviar (`already_claimed`). Protege multi-réplica
+  e re-entrância. `updatedAt` do claim = now → protege o job do grace do recovery.
+- **Testes** (3 novos): recovery marca sent quando há mensagem; reagenda quando não há; claim perdido
+  não envia (`queueCalls.length === 0`). Regra de ouro "na dúvida, NÃO reenvia" coberta.
+
+Fora de escopo (dívida registrada, não feito): tirar o typing-delay do loop; lease global multi-réplica
+formal (o claim atômico já protege o job).
+
 ## Problema (evidência no código)
 
 - `processDueJob` marca o job `sending` (L4031) e SÓ DEPOIS espera o typing delay de 8–20s

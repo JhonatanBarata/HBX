@@ -103,6 +103,7 @@ function createService(overrides?: {
   scheduleLeadsByCall?: any[][];
   searchResponse?: Record<string, any>;
   searchError?: string | null;
+  claimReturnsCount?: number;
 }) {
   const queueCalls: Array<Record<string, any>> = [];
   const jobUpdates: Array<Record<string, any>> = [];
@@ -178,6 +179,10 @@ function createService(overrides?: {
       },
       updateMany: async ({ where, data }: any = {}) => {
         jobUpdateManyCalls.push({ where, data });
+        // ARQ4 S2: permite simular "claim perdido" (outro ciclo pegou o job).
+        if (data?.status === 'sending' && overrides?.claimReturnsCount !== undefined) {
+          return { count: overrides.claimReturnsCount };
+        }
         return { count: 1 };
       },
       createMany: async ({ data }: any) => {
@@ -981,4 +986,86 @@ test('campaign pauses when real negative limit is reached before sending', async
   assert.equal(result.reason, 'real_negative_safety_pause');
   assert.equal(queueCalls.length, 0);
   assert.ok(campaignStageUpdates.some((data) => data.status === 'paused' && String(data.lastStatusText || '').includes('negativas')));
+});
+
+// ── ARQ4 S2: worker restart-safe ──────────────────────────────────────────────
+
+function createRecoveryService(opts: { orphans: any[]; message: any }) {
+  const jobUpdateManyCalls: Array<{ where: any; data: any }> = [];
+  const msgFindFirstCalls: any[] = [];
+  const prisma: any = {
+    vendasAutomationJob: {
+      findMany: async ({ where }: any = {}) => (where?.status === 'sending' ? opts.orphans : []),
+      updateMany: async ({ where, data }: any = {}) => {
+        jobUpdateManyCalls.push({ where, data });
+        return { count: 1 };
+      },
+    },
+    companyMessage: {
+      findFirst: async ({ where }: any = {}) => {
+        msgFindFirstCalls.push(where);
+        return opts.message;
+      },
+    },
+  };
+  const service = new VendasAutomationService(
+    prisma,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    new AiIntentClassifierService() as any,
+  ) as any;
+  return { service, jobUpdateManyCalls, msgFindFirstCalls };
+}
+
+test('S2 recovery: orphan sending WITH outbound message is marked sent, never resent', async () => {
+  const { service, jobUpdateManyCalls, msgFindFirstCalls } = createRecoveryService({
+    orphans: [{ id: 'job-orphan', companyId: 7, leadId: 'lead-1', campaignId: 'camp-1' }],
+    message: { conversationId: 555, timestamp: new Date('2026-07-03T02:00:00Z') },
+  });
+
+  const result = await service.recoverOrphanedSendingJobs();
+
+  assert.equal(result.recovered, 1);
+  assert.equal(result.resent, 1);
+  assert.equal(result.rescheduled, 0);
+  // procurou a mensagem pelo jobId no variablesJson
+  assert.ok(msgFindFirstCalls[0].variablesJson.contains.includes('job-orphan'));
+  const upd = jobUpdateManyCalls.find((c) => c.where.id === 'job-orphan');
+  assert.equal(upd.where.status, 'sending'); // guard: so atualiza se ainda sending
+  assert.equal(upd.data.status, 'sent');
+  assert.equal(upd.data.conversationId, 555);
+  assert.equal(upd.data.classification, 'recovered_sent_after_restart');
+});
+
+test('S2 recovery: orphan sending WITHOUT outbound message is rescheduled (safe retry)', async () => {
+  const { service, jobUpdateManyCalls } = createRecoveryService({
+    orphans: [{ id: 'job-orphan-2', companyId: 7, leadId: 'lead-2', campaignId: 'camp-1' }],
+    message: null,
+  });
+
+  const result = await service.recoverOrphanedSendingJobs();
+
+  assert.equal(result.recovered, 1);
+  assert.equal(result.resent, 0);
+  assert.equal(result.rescheduled, 1);
+  const upd = jobUpdateManyCalls.find((c) => c.where.id === 'job-orphan-2');
+  assert.equal(upd.where.status, 'sending');
+  assert.equal(upd.data.status, 'scheduled');
+  assert.equal(upd.data.classification, 'recovered_rescheduled_after_restart');
+});
+
+test('S2 atomic claim: job already claimed by another cycle is skipped without sending', async () => {
+  const campaign = buildCampaign();
+  const lead = buildLead({ segment: campaign.segment });
+  const { service, queueCalls } = createService({ conversationMetadata: null, claimReturnsCount: 0 });
+
+  const result = await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(result.outcome, 'skipped');
+  assert.equal(result.classification, 'already_claimed');
+  assert.equal(queueCalls.length, 0); // NUNCA reenviou
 });
