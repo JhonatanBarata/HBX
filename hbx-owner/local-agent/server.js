@@ -1553,12 +1553,14 @@ function mapCardToHarvestLead(row, opts = {}) {
 
 // Roda em segundo plano: traz TUDO do VPS pro local em PÁGINAS (stream), gravando cada
 // página assim que chega. % honesta = pulled ÷ total real do banco da VPS.
-// IMPORTANTE: o backend DEPLOYADO na VPS trava database-cards em 20/página (sondei 25/06:
-// limit=20/50/100/500 → sempre 20 itens). Pedir mais NÃO cresce a página e o offset
-// passaria a pular de 500 em 500 → BURACOS. Por isso o pageSize do pull é 20 (casado com o
-// cap real). É mais lento (~total/20 páginas), mas íntegro. Local honra 500 (push usa 500).
+// PÁGINA ADAPTATIVA (Sprint 2 HBX-OWNER): pede 500/página (o backend do master honra limit até
+// 2000). Se a 1ª página vier ≤20 e houver mais no banco, o backend DEPLOYADO ainda capa em 20 →
+// DEGRADA sozinho pra 20/página o resto da varredura (sem buraco: a página 1 tem offset 0 seja
+// qual for o limit, então trocar 500→20 da página 2 em diante é contíguo). Assim: VPS novo = ~total/500
+// chamadas (~25× menos); VPS velho = idêntico a antes. Zero regressão, sem depender de sonda ao vivo.
 async function runTransferPull() {
-  const pageSize = 20;
+  let pageSize = 500;
+  let sizeProbed = false;
   const maxPages = 20000;
   let chunkSeq = 0;
   let consecutiveFails = 0;
@@ -1581,6 +1583,15 @@ async function runTransferPull() {
       const items = Array.isArray(data && data.items) ? data.items : [];
       if (data && typeof data.total === "number") transferJob.total = data.total;
       if (!items.length) break;
+      // Sonda na 1ª página real: se pedimos 500 e veio ≤20 com mais no banco, o VPS ainda capa
+      // em 20 → degrada o resto da varredura (a página 1 já foi lida com offset 0; da 2 em diante
+      // limit=20 é contíguo, sem buraco). Se veio >20, o VPS honra páginas grandes → mantém 500.
+      if (!sizeProbed) {
+        sizeProbed = true;
+        if (pageSize === 500 && items.length <= 20 && items.length < (transferJob.total ?? Infinity)) {
+          pageSize = 20;
+        }
+      }
       transferJob.pulled += items.length;
       transferJob.processed = transferJob.pulled;
       const leads = items

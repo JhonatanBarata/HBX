@@ -1,5 +1,15 @@
 # HBX-OWNER — Sprint 2: Sondar a VPS e matar as muletas (20/pág + lotes 15 KB)
 
+> **STATUS 03/07 (execução ARQ9):**
+> - ✅ FEITO (zero-regressão, sem depender de sonda ao vivo): `runTransferPull` agora usa **página
+>   adaptativa** — pede 500/página; se a 1ª página vier ≤20 com mais no banco, degrada sozinho pra
+>   20 o resto (contíguo, pois a página 1 tem offset 0). VPS novo = ~25× menos chamadas; VPS velho =
+>   idêntico a antes. 7/7 casos de borda testados. Commit na branch ARQ9.
+> - ⏸️ ADIADO pra sonda ao vivo (mexem no caminho MAIS usado do painel / têm risco de 413): cirurgia
+>   no agregador do cockpit (`vpsReadCardsAggregated` + `/owner/vps/radar/cards`) e o aumento do
+>   `chunkLeadsBySize` (15 KB→80 KB). O plano abaixo é o roteiro dessa sessão de sonda.
+
+
 > Arquitetura nº9 (HBX Owner). Escopo: sondagem read-only na VPS + `hbx-owner/local-agent/server.js`.
 > **REVISÃO IMPORTANTE (01/07):** o plano original mandava "consertar o backend". O código ATUAL
 > do backend JÁ está consertado: `listMasterDatabaseCards` honra `limit` até 2000
