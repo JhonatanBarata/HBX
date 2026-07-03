@@ -5,6 +5,7 @@ import { MessagingService } from './messaging.service';
 import { AiIntentClassifierService } from '../bot/intent/ai-intent-classifier.service';
 import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
+import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 
 const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
   ...DEFAULT_ATENDIMENTO_BOT_CONFIG,
@@ -69,8 +70,21 @@ function createService(overrides?: Partial<Record<string, any>>) {
     hbxRecoveryFlowStage: {
       findFirst: async () => null,
     },
+    // BotConfig vazio por padrão nos testes: o BotConfigStoreService cai no fallback
+    // legado (hbxRecoveryFlowStage acima) — mesmo comportamento de antes da migração,
+    // simulando uma empresa ainda não migrada (dual-read).
+    botConfig: {
+      findFirst: async () => null,
+      findMany: async () => [],
+      create: async ({ data }: any) => ({ id: 'bot-config-test', ...data }),
+    },
     ...(overrides?.prisma || {}),
   } as any;
+
+  // INTENTENGINE S3: instancia o store REAL sobre o prisma mockado — os testes que
+  // mockam hbxRecoveryFlowStage continuam valendo via fallback legado do dual-read,
+  // sem duplicar a lógica de leitura aqui.
+  const botConfigStore = overrides?.botConfigStore ?? new BotConfigStoreService(prisma);
 
   const conversations = {
     queueOutboundForCompany: async (companyId: number, payload: Record<string, unknown>) => {
@@ -114,6 +128,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     // não muda o comportamento coberto pelos casos existentes.
     ({ evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}), ...(overrides?.waSendThrottle || {}) } as any),
     (overrides?.hbxPresentationEmails || undefined) as any,
+    botConfigStore as any,
   );
 
   return {
@@ -1607,6 +1622,7 @@ function createServiceForStatusTest() {
     new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
     // GATEWAY-WA S3: freio de envio (não é exercido no caminho de status deste teste).
     { evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}) } as any,
+    undefined as any,
     undefined as any,
   );
 

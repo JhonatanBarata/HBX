@@ -7,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
@@ -18,17 +19,11 @@ import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
 import {
   DEFAULT_RECOVERY_BOT_CONFIG,
   normalizeRecoveryBotConfig,
-  RECOVERY_BOT_CONFIG_CHANNEL,
-  RECOVERY_BOT_CONFIG_TITLE,
   type RecoveryRoutingRules,
 } from '../hbx-recovery/recovery-bot-config';
 import { buildStructuredWhatsAppLog, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
 import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
 import {
-  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
-  ATENDIMENTO_AGENDA_CONFIG_TITLE,
-  ATENDIMENTO_BOT_CONFIG_CHANNEL,
-  ATENDIMENTO_BOT_CONFIG_TITLE,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
   buildAtendimentoAgendaActionId,
@@ -46,6 +41,7 @@ import {
 } from './atendimento-config';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 import {
   WebwhatsBridgeService,
   WebwhatsConversationSyncResult,
@@ -184,6 +180,7 @@ export class InboxService {
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
     private readonly whatsappModal: WhatsAppModalService,
+    @Optional() private readonly botConfigStore?: BotConfigStoreService,
   ) {}
 
   private async logInboxEvent(input: {
@@ -2421,61 +2418,26 @@ export class InboxService {
     });
   }
 
-  private async getConfigRow(companyId: number, channel: string, title: string) {
-    return this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: { companyId, channel, title },
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, template: true },
-    });
-  }
-
-  private async saveConfigRow(companyId: number, channel: string, title: string, payload: unknown) {
-    const row = await this.getConfigRow(companyId, channel, title);
-    const data = {
-      companyId,
-      title,
-      channel,
-      template: JSON.stringify(payload || {}),
-      daysAfter: 0,
-      enabled: false,
-      sortOrder: 0,
-    };
-    if (row?.id) {
-      await this.prisma.hbxRecoveryFlowStage.update({
-        where: { id: row.id },
-        data,
-      });
-      return;
-    }
-    await this.prisma.hbxRecoveryFlowStage.create({ data });
-  }
+  // INTENTENGINE S3: `getConfigRow`/`saveConfigRow` (JSON cru em HbxRecoveryFlowStage)
+  // saem daqui — a fonte agora é o BotConfigStoreService (tabela BotConfig, versionada,
+  // dual-read com fallback pro canal legado). Ver docs/PLANEJAMENTOS/INTENTENGINE/
+  // INTENTENGINE-sprint3.md.
 
   private async getBotConfigByCompanyId(
     companyId: number,
   ): Promise<AtendimentoBotConfig & { providerCapabilities: BotConfigProviderCapabilities }> {
-    const row = await this.getConfigRow(
-      companyId,
-      ATENDIMENTO_BOT_CONFIG_CHANNEL,
-      ATENDIMENTO_BOT_CONFIG_TITLE,
-    );
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'atendimento_bot')
+      : null;
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
     const providerCapabilities: BotConfigProviderCapabilities = {
       provider: tenantContext.providerCapabilities.provider,
       canUseOfficialButtons: tenantContext.providerCapabilities.canUseOfficialButtons,
     };
-    let sanitized: AtendimentoBotConfig;
-    if (!row?.template) {
-      sanitized = sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
-    } else {
-      try {
-        sanitized = sanitizeAtendimentoBotConfigForTenant(
-          normalizeAtendimentoBotConfig(JSON.parse(row.template)),
-          tenantContext,
-        );
-      } catch {
-        sanitized = sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
-      }
-    }
+    const sanitized = sanitizeAtendimentoBotConfigForTenant(
+      normalizeAtendimentoBotConfig((payload as any) ?? null),
+      tenantContext,
+    );
     // Aditivo: catalogos sempre preenchidos (normalize/sanitize partem do DEFAULT, nunca []),
     // e capacidade do canal explicita para o front nao adivinhar pelo setup.provider.
     return {
@@ -2522,35 +2484,19 @@ export class InboxService {
   }
 
   private async getAgendaConfigByCompanyId(companyId: number): Promise<AtendimentoAgendaConfig> {
-    const row = await this.getConfigRow(
-      companyId,
-      ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
-      ATENDIMENTO_AGENDA_CONFIG_TITLE,
-    );
-    if (!row?.template) return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
-    try {
-      return normalizeAtendimentoAgendaConfig(JSON.parse(row.template));
-    } catch {
-      return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
-    }
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'atendimento_agenda')
+      : null;
+    if (!payload) return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
+    return normalizeAtendimentoAgendaConfig(payload as any);
   }
 
   private async getRecoveryRoutingRules(companyId: number): Promise<RecoveryRoutingRules> {
-    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: {
-        companyId,
-        channel: RECOVERY_BOT_CONFIG_CHANNEL,
-        title: RECOVERY_BOT_CONFIG_TITLE,
-      },
-      orderBy: { updatedAt: 'desc' },
-      select: { template: true },
-    });
-    if (!row?.template) return { ...DEFAULT_RECOVERY_BOT_CONFIG.routingRules };
-    try {
-      return normalizeRecoveryBotConfig(JSON.parse(row.template)).routingRules;
-    } catch {
-      return { ...DEFAULT_RECOVERY_BOT_CONFIG.routingRules };
-    }
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'recovery_bot')
+      : null;
+    if (!payload) return { ...DEFAULT_RECOVERY_BOT_CONFIG.routingRules };
+    return normalizeRecoveryBotConfig(payload as any).routingRules;
   }
 
   private normalizeClassifierText(value: unknown) {
@@ -5755,12 +5701,10 @@ export class InboxService {
     );
     const agendaConfig = await this.getAgendaConfigByCompanyId(companyId);
     this.validateAtendimentoBotConfig(normalized, agendaConfig);
-    await this.saveConfigRow(
-      companyId,
-      ATENDIMENTO_BOT_CONFIG_CHANNEL,
-      ATENDIMENTO_BOT_CONFIG_TITLE,
-      normalized,
-    );
+    if (this.botConfigStore) {
+      const userId = Number(user?.id || 0) || undefined;
+      await this.botConfigStore.save(companyId, 'atendimento_bot', normalized, userId ?? null);
+    }
     return normalized;
   }
 
@@ -5773,12 +5717,10 @@ export class InboxService {
     this.assertCanManageAgenda(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const normalized = normalizeAtendimentoAgendaConfig(payload || {});
-    await this.saveConfigRow(
-      companyId,
-      ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
-      ATENDIMENTO_AGENDA_CONFIG_TITLE,
-      normalized,
-    );
+    if (this.botConfigStore) {
+      const userId = Number(user?.id || 0) || undefined;
+      await this.botConfigStore.save(companyId, 'atendimento_agenda', normalized, userId ?? null);
+    }
     return normalized;
   }
 

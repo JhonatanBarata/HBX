@@ -9,9 +9,10 @@ import { CadastrosModule } from '../cadastros/cadastros.module';
 import { CustomerProfileModule } from '../customer-profile/customer-profile.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
 import { CompaniesModule } from '../companies/companies.module';
+import { BotConfigStoreModule } from '../bot/config/bot-config-store.module';
 
 @Module({
-  imports: [PrismaModule, ModulesAccessModule, MessagingModule, HbxRecoveryModule, CadastrosModule, CustomerProfileModule, CommercialPlansModule, forwardRef(() => CompaniesModule)],
+  imports: [PrismaModule, ModulesAccessModule, MessagingModule, HbxRecoveryModule, CadastrosModule, CustomerProfileModule, CommercialPlansModule, BotConfigStoreModule, forwardRef(() => CompaniesModule)],
   controllers: [InboxController],
   providers: [InboxService],
   exports: [InboxService],

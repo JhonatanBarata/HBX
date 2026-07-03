@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { InboxService } from './inbox.service';
 import { WebwhatsProviderError } from '../messaging/webwhats-bridge.service';
+import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 
 function createBareService() {
   return Object.create(InboxService.prototype) as any;
@@ -154,10 +155,20 @@ function createService(overrides?: Partial<Record<string, any>>) {
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
       create: async ({ data }: any) => ({ id: 'flow-stage-1', ...data }),
     },
+    // BotConfig vazio por padrão: o BotConfigStoreService cai no fallback legado
+    // (hbxRecoveryFlowStage acima) — mesmo comportamento de antes da migração.
+    botConfig: {
+      findFirst: async () => null,
+      findMany: async () => [],
+      create: async ({ data }: any) => ({ id: 'bot-config-test', ...data }),
+    },
     $queryRaw: async () => [],
     $transaction: async (callback: (tx: any) => Promise<unknown>) => callback(prisma),
     ...(overrides?.prisma || {}),
   } as any;
+
+  // INTENTENGINE S3: store REAL sobre o prisma mockado (dual-read cai no legado acima).
+  const botConfigStore = overrides?.botConfigStore ?? new BotConfigStoreService(prisma);
 
   const conversations = {
     queueOutboundForCompany: async (companyId: number, payload: Record<string, unknown>) => {
@@ -232,6 +243,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     inboxRealtime,
     commercialPlansService,
     whatsappModal,
+    botConfigStore as any,
   );
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }

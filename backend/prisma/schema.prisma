@@ -3358,6 +3358,28 @@ model IntentDecision {
   @@index([companyId, createdAt])
 }
 
+// INTENTENGINE S3 (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint3.md).
+// Config do bot versionada e auditada — sai da tabela emprestada (HbxRecoveryFlowStage
+// reaproveitada como chave-valor JSON, sem histórico/autor/rollback). domain identifica
+// qual config: atendimento_bot | atendimento_agenda | bot_master_switch | recovery_bot.
+// Leitura = MAIOR version por (companyId, domain); escrita = SEMPRE INSERT de nova version
+// (nunca update) → histórico de graça. Rollback = regravar a versão anterior como nova
+// versão (nunca apaga linha). Lido/gravado só pelo BotConfigStoreService
+// (backend/src/bot/config/bot-config-store.service.ts), que faz dual-read: BotConfig
+// primeiro, fallback pro canal mágico legado se não houver linha (migração lazy).
+model BotConfig {
+  id              String   @id @default(cuid())
+  companyId       Int
+  domain          String
+  version         Int
+  payload         String
+  updatedByUserId Int?
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, domain, version])
+  @@index([companyId, domain, createdAt])
+}
+
 // GATEWAY-WA S2 (docs/PLANEJAMENTOS/GATEWAY-WA/GATEWAY-WA-sprint-2-outbox.md).
 // Cursor persistido do consumer da outbox durável do motor Webwhats. Linha ÚNICA (chave por
 // `name` constante = "webwhats_outbox"): guarda o último `cursor` (id serial do EventOutbox do

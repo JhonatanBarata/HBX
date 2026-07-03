@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { extname, join } from 'path';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
@@ -46,6 +46,7 @@ import {
   META_TEMPLATES_REQUIRED_MESSAGE,
   resolveProviderCapabilitiesFromCompany,
 } from '../inbox/atendimento-config';
+import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 
 type RecoveryPaymentRecord = { id: string; label: string; date: string; amount: number; status: string };
 type RecoveryDelayRecord = { id: string; period: string; daysLate: number; outcome: string };
@@ -134,6 +135,7 @@ export class HbxRecoveryService {
     private readonly conversations: ConversationsService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly cadastrosService: CadastrosService,
+    @Optional() private readonly botConfigStore?: BotConfigStoreService,
   ) {}
 
   private requireCompanyIdFromUser(user: any) {
@@ -897,48 +899,26 @@ export class HbxRecoveryService {
     );
   }
 
-  private async getBotConfigRow(companyId: number) {
-    return this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: {
-        companyId,
-        channel: RECOVERY_BOT_CONFIG_CHANNEL,
-        title: RECOVERY_BOT_CONFIG_TITLE,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-  }
+  // INTENTENGINE S3: sai da tabela emprestada (HbxRecoveryFlowStage com canal mágico) e
+  // passa pelo BotConfigStoreService (BotConfig versionada, dual-read com fallback pro
+  // canal legado). Ver docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint3.md.
 
   private async getRecoveryBotConfig(companyId: number): Promise<RecoveryBotConfig> {
-    const row = await this.getBotConfigRow(companyId);
-    if (!row?.template) return DEFAULT_RECOVERY_BOT_CONFIG;
-    try {
-      return normalizeRecoveryBotConfig(JSON.parse(row.template));
-    } catch {
-      return DEFAULT_RECOVERY_BOT_CONFIG;
-    }
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'recovery_bot')
+      : null;
+    if (!payload) return DEFAULT_RECOVERY_BOT_CONFIG;
+    return normalizeRecoveryBotConfig(payload as any);
   }
 
-  private async saveRecoveryBotConfig(companyId: number, payload: unknown): Promise<RecoveryBotConfig> {
+  private async saveRecoveryBotConfig(
+    companyId: number,
+    payload: unknown,
+    userId?: number | null,
+  ): Promise<RecoveryBotConfig> {
     const normalized = normalizeRecoveryBotConfig(payload);
-    const row = await this.getBotConfigRow(companyId);
-    const data = {
-      companyId,
-      title: RECOVERY_BOT_CONFIG_TITLE,
-      channel: RECOVERY_BOT_CONFIG_CHANNEL,
-      template: this.json(normalized),
-      daysAfter: 0,
-      enabled: false,
-      sortOrder: 0,
-    };
-    if (row) {
-      await this.prisma.hbxRecoveryFlowStage.update({
-        where: { id: row.id },
-        data,
-      });
-    } else {
-      await this.prisma.hbxRecoveryFlowStage.create({
-        data,
-      });
+    if (this.botConfigStore) {
+      await this.botConfigStore.save(companyId, 'recovery_bot', normalized, userId ?? null);
     }
     return normalized;
   }
@@ -3342,7 +3322,8 @@ export class HbxRecoveryService {
     await this.ensureDefaultFlowStages(companyId);
     const normalized = normalizeRecoveryBotConfig(dto || {});
     this.validateRecoveryBotConfig(normalized);
-    return this.saveRecoveryBotConfig(companyId, normalized);
+    const userId = Number(user?.id || 0) || undefined;
+    return this.saveRecoveryBotConfig(companyId, normalized, userId ?? null);
   }
 
   async createFlowStage(user: any, dto: CreateRecoveryFlowStageDto) {
