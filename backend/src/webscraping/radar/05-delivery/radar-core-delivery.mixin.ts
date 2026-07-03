@@ -169,6 +169,7 @@ import {
 } from '../../../team/team-policy-persistence';
 import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enrichment.service';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
+import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
 
 export class RadarCoreDeliveryMixin {
   private _cnpjL4Enrichment: RadarCnpjL4EnrichmentService | null = null;
@@ -2547,7 +2548,19 @@ export class RadarCoreDeliveryMixin {
       if (existing?.id) counts.duplicateCount += 1;
       if (dddMismatch) counts.rejectedCount += 1;
       else counts.approvedCount += 1;
-      const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), sourceEngine, result.source].filter(Boolean).map(String)));
+      // sourceEngines do pool = DESCOBERTA (03/07): engines reais do resultado + source próprio.
+      // O engine da corrida (hbx/hbx_mass_data/hbx_campaign) NÃO entra mais — corrida processa,
+      // não descobre; era ele que fabricava "rfb+web" fictício no medidor do :3107. Ele segue
+      // registrado na coluna sourceEngine e em metadataJson.lastSourceEngine (nada se perde).
+      const resultDiscoveryEngines = radarDiscoveryEnginesOf(result as Record<string, any>);
+      const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), ...resultDiscoveryEngines].filter(Boolean).map(String)));
+      // enrichmentEngines: quem só ENRIQUECEU (separado pelo pré-save) — acumula no metadataJson.
+      const persistedEnrichmentEngines = Array.from(new Set([
+        ...(Array.isArray(this.parseMaybeJsonObject(existing?.metadataJson)?.enrichmentEngines)
+          ? this.parseMaybeJsonObject(existing?.metadataJson).enrichmentEngines.map(String)
+          : []),
+        ...(Array.isArray((result as any).enrichmentEngines) ? (result as any).enrichmentEngines.map(String) : []),
+      ].filter(Boolean)));
       const existingWasDddMismatch = String(existing?.status || '') === 'rejected' && String(existing?.rejectionReason || '') === 'ddd_mismatch';
       // Quarentena pré-estoque (etapa 7 da árvore mestra, 02/07): SÓ no caminho que abastece o
       // ESTOQUE da fábrica (`hbx_mass_data`/`hbx_campaign` — night_factory/mass-data mixin), NUNCA
@@ -2698,6 +2711,7 @@ export class RadarCoreDeliveryMixin {
           lastSourceEngine: sourceEngine,
           quality,
           delivery,
+          ...(persistedEnrichmentEngines.length ? { enrichmentEngines: persistedEnrichmentEngines } : {}),
           // Preserve CNPJ fields from motor (never overwrite existing non-null value with null)
           ...(((result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj) ? { cnpj: (result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj } : {}),
           ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),
@@ -2769,6 +2783,7 @@ export class RadarCoreDeliveryMixin {
           lastSourceEngine: sourceEngine,
           quality,
           delivery: finalDelivery,
+          ...(persistedEnrichmentEngines.length ? { enrichmentEngines: persistedEnrichmentEngines } : {}),
           // Preserve CNPJ fields (never overwrite existing non-null with null)
           ...(((result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj) ? { cnpj: (result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj } : {}),
           ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),

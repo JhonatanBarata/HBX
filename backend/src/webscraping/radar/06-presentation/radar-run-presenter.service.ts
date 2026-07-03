@@ -247,6 +247,9 @@ export class RadarRunPresenterService {
       // sourceChain (P1, 02/07): cadeia real de fontes do card (rfb / web / rfb+web).
       // Opcional — ausente em cards antigos, que continuam renderizando normalmente.
       sourceChain: String(raw.sourceChain || '').trim() || null,
+      // enrichedBy (03/07): quem só ENRIQUECEU (separado da descoberta). Ambos opcionais.
+      ...(Array.isArray(raw.enrichedBy) && raw.enrichedBy.length ? { enrichedBy: raw.enrichedBy } : {}),
+      ...(Array.isArray(raw.enrichmentEngines) && raw.enrichmentEngines.length ? { enrichmentEngines: raw.enrichmentEngines } : {}),
       quality: host.extractLeadQualityFromObject(raw),
     };
   }
@@ -455,6 +458,9 @@ export class RadarRunPresenterService {
           source: item.source || raw.source || null,
           // sourceChain (P1, 02/07): campo opcional — ausente em cards antigos.
           sourceChain: String(raw.sourceChain || '').trim() || null,
+          // enrichedBy (03/07): quem só ENRIQUECEU (separado da descoberta). Ambos opcionais.
+          ...(Array.isArray(raw.enrichedBy) && raw.enrichedBy.length ? { enrichedBy: raw.enrichedBy } : {}),
+          ...(Array.isArray(raw.enrichmentEngines) && raw.enrichmentEngines.length ? { enrichmentEngines: raw.enrichmentEngines } : {}),
           status: host.normalizeRunItemStatus(item.status),
           duplicateReason: item.duplicateReason || null,
           sourceDiagnostics: this.getDiagnostics().normalizeSourceDiagnostics(raw.sourceDiagnostics),

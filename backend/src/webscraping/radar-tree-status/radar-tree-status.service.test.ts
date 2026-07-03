@@ -160,12 +160,16 @@ test('RadarTreeStatusService: bloco gates aproxima aceitos/rejeitados via Webscr
   }
 });
 
-test('RadarTreeStatusService: bloco fusion conta cards com 2+ sourceEngines', async () => {
+test('RadarTreeStatusService: fusion conta só descoberta CRUZADA rfb+web (não "2+ engines")', async () => {
   const now = new Date();
   const prisma = createFakePrisma({
     radarLeadPool: [
-      { createdAt: now, sourceEngines: JSON.stringify(['cnpj_public', 'hbx_engine']) }, // fundido
-      { createdAt: now, sourceEngines: JSON.stringify(['hbx_engine']) },
+      // fusão REAL: descoberto por Receita E web
+      { createdAt: now, sourceEngines: JSON.stringify(['cnpj_public', 'hbx_scraping:free_pj']) },
+      // 2 engines mas MESMA lane (web+web) — NÃO é fusão de descoberta
+      { createdAt: now, sourceEngines: JSON.stringify(['hbx_engine', 'website_crawl_light']) },
+      // rfb descoberto, web só ENRIQUECEU → conta em enrichedOnly, jamais em fusedToday
+      { createdAt: now, sourceEngines: JSON.stringify(['cnpj_public']), metadataJson: JSON.stringify({ enrichmentEngines: ['radar_web_enrichment'] }) },
       { createdAt: now, sourceEngines: '[]' },
     ],
   });
@@ -174,19 +178,21 @@ test('RadarTreeStatusService: bloco fusion conta cards com 2+ sourceEngines', as
 
   assert.equal(result.fusion.ok, true);
   if (result.fusion.ok) {
-    assert.equal(result.fusion.data.cardsToday, 3);
-    assert.equal(result.fusion.data.fusedToday, 1);
-    assert.equal(result.fusion.data.fusionPct, Math.round((1 / 3) * 1000) / 10);
+    assert.equal(result.fusion.data.cardsToday, 4);
+    assert.equal(result.fusion.data.fusedToday, 1, 'só o card descoberto pelas 2 lanes conta como fusão');
+    assert.equal(result.fusion.data.fusionPct, Math.round((1 / 4) * 1000) / 10);
+    assert.equal(result.fusion.data.enrichedOnly, 1, 'rfb enriquecido por web mede enriquecimento, não fusão');
   }
 });
 
-test('RadarTreeStatusService: bloco card faz split de sourceChain (rfb+web / web / rfb)', async () => {
+test('RadarTreeStatusService: card split honesto (rfb+web / web / rfb / unmapped) + enrichedBy separado', async () => {
   const now = new Date();
   const prisma = createFakePrisma({
     radarLeadPool: [
-      { status: 'sent_to_vendas', updatedAt: now, sourceEngines: JSON.stringify(['cnpj_public', 'hbx_engine']), source: null },
-      { status: 'sent_to_vendas', updatedAt: now, sourceEngines: JSON.stringify(['hbx_engine']), source: null },
-      { status: 'sent_to_vendas', updatedAt: now, sourceEngines: JSON.stringify(['cnpj_public']), source: null },
+      { status: 'sent_to_vendas', updatedAt: now, sourceEngines: JSON.stringify(['cnpj_public', 'hbx_scraping:free_pj']), source: null },
+      { status: 'sent_to_vendas', updatedAt: now, sourceEngines: JSON.stringify(['hbx_scraping:free_pj']), source: null },
+      // rfb descoberto + web enriqueceu: split.rfb (descoberta) E enrichedBy.web (enriquecimento)
+      { status: 'sent_to_vendas', updatedAt: now, sourceEngines: JSON.stringify(['cnpj_public']), source: null, metadataJson: JSON.stringify({ enrichmentEngines: ['radar_web_enrichment'] }) },
       { status: 'sent_to_vendas', updatedAt: now, sourceEngines: '[]', source: null }, // unmapped
     ],
   });
@@ -197,6 +203,10 @@ test('RadarTreeStatusService: bloco card faz split de sourceChain (rfb+web / web
   if (result.card.ok) {
     assert.equal(result.card.data.deliveredToday, 4);
     assert.deepEqual(result.card.data.split, { rfb_web: 1, web: 1, rfb: 1, unmapped: 1 });
+    // split soma exatamente deliveredToday (régua do teste T2 do dono contra o export)
+    const { rfb_web, web, rfb, unmapped } = result.card.data.split;
+    assert.equal(rfb_web + web + rfb + unmapped, result.card.data.deliveredToday);
+    assert.deepEqual(result.card.data.enrichedBy, { rfb: 0, web: 1 });
   }
 });
 

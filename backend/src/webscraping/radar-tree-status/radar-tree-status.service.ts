@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseJsonArray } from '../radar/shared/radar-core-shared';
+import { buildRadarSourceChainFromEngines, radarEnrichedByLanesOf } from '../radar/shared/radar-source-lanes';
 
 /**
  * RadarTreeStatusService — F3 (02/07, docs/PLANEJAMENTOS/PR02072026/F3-3107-arvore-viva.md).
@@ -36,34 +37,10 @@ function saoPauloDayRange(date = new Date()) {
   return { start, end };
 }
 
-// Mesma tabela de lanes do `buildRadarLeadSourceChain` (radar-core-presentation.mixin.ts, P1
-// 02/07) — duplicada de propósito (é `private` lá) pra classificar sourceEngines em rfb/web sem
-// acoplar a este serviço num mixin que pode mudar de forma independente.
-const SOURCE_LANE: Record<string, 'rfb' | 'web'> = {
-  cnpj_public: 'rfb',
-  cnpj_public_stub: 'rfb',
-  hbx_engine: 'web',
-  hbx: 'web',
-  google_textual: 'web',
-  website_crawl_light: 'web',
-  radar_web_enrichment: 'web',
-  local_directory: 'web',
-  local_directories_stub: 'web',
-  vertical_source: 'web',
-};
-
+// Lanes rfb/web vêm da tabela ÚNICA (radar/shared/radar-source-lanes.ts) — antes duplicada aqui
+// e sem os rótulos reais do motor Python (hbx_scraping:free_pj sumia). sourceChain = DESCOBERTA.
 function sourceChainOf(sourceEngines: string[], fallbackSource?: string | null): string | null {
-  const engines = sourceEngines.length ? sourceEngines : [fallbackSource].filter(Boolean) as string[];
-  const lanes = new Set<'rfb' | 'web'>();
-  for (const engine of engines) {
-    const lane = SOURCE_LANE[String(engine || '').trim()];
-    if (lane) lanes.add(lane);
-  }
-  if (!lanes.size) return null;
-  const ordered: string[] = [];
-  if (lanes.has('rfb')) ordered.push('rfb');
-  if (lanes.has('web')) ordered.push('web');
-  return ordered.join('+');
+  return buildRadarSourceChainFromEngines([...sourceEngines, fallbackSource]);
 }
 
 function truthyEnv(name: string): boolean {
@@ -123,23 +100,55 @@ export class RadarTreeStatusService {
     };
   }
 
-  /** fusion: % de cards de hoje com 2+ fontes em sourceEngines. */
+  /**
+   * fusion: % de cards de hoje com DESCOBERTA cruzada rfb+web (fusão REAL). Antes contava "2+
+   * fontes em sourceEngines" — o que inchava o número: (a) lead descoberto só pela Receita e
+   * apenas ENRIQUECIDO pela web ganhava a carona 'hbx'/'radar_web_enrichment' e virava "fusão"
+   * (53,8% fictício medido ao vivo 03/07); (b) 2 engines da MESMA lane (ex.: hbx_engine +
+   * website_crawl_light, ambos web) não é fusão de descoberta. Agora fusão = sourceChain
+   * 'rfb+web'. `enrichedOnly` fica ao lado (informação separada, NÃO conta como fusão).
+   */
   private async readFusion(todayStart: Date, todayEnd: Date) {
     if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
-      return { cardsToday: 0, fusedToday: 0, fusionPct: 0 };
+      return { cardsToday: 0, fusedToday: 0, fusionPct: 0, enrichedOnly: 0, enrichedOnlyPct: 0 };
     }
     const rows = await (this.prisma as any).radarLeadPool.findMany({
       where: { createdAt: { gte: todayStart, lt: todayEnd } },
-      select: { sourceEngines: true },
+      select: { sourceEngines: true, source: true, metadataJson: true },
       take: 5000,
     });
     const cardsToday = rows.length;
-    const fusedToday = rows.filter((row: any) => parseJsonArray(row?.sourceEngines).length >= 2).length;
+    let fusedToday = 0;
+    let enrichedOnly = 0;
+    for (const row of rows) {
+      const chain = sourceChainOf(parseJsonArray(row?.sourceEngines), row?.source);
+      if (chain === 'rfb+web') fusedToday += 1;
+      // enrichedOnly: descoberto por 1 lane mas enriquecido por lane diferente (ex.: rfb
+      // descoberto, web enriqueceu) — mede o trabalho de enriquecimento sem mentir "fusão".
+      else if (chain === 'rfb' || chain === 'web') {
+        const enrichedBy = radarEnrichedByLanesOf(this.readEnrichmentEngines(row?.metadataJson));
+        const otherLane = chain === 'rfb' ? 'web' : 'rfb';
+        if (enrichedBy.includes(otherLane)) enrichedOnly += 1;
+      }
+    }
+    const pct = (n: number) => (cardsToday > 0 ? Math.round((n / cardsToday) * 1000) / 10 : 0);
     return {
       cardsToday,
       fusedToday,
-      fusionPct: cardsToday > 0 ? Math.round((fusedToday / cardsToday) * 1000) / 10 : 0,
+      fusionPct: pct(fusedToday),
+      enrichedOnly,
+      enrichedOnlyPct: pct(enrichedOnly),
     };
+  }
+
+  /** enrichmentEngines gravado em metadataJson (rótulos crus de quem só enriqueceu). */
+  private readEnrichmentEngines(metadataJson: unknown): string[] {
+    try {
+      const meta = JSON.parse(String(metadataJson || '{}'));
+      return Array.isArray(meta?.enrichmentEngines) ? meta.enrichmentEngines.map(String) : [];
+    } catch {
+      return [];
+    }
   }
 
   /** enrich: fill-rate email/instagram/sócio do pool de hoje. */
@@ -175,27 +184,38 @@ export class RadarTreeStatusService {
     };
   }
 
-  /** card: entregues hoje (RadarLeadPool.status = sent_to_vendas) + split de sourceChain. */
+  /**
+   * card: entregues hoje (RadarLeadPool.status = sent_to_vendas) + split HONESTO de sourceChain
+   * (quem DESCOBRIU) e, separado, quem ENRIQUECEU. `split` soma exatamente `deliveredToday`
+   * (rfb_web + web + rfb + unmapped) — é a régua que o teste T2 do dono confere contra o export.
+   * `enrichedBy` NÃO é fusão: um card 'rfb' enriquecido por web conta em split.rfb E em
+   * enrichedBy.web (dois eixos distintos), nunca em split.rfb_web.
+   */
   private async readCard(todayStart: Date, todayEnd: Date) {
+    const emptyEnriched = { rfb: 0, web: 0 };
     if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
-      return { deliveredToday: 0, split: { rfb_web: 0, web: 0, rfb: 0, unmapped: 0 } };
+      return { deliveredToday: 0, split: { rfb_web: 0, web: 0, rfb: 0, unmapped: 0 }, enrichedBy: emptyEnriched };
     }
     const dateWhere = { status: 'sent_to_vendas', updatedAt: { gte: todayStart, lt: todayEnd } };
     const deliveredToday = await this.safeCount('radarLeadPool', 'RadarLeadPool', dateWhere);
     const rows = await (this.prisma as any).radarLeadPool.findMany({
       where: dateWhere,
-      select: { sourceEngines: true, source: true },
+      select: { sourceEngines: true, source: true, metadataJson: true },
       take: 5000,
     });
     const split = { rfb_web: 0, web: 0, rfb: 0, unmapped: 0 };
+    const enrichedBy = { rfb: 0, web: 0 };
     for (const row of rows) {
       const chain = sourceChainOf(parseJsonArray(row?.sourceEngines), row?.source);
       if (chain === 'rfb+web') split.rfb_web += 1;
       else if (chain === 'web') split.web += 1;
       else if (chain === 'rfb') split.rfb += 1;
       else split.unmapped += 1;
+      const enriched = radarEnrichedByLanesOf(this.readEnrichmentEngines(row?.metadataJson));
+      if (enriched.includes('rfb')) enrichedBy.rfb += 1;
+      if (enriched.includes('web')) enrichedBy.web += 1;
     }
-    return { deliveredToday, split };
+    return { deliveredToday, split, enrichedBy };
   }
 
   /**

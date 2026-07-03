@@ -89,3 +89,10 @@ backend (`/modules/owner/radar/cnpj-backfill`). O backfill roda L1→L4 grátis 
 - Assets e tokens visuais: `docs/ICONES/CARDS/` (sprite SVG + design tokens JSON +
   referências light/dark). Manter os symbol IDs `hbx-icon-*`.
 - Card só nasce de empresa/oportunidade real — nunca de fonte genérica.
+- **Origem do card = DESCOBERTA, não enriquecimento (medidor honesto, 03/07).** `sourceChain`
+  (`rfb`/`web`/`rfb+web`) reflete só quem **DESCOBRIU** o lead; quem apenas **ENRIQUECEU** vai no
+  campo OPCIONAL `enrichedBy` (lanes) + `enrichmentEngines` (rótulos crus). Enriquecimento **NUNCA**
+  vira fusão de descoberta. Lanes rfb/web moram num lugar só: `radar/shared/radar-source-lanes.ts`
+  (conhece os rótulos reais do motor Python — `hbx_scraping:free_pj`, `hbx_scraping:*`, `hbx_agenda:*`).
+  Engine de corrida (`hbx`/`hbx_mass_data`/`hbx_campaign`) processa, **não descobre** — fica fora do
+  `sourceEngines` persistido (segue registrado em `sourceEngine`/`metadataJson.lastSourceEngine`).

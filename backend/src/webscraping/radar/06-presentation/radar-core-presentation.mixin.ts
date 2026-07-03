@@ -170,6 +170,7 @@ import type {
 import { deriveRowSignals, parseSignalsJson } from '../03-enrichment/lead-signals.util';
 import { RadarPublicDataService } from '../03-enrichment/radar-public-data.service';
 import { IcpFingerprintService } from '../../icp/icp-fingerprint.service';
+import { buildRadarSourceChainFromEngines, radarEnrichedByLanesOf } from '../shared/radar-source-lanes';
 
 let cityCache: {
   loadedAt: number;
@@ -2104,33 +2105,30 @@ export class RadarCorePresentationMixin {
     };
   }
 
-  // sourceChain (P1, 02/07): mapeia as fontes reais em 2 lanes (rfb = Receita/cnpj_public,
-  // web = motor HBX/textual/crawl/diretórios legados) e devolve a cadeia ordenada rfb->web.
-  // Sem fonte mapeável (ex.: reprocessamento interno) devolve null — campo ausente, opcional.
+  // sourceChain (P1, 02/07; reformado 03/07): tabela de lanes ÚNICA em shared/radar-source-lanes
+  // (conhece os rótulos reais do motor Python, ex.: hbx_scraping:free_pj). Engines + source do
+  // card entram juntos; a coluna sourceEngine (engine da CORRIDA, ex.: 'hbx') fica de fora de
+  // propósito — era a carona que pintava lead da Receita como "rfb+web" sem web ter descoberto.
+  // Sem fonte mapeável devolve null — campo ausente, opcional.
   private buildRadarLeadSourceChain(sourceEngines: string[], fallbackSource?: string | null): string | null {
-    const lane: Record<string, 'rfb' | 'web'> = {
-      cnpj_public: 'rfb',
-      cnpj_public_stub: 'rfb',
-      hbx_engine: 'web',
-      hbx: 'web',
-      google_textual: 'web',
-      website_crawl_light: 'web',
-      radar_web_enrichment: 'web',
-      local_directory: 'web',
-      local_directories_stub: 'web',
-      vertical_source: 'web',
+    const engines = Array.isArray(sourceEngines) ? sourceEngines : [];
+    return buildRadarSourceChainFromEngines([...engines, fallbackSource]);
+  }
+
+  // enrichedBy (03/07): monta os campos OPCIONAIS de enriquecimento do card a partir dos rótulos
+  // crus persistidos em metadataJson.enrichmentEngines. `enrichedBy` = lanes amigáveis (rfb/web);
+  // `enrichmentEngines` = rótulos crus pra auditoria. Sem enriquecimento → objeto vazio (spread
+  // não adiciona nada, card antigo continua idêntico).
+  private buildRadarLeadEnrichedBy(enrichmentEngines: unknown): { enrichedBy?: string[]; enrichmentEngines?: string[] } {
+    const engines = Array.isArray(enrichmentEngines)
+      ? enrichmentEngines.map((engine) => String(engine || '').trim()).filter(Boolean)
+      : [];
+    if (!engines.length) return {};
+    const enrichedBy = radarEnrichedByLanesOf(engines);
+    return {
+      enrichmentEngines: Array.from(new Set(engines)),
+      ...(enrichedBy.length ? { enrichedBy } : {}),
     };
-    const engines = Array.isArray(sourceEngines) && sourceEngines.length ? sourceEngines : [fallbackSource].filter(Boolean);
-    const lanes = new Set<'rfb' | 'web'>();
-    for (const engine of engines as string[]) {
-      const key = lane[String(engine || '').trim()];
-      if (key) lanes.add(key);
-    }
-    if (!lanes.size) return null;
-    const ordered: string[] = [];
-    if (lanes.has('rfb')) ordered.push('rfb');
-    if (lanes.has('web')) ordered.push('web');
-    return ordered.join('+');
   }
 
   /**
@@ -2351,6 +2349,10 @@ export class RadarCorePresentationMixin {
       // exibir no card ("de onde veio"). Campo OPCIONAL — ausente em leads antigos sem
       // sourceEngines mapeavel, card continua renderizando normal.
       sourceChain: this.buildRadarLeadSourceChain(parseJsonArray(row?.sourceEngines), row?.source),
+      // enrichedBy (03/07): quem só ENRIQUECEU o card (separado da DESCOBERTA no sourceChain).
+      // Vem de metadataJson.enrichmentEngines (gravado no delivery). Campo OPCIONAL — leads
+      // antigos sem essa marca não expõem `enrichedBy`, card renderiza normal.
+      ...this.buildRadarLeadEnrichedBy((meta as any)?.enrichmentEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
       opportunityReason: includeSmartFields ? row?.opportunityReason || null : null,
       opportunitySignals: includeSmartFields ? deriveRowSignals(row) : [],
@@ -2428,6 +2430,11 @@ export class RadarCorePresentationMixin {
   }
 
   private buildDirectRadarLeadPublic(result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }, input: NormalizedRadarFilters, index: number) {
+    const directSourceChain = buildRadarSourceChainFromEngines([
+      ...(Array.isArray((result as any).sourceEngines) ? (result as any).sourceEngines : []),
+      (result as any).source,
+      (result as any).sourceEngine,
+    ]);
     const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
     const quality = this.extractLeadQualityFromObject(result as any) || (result as any).quality || this.getCandidateQuality(result as any, input);
     const opportunityScore = result.opportunityScore ?? result.score ?? this.buildOpportunityScore(result as WebscrapingContactResult, quality);
@@ -2483,6 +2490,11 @@ export class RadarCorePresentationMixin {
       sourceEngine,
       sourceUrl: null,
       sourceEngines: [sourceEngine, result.source].filter(Boolean),
+      // sourceChain/enrichedBy no card AO VIVO (03/07): mesma régua central rfb/web. Descoberta
+      // = engines reais do resultado + source + engine da corrida (aqui a corrida DESCOBRIU no
+      // ato, não é re-toque de lead antigo). Campos OPCIONAIS — spread não adiciona se null/vazio.
+      ...(directSourceChain ? { sourceChain: directSourceChain } : {}),
+      ...this.buildRadarLeadEnrichedBy((result as any).enrichmentEngines),
       evidenceJson: (result as any).evidenceJson || null,
       rejectReasons: Array.isArray((result as any).rejectReasons) ? (result as any).rejectReasons : parseJsonArray((result as any).rejectReasons),
       qualityReason: (result as any).qualityReason || null,

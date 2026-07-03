@@ -167,39 +167,23 @@ import type {
   WebscrapingSearchRunResponse,
   WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
+import {
+  buildRadarSourceChainFromEngines,
+  radarEnrichedByLanesOf,
+  splitRadarDiscoveryFromEnrichment,
+  tagRadarDiscoverySnapshot,
+} from '../shared/radar-source-lanes';
 
-// sourceChain (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md): mapeia as
-// fontes reais que contribuíram pro card em 2 lanes ("rfb" = Receita/cnpj_public, "web" =
-// motor HBX/textual/crawl/diretórios) e devolve a cadeia ordenada. Card só de 1 fonte não-mapeada
-// (ex.: reprocessamento interno) não gera cadeia — campo fica ausente (opcional, nunca quebra
-// card antigo).
-const RADAR_SOURCE_CHAIN_LANE: Record<string, 'rfb' | 'web'> = {
-  cnpj_public: 'rfb',
-  cnpj_public_stub: 'rfb',
-  hbx_engine: 'web',
-  hbx: 'web',
-  google_textual: 'web',
-  website_crawl_light: 'web',
-  radar_web_enrichment: 'web',
-  local_directory: 'web',
-  local_directories_stub: 'web',
-  vertical_source: 'web',
-};
-
+// sourceChain (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md; reformado
+// 03/07): a tabela de lanes agora é ÚNICA em shared/radar-source-lanes.ts (antes triplicada e
+// sem os rótulos reais do motor Python — `hbx_scraping:free_pj` sumia do split). A cadeia
+// reflete só quem DESCOBRIU (sourceEngines pós-separação + identidade do resultado); o rótulo
+// do lote entra por último, só quando nada do resultado mapeia (comportamento antigo).
 function buildRadarSourceChain(result: Record<string, any>, fallbackSource?: string | null): string | null {
-  const rawEngines = Array.isArray(result?.sourceEngines) && result.sourceEngines.length
-    ? result.sourceEngines
-    : [result?.source || fallbackSource].filter(Boolean);
-  const lanes = new Set<'rfb' | 'web'>();
-  for (const engine of rawEngines) {
-    const lane = RADAR_SOURCE_CHAIN_LANE[String(engine || '').trim()];
-    if (lane) lanes.add(lane);
-  }
-  if (!lanes.size) return null;
-  const ordered: string[] = [];
-  if (lanes.has('rfb')) ordered.push('rfb');
-  if (lanes.has('web')) ordered.push('web');
-  return ordered.join('+');
+  const engines = Array.isArray(result?.sourceEngines) ? result.sourceEngines : [];
+  const chain = buildRadarSourceChainFromEngines([...engines, result?.source, result?.sourceEngine]);
+  if (chain) return chain;
+  return buildRadarSourceChainFromEngines([fallbackSource]);
 }
 
 export class RadarCoreQualityEnrichmentMixin {
@@ -1128,10 +1112,15 @@ export class RadarCoreQualityEnrichmentMixin {
         },
       });
       if (!Array.isArray(enrichment?.results) || !enrichment.results.length) return results;
+      // Separação DESCOBERTA × ENRIQUECIMENTO (03/07): o merger carimba o rótulo do grupo em
+      // sourceEngines de TODO resultado — aqui isso dava carona de "web" pra lead descoberto só
+      // pela Receita (fusão fictícia no medidor). Snapshot antes, merge, e depois sourceEngines
+      // volta a ser só descoberta; o que o merge somou vira enrichmentEngines (nada descartado).
+      const mergeLabel = String(source || 'hbx_engine');
       const merged = this.getRadarResultMerger().mergeSources([
         {
-          source: String(source || 'hbx_engine') as any,
-          results: results as WebscrapingContactResult[],
+          source: mergeLabel as any,
+          results: tagRadarDiscoverySnapshot(results as Record<string, any>[]) as WebscrapingContactResult[],
         },
         {
           source: 'radar_web_enrichment',
@@ -1139,7 +1128,7 @@ export class RadarCoreQualityEnrichmentMixin {
         },
       ]);
       return Array.isArray(merged?.results) && merged.results.length
-        ? merged.results as Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>
+        ? merged.results.map((item) => splitRadarDiscoveryFromEnrichment(item as Record<string, any>, mergeLabel)) as Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>
         : results;
     } catch (error) {
       this.logger?.warn?.(`[radar-free-enrichment] pre-save falhou sem bloquear lote: ${String((error as any)?.message || error)}`);
@@ -1276,6 +1265,16 @@ export class RadarCoreQualityEnrichmentMixin {
         ? buildRadarSourceChain(resultForQuality, source)
         : null;
       if (sourceChain) (rawPayload as any).sourceChain = sourceChain;
+      // enrichedBy (03/07): quem ENRIQUECEU o card, separado de quem descobriu — campo
+      // OPCIONAL nos 2 níveis (lanes amigáveis + rótulos crus pra auditoria).
+      const resultEnrichmentEngines = Array.isArray((resultForQuality as any).enrichmentEngines)
+        ? (resultForQuality as any).enrichmentEngines.map(String).filter(Boolean)
+        : [];
+      if (finalStatus === 'found' && resultEnrichmentEngines.length) {
+        (rawPayload as any).enrichmentEngines = resultEnrichmentEngines;
+        const enrichedBy = radarEnrichedByLanesOf(resultEnrichmentEngines);
+        if (enrichedBy.length) (rawPayload as any).enrichedBy = enrichedBy;
+      }
       const rawJson = JSON.stringify(rawPayload);
       const segment = finalStatus === 'found'
         ? resultSegment || null
