@@ -2,8 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HbxRecoveryService } from './hbx-recovery.service';
 
-function createService() {
-  return new HbxRecoveryService({} as any, {} as any, {} as any, {} as any) as any;
+function createService(ledger?: any) {
+  const ledgerMock = ledger || {
+    recordReceived: async () => ({ duplicate: false }),
+    markProcessed: async () => ({}),
+  };
+  return new HbxRecoveryService({} as any, {} as any, {} as any, {} as any, ledgerMock as any) as any;
 }
 
 test('sync with header NONE removes stale local media', () => {
@@ -718,6 +722,62 @@ test('recovery customer resolution falls back to recovery message contactId when
   );
 
   assert.equal(resolved?.id, 'cust-77');
+});
+
+test('MP recovery approved: concurrent deliveries notify the customer only once (ledger claim)', async () => {
+  const notifyCalls: number[] = [];
+  const ledgerKeys: string[] = [];
+  let alreadyClaimed = false;
+  const ledger = {
+    recordReceived: async (_provider: string, eventId: string) => {
+      ledgerKeys.push(eventId);
+      if (!alreadyClaimed) {
+        alreadyClaimed = true;
+        return { duplicate: false };
+      }
+      return { duplicate: true };
+    },
+    markProcessed: async () => ({}),
+  };
+  const service = createService(ledger);
+
+  service.mercadoPagoCredentials = async () => ({ accessToken: 'tok' });
+  service.mercadoPagoClient = {
+    getPayment: async () => ({
+      status: 'approved',
+      transaction_amount: 100,
+      transaction_amount_refunded: 0,
+      date_approved: '2026-03-28T15:00:00.000Z',
+      date_last_updated: '2026-03-28T15:00:00.000Z',
+      metadata: {},
+      external_reference: 'ext-1',
+    }),
+  };
+  // Cenário de CORRIDA: as duas entregas leem o pagamento ainda 'in_progress' (nenhuma commitou o 'paid').
+  const paymentRow = {
+    id: 'pay-1',
+    customerId: 'rec-1',
+    lifecycle: 'in_progress',
+    status: 'pending',
+    appliedToCustomerAmount: 100,
+    reversedAmount: 0,
+    customer: { id: 'rec-1', whatsappNumber: '+5519998877766' },
+  };
+  service.prisma = {
+    hbxRecoveryPayment: {
+      findFirst: async () => ({ ...paymentRow }),
+      update: async ({ data }: any) => ({ ...paymentRow, ...data, customer: paymentRow.customer }),
+    },
+  };
+  service.notifyApprovedPayment = async () => {
+    notifyCalls.push(1);
+  };
+
+  await service.syncMercadoPagoPayment(7, 'pay-1', { source: 'webhook' });
+  await service.syncMercadoPagoPayment(7, 'pay-1', { source: 'webhook' });
+
+  assert.equal(notifyCalls.length, 1);
+  assert.deepEqual(ledgerKeys, ['mp-recovery:paid:pay-1', 'mp-recovery:paid:pay-1']);
 });
 
 test('listInteractions uses a Prisma-safe Recovery conversation filter', async () => {

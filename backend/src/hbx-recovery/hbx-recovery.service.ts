@@ -6,6 +6,7 @@ import axios from 'axios';
 import { ConversationsService } from '../messaging/conversations.service';
 import { resolveWhatsAppCredentials } from '../messaging/whatsapp-credentials.util';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
+import { ExternalWebhookLedgerService } from '../integrations/external-webhook-ledger.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getBackendPublicUploadDir } from '../public-assets';
 import { CreateRecoveryCustomerDto } from './dto/create-recovery-customer.dto';
@@ -134,6 +135,7 @@ export class HbxRecoveryService {
     private readonly conversations: ConversationsService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly cadastrosService: CadastrosService,
+    private readonly externalWebhookLedger: ExternalWebhookLedgerService,
   ) {}
 
   private requireCompanyIdFromUser(user: any) {
@@ -3220,7 +3222,31 @@ export class HbxRecoveryService {
     const isPaidNow =
       this.normalizeLifecycle(String(updated.lifecycle || updated.status || 'in_progress')) === 'paid';
     if (!wasPaidBefore && isPaidNow && targetNetPaid > 0.009) {
-      await this.notifyApprovedPayment(companyId, updated);
+      // Guarda anti-corrida: 2 entregas concorrentes do MESMO pagamento aprovado leem wasPaidBefore=false
+      // e disparariam 2 WhatsApp ao cliente. O ledger (unique provider+eventId) deixa 1 só vencer o claim;
+      // o perdedor recebe duplicate=true e não notifica. Sem migration — reusa ExternalWebhookEvent.
+      const notifyKey = `mp-recovery:paid:${paymentId}`;
+      let claimed = true;
+      try {
+        const claim = await this.externalWebhookLedger.recordReceived(
+          'mercadopago',
+          notifyKey,
+          { paymentId: String(paymentId), kind: 'recovery_paid' },
+          { companyId, eventType: 'payment.approved' },
+        );
+        claimed = !claim?.duplicate;
+      } catch {
+        // Ledger indisponível não pode travar a notificação de pagamento; degrada para o comportamento antigo.
+        claimed = true;
+      }
+      if (claimed) {
+        await this.notifyApprovedPayment(companyId, updated);
+        try {
+          await this.externalWebhookLedger.markProcessed('mercadopago', notifyKey);
+        } catch {
+          // marca de processado é best-effort; a notificação já saiu.
+        }
+      }
     }
     return { updated: true, status, payment: this.toPaymentItem(updated) };
   }
