@@ -88,7 +88,8 @@ Webwhats/store/
 Webwhats/src/env.yml
 
 # HBX Owner local-agent runtime (estado de expediente, token local)
-hbx-owner/local-agent/state/
+hbx-owner/local-agent/state/*
+!hbx-owner/local-agent/state/.gitkeep
 hbx-owner/local-agent/.owner-token
 
 # Tokens temporarios de sessao (nunca versionar)

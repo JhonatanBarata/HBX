@@ -1,10 +1,11 @@
-const crypto = require("crypto");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const http = require("http");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
+// Journal em disco (estado durável do enricher/transfer). Escrita atômica, zero-dep. Ver lib/state.js.
+const stateStore = require("./lib/state");
 
 // Limiares de aviso (alinhados aos soft limits da Night Factory).
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
@@ -46,6 +47,48 @@ function freshTransferJob(direction) {
     pulled: 0, imported: 0, duplicates: 0, rejected: 0, sent: 0, cleared: 0,
     done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
   };
+}
+
+// Journal em disco da transferência "mandar/trazer tudo". Gravado a cada página OK. Se o agent
+// cair no meio, o boot detecta o journal não-finalizado e expõe resumable:true no /owner/transfer/
+// status → a UI mostra "retomar" (reclica a rota de start; o import é idempotente por externalId).
+// No fim OK o journal é apagado. `transferResume` é o que o boot achou (só p/ exibir até religar).
+let transferResume = null;
+function saveTransferJournal(sentIds) {
+  stateStore.save("transfer", {
+    running: true,
+    direction: transferJob.direction,
+    page: transferJob.page,
+    sentIds: Array.isArray(sentIds) ? sentIds.slice(-100000) : [],
+    pulled: transferJob.pulled,
+    sent: transferJob.sent,
+    imported: transferJob.imported,
+    startedAt: transferJob.startedAt,
+    savedAt: Date.now(),
+  });
+}
+function clearTransferJournal() {
+  transferResume = null;
+  stateStore.clear("transfer");
+}
+// No boot: se sobrou um journal (agent morreu no meio de uma transferência), guarda pra expor
+// resumable no status. NÃO retoma sozinho — o dono reclica (evita transferência-fantasma no boot).
+function loadTransferResumeOnBoot() {
+  const j = stateStore.load("transfer");
+  if (j && j.running === true) {
+    transferResume = {
+      direction: j.direction || null,
+      page: Number(j.page) || 0,
+      pulled: Number(j.pulled) || 0,
+      sent: Number(j.sent) || 0,
+      imported: Number(j.imported) || 0,
+      startedAt: Number(j.startedAt) || 0,
+    };
+  } else {
+    transferResume = null;
+    if (j) stateStore.clear("transfer"); // journal já finalizado que ficou pra trás → limpa
+  }
+  return transferResume;
 }
 
 // Total de cards transferíveis de cada lado (mesma régua nos dois → dá pra reconciliar/igualar).
@@ -96,7 +139,6 @@ function chunkLeadsBySize(leads, maxBytes = 15000, maxCount = 30) {
 // a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
 const opsToken = String(process.env.HBX_OWNER_OPS_TOKEN || "").trim();
-const runs = new Map();
 
 // ---------- Frota de motores LOCAIS (autoridade = este agent, docker nativo) ----------
 // O governor do backend NÃO consegue subir motor local: o container do backend não tem docker
@@ -118,7 +160,7 @@ function engineContainerNames(n = ENGINE_FLEET_SIZE) {
 }
 
 function runningEngineSet() {
-  const r = execRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
+  const r = dockerRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
   const set = new Set();
   if (r.ok) {
     for (const line of String(r.stdout || "").split(/\r?\n/)) {
@@ -143,6 +185,7 @@ function ensureEnginesUp(n = ENGINE_FLEET_SIZE) {
     if (r.ok) started.push(name);
     else failed.push({ name, error: (r.stderr || "").trim().slice(0, 160) });
   }
+  if (started.length) invalidateDockerReadCache(); // mudou a frota → próxima leitura tem que ser fresca
   const alreadyUp = engineContainerNames(n).filter((x) => running.has(x)).length;
   return { started, failed, alreadyUp };
 }
@@ -157,6 +200,7 @@ function stopEngineContainers(n = ENGINE_FLEET_SIZE) {
     if (r.ok) stopped.push(name);
     else failed.push({ name, error: (r.stderr || "").trim().slice(0, 160) });
   }
+  if (stopped.length) invalidateDockerReadCache(); // mudou a frota → próxima leitura tem que ser fresca
   return { stopped, failed };
 }
 
@@ -244,62 +288,6 @@ function relativeLogPath(logPath) {
   return path.relative(rootDir, logPath).replace(/\\/g, "/");
 }
 
-function createRun(commandId, label, commands) {
-  fs.mkdirSync(logsDir, { recursive: true });
-  const id = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const logPath = path.join(logsDir, `${id}.log`);
-  const run = {
-    id,
-    commandId,
-    label,
-    status: "running",
-    startedAt: nowIso(),
-    finishedAt: null,
-    exitCode: null,
-    logPath: relativeLogPath(logPath),
-    commands: commands.map((command) => command.join(" ")),
-  };
-  runs.set(id, run);
-  fs.writeFileSync(logPath, `[${run.startedAt}] ${label}\n`, "utf8");
-  return { run, logPath };
-}
-
-function appendLog(logPath, chunk) {
-  fs.appendFileSync(logPath, chunk, "utf8");
-}
-
-function finishRun(run, status, exitCode) {
-  run.status = status;
-  run.exitCode = exitCode;
-  run.finishedAt = nowIso();
-}
-
-function runCommandArray(commandId, label, command, onDone) {
-  assertSafeCommand(command);
-  const { run, logPath } = createRun(commandId, label, [command]);
-  const [binary, ...args] = command;
-  const child = spawn(resolveExecutable(binary), args, {
-    cwd: rootDir,
-    shell: false,
-    env: process.env,
-  });
-
-  child.stdout.on("data", (chunk) => appendLog(logPath, chunk));
-  child.stderr.on("data", (chunk) => appendLog(logPath, chunk));
-  child.on("error", (error) => {
-    appendLog(logPath, `\n[erro] ${error.message}\n`);
-    finishRun(run, "failed", 1);
-    if (onDone) onDone(run);
-  });
-  child.on("close", (code) => {
-    appendLog(logPath, `\n[fim] exitCode=${code}\n`);
-    finishRun(run, code === 0 ? "passed" : "failed", code);
-    if (onDone) onDone(run);
-  });
-
-  return run;
-}
-
 function execRead(command) {
   assertSafeCommand(command);
   const [binary, ...args] = command;
@@ -316,6 +304,23 @@ function execRead(command) {
     ok: result.status === 0,
   };
 }
+
+// `docker ps`/`docker stats` bloqueiam o event loop 1–2s (spawnSync). No polling do painel
+// (frota + containers a cada poucos segundos) isso congelava o agent. Cache de 5s por comando:
+// leituras repetidas dentro da janela reusam o resultado e não disparam docker de novo. É read-only
+// e cai rápido (5s) — nunca esconde uma mudança por muito tempo. Só as LEITURAS usam cache; os
+// `docker start/stop` continuam via execRead direto (mutação nunca é cacheada).
+const dockerReadCache = new Map(); // cmdKey -> { at, result }
+const DOCKER_READ_TTL_MS = 5000;
+function dockerRead(command) {
+  const key = command.join(" ");
+  const hit = dockerReadCache.get(key);
+  if (hit && Date.now() - hit.at < DOCKER_READ_TTL_MS) return hit.result;
+  const result = execRead(command);
+  dockerReadCache.set(key, { at: Date.now(), result });
+  return result;
+}
+function invalidateDockerReadCache() { dockerReadCache.clear(); }
 
 function requestLocalLabHealth(timeoutMs = 1200) {
   return new Promise((resolve) => {
@@ -773,25 +778,61 @@ async function runEnricherCrawl(seeds, map) {
   else enricherJob.lastError = "apply VPS: " + (apply.reason || `http_${apply.statusCode || "?"}`);
 }
 
+// Journal em disco do enriquecedor: cursor de varredura + config + métricas. Gravado ao fim de
+// cada ciclo (atômico). Crash/restart do agent → retoma da mesma página em vez de re-crawlar a base
+// do zero (poupa throughput e desgaste do IP local). Só o essencial pra retomar.
+function saveEnricherJournal() {
+  stateStore.save("enricher", {
+    cursorPage: enricherJob.cursorPage,
+    types: enricherJob.types,
+    aggressive: enricherJob.aggressive,
+    metrics: {
+      cardsScanned: enricherJob.cardsScanned,
+      sitesCrawled: enricherJob.sitesCrawled,
+      emailsFound: enricherJob.emailsFound,
+      phonesFound: enricherJob.phonesFound,
+      cnpjsFound: enricherJob.cnpjsFound,
+      applied: enricherJob.applied,
+      tipo1Runs: enricherJob.tipo1Runs,
+    },
+    savedAt: Date.now(),
+  });
+}
+
 async function enricherLoop() {
   while (enricherJob.running) {
     try { await enricherCycle(); } catch (e) { enricherJob.lastError = String((e && e.message) || e); }
+    saveEnricherJournal(); // persiste o cursor/métricas a cada ciclo → religa continua de onde parou
     if (!enricherJob.running) break;
     await enricherSleep(3000);
   }
   enricherJob.phase = "parado";
   enricherJob.stoppedAt = Date.now();
+  saveEnricherJournal(); // grava o cursor final ao desligar (o botão religa retoma daqui)
 }
 
 function startEnricher(opts = {}) {
   if (enricherJob.running) return false;
+  // Retomada: se há journal e o dono NÃO pediu início limpo (opts.fresh), continua do cursor salvo.
+  // Botão "religar" = retoma; começar do zero só com fresh:true. Métricas também voltam (acumulam).
+  const journal = opts.fresh === true ? null : stateStore.load("enricher");
+  const m = (journal && journal.metrics) || {};
   enricherJob = {
     running: true, startedAt: Date.now(), stoppedAt: 0, phase: "iniciando",
     types: { identity: opts.identity !== false, scraper: opts.scraper !== false },
     aggressive: opts.aggressive === true,
-    cursorPage: 1, cycle: 0, vpsTotal: null,
-    cardsScanned: 0, sitesCrawled: 0, emailsFound: 0, phonesFound: 0, cnpjsFound: 0, applied: 0,
-    tipo1: null, tipo1Runs: 0, localLabJobId: null, lastError: null, lastCycleAt: 0,
+    cursorPage: (journal && Number.isFinite(Number(journal.cursorPage)) && Number(journal.cursorPage) >= 1)
+      ? Math.trunc(Number(journal.cursorPage)) : 1,
+    cycle: 0, vpsTotal: null,
+    cardsScanned: Number(m.cardsScanned) || 0,
+    sitesCrawled: Number(m.sitesCrawled) || 0,
+    emailsFound: Number(m.emailsFound) || 0,
+    phonesFound: Number(m.phonesFound) || 0,
+    cnpjsFound: Number(m.cnpjsFound) || 0,
+    applied: Number(m.applied) || 0,
+    tipo1: null,
+    tipo1Runs: Number(m.tipo1Runs) || 0,
+    localLabJobId: null, lastError: null, lastCycleAt: 0,
   };
   setImmediate(() => void enricherLoop());
   return true;
@@ -1029,9 +1070,9 @@ async function readDiskUsage() {
 }
 
 function readContainers() {
-  const result = execRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
+  const result = dockerRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
   if (!result.ok) return { ok: false, items: [], error: (result.stderr || "docker indisponivel").trim() };
-  const stats = execRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]);
+  const stats = dockerRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]);
   const statMap = new Map();
   for (const line of String(stats.stdout || "").split(/\r?\n/)) {
     const [name, cpu, mem] = line.split("\t");
@@ -1358,20 +1399,29 @@ function mapOverview(data) {
   });
 }
 
-async function readVpsSystem() {
+// Cache de 30s do snapshot da VPS: cada poll do painel/árvore antes disparava um SSH real (via Ops
+// Control) → martelava a VPS. Mesmo padrão de vpsLeadsCache/radarCockpitCache. O botão ⟳ manda
+// `force=1` e fura o cache. Só cacheia resposta OK (erro não vira cache → próxima tentativa é fresca).
+let vpsSystemCache = { at: 0, data: null };
+async function readVpsSystem(force) {
   if (!opsToken) {
     return { ok: false, configured: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (token do Ops Control)." };
   }
+  if (!force && vpsSystemCache.data && Date.now() - vpsSystemCache.at < 30_000) return vpsSystemCache.data;
   // 1) Snapshot leve (preferido). 2) Fallback overview se o Ops Control for o antigo.
   const snap = await opsRequest("GET", "/api/host-snapshot/vps", null, 38000);
   if (snap.ok && snap.data && snap.data.available !== false && snap.data.memory) {
-    return mapSnapshot(snap.data);
+    const out = mapSnapshot(snap.data);
+    if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
+    return out;
   }
   const ov = await opsRequest("GET", "/api/overview", null, 45000);
   if (!ov.ok || !ov.data) {
     return { ok: false, configured: true, reason: ov.reason || snap.reason || `http_${ov.statusCode || snap.statusCode || "?"}`, message: "Ops Control não respondeu (VPS pode estar sob carga)." };
   }
-  return mapOverview(ov.data);
+  const out = mapOverview(ov.data);
+  if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
+  return out;
 }
 
 // Total/leads/fábrica da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
@@ -1609,6 +1659,7 @@ async function runTransferPull() {
           }
         }
       }
+      saveTransferJournal([]); // pull não tem sentIds; grava progresso a cada página OK
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.pulled >= transferJob.total) break;
       if (items.length < pageSize) break;
@@ -1625,6 +1676,8 @@ async function runTransferPull() {
     transferJob.done = true;
     transferJob.running = false;
     transferJob.finishedAt = Date.now();
+    if (transferJob.ok) clearTransferJournal(); // fim OK → sem retomada pendente
+    else saveTransferJournal([]);               // parou com erro → deixa retomável no boot
   }
 }
 
@@ -1697,6 +1750,7 @@ async function runTransferPush() {
           }
         }
       }
+      saveTransferJournal(sentIds); // grava progresso + ids já aceitos a cada página OK
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
       if (items.length < pageSize) break;
@@ -1725,6 +1779,8 @@ async function runTransferPush() {
     transferJob.done = true;
     transferJob.running = false;
     transferJob.finishedAt = Date.now();
+    if (transferJob.ok) clearTransferJournal(); // fim OK (enviou + limpou) → sem retomada pendente
+    else saveTransferJournal(sentIds);          // parou com erro → deixa retomável no boot
   }
 }
 
@@ -1762,10 +1818,9 @@ function sendStatic(res, pathname) {
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
+  // Sem CORS: o agent dá bind em 127.0.0.1 e exige Bearer token local; o painel é same-origin
+  // (servido pelo próprio agent). Liberar CORS cross-origin (`*`) só ampliaria a superfície.
   res.writeHead(statusCode, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Content-Type": "application/json; charset=utf-8",
   });
   res.end(body);
@@ -2114,7 +2169,7 @@ async function route(req, res) {
 
   // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
   if (req.method === "GET" && url.pathname === "/owner/vps/system") {
-    sendJson(res, 200, await readVpsSystem());
+    sendJson(res, 200, await readVpsSystem(url.searchParams.get("force") === "1"));
     return;
   }
 
@@ -2289,19 +2344,29 @@ async function route(req, res) {
       sendJson(res, 200, { ok: false, running: true, reason: "Já tem uma transferência rodando — espera terminar." });
       return;
     }
+    transferResume = null; // recomeçou de fato → some com o aviso de retomada do boot
     transferJob = freshTransferJob(isPull ? "pull" : "push");
     (isPull ? runTransferPull() : runTransferPush()).catch((err) => {
       transferJob.error = err?.message || "falha";
       transferJob.ok = false; transferJob.done = true;
       transferJob.running = false; transferJob.finishedAt = Date.now();
+      saveTransferJournal([]); // falha dura → deixa retomável
     });
     sendJson(res, 200, { ok: true, started: true, direction: transferJob.direction });
     return;
   }
 
   // Progresso da transferência (a UI faz polling disto a cada ~1.2s).
+  // ADITIVO (não muda contrato): se o agent caiu no meio de uma transferência e nada roda agora,
+  // expõe resumable:true + o snapshot do journal → a UI oferece "retomar" (reclica o start; o
+  // import é idempotente por externalId, então retomar não duplica). Some quando algo volta a rodar.
   if (req.method === "GET" && url.pathname === "/owner/transfer/status") {
-    sendJson(res, 200, { ok: true, ...transferJob });
+    const payload = { ok: true, ...transferJob };
+    if (!transferJob.running && transferResume) {
+      payload.resumable = true;
+      payload.resume = transferResume;
+    }
+    sendJson(res, 200, payload);
     return;
   }
 
@@ -2539,7 +2604,6 @@ async function route(req, res) {
       host: HOST,
       port: PORT,
       cwd: rootDir,
-      runs: runs.size,
       backendConfigured: Boolean(backendToken),
       opsConfigured: Boolean(opsToken),
       opsUrl,
@@ -2958,5 +3022,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
+  // Estado durável: garante o dir e detecta transferência não-finalizada (agent morreu no meio) →
+  // vira resumable:true no /owner/transfer/status. O enricher retoma sozinho pelo journal no start.
+  stateStore.ensureDir();
+  const resume = loadTransferResumeOnBoot();
+  if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
   console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
 });
