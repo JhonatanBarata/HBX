@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MessagingService } from './messaging.service';
-import { AiIntentClassifierService } from '../vendas/ai-intent-classifier.service';
+import { AiIntentClassifierService } from '../bot/intent/ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
 
 const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
@@ -108,7 +109,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
     inboxRealtime,
-    new AiIntentClassifierService() as any,
+    new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
     // GATEWAY-WA S3: freio de envio. Default nos testes = passa tudo (flag OFF na prática) —
     // não muda o comportamento coberto pelos casos existentes.
     ({ evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}), ...(overrides?.waSendThrottle || {}) } as any),
@@ -509,6 +510,113 @@ test('handleVendasAutomationInbound marks explicit negative on lead without movi
   assert.equal(nextState.metadata.optOut, true);
   assert.equal(nextState.metadata.blacklisted, true);
   assert.equal(nextState.metadata.vendasProspeccao.stage, 'negative_reply');
+});
+
+// INTENTENGINE S1: migrado de vendas-automation.service.test.ts (cópia morta
+// classifyProspectingInbound deletada). O caminho VIVO é handleVendasAutomationInbound.
+test('handleVendasAutomationInbound treats bot menu as auto-reply, not negative', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const jobUpdates: Array<Record<string, any>> = [];
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+  const { service, conversationStateCalls } = createService({
+    prisma: {
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+        update: async (input: Record<string, any>) => {
+          jobUpdates.push(input);
+          return input;
+        },
+        updateMany: async (input: Record<string, any>) => {
+          jobUpdates.push(input);
+          return { count: 0 };
+        },
+      },
+      vendasLead: {
+        update: async (input: Record<string, any>) => input,
+      },
+      companyConversation: {
+        findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }),
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 1,
+    from: '+5519998877766',
+    text: 'Olá, eu sou a Ivet. Digite o número correspondente para selecionar uma das opções.',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'bot_menu_detected');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_auto_reply');
+  assert.ok(jobUpdates.some((call) => call.data?.classification === 'bot_menu_detected'));
+  assert.equal(jobUpdates.some((call) => call.data?.status === 'replied_negative'), false);
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'prospection_auto_reply');
+});
+
+test('handleVendasAutomationInbound turns explicit no-interest into opt-out block', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const jobUpdates: Array<Record<string, any>> = [];
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+  const tx = {
+    vendasAutomationJob: {
+      update: async (input: Record<string, any>) => {
+        jobUpdates.push(input);
+        return input;
+      },
+      updateMany: async (input: Record<string, any>) => {
+        jobUpdates.push(input);
+        return { count: 0 };
+      },
+    },
+    vendasLead: { update: async (input: Record<string, any>) => input },
+    vendasLeadTimelineEvent: { create: async (input: Record<string, any>) => input },
+  };
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+      },
+      companyConversation: {
+        findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }),
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 1,
+    from: '+5519998877766',
+    text: 'Não tenho interesse, por favor remover.',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'opt_out');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_opt_out');
+  assert.ok(
+    jobUpdates.some((call) => call.data?.status === 'replied_negative' && call.data?.classification === 'opt_out'),
+  );
 });
 
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
@@ -1206,7 +1314,7 @@ function createServiceForStatusTest() {
     {} as any,
     { sendText: async () => undefined } as any,
     inboxRealtime,
-    new AiIntentClassifierService() as any,
+    new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
     // GATEWAY-WA S3: freio de envio (não é exercido no caminho de status deste teste).
     { evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}) } as any,
     undefined as any,

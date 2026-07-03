@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { VendasAutomationService } from './vendas-automation.service';
-import { AiIntentClassifierService } from './ai-intent-classifier.service';
+import { AiIntentClassifierService } from '../bot/intent/ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { SAFE_FIRST_CONTACT_TEMPLATE } from './prospecting-safety';
 
 function computeTestBrasiliaGreeting() {
@@ -311,7 +312,7 @@ function createService(overrides?: {
     conversations as any,
     inboxRealtime as any,
     commercialPlansService as any,
-    new AiIntentClassifierService() as any,
+    new IntentEngineService(prisma as any, new AiIntentClassifierService()) as any,
   ) as any;
   service.isInsideWorkingHours = () => true;
   const originalScheduleJobsForCampaign = service.scheduleJobsForCampaign.bind(service);
@@ -965,54 +966,6 @@ test('safe first contact defaults do not contain links and keep tomorrow limits'
   assert.equal(SAFE_FIRST_CONTACT_TEMPLATE.includes('hbxsystem.com.br'), false);
   assert.equal(campaign.dailyLimit, 15);
   assert.equal(campaign.maxAttemptsPerLead, 1);
-});
-
-test('auto reply menu is not classified as negative reply', async () => {
-  const campaign = buildCampaign();
-  const lead = buildLead({ segment: campaign.segment });
-  const job = buildJob({ status: 'sent', campaign, lead, leadId: lead.id });
-  const { service, jobUpdates, stateCalls } = createService({ inboundJob: job });
-  const inboundMetaCalls: Array<Record<string, unknown>> = [];
-
-  const result = await service.classifyProspectingInbound({
-    companyId: 7,
-    conversationId: 501,
-    messageId: 1,
-    from: lead.phone,
-    text: 'Olá, eu sou a Ivet. Digite o número correspondente para selecionar uma das opções.',
-    timestamp: new Date(),
-    metadata: { vendasAutomation: { jobId: job.id }, vendasAgendaQueue: { automationJobId: job.id } },
-    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
-      inboundMetaCalls.push({ sourceModule, isComplaint });
-    },
-  });
-
-  assert.equal(result.classification, 'bot_menu_detected');
-  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_auto_reply');
-  assert.ok(jobUpdates.some((call) => call.data.classification === 'bot_menu_detected'));
-  assert.equal(stateCalls.at(-1)?.payload.metadata.vendasAgendaQueue.status, 'awaiting_human');
-  assert.equal(jobUpdates.some((call) => call.data.status === 'replied_negative'), false);
-});
-
-test('explicit no-interest reply becomes negative opt-out block', async () => {
-  const campaign = buildCampaign();
-  const lead = buildLead({ segment: campaign.segment });
-  const job = buildJob({ status: 'sent', campaign, lead, leadId: lead.id });
-  const { service, jobUpdates } = createService({ inboundJob: job });
-
-  const result = await service.classifyProspectingInbound({
-    companyId: 7,
-    conversationId: 501,
-    messageId: 1,
-    from: lead.phone,
-    text: 'Não tenho interesse, por favor remover.',
-    timestamp: new Date(),
-    metadata: { vendasAutomation: { jobId: job.id }, vendasAgendaQueue: { automationJobId: job.id } },
-    setInboundMeta: async () => undefined,
-  });
-
-  assert.equal(result.classification, 'opt_out');
-  assert.ok(jobUpdates.some((call) => call.data.status === 'replied_negative' && call.data.classification === 'opt_out'));
 });
 
 test('campaign pauses when real negative limit is reached before sending', async () => {

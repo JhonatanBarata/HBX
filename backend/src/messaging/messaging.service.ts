@@ -51,7 +51,7 @@ import {
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from '../vendas/prospecting-safety';
-import { AiIntentClassifierService } from '../vendas/ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
@@ -262,7 +262,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
-    private readonly aiIntentClassifier: AiIntentClassifierService,
+    private readonly intentEngine: IntentEngineService,
     private readonly waSendThrottle: WaSendThrottleService,
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
   ) {}
@@ -3026,15 +3026,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'me chama',
       'pode ligar',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const { intent, autoReply: autoReplyClassification } = await this.aiIntentClassifier.classifyIntentWithFallback({
-      text: input.text,
-      positiveKeywords,
-      negativeKeywords,
-      whatIsItKeywords,
-      neutralKeywords,
-      callbackKeywords,
-      humanHandoffKeywords,
-    });
+    const { intent, autoReply: autoReplyClassification } = await this.intentEngine.classifyIntentWithFallback(
+      {
+        text: input.text,
+        positiveKeywords,
+        negativeKeywords,
+        whatIsItKeywords,
+        neutralKeywords,
+        callbackKeywords,
+        humanHandoffKeywords,
+      },
+      // Caminho VIVO de produção (inbound real da prospecção) → grava a decisão.
+      { companyId: input.companyId, conversationId: input.conversationId, flow: 'prospeccao' },
+    );
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
     const alreadyClosed =
       terminalStatus.has(automationStatus) ||

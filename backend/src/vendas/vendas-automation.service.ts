@@ -25,7 +25,7 @@ import {
   type ProspectingAutoReplyClassification,
 } from './prospecting-safety';
 import { VendasService } from './vendas.service';
-import { AiIntentClassifierService } from './ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 
 type LiveAutomationStatus =
   | 'parado'
@@ -520,7 +520,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly conversations: ConversationsService,
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
-    private readonly aiIntentClassifier: AiIntentClassifierService,
+    private readonly intentEngine: IntentEngineService,
   ) {}
 
   onModuleInit() {
@@ -1871,15 +1871,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const callbackKeywords = keywordList('callbackIntentKeywords', DEFAULT_CALLBACK_KEYWORDS);
     const humanHandoffKeywords = keywordList('humanHandoffIntentKeywords', DEFAULT_HUMAN_HANDOFF_KEYWORDS);
 
-    const { intent, autoReply } = await this.aiIntentClassifier.classifyIntentWithFallback({
-      text,
-      positiveKeywords: positives,
-      negativeKeywords: negatives,
-      whatIsItKeywords,
-      neutralKeywords,
-      callbackKeywords,
-      humanHandoffKeywords,
-    });
+    const { intent, autoReply } = await this.intentEngine.classifyIntentWithFallback(
+      {
+        text,
+        positiveKeywords: positives,
+        negativeKeywords: negatives,
+        whatIsItKeywords,
+        neutralKeywords,
+        callbackKeywords,
+        humanHandoffKeywords,
+      },
+      // Simulador do painel (/bot): sandbox sem conversa real, mas registra a
+      // decisão para alimentar o dataset (flow='simulador').
+      { companyId: context.companyId, conversationId: null, flow: 'simulador' },
+    );
     const optOutReplyEnabled =
       typeof cfg.optOutReplyEnabled === 'boolean' ? cfg.optOutReplyEnabled : (filters as any).optOutReplyEnabled === true;
 
@@ -4354,129 +4359,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       type: 'pre_message_human_reply',
     });
     return body;
-  }
-
-  async classifyProspectingInbound(input: {
-    companyId: number;
-    conversationId: number;
-    messageId: number;
-    from: string;
-    text: string;
-    timestamp: Date;
-    metadata: Record<string, any>;
-    setInboundMeta: (sourceModule: string, isComplaint: boolean) => Promise<void>;
-  }) {
-    const automation = parseJsonObject(input.metadata?.vendasAutomation);
-    const queue = parseJsonObject(input.metadata?.vendasAgendaQueue);
-    const jobId = trimOrNull(automation.jobId) || trimOrNull((queue as any).automationJobId);
-    let job = jobId
-      ? await this.prisma.vendasAutomationJob.findFirst({
-          where: { id: jobId, companyId: input.companyId, status: 'sent' },
-          include: { campaign: true, lead: true },
-        })
-      : null;
-    if (!job) {
-      const phoneDigits = normalizePhoneDigits(input.from);
-      const candidates = phoneDigits ? buildWhatsAppPhoneCandidates(phoneDigits).map((value) => normalizePhoneDigits(value)).filter(Boolean) : [];
-      job = await this.prisma.vendasAutomationJob.findFirst({
-        where: {
-          companyId: input.companyId,
-          status: 'sent',
-          OR: [
-            { conversationId: input.conversationId },
-            ...(candidates.length ? [{ lead: { phoneNormalized: { in: candidates as string[] } } }] : []),
-          ],
-        },
-        include: { campaign: true, lead: true },
-        orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
-      });
-    }
-    if (!job?.campaign || !job?.lead) return null;
-    if (String(job.status || '') !== 'sent') return null;
-    const automationStatus = normalizeKey((automation as any).status);
-    const queueStatus = normalizeKey((queue as any).status);
-    const awaitingPreMessageHumanReply = this.isAwaitingPreMessageHumanReplyForJob(input.metadata, job);
-    const positives = parseJsonList(job.campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS).map(normalizeKey);
-    const negatives = parseJsonList(job.campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS).map(normalizeKey);
-    const filtersJson = parseJsonObject(job.campaign.filtersJson);
-    const whatIsItKeywords = normalizeTextList(filtersJson.whatIsItIntentKeywords, WHAT_IS_IT_INTENT_KEYWORDS).map(normalizeKey);
-    const neutralKeywords = normalizeTextList(filtersJson.neutralIntentKeywords, DEFAULT_NEUTRAL_KEYWORDS).map(normalizeKey);
-    const callbackKeywords = normalizeTextList(filtersJson.callbackIntentKeywords, DEFAULT_CALLBACK_KEYWORDS).map(normalizeKey);
-    const humanHandoffKeywords = normalizeTextList(filtersJson.humanHandoffIntentKeywords, DEFAULT_HUMAN_HANDOFF_KEYWORDS).map(normalizeKey);
-    const { intent, autoReply: autoReplyClassification } = await this.aiIntentClassifier.classifyIntentWithFallback({
-      text: input.text,
-      positiveKeywords: positives,
-      negativeKeywords: negatives,
-      whatIsItKeywords,
-      neutralKeywords,
-      callbackKeywords,
-      humanHandoffKeywords,
-    });
-    const terminalStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived'];
-    const alreadyClosed =
-      terminalStatus.includes(automationStatus) ||
-      terminalStatus.includes(queueStatus) ||
-      input.metadata?.blacklist === true ||
-      input.metadata?.blacklisted === true ||
-      input.metadata?.optOut === true ||
-      (queue as any).blacklist === true ||
-      (queue as any).blacklisted === true ||
-      (queue as any).optOut === true ||
-      (queue as any).doNotContact === true ||
-      String(job.lead.status || '') === 'encerrado' ||
-      job.lead.closedAt ||
-      job.lead.wasClosedBefore;
-    if (alreadyClosed) return null;
-
-    if (intent.kind === 'negative' || intent.kind === 'opt_out') {
-      await input.setInboundMeta(intent.kind === 'opt_out' ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
-      await this.markNegative({ ...input, job, optOut: intent.kind === 'opt_out' });
-      return { handled: true, classification: intent.kind };
-    }
-
-    const blockedStatus = ['interested', 'neutral', 'human_assigned', 'auto_reply_detected', 'bot_menu_detected', 'out_of_hours_auto_reply', 'awaiting_human'];
-    const isBlocked =
-      blockedStatus.includes(automationStatus) ||
-      blockedStatus.includes(queueStatus) ||
-      input.metadata?.humanAssigned === true ||
-      (queue as any).humanAssigned === true;
-    const hardBlocked = input.metadata?.humanAssigned === true || (queue as any).humanAssigned === true;
-    if (hardBlocked || (isBlocked && !awaitingPreMessageHumanReply)) return null;
-
-    if (autoReplyClassification) {
-      await input.setInboundMeta('vendas_prospeccao_auto_reply', false);
-      await this.markAutoReply({ ...input, job, classification: autoReplyClassification });
-      return { handled: true, classification: autoReplyClassification };
-    }
-
-    if (awaitingPreMessageHumanReply) {
-      // A pré-mensagem só filtra bot: qualquer resposta humana libera o pitch.
-      await input.setInboundMeta('vendas_prospeccao_pre_mensagem_humana', false);
-      await this.sendPitchAfterPreMessage(input, job);
-      return { handled: true, classification: 'pre_message_human_reply' };
-    }
-
-    if (intent.kind === 'ambiguous_intent' || intent.confidence < 0.5) {
-      await input.setInboundMeta('vendas_prospeccao_duvida', false);
-      await this.markNeutral({ ...input, job, intentReview: intent });
-      return { handled: true, classification: intent.kind === 'ambiguous_intent' ? 'ambiguous_intent' : 'low_confidence' };
-    }
-
-    if (intent.kind === 'positive' || intent.kind === 'what_is_it') {
-      await input.setInboundMeta('vendas_prospeccao_interessado', false);
-      await this.markInterested({ ...input, job, replyKind: intent.kind });
-      return { handled: true, classification: intent.kind };
-    }
-
-    if (intent.kind === 'human_requested') {
-      await input.setInboundMeta('vendas_prospeccao_humano', false);
-      await this.markNeutral({ ...input, job, humanRequested: true });
-      return { handled: true, classification: 'human_requested' };
-    }
-
-    await input.setInboundMeta('vendas_prospeccao_neutro', false);
-    await this.markNeutral({ ...input, job, intentReview: intent.confidence < 0.5 ? intent : undefined });
-    return { handled: true, classification: intent.reasons.includes('low_confidence') ? 'low_confidence' : 'neutral' };
   }
 
   private async markInterested(input: any) {
