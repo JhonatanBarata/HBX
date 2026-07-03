@@ -3,7 +3,6 @@ import { v4 } from 'uuid';
 
 import { EventController } from './event.controller';
 
-export * from '@api/integrations/event/pusher/pusher.schema';
 export * from '@api/integrations/event/webhook/webhook.schema';
 
 export const eventSchema: JSONSchema7 = {
@@ -11,18 +10,6 @@ export const eventSchema: JSONSchema7 = {
   type: 'object',
   properties: {
     websocket: {
-      $ref: '#/$defs/event',
-    },
-    rabbitmq: {
-      $ref: '#/$defs/event',
-    },
-    nats: {
-      $ref: '#/$defs/event',
-    },
-    sqs: {
-      $ref: '#/$defs/event',
-    },
-    kafka: {
       $ref: '#/$defs/event',
     },
   },

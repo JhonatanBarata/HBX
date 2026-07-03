@@ -755,3 +755,28 @@ model EvoaiSetting {
   Instance        Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   instanceId      String    @unique
 }
+
+// GATEWAY-WA S1: telemetria do disjuntor (aditivo, best-effort — nunca acopla ao fluxo de conexao).
+model ConnectionEvent {
+  id           Int      @id @default(autoincrement())
+  instanceName String   @db.VarChar(255)
+  event        String   @db.VarChar(50)
+  statusCode   Int?     @db.Int
+  attempt      Int?     @db.Int
+  createdAt    DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp
+
+  @@index([instanceName])
+  @@index([instanceName, createdAt])
+}
+
+// GATEWAY-WA S2: event outbox duravel (id serial = cursor). Dupla entrega junto do webhook HTTP.
+model EventOutbox {
+  id           Int      @id @default(autoincrement())
+  instanceName String   @db.VarChar(255)
+  eventName    String   @db.VarChar(100)
+  payload      Json     @db.Json
+  createdAt    DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp
+
+  @@index([instanceName])
+  @@index([createdAt])
+}

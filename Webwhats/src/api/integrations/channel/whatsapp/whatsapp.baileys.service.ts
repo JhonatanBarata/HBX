@@ -270,6 +270,24 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  // GATEWAY-WA S1: telemetria do disjuntor. So OBSERVA — grava o evento que hoje so vira
+  // logger.warn/log. Best-effort ao extremo: qualquer falha de INSERT e engolida com log
+  // warn e NUNCA pode propagar para o fluxo de conexao/reconexao.
+  private recordConnectionEvent(event: string, statusCode?: number, attempt?: number): void {
+    void this.prismaRepository.connectionEvent
+      .create({
+        data: {
+          instanceName: this.instance.name,
+          event,
+          statusCode: statusCode ?? null,
+          attempt: attempt ?? null,
+        },
+      })
+      .catch((error) => {
+        this.logger.warn(`[TELEMETRIA] falha ao gravar ConnectionEvent (${event}): ${error?.toString()}`);
+      });
+  }
+
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
   private chatModifyQueue: Promise<unknown> = Promise.resolve();
@@ -466,6 +484,8 @@ export class BaileysStartupService extends ChannelStartupService {
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      // GATEWAY-WA S1: so OBSERVA todo fechamento (best-effort, sem tocar na logica abaixo).
+      this.recordConnectionEvent('close', statusCode);
       // conflict:replaced (440) NÃO reconecta: o "replaced" significa que OUTRA conexão assumiu
       // este número. Reconectar aqui só recria o socket por cima e o WhatsApp manda replaced de
       // novo → loop infinito (storm de ban). O socket que perdeu morre limpo; quem assumiu vence.
@@ -494,6 +514,8 @@ export class BaileysStartupService extends ChannelStartupService {
           `[DISJUNTOR] ${this.instance.name}: reconexao ${this.reconnectAttempts}/` +
             `${BaileysStartupService.MAX_RECONNECT_ATTEMPTS} em ${Math.round(delayMs / 1000)}s (close=${statusCode}).`,
         );
+        // GATEWAY-WA S1: so OBSERVA a tentativa (best-effort, nao afeta a reconexao).
+        this.recordConnectionEvent('reconnect_attempt', statusCode, this.reconnectAttempts);
         try {
           this.client?.ws?.close?.();
         } catch {
@@ -513,6 +535,8 @@ export class BaileysStartupService extends ChannelStartupService {
             `[DISJUNTOR] ${this.instance.name}: ABRIU apos ${this.reconnectAttempts} tentativas — ` +
               `parando reconexao. Requer re-pareamento manual (QR/Codigo).`,
           );
+          // GATEWAY-WA S1: so OBSERVA a abertura do circuito (best-effort).
+          this.recordConnectionEvent('circuit_open', statusCode, this.reconnectAttempts);
         }
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
@@ -556,6 +580,8 @@ export class BaileysStartupService extends ChannelStartupService {
 
     if (connection === 'open') {
       this.resetReconnectCircuit();
+      // GATEWAY-WA S1: so OBSERVA a abertura da conexao (best-effort).
+      this.recordConnectionEvent('open');
       this.lastConnectedAtMs = Date.now();
       this.clearQrCode('connected');
       this.instance.wuid = this.client.user.id.replace(/:\d+/, '');

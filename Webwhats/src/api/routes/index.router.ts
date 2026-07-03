@@ -16,6 +16,7 @@ import path from 'path';
 import { BusinessRouter } from './business.router';
 import { CallRouter } from './call.router';
 import { ChatRouter } from './chat.router';
+import { GatewayRouter } from './gateway.router';
 import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
@@ -224,6 +225,7 @@ router
   .use('/settings', new SettingsRouter(...guards).router)
   .use('/proxy', new ProxyRouter(...guards).router)
   .use('/label', new LabelRouter(...guards).router)
+  .use('', new GatewayRouter().router)
   .use('', new ChannelRouter(configService, ...guards).router)
   .use('', new EventRouter(configService, ...guards).router)
   .use('', new ChatbotRouter(...guards).router)

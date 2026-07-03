@@ -20,11 +20,16 @@ import { MailModule } from '../mail/mail.module';
 import { MasterPaymentNotificationsController } from './master-payment-notifications.controller';
 import { WhatsappConsentLedgerService } from './whatsapp-consent-ledger.service';
 import { AiIntentClassifierModule } from '../vendas/ai-intent-classifier.module';
+// GATEWAY-WA (S1 frota, S2 outbox, S3 freio de envio).
+import { WaSendThrottleService } from './wa-send-throttle.service';
+import { WebwhatsOutboxConsumerService } from './webwhats-outbox-consumer.service';
+import { WebwhatsFleetHealthService } from './webwhats-fleet-health.service';
+import { WebwhatsFleetHealthController } from './webwhats-fleet-health.controller';
 
 @Module({
   imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, AiIntentClassifierModule],
-  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService],
-  controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController],
-  exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService],
+  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService],
+  controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController, WebwhatsFleetHealthController],
+  exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService],
 })
 export class MessagingModule {}
