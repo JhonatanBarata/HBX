@@ -3645,3 +3645,93 @@ model FiscalRevenueMonth {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 }
+
+// CONTABIL S2 — calendário fiscal. 1 linha por (competencia, tipo) de obrigação.
+// Máquina de estados: AGUARDANDO_DADOS -> PRONTO -> ARMADO -> TRANSMITIDO -> PAGO
+// -> CONFERIDO; ATRASADO é overlay (now > dueDate, estado != CONFERIDO/naoAplicavel).
+model FiscalObligation {
+  id              String   @id @default(cuid())
+  competencia     String // "2026-07" ou "2026-ANUAL" (DEFIS)
+  tipo            String // PGDASD | DAS | ESOCIAL_S1200 | DCTFWEB | DARF_INSS | DEFIS | LIVRO_CAIXA
+  dueDate         DateTime
+  estado          String   @default("AGUARDANDO_DADOS")
+  payloadJson     String? // números prontos p/ transmitir (S5)
+  resultJson      String? // recibo/nº protocolo/comprovante (marcação manual do dono)
+  naoAplicavel    Boolean  @default(false) // ex.: mês sem pró-labore não tem ESOCIAL/DARF
+  alertasEnviados String   @default("[]") // ["D-7","D-3",...] — idempotência do alertador
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([competencia, tipo])
+  @@index([dueDate])
+  @@index([estado])
+}
+
+// CONTABIL S4 — Livro Caixa (art. 26 LC 123: TODA movimentação da ME).
+// origem/refId com @@unique garante idempotência das entradas AUTOMÁTICAS
+// (AUTO_MP espelha MasterBillingLedgerEntry.id; AUTO_OBRIGACAO espelha
+// FiscalObligation.id) — MANUAL usa refId=null (sem colisão: Postgres trata
+// NULL como distinto em índice único). Lançamento automático NUNCA é editado
+// direto — correção é lançamento de ESTORNO novo (trilha limpa, Guardrail).
+model FiscalLedgerEntry {
+  id           String    @id @default(cuid())
+  data         DateTime
+  competencia  String // "2026-07" — derivada de `data` (regime de caixa)
+  tipo         String // ENTRADA | SAIDA
+  categoria    String // RECEITA_ASSINATURA | DAS | DARF_INSS | PROLABORE | DISTRIBUICAO_LUCRO | INFRA | FERRAMENTA | OUTRO | ESTORNO
+  descricao    String
+  valorCents   Int // sempre positivo; `tipo` decide o sinal no saldo
+  origem       String // AUTO_MP | AUTO_OBRIGACAO | MANUAL
+  refId        String? // id do MasterBillingLedgerEntry / da FiscalObligation (null p/ MANUAL)
+  motivo       String? // obrigatório em lançamento manual e em estorno
+  estornaId    String? // aponta pro id do lançamento que este estorno corrige
+  anoFechado   Boolean   @default(false) // true = ano fechado (S4 "fechar Livro Caixa"), edição bloqueada
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([origem, refId])
+  @@index([competencia, tipo])
+  @@index([data])
+}
+
+// CONTABIL S5 — comprovante (recibo PGDAS-D, guia/comprovante DAS, print do e-CAC)
+// anexado por obrigação. Segue o padrão de storage em disco da casa
+// (SellerOnboardingAttachment): arquivo em `storagePath`, metadados no banco.
+// É a "pasta-do-contador digital" — listado no card da obrigação do wizard.
+// Sem relation formal p/ FiscalObligation (o schema fiscal usa ids soltos por
+// design, como FiscalLedgerEntry.refId) — a FK lógica é `obligationId`.
+model FiscalComprovante {
+  id               String    @id @default(cuid())
+  obligationId     String // id da FiscalObligation à qual o comprovante pertence
+  competencia      String // "2026-07" — cópia p/ filtro/relatório (regime do wizard)
+  tipo             String // PGDASD | DAS | DARF_INSS | ... (tipo da obrigação, cópia)
+  originalFilename String
+  storedFilename   String
+  storagePath      String
+  contentType      String?
+  byteSize         Int
+  sha256           String
+  status           String    @default("permanent") // permanent | deleted
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([obligationId, status])
+  @@index([competencia])
+}
+
+// CONTABIL S5 — histórico do relatório mensal narrativo (determinístico, gerado
+// no fechamento do mês pelo copiloto). 1 por competência (o último fechamento
+// sobrescreve — upsert). `texto` é o corpo enviado no zap do dono; `payloadJson`
+// guarda o snapshot dos números do fechamento (auditoria: o motor é a fonte).
+model FiscalMonthlyReport {
+  id            String   @id @default(cuid())
+  competencia   String   @unique // "2026-07"
+  texto         String // relatório narrativo determinístico (o "pensa comigo" por escrito)
+  payloadJson   String? // snapshot dos números do fechamento (receita/tributos/fatorR/...)
+  enviadoZap    Boolean  @default(false) // best-effort: true se o disparo no zap confirmou
+  geradoViaIa   Boolean  @default(false) // true se a reescrita amigável via Ollama foi aplicada
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([competencia])
+}

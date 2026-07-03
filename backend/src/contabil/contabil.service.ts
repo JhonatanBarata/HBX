@@ -1,8 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FiscalEngineService } from './fiscal-engine.service';
 import { RevenueSyncService } from './revenue-sync.service';
-import type { AjusteManualDto, UpdateFiscalProfileDto } from './dto/contabil.dto';
+import { LivroCaixaService } from './livro-caixa.service';
+import type { AjusteManualDto, MarcarObligationDto, UpdateFiscalProfileDto } from './dto/contabil.dto';
+
+const ESTADOS_VALIDOS = new Set([
+  'AGUARDANDO_DADOS',
+  'PRONTO',
+  'ARMADO',
+  'TRANSMITIDO',
+  'PAGO',
+  'CONFERIDO',
+]);
 
 // ===========================================================================
 // CONTABIL — orquestração fina (perfil singleton + leitura de mês + ajuste).
@@ -18,6 +28,7 @@ export class ContabilService {
     private readonly prisma: PrismaService,
     private readonly engine: FiscalEngineService,
     private readonly revenueSync: RevenueSyncService,
+    private readonly livroCaixa: LivroCaixaService,
   ) {}
 
   /** FiscalProfile singleton (cria com defaults do schema se não existir). */
@@ -87,6 +98,90 @@ export class ContabilService {
     });
     // Recomputa a cadeia já com o ajuste aplicado.
     return this.revenueSync.syncCompetencia(competencia);
+  }
+
+  // ---------------------------------------------------------------------
+  // CONTABIL S2 — calendário fiscal (obligation-scheduler por trás).
+  // ---------------------------------------------------------------------
+
+  /** GET /master/contabil/obrigacoes?competencia= — lista com estados. competencia omitida = todas. */
+  async listarObrigacoes(competencia?: string) {
+    const where: Record<string, unknown> = {};
+    if (competencia) {
+      this.assertCompetenciaOuAnual(competencia);
+      where.competencia = competencia;
+    }
+    const rows = await (this.prisma as any).fiscalObligation.findMany({
+      where,
+      orderBy: { dueDate: 'asc' },
+    });
+    return rows.map((r: any) => this.serializeObligation(r));
+  }
+
+  /** GET /master/contabil/proximas — as 5 próximas (badge do master). Ordena por dueDate, exclui CONFERIDO/naoAplicavel. */
+  async proximasObrigacoes(limite = 5) {
+    const rows = await (this.prisma as any).fiscalObligation.findMany({
+      where: { naoAplicavel: false, estado: { notIn: ['CONFERIDO'] } },
+      orderBy: { dueDate: 'asc' },
+      take: Math.max(1, Math.min(50, Math.trunc(limite) || 5)),
+    });
+    return rows.map((r: any) => this.serializeObligation(r));
+  }
+
+  /** POST /master/contabil/obrigacoes/:id/marcar — transição manual (dono confirma). */
+  async marcarObrigacao(id: string, dto: MarcarObligationDto) {
+    const estado = String(dto?.estado || '').trim().toUpperCase();
+    if (!ESTADOS_VALIDOS.has(estado)) {
+      throw new BadRequestException(
+        `estado inválido: '${dto?.estado}' (esperado um de ${Array.from(ESTADOS_VALIDOS).join(', ')})`,
+      );
+    }
+    const existente = await (this.prisma as any).fiscalObligation.findUnique({ where: { id } });
+    if (!existente) throw new NotFoundException(`obrigação '${id}' não encontrada`);
+
+    const data: Record<string, unknown> = { estado };
+    if (dto.resultJson !== undefined) data.resultJson = dto.resultJson || null;
+
+    const saved = await (this.prisma as any).fiscalObligation.update({ where: { id }, data });
+
+    // CONTABIL S4 — hook Livro Caixa: só na TRANSIÇÃO para PAGO (existente.estado
+    // != 'PAGO' antes de gravar), nunca ao re-marcar/repetir — o idempotência real
+    // é o @@unique([origem, refId]) do LivroCaixaService, isto aqui só evita chamar
+    // à toa. Best-effort: falha aqui NUNCA derruba a marcação da obrigação (já
+    // gravada acima) — o Livro Caixa é um espelho, não trava o fluxo fiscal.
+    if (estado === 'PAGO' && existente.estado !== 'PAGO') {
+      await this.livroCaixa.lancarSaidaObrigacaoPaga({
+        id: saved.id,
+        competencia: saved.competencia,
+        tipo: saved.tipo,
+        dueDate: saved.dueDate,
+      });
+    }
+
+    return this.serializeObligation(saved);
+  }
+
+  private serializeObligation(row: any) {
+    return {
+      id: row.id,
+      competencia: row.competencia,
+      tipo: row.tipo,
+      dueDate: row.dueDate,
+      estado: row.estado,
+      naoAplicavel: row.naoAplicavel,
+      atrasado: !row.naoAplicavel && row.estado !== 'CONFERIDO' && new Date(row.dueDate).getTime() < Date.now(),
+      payloadJson: row.payloadJson ?? null,
+      resultJson: row.resultJson ?? null,
+      alertasEnviados: row.alertasEnviados,
+      updatedAt: row.updatedAt,
+      createdAt: row.createdAt,
+    };
+  }
+
+  private assertCompetenciaOuAnual(competencia: string) {
+    if (!/^\d{4}-\d{2}$/.test(competencia) && !/^\d{4}-ANUAL$/.test(competencia)) {
+      throw new BadRequestException(`competência inválida: '${competencia}' (esperado 'YYYY-MM' ou 'YYYY-ANUAL')`);
+    }
   }
 
   private serializePerfil(row: any) {

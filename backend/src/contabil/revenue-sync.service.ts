@@ -28,9 +28,20 @@ import { FiscalEngineService, type AnexoAplicado } from './fiscal-engine.service
 //   - `competence` = mês de reconhecimento do caixa (monthKey de paidAt na origem);
 //     por isso agrupamos por competence (e não por paidAt) — é o campo canônico.
 //
-// STATUS: o ledger grava status em UPPERCASE ('APPROVED'). Comparamos case-insensitive
-// por segurança. Estornos ('REFUNDED'/'PARTIALLY_REFUNDED') NÃO entram como receita
-// (só 'APPROVED' conta) — refinamento de dedução de estorno fica p/ S4 (Livro Caixa).
+// STATUS / ESTORNO (reconciliação S4 — fonte ÚNICA de receita, 03/07):
+// O ledger grava status em UPPERCASE. A receita da competência é a receita
+// BRUTA LÍQUIDA DE CANCELAMENTOS/ESTORNOS — no Simples Nacional, venda cancelada
+// ou estornada NÃO compõe base de cálculo do DAS. Por isso incluímos as linhas
+// APPROVED **e** REFUNDED/PARTIALLY_REFUNDED e deduzimos o valor REALMENTE
+// estornado. Detalhe crítico: o `amount` do ledger NÃO muda no estorno (só o
+// `status` vira REFUNDED/PARTIALLY_REFUNDED — ver financeiro.service.ts
+// refundFinanceiroChargeById); o valor estornado real mora em
+// "FinanceiroCharge.refundAmount", ligado por "FinanceiroCharge.ledgerEntryId"
+// = "MasterBillingLedgerEntry.id". Daí o LEFT JOIN + SUM(amount − refundAmount).
+//
+// Esta é a MESMA definição consumida pelo espelhamento do Livro Caixa (S4):
+// `receitaLiquidaCentsPorCompetencia` é o helper único — a base do DAS (aqui)
+// e a base do Livro Caixa/lucro isento (S4) NUNCA mais podem divergir.
 //
 // Idempotente: re-rodar a mesma competência recomputa e faz upsert (não duplica).
 // Nada aqui ESCREVE em fluxo de pagamento — só LÊ o ledger (Lei do Contabil).
@@ -72,21 +83,42 @@ export class RevenueSyncService {
   }
 
   /**
-   * Receita de caixa (cents) reconhecida numa competência, direto do ledger.
-   * ROUND(SUM(amount)*100) evita drift de float na soma em reais.
+   * FONTE ÚNICA DE VERDADE da receita da competência (cents), líquida de
+   * estornos/cancelamentos: SUM(amount − COALESCE(refundAmount, 0)) sobre as
+   * linhas revenue APPROVED/REFUNDED/PARTIALLY_REFUNDED, via LEFT JOIN com
+   * FinanceiroCharge (onde mora o refundAmount real — o `amount` do ledger não
+   * muda no estorno). Clamp em >= 0. ROUND(...*100) evita drift de float.
+   *
+   * É esta a definição consumida TANTO pela base do DAS (receitaCaixaCents,
+   * abaixo) QUANTO pelo espelhamento do Livro Caixa (S4) — não podem divergir.
    */
-  async receitaCaixaCents(competencia: string): Promise<number> {
+  async receitaLiquidaCentsPorCompetencia(competencia: string): Promise<number> {
     this.assertCompetencia(competencia);
     await ensureMasterBillingRuntimeSchema(this.prisma);
+    // GREATEST(...,0) POR LINHA (não no total): reproduz EXATAMENTE o clamp
+    // por-lançamento do espelhamento do Livro Caixa (S4) — uma venda nunca tem
+    // receita negativa. `ROUND(...*100)` por linha casa com o Math.round(reais*100)
+    // por linha do S4. Assim as duas somas são idênticas ao centavo (reconciliação).
     const rows = await this.prisma.$queryRaw<RevenueRow[]>(Prisma.sql`
-      SELECT COALESCE(ROUND(SUM("amount") * 100), 0) AS "cents"
-      FROM "MasterBillingLedgerEntry"
-      WHERE "entryGroup" = 'revenue'
-        AND UPPER("status") = 'APPROVED'
-        AND "competence" = ${competencia}
+      SELECT COALESCE(SUM(GREATEST(ROUND(mble."amount" * 100) - ROUND(COALESCE(fc."refundAmount", 0) * 100), 0)), 0) AS "cents"
+      FROM "MasterBillingLedgerEntry" mble
+      LEFT JOIN "FinanceiroCharge" fc ON fc."ledgerEntryId" = mble."id"
+      WHERE mble."entryGroup" = 'revenue'
+        AND UPPER(mble."status") IN ('APPROVED', 'REFUNDED', 'PARTIALLY_REFUNDED')
+        AND mble."competence" = ${competencia}
     `);
     const cents = rows?.[0]?.cents;
     return Math.max(0, Math.trunc(Number(cents ?? 0)));
+  }
+
+  /**
+   * Receita de caixa (cents) reconhecida numa competência — BASE DO DAS.
+   * Delega à fonte única `receitaLiquidaCentsPorCompetencia` (líquida de
+   * estorno): venda cancelada/estornada não compõe base do Simples Nacional.
+   * Mantido como método próprio por compatibilidade de nome (S1 já o consome).
+   */
+  async receitaCaixaCents(competencia: string): Promise<number> {
+    return this.receitaLiquidaCentsPorCompetencia(competencia);
   }
 
   /**

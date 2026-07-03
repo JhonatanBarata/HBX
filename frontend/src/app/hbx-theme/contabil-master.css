@@ -1,0 +1,602 @@
+/* ============================================================
+   Contabil — janela do /master (CONTABIL S3).
+   O contador-robô do dono: tributos previstos do mês, Fator R ao
+   vivo, simulador Anexo III×V e linha do tempo de obrigações
+   fiscais. Visual nasce AQUI (token/classe central) — nada de
+   hex/inline em tela. Tokens: ver theme.css / skeleton.css.
+   ============================================================ */
+
+/* ---- a) Herói do mês ------------------------------------------------- */
+.ctb-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 980px) {
+  .ctb-hero { grid-template-columns: 1fr; }
+}
+.ctb-hero-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px 20px;
+  border-radius: var(--panel-radius);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+.ctb-hero-label {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.ctb-hero-value {
+  font-family: var(--font-display);
+  font-size: 2.1rem;
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--text-strong);
+}
+.ctb-hero-value.ctb-money { color: var(--hbx-brand-strong); }
+.ctb-hero-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+.ctb-hero-breakdown {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+}
+.ctb-hero-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.74rem;
+}
+.ctb-hero-breakdown-row span:first-child { color: var(--text-muted); }
+.ctb-hero-breakdown-row span:last-child { font-weight: 700; color: var(--text-body); }
+
+.ctb-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--hbx-info);
+  background: color-mix(in srgb, var(--hbx-info) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hbx-info) 28%, transparent);
+}
+
+/* Estado geral: verde/amarelo/vermelho — reusa .ckm-dot (cockpit-master.css). */
+.ctb-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.ctb-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--hbx-success);
+}
+.ctb-status-dot.warn { background: var(--hbx-warning); }
+.ctb-status-dot.bad { background: var(--hbx-danger); }
+
+/* ---- b) Fator R ao vivo ------------------------------------------------ */
+.ctb-fator-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: var(--panel-radius);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+.ctb-fator-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ctb-fator-pct {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+.ctb-fator-anexo {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.ctb-gauge {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  overflow: hidden;
+}
+.ctb-gauge-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--hbx-danger);
+  transition: width 0.4s ease;
+}
+.ctb-gauge-fill.ok { background: var(--hbx-success); }
+.ctb-gauge-limiar {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--hbx-brand-strong);
+}
+.ctb-gauge-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+}
+
+.ctb-fator-reco {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+.ctb-fator-reco-text { font-size: 0.76rem; color: var(--text-body); }
+.ctb-fator-reco-text strong { color: var(--text-strong); font-family: var(--font-display); }
+
+.ctb-banner-warn {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--hbx-warning) 9%, transparent);
+  font-size: 0.72rem;
+  color: var(--text-body);
+  line-height: 1.5;
+}
+.ctb-banner-warn strong { color: var(--hbx-warning); }
+
+/* ---- c) Simulador ------------------------------------------------------ */
+.ctb-sim-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+@media (max-width: 980px) {
+  .ctb-sim-grid { grid-template-columns: 1fr; }
+}
+.ctb-sim-inputs { display: grid; gap: 12px; align-content: start; }
+.ctb-field { display: grid; gap: 5px; }
+.ctb-field label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ctb-field input,
+.ctb-field select {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-field-surface);
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.84rem;
+}
+.ctb-field input:focus,
+.ctb-field select:focus { outline: 2px solid var(--ring-brand); outline-offset: 1px; }
+
+.ctb-sim-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 620px) {
+  .ctb-sim-compare { grid-template-columns: 1fr; }
+}
+.ctb-sim-col {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-sim-col.ctb-sim-winner {
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent);
+  background: var(--hbx-brand-soft);
+}
+.ctb-sim-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ctb-sim-col-title { font-size: 0.78rem; font-weight: 800; color: var(--text-strong); }
+.ctb-sim-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.74rem;
+}
+.ctb-sim-row span:first-child { color: var(--text-muted); }
+.ctb-sim-row span:last-child { font-weight: 700; color: var(--text-body); }
+.ctb-sim-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+.ctb-sim-total span:last-child { color: var(--hbx-brand-strong); font-family: var(--font-display); }
+
+/* ---- d) Linha do tempo de obrigações ------------------------------------ */
+.ctb-timeline {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+.ctb-oblig-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-oblig-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-raised);
+  color: var(--text-muted);
+}
+.ctb-oblig-body { display: grid; gap: 3px; min-width: 0; }
+.ctb-oblig-title { font-size: 0.8rem; font-weight: 800; color: var(--text-strong); }
+.ctb-oblig-meta { font-size: 0.66rem; color: var(--text-muted); }
+.ctb-oblig-meta.late { color: var(--hbx-danger); font-weight: 700; }
+.ctb-oblig-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Chip de estado da obrigação — mesma família de .tag (kit.css) com tonalidade
+   dedicada por estado (não recolorir .tag; classe própria por semântica). */
+.ctb-chip {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  width: fit-content;
+  white-space: nowrap;
+  color: var(--hbx-info);
+  background: color-mix(in srgb, var(--hbx-info) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hbx-info) 28%, transparent);
+}
+.ctb-chip.ok { color: var(--hbx-success); background: color-mix(in srgb, var(--hbx-success) 12%, transparent); border-color: color-mix(in srgb, var(--hbx-success) 30%, transparent); }
+.ctb-chip.warn { color: var(--hbx-warning); background: color-mix(in srgb, var(--hbx-warning) 10%, transparent); border-color: color-mix(in srgb, var(--hbx-warning) 30%, transparent); }
+.ctb-chip.bad { color: var(--hbx-danger); background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); border-color: color-mix(in srgb, var(--hbx-danger) 30%, transparent); }
+
+/* ---- e) Rodapé de contexto (RBT12 / faixa do Simples) ------------------- */
+.ctb-footer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.ctb-footer-kpi {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-footer-kpi span:first-child { font-size: 0.62rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.ctb-footer-kpi strong { font-family: var(--font-display); font-size: 1.05rem; color: var(--text-strong); }
+
+/* ---- Badge de contagem no seletor de janelas (nav do master) ------------ */
+.ctb-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  margin-left: auto;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--hbx-brand-contrast);
+  background: var(--hbx-danger);
+}
+.ctb-nav-badge.warn { background: var(--hbx-warning); }
+
+/* ---- Drawer de perfil fiscal --------------------------------------------- */
+.ctb-perfil-form { display: grid; gap: 12px; padding: 20px; }
+.ctb-perfil-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 520px) {
+  .ctb-perfil-grid { grid-template-columns: 1fr; }
+}
+.ctb-perfil-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+.ctb-perfil-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ctb-perfil-section-title { font-size: 0.78rem; font-weight: 800; color: var(--text-strong); }
+.ctb-perfil-locked {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-hairline);
+  background: var(--hbx-surface-soft);
+  opacity: 0.66;
+}
+.ctb-perfil-locked input, .ctb-perfil-locked button { pointer-events: none; }
+
+/* Empty / erro — mesmo padrão de .ckm-empty (cockpit-master.css). */
+.ctb-empty { padding: 28px 18px; text-align: center; font-size: 0.74rem; color: var(--text-muted); }
+
+/* ============================================================
+   CONTABIL S5 — Copiloto "Fechar o mês" (botão herói + wizard).
+   ============================================================ */
+
+/* ---- Botão herói "Fechar o mês" ---------------------------------------- */
+.ctb-fechar-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-radius: var(--panel-radius);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 34%, transparent);
+  background: var(--hbx-brand-soft);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+.ctb-fechar-hero-text { display: grid; gap: 4px; min-width: 0; }
+.ctb-fechar-hero-text strong { font-family: var(--font-display); font-size: 1rem; color: var(--text-strong); }
+.ctb-fechar-hero-text span { font-size: 0.72rem; color: var(--text-muted); }
+.ctb-fechar-hero-btn {
+  min-height: 44px;
+  padding: 0 24px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* ---- Modal do wizard ---------------------------------------------------- */
+.ctb-wiz {
+  width: min(680px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ctb-wiz-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.ctb-wiz-fase0 {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--hbx-info);
+}
+
+/* Stepper */
+.ctb-wiz-steps {
+  display: flex;
+  gap: 6px;
+  padding: 12px 22px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.ctb-wiz-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+  white-space: nowrap;
+  opacity: 0.6;
+}
+.ctb-wiz-step.active { opacity: 1; border-color: color-mix(in srgb, var(--hbx-brand) 45%, transparent); background: var(--hbx-brand-soft); }
+.ctb-wiz-step.done { opacity: 0.85; }
+.ctb-wiz-step-num {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--hbx-brand-contrast);
+  background: var(--hbx-brand-strong);
+}
+.ctb-wiz-step.done .ctb-wiz-step-num { background: var(--hbx-success); }
+.ctb-wiz-step-label { font-size: 0.66rem; font-weight: 700; color: var(--text-body); }
+
+/* Corpo */
+.ctb-wiz-body { padding: 18px 22px 22px; overflow-y: auto; }
+.ctb-wiz-panel { display: grid; gap: 14px; }
+.ctb-wiz-lead { margin: 0; font-size: 0.86rem; color: var(--text-body); line-height: 1.5; }
+.ctb-wiz-lead strong { color: var(--text-strong); }
+.ctb-wiz-msg { font-size: 0.68rem; color: var(--text-muted); }
+
+.ctb-wiz-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.ctb-wiz-kv.big { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.ctb-wiz-kv > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-wiz-kv > div span { font-size: 0.62rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.ctb-wiz-kv > div strong { font-family: var(--font-display); font-size: 0.94rem; color: var(--text-strong); }
+.ctb-wiz-kv .ctb-ok { color: var(--hbx-success); }
+.ctb-wiz-kv .ctb-bad { color: var(--hbx-danger); }
+
+/* Alertas do wizard */
+.ctb-wiz-alert {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text-body);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-wiz-alert.ok { border-color: color-mix(in srgb, var(--hbx-success) 34%, transparent); background: color-mix(in srgb, var(--hbx-success) 9%, transparent); }
+.ctb-wiz-alert.ok strong { color: var(--hbx-success); }
+.ctb-wiz-alert.bad { border-color: color-mix(in srgb, var(--hbx-danger) 38%, transparent); background: color-mix(in srgb, var(--hbx-danger) 9%, transparent); }
+.ctb-wiz-alert.bad strong { color: var(--hbx-danger); }
+
+/* Cartão-espelho do governo */
+.ctb-wiz-govcard {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+}
+.ctb-wiz-govrow { display: flex; justify-content: space-between; gap: 12px; font-size: 0.76rem; }
+.ctb-wiz-govrow span { color: var(--text-muted); }
+.ctb-wiz-govrow strong { color: var(--text-body); font-weight: 700; }
+.ctb-wiz-govrow.total { padding-top: 6px; margin-top: 2px; border-top: 1px solid var(--border-hairline); font-size: 0.88rem; }
+.ctb-wiz-govrow.total strong { color: var(--hbx-brand-strong); font-family: var(--font-display); }
+
+.ctb-wiz-links { display: flex; gap: 10px; flex-wrap: wrap; }
+.ctb-wiz-links a { min-height: 34px; text-decoration: none; font-size: 0.72rem; }
+
+.ctb-wiz-form { display: grid; gap: 10px; }
+.ctb-wiz-impacto { display: grid; gap: 10px; }
+.ctb-wiz-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* Card de obrigação dentro do wizard (marcar + comprovantes) */
+.ctb-wiz-oblig {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-wiz-oblig-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ctb-wiz-oblig-title { font-size: 0.8rem; font-weight: 800; color: var(--text-strong); }
+.ctb-wiz-oblig-due { font-size: 0.64rem; color: var(--text-muted); margin-left: auto; }
+.ctb-wiz-mark { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ctb-wiz-recibo {
+  flex: 1 1 180px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-field-surface);
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+}
+.ctb-wiz-recibo:focus { outline: 2px solid var(--ring-brand); outline-offset: 1px; }
+
+.ctb-wiz-comprov { display: grid; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--border-hairline); }
+.ctb-wiz-comprov-head { display: flex; align-items: center; gap: 10px; font-size: 0.66rem; font-weight: 700; color: var(--text-muted); }
+.ctb-wiz-comprov-head > span:first-child { text-transform: uppercase; letter-spacing: 0.03em; }
+.ctb-wiz-comprov-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  border: 1px solid var(--border-hairline);
+}
+.ctb-wiz-comprov-name { flex: 1; min-width: 0; font-size: 0.7rem; color: var(--text-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Relatório final */
+.ctb-wiz-relatorio {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.ctb-wiz-relatorio-head { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); }
+.ctb-wiz-relatorio-texto {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  border: 1px solid var(--border-hairline);
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  line-height: 1.6;
+  color: var(--text-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

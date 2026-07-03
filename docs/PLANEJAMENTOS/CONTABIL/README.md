@@ -55,15 +55,16 @@ S3 Janela Contabil no /master        (UI "altíssima qualidade")  → Sonnet
 S4 Livro Caixa + lucro isento                                    → Sonnet
 S5 Copiloto "Fechar o mês"           (semi-auto, ZERO API paga)  → Opus
 
-== ESTACIONADO (decisão do dono 03/07 — só depois, com o sistema em ordem e VÁRIOS clientes) ==
-S6 NFS-e Nacional automática         🅿️ PARADO — gerar NF pro cliente é visão de futuro
-S7 Autopost PGDAS-D/DAS via Serpro   🅿️ PARADO — braço robótico só quando escalar
+== ONDA 2 (dono 03/07 "termine todos até o s7 go") — CÓDIGO atrás de flag OFF ==
+S6 NFS-e Nacional automática         → Opus  (flag OFF; ativação LIVE atrás do gate cert A1 + CNPJ real)
+S7 Autopost PGDAS-D/DAS via Serpro   → Opus  (flag OFF; ativação LIVE atrás do gate Loja Serpro)
 ```
-**S1→S5 entregam o produto COMPLETO em modo semi-auto: zero custo externo, zero risco de fisco.**
-O dono fecha o mês em ~10 min com tudo pré-calculado e conferido; o app só não dá o último clique
-no site do governo. S6/S7 (o "ele mesmo posta" 100% automático via API oficial) ficam PLANEJADOS e
-prontos pra ligar — mas só entram quando o dono decidir escalar (NF automática pro cliente faz
-sentido com base grande, não com 1 CNPJ). Os planos S6/S7 permanecem no disco como blueprint.
+**S1→S5 = produto COMPLETO em modo semi-auto (zero custo externo, zero risco de fisco).** S6/S7 são
+o braço robótico ("ele mesmo posta" 100% automático via API oficial): CÓDIGO construído e testado com
+cert de teste/mocks, tudo atrás de flag própria **default OFF** (deploy com flag OFF é inerte por design).
+A validação LIVE (produção-restrita NFS-e, ambiente demo Serpro, emitir/declarar de verdade) NÃO roda
+agora — depende de e-CNPJ A1 comprado + contrato Serpro + CNPJ real (o gate do dono). "Pronto" p/ S6/S7
+= código completo + testes verdes + pronto pra ligar quando o dono tiver as chaves.
 
 **Nota de dependência:** os alertas usam `backend/src/master-alert/master-alert.service.ts`
 (JÁ existe no tree principal — e-mail + zap + log best-effort). Se o Cockpit Master nº8

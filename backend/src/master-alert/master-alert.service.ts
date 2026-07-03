@@ -39,6 +39,21 @@ export type ImplantacaoSoldInput = {
   leadId?: string | null;
 };
 
+// CONTABIL S2 — alerta de obrigação fiscal (D-7/D-3/D-1/D0/ATRASADO). Texto já
+// vem PRONTO do obligation-scheduler (o Contabil é o único autor do conteúdo —
+// este método só entrega nos canais). `permitirWhatsapp=false` pula o canal
+// WhatsApp mas ainda registra e-mail + log (usado pelo teto anti-spam do
+// scheduler: quando o teto de zaps/dia estoura, o alerta ainda existe, só não
+// dispara zap).
+export type FiscalObligationAlertInput = {
+  competencia: string;
+  tipo: string;
+  estado: string;
+  dueDate: Date;
+  texto: string;
+  permitirWhatsapp?: boolean;
+};
+
 @Injectable()
 export class MasterAlertService {
   private readonly logger = new Logger(MasterAlertService.name);
@@ -294,6 +309,69 @@ export class MasterAlertService {
     } catch (error) {
       this.logger.warn(`master_alert_bot_config_whatsapp_falhou: ${String((error as Error)?.message || error)}`);
       await this.recordLog({ companyId, target: 'whatsapp', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+    }
+
+    return { email: emailOk, whatsapp: whatsappOk };
+  }
+
+  // CONTABIL S2 — alerta de obrigação fiscal. Não existe "empresa-cliente" dona
+  // deste alerta (é o fisco DO PRÓPRIO dono) — reusamos MASTER_ALERT_WA_COMPANY_ID
+  // (a empresa HBX já usada como remetente do WhatsApp) como companyId do log só
+  // p/ satisfazer a FK de MasterPaymentNotificationLog; se a env não estiver
+  // configurada, recordLog() já é try/catch (best-effort) e o log simplesmente
+  // não persiste — nunca derruba o alerta em si. target prefixado "fiscal:".
+  async fiscalObligationAlert(input: FiscalObligationAlertInput): Promise<{ email: boolean; whatsapp: boolean }> {
+    const companyId = Number(process.env.MASTER_ALERT_WA_COMPANY_ID || 0) || 0;
+    const text = String(input.texto || '').trim();
+    const permitirWhatsapp = input.permitirWhatsapp !== false;
+
+    // 0) Registro sempre presente (fonte da verdade do "o que o Contabil já avisou").
+    await this.recordLog({ companyId, target: `fiscal:${input.competencia}:${input.tipo}`, text, status: 'sent' });
+
+    let emailOk = false;
+    let whatsappOk = false;
+
+    // 1) E-mail
+    try {
+      const to = await this.resolveMasterEmail();
+      if (to) {
+        const res = await this.mail.sendMail({
+          to,
+          subject: `[Contabil] ${input.tipo} ${input.competencia} — ${input.estado}`,
+          text,
+        });
+        emailOk = Boolean(res?.ok);
+        await this.recordLog({
+          companyId,
+          target: `email:${to}`,
+          text,
+          status: emailOk ? 'sent' : 'failed',
+          errorMessage: emailOk ? null : (res?.errorMessage || 'email não confirmado'),
+        });
+      } else {
+        this.logger.warn('master_alert_fiscal_sem_email — defina MASTER_ALERT_EMAIL ou um usuário system_master com e-mail');
+      }
+    } catch (error) {
+      this.logger.warn(`master_alert_fiscal_email_falhou: ${String((error as Error)?.message || error)}`);
+      await this.recordLog({ companyId, target: 'email', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+    }
+
+    // 2) WhatsApp — só se o chamador ainda não estourou o teto anti-spam do dia.
+    if (permitirWhatsapp) {
+      try {
+        const to = this.normalizeWhatsAppTarget(process.env.MASTER_ALERT_WHATSAPP_TO || '19997024884');
+        const senderCompanyId = Number(process.env.MASTER_ALERT_WA_COMPANY_ID || 0) || 0;
+        if (to && senderCompanyId > 0) {
+          const sent = await this.webwhats.sendText(senderCompanyId, { to, text });
+          whatsappOk = true;
+          await this.recordLog({ companyId, target: sent.target, text, status: 'sent', providerMessageId: sent.providerMessageId });
+        } else if (!senderCompanyId) {
+          this.logger.warn('master_alert_fiscal_sem_whatsapp — defina MASTER_ALERT_WA_COMPANY_ID (empresa HBX com WhatsApp conectado)');
+        }
+      } catch (error) {
+        this.logger.warn(`master_alert_fiscal_whatsapp_falhou: ${String((error as Error)?.message || error)}`);
+        await this.recordLog({ companyId, target: 'whatsapp', text, status: 'failed', errorMessage: String((error as Error)?.message || error) });
+      }
     }
 
     return { email: emailOk, whatsapp: whatsappOk };

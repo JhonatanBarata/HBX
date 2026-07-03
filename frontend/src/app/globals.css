@@ -37,6 +37,10 @@
    .tp-* de screens.css; aqui só o que é novo (.tpx-*). */
 @import "./hbx-theme/team-permissions.css";
 
+/* Contabil (CONTABIL S3): janela do /master com tributos previstos, Fator R
+   ao vivo, simulador Anexo III×V e linha do tempo de obrigações fiscais. */
+@import "./hbx-theme/contabil-master.css";
+
 /* Construtor de Bot — peças do rebuild (organograma, botões QR×Meta, gaveta de
    variáveis) + layout da tela dividida. Depois de transitions.css (reusam
    .hbx-veil/.hbx-drawer) e antes das peles/mobile. */

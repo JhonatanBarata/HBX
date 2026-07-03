@@ -402,11 +402,12 @@ function stageZip(zipPath, group) {
 // Transform: SQL set-based (cada fase = 1 transação, re-executável)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Tuning calibrado 02/07 p/ mount degradada do Docker Desktop WSL: work_mem alto mantém o
-// DISTINCT ON de ~28M linhas em RAM (32GB na máquina) e elimina o spill de ~4,5GB em arquivo
-// temp — que era exatamente onde o transform travava (DataFileRead no virtiofs). parallel=0
-// serializa a varredura (paralelo multiplicava a pressão de IO e o consumo de work_mem).
-const TUNING = `SET work_mem = '8GB'; SET maintenance_work_mem = '4GB'; SET max_parallel_workers_per_gather = 0;`;
+// Tuning calibrado 03/07 (corrige o OOM de 02/07): a VM do WSL tem 16GB, NÃO 32. O teto de um
+// hash join é work_mem × hash_mem_multiplier; com work_mem=8GB × hmm=2 (default PG15) 1 hash
+// crescia até 16GB = RAM inteira da VM → OOM, crash-recovery zerava o staging unlogged. Fix:
+// teto baixo e explícito (work_mem 2GB × hmm 1.0 = teto 2GB de hash; spilla em disco em vez de
+// estourar). parallel=0 serializa a varredura. Pós-reboot o mount está rápido, spill é barato.
+const TUNING = `SET work_mem = '2GB'; SET maintenance_work_mem = '2GB'; SET hash_mem_multiplier = '1.0'; SET max_parallel_workers_per_gather = 0;`;
 
 // Ranking do "dono": Sócio-Administrador > Administrador > Titular PF > Diretor > Presidente >
 // Titular Emp. Individual > Sócio-Gerente > Sócio... ; PF (identificador 2) ganha de PJ no empate.

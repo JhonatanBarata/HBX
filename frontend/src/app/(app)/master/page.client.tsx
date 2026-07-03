@@ -14,6 +14,7 @@ import { apiFetch, clearToken } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
 import { JanelaCockpit } from "./janela-cockpit";
+import { JanelaContabil } from "./janela-contabil";
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaOnline } from "./janela-online";
@@ -108,6 +109,7 @@ const JANELAS = [
   { id: "emails", label: "E-mails", icon: "mail" },
   { id: "tickets", label: "Tickets", icon: "doc" },
   { id: "pagamentos", label: "Pagamentos", icon: "money" },
+  { id: "contabil", label: "Contabil", icon: "doc" },
   { id: "sistema", label: "Sistema", icon: "mark" },
 ] as const;
 
@@ -121,6 +123,10 @@ export function MasterClient() {
   const [janela, setJanela] = useTabParam<JanelaId>("janela", "empresas", JANELAS.map(j => j.id));
   const [signingOut, setSigningOut] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Badge do Contabil no seletor de janelas (contagem de obrigações
+  // 🔴 atrasadas / 🟡 próximas 7 dias) — a janela reporta via onBadgeChange.
+  const [contabilBadge, setContabilBadge] = useState<{ atrasadas: number; proximas: number } | null>(null);
 
   // Lista de empresas compartilhada entre janelas (Empresas, Integrações):
   // uma chamada, recarregável após provisioning/edição.
@@ -282,6 +288,11 @@ export function MasterClient() {
             onClick={() => setJanela(j.id)}>
             <I d={ICONS[j.icon]} />
             {j.label}
+            {j.id === "contabil" && contabilBadge && (contabilBadge.atrasadas > 0 || contabilBadge.proximas > 0) && (
+              <span className={"ctb-nav-badge" + (contabilBadge.atrasadas === 0 ? " warn" : "")}>
+                {contabilBadge.atrasadas > 0 ? contabilBadge.atrasadas : contabilBadge.proximas}
+              </span>
+            )}
           </button>
         ))}
         <div className="side-bottom">
@@ -345,6 +356,7 @@ export function MasterClient() {
           {janela === "emails" && <JanelaEmails />}
           {janela === "tickets" && <JanelaTickets />}
           {janela === "pagamentos" && <JanelaPagamentos />}
+          {janela === "contabil" && <JanelaContabil onBadgeChange={setContabilBadge} />}
           {janela === "sistema" && <JanelaSistema />}
         </div>
       </div>
