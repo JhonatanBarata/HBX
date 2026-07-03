@@ -20,6 +20,7 @@ import { CadastrosModule } from './cadastros/cadastros.module';
 import { WebsiteModule } from './website/website.module';
 import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
 import { MasterContextModule } from './master-context/master-context.module';
+import { ContabilModule } from './contabil/contabil.module';
 import { WebscrapingModule } from './webscraping/webscraping.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { VendasModule } from './vendas/vendas.module';
@@ -71,6 +72,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
     WebsiteModule,
     HbxRecoveryModule,
     MasterContextModule,
+    ContabilModule,
     WebscrapingModule,
     IntegrationsModule,
     VendasModule,

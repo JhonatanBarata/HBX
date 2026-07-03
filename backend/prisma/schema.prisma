@@ -3602,3 +3602,46 @@ model GmailConnection {
 
   @@index([companyId])
 }
+
+// ===========================================================================
+// CONTABIL — contador-robô do dono (/master). Modelos aditivos, prefixo Fiscal*.
+// S1: só LÊ receita (MasterBillingLedgerEntry). Campos *Encrypted ficam null
+// até S6/S7 (certificado A1 / credencial Serpro — nunca em log/seed/git).
+// ===========================================================================
+
+model FiscalProfile {
+  id                   Int       @id @default(1) // singleton do dono (1 linha)
+  cnpj                 String?
+  razaoSocial          String?
+  dataAbertura         DateTime?
+  regime               String    @default("simples") // simples
+  anexoBase            String    @default("V") // nasce no V; Fator R decide III/V
+  cnaePrincipal        String    @default("6203-1/00")
+  aliquotaIssMunicipal Float? // p/ exibição
+  prolaboreAlvoPct     Float     @default(0.28) // Fator R alvo
+  certA1Encrypted      String? // S6 — AES-256-GCM, NUNCA em log
+  certA1ExpiresAt      DateTime?
+  serproCredEncrypted  String? // S7
+  updatedAt            DateTime  @updatedAt
+}
+
+model FiscalRevenueMonth {
+  id                String    @id @default(cuid())
+  competencia       String    @unique // "2026-07"
+  receitaCaixaCents Int       @default(0) // MP aprovado no mês (regime de caixa)
+  receitaNotasCents Int       @default(0) // NFS-e emitidas (S6)
+  ajusteManualCents Int       @default(0) // correção do dono, com motivo
+  ajusteMotivo      String?
+  folhaMesCents     Int       @default(0) // pró-labore bruto do mês
+  rbt12Cents        Int       @default(0) // calculado
+  folha12mCents     Int       @default(0) // calculado
+  fatorR            Float? // folha12m / rbt12
+  anexoAplicado     String? // "III" | "V"
+  aliquotaEfetiva   Float?
+  dasPrevistoCents  Int?
+  inssPrevistoCents Int?
+  irrfPrevistoCents Int?
+  fechadoEm         DateTime? // S5 — mês fechado pelo copiloto
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
