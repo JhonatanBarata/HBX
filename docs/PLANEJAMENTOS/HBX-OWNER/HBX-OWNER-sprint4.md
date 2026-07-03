@@ -1,5 +1,19 @@
 # HBX-OWNER — Sprint 4: SSE + Árvore composta (fim do polling-marreta)
 
+> **STATUS 03/07 (execução ARQ9) — ✅ IMPLEMENTADO, falta smoke no navegador:**
+> - DIVERGÊNCIA do plano: `web/tree.js`/`tree.css` NÃO existem no master (o front foi consolidado
+>   em `app.js`; o worktree onde o plano nasceu estava 61 commits atrás). Implementado contra a
+>   estrutura REAL — a lógica "1 snapshot em vez de N GETs" foi aplicada DENTRO do `app.js`.
+> - FEITO: `GET /owner/events` (SSE, auth `?token=`, antes do portão Bearer) + `GET /owner/tree`
+>   (snapshot composto, cache 30s, `?force=1`) + timer 30s que faz broadcast só com cliente vivo +
+>   heartbeat 25s. Front: EventSource com FALLBACK à prova de bala (timers começam no ritmo original;
+>   SSE só desacelera a rede de segurança; qualquer erro/ausência volta ao polling de hoje).
+> - VERIFICADO headless: node --check (server+app), boot real, curl /owner/tree (JSON degradado),
+>   curl /owner/events (stream + eventos), 401 com token errado, endpoints de fallback 200.
+> - PENDENTE: smoke no Chrome (`npm run owner:app`) pra ver o painting do happy-path SSE. O fallback
+>   garante que, mesmo se o painting tiver bug, o painel se comporta como hoje.
+
+
 > Arquitetura nº9 (HBX Owner). Escopo: `hbx-owner/local-agent/` (server.js + web/).
 > Depende do Sprint 1 (cache do snapshot VPS) — fazer depois dele.
 

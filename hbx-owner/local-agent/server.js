@@ -803,12 +803,14 @@ async function enricherLoop() {
   while (enricherJob.running) {
     try { await enricherCycle(); } catch (e) { enricherJob.lastError = String((e && e.message) || e); }
     saveEnricherJournal(); // persiste o cursor/métricas a cada ciclo → religa continua de onde parou
+    broadcastEnricher();   // empurra as métricas do ciclo pro SSE (front atualiza sem esperar o poll)
     if (!enricherJob.running) break;
     await enricherSleep(3000);
   }
   enricherJob.phase = "parado";
   enricherJob.stoppedAt = Date.now();
   saveEnricherJournal(); // grava o cursor final ao desligar (o botão religa retoma daqui)
+  broadcastEnricher();   // estado "parado" final pro SSE
 }
 
 function startEnricher(opts = {}) {
@@ -835,9 +837,10 @@ function startEnricher(opts = {}) {
     localLabJobId: null, lastError: null, lastCycleAt: 0,
   };
   setImmediate(() => void enricherLoop());
+  broadcastEnricher(); // "iniciando" pro SSE já na largada
   return true;
 }
-function stopEnricher() { enricherJob.running = false; return true; }
+function stopEnricher() { enricherJob.running = false; broadcastEnricher(); return true; }
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
 function backendRequestOnce(method, route, payload, token, options = {}) {
@@ -1638,6 +1641,7 @@ async function runTransferPull() {
         }
       }
       saveTransferJournal([]); // pull não tem sentIds; grava progresso a cada página OK
+      broadcastTransfer();     // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.pulled >= transferJob.total) break;
       if (items.length < pageSize) break;
@@ -1656,6 +1660,7 @@ async function runTransferPull() {
     transferJob.finishedAt = Date.now();
     if (transferJob.ok) clearTransferJournal(); // fim OK → sem retomada pendente
     else saveTransferJournal([]);               // parou com erro → deixa retomável no boot
+    broadcastTransfer();                        // estado final (done) pro SSE
   }
 }
 
@@ -1729,6 +1734,7 @@ async function runTransferPush() {
         }
       }
       saveTransferJournal(sentIds); // grava progresso + ids já aceitos a cada página OK
+      broadcastTransfer();          // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
       if (items.length < pageSize) break;
@@ -1759,6 +1765,7 @@ async function runTransferPush() {
     transferJob.finishedAt = Date.now();
     if (transferJob.ok) clearTransferJournal(); // fim OK (enviou + limpou) → sem retomada pendente
     else saveTransferJournal(sentIds);          // parou com erro → deixa retomável no boot
+    broadcastTransfer();                        // estado final (done) pro SSE
   }
 }
 
@@ -1811,6 +1818,195 @@ function sendError(res, statusCode, message) {
 function isAuthorized(req) {
   return req.headers.authorization === `Bearer ${TOKEN}`;
 }
+
+// ===== SSE (Server-Sent Events) — o agent EMPURRA o estado em vez de o front martelar ========
+// Sprint 4 HBX-OWNER. Zero-dep: text/event-stream via res.write("event: X\ndata: {json}\n\n").
+// Clientes vivos ficam num Set; cada broadcast escreve pra todos e descarta os já fechados.
+// Auth: EventSource não manda header Authorization → GET /owner/events aceita ?token= validado
+// contra o TOKEN local SÓ nesta rota (todo o resto segue exigindo Bearer). É bind 127.0.0.1.
+const sseClients = new Set();
+
+// Escreve UM evento SSE num cliente. Se o socket já morreu, devolve false (o caller remove).
+function sseWrite(res, event, dataObj) {
+  try {
+    if (res.writableEnded || res.destroyed) return false;
+    const payload = typeof dataObj === "string" ? dataObj : JSON.stringify(dataObj);
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${payload}\n\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Broadcast pra todos os clientes vivos; poda os que já fecharam. NÃO bloqueia (write é async no
+// kernel) e NÃO lança — um cliente morto nunca derruba o evento pros outros nem o event loop.
+function sseBroadcast(event, dataObj) {
+  if (!sseClients.size) return;
+  const payload = typeof dataObj === "string" ? dataObj : JSON.stringify(dataObj);
+  for (const res of sseClients) {
+    if (!sseWrite(res, event, payload)) {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    }
+  }
+}
+
+// Empurra o estado da transferência assim que ele muda (barra atualiza em <300ms, sem esperar o
+// tick de 1.2s). Mesmo payload do GET /owner/transfer/status (o front reusa paintTransfer).
+function broadcastTransfer() {
+  if (!sseClients.size) return;
+  const payload = { ok: true, ...transferJob };
+  if (!transferJob.running && transferResume) { payload.resumable = true; payload.resume = transferResume; }
+  sseBroadcast("transfer", payload);
+}
+
+// Empurra as métricas do enricher a cada ciclo/mudança. Shape idêntico ao GET /owner/enricher/status
+// EXCETO labUp (que exige uma leitura async do Local Lab) — o front mantém o labUp do último poll,
+// então o SSE nunca "apaga" o estado do Lab; só atualiza os números.
+function broadcastEnricher() {
+  if (!sseClients.size) return;
+  sseBroadcast("enricher", {
+    ok: true,
+    running: enricherJob.running,
+    phase: enricherJob.phase,
+    types: enricherJob.types,
+    aggressive: enricherJob.aggressive,
+    cycle: enricherJob.cycle,
+    cursorPage: enricherJob.cursorPage,
+    vpsTotal: enricherJob.vpsTotal,
+    metrics: {
+      cardsScanned: enricherJob.cardsScanned,
+      sitesCrawled: enricherJob.sitesCrawled,
+      emailsFound: enricherJob.emailsFound,
+      phonesFound: enricherJob.phonesFound,
+      cnpjsFound: enricherJob.cnpjsFound,
+      applied: enricherJob.applied,
+      tipo1Runs: enricherJob.tipo1Runs,
+    },
+    tipo1: enricherJob.tipo1,
+    startedAt: enricherJob.startedAt,
+    lastCycleAt: enricherJob.lastCycleAt,
+    error: enricherJob.lastError,
+  });
+}
+
+// ---------- Snapshot COMPOSTO da Árvore (Sprint 4) ----------
+// Monta o estado INTEIRO (local + VPS) reusando os readers/caches que JÁ existem, num único JSON
+// com UM generatedAt. Nenhum SSH novo: readSystemSnapshot é nativo; readVpsSystem/readRadarCockpit/
+// readVpsLeads/readVpsEngineCapacity/integrações-VPS passam pelos MESMOS caches (30/60/90s) que o
+// polling atual já usava. force=1 fura os caches onde há suporte (system/cockpit). Cada reader
+// degrada sozinho (ok:false) — o snapshot nunca lança nem trava por um lado offline.
+let treeSnapshotCache = { at: 0, data: null };
+async function buildTreeSnapshot(force = false) {
+  const [
+    localSystem, localBank, localEnginesStatus,
+    vpsSystem, vpsLeads, vpsEngines, radarCockpit,
+    integrationsVps,
+  ] = await Promise.all([
+    readSystemSnapshot().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readLeadsBank().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readEngineCapacity().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsSystem(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsLeads().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsEngineCapacity().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readRadarCockpit(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsIntegrationsPresence().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+  ]);
+  const integrationsLocal = INTEGRATION_CATALOG.map((i) => ({ ...i, ...readIntegrationPresence(i.key) }));
+  const snapshot = {
+    ok: true,
+    generatedAt: nowIso(),
+    local: {
+      system: localSystem,
+      bank: localBank,
+      engines: localEnginesStatus,
+      integrations: { ok: true, scope: "local", items: integrationsLocal },
+    },
+    vps: {
+      system: vpsSystem,
+      leads: vpsLeads,
+      engines: vpsEngines,
+      integrations: integrationsVps,
+    },
+    radarCockpit,
+    enricher: {
+      ok: true,
+      running: enricherJob.running,
+      phase: enricherJob.phase,
+      types: enricherJob.types,
+      aggressive: enricherJob.aggressive,
+      cycle: enricherJob.cycle,
+      cursorPage: enricherJob.cursorPage,
+      vpsTotal: enricherJob.vpsTotal,
+      metrics: {
+        cardsScanned: enricherJob.cardsScanned,
+        sitesCrawled: enricherJob.sitesCrawled,
+        emailsFound: enricherJob.emailsFound,
+        phonesFound: enricherJob.phonesFound,
+        cnpjsFound: enricherJob.cnpjsFound,
+        applied: enricherJob.applied,
+        tipo1Runs: enricherJob.tipo1Runs,
+      },
+      tipo1: enricherJob.tipo1,
+      startedAt: enricherJob.startedAt,
+      lastCycleAt: enricherJob.lastCycleAt,
+      error: enricherJob.lastError,
+    },
+    transfer: (() => {
+      const t = { ok: true, ...transferJob };
+      if (!transferJob.running && transferResume) { t.resumable = true; t.resume = transferResume; }
+      return t;
+    })(),
+  };
+  treeSnapshotCache = { at: Date.now(), data: snapshot };
+  return snapshot;
+}
+
+// Presença das chaves na VPS (mesma leitura do GET /owner/integrations/vps) — extraída pra ser
+// reusada pelo snapshot sem duplicar a chamada ao Ops Control.
+async function readVpsIntegrationsPresence() {
+  const keys = INTEGRATION_CATALOG.map((i) => i.key).join(",");
+  const r = await opsRequest("GET", `/api/opscontrol/env-presence?keys=${encodeURIComponent(keys)}`, null, 25000);
+  if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  const body = r.data || {};
+  if (r.ok && body.ok) return { ok: true, scope: "vps", items: body.items || {} };
+  return { ok: false, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` };
+}
+
+// Timer interno: recomputa o snapshot e faz broadcast do evento `snapshot` a cada 30s. .unref() pra
+// não segurar o processo. Só recomputa quando há cliente SSE vivo (economiza SSH quando o painel
+// está fechado); o GET /owner/tree sempre serve o último snapshot (ou computa on-demand). Reentrância
+// travada por snapshotTimerBusy — leitor pesado nunca empilha em cima de si mesmo.
+let snapshotTimerBusy = false;
+async function snapshotTick() {
+  if (snapshotTimerBusy) return;
+  if (!sseClients.size) return; // ninguém ouvindo → não gasta SSH; o GET on-demand cobre o resto
+  snapshotTimerBusy = true;
+  try {
+    const snap = await buildTreeSnapshot(false);
+    sseBroadcast("snapshot", snap);
+  } catch { /* um tick falho não derruba o timer; tenta de novo no próximo */ }
+  finally { snapshotTimerBusy = false; }
+}
+const snapshotTimer = setInterval(() => { void snapshotTick(); }, 30000);
+if (snapshotTimer.unref) snapshotTimer.unref();
+
+// Heartbeat SSE: comentário `: ping` a cada 25s mantém a conexão viva atravessando proxies/idle
+// e detecta clientes mortos (write falha → poda). .unref() pra não segurar o processo.
+const sseHeartbeat = setInterval(() => {
+  if (!sseClients.size) return;
+  for (const res of sseClients) {
+    try {
+      if (res.writableEnded || res.destroyed) { sseClients.delete(res); continue; }
+      res.write(": ping\n\n");
+    } catch {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    }
+  }
+}, 25000);
+if (sseHeartbeat.unref) sseHeartbeat.unref();
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -1903,8 +2099,59 @@ async function route(req, res) {
     return;
   }
 
+  // SSE — canal de eventos (transfer/enricher/snapshot). Auth por ?token= (EventSource não manda
+  // header Authorization) validado contra o TOKEN local SÓ nesta rota. Aceita Bearer também (curl).
+  // Registra o response no Set de clientes vivos e remove no close. Manda um snapshot inicial na hora
+  // (o último em cache; computa on-demand se ainda não houver) pra a árvore pintar sem esperar 30s.
+  if (req.method === "GET" && url.pathname === "/owner/events") {
+    const queryToken = url.searchParams.get("token");
+    const authed = isAuthorized(req) || (queryToken != null && queryToken === TOKEN);
+    if (!authed) { sendError(res, 401, "Token local invalido ou ausente."); return; }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-store",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    // Sugere ao EventSource re-tentar em 3s se a conexão cair (reconexão nativa do browser).
+    res.write("retry: 3000\n\n");
+    sseClients.add(res);
+    const cleanup = () => {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    };
+    req.on("close", cleanup);
+    req.on("error", cleanup);
+    res.on("error", cleanup);
+    // Estado inicial imediato: transfer + enricher + a árvore composta.
+    sseWrite(res, "hello", { ok: true, at: nowIso() });
+    broadcastTransfer();
+    broadcastEnricher();
+    try {
+      const snap = (treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000)
+        ? treeSnapshotCache.data
+        : await buildTreeSnapshot(false);
+      sseWrite(res, "snapshot", snap);
+    } catch { /* snapshot inicial falhou (tudo offline) — o front cai no fallback de polling */ }
+    return;
+  }
+
   if (!isAuthorized(req)) {
     sendError(res, 401, "Token local invalido ou ausente.");
+    return;
+  }
+
+  // Snapshot COMPOSTO da Árvore (Sprint 4): 1 GET devolve local+VPS com UM generatedAt, reusando os
+  // caches. ?force=1 recomputa furando os caches subjacentes onde há suporte. É o fallback do SSE.
+  if (req.method === "GET" && url.pathname === "/owner/tree") {
+    const force = url.searchParams.get("force") === "1";
+    if (!force && treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000) {
+      sendJson(res, 200, treeSnapshotCache.data);
+      return;
+    }
+    const snap = await buildTreeSnapshot(force);
+    if (sseClients.size) sseBroadcast("snapshot", snap); // recomputou → empurra pros ouvintes também
+    sendJson(res, 200, snap);
     return;
   }
 
@@ -2315,11 +2562,13 @@ async function route(req, res) {
     }
     transferResume = null; // recomeçou de fato → some com o aviso de retomada do boot
     transferJob = freshTransferJob(isPull ? "pull" : "push");
+    broadcastTransfer();   // "iniciando" pro SSE já na largada
     (isPull ? runTransferPull() : runTransferPush()).catch((err) => {
       transferJob.error = err?.message || "falha";
       transferJob.ok = false; transferJob.done = true;
       transferJob.running = false; transferJob.finishedAt = Date.now();
       saveTransferJournal([]); // falha dura → deixa retomável
+      broadcastTransfer();
     });
     sendJson(res, 200, { ok: true, started: true, direction: transferJob.direction });
     return;
