@@ -1474,43 +1474,10 @@ async function readRadarCockpit(force) {
 // F0 (02/07): cache do factory-status (factoryStatusCache/invalidateFactoryStatusCache) removido
 // junto com as rotas de proxy da fábrica de descoberta demolida.
 
-// Espelha o looksLikeNonBusinessName do backend (radar-core-shared) pra limpar o banco local
-// pelo MESMO critério do filtro: script estrangeiro, título de página, frase em inglês, nome comprido.
-const NON_BIZ_EN_STOPWORDS = new Set(["the", "of", "to", "for", "and", "that", "this", "with", "your", "you", "in", "on", "at", "by", "from", "into", "about", "their", "they", "what", "how", "why", "when", "where", "which", "are", "was", "were", "will", "would", "can", "could", "should", "has", "have", "had", "does", "did", "its"]);
-function looksLikeNonBusinessName(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return false;
-  if (/[Ͱ-ϿЀ-ӿ֐-׿؀-ۿ฀-๿　-ヿ㐀-鿿가-힯]/.test(raw)) return true;
-  if (raw.includes("|") || /\s[–—]\s/.test(raw)) return true;
-  if (raw.includes("?")) return true;
-  const words = raw.toLowerCase().split(/[^a-zà-ÿ0-9+]+/i).filter(Boolean);
-  if (words.length > 9) return true;
-  const hits = new Set(words.filter((w) => NON_BIZ_EN_STOPWORDS.has(w)));
-  return hits.size >= 2;
-}
-
-// Espelha isRealisticBrPhone do backend: DDD real + celular(9)/fixo(2-5) + sem repetição.
-const VALID_BR_DDDS = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69, 71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99]);
-function isRealisticBrPhone(raw) {
-  let d = String(raw || "").replace(/\D/g, "");
-  if (d.startsWith("55") && d.length > 11) d = d.slice(2);
-  if (d.length !== 10 && d.length !== 11) return false;
-  if (!VALID_BR_DDDS.has(Number(d.slice(0, 2)))) return false;
-  const sub = d.slice(2);
-  if (/^(\d)\1+$/.test(sub)) return false;
-  if (d.length === 11) return sub.length === 9 && sub[0] === "9";
-  return sub.length === 8 && "2345".includes(sub[0]);
-}
-// "limpa tudo": lixo = nome não parece empresa OU não tem contato ÚTIL (telefone real
-// OU e-mail válido). Site/social sozinho NÃO segura (o lixo global tem site/sourceUrl).
-function isJunkLead(row) {
-  if (looksLikeNonBusinessName(row && row.name)) return true;
-  if (isRealisticBrPhone(row && (row.phone || row.phoneDigits))) return false;
-  const email = String((row && row.email) || "").trim();
-  const emailStatus = String((row && row.emailStatus) || "").toLowerCase();
-  if (email && !["missing", "invalid"].includes(emailStatus)) return false;
-  return true; // sem telefone real E sem e-mail válido = lixo
-}
+// A régua de "lixo" (looksLikeNonBusinessName + isRealisticBrPhone + composição isJunkLead) vivia
+// COPIADA aqui — agora é fonte ÚNICA no backend (radar-core-shared, com teste) exposta em
+// POST /modules/owner/radar/clean-junk (preview/confirm). O /owner/clean-junk-leads abaixo só proxia.
+// Sprint 3 HBX-OWNER: 1 régua, 1 lugar — sem divergência silenciosa com o filtro de entrada.
 
 // ----- Exportar TODOS os leads locais -> VPS + limpar o local (#2). Reusa endpoints existentes:
 // lê via master/database-cards, manda inline pelo Ops Control, limpa por leadIds. SÓ leads (e-mails ficam).
@@ -2231,45 +2198,36 @@ async function route(req, res) {
   }
 
   // Limpar o LIXO do banco local (#3): cards com nome que não é empresa. Preview por padrão; confirm:true apaga.
+  // Limpar o LIXO do banco local (#3). Agora PROXIA a régua ÚNICA do backend
+  // (POST /modules/owner/radar/clean-junk, preview/confirm) em vez de reimplementar o critério —
+  // o backend varre o pool inteiro (não só 40 páginas) pela mesma régua do filtro de entrada.
+  // Mantém o MESMO contrato pro front: preview → { preview, scanned, junk, sample }; confirm →
+  // { scanned, junk, cleared, errors }; vazio → { junk:0, message }.
   if (req.method === "POST" && url.pathname === "/owner/clean-junk-leads") {
     const body = await readBody(req);
-    const junkIds = [];
-    const sample = [];
-    let scanned = 0;
-    const limit = 500;
-    for (let page = 1; page <= 40 && junkIds.length < 20000; page += 1) {
-      const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
-      if (!r.ok || !r.data) break;
-      const items = Array.isArray(r.data.items) ? r.data.items : [];
-      if (!items.length) break;
-      for (const row of items) {
-        scanned += 1;
-        const id = String(row.id || "").trim();
-        const name = String(row.name || "");
-        if (id && isJunkLead(row)) {
-          junkIds.push(id);
-          if (sample.length < 8) sample.push(name || "(sem nome)");
-        }
-      }
-      if (items.length < limit) break;
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
+      return;
     }
-    if (!junkIds.length) {
+    const confirm = body.confirm === true;
+    const r = await backendRequest("POST", "/modules/owner/radar/clean-junk", { confirm }, { timeoutMs: 180000 });
+    const d = (r && r.data) || {};
+    if (!r.ok) {
+      sendJson(res, 502, { ok: false, reason: r.error || d.message || `http_${r.statusCode || "?"}` });
+      return;
+    }
+    const scanned = Number(d.scanned) || 0;
+    const junk = Number(d.junk) || 0;
+    if (!junk) {
       sendJson(res, 200, { ok: true, scanned, junk: 0, message: "Nenhum lixo de nome encontrado no banco local." });
       return;
     }
-    if (body.confirm !== true) {
-      sendJson(res, 200, { ok: true, preview: true, scanned, junk: junkIds.length, sample });
+    if (!confirm) {
+      sendJson(res, 200, { ok: true, preview: true, scanned, junk, sample: Array.isArray(d.sample) ? d.sample : [] });
       return;
     }
-    let cleared = 0;
-    const errors = [];
-    for (let i = 0; i < junkIds.length; i += 2000) {
-      const chunk = junkIds.slice(i, i + 2000);
-      const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
-      if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
-      else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
-    }
-    sendJson(res, 200, { ok: true, scanned, junk: junkIds.length, cleared, errors });
+    sendJson(res, 200, { ok: true, scanned, junk, cleared: Number(d.cleared) || 0, errors: [] });
     return;
   }
 
