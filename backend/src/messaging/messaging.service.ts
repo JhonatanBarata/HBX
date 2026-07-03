@@ -244,6 +244,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private pollHandle: NodeJS.Timeout | null = null;
   private readonly startedAtMs = Date.now();
+  // INTENTENGINE S4: reaper roda no boot e depois a cada N ciclos do poll de 5s existente
+  // (nenhum timer novo). 24 ciclos ~= 2min — barato o bastante pra não competir com o
+  // processamento normal da fila, frequente o bastante pra não deixar SENDING travado por muito tempo.
+  private pollCycleCount = 0;
+  private readonly reaperEveryNCycles = 24;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -267,9 +272,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     this.webwhatsBridge.setInboundRelay(async (input) => {
       await this.handleWebwhatsSyncedInbound(input);
     });
+    // INTENTENGINE S4: reaper de SENDING órfão roda 1x no boot (cobre o caso mais comum —
+    // processo reiniciado com mensagens travadas de antes) antes do primeiro poll.
+    this.reapStuckSendingMessages().catch((e) => this.logger.error(e?.message || e));
     // lightweight worker; avoids extra infra
     this.pollHandle = setInterval(() => {
       this.processDueMessages().catch((e) => this.logger.error(e?.message || e));
+      this.pollCycleCount += 1;
+      if (this.pollCycleCount % this.reaperEveryNCycles === 0) {
+        this.reapStuckSendingMessages().catch((e) => this.logger.error(e?.message || e));
+      }
     }, 5000);
   }
 
@@ -7857,6 +7869,103 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     for (const msg of due) {
       await this.sendOne(msg.id);
     }
+  }
+
+  // INTENTENGINE S4 (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint4.md): FURO 1 —
+  // se o processo morre entre o lock (PENDING→SENDING em sendOne) e o resultado (deploy/
+  // restart do `npm run publish` reinicia o backend), a linha ficava SENDING pra sempre.
+  // Reaper roda no boot + a cada N ciclos do poll existente (nenhum timer novo). `OutboundMessage`
+  // não tem `updatedAt` — o proxy de "há quanto tempo está SENDING" é o `startedAt` do
+  // OutboundAttempt mais recente (criado por sendOne logo após o lock, antes de qualquer
+  // chamada ao provider).
+  //
+  // Decisão conservadora (anti-duplicata pro cliente = anti-ban, regra do WHATSAPP.md):
+  // - SEM outboundAttempt algum pra essa mensagem → nenhuma tentativa chegou a ser
+  //   registrada (o lock não seguiu até criar o attempt) — seguro re-enfileirar:
+  //   status=PENDING, nextAttemptAt=now+backoff.
+  // - COM outboundAttempt mais recente aberto (finishedAt null) → sendOne SEMPRE cria o
+  //   attempt antes de chamar o provider, então "aberto" aqui significa que o processo
+  //   morreu em algum ponto entre o disparo e a gravação do resultado — pode TER sido
+  //   entregue. Reenviar arriscaria 2ª mensagem pro cliente: marca FAILED com
+  //   lastError='stuck_unknown_outcome' e deixa visível pro humano decidir (melhor 1
+  //   mensagem perdida visível que 2 enviadas invisíveis).
+  private get outboxStuckMinutes(): number {
+    const raw = Number(process.env.HBX_OUTBOX_STUCK_MINUTES);
+    return Number.isFinite(raw) && raw > 0 ? raw : 10;
+  }
+
+  async reapStuckSendingMessages(): Promise<{ requeued: number; failed: number }> {
+    const cutoff = new Date(Date.now() - this.outboxStuckMinutes * 60 * 1000);
+    const stuck = await this.prisma.outboundMessage.findMany({
+      where: { status: 'SENDING' },
+      select: {
+        id: true,
+        createdAt: true,
+        attemptCount: true,
+        attempts: { orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    let requeued = 0;
+    let failed = 0;
+
+    for (const msg of stuck) {
+      const lastAttempt = msg.attempts[0];
+      // Referência de idade: startedAt do attempt em aberto ou, na ausência de qualquer
+      // attempt, o createdAt da própria mensagem (fallback defensivo — não deveria ocorrer
+      // no fluxo normal, já que sendOne cria o attempt logo após o lock).
+      const referenceAt = lastAttempt?.startedAt ?? msg.createdAt;
+      if (referenceAt.getTime() > cutoff.getTime()) {
+        continue; // SENDING recente, dentro da janela — pode estar em andamento, não mexe.
+      }
+
+      if (lastAttempt && lastAttempt.finishedAt) {
+        // Não deveria acontecer (SENDING com o último attempt já finalizado) — outro
+        // caminho do código já teria movido o status pra frente. Por segurança, não mexe.
+        continue;
+      }
+
+      if (!lastAttempt) {
+        // Nenhuma tentativa chegou a ser registrada: nada foi de fato disparado ao provider.
+        const delayMs = exponentialBackoffMs(msg.attemptCount + 1) + jitterMs(750);
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'PENDING', nextAttemptAt: new Date(Date.now() + delayMs) },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { status: 'QUEUED' },
+        });
+        this.logger.warn(
+          `Outbox reaper: messageId=${msg.id} SENDING travada sem nenhum attempt registrado — reenfileirada (PENDING)`,
+        );
+        requeued += 1;
+        continue;
+      }
+
+      // Attempt registrado sem finishedAt: desfecho desconhecido (pode ter sido enviada).
+      await this.prisma.outboundAttempt.update({
+        where: { id: lastAttempt.id },
+        data: { finishedAt: new Date(), success: false, error: 'stuck_unknown_outcome' },
+      });
+      await this.prisma.outboundMessage.update({
+        where: { id: msg.id },
+        data: { status: 'FAILED', failedAt: new Date(), lastError: 'stuck_unknown_outcome', deliveryStatus: 'failed' },
+      });
+      await this.prisma.companyMessage.updateMany({
+        where: { outboundMessageId: msg.id },
+        data: { status: 'FAILED', error: 'stuck_unknown_outcome' },
+      });
+      this.logger.warn(
+        `Outbox reaper: messageId=${msg.id} SENDING travada com desfecho desconhecido — marcada FAILED (stuck_unknown_outcome) para revisão humana`,
+      );
+      failed += 1;
+    }
+
+    if (requeued > 0 || failed > 0) {
+      this.logger.warn(`Outbox reaper: requeued=${requeued} failed=${failed}`);
+    }
+    return { requeued, failed };
   }
 
   private parseJsonPayload<T>(raw: string | null | undefined, fallback: T): T {

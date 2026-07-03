@@ -4383,7 +4383,40 @@ export class InboxService {
       conversions = 0;
     }
 
-    return { windowDays, avgResponseSeconds, responseEpisodes, conversions };
+    const outbox = await this.getOutboxMetrics(companyId);
+
+    return { windowDays, avgResponseSeconds, responseEpisodes, conversions, outbox };
+  }
+
+  // INTENTENGINE S4 (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint4.md): FURO 2 — a
+  // fila de outbox (backend/src/messaging/messaging.service.ts) era invisível. 4 counts
+  // baratos pra dar visibilidade sem virar dashboard pesado. Falha isolada (ambiente
+  // parcial/tabela indisponível) não derruba o resto de /inbox/metrics — cai em zeros.
+  private async getOutboxMetrics(companyId: number) {
+    try {
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const [pending, failed24h, stuckSending, oldestPending] = await Promise.all([
+        this.prisma.outboundMessage.count({ where: { companyId, status: 'PENDING' } }),
+        this.prisma.outboundMessage.count({
+          where: { companyId, status: 'FAILED', failedAt: { gte: since24h } },
+        }),
+        this.prisma.outboundMessage.count({ where: { companyId, status: 'SENDING' } }),
+        this.prisma.outboundMessage.findFirst({
+          where: { companyId, status: 'PENDING' },
+          orderBy: { nextAttemptAt: 'asc' },
+          select: { nextAttemptAt: true, createdAt: true },
+        }),
+      ]);
+
+      const oldestPendingAgeSec = oldestPending
+        ? Math.max(0, Math.round((Date.now() - oldestPending.createdAt.getTime()) / 1000))
+        : 0;
+
+      return { pending, failed24h, stuckSending, oldestPendingAgeSec };
+    } catch {
+      // Tabela outbox pode não estar acessível em ambiente parcial — bloco vira zeros.
+      return { pending: 0, failed24h: 0, stuckSending: 0, oldestPendingAgeSec: 0 };
+    }
   }
 
   async listConversations(

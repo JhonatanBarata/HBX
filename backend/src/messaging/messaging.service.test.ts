@@ -1690,3 +1690,156 @@ test('webwhats messages.update with keyId sets OUTBOUND to DELIVERED', async () 
   const msgCall = messageUpdateCalls[0] as any;
   assert.equal(msgCall.data?.status, 'DELIVERED', 'Message status should be DELIVERED');
 });
+
+// ---------------------------------------------------------------------------
+// INTENTENGINE S4 — reaper de SENDING órfão (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint4.md)
+// ---------------------------------------------------------------------------
+
+function createServiceForReaperTest(stuckMessages: Array<Record<string, any>>) {
+  const outboundMessageUpdateCalls: Array<Record<string, unknown>> = [];
+  const outboundAttemptUpdateCalls: Array<Record<string, unknown>> = [];
+  const companyMessageUpdateManyCalls: Array<Record<string, unknown>> = [];
+
+  const prisma = {
+    hasTable: async () => false,
+    hasColumn: async () => false,
+    outboundMessage: {
+      findMany: async ({ where }: any) => {
+        if (where?.status !== 'SENDING') return [];
+        return stuckMessages;
+      },
+      update: async ({ where, data }: any) => {
+        outboundMessageUpdateCalls.push({ where, data });
+        return { id: where.id, ...data };
+      },
+    },
+    outboundAttempt: {
+      update: async ({ where, data }: any) => {
+        outboundAttemptUpdateCalls.push({ where, data });
+        return { id: where.id, ...data };
+      },
+    },
+    companyMessage: {
+      updateMany: async (input: Record<string, unknown>) => {
+        companyMessageUpdateManyCalls.push(input);
+        return { count: 1 };
+      },
+    },
+  } as any;
+
+  const conversations = { queueOutboundForCompany: async () => ({ outboundMessageId: 999, conversationId: 42 }) } as any;
+  const audit = { log: async () => undefined } as any;
+  const inboxRealtime = { publish: () => undefined, subscribe: () => () => undefined } as any;
+
+  const service = new MessagingService(
+    prisma,
+    {} as any,
+    {} as any,
+    {} as any,
+    conversations,
+    audit,
+    {} as any,
+    {} as any,
+    {} as any,
+    { sendText: async () => undefined } as any,
+    inboxRealtime,
+    new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
+    { evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}) } as any,
+    undefined as any,
+    undefined as any,
+  );
+
+  return { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls };
+}
+
+test('reaper: SENDING travada SEM attempt registrado volta para PENDING (re-enfileira)', async () => {
+  const oldEnough = new Date(Date.now() - 20 * 60 * 1000); // 20min > default 10min
+  const { service, outboundMessageUpdateCalls, companyMessageUpdateManyCalls } = createServiceForReaperTest([
+    { id: 101, attemptCount: 0, createdAt: oldEnough, attempts: [] },
+  ]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(outboundMessageUpdateCalls.length, 1);
+  const call = outboundMessageUpdateCalls[0] as any;
+  assert.equal(call.where.id, 101);
+  assert.equal(call.data.status, 'PENDING');
+  assert.ok(call.data.nextAttemptAt instanceof Date);
+  assert.ok(call.data.nextAttemptAt.getTime() > Date.now(), 'nextAttemptAt deve ser no futuro (backoff)');
+
+  assert.equal(companyMessageUpdateManyCalls.length, 1);
+  assert.equal((companyMessageUpdateManyCalls[0] as any).data.status, 'QUEUED');
+});
+
+test('reaper: SENDING travada COM attempt registrado sem resultado vira FAILED (stuck_unknown_outcome)', async () => {
+  const oldEnough = new Date(Date.now() - 20 * 60 * 1000);
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+    createServiceForReaperTest([
+      {
+        id: 202,
+        attemptCount: 1,
+        createdAt: oldEnough,
+        attempts: [{ id: 555, startedAt: oldEnough, finishedAt: null, httpStatus: null, responseBody: null }],
+      },
+    ]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 0);
+  assert.equal(result.failed, 1);
+
+  assert.equal(outboundAttemptUpdateCalls.length, 1);
+  const attemptCall = outboundAttemptUpdateCalls[0] as any;
+  assert.equal(attemptCall.where.id, 555);
+  assert.equal(attemptCall.data.success, false);
+  assert.equal(attemptCall.data.error, 'stuck_unknown_outcome');
+  assert.ok(attemptCall.data.finishedAt instanceof Date);
+
+  assert.equal(outboundMessageUpdateCalls.length, 1);
+  const msgCall = outboundMessageUpdateCalls[0] as any;
+  assert.equal(msgCall.where.id, 202);
+  assert.equal(msgCall.data.status, 'FAILED');
+  assert.equal(msgCall.data.lastError, 'stuck_unknown_outcome');
+  assert.ok(msgCall.data.failedAt instanceof Date);
+
+  assert.equal(companyMessageUpdateManyCalls.length, 1);
+  assert.equal((companyMessageUpdateManyCalls[0] as any).data.status, 'FAILED');
+});
+
+test('reaper: SENDING recente (dentro da janela) não é tocada', async () => {
+  const recentlyStarted = new Date(Date.now() - 2 * 60 * 1000); // 2min < default 10min
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+    createServiceForReaperTest([
+      {
+        id: 303,
+        attemptCount: 1,
+        createdAt: recentlyStarted,
+        attempts: [{ id: 777, startedAt: recentlyStarted, finishedAt: null, httpStatus: null, responseBody: null }],
+      },
+    ]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(outboundMessageUpdateCalls.length, 0);
+  assert.equal(outboundAttemptUpdateCalls.length, 0);
+  assert.equal(companyMessageUpdateManyCalls.length, 0);
+});
+
+test('reaper: mensagem PENDING normal não entra na varredura (findMany já filtra por status=SENDING)', async () => {
+  // O reaper só consulta outboundMessage.findMany com where.status === 'SENDING' — o mock
+  // de createServiceForReaperTest devolve [] para qualquer outro status, simulando isso.
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+    createServiceForReaperTest([]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(outboundMessageUpdateCalls.length, 0);
+  assert.equal(outboundAttemptUpdateCalls.length, 0);
+  assert.equal(companyMessageUpdateManyCalls.length, 0);
+});
