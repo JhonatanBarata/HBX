@@ -124,6 +124,11 @@ model Company {
   assistedSetupCompletedAt DateTime?
   assistedSetupCompletedByUserId Int?
   assistedSetupNote       String?
+  // Trilha de nascimento (multi-tenancy S4): registra COMO a empresa nasceu —
+  // por qual porta (signup/convite/provisionamento full), qual preset e o
+  // resultado de cada passo do pipeline único. Nullable aditivo; suporte lê pra
+  // saber por que uma empresa está sem produto/entitlement sem adivinhar.
+  provisioningLedgerJson  String?
   themePreferenceConfig   String?
   billingCardBrand        String?
   billingCardLast4        String?

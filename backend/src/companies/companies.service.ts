@@ -17,6 +17,12 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from './master-whatsapp-company.constants';
 import { COMPANY_KIND_PLATFORM_INFRA } from '../common/company-kind';
+import {
+  buildProvisioningLedger,
+  seedTenantDefaultProductsTx,
+  serializeProvisioningLedger,
+  type TenantProvisioningLedgerStep,
+} from '../master-provisioning/tenant-provisioning.pipeline';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
 export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao invalida para hard delete.';
@@ -412,6 +418,10 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     const inviteTtlMs = 7 * 24 * 60 * 60 * 1000;
 
     const created = await this.prisma.$transaction(async (tx) => {
+      // Pipeline único de nascimento (multi-tenancy S4), preset master_invite: a
+      // empresa nasce igual às outras portas (produtos default + trilha), e o
+      // convite/e-mail/token continua AQUI, fora do pipeline.
+      const ledgerSteps: TenantProvisioningLedgerStep[] = [];
       // Empresa criada pelo master nasce "Checkout pendente" (PR-002 B.6):
       // mesmo fluxo do self-service — o contratante conclui a contratacao.
       const company = await tx.company.create({
@@ -424,6 +434,18 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           primaryContactName: contactName,
           contactEmail,
         },
+      });
+      ledgerSteps.push({ key: 'create_tenant', status: 'done' });
+
+      // Antes o convite nascia SEM produto default (divergia do signup) —
+      // corrigido no S4: mesma semente default das demais portas.
+      const seededProducts = await seedTenantDefaultProductsTx(tx, company.id, {
+        source: 'master_company_invite',
+      });
+      ledgerSteps.push({
+        key: 'prepare_initial_products',
+        status: seededProducts.length ? 'done' : 'skipped',
+        detail: `${seededProducts.filter((product) => product.created).length} criado(s)`,
       });
 
       let adminUser: any = null;
@@ -448,6 +470,13 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           },
         });
       }
+      ledgerSteps.push({ key: 'create_initial_admin', status: adminUser ? 'done' : 'skipped' });
+
+      const ledger = buildProvisioningLedger('master_invite', 'master_company_invite', ledgerSteps);
+      await tx.company.update({
+        where: { id: company.id },
+        data: { provisioningLedgerJson: serializeProvisioningLedger(ledger) },
+      });
       return { company, adminUser };
     });
 
