@@ -17,6 +17,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, useCurrentUser, useEntitlements } from "@/components/hbx/shell";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
+import { isCompanySeller } from "@/lib/roles";
 
 type Ranking = { label: string; count: number };
 
@@ -146,7 +147,8 @@ export function RelatoriosClient() {
   const isMaster = Boolean((user as { isSystemMaster?: boolean } | null)?.isSystemMaster);
   // WORM-18: "Acompanhe sua equipe" e pro dono/admin. Vendedor nao ve (o backend
   // ja barra com 403; aqui evitamos disparar a chamada e mostrar a secao).
-  const isSeller = (user as { userKind?: string | null } | null)?.userKind === "seller";
+  // Régua canônica (lib/roles) — admin/USERMASTER nunca é seller → vê a equipe.
+  const isSeller = isCompanySeller(user);
   const podeVerEquipe = Boolean(user) && !isSeller;
   const [equipe, setEquipe] = useState<EquipeDashboard>(null);
   const [equipeErr, setEquipeErr] = useState<string | null>(null);

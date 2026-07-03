@@ -209,7 +209,8 @@ export class WhatsAppModalService {
   private isModalAdminOwner(user: any): boolean {
     if (user?.isSystemMaster) return true;
     const role = String(user?.role || '').trim().toUpperCase();
-    return role === 'ADMIN' && user?.canViewBilling !== false;
+    // USERMASTER (dono do tenant) = admin-dono, igual ao ADMIN com billing.
+    return (role === 'ADMIN' || role === 'USERMASTER') && user?.canViewBilling !== false;
   }
 
   // Mesma noção de "dono da sessão" do inbox (isAdminOwnerSessionUser): master OU ADMIN-dono
@@ -221,7 +222,8 @@ export class WhatsAppModalService {
     if (!row) return false;
     if (row.isSystemMaster) return true;
     const role = String(row.role || '').trim().toUpperCase();
-    return role === 'ADMIN' && row.canViewBilling !== false;
+    // USERMASTER (dono do tenant) = admin-dono, igual ao ADMIN com billing.
+    return (role === 'ADMIN' || role === 'USERMASTER') && row.canViewBilling !== false;
   }
 
   // PR4-F1: carrega papel pelo userId pra decidir se a sessão dele pode virar o ponteiro
@@ -1155,9 +1157,11 @@ export class WhatsAppModalService {
       affected = sessions
         .filter((s) => {
           const u = s.user as any;
+          // USERMASTER (dono do tenant) = admin-dono, igual ao ADMIN com billing.
+          const roleUp = String(u?.role || '').trim().toUpperCase();
           const isAdminOwner =
             Boolean(u?.isSystemMaster) ||
-            (String(u?.role || '').trim().toUpperCase() === 'ADMIN' && u?.canViewBilling !== false);
+            ((roleUp === 'ADMIN' || roleUp === 'USERMASTER') && u?.canViewBilling !== false);
           return !isAdminOwner;
         })
         .map((s) => ({

@@ -33,9 +33,13 @@ export function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
   const role = String(user.role || '').trim().toUpperCase();
   const isReferralSeller = false;
+  // USERMASTER (dono do tenant) e SUPERSET de ADMIN — trata igual a ADMIN em
+  // todo lugar que concede privilegio. Sem isto o dono caia em userKind 'user'
+  // (orfao) e herdava comportamento de vendedor no front inteiro (/auth/me).
+  const isTenantAdminRole = role === 'ADMIN' || role === 'USERMASTER';
   const userKind = user.isSystemMaster
     ? 'system_master'
-    : role === 'ADMIN'
+    : isTenantAdminRole
         ? 'admin'
         : role === 'USER'
           ? 'seller'
@@ -50,7 +54,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
   // preco e datas de trial NAO saem do backend para role USER.
   // Régua única (PR13062026007 P3): "gerente pra baixo ninguém vê o vínculo
   // HBX×contratante" — só Dono e Master. Gerente = ADMIN com canViewBilling=false.
-  const billingAudience = Boolean(user.isSystemMaster) || (role === 'ADMIN' && user.canViewBilling !== false);
+  const billingAudience = Boolean(user.isSystemMaster) || (isTenantAdminRole && user.canViewBilling !== false);
   // Ramo-alvo da empresa (dono, 14/06/2026): segmento(s) que a empresa quer
   // prospectar. Lista vazia + dono (ADMIN dono, não gerente, não vendedor, não
   // master) ⇒ portão pergunta no primeiro login.
@@ -63,7 +67,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
     }
   })();
   const ramoPending =
-    role === 'ADMIN' &&
+    isTenantAdminRole &&
     !user.isSystemMaster &&
     user.canViewBilling !== false &&
     Boolean(user.company) &&
@@ -87,7 +91,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
     }
   })();
   const adminOnboardingPending =
-    role === 'ADMIN' &&
+    isTenantAdminRole &&
     !user.isSystemMaster &&
     user.canViewBilling !== false &&
     Boolean(user.company) &&
@@ -121,7 +125,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
     sellerProfile: {
       isReferralSeller,
       isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
-      isAdmin: role === 'ADMIN' && !user.isSystemMaster,
+      isAdmin: isTenantAdminRole && !user.isSystemMaster,
       canRecruitSellers: Boolean(user.canRegisterHbxSellers),
       // comissao de venda do proprio vendedor (a tela /leads mostra para o
       // vendedor; nao e cobranca/plano da empresa) — ordem do dono 13/06/2026.
@@ -290,7 +294,8 @@ export class ProfileController {
     const user = await this.usersService.findById(req.user.id);
     if (!user) throw new BadRequestException('Usuario invalido');
     const role = String(user.role || '').trim().toUpperCase();
-    if (user.isSystemMaster || role !== 'ADMIN' || (user as any).canViewBilling === false) {
+    const isTenantAdminRole = role === 'ADMIN' || role === 'USERMASTER';
+    if (user.isSystemMaster || !isTenantAdminRole || (user as any).canViewBilling === false) {
       throw new BadRequestException('Apenas o dono define o ramo da empresa.');
     }
     const companyId = Number((user as any).companyId || 0);
@@ -522,7 +527,9 @@ const MANAGER_CHECKLIST: ChecklistStep[] = [
 function resolveUserKind(user: any): 'system_master' | 'admin' | 'manager' | 'seller' | 'user' {
   const role = String(user?.role || '').trim().toUpperCase();
   if (user?.isSystemMaster) return 'system_master';
-  if (role === 'ADMIN') return (user as any)?.canViewBilling === false ? 'manager' : 'admin';
+  // USERMASTER (dono do tenant) = admin, igual a ADMIN. canViewBilling=false
+  // ainda separa o gerente (ADMIN gerente) do dono.
+  if (role === 'ADMIN' || role === 'USERMASTER') return (user as any)?.canViewBilling === false ? 'manager' : 'admin';
   if (role === 'USER') return 'seller';
   return 'user';
 }

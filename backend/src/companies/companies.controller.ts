@@ -323,7 +323,8 @@ export class CompaniesController {
 
     const normalizedUserCompanyId = Number(req?.user?.companyId || 0);
     const normalizedRole = String(req?.user?.role || '').trim().toUpperCase();
-    if (normalizedUserCompanyId === Number(companyId) && normalizedRole === 'ADMIN') {
+    // USERMASTER (dono do tenant) = admin da empresa, igual a ADMIN.
+    if (normalizedUserCompanyId === Number(companyId) && (normalizedRole === 'ADMIN' || normalizedRole === 'USERMASTER')) {
       return;
     }
 

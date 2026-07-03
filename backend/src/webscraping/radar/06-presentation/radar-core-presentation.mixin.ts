@@ -206,7 +206,8 @@ export class RadarCorePresentationMixin {
 
   private canUseWebscrapingRole(user: any) {
     const role = String(user?.role || '').trim().toUpperCase();
-    return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+    // USERMASTER (dono do tenant) = admin: usa o Radar/webscraping, igual a ADMIN.
+    return Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER';
   }
 
   private isCompanySellerUser(user: any) {

@@ -107,6 +107,45 @@ test('seller active card quota blocks when active count reaches effective limit'
   assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
 });
 
+// RBAC 03/07: USERMASTER (dono do tenant) NAO e vendedor — o teto de carteira
+// (cap de cards ativos) so se aplica a role 'USER'. Como o dono e admin, ele nasce
+// ILIMITADO aqui, identico ao ADMIN (seller=false, unlimited=true). Confirma que o
+// reconhecimento de papel deixa o admin naturalmente fora do limite de vendedor,
+// SEM codigo de isencao especial.
+test('seller active card quota: USERMASTER (dono/admin) fica isento (seller=false, unlimited)', async () => {
+  const now = new Date();
+  const prisma = {
+    company: { findUnique: async () => ({ companyKind: 'tenant' }) },
+    user: {
+      findFirst: async () => ({
+        id: 7,
+        role: 'USERMASTER',
+        isSystemMaster: false,
+        isActive: true,
+        deactivatedAt: null,
+        createdAt: now,
+        sellerDistributionMode: 'normal',
+        sellerDistributionPausedUntil: null,
+        sellerDistributionDailyLimitOverride: 20,
+      }),
+      findUnique: async () => ({ isSystemMaster: false }),
+    },
+    userTeamPolicy: { findUnique: async () => null },
+    radarAutoDistributionRule: { findFirst: async () => ({ targetStockPerSeller: 20 }) },
+    vendasLead: { count: async () => 50 },
+    radarLeadCompanyState: { count: async () => 50 },
+    authSession: { findFirst: async () => ({ lastSeenAt: now }) },
+    companyCommercialUsageLog: { create: async () => ({}), count: async () => 0, findFirst: async () => null },
+  };
+  const service = new CommercialUsageLimitsService(prisma as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, false);
+  assert.equal(snapshot.unlimited, true);
+  assert.equal(snapshot.code, null);
+});
+
 test('LEI DO DONO 27/06: vendedor SEM teto configurado nasce ILIMITADO (não trava em 20)', async () => {
   const service = new CommercialUsageLimitsService(buildPrismaMock({
     activeVendas: 40,

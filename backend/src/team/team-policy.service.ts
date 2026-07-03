@@ -536,7 +536,8 @@ export class TeamPolicyService {
     const requesterRole = this.normalizeRole(requester?.role);
     const requesterCompanyId = Math.trunc(Number(requester?.companyId || 0));
     const targetCompanyId = Math.trunc(Number(target?.companyId || 0));
-    if (requesterRole === 'ADMIN' && requesterCompanyId && requesterCompanyId === targetCompanyId) return;
+    // USERMASTER (dono do tenant) = admin: le a policy da propria equipe, igual a ADMIN.
+    if ((requesterRole === 'ADMIN' || requesterRole === 'USERMASTER') && requesterCompanyId && requesterCompanyId === targetCompanyId) return;
     throw new ForbiddenException('Acesso restrito ao responsavel da equipe.');
   }
 
@@ -554,7 +555,8 @@ export class TeamPolicyService {
 
     const requesterPolicy = await loadUserTeamPolicyRuntime(this.prisma, requester?.id).catch(() => null);
     const manageAccess = resolveTeamPolicyAccessAllowed(requesterPolicy, 'team.access.manage');
-    if (requesterRole === 'ADMIN') {
+    // USERMASTER (dono do tenant) = admin: gerencia a policy da equipe, igual a ADMIN.
+    if (requesterRole === 'ADMIN' || requesterRole === 'USERMASTER') {
       if (manageAccess === false) throw new ForbiddenException('Acesso ao Gerencial bloqueado pela politica da equipe.');
       return;
     }

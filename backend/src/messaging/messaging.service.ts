@@ -1464,7 +1464,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
     if (!user) return false;
     if (user.isSystemMaster) return true;
-    return String(user.role || '').trim().toUpperCase() === 'ADMIN' && user.canViewBilling !== false;
+    // USERMASTER (dono do tenant) = admin-dono, igual ao ADMIN com billing.
+    const role = String(user.role || '').trim().toUpperCase();
+    return (role === 'ADMIN' || role === 'USERMASTER') && user.canViewBilling !== false;
   }
 
   private normalizeWebwhatsJid(value: unknown) {

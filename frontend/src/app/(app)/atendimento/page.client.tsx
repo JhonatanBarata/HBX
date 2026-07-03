@@ -34,6 +34,7 @@ import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-n
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { stampOnboardingEvent } from "@/lib/onboarding";
+import { isTenantAdmin } from "@/lib/roles";
 import { useTabIndex } from "@/lib/use-tab-param";
 import {
   fetchWhatsAppModalStatus,
@@ -471,7 +472,7 @@ export function AtendimentoClient() {
   // Identidade do usuário logado (via useCurrentUser do shell — GET /profile/current-user)
   const me = useCurrentUser();
   const meuUserId = me ? String((me as { id?: number | string | null }).id ?? "") : "";
-  const souAdmin = String(me?.role || "").toUpperCase() === "ADMIN" || Boolean(me?.isSystemMaster);
+  const souAdmin = isTenantAdmin(me);
 
   // Painel "Modelo de atendimento" (admin only)
   const [atPanelOpen, setAtPanelOpen] = useState(false);

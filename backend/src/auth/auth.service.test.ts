@@ -449,6 +449,40 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
   assert.equal(admin?.company?.accessStateLabel, 'Trial ativo');
 });
 
+// RBAC 03/07: USERMASTER (dono do tenant) e SUPERSET de ADMIN — deve ser tratado
+// IDENTICO a ADMIN em sanitizeUser (userKind 'admin', ve cobranca, isAdmin true).
+// Antes caia em userKind 'user' (orfao) e herdava comportamento de vendedor.
+test('sanitizeUser: USERMASTER (dono) e reconhecido como admin, identico a ADMIN', () => {
+  const company = {
+    id: 77,
+    name: 'Cliente A',
+    companyKind: 'tenant',
+    isActive: true,
+    status: 'trial',
+    onboardingStatus: 'active_trial',
+    paymentStatus: 'TRIAL',
+    subscriptionStatus: 'trialing',
+    premiumAccess: false,
+    selectedPlanKey: 'hbx_padrao',
+    trialStartsAt: new Date(),
+    trialEndsAt: inDays(10),
+  };
+
+  const usermaster = sanitizeUser({ id: 9, username: 'dono', role: 'USERMASTER', isSystemMaster: false, company });
+  const admin = sanitizeUser({ id: 10, username: 'admin', role: 'ADMIN', isSystemMaster: false, company });
+
+  // Papel: admin, NAO 'user' orfao nem 'seller'.
+  assert.equal(usermaster?.userKind, 'admin');
+  assert.equal(usermaster?.userKind, admin?.userKind);
+  // Ve cobranca (billingAudience), igual ao ADMIN-dono.
+  assert.equal(usermaster?.canViewBilling, true);
+  assert.equal(usermaster?.company?.accessState, 'trial');
+  assert.equal(usermaster?.company?.selectedPlanKey, 'hbx_padrao');
+  // sellerProfile.isAdmin true e NAO e vendedor comum.
+  assert.equal(usermaster?.sellerProfile?.isAdmin, true);
+  assert.equal(usermaster?.sellerProfile?.isCommonSeller, false);
+});
+
 // Maquina de cadastro nativa: a confirmacao de e-mail confirma o e-mail e deixa
 // a empresa em pending_checkout. O trial EXIGE cartao e so nasce no checkout
 // (regra travada do dono 16/06) — nunca na confirmacao.

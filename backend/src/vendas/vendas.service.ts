@@ -4773,11 +4773,13 @@ export class VendasService {
     const context = await this.resolveVendasUserContext(user);
     const canManage = this.canManageMasterNotices(user);
     const hasRequestedAudience = Boolean(String(audienceRaw || '').trim());
-    const defaultAudience = context.role === 'ADMIN' ? 'customer' : 'seller';
+    // USERMASTER (dono do tenant) = admin: publico 'customer' (contratante), igual a ADMIN.
+    const isTenantAdminRole = context.role === 'ADMIN' || context.role === 'USERMASTER';
+    const defaultAudience = isTenantAdminRole ? 'customer' : 'seller';
     const audience = hasRequestedAudience
       ? this.normalizeMasterNoticeAudience(audienceRaw)
       : this.normalizeMasterNoticeAudience(defaultAudience);
-    const allowedAudience = context.role === 'ADMIN' ? 'customer' : 'seller';
+    const allowedAudience = isTenantAdminRole ? 'customer' : 'seller';
     if (!canManage && audience !== allowedAudience) {
       return { ok: true, audience, canManage, notices: [] };
     }

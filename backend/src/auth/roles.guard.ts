@@ -22,7 +22,12 @@ export class RolesGuard implements CanActivate {
     if (Boolean(user.isSystemMaster) && (normalizedRequiredRoles.includes('ADMIN') || normalizedRequiredRoles.includes('USERMASTER'))) {
       return true;
     }
-    if (role === 'USERMASTER' && !Boolean(user.isSystemMaster)) return false;
+    // USERMASTER (dono do tenant) e SUPERSET de ADMIN: passa em TODA rota que
+    // exige ADMIN (@Admin()) alem das que exigem USERMASTER. Sem isto o dono
+    // ficava BARRADO das rotas admin (gerencial/users/modules/team/etc).
+    if (role === 'USERMASTER') {
+      return normalizedRequiredRoles.includes('USERMASTER') || normalizedRequiredRoles.includes('ADMIN');
+    }
     return normalizedRequiredRoles.includes(role);
   }
 }

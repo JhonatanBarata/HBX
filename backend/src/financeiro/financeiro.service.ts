@@ -437,8 +437,13 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         ? company.users
             .filter((user: any) => user?.isActive !== false)
             .sort((left: any, right: any) => {
-              const leftAdmin = String(left?.role || '').trim().toUpperCase() === 'ADMIN' ? 0 : 1;
-              const rightAdmin = String(right?.role || '').trim().toUpperCase() === 'ADMIN' ? 0 : 1;
+              // USERMASTER (dono) tambem e destinatario preferencial do e-mail de cobranca, igual a ADMIN.
+              const isAdminRole = (u: any) => {
+                const r = String(u?.role || '').trim().toUpperCase();
+                return r === 'ADMIN' || r === 'USERMASTER';
+              };
+              const leftAdmin = isAdminRole(left) ? 0 : 1;
+              const rightAdmin = isAdminRole(right) ? 0 : 1;
               return leftAdmin - rightAdmin;
             })
             .map((user: any) => user?.email)
@@ -672,7 +677,8 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     // Régua única (PR13062026007 P3): vínculo HBX×contratante (assinatura/plano)
     // só Dono e Master. Gerente = ADMIN com canViewBilling=false → barrado nos 12
     // pontos de cobrança via assertCanManageBilling.
-    const canManageBilling = Boolean(user?.isSystemMaster) || (role === 'ADMIN' && user?.canViewBilling !== false);
+    // USERMASTER (dono do tenant) gerencia cobranca, igual ao ADMIN-dono com billing.
+    const canManageBilling = Boolean(user?.isSystemMaster) || ((role === 'ADMIN' || role === 'USERMASTER') && user?.canViewBilling !== false);
     return { companyId, userId, role, canManageBilling };
   }
 

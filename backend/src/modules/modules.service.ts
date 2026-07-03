@@ -1954,7 +1954,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private resolveCargoModuleAllowed(user: any, moduleKey: string, cargoAccess: Map<string, boolean>) {
     if (user?.isSystemMaster) return true;
     const role = String(user?.role || '').trim().toUpperCase();
-    if (role === 'ADMIN') return true;
+    // USERMASTER (dono do tenant) = admin: ve tudo da empresa, igual a ADMIN.
+    if (role === 'ADMIN' || role === 'USERMASTER') return true;
     if (role !== 'USER') return false;
     const norm = this.normalizeRequestedModuleKey(moduleKey);
     if (SELLER_CARGO_WALL_MODULES.has(norm)) return false;
@@ -2011,7 +2012,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private canUseAdminOnlyModule(user: any, moduleKey: string, _context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
-    if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return true;
+    // USERMASTER (dono do tenant) = admin: acesso admin-only, igual a ADMIN.
+    if (Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER') return true;
     if (role === 'USER' && SELLER_ELIGIBLE_MODULE_KEYS.has(normalized)) return true;
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
@@ -2076,7 +2078,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
     const actorRole = String(input.actor?.role || '').trim().toUpperCase();
     const actorCompanyId = Math.trunc(Number(input.actorCompanyId || input.actor?.companyId || 0));
-    if (actorRole !== 'ADMIN') throw new ForbiddenException('Admin role required');
+    // USERMASTER (dono do tenant) = admin: governa vendedores da propria empresa, igual a ADMIN.
+    if (actorRole !== 'ADMIN' && actorRole !== 'USERMASTER') throw new ForbiddenException('Admin role required');
     if (!actorCompanyId || actorCompanyId !== targetCompanyId) {
       throw new ForbiddenException('Admin so pode alterar vendedores da propria empresa.');
     }
@@ -2404,7 +2407,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   async listCompanyAccessForAdmin(adminUserId: number) {
     await this.ensureDefaultSystemModules();
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(adminUserId);
-    const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
+    const adminRole = String((user as any).role || '').toUpperCase();
+    const isAdmin = adminRole === 'ADMIN' || adminRole === 'USERMASTER';
     if (!companyId || (!isAdmin && !isSystemMaster)) throw new ForbiddenException('Admin role required');
     await this.ensureTrialBundleForCompany(companyId);
 
@@ -2489,7 +2493,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   async updateCompanyUserModuleAccess(adminUserId: number, targetUserId: number, modulePermissions: Array<{ key: string; allowed: boolean }>) {
     await this.ensureDefaultSystemModules();
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(adminUserId);
-    const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
+    const adminRole = String((user as any).role || '').toUpperCase();
+    const isAdmin = adminRole === 'ADMIN' || adminRole === 'USERMASTER';
     if (!isSystemMaster && (!companyId || !isAdmin)) throw new ForbiddenException('Admin role required');
 
     const target = await this.usersService.findById(targetUserId);

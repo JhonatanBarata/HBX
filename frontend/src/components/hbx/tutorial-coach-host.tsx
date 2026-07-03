@@ -19,6 +19,7 @@ import {
   useMyModules,
 } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { getWaOpenMode } from "@/lib/wa-open-mode";
 import { buildCoachSteps, buildModuleTour, type CoachAudience, type CoachRole } from "@/lib/tutorial-coach-steps";
 import {
@@ -42,12 +43,12 @@ export function TutorialCoachHost() {
 
   if (!active) return null;
 
-  const kind = String(user?.userKind || "");
-  const role = String(user?.role || "").toUpperCase();
+  // Régua canônica (lib/roles): admin do tenant (inclui USERMASTER) = owner;
+  // vendedor comum = seller; o resto (ex.: gerente sem cobrança) = manager.
   const coachRole: CoachRole =
-    user?.isSystemMaster || kind === "admin" || role === "ADMIN"
+    isTenantAdmin(user)
       ? "owner"
-      : kind === "seller" || kind === "user"
+      : isCompanySeller(user)
         ? "seller"
         : "manager";
 

@@ -7,7 +7,8 @@ export class AdminGuard implements CanActivate {
     const user = req.user;
     if (!user) throw new ForbiddenException('Not authenticated');
     const role = String(user.role || '').trim().toUpperCase();
-    if (!Boolean(user.isSystemMaster) && role !== 'ADMIN') {
+    // USERMASTER (dono do tenant) = admin (superset), igual a ADMIN.
+    if (!Boolean(user.isSystemMaster) && role !== 'ADMIN' && role !== 'USERMASTER') {
       throw new ForbiddenException('Admin role required');
     }
     return true;

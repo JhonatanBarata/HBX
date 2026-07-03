@@ -272,7 +272,8 @@ export class MetaLeadAdsService {
     if (!Number.isInteger(companyId) || companyId <= 0) {
       throw new BadRequestException('Usuário sem empresa associada.');
     }
-    if (role !== 'ADMIN') {
+    // USERMASTER (dono do tenant) = admin, igual a ADMIN.
+    if (role !== 'ADMIN' && role !== 'USERMASTER') {
       throw new ForbiddenException('Apenas o administrador da empresa pode configurar a integração Meta.');
     }
     return { companyId };

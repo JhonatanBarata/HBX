@@ -46,7 +46,8 @@ export function presentModuleBlockForRole(
   block: ModuleBlockPresentation,
 ): ModuleBlockPresentation {
   const normalizedRole = String(role || '').trim().toUpperCase();
-  if (normalizedRole === 'ADMIN' || !block.blockedCode) return block;
+  // USERMASTER (dono do tenant) = contratante: ve o motivo real de bloqueio, igual a ADMIN.
+  if (normalizedRole === 'ADMIN' || normalizedRole === 'USERMASTER' || !block.blockedCode) return block;
 
   if (BILLING_BLOCKED_CODES.has(block.blockedCode)) {
     return {

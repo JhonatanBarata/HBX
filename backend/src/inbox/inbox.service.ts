@@ -220,7 +220,8 @@ export class InboxService {
 
   private assertAdministrativeAction(user: any) {
     const role = String(user?.role || '').trim().toUpperCase();
-    if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return;
+    // USERMASTER (dono do tenant) = admin: acao administrativa liberada, igual a ADMIN.
+    if (Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER') return;
     throw new ForbiddenException({
       code: 'USER_ADMIN_ACTION_NOT_ALLOWED',
       message: 'USER não pode executar esta ação administrativa. Contate seu ADMIN ou o suporte da empresa.',
@@ -234,7 +235,8 @@ export class InboxService {
 
   private isAggregateUser(user: any): boolean {
     const role = String(user?.role || '').trim().toUpperCase();
-    return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+    // USERMASTER (dono do tenant) = admin: visao agregada da empresa, igual a ADMIN.
+    return Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER';
   }
 
   // GERENTE = ADMIN sem acesso ao financeiro (canViewBilling === false). Mesmo padrão do
@@ -254,7 +256,9 @@ export class InboxService {
     if (!sessionUser) return false;
     if (sessionUser.isSystemMaster) return true;
     const role = String(sessionUser.role || '').trim().toUpperCase();
-    return role === 'ADMIN' && sessionUser.canViewBilling !== false;
+    // USERMASTER (dono do tenant) = admin-dono: a sessao dele fica fora da visao
+    // de gerente/vendedor, igual ao ADMIN-dono com billing.
+    return (role === 'ADMIN' || role === 'USERMASTER') && sessionUser.canViewBilling !== false;
   }
 
   private normalizeVendasPhone(value: unknown) {
@@ -493,7 +497,8 @@ export class InboxService {
   private assertCanManageAgenda(user: any) {
     if (Boolean(user?.isSystemMaster)) return;
     const role = String(user?.role || '').trim().toUpperCase();
-    if (role === 'ADMIN') return;
+    // USERMASTER (dono do tenant) = admin: edita a agenda, igual a ADMIN.
+    if (role === 'ADMIN' || role === 'USERMASTER') return;
     throw new ForbiddenException('Somente administradores podem editar a agenda.');
   }
 
@@ -601,7 +606,8 @@ export class InboxService {
   private isCompanyAdminOwner(user: any): boolean {
     if (user?.isSystemMaster) return true;
     const role = String(user?.role || '').trim().toUpperCase();
-    return role === 'ADMIN' && user?.canViewBilling !== false;
+    // USERMASTER (dono do tenant) = admin-dono, igual ao ADMIN com billing.
+    return (role === 'ADMIN' || role === 'USERMASTER') && user?.canViewBilling !== false;
   }
 
   // Número limpo pra exibir no painel (tira o "@s.whatsapp.net" e formata BR).
@@ -1081,7 +1087,7 @@ export class InboxService {
     }
 
     const users = await this.prisma.user.findMany({
-      where: { companyId, isActive: true, role: { in: ['USER', 'ADMIN'] } },
+      where: { companyId, isActive: true, role: { in: ['USER', 'ADMIN', 'USERMASTER'] } },
       orderBy: [{ role: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
@@ -1095,7 +1101,8 @@ export class InboxService {
 
     const team = users.map((u) => {
       const roleUp = String(u.role || '').trim().toUpperCase();
-      const isAdminOwner = Boolean(u.isSystemMaster) || (roleUp === 'ADMIN' && u.canViewBilling !== false);
+      // USERMASTER (dono do tenant) = admin-dono no roster do time, igual a ADMIN com billing.
+      const isAdminOwner = Boolean(u.isSystemMaster) || ((roleUp === 'ADMIN' || roleUp === 'USERMASTER') && u.canViewBilling !== false);
       const isGerente = roleUp === 'ADMIN' && u.canViewBilling === false && !u.isSystemMaster;
       const roleLabel = isAdminOwner ? 'admin' : isGerente ? 'gerente' : 'vendedor';
       const sess = sessionByUser.get(Number(u.id)) || null;

@@ -16,6 +16,7 @@ import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
 import { TeamPolicyEditor } from "@/components/hbx/team-policy-editor";
 import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isTenantAdmin } from "@/lib/roles";
 import { useTabIndex, useTabParam } from "@/lib/use-tab-param";
 
 type Produto = {
@@ -126,8 +127,9 @@ function cicloLabel(c?: string | null) {
 const FORM_VAZIO = { name: "", sku: "", description: "", preco: "", billingCycle: "" };
 
 export function GerencialClient() {
-  const user = useCurrentUser() as { role?: string; isSystemMaster?: boolean; username?: string | null; email?: string | null } | null;
-  const isAdmin = Boolean(user && (String(user.role || "").toUpperCase() === "ADMIN" || user.isSystemMaster));
+  const user = useCurrentUser() as { userKind?: string | null; role?: string; isSystemMaster?: boolean; username?: string | null; email?: string | null } | null;
+  // Admin do tenant (inclui USERMASTER) — régua canônica única (lib/roles).
+  const isAdmin = isTenantAdmin(user);
 
   const [aba, setAba] = useTabIndex("aba", 0);
 

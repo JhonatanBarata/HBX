@@ -2188,7 +2188,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // config mínima pronta — senão o robô fala com cliente sem estar configurado.
     if (status === 'running') {
       const role = String(user?.role || '').trim().toUpperCase();
-      if (!user?.isSystemMaster && role !== 'ADMIN') {
+      // USERMASTER (dono do tenant) = admin (superset), igual a ADMIN.
+      if (!user?.isSystemMaster && role !== 'ADMIN' && role !== 'USERMASTER') {
         throw new ForbiddenException('Só o dono/gerente pode ligar a prospecção automática.');
       }
       const faltando = this.computeTriagemChecklist(campaign).filter((i) => !i.ok).map((i) => i.label);

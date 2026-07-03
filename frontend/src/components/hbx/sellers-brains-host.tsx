@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 
 import { useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isCompanySeller } from "@/lib/roles";
 
 const WARMUP_MS = 30 * 60 * 1000;
 const BASE_INTERVAL_MS = 30 * 60 * 1000;
@@ -61,9 +62,9 @@ export function SellersBrainsHost() {
   const iconRef = useRef<HTMLSpanElement | null>(null);
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const kind = String(user?.userKind || "");
-  const role = String(user?.role || "").toUpperCase();
-  const isSeller = (kind === "seller" || kind === "user") && role === "USER" && !user?.isSystemMaster;
+  // Só vendedor comum recebe os "brains" — admin/USERMASTER/master nunca.
+  // Régua canônica (lib/roles): admin do tenant nunca é seller.
+  const isSeller = isCompanySeller(user);
 
   // Gravar início de sessão ao montar (se vendedor e logado)
   useEffect(() => {

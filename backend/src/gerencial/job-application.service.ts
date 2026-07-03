@@ -96,7 +96,8 @@ export class JobApplicationService {
     const companyId = Number(user?.companyId || 0);
     if (!companyId) throw new ForbiddenException('Company context required');
     const role = String(user?.role || '').toUpperCase();
-    if (role !== 'ADMIN' && !user?.isSystemMaster) {
+    // USERMASTER (dono do tenant) = admin, igual a ADMIN.
+    if (role !== 'ADMIN' && role !== 'USERMASTER' && !user?.isSystemMaster) {
       throw new ForbiddenException('Apenas Admin revisa candidaturas.');
     }
     const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { companyKind: true } });

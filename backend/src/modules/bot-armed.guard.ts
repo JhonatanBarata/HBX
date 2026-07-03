@@ -49,7 +49,8 @@ export class BotArmedGuard implements CanActivate {
     // Admin sempre pode usar quando a empresa está armada.
     // Vendedor (USER) precisa de botAccessEnabled explícito (Admin propaga).
     const role = String(user?.role || '').toUpperCase();
-    if (role === 'ADMIN') return true;
+    // USERMASTER (dono do tenant) = admin: usa o bot quando a empresa esta armada.
+    if (role === 'ADMIN' || role === 'USERMASTER') return true;
     if (role === 'USER') {
       const userRecord = await this.prisma.user.findUnique({
         where: { id: Number(user.id) },

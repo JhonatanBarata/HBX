@@ -15,6 +15,7 @@ import React, { useEffect, useState } from "react";
 
 import { Av, KpiRow, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isCompanySeller } from "@/lib/roles";
 
 type TimelineEvent = { id?: string; eventType?: string; title?: string | null; description?: string | null; note?: string | null; createdAt?: string | null };
 
@@ -120,7 +121,7 @@ export function DashboardClient() {
   const [audit, setAudit] = useState<Audit>(null);
   const [commission, setCommission] = useState<Commission>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const isSeller = String(user?.userKind || "") === "seller";
+  const isSeller = isCompanySeller(user);
 
   useEffect(() => {
     let alive = true;

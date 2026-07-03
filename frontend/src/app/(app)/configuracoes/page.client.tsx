@@ -34,6 +34,7 @@ import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
 import { PlanCard } from "@/components/hbx/plan-card";
 import { Av, ConfirmDialog, I, ICONS, useMyModules } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { PLAN_ORDER, FALLBACK_PLANS, fetchPublicPlans, type PublicPlan } from "@/lib/plans";
 import { classifyPlanChange } from "@/lib/plan-rank";
 import { useTabParam } from "@/lib/use-tab-param";
@@ -323,7 +324,8 @@ export function ConfiguracoesClient() {
 
   const displayName = user?.name || user?.username || "—";
   // PAGAMENTOS.md: vendedor (role USER) nunca vê tela/valores de cobrança.
-  const isSeller = user?.userKind === "seller";
+  // Régua canônica (lib/roles) — admin/USERMASTER nunca é seller.
+  const isSeller = isCompanySeller(user);
   // Régua única P3/P5: "gerente pra baixo ninguém vê o vínculo HBX×contratante".
   // Gerente = ADMIN com canViewBilling=false → esconde "Plano e cobrança" também.
   const canSeeBilling = user != null && !isSeller && user.canViewBilling !== false;
@@ -333,9 +335,10 @@ export function ConfiguracoesClient() {
   const canSeeEmail = mods.loaded && Boolean(
     user?.userKind === "system_master" || mods.byKey["email"]?.accessible === true
   );
-  // Integrações (Meta Ads): backend exige role === 'ADMIN' ao pé da letra
-  // (MetaLeadAdsService.requireCompanyAdmin) — vendedor nunca vê a aba.
-  const canSeeIntegracoes = String(user?.role || "").toUpperCase() === "ADMIN";
+  // Integrações (Meta Ads): admin do tenant (inclui USERMASTER) — vendedor
+  // nunca vê a aba. Régua canônica; o backend (requireCompanyAdmin) deve tratar
+  // USERMASTER como admin, senão a aba aparece mas a chamada barra (403).
+  const canSeeIntegracoes = isTenantAdmin(user);
   const sections = SECTIONS
     .filter(s => s !== "Plano e cobrança" || canSeeBilling)
     .filter(s => s !== "E-mail" || canSeeEmail)
@@ -421,7 +424,7 @@ export function ConfiguracoesClient() {
                       <div className="f"><label>CNPJ</label><input className="field-dark" value="" readOnly placeholder="—" /></div>
                       <div className="f"><label>Telefone de contato</label><input className="field-dark" value={user?.company?.contactPhone || ""} readOnly placeholder="—" /></div>
                     </div>
-                    {(user?.role === "ADMIN" || user?.userKind === "owner") && (
+                    {isTenantAdmin(user) && (
                       <div className="cfg-nicho">
                         <p className="ttl">Nicho da empresa (alimenta o Radar e os sinais de oportunidade)</p>
                         <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula. Ex.: Odontologia, Estética, Advocacia.</p>

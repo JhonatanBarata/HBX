@@ -278,7 +278,7 @@ export class ThemePreferencesService {
       permissions: {
         canEditCompany:
           Boolean(user.companyId) &&
-          (Boolean(user.isSystemMaster) || String(user.role || '').trim().toUpperCase() === 'ADMIN'),
+          (Boolean(user.isSystemMaster) || ['ADMIN', 'USERMASTER'].includes(String(user.role || '').trim().toUpperCase())),
         canEditSystem: Boolean(user.isSystemMaster),
         companyId: user.companyId ?? null,
         isAuthenticated: true,
@@ -304,7 +304,7 @@ export class ThemePreferencesService {
 
     if (
       scope === 'company' &&
-      !(Boolean(user.isSystemMaster) || String(user.role || '').trim().toUpperCase() === 'ADMIN')
+      !(Boolean(user.isSystemMaster) || ['ADMIN', 'USERMASTER'].includes(String(user.role || '').trim().toUpperCase()))
     ) {
       throw new ForbiddenException('Somente administradores podem alterar o padrão da empresa');
     }

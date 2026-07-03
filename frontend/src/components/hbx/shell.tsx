@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
@@ -654,14 +655,17 @@ export function Sidebar({ active }: { active: string }) {
   const mods = useMyModules();
   const router = useRouter();
   const plan = usePlanSummary();
-  const cardUsage = useCardUsage(Boolean(user) && user?.userKind !== "seller");
+  // Cota do PLANO da empresa (Leads do mês) — todo mundo menos o vendedor comum.
+  const cardUsage = useCardUsage(Boolean(user) && !isCompanySeller(user));
   const radarNavState = useRadarNavState();
   // Vendedor (role USER) NUNCA vê plano/cobrança (PAGAMENTOS.md). O backend já
-  // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura vazia.
-  const isSeller = user?.userKind === "seller";
+  // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura
+  // vazia. Régua canônica (lib/roles) — admin/USERMASTER nunca é seller e vê a
+  // cota do plano da empresa normalmente.
+  const isSeller = isCompanySeller(user);
   // Trial → CTA de upgrade DIRETO (o dono reclamou que o "cartão" não aparecia pra
-  // assinar). Só quem realmente assina (admin/master, mesmo critério do backend).
-  const canSubscribe = Boolean(user?.isSystemMaster) || String(user?.role || "").toUpperCase() === "ADMIN";
+  // assinar). Só quem realmente assina (admin do tenant, inclui USERMASTER/master).
+  const canSubscribe = isTenantAdmin(user);
   const showUpgrade = plan.isTrial && canSubscribe;
   const planSub = plan.isTrial
     ? `Teste · ${plan.trialDays != null ? `${plan.trialDays} dia(s)` : "ativo"}`
@@ -1377,7 +1381,7 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
               </div>
               <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/configuracoes"); }}>Configurações</button>
               <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/tutorial"); }}>Tutorial</button>
-              {(String(user?.role || "").toUpperCase() === "ADMIN" || user?.isSystemMaster) && (
+              {isTenantAdmin(user) && (
                 <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/gerencial"); }}>Gerencial</button>
               )}
               {user?.isSystemMaster && (

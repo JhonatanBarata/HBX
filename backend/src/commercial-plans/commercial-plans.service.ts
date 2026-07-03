@@ -121,7 +121,9 @@ export class CommercialPlansService {
 
   private canSelectPlans(user: any) {
     if (Boolean(user?.isSystemMaster)) return true;
-    return String(user?.role || '').trim().toUpperCase() === 'ADMIN';
+    // USERMASTER (dono do tenant) = admin: seleciona plano, igual a ADMIN.
+    const role = String(user?.role || '').trim().toUpperCase();
+    return role === 'ADMIN' || role === 'USERMASTER';
   }
 
   private computeTrialRemainingDays(trialEndsAt?: Date | null) {
