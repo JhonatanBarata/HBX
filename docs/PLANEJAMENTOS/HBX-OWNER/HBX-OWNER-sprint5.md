@@ -1,5 +1,20 @@
 # HBX-OWNER — Sprint 5: Modularizar o server.js (extração incremental, zero-dep)
 
+> **STATUS 03/07 (execução ARQ9) — ✅ SLICE SEGURO FEITO, split arquitetural ADIADO:**
+> - ✅ FEITO: extraídas 12 funções PURAS pra `lib/util.js` (11) e `lib/engine-capacity.js`
+>   (`parseEngineCapacity`, o alvo de maior valor — antes "sondado ao vivo", agora testado), com
+>   `test/util.test.js` (23 casos) + `test/engine-capacity.test.js` (7). server.js −114 linhas
+>   líquidas, comportamento idêntico. Verificado: node --check, 30/30 node:test, 12 exports
+>   presentes, call sites intactos, boot smoke (/health + /owner/tree) OK.
+> - ⏸️ ADIADO (precisa de smoke no navegador por passo — o próprio plano exige "1 extração → smoke
+>   → commit"): o split de `routes/`, `jobs/`, `fleet/`, `system/` e a conversão do if-else gigante
+>   em tabela. Fazer com a stack de pé (`npm run owner:app`) revisando cada extração no painel real.
+>   NOTA: `web/tree.js` do plano abaixo NÃO existe no master (front consolidado em app.js — ajustar).
+> - 🧹 Achado: `setDotenvValue` (server.js) é CÓDIGO MORTO (0 call sites) — candidato a remoção.
+> - ⚠️ Gotcha de teste: `node --test <dir>` falha no Node v24 (tenta require o dir); usar o glob
+>   `node --test "hbx-owner/local-agent/test/*.test.js"`.
+
+
 > Arquitetura nº9 (HBX Owner). Escopo: `hbx-owner/local-agent/`. Último sprint — os anteriores
 > já enxugaram o arquivo (muletas, cópias e código morto mortos). Fazer POR PARTES, cada
 > extração com smoke test do painel antes da próxima.

@@ -6,6 +6,21 @@ const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 // Journal em disco (estado durável do enricher/transfer). Escrita atômica, zero-dep. Ver lib/state.js.
 const stateStore = require("./lib/state");
+// Utilitários puros (Sprint 5) — sem estado de módulo. Ver lib/util.js e lib/engine-capacity.js.
+const {
+  nowIso,
+  safeText,
+  clampInt,
+  cardDomain,
+  chunkLeadsBySize,
+  resolveExecutable,
+  assertSafeCommand,
+  readDotenvValue,
+  parsePercentString,
+  parseSizeToGb,
+  parseLoadTriplet,
+} = require("./lib/util");
+const { parseEngineCapacity } = require("./lib/engine-capacity");
 
 // Limiares de aviso (alinhados aos soft limits da Night Factory).
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
@@ -115,26 +130,7 @@ async function withRetry(fn, isOk, tries = 2, gapMs = 800) {
   return last;
 }
 
-// O import `/webscraping/lead-harvest/import` é PROXIADO pro motor legado, cujo body-parser corta
-// bem cedo: sondei ao vivo (25/06) → ~22KB(50 leads)=200, ~36KB(80 leads)=413. Tetо real ~25KB.
-// Aqui quebra a lista em sub-lotes ≤15KB (folga sob o teto, aguenta lead gordo) — nunca toma 413.
-function chunkLeadsBySize(leads, maxBytes = 15000, maxCount = 30) {
-  const chunks = [];
-  let cur = [];
-  let curBytes = 2; // "[]"
-  for (const lead of leads) {
-    const bytes = Buffer.byteLength(JSON.stringify(lead), "utf8") + 1;
-    if (cur.length && (curBytes + bytes > maxBytes || cur.length >= maxCount)) {
-      chunks.push(cur);
-      cur = [];
-      curBytes = 2;
-    }
-    cur.push(lead);
-    curBytes += bytes;
-  }
-  if (cur.length) chunks.push(cur);
-  return chunks;
-}
+// chunkLeadsBySize → lib/util.js (Sprint 5).
 // Ops Control = ponte JÁ pronta pra VPS (SSH + controles). Reaproveitamos por proxy:
 // a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
@@ -236,53 +232,7 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function safeText(value, max = 200) {
-  return String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function clampInt(value, fallback, min, max) {
-  const parsed = Math.trunc(Number(value));
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-}
-
-function readDotenvValue(filePath, key) {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // [ \t] (whitespace horizontal) em vez de \s* — \s atravessava a quebra de linha e, numa
-    // chave VAZIA (KEY=), capturava a LINHA SEGUINTE como se fosse o valor (bug: chave vazia virava "ativa").
-    const match = raw.match(new RegExp(`^[ \\t]*${escaped}[ \\t]*=[ \\t]*(.*)$`, "m"));
-    if (!match) return "";
-    let value = String(match[1] || "").trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    return value.trim();
-  } catch {
-    return "";
-  }
-}
-
-function resolveExecutable(binary) {
-  if (process.platform === "win32" && binary === "npm") return "npm.cmd";
-  if (process.platform === "win32" && binary === "npx") return "npx.cmd";
-  return binary;
-}
-
-function assertSafeCommand(command) {
-  if (!Array.isArray(command) || command.length === 0) {
-    throw new Error("Comando precisa ser array [binario, ...args].");
-  }
-  for (const part of command) {
-    if (typeof part !== "string" || !part.trim()) throw new Error("Comando contem parte invalida.");
-    if (/[;&|><]/.test(part)) throw new Error("Comando contem operador de shell bloqueado.");
-  }
-}
+// nowIso, safeText, clampInt, readDotenvValue, resolveExecutable, assertSafeCommand → lib/util.js (Sprint 5).
 
 function relativeLogPath(logPath) {
   return path.relative(rootDir, logPath).replace(/\\/g, "/");
@@ -604,17 +554,7 @@ async function ensureLocalLabUp(maxWaitMs = 6000) {
   return false;
 }
 
-// Domínio "limpo" pra casar lead-do-crawl ↔ card-de-origem (mesma régua dos dois lados).
-function cardDomain(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return "";
-  try {
-    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-    return u.hostname.replace(/^www\./, "");
-  } catch {
-    return raw.replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0];
-  }
-}
+// cardDomain → lib/util.js (Sprint 5).
 
 // Domínios que NÃO são site oficial (rede social/diretório) → não viram alvo de crawl de e-mail.
 const NON_SITE_DOMAINS = new Set([
@@ -1122,43 +1062,7 @@ async function readVpsEngineCapacity() {
   return { ok: true, configured: true, ...parseEngineCapacity(body.data) };
 }
 
-// Parser puro do payload /engines/status (sem rede). Recebe o JSON do dashboard de motores e
-// devolve o estado normalizado — reaproveitado pelo LOCAL e pelo VPS pra pintar igual.
-function parseEngineCapacity(data) {
-  const engines = Array.isArray(data.engines) ? data.engines : [];
-  const config = data.capacityConfig || {};
-  const aliveStates = new Set(["online", "standby", "busy", "running", "active"]);
-  const aliveFromEngines = engines.filter((e) => aliveStates.has(String(e.status || "").toLowerCase())).length;
-  const alive = aliveFromEngines || Math.trunc(Number(data.capacity?.runningCount || data.capacity?.activeEngineCount || 0));
-  // Teto REAL = quanto o Governor pode subir (maxCount), não os motores registrados agora.
-  // Nunca menor que os vivos (evita "teto 1 com 2 vivos" em config local inconsistente).
-  const ceiling = Math.max(1, Math.trunc(Number(config.maxCount || engines.length || 1)), alive);
-  const warm = Math.max(0, Math.trunc(Number(config.warmMin || 0)));
-  const governorOn = Boolean(config.governorEnabled);
-  const queue = Math.trunc(Number(data.capacity?.queuedCount || 0));
-  const operationalStatus = String(data.capacity?.operationalStatus || "unknown");
-  const factoryStopped = Boolean(config.factoryStopped);
-  // Elástico de verdade = governor ligado E teto acima do warm (dá pra crescer).
-  const elastic = governorOn && ceiling > Math.max(warm, alive);
-  let reason;
-  if (factoryStopped) reason = "Fábrica PARADA (freio do dono) — não sobe motor até religar.";
-  else if (!governorOn) reason = "Governor desligado — capacidade fixa, não cresce sozinho.";
-  else if (ceiling <= warm) reason = `Teto igual ao warm (${ceiling}) — sem folga pra crescer.`;
-  else if (queue > 0 && alive >= ceiling) reason = "Fila cheia e no teto — pode precisar de mais capacidade.";
-  else if (queue > 0) reason = "Fila com trabalho — o Governor está subindo motores até o teto.";
-  else reason = `Fila vazia — fica no warm (${warm || alive}). Sobe sozinho até ${ceiling} quando encher.`;
-  // Turbo (modo agressivo) vem no MESMO payload do dashboard de motores — só surfaçar.
-  const turboEnabled = Boolean(data.isTurboEnabled);
-  const turboActive = Boolean(data.isTurboWindowActive || data.isTurboForcedNow);
-  // Campos novos do contrato Elástica Pura (25/06): elasticEnabled, running, physicalMax,
-  // memoryPressurePercent, memoryHeadroomEngines.
-  const elasticEnabled = data.elasticEnabled != null ? Boolean(data.elasticEnabled) : governorOn;
-  const running = data.running != null ? Math.trunc(Number(data.running)) : alive;
-  const physicalMax = data.physicalMax != null ? Math.trunc(Number(data.physicalMax)) : ceiling;
-  const memoryPressurePercent = data.memoryPressurePercent != null ? Math.round(Number(data.memoryPressurePercent)) : null;
-  const memoryHeadroomEngines = data.memoryHeadroomEngines != null ? Math.trunc(Number(data.memoryHeadroomEngines)) : null;
-  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, turboEnabled, turboActive, reason, elasticEnabled, running, physicalMax, memoryPressurePercent, memoryHeadroomEngines };
-}
+// parseEngineCapacity → lib/engine-capacity.js (Sprint 5).
 
 function buildCapacityVerdict(pressure, capacity) {
   const ram = Number(pressure.ram?.usedPct || 0);
@@ -1263,20 +1167,7 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
   });
 }
 
-function parsePercentString(value) {
-  const match = String(value || "").match(/(\d+(?:\.\d+)?)/);
-  return match ? Math.round(Number(match[1])) : null;
-}
-
-function parseSizeToGb(value) {
-  const match = String(value || "").trim().match(/^([\d.]+)\s*([KMGTP])?i?B?$/i);
-  if (!match) return null;
-  const num = Number(match[1]);
-  if (!Number.isFinite(num)) return null;
-  const unit = (match[2] || "G").toUpperCase();
-  const factor = { K: 1 / 1e6, M: 1 / 1e3, G: 1, T: 1e3, P: 1e6 }[unit] ?? 1;
-  return Math.round(num * factor);
-}
+// parsePercentString, parseSizeToGb → lib/util.js (Sprint 5).
 
 // Usa CPU% (load÷núcleos) quando há núcleos; sem isso, cai pra load vs núcleos.
 function buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores) {
@@ -1299,12 +1190,7 @@ function buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores) {
   return { level: "ok", title: "Ainda não", detail: "VPS com folga de recurso. Eu aviso quando começar a bater no teto." };
 }
 
-function parseLoadTriplet(loadStr) {
-  const parts = String(loadStr || "").trim().split(/\s+/);
-  // Number("") === 0 (não NaN), então só converte se a parte existir de verdade.
-  const num = (i) => (parts[i] ? Number(parts[i]) : NaN);
-  return { load1: num(0), load5: num(1), load15: num(2) };
-}
+// parseLoadTriplet → lib/util.js (Sprint 5).
 
 function vpsContainersFrom(list) {
   const isEngine = (name) => /^hbx-engine-\d+$/.test(name || "");
