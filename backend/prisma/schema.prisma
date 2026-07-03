@@ -3749,3 +3749,52 @@ model FiscalMonthlyReport {
 
   @@index([competencia])
 }
+
+// CONTABIL S6 — NFS-e Nacional automática. 1 FiscalInvoice por pagamento MP
+// aprovado (paymentRefId = MasterBillingLedgerEntry.id, @unique = idempotência).
+// tomador = a Company cliente do HBX; valorCents é LÍQUIDO de estorno (mesma
+// definição líquida-de-estorno do S1/S4). status: PENDENTE → EMITIDA | ERRO |
+// CANCELADA (cancelamento SEMPRE manual pelo portal — nunca automatizado). O
+// XML retornado (GZip+Base64) e a chaveAcesso (50 chars) ficam guardados p/
+// auditoria; nenhum segredo aqui (o certificado mora no cofre, FiscalProfile).
+model FiscalInvoice {
+  id           String    @id @default(cuid())
+  paymentRefId String    @unique // MasterBillingLedgerEntry.id que originou a nota
+  competencia  String // "2026-07" — competência de reconhecimento (regime de caixa)
+  companyId    Int // tomador (Company cliente do HBX)
+  tomadorNome  String? // razão social/nome do tomador (snapshot p/ o DPS)
+  tomadorDoc   String? // CNPJ/CPF do tomador (snapshot; só dígitos)
+  valorCents   Int // líquido de estorno (base da NFS-e)
+  status       String    @default("PENDENTE") // PENDENTE | EMITIDA | ERRO | CANCELADA
+  chaveAcesso  String?   @unique // chave de acesso de 50 chars devolvida pelo Sistema Nacional
+  numeroDps    String? // nº da DPS (sequencial do emissor)
+  xmlGzB64     String? // XML da NFS-e retornado (GZip+Base64) — auditoria
+  erroMsg      String? // última mensagem de erro (sem segredo)
+  tentativas   Int       @default(0) // nº de tentativas de emissão (retry backoff, máx 3)
+  emitidaEm    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([competencia])
+  @@index([status])
+}
+
+// CONTABIL S6/S7 — trilha de auditoria de TODA chamada a API externa oficial
+// (Lei do Contabil nº4). Modelo COMPARTILHADO: NFS-e (S6) e Serpro (S7) gravam
+// aqui. requestResumo NUNCA carrega dado sensível (certificado/senha/credencial
+// Serpro ficam só no cofre). resultRef = chave de acesso / nº recibo / protocolo.
+// aprovadoPor = "auto-flag" (job automático) ou o userId do dono (ação manual).
+model FiscalAutomationLog {
+  id            String   @id @default(cuid())
+  sistema       String // NFSE | SERPRO
+  operacao      String // EMITIR_DPS | DECLARAR_PGDASD | GERAR_DAS | ...
+  requestResumo String // resumo SEM dados sensíveis (competência, valor, tomador anon.)
+  httpStatus    Int?
+  sucesso       Boolean
+  resultRef     String? // chave de acesso / nº recibo / protocolo
+  aprovadoPor   String? // "auto-flag" | userId do dono
+  createdAt     DateTime @default(now())
+
+  @@index([sistema, operacao])
+  @@index([createdAt])
+}
