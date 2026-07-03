@@ -72,6 +72,67 @@ export function verifyMercadoPagoWebhookSignature(
   return { configured: true, valid, reason: valid ? undefined : 'signature_mismatch' };
 }
 
+// Modo de aplicação da assinatura, controlado por MP_WEBHOOK_SIGNATURE_MODE:
+//   - `log` (default): valida quando há segredo, loga válido/inválido, mas NUNCA rejeita.
+//     Serve para observar webhooks reais antes de endurecer (evita derrubar pagamento
+//     legítimo por um descasamento de manifesto que só aparece com tráfego real).
+//   - `enforce`: rejeita assinatura inválida E rejeita quando não há segredo (fail-closed).
+// Rollout seguro = subir em `log`, confirmar ~48h de assinatura válida, então `enforce`.
+export type MpWebhookSignatureMode = 'log' | 'enforce';
+
+export function getMercadoPagoWebhookSignatureMode(): MpWebhookSignatureMode {
+  const raw = String(process.env.MP_WEBHOOK_SIGNATURE_MODE || '').trim().toLowerCase();
+  return raw === 'enforce' ? 'enforce' : 'log';
+}
+
+export interface MpWebhookGateInput {
+  signatureHeader?: string | null;
+  requestId?: string | null;
+  query?: Record<string, any>;
+}
+
+export interface MpWebhookGateResult {
+  allow: boolean;
+  mode: MpWebhookSignatureMode;
+  configured: boolean;
+  valid: boolean;
+  reason?: string;
+}
+
+// Decisão única de aceitar/rejeitar um webhook do Mercado Pago, compartilhada pelos
+// controllers (recovery e financeiro). Mantém a lógica de modo em um só lugar.
+export function evaluateMercadoPagoWebhookSignature(input: MpWebhookGateInput): MpWebhookGateResult {
+  const mode = getMercadoPagoWebhookSignatureMode();
+  const configured = Boolean(getMercadoPagoWebhookSecret());
+
+  if (!configured) {
+    return {
+      allow: mode !== 'enforce',
+      mode,
+      configured: false,
+      valid: false,
+      reason: 'secret_not_configured',
+    };
+  }
+
+  const check = verifyMercadoPagoWebhookSignature({
+    signatureHeader: input.signatureHeader,
+    requestId: input.requestId,
+    dataId: extractWebhookDataId(input.query),
+  });
+
+  if (check.valid) {
+    return { allow: true, mode, configured: true, valid: true };
+  }
+  return {
+    allow: mode !== 'enforce',
+    mode,
+    configured: true,
+    valid: false,
+    reason: check.reason,
+  };
+}
+
 // Lê o data.id do query do webhook, tolerando as variações que o MP manda
 // (`data.id` na notificação v2, `id` em formatos legados/IPN).
 export function extractWebhookDataId(query: Record<string, any> | undefined): string {

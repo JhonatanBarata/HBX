@@ -504,12 +504,7 @@ test('full payment closes linked debt case and saves paidAt', async () => {
   service.attachCustomerRegistry = async (_companyId: number, row: any) => row;
   service.prisma = {
     hbxRecoveryCustomer: {
-      update: async ({ data }: any) => ({
-        id: 'rec-1',
-        customerProfileId: 'profile-1',
-        createdAt: new Date('2026-03-01T12:00:00.000Z'),
-        ...data,
-      }),
+      updateMany: async () => ({ count: 1 }),
     },
     debtCase: {
       findFirst: async ({ where }: any) => {
@@ -554,12 +549,7 @@ test('partial payment keeps linked debt case open', async () => {
   service.attachCustomerRegistry = async (_companyId: number, row: any) => row;
   service.prisma = {
     hbxRecoveryCustomer: {
-      update: async ({ data }: any) => ({
-        id: 'rec-1',
-        customerProfileId: 'profile-1',
-        createdAt: new Date('2026-03-01T12:00:00.000Z'),
-        ...data,
-      }),
+      updateMany: async () => ({ count: 1 }),
     },
     debtCase: {
       findFirst: async ({ where }: any) => {
@@ -744,4 +734,64 @@ test('listInteractions uses a Prisma-safe Recovery conversation filter', async (
     { currentStep: { notIn: ['', 'novo'] } },
     { messages: { some: { sourceModule: { startsWith: 'hbx_recovery' } } } },
   ]);
+});
+
+test('applyPayment relê e reaplica sobre saldo novo quando perde a corrida (optimistic lock)', async () => {
+  const service = createService();
+  // Estado compartilhado; um "writer concorrente" abaixou o saldo de 100 p/ 70 e mudou
+  // o updatedAt ANTES do nosso primeiro updateMany fechar → 1ª tentativa casa 0 linhas.
+  const store: any = {
+    id: 'c1', companyId: 1, openAmount: 100, totalPaid: 0, recurringDelays: 2,
+    paymentHistoryScore: 5, averageDelay: 10, paymentHistory: '[]', delayHistory: '[]',
+    status: 'OVERDUE', updatedAt: new Date(1000),
+  };
+  let updateCalls = 0;
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      findFirst: async () => ({ ...store }),
+      updateMany: async ({ where, data }: any) => {
+        updateCalls += 1;
+        if (updateCalls === 1) {
+          store.openAmount = 70;
+          store.updatedAt = new Date(2000);
+          return { count: 0 };
+        }
+        if (where.updatedAt.getTime() !== store.updatedAt.getTime()) return { count: 0 };
+        Object.assign(store, data, { updatedAt: new Date(store.updatedAt.getTime() + 1) });
+        return { count: 1 };
+      },
+    },
+  };
+  service.attachCustomerRegistry = async (_c: number, r: any) => r;
+  service.syncRecoveryDebtCaseBalance = async () => {};
+
+  const res = await service.applyPayment(1, 'c1', 30, 'pagamento');
+
+  assert.equal(updateCalls, 2);
+  assert.equal(res.amount, 30);
+  assert.equal(store.openAmount, 40);
+});
+
+test('applyPayment aborta com erro claro sob contenção patológica (sem loop infinito)', async () => {
+  const service = createService();
+  const store: any = {
+    id: 'c1', companyId: 1, openAmount: 100, totalPaid: 0, recurringDelays: 0,
+    paymentHistoryScore: 5, averageDelay: 0, paymentHistory: '[]', delayHistory: '[]',
+    status: 'OVERDUE', updatedAt: new Date(1000),
+  };
+  let updateCalls = 0;
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      findFirst: async () => ({ ...store }),
+      updateMany: async () => {
+        updateCalls += 1;
+        return { count: 0 };
+      },
+    },
+  };
+  service.attachCustomerRegistry = async (_c: number, r: any) => r;
+  service.syncRecoveryDebtCaseBalance = async () => {};
+
+  await assert.rejects(() => service.applyPayment(1, 'c1', 30, 'pagamento'), /Concorr/);
+  assert.equal(updateCalls, 5);
 });
