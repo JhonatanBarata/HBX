@@ -50,8 +50,8 @@ test('lista tenant-scoped tem os modelos quentes e NÃO tem os globais', () => {
     assert.ok(TENANT_SCOPED_MODELS.has(m), `${m} deveria ser tenant-scoped`);
   }
   // Globais conhecidos NÃO entram (senão a lagoa do Radar / catálogos / o próprio
-  // Company / a pesquisa de satisfação seriam guardados por engano).
-  for (const g of ['Company', 'SatisfactionSurvey', 'SystemModule', 'LeadContact', 'RadarMission']) {
+  // Company seriam guardados por engano).
+  for (const g of ['Company', 'SystemModule', 'LeadContact', 'RadarMission']) {
     assert.ok(!TENANT_SCOPED_MODELS.has(g), `${g} NÃO deveria ser tenant-scoped`);
   }
 });
@@ -130,7 +130,7 @@ test('(c) modelo GLOBAL não é afetado (mesmo sem tenant no where)', async () =
 
   await runWithTenantContext({ companyId: 7 }, () =>
     op({
-      model: 'SatisfactionSurvey',
+      model: 'LeadContact',
       operation: 'findMany',
       args: { where: {} },
       query,

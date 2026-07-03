@@ -73,7 +73,6 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'ExternalWebhookEvent',
   'MetaLeadConnection',
   'AuvoExternalRecord',
-  'Conversation',
   'ConversationSession',
   'OrderDraft',
   'User',

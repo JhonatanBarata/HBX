@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { withoutTenantScope } from '../prisma/tenant-context';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential, resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
@@ -199,6 +201,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     deletedByUserId?: number | null;
     deletedAt: Date;
     scheduledAt?: Date | null;
+    // Export LGPD por módulo (contagens reais coletadas antes do delete). Opcional
+    // porque o agendamento de órfã ainda monta o snapshot raso (sem tocar no banco).
+    lgpdExport?: Record<string, unknown> | null;
   }) {
     return JSON.stringify({
       company: {
@@ -222,6 +227,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           }))
         : [],
       counts: company._count || {},
+      // Export LGPD por módulo (art.18) — prova do que foi eliminado. null no snapshot
+      // de agendamento de órfã (montado sem query); preenchido no purge de verdade.
+      lgpdExport: input.lgpdExport || null,
       deletion: {
         mode: input.mode,
         reason: this.normalizeOptionalString(input.reason),
@@ -230,6 +238,88 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         scheduledAt: input.scheduledAt instanceof Date ? input.scheduledAt.toISOString() : null,
       },
     });
+  }
+
+  // Export LGPD (art.18): coleta contagens por módulo + PII dos usuários ANTES da
+  // exclusão, para o DeletionRecord provar o que foi eliminado. Best-effort e read-only
+  // — qualquer erro de contagem NUNCA trava a exclusão (devolve o que conseguiu).
+  private async buildCompanyLgpdExport(id: number, company: {
+    users?: Array<{ id: number; username?: string | null; email?: string | null }>;
+  }) {
+    const countSafe = async (fn: () => Promise<number>): Promise<number> => {
+      try {
+        return await fn();
+      } catch {
+        return -1; // -1 = contagem indisponível (tabela runtime-ensure ausente etc.)
+      }
+    };
+
+    // Módulos de dado do tenant agrupados por área de negócio. Usa withoutTenantScope
+    // porque é uma varredura master legítima da empresa sendo excluída (a trava de
+    // tenant do S1 barraria count sem companyId no store deste caminho).
+    const modules = await withoutTenantScope('lgpd-export-company-delete', async () => ({
+      atendimento: {
+        companyConversations: await countSafe(() => this.prisma.companyConversation.count({ where: { companyId: id } })),
+        companyMessages: await countSafe(() => this.prisma.companyMessage.count({ where: { companyId: id } })),
+        atendimentoCustomers: await countSafe(() => this.prisma.atendimentoCustomer.count({ where: { companyId: id } })),
+        customerProfiles: await countSafe(() => this.prisma.customerProfile.count({ where: { companyId: id } })),
+        conversationSessions: await countSafe(() => this.prisma.conversationSession.count({ where: { companyId: id } })),
+      },
+      mensageria: {
+        inboundMessages: await countSafe(() => this.prisma.inboundMessage.count({ where: { companyId: id } })),
+        outboundMessages: await countSafe(() => this.prisma.outboundMessage.count({ where: { companyId: id } })),
+        whatsAppAuditLogs: await countSafe(() => this.prisma.whatsAppAuditLog.count({ where: { companyId: id } })),
+        autoReplyRules: await countSafe(() => this.prisma.autoReplyRule.count({ where: { companyId: id } })),
+      },
+      recuperacao: {
+        hbxRecoveryCustomers: await countSafe(() => this.prisma.hbxRecoveryCustomer.count({ where: { companyId: id } })),
+        hbxRecoveryPayments: await countSafe(() => this.prisma.hbxRecoveryPayment.count({ where: { companyId: id } })),
+        debtCases: await countSafe(() => this.prisma.debtCase.count({ where: { companyId: id } })),
+      },
+      vendas: {
+        vendasLeads: await countSafe(() => this.prisma.vendasLead.count({ where: { companyId: id } })),
+      },
+      radar: {
+        webscrapingSearchHistories: await countSafe(() => this.prisma.webscrapingSearchHistory.count({ where: { companyId: id } })),
+        webscrapingSearchRuns: await countSafe(() => this.prisma.webscrapingSearchRun.count({ where: { companyId: id } })),
+        webscrapingCampaigns: await countSafe(() => this.prisma.webscrapingCampaign.count({ where: { companyId: id } })),
+        webscrapingUsageLogs: await countSafe(() => this.prisma.webscrapingUsageLog.count({ where: { companyId: id } })),
+      },
+      integracoes: {
+        integrationConnections: await countSafe(() => this.prisma.integrationConnection.count({ where: { companyId: id } })),
+        integrationSyncRuns: await countSafe(() => this.prisma.integrationSyncRun.count({ where: { companyId: id } })),
+        auvoExternalRecords: await countSafe(() => this.prisma.auvoExternalRecord.count({ where: { companyId: id } })),
+      },
+      catalogo: {
+        products: await countSafe(() => this.prisma.product.count({ where: { companyId: id } })),
+        companyModules: await countSafe(() => this.prisma.companyModule.count({ where: { companyId: id } })),
+      },
+      cadastros: {
+        cadastroFornecedores: await countSafe(() => this.prisma.cadastroFornecedor.count({ where: { empresaId: id } })),
+        cadastroPaises: await countSafe(() => this.prisma.cadastroPais.count({ where: { empresaId: id } })),
+        cadastroPortos: await countSafe(() => this.prisma.cadastroPorto.count({ where: { empresaId: id } })),
+        cadastroTransitTimes: await countSafe(() => this.prisma.cadastroTransitTime.count({ where: { empresaId: id } })),
+      },
+      escalares: {
+        atividades: await countSafe(() => this.prisma.atividade.count({ where: { companyId: id } })),
+        cadencias: await countSafe(() => this.prisma.cadencia.count({ where: { companyId: id } })),
+        savedSearches: await countSafe(() => this.prisma.savedSearch.count({ where: { companyId: id } })),
+        fiscalInvoices: await countSafe(() => this.prisma.fiscalInvoice.count({ where: { companyId: id } })),
+      },
+    }));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      note: 'Export LGPD (art.18) — contagens por módulo do que foi eliminado com a empresa. -1 = tabela indisponível.',
+      users: Array.isArray(company.users)
+        ? company.users.map((user) => ({
+            id: Number(user.id),
+            username: user.username ? String(user.username) : null,
+            email: user.email ? String(user.email) : null,
+          }))
+        : [],
+      modules,
+    };
   }
 
   private isValidMasterDeleteConfirmation(companyName: string, input?: string | null) {
@@ -1213,6 +1303,67 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // ── Multi-tenancy S3 — tabelas com companyId ESCALAR (sem FK no banco) ──────────
+  // 21 tabelas guardam companyId como coluna solta, SEM foreign key para Company (padrão
+  // "aditiva e isolada" deste código). Como não há FK, `company.delete()` NÃO as
+  // cascateia — sem esta limpeza explícita elas viram lixo órfão (violação LGPD art.18).
+  // Estas duas listas são a FRONTEIRA declarada: tudo que NÃO tem FK cai aqui. Os deletes
+  // são tenant-scoped (where companyId) — nenhum toca dado de outra empresa.
+  private static readonly SCALAR_TENANT_PRISMA_MODELS = [
+    'assistenteConfig',
+    'atendimentoQuickReply',
+    'atendimentoCustomer',
+    'atividade',
+    'cadenciaInscricao',
+    'cadenciaGatilho',
+    'cadenciaRotina',
+    'cadencia',
+    'commercialEmailMessageLog',
+    'enrichmentCostLedger',
+    'fiscalInvoice',
+    'gmailConnection',
+    'harvestImportBatch',
+    'inboxTrashMeticulousPurgeJob',
+    'masterPaymentNotificationLog',
+    'nightOrderDelivery',
+    'nightOrder',
+    'radarLeadEnrichment',
+    'recoveryOpportunity',
+    'savedSearch',
+    'whatsAppWebhookEvent',
+  ] as const;
+
+  // Tabelas runtime-ensure com companyId escalar que NÃO são model Prisma — apagadas
+  // por SQL cru (não existe tx.<model> pra elas). Também tenant-scoped.
+  private static readonly SCALAR_TENANT_RAW_TABLES = [
+    'HbxJobApplication',
+    'HbxRecoveryPaymentEvent',
+  ] as const;
+
+  // Apaga as tabelas de companyId escalar (sem FK) da empresa, dentro da transação de
+  // exclusão. Best-effort por tabela: uma tabela ausente (runtime-ensure não rodou) NÃO
+  // trava a exclusão inteira.
+  private async purgeScalarTenantTables(tx: Prisma.TransactionClient, id: number) {
+    for (const model of CompaniesService.SCALAR_TENANT_PRISMA_MODELS) {
+      try {
+        await (tx as any)[model].deleteMany({ where: { companyId: id } });
+      } catch (error: any) {
+        this.logger.warn(
+          `[company-delete] purge escalar model=${model} company=${id} falhou: ${String(error?.message || error)}`,
+        );
+      }
+    }
+    for (const table of CompaniesService.SCALAR_TENANT_RAW_TABLES) {
+      try {
+        await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "companyId" = $1`, id);
+      } catch (error: any) {
+        this.logger.warn(
+          `[company-delete] purge escalar (raw) table=${table} company=${id} falhou: ${String(error?.message || error)}`,
+        );
+      }
+    }
+  }
+
   private async permanentlyDeleteCompanyInternal(input: {
     companyId: number;
     deletedByUserId?: number | null;
@@ -1227,7 +1378,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
     await ensureMasterBillingRuntimeSchema(this.prisma);
     await ensureWebsiteRuntimeSchema(this.prisma);
-    const supportsWhatsAppEndpointTable = await this.supportsWhatsAppEndpointTable();
 
     const company = await this.loadCompanyForPermanentDeletion(id);
     if (!company) throw new NotFoundException('Company not found');
@@ -1236,14 +1386,18 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Nao e permitido excluir uma empresa vinculada ao usuario MASTER do sistema');
     }
 
-    const userIds = company.users.map((user) => Number(user.id || 0)).filter((userId) => userId > 0);
     const deletedAt = new Date();
+    // Export LGPD COMPLETO (art.18 — direito de eliminação exige comprovar o que foi
+    // apagado): snapshot por módulo com contagens reais ANTES de deletar, gravado no
+    // DeletionRecord. Substitui o snapshot raso (empresa+usuários+counts fixos).
+    const lgpdExport = await this.buildCompanyLgpdExport(id, company);
     const snapshot = this.buildCompanyDeletionSnapshot(company, {
       mode: input.mode,
       reason: input.reason,
       deletedByUserId: input.deletedByUserId,
       deletedAt,
       scheduledAt: input.scheduledAt || null,
+      lgpdExport,
     });
 
     // Cancela a assinatura recorrente no Mercado Pago ANTES de apagar — senão o MP
@@ -1284,104 +1438,18 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      await tx.$executeRaw`DELETE FROM "WebsiteAdminEntryToken" WHERE "companyId" = ${id}`;
-      await tx.$executeRaw`DELETE FROM "CompanyWebsiteConfig" WHERE "companyId" = ${id}`;
-      await tx.$executeRaw`DELETE FROM "MasterBillingLedgerEntry" WHERE "companyId" = ${id}`;
-      await tx.$executeRaw`DELETE FROM "FinanceiroCharge" WHERE "companyId" = ${id}`;
+      // Tabelas de companyId ESCALAR (sem FK no banco) — não cascateiam no company.delete.
+      // Apagadas explicitamente, tenant-scoped. Fronteira documentada em purgeScalarTenantTables.
+      await this.purgeScalarTenantTables(tx, id);
 
-      await tx.satisfactionSurvey.deleteMany({ where: { conversation: { companyId: id } } });
-      await tx.message.deleteMany({ where: { conversation: { companyId: id } } });
-      await tx.conversation.deleteMany({ where: { companyId: id } });
-      await tx.customer.deleteMany({ where: { conversations: { none: {} } } });
-
-      await tx.outboundAttempt.deleteMany({ where: { message: { companyId: id } } });
-      await tx.companyMessage.deleteMany({ where: { companyId: id } });
-      await tx.outboundMessage.deleteMany({ where: { companyId: id } });
-      await tx.inboundMessage.deleteMany({ where: { companyId: id } });
-
-      await tx.autoReplyResponse.deleteMany({ where: { rule: { companyId: id } } });
-      await tx.autoReplyRule.deleteMany({ where: { companyId: id } });
-
-      await tx.orderDraft.deleteMany({ where: { companyId: id } });
-      await tx.conversationSession.deleteMany({ where: { companyId: id } });
-      await tx.companyConversation.deleteMany({ where: { companyId: id } });
-
-      await tx.hbxRecoveryPayment.deleteMany({ where: { companyId: id } });
-      await tx.vendasLeadTimelineEvent.deleteMany({ where: { lead: { companyId: id } } });
-      await tx.vendasLead.deleteMany({ where: { companyId: id } });
-      await tx.atendimentoCustomer.deleteMany({ where: { companyId: id } });
-      await tx.hbxRecoveryCustomer.deleteMany({ where: { companyId: id } });
-      await tx.debtCase.deleteMany({ where: { companyId: id } });
-      await tx.hbxRecoveryFlowStage.deleteMany({ where: { companyId: id } });
-      await tx.customerProfile.deleteMany({ where: { companyId: id } });
-
-      await tx.auvoExternalRecord.deleteMany({ where: { companyId: id } });
-      await tx.integrationSyncRun.deleteMany({ where: { companyId: id } });
-      await tx.integrationConnection.deleteMany({ where: { companyId: id } });
-
-      await tx.whatsAppAuditLog.deleteMany({ where: { companyId: id } });
-      await tx.whatsAppWebhookEvent.deleteMany({ where: { companyId: id } });
-      await tx.webscrapingUsageLog.deleteMany({ where: { companyId: id } });
-      await tx.webscrapingSearchHistory.deleteMany({ where: { companyId: id } });
-      // Runs/campanhas do Radar têm FK userId com onDelete: Restrict — se sobrarem,
-      // o tx.user.deleteMany abaixo estoura "WebscrapingSearchRun_userId_fkey" e a
-      // exclusão inteira faz rollback (500). Apaga por companyId (cascateia os itens
-      // filhos: SearchRunItem, CampaignTask, CampaignBatch) antes de remover o usuário.
-      await tx.webscrapingSearchRun.deleteMany({ where: { companyId: id } });
-      await tx.webscrapingCampaign.deleteMany({ where: { companyId: id } });
-      await tx.techAssistantInteraction.deleteMany({ where: { companyId: id } });
-      if (supportsWhatsAppEndpointTable) {
-        await tx.companyWhatsAppEndpoint.deleteMany({ where: { companyId: id } });
-      }
-
-      await tx.masterSupportAuditLog.deleteMany({ where: { companyId: id } });
-      await tx.masterAssumedContextSession.deleteMany({ where: { companyId: id } });
-
-      await tx.cadastroTransitTime.deleteMany({ where: { empresaId: id } });
-      await tx.cadastroFornecedor.deleteMany({ where: { empresaId: id } });
-      await tx.cadastroPorto.deleteMany({ where: { empresaId: id } });
-      await tx.cadastroPais.deleteMany({ where: { empresaId: id } });
-
-      // FKs companyId com onDelete: Restrict que não tinham limpeza — travariam o
-      // company.delete final (a #23, p.ex., já tinha 1 CompanyEmailSettings). Tabelas
-      // folha (nada aponta pra elas), delete direto é seguro.
-      await tx.atendimentoAppointment.deleteMany({ where: { companyId: id } });
-      await tx.companyEmailAsset.deleteMany({ where: { companyId: id } });
-      await tx.companyEmailTemplate.deleteMany({ where: { companyId: id } });
-      await tx.companyEmailSettings.deleteMany({ where: { companyId: id } });
-
-      await tx.companyModule.deleteMany({ where: { companyId: id } });
-      await tx.trialPhoneUsage.deleteMany({ where: { companyId: id } });
-      await tx.deletionRecord.deleteMany({ where: { companyId: id } });
-      await tx.productVersion.deleteMany({ where: { product: { companyId: id } } });
-      await tx.product.deleteMany({ where: { companyId: id } });
-
-      if (userIds.length > 0) {
-        await tx.productVersion.updateMany({
-          where: { authorId: { in: userIds } },
-          data: { authorId: null },
-        });
-        await tx.deletionRecord.updateMany({
-          where: { deletedByUserId: { in: userIds } },
-          data: { deletedByUserId: null },
-        });
-        await tx.masterAssumedContextSession.updateMany({
-          where: { endedByUserId: { in: userIds } },
-          data: { endedByUserId: null },
-        });
-        await tx.techAssistantInteraction.deleteMany({ where: { userId: { in: userIds } } });
-        await tx.webscrapingUsageLog.deleteMany({ where: { userId: { in: userIds } } });
-        await tx.webscrapingSearchHistory.deleteMany({ where: { userId: { in: userIds } } });
-        await tx.passwordReset.deleteMany({ where: { userId: { in: userIds } } });
-        await tx.$executeRawUnsafe(
-          `UPDATE "MasterBillingLedgerEntry" SET "createdByUserId" = NULL WHERE "createdByUserId" IN (${userIds.join(',')})`,
-        );
-        await tx.$executeRawUnsafe(
-          `DELETE FROM "WebsiteAdminEntryToken" WHERE "userId" IN (${userIds.join(',')})`,
-        );
-        await tx.user.deleteMany({ where: { id: { in: userIds } } });
-      }
-
+      // Multi-tenancy S3: a cascata AGORA é DECLARATIVA. Todas as FKs de dado de tenant
+      // são onDelete: Cascade (migration 20260703_tenant_cascade_delete) e User.companyId
+      // é Cascade — então este único delete apaga a empresa, seus usuários, e por
+      // cascateamento TODOS os filhos/netos com FK (mensagens, radar, integrações, cadastros,
+      // módulos, produtos+versões, cobranças runtime-ensure etc.). Sumiram os ~36 deleteMany
+      // manuais que quebraram em produção 2x (FK userId/CompanyEmailSettings). Autoria em
+      // registro que sobrevive (DeletionRecord.deletedByUserId, ProductVersion.authorId,
+      // MasterBillingLedgerEntry.createdByUserId...) é SET NULL no banco — some sozinho.
       await tx.company.delete({ where: { id } });
     });
 

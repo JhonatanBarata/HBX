@@ -600,7 +600,6 @@ export class GerencialService {
       recentMessages,
       companyUsers,
       company,
-      surveys,
     ] = await Promise.all([
       this.prisma.companyConversation.count({ where: { companyId } }),
       this.prisma.companyMessage.count({ where: { companyId } }),
@@ -652,37 +651,20 @@ export class GerencialService {
         where: { id: companyId },
         select: { id: true, name: true, slug: true, companyKind: true, commissionDueBusinessDays: true },
       }),
-      // Pesquisas de satisfação escopadas NO BANCO pela empresa da conversa
-      // (multi-tenancy Sprint 1). Antes puxava as 300 mais recentes de TODOS os
-      // tenants (com nome+telefone do cliente) e filtrava em memória por telefone —
-      // vazamento cross-tenant + risco LGPD. Agora o where fixa companyId via a
-      // relação conversation, então só vêm as desta empresa. O `take: 300` agora é
-      // por empresa (antes era global). A antiga leitura de companyConversation só
-      // servia pra montar o filtro em memória e foi aposentada junto.
-      this.prisma.satisfactionSurvey.findMany({
-        where: { conversation: { companyId } },
-        orderBy: { createdAt: 'desc' },
-        take: 300,
-        include: {
-          conversation: {
-            include: {
-              customer: {
-                select: { phone: true, name: true },
-              },
-            },
-          },
-        },
-      }),
     ]);
 
-    const companySurveys = surveys.map((item) => ({
-      id: item.id,
-      rating: item.rating,
-      feedback: item.feedback,
-      createdAt: item.createdAt,
-      customerPhone: item.conversation?.customer?.phone || null,
-      customerName: item.conversation?.customer?.name || null,
-    }));
+    // Pesquisas de satisfação/NPS: feature MORTA (o Inbox legado SatisfactionSurvey
+    // nunca teve writer vivo — tabela sempre vazia) e DROPADA no multi-tenancy Sprint 2
+    // (03/07). A leitura antiga (`satisfactionSurvey.findMany`) foi removida daqui; o
+    // contrato do painel é preservado devolvendo lista vazia (já vinha vazia na prática).
+    const companySurveys: Array<{
+      id: string;
+      rating: number | null;
+      feedback: string | null;
+      createdAt: Date;
+      customerPhone: string | null;
+      customerName: string | null;
+    }> = [];
 
     const commissionDueBusinessDays = normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
     const commission = await this.buildCommissionOverview(companyId, companyUsers, { dueBusinessDays: commissionDueBusinessDays });
