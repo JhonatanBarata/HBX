@@ -5,8 +5,10 @@ import type { CnpjPublicCompanyRecord, CnpjPublicProviderResult, CnpjPublicSearc
 
 // Log dos rejeitados da porta receita (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md,
 // tarefa 7): cada registro rejeitado pelos filtros (DV inválido, situação não-ativa, cidade/UF
-// fora, segmento sem match) loga o motivo — sem PII além do necessário (CNPJ mascarado, sem
-// nome/telefone/endereço do registro rejeitado).
+// fora) loga o motivo — sem PII além do necessário (CNPJ mascarado, sem nome/telefone/endereço
+// do registro rejeitado). Segmento sem match de CNAE NÃO é mais motivo de rejeição (decisão do
+// dono 03/07 — docs/PLANEJAMENTOS/PR03072026/C1-porta-receita-cnae-nao-descarta.md): o candidato
+// passa pela porta com um log de AVISO (não de rejeição) e segue pro pipeline normal.
 function maskCnpjForLog(value: unknown) {
   const digits = String(value || '').replace(/\D/g, '');
   if (digits.length !== 14) return digits ? `${digits.slice(0, 2)}***` : '(sem_cnpj)';
@@ -91,6 +93,13 @@ export class CnpjPublicProviderService {
     );
   }
 
+  private logAdvisory(record: CnpjPublicCompanyRecord, reasonCode: string) {
+    this.logger.log(
+      `[porta-receita] aviso cnpj=${maskCnpjForLog(record.cnpj)} motivo=${reasonCode} `
+      + `(passou pela porta, nao descartado) cidade=${record.city || '-'} uf=${record.state || '-'} cnae=${record.cnae || '-'}`,
+    );
+  }
+
   async search(input: CnpjPublicSearchInput): Promise<CnpjPublicProviderResult> {
     const records = Array.isArray(input.records) ? input.records : [];
     if (!records.length) {
@@ -125,9 +134,10 @@ export class CnpjPublicProviderService {
         continue;
       }
       if (!segmentMatches(record, input.normalized.segment)) {
-        rejectedCount += 1;
-        this.logRejected(record, 'segmento_sem_match_cnae');
-        continue;
+        // CNAE sem match NÃO descarta (decisão do dono 03/07): passa pela porta e segue pro
+        // pipeline normal (fusão + 02-filter decidem). Só loga um AVISO p/ visibilidade porta-a-porta.
+        // FUTURO: quando o front ganhar busca por CNAE EXPLÍCITO, o CNAE volta a ser filtro DURO aqui.
+        this.logAdvisory(record, 'segmento_sem_match_cnae_passou');
       }
       const mapped = this.toContactResult(record, input.normalized);
       if (!mapped) {

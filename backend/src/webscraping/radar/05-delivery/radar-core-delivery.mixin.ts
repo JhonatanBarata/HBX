@@ -3428,52 +3428,56 @@ export class RadarCoreDeliveryMixin {
   }
 
   /**
-   * Zap-gate porta 8 (árvore mestra 02/07): único ponto de entrega — TODO card que vira card
-   * de Vendas passa por `importRadarLeadToVendasForUser`, então é aqui que a porta 8 mora.
-   * Semântica exata do briefing (docs/PLANEJAMENTOS/PR02072026/W2-ia7b-etapa7-zapgate-porta8.md):
-   *   - flag `HBX_RADAR_ZAP_GATE_REQUIRED` false → comportamento atual, nunca bloqueia (rollback barato).
-   *   - já `confirmed` (cache do enrichmentJson OU checagem viva) → libera.
-   *   - checagem viva responde "NÃO tem WhatsApp" (`exists:false`) → BLOQUEIA a entrega. O card
-   *     NÃO é descartado (regra de ouro: histórico negativo nunca se apaga) — continua no pool
-   *     pronto pra enriquecimento/nova tentativa; só não vira card de Vendas agora.
-   *   - checker indisponível, sem sessão, timeout ou qualquer erro → NÃO bloqueia (fail-open por
-   *     design do briefing) — segue com `whatsappStatus:'unverified'`. `confirmed` só pode vir
-   *     do Webwhats de verdade, nunca inferido aqui.
-   * O freio físico (cache/TTL/rate-limit/disjuntor) do check em si mora no SERVIÇO (W4, em
-   * paralelo) — este método só decide a política de gate, não fala HTTP direto com o motor.
+   * Zap-gate porta 8 — REESCRITO 03/07 (decisão do dono): NADA bloqueia por WhatsApp.
+   * O motor só LÊ e SINALIZA. Resolve o whatsappStatus verdadeiro do card e ENTREGA sempre.
+   * O antigo gate de bloqueio (com sua flag de env) foi REMOVIDO por inteiro — sem flag, sem legado.
+   * O freio físico W4 (cache/rate/disjuntor) mora no serviço do check e continua intacto;
+   * `confirmed` só vem do Webwhats de verdade (radarCheckWhatsappNumbers).
    */
-  private async enforceRadarZapGateForDelivery(row: any): Promise<{ blocked: boolean; message?: string }> {
-    const required = String(process.env.HBX_RADAR_ZAP_GATE_REQUIRED ?? 'true').trim().toLowerCase() !== 'false';
-    if (!required) return { blocked: false };
-
-    const phoneDigits = normalizePhoneDigits(row?.phoneDigits || row?.phone);
-    if (!phoneDigits) return { blocked: false };
-
-    const existingStatus = String(
+  private async resolveRadarWhatsappStatusForDelivery(row: any): Promise<'confirmed' | 'missing' | 'unverified' | null> {
+    const existing = String(
       this.parseMaybeJsonObject(row?.enrichmentJson)?.whatsappStatus
       || this.parseMaybeJsonObject(row?.metadataJson)?.whatsappStatus
       || '',
     ).trim().toLowerCase();
-    if (existingStatus === 'confirmed') return { blocked: false };
+    if (existing === 'confirmed') return 'confirmed'; // já confirmado pelo Webwhats — não rebaixa nem re-checa
+
+    const phoneDigits = normalizePhoneDigits(row?.phoneDigits || row?.phone);
+    if (!phoneDigits) return (existing as any) || null; // sem telefone, nada a checar
 
     try {
-      const results = await this.radarCheckWhatsappNumbers([phoneDigits]);
+      const results = await this.radarCheckWhatsappNumbers([phoneDigits]); // passa pelo freio W4 intacto
       const match = Array.isArray(results)
         ? results.find((item: any) => normalizePhoneDigits(item?.normalizedNumber || item?.input) === phoneDigits)
         : null;
-      if (!match) return { blocked: false }; // motor indisponivel/sem sessao (radarCheckWhatsappNumbers degrada p/ [])
-      if (match.exists === false) {
-        return {
-          blocked: true,
-          message: 'Numero sem WhatsApp confirmado pelo motor. Card segue disponivel para enriquecimento, nao foi descartado.',
-        };
-      }
-      return { blocked: false };
+      if (!match) return (existing as any) || 'unverified'; // motor indisponivel/sem sessao (degrada p/ [])
+      if (match.exists === true) return 'confirmed';        // confirmação REAL do Webwhats
+      if (match.exists === false) return 'missing';         // estado explícito "sem zap"
+      return (existing as any) || 'unverified';
     } catch (error: any) {
-      // Indisponivel/timeout/erro do motor: fail-open (nunca bloqueia por indisponibilidade).
       this.logger?.warn?.(`[radar-zap-gate] check indisponivel lead=${row?.id || '-'}: ${String(error?.message || error)}`);
-      return { blocked: false };
+      return (existing as any) || 'unverified'; // fail-open: nunca derruba a entrega
     }
+  }
+
+  /**
+   * Grava o sinal de WhatsApp resolvido no `leadRow` em memória — sem rebaixar um `confirmed`
+   * já persistido. Precisa rodar ANTES da montagem do payload do Vendas
+   * (`buildCompactVendasEnrichmentJson`) e da transação final (que reconstrói
+   * `nextDeliveryEnrichment/Metadata` a partir de `leadRow.metadataJson/enrichmentJson`), pra
+   * herdar o sinal nos dois lugares sem update separado no `radarLeadPool`.
+   */
+  private applyRadarWhatsappStatusSignalToRow(row: any, status: 'confirmed' | 'missing' | 'unverified') {
+    if (!row || !status) return;
+    const enr = this.parseMaybeJsonObject(row.enrichmentJson);
+    const meta = this.parseMaybeJsonObject(row.metadataJson);
+    const current = String(enr?.whatsappStatus || meta?.whatsappStatus || '').trim().toLowerCase();
+    if (current === 'confirmed' && status !== 'confirmed') return; // nunca rebaixa confirmação real
+    enr.whatsappStatus = status;
+    meta.whatsappStatus = status;
+    row.enrichmentJson = JSON.stringify(enr);
+    row.metadataJson = JSON.stringify(meta);
+    row.whatsappStatus = status;
   }
 
   /**
@@ -3537,13 +3541,11 @@ export class RadarCoreDeliveryMixin {
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
-    // Zap-gate porta 8 da entrega (árvore mestra 02/07, docs/PLANEJAMENTOS/ARVORE-MESTRA/).
-    // `HBX_RADAR_ZAP_GATE_REQUIRED` default true. Único ponto de entrega: TODO caminho
-    // (envio manual, auto-import, distribuição em massa/território) converge aqui.
-    const zapGate = await this.enforceRadarZapGateForDelivery(leadRow);
-    if (zapGate.blocked) {
-      throw new BadRequestException(zapGate.message || 'Numero sem WhatsApp confirmado. Card segue para enriquecimento, nao foi descartado.');
-    }
+    // Zap-gate porta 8 REESCRITO 03/07 (decisão do dono): NADA bloqueia entrega por WhatsApp.
+    // O motor só LÊ e SINALIZA — grava o whatsappStatus verdadeiro no card; empresa sem zap é lead
+    // útil e ENTREGA NORMAL. O front exibe o WhatsApp clicável quando existe.
+    const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow);
+    if (resolvedWhatsappStatus) this.applyRadarWhatsappStatusSignalToRow(leadRow, resolvedWhatsappStatus);
     // Quando o vendedor puxa um card livre para si (sem assignedUserId explícito),
     // o card passa a ser dele: usa context.userId como assignedUserId.
     // Callers de distribuição sempre passam assignedUserId explícito, não são afetados.

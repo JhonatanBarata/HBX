@@ -39,12 +39,14 @@ function useClickAway<T extends HTMLElement>(open: boolean, onClose: () => void)
   return ref;
 }
 
-export function I({ d, size = 18 }: { d: string[]; size?: number }) {
+export function I({ d, size = 18 }: { d?: string[]; size?: number }) {
   // strokeWidth="1.7" é só fallback SSR; em runtime a classe hbx-icon aplica
   // o token --icon-stroke (a pele decide a espessura). Cor = currentColor.
+  // d opcional com fallback: chave ausente no ICONS não pode derrubar a tela
+  // inteira (aconteceu 02/07 — "assistente" sem ícone matou o dashboard).
   return (
     <svg className="hbx-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {d.map((p, i) => <path key={i} d={p} />)}
+      {(d ?? []).map((p, i) => <path key={i} d={p} />)}
     </svg>
   );
 }
@@ -59,6 +61,9 @@ export const ICONS: Record<string, string[]> = {
   automacao: ["M13 2 4 14h6l-1 8 9-12h-6l1-8Z"],
   atend: ["M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2", "M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z", "M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z"],
   bot: ["M8 4L7 7M16 4L17 7", "M7 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z", "M9 11l2 2M11 11l-2 2M13 11l2 2M15 11l-2 2", "M9.5 15c1-1.5 4-1.5 5 0", "M9 17v2M15 17v2"],
+  // WORM-14 — Assistente IA (faísca): faltava a chave e ICONS["assistente"] undefined
+  // derrubava a Sidebar inteira (d.map de undefined) — dashboard morto no publish 02/07.
+  assistente: ["M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z", "M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1Z"],
   relat: ["M5 20V10M12 20V4M19 20v-7"],
   config: ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.1-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1c.6.5 1.3.9 2.1 1.2L10 21h4l.5-2.7a7 7 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"],
   bell: ["M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9", "M10.3 21a2 2 0 0 0 3.4 0"],

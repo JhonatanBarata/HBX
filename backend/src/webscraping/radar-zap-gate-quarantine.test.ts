@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WebscrapingService } from './webscraping.service';
 
-// Etapa 7 + porta 8 (árvore mestra 02/07, docs/PLANEJAMENTOS/PR02072026/W2-ia7b-etapa7-zapgate-porta8.md):
-// cobre a quarentena pré-estoque (persistRadarLeadPoolBatch) e o zap-gate da entrega
-// (enforceRadarZapGateForDelivery). Mesmo padrão de fixture de `webscraping.service.test.ts`
+// Etapa 7 + porta 8 (árvore mestra 02/07, docs/PLANEJAMENTOS/PR02072026/W2-ia7b-etapa7-zapgate-porta8.md;
+// porta 8 REESCRITA 03/07, docs/PLANEJAMENTOS/PR03072026/C2-zapgate-le-e-sinaliza-nunca-bloqueia.md):
+// cobre a quarentena pré-estoque (persistRadarLeadPoolBatch) e o resolvedor de sinal de WhatsApp
+// da entrega (resolveRadarWhatsappStatusForDelivery + applyRadarWhatsappStatusSignalToRow) — nunca
+// bloqueia mais, só lê e sinaliza. Mesmo padrão de fixture de `webscraping.service.test.ts`
 // (createPrisma simplificado, service instanciado direto sem Nest DI).
 
 function createPrisma(overrides?: Record<string, any>) {
@@ -170,85 +172,101 @@ test('quarentena: card novo da fabrica SEM nota IA ainda (primeira vez) promove 
   assert.equal(saved[0].status, 'clean');
 });
 
-// ── Zap-gate porta 8 (enforceRadarZapGateForDelivery) ────────────────────────────────
+// ── Zap-gate porta 8 (resolveRadarWhatsappStatusForDelivery) ─────────────────────────
+// REESCRITO 03/07 (decisão do dono): NADA bloqueia por WhatsApp. O motor só LÊ e SINALIZA —
+// resolve o whatsappStatus verdadeiro do card; a entrega acontece SEMPRE.
 
-test('zap-gate: flag OFF (HBX_RADAR_ZAP_GATE_REQUIRED=false) nunca bloqueia — rollback barato', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'false', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    service.radarCheckWhatsappNumbers = async () => {
-      throw new Error('nao deveria ser chamado com a flag off');
-    };
-    const result = await service.enforceRadarZapGateForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
-    assert.equal(result.blocked, false);
+test('zap-gate: exists:false ENTREGA com sinal missing, nunca bloqueia (sem flag de gate, sem legado)', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.radarCheckWhatsappNumbers = async (numbers: string[]) => numbers.map((n) => ({
+    input: n,
+    normalizedNumber: n,
+    exists: false,
+  }));
+  const result = await service.resolveRadarWhatsappStatusForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
+  assert.equal(result, 'missing');
+});
+
+test('zap-gate: numero SEM whatsapp (exists:false) resolve missing', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.radarCheckWhatsappNumbers = async (numbers: string[]) => numbers.map((n) => ({
+    input: n,
+    normalizedNumber: n,
+    exists: false,
+  }));
+  const result = await service.resolveRadarWhatsappStatusForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
+  assert.equal(result, 'missing');
+});
+
+test('zap-gate: numero COM whatsapp confirmado resolve confirmed', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.radarCheckWhatsappNumbers = async (numbers: string[]) => numbers.map((n) => ({
+    input: n,
+    normalizedNumber: n,
+    exists: true,
+  }));
+  const result = await service.resolveRadarWhatsappStatusForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
+  assert.equal(result, 'confirmed');
+});
+
+test('zap-gate: checker indisponivel (motor fora do ar, degrada p/ []) resolve unverified (fail-open)', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.radarCheckWhatsappNumbers = async () => []; // mesmo degrade de radarCheckWhatsappNumbers real
+  const result = await service.resolveRadarWhatsappStatusForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
+  assert.equal(result, 'unverified');
+});
+
+test('zap-gate: erro/timeout no check resolve unverified e NAO lanca (fail-open, nunca derruba a entrega)', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.radarCheckWhatsappNumbers = async () => {
+    throw new Error('timeout do motor');
+  };
+  await assert.doesNotReject(async () => {
+    const result = await service.resolveRadarWhatsappStatusForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
+    assert.equal(result, 'unverified');
   });
 });
 
-test('zap-gate: numero SEM whatsapp (exists:false) BLOQUEIA a entrega', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'true', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    service.radarCheckWhatsappNumbers = async (numbers: string[]) => numbers.map((n) => ({
-      input: n,
-      normalizedNumber: n,
-      exists: false,
-    }));
-    const result = await service.enforceRadarZapGateForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
-    assert.equal(result.blocked, true);
-    assert.ok(result.message);
+test('zap-gate: ja confirmed em cache (enrichmentJson) resolve confirmed e pula a checagem viva', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  let called = false;
+  service.radarCheckWhatsappNumbers = async () => { called = true; return []; };
+  const result = await service.resolveRadarWhatsappStatusForDelivery({
+    id: 'lead-1',
+    phoneDigits: '19999990001',
+    enrichmentJson: JSON.stringify({ whatsappStatus: 'confirmed' }),
   });
+  assert.equal(result, 'confirmed');
+  assert.equal(called, false);
 });
 
-test('zap-gate: numero COM whatsapp confirmado libera a entrega', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'true', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    service.radarCheckWhatsappNumbers = async (numbers: string[]) => numbers.map((n) => ({
-      input: n,
-      normalizedNumber: n,
-      exists: true,
-    }));
-    const result = await service.enforceRadarZapGateForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
-    assert.equal(result.blocked, false);
-  });
+test('zap-gate: sem telefone no card nao checa (retorna existente/null)', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  let called = false;
+  service.radarCheckWhatsappNumbers = async () => { called = true; return []; };
+  const result = await service.resolveRadarWhatsappStatusForDelivery({ id: 'lead-1', phoneDigits: null, phone: null });
+  assert.equal(result, null);
+  assert.equal(called, false);
 });
 
-test('zap-gate: checker indisponivel (motor fora do ar, degrada p/ []) NAO bloqueia (fail-open)', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'true', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    service.radarCheckWhatsappNumbers = async () => []; // mesmo degrade de radarCheckWhatsappNumbers real
-    const result = await service.enforceRadarZapGateForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
-    assert.equal(result.blocked, false);
-  });
+test('applyRadarWhatsappStatusSignalToRow: aplica missing seta whatsappStatus no enrichmentJson/metadataJson', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const row: any = { id: 'lead-1', enrichmentJson: JSON.stringify({}), metadataJson: JSON.stringify({}) };
+  service.applyRadarWhatsappStatusSignalToRow(row, 'missing');
+  assert.equal(JSON.parse(row.enrichmentJson).whatsappStatus, 'missing');
+  assert.equal(JSON.parse(row.metadataJson).whatsappStatus, 'missing');
+  assert.equal(row.whatsappStatus, 'missing');
 });
 
-test('zap-gate: erro/timeout no check NAO bloqueia (fail-open, nunca derruba a entrega)', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'true', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    service.radarCheckWhatsappNumbers = async () => {
-      throw new Error('timeout do motor');
-    };
-    const result = await service.enforceRadarZapGateForDelivery({ id: 'lead-1', phoneDigits: '19999990001' });
-    assert.equal(result.blocked, false);
-  });
-});
-
-test('zap-gate: ja confirmed em cache (enrichmentJson) pula a checagem viva', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'true', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    let called = false;
-    service.radarCheckWhatsappNumbers = async () => { called = true; return []; };
-    const result = await service.enforceRadarZapGateForDelivery({
-      id: 'lead-1',
-      phoneDigits: '19999990001',
-      enrichmentJson: JSON.stringify({ whatsappStatus: 'confirmed' }),
-    });
-    assert.equal(result.blocked, false);
-    assert.equal(called, false);
-  });
-});
-
-test('zap-gate: sem telefone no card nunca bloqueia (nada pra checar)', async () => {
-  await withEnv('HBX_RADAR_ZAP_GATE_REQUIRED', 'true', async () => {
-    const service = new WebscrapingService(createPrisma()) as any;
-    const result = await service.enforceRadarZapGateForDelivery({ id: 'lead-1', phoneDigits: null, phone: null });
-    assert.equal(result.blocked, false);
-  });
+test('applyRadarWhatsappStatusSignalToRow: aplicar missing num row ja confirmed NAO rebaixa', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const row: any = {
+    id: 'lead-1',
+    enrichmentJson: JSON.stringify({ whatsappStatus: 'confirmed' }),
+    metadataJson: JSON.stringify({ whatsappStatus: 'confirmed' }),
+  };
+  service.applyRadarWhatsappStatusSignalToRow(row, 'missing');
+  assert.equal(JSON.parse(row.enrichmentJson).whatsappStatus, 'confirmed');
+  assert.equal(JSON.parse(row.metadataJson).whatsappStatus, 'confirmed');
+  assert.equal(row.whatsappStatus, undefined);
 });

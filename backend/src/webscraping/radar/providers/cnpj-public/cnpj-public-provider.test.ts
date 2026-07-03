@@ -108,8 +108,8 @@ test('provider.toContactResult: fixo legado da fonte cnpj_public nao e alterado'
 });
 
 // P1 (02/07), tarefa 7: "log dos rejeitados da porta receita" — cada rejeitado (dv/ativa/
-// cidade-uf/segmento) loga o motivo. Aqui garantimos que o log NUNCA quebra o fluxo (search
-// segue devolvendo o mesmo resultado) para os 4 motivos de rejeição da porta.
+// cidade-uf) loga o motivo. Aqui garantimos que o log NUNCA quebra o fluxo (search
+// segue devolvendo o mesmo resultado) para os 3 motivos de rejeição da porta.
 test('provider: loga (sem quebrar o fluxo) rejeitado por cidade/UF fora do pedido', async () => {
   const result = await provider.search({
     normalized: baseNormalized,
@@ -119,26 +119,29 @@ test('provider: loga (sem quebrar o fluxo) rejeitado por cidade/UF fora do pedid
   assert.equal(result.rejectedCount, 1);
 });
 
-test('provider: loga (sem quebrar o fluxo) rejeitado por segmento sem match de CNAE', async () => {
+// C1 (03/07 — decisão do dono): CNAE sem match NÃO descarta mais. O candidato segue pela porta
+// (com log de AVISO) e é aceito normalmente — a fusão e o 02-filter decidem depois.
+test('provider: aceita COM AVISO registro cujo CNAE não casa (não descarta mais)', async () => {
   const result = await provider.search({
     normalized: baseNormalized,
     records: [baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina X', razaoSocial: 'Oficina X Ltda' })],
   });
-  assert.equal(result.acceptedCount, 0);
-  assert.equal(result.rejectedCount, 1);
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.rejectedCount, 0);
+  assert.equal(result.results.length, 1);
 });
 
-test('provider: 4 motivos de rejeicao (dv/ativa/cidade-uf/segmento) somam rejectedCount sem lancar excecao', async () => {
+test('provider: 3 motivos de rejeicao (dv/ativa/cidade-uf) somam rejectedCount sem lancar excecao; segmento-sem-match agora passa', async () => {
   const result = await provider.search({
     normalized: baseNormalized,
     records: [
       baseRecord({ cnpj: '11222333000180' }), // dv_invalido
       baseRecord({ situacao: 'baixada' }), // situacao_nao_ativa
       baseRecord({ city: 'Recife', state: 'PE' }), // cidade_uf_fora_do_pedido
-      baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina Y', razaoSocial: 'Oficina Y Ltda' }), // segmento_sem_match_cnae
+      baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina Y', razaoSocial: 'Oficina Y Ltda' }), // segmento_sem_match_cnae -> agora aceito
       baseRecord(), // aceito
     ],
   });
-  assert.equal(result.acceptedCount, 1);
-  assert.equal(result.rejectedCount, 4);
+  assert.equal(result.acceptedCount, 2);
+  assert.equal(result.rejectedCount, 3);
 });
