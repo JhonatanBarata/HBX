@@ -1,6 +1,13 @@
 /*
   Runtime check: multi-tenant isolation via companySlug + product scoping.
 
+  ⚠️ DESATUALIZADO (multi-tenancy Sprint 1): este script usa `POST /companies`, que
+  foi REMOVIDO (era porta órfã — qualquer autenticado criava empresa e se re-associava
+  sem auditoria). O passo "create company with slug" agora dá 404. A prova de
+  isolamento vive nos testes novos: src/prisma/tenant-guard.extension.test.ts (unit,
+  sem banco) e src/prisma/tenant-isolation.integration.test.ts (contra o Postgres
+  local). Reescrever este script pra criar empresa via fluxo master/signup é um TODO.
+
   Flow validated:
     1) Signup user + create company with slug
     2) Logout (discard token)

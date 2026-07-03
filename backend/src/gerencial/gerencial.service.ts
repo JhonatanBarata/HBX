@@ -600,7 +600,6 @@ export class GerencialService {
       recentMessages,
       companyUsers,
       company,
-      companyContacts,
       surveys,
     ] = await Promise.all([
       this.prisma.companyConversation.count({ where: { companyId } }),
@@ -653,8 +652,15 @@ export class GerencialService {
         where: { id: companyId },
         select: { id: true, name: true, slug: true, companyKind: true, commissionDueBusinessDays: true },
       }),
-      this.prisma.companyConversation.findMany({ where: { companyId }, select: { contact: true } }),
+      // Pesquisas de satisfação escopadas NO BANCO pela empresa da conversa
+      // (multi-tenancy Sprint 1). Antes puxava as 300 mais recentes de TODOS os
+      // tenants (com nome+telefone do cliente) e filtrava em memória por telefone —
+      // vazamento cross-tenant + risco LGPD. Agora o where fixa companyId via a
+      // relação conversation, então só vêm as desta empresa. O `take: 300` agora é
+      // por empresa (antes era global). A antiga leitura de companyConversation só
+      // servia pra montar o filtro em memória e foi aposentada junto.
       this.prisma.satisfactionSurvey.findMany({
+        where: { conversation: { companyId } },
         orderBy: { createdAt: 'desc' },
         take: 300,
         include: {
@@ -669,17 +675,14 @@ export class GerencialService {
       }),
     ]);
 
-    const contactSet = new Set(companyContacts.map((item) => String(item.contact || '').trim()));
-    const companySurveys = surveys
-      .filter((item) => contactSet.has(String(item?.conversation?.customer?.phone || '').trim()))
-      .map((item) => ({
-        id: item.id,
-        rating: item.rating,
-        feedback: item.feedback,
-        createdAt: item.createdAt,
-        customerPhone: item.conversation?.customer?.phone || null,
-        customerName: item.conversation?.customer?.name || null,
-      }));
+    const companySurveys = surveys.map((item) => ({
+      id: item.id,
+      rating: item.rating,
+      feedback: item.feedback,
+      createdAt: item.createdAt,
+      customerPhone: item.conversation?.customer?.phone || null,
+      customerName: item.conversation?.customer?.name || null,
+    }));
 
     const commissionDueBusinessDays = normalizeCommissionDueBusinessDays(company?.commissionDueBusinessDays);
     const commission = await this.buildCommissionOverview(companyId, companyUsers, { dueBusinessDays: commissionDueBusinessDays });

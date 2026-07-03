@@ -2,7 +2,6 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
-import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential, resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
@@ -368,18 +367,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     return { id: company.id, name: company.name, slug: company.slug };
   }
 
-  async create(dto: CreateCompanyDto) {
-    const created = await this.prisma.$transaction(async (tx) => {
-      const company = await tx.company.create({
-        data: {
-          name: dto.name,
-          slug: dto.slug,
-        },
-      });
-      return company;
-    });
-    return this.sanitizeCompany(created);
-  }
+  // NOTE (multi-tenancy Sprint 1): o antigo `create(dto)` (usado só pelo endpoint
+  // órfão `POST /companies`, agora removido) foi aposentado. Criação de empresa vai
+  // por `createByMaster` (auditado) e pelo signup. Ver companies.controller.ts.
 
   async createByMaster(input: { name: string; slug?: string; contactName?: string; contactEmail?: string }) {
     const name = String(input?.name || '').trim();
