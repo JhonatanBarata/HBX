@@ -26,10 +26,12 @@ import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WebwhatsOutboxConsumerService } from './webwhats-outbox-consumer.service';
 import { WebwhatsFleetHealthService } from './webwhats-fleet-health.service';
 import { WebwhatsFleetHealthController } from './webwhats-fleet-health.controller';
+// INTENTENGINE Sprint 5 (PR-1): handler do trecho legado do pipeline de inbound.
+import { LegacyRulesInboundHandler } from '../bot/pipeline/legacy-rules.handler';
 
 @Module({
   imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, IntentEngineModule, BotConfigStoreModule],
-  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService],
+  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService, LegacyRulesInboundHandler],
   controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController, WebwhatsFleetHealthController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService],
 })

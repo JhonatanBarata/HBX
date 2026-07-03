@@ -47,6 +47,7 @@ import {
 } from '../vendas/prospecting-safety';
 import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
+import { LegacyRulesInboundHandler } from '../bot/pipeline/legacy-rules.handler';
 import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
@@ -90,12 +91,14 @@ function exponentialBackoffMs(attemptNo: number, opts?: { baseMs?: number; capMs
   return clamp(baseMs * exp, baseMs, capMs);
 }
 
-function normalizeText(text: string, caseInsensitive: boolean): string {
+// INTENTENGINE Sprint 5 (PR-1): exportados para o LegacyRulesInboundHandler consumir os
+// MESMOS helpers do trecho legado (extração 1:1 — sem cópia que possa divergir).
+export function normalizeText(text: string, caseInsensitive: boolean): string {
   const trimmed = (text ?? '').trim();
   return caseInsensitive ? trimmed.toLowerCase() : trimmed;
 }
 
-function computeGreeting(timezone: string | null | undefined): string {
+export function computeGreeting(timezone: string | null | undefined): string {
   const tz = timezone || 'America/Sao_Paulo';
   const parts = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: tz }).formatToParts(new Date());
   const hourPart = parts.find((p) => p.type === 'hour')?.value;
@@ -149,7 +152,7 @@ function computeAtendimentoGreeting(config?: Partial<AtendimentoBotConfig> | nul
   return greeting.morning;
 }
 
-function renderTemplate(
+export function renderTemplate(
   template: string,
   vars: Record<string, string>,
   config?: Partial<AtendimentoBotConfig> | null,
@@ -266,6 +269,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly waSendThrottle: WaSendThrottleService,
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
     @Optional() private readonly botConfigStore?: BotConfigStoreService,
+    // INTENTENGINE Sprint 5 (PR-1): handler do trecho legado (session orchestrator +
+    // AutoReplyRule). @Optional() para não quebrar quem instancia o serviço direto nos
+    // testes — quando ausente, `processPersistedInbound` monta um a partir das deps locais.
+    @Optional() private readonly legacyRulesHandler?: LegacyRulesInboundHandler,
   ) {}
 
   onModuleInit() {
@@ -9394,65 +9401,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { matched: true, source: 'hbx_recovery', customerId: recoveryCustomer.id };
     }
 
-    const session = await this.sessions.getOrCreateActiveSession({ companyId, channel: 'whatsapp', from });
-    const decision = this.orchestrator.decide({ state: session.state, text });
-    const nextState = decision.nextState ?? session.state;
-
-    if (nextState !== session.state) {
-      await this.sessions.updateSession(session.id, { state: nextState });
-    }
-
-    if (decision.draftItems) {
-      await this.drafts.upsertForSession({ companyId, sessionId: session.id, items: decision.draftItems });
-    }
-
-    await this.prisma.inboundMessage.create({ data: { companyId, from, body: text } });
-
-    if (decision.reply) {
-      await this.conversations.queueOutboundForCompany(companyId, {
-        to: from,
-        body: decision.reply,
-        sourceModule: 'atendimento',
-        messageType: 'text',
-      });
-      return { matched: true, sessionId: session.id, state: nextState, enqueued: 1 };
-    }
-
-    const rules = await this.prisma.autoReplyRule.findMany({
-      where: { companyId, enabled: true },
-      include: { responses: true },
-      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    // INTENTENGINE Sprint 5 (PR-1): o trecho legado final (session orchestrator +
+    // AutoReplyRule) foi extraído 1:1 para o LegacyRulesInboundHandler. Delegamos aqui e
+    // devolvemos o MESMO shape de antes. `legacyRulesHandler` é @Optional() no construtor;
+    // quando ausente (testes que instanciam o serviço direto), montamos um a partir das
+    // dependências que este próprio serviço já possui — comportamento idêntico.
+    const legacyHandler =
+      this.legacyRulesHandler ??
+      new LegacyRulesInboundHandler(this.prisma, this.sessions, this.orchestrator, this.drafts, this.conversations);
+    const legacyResult = await legacyHandler.handle({
+      company: input.company,
+      companyId,
+      from,
+      text,
+      inboundType: input.inboundType,
+      conversationId: inboundConversationId,
+      inboundRow: input.inboundRow,
+      timestamp: input.timestamp,
+      scope: input.scope,
+      provider: input.provider,
+      sourceModule: input.sourceModule,
+      rawPayload: input.rawPayload,
+      externalMessageId: input.externalMessageId ?? null,
     });
-
-    const incoming = text ?? '';
-    const matched = rules.find((r) => {
-      const pattern = normalizeText(r.pattern, r.caseInsensitive);
-      const msg = normalizeText(incoming, r.caseInsensitive);
-      if (r.matchType === 'EXACT') return msg === pattern;
-      if (r.matchType === 'CONTAINS') return msg.includes(pattern);
-      return false;
-    });
-
-    if (!matched) return { matched: false, sessionId: session.id, state: nextState };
-
-    const greeting = computeGreeting(input.company.timezone);
-    const vars = { greeting, companyName: input.company.name, from };
-    const responses = [...matched.responses].sort((a, b) => a.order - b.order);
-
-    for (const r of responses) {
-      const body = renderTemplate(r.template, vars);
-      const when = new Date(Date.now() + (r.delaySeconds ?? 0) * 1000);
-      const queued = await this.conversations.queueOutboundForCompany(companyId, {
-        to: from,
-        body,
-        at: when,
-        sourceModule: 'atendimento',
-        messageType: 'text',
-      });
-      await this.prisma.outboundMessage.update({ where: { id: queued.outboundMessageId }, data: { nextAttemptAt: when } });
-    }
-
-    return { matched: true, ruleId: matched.id, sessionId: session.id, state: nextState, enqueued: responses.length };
+    return legacyResult.result;
   }
 
   private async handleWebwhatsSyncedInbound(input: {
