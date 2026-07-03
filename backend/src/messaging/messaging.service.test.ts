@@ -109,6 +109,9 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
     inboxRealtime,
     new AiIntentClassifierService() as any,
+    // GATEWAY-WA S3: freio de envio. Default nos testes = passa tudo (flag OFF na prática) —
+    // não muda o comportamento coberto pelos casos existentes.
+    ({ evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}), ...(overrides?.waSendThrottle || {}) } as any),
     (overrides?.hbxPresentationEmails || undefined) as any,
   );
 
@@ -1204,6 +1207,8 @@ function createServiceForStatusTest() {
     { sendText: async () => undefined } as any,
     inboxRealtime,
     new AiIntentClassifierService() as any,
+    // GATEWAY-WA S3: freio de envio (não é exercido no caminho de status deste teste).
+    { evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}) } as any,
     undefined as any,
   );
 

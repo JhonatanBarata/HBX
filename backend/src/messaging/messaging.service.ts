@@ -65,6 +65,7 @@ import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { WebwhatsBridgeService, type WebwhatsFetchedMessage } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
+import { WaSendThrottleService } from './wa-send-throttle.service';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   isCommercialEntitlementActive,
@@ -262,6 +263,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly aiIntentClassifier: AiIntentClassifierService,
+    private readonly waSendThrottle: WaSendThrottleService,
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
   ) {}
 
@@ -1205,6 +1207,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return null;
+  }
+
+  // GATEWAY-WA S2: valida o tenantKey que o consumer da outbox conhece pela fila. Só aceita
+  // `company-{id}` ou `company-{id}-user-{n}` da MESMA empresa resolvida — evita que um evento
+  // de fila com instanceName inconsistente contamine a atribuição por-usuário.
+  private normalizeWebwhatsTenantKeyOverride(raw: string | null | undefined, companyId: number): string | null {
+    const normalized = String(raw || '').trim();
+    const match = normalized.match(/^company-(\d+)(?:-user-\d+)?$/i);
+    if (!match?.[1]) return null;
+    if (Number(match[1]) !== Number(companyId)) return null;
+    return normalized;
   }
 
   private parseWebwhatsUserIdFromTenantKey(tenantKey: string | null, companyId: number) {
@@ -7898,6 +7911,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return filteredLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
+  // GATEWAY-WA S3: idade da sessão (connectedAt) alimenta a curva de warm-up do freio. Sem
+  // sessionId (automação/legado) devolve null → o freio trata como chip MADURO. Best-effort:
+  // erro de banco não trava o envio (null = maduro).
+  private async resolveSendThrottleConnectedAt(sessionId: string | null | undefined): Promise<Date | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) return null;
+    try {
+      const session = await this.prisma.whatsAppConnectionSession.findUnique({
+        where: { id },
+        select: { connectedAt: true },
+      });
+      return session?.connectedAt ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private async sendOne(messageId: number) {
     // lock: flip to SENDING only if still PENDING
     const locked = await this.prisma.outboundMessage.updateMany({
@@ -7992,6 +8022,60 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`WhatsApp automatic send suppressed messageId=${msg.id} reason=${suppressionReason}`);
         return;
       }
+
+      // GATEWAY-WA S3: FREIO DE ENVIO POR CHIP. Só age com HBX_WA_SEND_THROTTLE_ENABLED=true
+      // (default OFF → decision.allow sempre true = comportamento atual). Envio ligado a conversa
+      // com inbound recente é ISENTO (responder quem te chamou é seguro). Estouro do teto REAGENDA
+      // (volta a PENDING com nextAttemptAt futuro) — NUNCA descarta. Roda antes de qualquer
+      // despacho e depois da supressão (não queima cota em mensagem que seria cancelada).
+      const throttleDecision = await this.waSendThrottle.evaluate({
+        companyId: msg.companyId,
+        sessionId: webwhatsSelector.sessionId,
+        tenantKey: webwhatsSelector.tenantKey,
+        connectedAt: await this.resolveSendThrottleConnectedAt(webwhatsSelector.sessionId),
+        conversationId,
+      });
+      if (throttleDecision.allow === false) {
+        const next = new Date(Date.now() + throttleDecision.retryAfterMs);
+        // Fecha o attempt SEM marcar sucesso e SEM incrementar attemptCount (segurar não é
+        // tentativa de entrega — não pode empurrar a mensagem para FAILED por maxAttempts).
+        await this.prisma.outboundAttempt.update({
+          where: { id: attempt.id },
+          data: { finishedAt: new Date(), success: false, error: `throttled:${throttleDecision.reason}` },
+        });
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'PENDING', nextAttemptAt: next },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { status: 'QUEUED' },
+        });
+        await this.logWhatsAppEvent({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'outbound_throttled',
+          level: 'WARN',
+          message: `Envio segurado pelo freio de chip (${throttleDecision.reason})`,
+          conversationId,
+          phone: msg.to,
+          messageType: msg.messageType || 'text',
+          result: 'pending',
+          reason: throttleDecision.reason,
+          extra: {
+            outboundMessageId: msg.id,
+            sessionId: webwhatsSelector.sessionId,
+            tenantKey: webwhatsSelector.tenantKey,
+            retryInSeconds: Math.round(throttleDecision.retryAfterMs / 1000),
+            nextAttemptAt: next.toISOString(),
+          },
+        });
+        this.logger.warn(
+          `WhatsApp send THROTTLED messageId=${msg.id} reason=${throttleDecision.reason} retryIn=${Math.round(throttleDecision.retryAfterMs / 1000)}s`,
+        );
+        return;
+      }
+
       const attachment = this.extractWebwhatsAttachment(dispatchVariables);
       const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
       // POR USUÁRIO: webwhats está disponível se o status da empresa diz CONNECTED (legado/admin)
@@ -8448,6 +8532,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { ok: false, discarded: true, reason: 'invalid_secret' };
     }
 
+    // GATEWAY-WA S2: o MIOLO (tudo APÓS a verificação de secret) vive em `processWebwhatsEventCore`
+    // para ser reaproveitado por DOIS caminhos: o webhook HTTP (aqui) e o consumer da outbox
+    // durável (`WebwhatsOutboxConsumerService`). Refactor PURO — o webhook segue idêntico: só
+    // valida o secret e delega. A idempotência de ingestão (upsert por providerMessageId) absorve
+    // a dupla entrega (evento chega pelo webhook E pela outbox durante a transição).
+    return this.processWebwhatsEventCore(payload, { query: opts.query });
+  }
+
+  /**
+   * GATEWAY-WA S2 — miolo do processamento de um evento do motor Webwhats, chamável tanto pelo
+   * webhook HTTP (`handleWebwhatsWebhookEvent`, após validar o secret) quanto pelo consumer da
+   * outbox durável. COMPORTAMENTO IDÊNTICO ao fluxo original do webhook: resolver empresa →
+   * tenantKey → reconciliar conexão → aplicar statuses → ingerir mensagens → realtime → bot.
+   *
+   * `opts.tenantKeyOverride`: o consumer da outbox conhece o `instanceName` do evento pela própria
+   * fila; passar aqui garante a atribuição por-usuário mesmo se a extração do payload variar. O
+   * webhook HTTP não usa (deixa a extração normal do payload/query resolver).
+   */
+  async processWebwhatsEventCore(
+    payload: any,
+    opts: { query?: Record<string, any>; tenantKeyOverride?: string | null } = {},
+  ) {
+    const eventName = this.extractWebwhatsEventName(payload);
+    const parsedCompanyId = this.findWebwhatsCompanyId(payload, opts.query);
+
     const resolved = await this.resolveCompanyForWebwhatsEvent(payload, opts.query);
     const company = resolved.company as any;
 
@@ -8476,7 +8585,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     // POR USUÁRIO: extraído antes dos handlers para que o evento, status e mensagem usem o
     // tenantKey cru do webhook (`company-{id}-user-{n}`), nunca a sessão genérica da empresa.
-    const webwhatsTenantKey = this.findWebwhatsTenantKey(payload, opts.query);
+    // GATEWAY-WA S2: o consumer da outbox passa `tenantKeyOverride` (o instanceName que a fila já
+    // conhece) — só é honrado se for um tenantKey válido da empresa resolvida.
+    const overrideTenantKey = this.normalizeWebwhatsTenantKeyOverride(opts.tenantKeyOverride, Number(company.id));
+    const webwhatsTenantKey = overrideTenantKey || this.findWebwhatsTenantKey(payload, opts.query);
     const connectionReconcileResult = await this.reconcileWebwhatsConnectionWebhook({
       companyId: Number(company.id),
       tenantKey: webwhatsTenantKey,

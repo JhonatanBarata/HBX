@@ -6,6 +6,7 @@ import { Logger } from '@config/logger.config';
 import { BusinessController } from './controllers/business.controller';
 import { CallController } from './controllers/call.controller';
 import { ChatController } from './controllers/chat.controller';
+import { GatewayController } from './controllers/gateway.controller';
 import { GroupController } from './controllers/group.controller';
 import { InstanceController } from './controllers/instance.controller';
 import { LabelController } from './controllers/label.controller';
@@ -22,14 +23,6 @@ import { ChatwootController } from './integrations/chatbot/chatwoot/controllers/
 import { ChatwootService } from './integrations/chatbot/chatwoot/services/chatwoot.service';
 import { DifyController } from './integrations/chatbot/dify/controllers/dify.controller';
 import { DifyService } from './integrations/chatbot/dify/services/dify.service';
-import { EvoaiController } from './integrations/chatbot/evoai/controllers/evoai.controller';
-import { EvoaiService } from './integrations/chatbot/evoai/services/evoai.service';
-import { EvolutionBotController } from './integrations/chatbot/evolutionBot/controllers/evolutionBot.controller';
-import { EvolutionBotService } from './integrations/chatbot/evolutionBot/services/evolutionBot.service';
-import { FlowiseController } from './integrations/chatbot/flowise/controllers/flowise.controller';
-import { FlowiseService } from './integrations/chatbot/flowise/services/flowise.service';
-import { N8nController } from './integrations/chatbot/n8n/controllers/n8n.controller';
-import { N8nService } from './integrations/chatbot/n8n/services/n8n.service';
 import { OpenaiController } from './integrations/chatbot/openai/controllers/openai.controller';
 import { OpenaiService } from './integrations/chatbot/openai/services/openai.service';
 import { TypebotController } from './integrations/chatbot/typebot/controllers/typebot.controller';
@@ -107,6 +100,9 @@ export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
 export const labelController = new LabelController(waMonitor);
 
+// GATEWAY-WA S1/S2: observabilidade de frota (telemetria do disjuntor) + outbox.
+export const gatewayController = new GatewayController(waMonitor, prismaRepository);
+
 export const eventManager = new EventManager(prismaRepository, waMonitor);
 export const chatbotController = new ChatbotController(prismaRepository, waMonitor);
 export const channelController = new ChannelController(prismaRepository, waMonitor);
@@ -125,17 +121,5 @@ export const typebotController = new TypebotController(typebotService, prismaRep
 
 const difyService = new DifyService(waMonitor, prismaRepository, configService, openaiService);
 export const difyController = new DifyController(difyService, prismaRepository, waMonitor);
-
-const evolutionBotService = new EvolutionBotService(waMonitor, prismaRepository, configService, openaiService);
-export const evolutionBotController = new EvolutionBotController(evolutionBotService, prismaRepository, waMonitor);
-
-const flowiseService = new FlowiseService(waMonitor, prismaRepository, configService, openaiService);
-export const flowiseController = new FlowiseController(flowiseService, prismaRepository, waMonitor);
-
-const n8nService = new N8nService(waMonitor, prismaRepository, configService, openaiService);
-export const n8nController = new N8nController(n8nService, prismaRepository, waMonitor);
-
-const evoaiService = new EvoaiService(waMonitor, prismaRepository, configService, openaiService);
-export const evoaiController = new EvoaiController(evoaiService, prismaRepository, waMonitor);
 
 logger.info('Module - ON');

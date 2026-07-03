@@ -223,6 +223,13 @@ export class InboxController {
     return this.inboxService.refreshConversationAvatar(req.user, id);
   }
 
+  // GATEWAY-WA S5: escape hatch manual — ressync forçado (force+fullSync) de UMA conversa.
+  // Continua existindo mesmo com a rotina de polling desligada (HBX_WA_SYNC_POLLING_DISABLED).
+  @Post('conversations/:id/backfill')
+  backfillConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.backfillConversationMessages(req.user, id);
+  }
+
   @Patch('conversations/bulk-bot')
   bulkSetBot(@Req() req: any, @Body() dto: BulkSetBotDto) {
     return this.inboxService.bulkSetBotActive(req.user, dto);

@@ -36,6 +36,8 @@ export class WAMonitoringService {
   private readonly db: Partial<Database> = {};
   private bootConnectSlot = 0;
   private readonly redis: Partial<CacheConf> = {};
+  // GATEWAY-WA S1/S2: retencao das tabelas de observabilidade (aditivo, best-effort).
+  private gatewayRetentionTimer: NodeJS.Timeout | null = null;
 
   private readonly logger = new Logger('WAMonitoringService');
   public readonly waInstances: Record<string, any> = {};
@@ -340,6 +342,36 @@ export class WAMonitoringService {
     } catch (error) {
       this.logger.error(error);
     }
+
+    // GATEWAY-WA S1/S2: liga o purge periodico depois de carregar a frota.
+    this.startGatewayRetention();
+  }
+
+  // GATEWAY-WA S1/S2: purge diario best-effort das tabelas de observabilidade.
+  // ConnectionEvent > 30 dias; EventOutbox > 7 dias. Falha aqui nunca afeta a operacao.
+  private startGatewayRetention() {
+    if (this.gatewayRetentionTimer) return;
+
+    const runPurge = async () => {
+      const now = Date.now();
+      const connectionCutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
+      const outboxCutoff = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      try {
+        await this.prismaRepository.connectionEvent.deleteMany({ where: { createdAt: { lt: connectionCutoff } } });
+      } catch (error) {
+        this.logger.warn(`[TELEMETRIA] purge ConnectionEvent falhou: ${error?.toString()}`);
+      }
+      try {
+        await this.prismaRepository.eventOutbox.deleteMany({ where: { createdAt: { lt: outboxCutoff } } });
+      } catch (error) {
+        this.logger.warn(`[OUTBOX] purge EventOutbox falhou: ${error?.toString()}`);
+      }
+    };
+
+    // Roda uma vez no boot e depois a cada 24h. unref() para nao segurar o processo.
+    void runPurge();
+    this.gatewayRetentionTimer = setInterval(() => void runPurge(), 24 * 60 * 60 * 1000);
+    this.gatewayRetentionTimer.unref?.();
   }
 
   public async saveInstance(data: any) {
@@ -488,6 +520,14 @@ export class WAMonitoringService {
         this.logger.warn(
           `[NUMERO-UNICO] boot: número ${jid} tem ${group.length} instâncias; auto-conectando só "${keep.name}", suspendendo "${instance.name}"`,
         );
+        // GATEWAY-WA S1: so OBSERVA a suspensao de duplicado no boot (best-effort, nunca propaga).
+        try {
+          await this.prismaRepository.connectionEvent.create({
+            data: { instanceName: instance.name, event: 'suspended_duplicate' },
+          });
+        } catch (error) {
+          this.logger.warn(`[TELEMETRIA] falha ao gravar suspended_duplicate: ${error?.toString()}`);
+        }
         try {
           await this.prismaRepository.instance.update({
             where: { id: instance.id },

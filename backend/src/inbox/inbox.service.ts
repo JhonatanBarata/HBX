@@ -156,6 +156,16 @@ const METICULOUS_TRASH_DEFAULT_JITTER_MIN_MS = 5000;
 const METICULOUS_TRASH_DEFAULT_JITTER_MAX_MS = 20000;
 const METICULOUS_TRASH_NOTE_MARKER = 'SEM INTERESSE / NEGATIVO';
 
+// GATEWAY-WA S5 (item 1): default OFF — o polling de rotina (syncRecentChats/
+// syncConversationMessagesDetailed disparados a cada abertura/leitura de conversa) é hoje a
+// REDE DE SEGURANÇA que backfilla o que o webhook/outbox perde. Só liga esta flag (ON = polling
+// de rotina desligado) depois da outbox do S2 rodar em produção ≥2 semanas sem perda de evento
+// (pré-requisito duro do doc do sprint). Com a flag OFF, comportamento idêntico ao atual.
+// Fetch explícito (force, backfill manual, avatar, mídia) NUNCA é bloqueado por esta flag.
+function isWaSyncPollingDisabled(): boolean {
+  return String(process.env.HBX_WA_SYNC_POLLING_DISABLED || '').trim().toLowerCase() === 'true';
+}
+
 @Injectable()
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
@@ -428,6 +438,9 @@ export class InboxService {
   }
 
   private async syncLatestInboxConversationWindow(companyId: number, conversationId: number) {
+    // GATEWAY-WA S5: mesma flag do trigger acima — rotina automática de leitura, não fetch
+    // explícito. Backfill manual (força) não passa por este método.
+    if (isWaSyncPollingDisabled()) return null;
     const key = `conversation-latest:${companyId}:${conversationId}`;
     const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
     if (Date.now() - lastRunAt < 8000) return null;
@@ -451,6 +464,10 @@ export class InboxService {
   }
 
   private triggerBackgroundInboxConversationSync(companyId: number, conversationId: number) {
+    // GATEWAY-WA S5: com a flag ON, esta rotina automática (dispara a cada leitura de
+    // conversa/bootstrap) é pulada — o backfill manual (endpoint explícito) continua
+    // chamando syncConversationMessagesDetailed direto, sem passar por aqui.
+    if (isWaSyncPollingDisabled()) return;
     const key = `conversation:${companyId}:${conversationId}`;
     const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
     if (Date.now() - lastRunAt < 45000) return;
@@ -7677,6 +7694,67 @@ export class InboxService {
     }
 
     return { avatarUrl: avatarUrl || null };
+  }
+
+  // GATEWAY-WA S5 (item 2): escape hatch manual. Com HBX_WA_SYNC_POLLING_DISABLED=true a
+  // rotina automática para de chamar o motor a cada leitura de conversa; este endpoint é a
+  // ferramenta explícita que continua existindo pra forçar um ressync completo sob demanda
+  // (ex.: suspeita de mensagem perdida). NUNCA passa pelos triggers de rotina — chama a bridge
+  // direto com force+fullSync, igual o bootstrap inicial já faz.
+  async backfillConversationMessages(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    const selector = await this.buildWebwhatsConversationSelector(companyId, conversation.id);
+
+    let result: WebwhatsConversationSyncResult;
+    try {
+      result = await this.webwhatsBridge.syncConversationMessagesDetailed(
+        companyId,
+        conversation.id,
+        { force: true, fullSync: true, failOnError: true },
+        selector,
+      );
+    } catch (error: any) {
+      const message = String(error?.message || error || 'Falha ao ressincronizar conversa do WhatsApp.');
+      await this.logInboxEvent({
+        companyId,
+        event: 'inbox.conversation.backfill_manual_failed',
+        message: `Backfill manual falhou (user=${user?.id || 'n/a'}): ${message}`,
+        conversationId: conversation.id,
+        result: 'error',
+      });
+      throw this.mapInboxProviderReadError(error, 'Falha ao ressincronizar conversa do WhatsApp.');
+    }
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'inbox.conversation.backfill_manual',
+      message: `Backfill manual disparado por user=${user?.id || 'n/a'}: ${result.syncedMessages} mensagens, ${result.mediaMessages} midias, ${result.pagesFetched} paginas.`,
+      conversationId: conversation.id,
+      result: 'success',
+      extra: {
+        syncedMessages: result.syncedMessages,
+        mediaMessages: result.mediaMessages,
+        pagesFetched: result.pagesFetched,
+      },
+    });
+
+    this.inboxRealtime.publish({
+      companyId,
+      kind: 'conversation',
+      conversationId: conversation.id,
+      at: new Date().toISOString(),
+    });
+
+    return {
+      conversationId: conversation.id,
+      syncedMessages: result.syncedMessages,
+      mediaMessages: result.mediaMessages,
+      pagesFetched: result.pagesFetched,
+      avatarUrl: result.avatarUrl || null,
+      displayName: result.displayName || null,
+    };
   }
 
   async reactToConversationMessage(
