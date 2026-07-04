@@ -1,6 +1,24 @@
-import { Controller, ForbiddenException, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NucleoCadastroService } from './nucleo-cadastro.service';
+import {
+  CreateContaDto,
+  CreateContatoDto,
+  UpdateContaDto,
+  UpdateContatoDto,
+} from './dto/nucleo.dto';
 
 /**
  * NÚCLEO-CRM N3 (04/07) — controller da janela "Empresas" (contas PJ).
@@ -51,5 +69,83 @@ export class NucleoController {
     // Isolamento por-tenant: id inexistente OU de outra empresa → 404, nunca vaza.
     if (!empresa) throw new ForbiddenException('Empresa não encontrada');
     return empresa;
+  }
+
+  // ── NÚCLEO-CRM N4 — janela "Contatos" (pessoas) + "Clientes" (papel) ─────
+
+  /** Lista as pessoas (Contatos) da empresa, com a conta a que pertencem. */
+  @Get('contatos')
+  listContatos(
+    @Req() req: any,
+    @Query('query') query?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.listContatos(companyId, {
+      query,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  /**
+   * View "Clientes" = a MESMA base filtrada por papel (isCliente=true), PF ou PJ.
+   * Reusa a serialização de empresas — não é cadastro novo.
+   */
+  @Get('clientes')
+  listClientes(
+    @Req() req: any,
+    @Query('query') query?: string,
+    @Query('uf') uf?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.listClientes(companyId, {
+      query,
+      uf,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  /**
+   * Cria uma CONTA manual + o contato principal (o vendedor cadastrando cliente).
+   * GRÁTIS (não é lead da base 28M → não debita crédito). Idempotente por
+   * documento/cnpj/telefone dentro da empresa.
+   */
+  @Post('contas')
+  createConta(@Req() req: any, @Body() dto: CreateContaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.createConta(companyId, dto);
+  }
+
+  /** Edita uma conta (papéis/endereço/dados). Company-scoped. */
+  @Patch('contas/:id')
+  async updateConta(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateContaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.updateConta(companyId, id, dto);
+    if (!res) throw new NotFoundException('Conta não encontrada');
+    return res;
+  }
+
+  /** Adiciona um contato (pessoa) a uma conta existente. */
+  @Post('contatos')
+  async addContato(@Req() req: any, @Body() dto: CreateContatoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.addContato(companyId, dto);
+    // conta inexistente OU de outro tenant → 404 (isolamento).
+    if (!res) throw new NotFoundException('Conta não encontrada');
+    return res;
+  }
+
+  /** Edita um contato (pessoa). Company-scoped. */
+  @Patch('contatos/:id')
+  async updateContato(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateContatoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.updateContato(companyId, id, dto);
+    if (!res) throw new NotFoundException('Contato não encontrado');
+    return res;
   }
 }

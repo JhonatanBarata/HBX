@@ -106,6 +106,10 @@ export const ICONS: Record<string, string[]> = {
   // existir aqui: nav id sem entrada em ICONS derruba a Sidebar (ICONS[id]
   // undefined → d.map de undefined). Foi o P0 do "assistente" (02/07).
   empresas: ["M4 21V6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v15", "M15 21V10a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v11", "M2 21h20", "M7.5 9h2M7.5 12.5h2M7.5 16h2"],
+  // NÚCLEO-CRM N4 — janela "Contatos" (pessoas): grupo de pessoas. A chave
+  // PRECISA existir (nav id sem entrada em ICONS derruba a Sidebar — foi o P0
+  // do "assistente"). Ícone próprio (2 pessoas) p/ não confundir com Empresas.
+  contatos: ["M16 19c0-2.5-2-4.5-4.5-4.5S7 16.5 7 19", "M11.5 12a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z", "M17.5 13.5c1.9 0 3.5 1.6 3.5 3.5", "M16.5 6.2a2.6 2.6 0 0 1 0 5"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -272,6 +276,10 @@ export const NAV_LINKS = [
   // (puxadas do Radar). Read-only nesta fase. Kill-switch, não paywall: nasce
   // VISÍVEL por default (NAV_ENTITLEMENT/NAV_MODULE_KEY = null abaixo).
   { id: "empresas", label: "Empresas", href: "/empresas" },
+  // NÚCLEO-CRM N4: janela "Contatos" — as pessoas da espinha (dono, comprador,
+  // quem recebe) + criar cliente MANUAL + a view "Clientes" (papel). Mesma base
+  // das Empresas, recorte por pessoa/papel. Kill-switch, não paywall (null).
+  { id: "contatos", label: "Contatos", href: "/contatos" },
   { id: "bot", label: "Bot", href: "/bot" },
   // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
@@ -566,6 +574,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   // (null = sempre visível). O interruptor do master vive no SystemModule
   // 'empresas' (defaultEnabled=true), não num tier de entitlement.
   empresas: null,
+  // NÚCLEO-CRM N4: Contatos = kill-switch, NÃO paywall → sem gate de plano.
+  contatos: null,
   bot: null,
   assistente: null,
   relat: "vendas",
@@ -589,6 +599,9 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // NÚCLEO-CRM N3: sem gate por usuário/plano (null) — a aba nasce ligada. Se
   // no futuro o master ligar o kill-switch por empresa, trocar para "empresas".
   empresas: null,
+  // NÚCLEO-CRM N4: sem gate por usuário/plano (null) — a aba nasce ligada. Se
+  // no futuro o master ligar o kill-switch por empresa, trocar para "contatos".
+  contatos: null,
   bot: null,
   assistente: null,
   relat: "vendas",

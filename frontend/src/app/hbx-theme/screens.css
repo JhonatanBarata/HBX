@@ -3620,6 +3620,43 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .emp-contact__role { font-size: 0.68rem; color: var(--text-muted); }
 .emp-contact__ch { font-size: 0.68rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ============================================================
+   NÚCLEO-CRM N4 — janela "Contatos" (pessoas) + "Clientes" (papel)
+   + modal criar cliente manual. Reusa .emp-* (linhas/badges/empty/
+   pager); só adiciona o toggle, a linha da conta e o form do modal.
+   ============================================================ */
+.ctt-new { margin-left: auto; }
+.ctt-row { cursor: default; }
+.ctt-row:hover { background: var(--hbx-surface); border-color: var(--border-hairline); }
+.ctt-row__conta {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 2px;
+  font-size: 0.66rem; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.ctt-toggle {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  font-size: 0.76rem; font-weight: 600; color: var(--text-body);
+}
+.ctt-toggle input { width: 15px; height: 15px; accent-color: var(--hbx-brand); cursor: pointer; }
+.ctt-toggle--inline { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+
+/* Modal "Novo contato/cliente" — .hbx-veil/.hbx-modal centralizam (Lei 2);
+   aqui só dimensiona a moldura e organiza os campos. Zero hex/inline. */
+.ctt-form { width: min(520px, 94vw); max-height: min(700px, 90vh); display: flex; flex-direction: column; }
+.ctt-form > h3 { padding: 18px 20px 14px; border-bottom: 1px solid var(--border-hairline); }
+.ctt-form__body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: grid; gap: 14px; }
+.ctt-form__row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ctt-form__uf { max-width: 96px; }
+.ctt-form .f { display: grid; gap: 5px; }
+.ctt-form .f label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); }
+.ctt-form .field-dark { width: 100%; }
+.ctt-form__err { color: var(--hbx-danger, var(--text-body)); }
+.ctt-form__foot {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 20px; border-top: 1px solid var(--border-hairline);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    Popup "Filtro avançado" (VENDAS-REFAB item 3b, 04/07) — ressuscitado do
    commit revertido (o popup em si era bom; só a tela em volta foi trocada e

@@ -64,6 +64,15 @@
       "serviceUrl": "/empresas"
     },
     {
+      "key": "contatos",
+      "name": "Contatos",
+      "description": "Janela de pessoas (Contatos) da espinha de cadastro (NÚCLEO-CRM) + criação manual de cliente. Inclui a view Clientes (papel). Kill-switch por empresa; nasce ligado.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/contatos"
+    },
+    {
       "key": "bot",
       "name": "Bot IA",
       "description": "Automacao de atendimento e prospecção via bot configurado pela empresa.",
