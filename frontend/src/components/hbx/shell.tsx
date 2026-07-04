@@ -102,6 +102,10 @@ export const ICONS: Record<string, string[]> = {
   crown: ["M2 19h20", "M6 19l1.5-6 4 2.5L12 8l.5 7.5 4-2.5L18 19", "M12 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "M3.5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z", "M20.5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"],
   help: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9.6 9.3a2.4 2.4 0 0 1 4.7.7c0 1.6-2.3 1.9-2.3 3.5", "M12 17h.01"],
   website: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M3 12h18", "M12 3a13 13 0 0 1 4 9 13 13 0 0 1-4 9 13 13 0 0 1-4-9 13 13 0 0 1 4-9Z"],
+  // NÚCLEO-CRM N3 — janela "Empresas" (contas PJ): prédio. A chave PRECISA
+  // existir aqui: nav id sem entrada em ICONS derruba a Sidebar (ICONS[id]
+  // undefined → d.map de undefined). Foi o P0 do "assistente" (02/07).
+  empresas: ["M4 21V6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v15", "M15 21V10a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v11", "M2 21h20", "M7.5 9h2M7.5 12.5h2M7.5 16h2"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -264,6 +268,10 @@ export const NAV_LINKS = [
   // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
   { id: "automacao", label: "Automações", href: "/automacoes" },
   { id: "atend", label: "Conversas", href: "/atendimento" },
+  // NÚCLEO-CRM N3: janela "Empresas" — as contas PJ da espinha de cadastro
+  // (puxadas do Radar). Read-only nesta fase. Kill-switch, não paywall: nasce
+  // VISÍVEL por default (NAV_ENTITLEMENT/NAV_MODULE_KEY = null abaixo).
+  { id: "empresas", label: "Empresas", href: "/empresas" },
   { id: "bot", label: "Bot", href: "/bot" },
   // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
@@ -554,6 +562,10 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   agenda: "vendas",
   automacao: "vendas",
   atend: "atendimento_chat",
+  // NÚCLEO-CRM N3: Empresas = kill-switch, NÃO paywall → sem gate de plano
+  // (null = sempre visível). O interruptor do master vive no SystemModule
+  // 'empresas' (defaultEnabled=true), não num tier de entitlement.
+  empresas: null,
   bot: null,
   assistente: null,
   relat: "vendas",
@@ -574,6 +586,9 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   agenda: "vendas",
   automacao: "vendas",
   atend: "atendimento",
+  // NÚCLEO-CRM N3: sem gate por usuário/plano (null) — a aba nasce ligada. Se
+  // no futuro o master ligar o kill-switch por empresa, trocar para "empresas".
+  empresas: null,
   bot: null,
   assistente: null,
   relat: "vendas",

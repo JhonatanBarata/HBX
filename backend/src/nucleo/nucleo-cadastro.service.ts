@@ -153,6 +153,157 @@ export class NucleoCadastroService {
     });
     return created.id;
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // NÚCLEO-CRM N3 (04/07) — LEITURA da janela "Empresas" (contas PJ).
+  // READ-ONLY, company-scoped (companyId sempre do usuário logado — nunca do
+  // cliente). Só lê CustomerProfile.tipo='pj'; papéis viram badges. Sem efeito
+  // colateral, sem escrita. Consumido pelo NucleoController.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Lista paginada de CONTAS PJ da empresa (janela Empresas). Filtra por texto
+   * livre (nome/cnpj/cidade) e por UF. Retorna contagem de contatos por conta.
+   */
+  async listEmpresas(companyId: number, params: ListEmpresasParams): Promise<ListEmpresasResult> {
+    if (!companyId) {
+      throw new Error('listEmpresas: companyId é obrigatório');
+    }
+    const page = Math.max(1, Math.trunc(Number(params.page) || 1));
+    const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(params.pageSize) || 30)));
+    const skip = (page - 1) * pageSize;
+
+    const query = String(params.query ?? '').trim();
+    const uf = String(params.uf ?? '').trim().toUpperCase();
+
+    const where: any = { companyId, tipo: 'pj' };
+    if (uf) where.uf = uf;
+    if (query) {
+      const queryDigits = query.replace(/\D+/g, '');
+      const or: any[] = [
+        { name: { contains: query, mode: 'insensitive' } },
+        { cidade: { contains: query, mode: 'insensitive' } },
+      ];
+      if (queryDigits) or.push({ cnpj: { contains: queryDigits } });
+      where.OR = or;
+    }
+
+    const [total, rows] = await Promise.all([
+      this.prisma.customerProfile.count({ where }),
+      this.prisma.customerProfile.findMany({
+        where,
+        orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          name: true,
+          cnpj: true,
+          cidade: true,
+          uf: true,
+          isLead: true,
+          isCliente: true,
+          isFornecedor: true,
+          origin: true,
+          _count: { select: { contatos: true } },
+        },
+      }),
+    ]);
+
+    return {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      items: rows.map((row) => ({
+        id: row.id,
+        name: row.name ?? null,
+        cnpj: row.cnpj ?? null,
+        cidade: row.cidade ?? null,
+        uf: row.uf ?? null,
+        isLead: Boolean(row.isLead),
+        isCliente: Boolean(row.isCliente),
+        isFornecedor: Boolean(row.isFornecedor),
+        origin: row.origin ?? null,
+        contatosCount: Number(row._count?.contatos || 0),
+      })),
+    };
+  }
+
+  /**
+   * Detalhe de UMA conta PJ da empresa + seus contatos. Retorna null quando a
+   * conta não existe OU não pertence à empresa (isolamento por-tenant duro:
+   * o id sozinho nunca vaza dados de outro tenant).
+   */
+  async getEmpresa(companyId: number, id: string): Promise<EmpresaDetail | null> {
+    if (!companyId || !id) return null;
+    const row = await this.prisma.customerProfile.findFirst({
+      where: { id, companyId, tipo: 'pj' },
+      select: {
+        id: true,
+        name: true,
+        cnpj: true,
+        document: true,
+        endereco: true,
+        cidade: true,
+        uf: true,
+        cep: true,
+        lat: true,
+        lng: true,
+        phone: true,
+        email: true,
+        isLead: true,
+        isCliente: true,
+        isFornecedor: true,
+        origin: true,
+        createdAt: true,
+        contatos: {
+          orderBy: [{ isPrincipal: 'desc' }, { nome: 'asc' }],
+          select: {
+            id: true,
+            nome: true,
+            cargo: true,
+            whatsapp: true,
+            phone: true,
+            email: true,
+            isPrincipal: true,
+            source: true,
+          },
+        },
+      },
+    });
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      name: row.name ?? null,
+      cnpj: row.cnpj ?? null,
+      document: row.document ?? null,
+      endereco: row.endereco ?? null,
+      cidade: row.cidade ?? null,
+      uf: row.uf ?? null,
+      cep: row.cep ?? null,
+      lat: row.lat ?? null,
+      lng: row.lng ?? null,
+      phone: row.phone ?? null,
+      email: row.email ?? null,
+      isLead: Boolean(row.isLead),
+      isCliente: Boolean(row.isCliente),
+      isFornecedor: Boolean(row.isFornecedor),
+      origin: row.origin ?? null,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
+      contatos: (row.contatos || []).map((c) => ({
+        id: c.id,
+        nome: c.nome,
+        cargo: c.cargo ?? null,
+        whatsapp: c.whatsapp ?? null,
+        phone: c.phone ?? null,
+        email: c.email ?? null,
+        isPrincipal: Boolean(c.isPrincipal),
+        source: c.source ?? null,
+      })),
+    };
+  }
 }
 
 function normalizeDigits(value: string | null | undefined): string {
@@ -187,4 +338,65 @@ export interface UpsertContatoPrincipalInput {
   email?: string | null;
   /** 'radar' | 'manual' | 'cnpj_socio' — default 'manual' */
   source?: string;
+}
+
+// ── N3 — tipos de LEITURA (janela Empresas) ────────────────────────────────
+export interface ListEmpresasParams {
+  query?: string;
+  uf?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface EmpresaListItem {
+  id: string;
+  name: string | null;
+  cnpj: string | null;
+  cidade: string | null;
+  uf: string | null;
+  isLead: boolean;
+  isCliente: boolean;
+  isFornecedor: boolean;
+  origin: string | null;
+  contatosCount: number;
+}
+
+export interface ListEmpresasResult {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  items: EmpresaListItem[];
+}
+
+export interface EmpresaContato {
+  id: string;
+  nome: string;
+  cargo: string | null;
+  whatsapp: string | null;
+  phone: string | null;
+  email: string | null;
+  isPrincipal: boolean;
+  source: string | null;
+}
+
+export interface EmpresaDetail {
+  id: string;
+  name: string | null;
+  cnpj: string | null;
+  document: string | null;
+  endereco: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  lat: number | null;
+  lng: number | null;
+  phone: string | null;
+  email: string | null;
+  isLead: boolean;
+  isCliente: boolean;
+  isFornecedor: boolean;
+  origin: string | null;
+  createdAt: string | null;
+  contatos: EmpresaContato[];
 }

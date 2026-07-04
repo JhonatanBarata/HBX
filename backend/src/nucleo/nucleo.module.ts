@@ -1,17 +1,19 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NucleoCadastroService } from './nucleo-cadastro.service';
+import { NucleoController } from './nucleo.controller';
 
 /**
- * NÚCLEO-CRM N1 (04/07) — módulo da espinha de cadastro (Conta + Contato).
+ * NÚCLEO-CRM — módulo da espinha de cadastro (Conta + Contato).
  *
- * INERTE nesta sprint: registra APENAS o NucleoCadastroService (métodos upsert
- * idempotentes) e o exporta pra N2/N3 consumirem. SEM controllers, SEM endpoints,
- * SEM cron/boot, SEM disparo de WhatsApp. Registrado no AppModule só pra ficar
- * disponível na injeção — não muda nenhum comportamento existente.
+ * N1 (04/07): NucleoCadastroService (métodos upsert idempotentes), exportado
+ * pra N2/N3 consumirem.
+ * N3 (04/07): NucleoController — janela "Empresas" (contas PJ), SÓ LEITURA,
+ * company-scoped (JwtAuthGuard). Sem cron/boot, sem WhatsApp, sem escrita nova.
  */
 @Module({
   imports: [PrismaModule],
+  controllers: [NucleoController],
   providers: [NucleoCadastroService],
   exports: [NucleoCadastroService],
 })

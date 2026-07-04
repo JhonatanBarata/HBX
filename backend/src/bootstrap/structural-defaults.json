@@ -55,6 +55,15 @@
       "serviceUrl": "/dashboard/cadastros"
     },
     {
+      "key": "empresas",
+      "name": "Empresas",
+      "description": "Janela de contas PJ da espinha de cadastro (NÚCLEO-CRM) — empresas puxadas do Radar, com contatos e papéis. Kill-switch por empresa; nasce ligado.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/empresas"
+    },
+    {
       "key": "bot",
       "name": "Bot IA",
       "description": "Automacao de atendimento e prospecção via bot configurado pela empresa.",

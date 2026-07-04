@@ -2062,6 +2062,51 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* Mini radar no topo do painel com lead selecionado */
 .radar-mini-bar { display: flex; align-items: center; gap: 10px; }
 .radar-mini-bar__back { flex: 0 0 auto; }
+.radar-mini-bar__title { font-size: 0.72rem; font-weight: 700; color: var(--text-strong); text-align: left; }
+.radar-mini-bar__sub { font-size: 0.64rem; color: var(--text-muted); text-align: left; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Painelzão do "Buscar empresas" (VENDAS-REFAB item 3, 04/07) — cabeçalho
+   decorativo + painel de filtro profissional. O radar (.radar-hero__disc)
+   NÃO é grade de quadradinhos (isso já foi feito e o dono odiou) — é o MESMO
+   disco-sonar de sempre, só sem estado/texto por trás (item 2/8).
+   ══════════════════════════════════════════════════════════════════════════ */
+.radar-hero { display: flex; align-items: center; gap: 12px; padding: 2px 2px 4px; }
+.radar-hero__disc { flex: 0 0 auto; width: 64px; height: 64px; }
+.radar-hero__copy { min-width: 0; display: grid; gap: 1px; }
+.radar-hero__eyebrow { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-muted); }
+.radar-hero__title { margin: 0; font-family: var(--font-display); font-size: 1.06rem; font-weight: 800; color: var(--text-strong); letter-spacing: -0.01em; }
+
+/* Painel de filtro "lindo" — card único com seções bem espaçadas (referência
+   Apollo/CNPJ Biz: cantos arredondados, sombra sutil via token, respiro). */
+.radar-panel {
+  display: grid; gap: 12px; padding: 14px; border-radius: var(--radius-lg);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+.radar-panel .f { display: grid; gap: 5px; }
+.radar-panel label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.radar-panel .select-dark, .radar-panel .field-dark { width: 100%; min-width: 0; }
+.radar-panel__grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.radar-panel__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 960px) {
+  .radar-panel__grid3 { grid-template-columns: 1fr 1fr; }
+}
+
+/* Caixa de busca criativa (item 3) — pill estilo site famoso, mesmo padrão
+   visual do .be-search reaproveitado no popup avançado. */
+.be-search {
+  display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  min-height: 46px; border-radius: 999px; border: 1px solid var(--border-hairline);
+  background: var(--hbx-field-surface); color: var(--text-muted);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.be-search:focus-within { border-color: var(--hbx-brand); box-shadow: 0 0 0 3px var(--ring-brand); }
+.be-search__input {
+  flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
+  font-family: var(--font-body); font-size: 0.84rem; color: var(--text-strong);
+}
+.be-adv-open { justify-content: center; margin-top: 2px; }
 
 /* Filtro estilo CNPJ Biz no radar console (tem-site/tem-WhatsApp). VENDAS-REFAB
    S4 04/07 — substituiu "Canais exigidos" (chips de 6 ícones removidos). */
@@ -3520,3 +3565,108 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   background: var(--hbx-field-surface); color: var(--text-muted); font-size: 0.7rem; font-weight: 700; cursor: pointer;
 }
 .auto-weekday.is-on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
+
+/* ============================================================
+   NÚCLEO-CRM N3 — janela "Empresas" (contas PJ). Classes centrais
+   (design system): a tela não carrega visual próprio inline.
+   ============================================================ */
+.emp-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.emp-toolbar .emp-count { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+.emp-search { flex: 1; min-width: 220px; max-width: 420px; }
+.emp-uf { width: auto; }
+
+.emp-list { display: grid; gap: 8px; padding: 10px 16px 16px; }
+.emp-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; width: 100%;
+  border-radius: var(--radius-md); border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface); cursor: pointer; text-align: left;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+  font-family: var(--font-body);
+}
+.emp-row:hover { background: var(--hbx-surface-soft); border-color: color-mix(in srgb, var(--hbx-brand) 34%, transparent); }
+.emp-row.is-active { border-color: var(--hbx-brand); background: var(--hbx-brand-soft); }
+.emp-row__ico { display: grid; place-items: center; color: var(--hbx-brand-strong); flex: none; }
+.emp-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.emp-row__name { font-size: 0.86rem; font-weight: 700; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emp-row__sub { font-size: 0.7rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emp-row__side { display: flex; align-items: center; gap: 8px; flex: none; }
+.emp-row__contacts { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+
+.emp-roles { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.emp-role {
+  font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline);
+  color: var(--text-muted); background: var(--hbx-surface-raised);
+}
+.emp-role.is-lead { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }
+.emp-role.is-cliente { color: var(--hbx-ok, var(--hbx-brand-strong)); border-color: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 40%, transparent); background: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 12%, transparent); }
+.emp-role.is-fornecedor { color: var(--text-body); border-color: var(--border-hairline); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
+
+.emp-empty { padding: 26px 18px; display: grid; gap: 8px; justify-items: start; }
+.emp-empty__title { font-size: 0.9rem; font-weight: 700; color: var(--text-strong); }
+.emp-empty__text { font-size: 0.76rem; line-height: 1.5; color: var(--text-muted); }
+
+.emp-pager { display: flex; align-items: center; gap: 10px; padding: 0 16px 16px; }
+.emp-pager__info { font-size: 0.72rem; color: var(--text-muted); }
+
+/* Ficha (detalhe) — contatos da conta */
+.emp-contact {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface);
+}
+.emp-contact__ico { display: grid; place-items: center; color: var(--text-muted); flex: none; }
+.emp-contact__main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.emp-contact__name { font-size: 0.82rem; font-weight: 700; color: var(--text-strong); }
+.emp-contact__role { font-size: 0.68rem; color: var(--text-muted); }
+.emp-contact__ch { font-size: 0.68rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Popup "Filtro avançado" (VENDAS-REFAB item 3b, 04/07) — ressuscitado do
+   commit revertido (o popup em si era bom; só a tela em volta foi trocada e
+   odiada). .hbx-veil/.hbx-modal centralizam (Lei 2) — aqui só dimensiona a
+   moldura e organiza o conteúdo em seções roláveis. Zero hex/inline.
+   ══════════════════════════════════════════════════════════════════════════ */
+.be-adv-modal { width: min(640px, 92vw); max-height: min(720px, 88vh); display: flex; flex-direction: column; }
+.be-adv-modal > h3 { padding: 18px 20px 14px; border-bottom: 1px solid var(--border-hairline); }
+.be-adv-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: grid; gap: 20px; }
+.be-adv-sec { display: grid; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid var(--border-hairline); }
+.be-adv-sec:last-child { border-bottom: 0; padding-bottom: 0; }
+.be-adv-sec h4 { margin: 0; font-family: var(--font-display); font-size: 0.82rem; font-weight: 800; color: var(--text-strong); }
+.be-adv-sec .f { display: grid; gap: 5px; }
+.be-adv-sec label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); }
+.be-adv-sec .field-dark { width: 100%; }
+.be-adv-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* Rodapé do popup: prévia ao vivo (count real da base 28M) + ações */
+.be-adv-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 20px; border-top: 1px solid var(--border-hairline); }
+.be-adv-preview { display: flex; flex-direction: column; gap: 2px; font-size: 0.78rem; color: var(--text-body); }
+.be-adv-preview strong { color: var(--hbx-brand-strong); font-weight: 800; }
+.be-adv-preview__note { font-size: 0.64rem; color: var(--text-muted); line-height: 1.4; }
+.be-adv-preview__err { font-size: 0.74rem; color: var(--hbx-danger); font-weight: 600; }
+.be-adv-foot__actions { display: flex; gap: 8px; flex: none; }
+
+/* Tri-state (Qualquer/Sim/Não) — mesmo padrão visual do .radar-canais__switch */
+.be-tristate { display: flex; gap: 5px; flex-wrap: wrap; }
+.be-tristate__opt {
+  font-size: 0.66rem; font-weight: 700; padding: 5px 12px; border-radius: 999px;
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised);
+  color: var(--text-muted); cursor: pointer; white-space: nowrap;
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+}
+.be-tristate__opt.is-on { color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
+
+/* Chip multi-select (popup avançado) */
+.be-chipset { display: flex; flex-wrap: wrap; gap: 6px; }
+.be-chipset__opt {
+  font-size: 0.7rem; font-weight: 700; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised);
+  color: var(--text-body); cursor: pointer; white-space: nowrap;
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+}
+.be-chipset__opt.is-on { color: var(--hbx-action-ink); border-color: var(--hbx-primary); background: var(--hbx-primary); }
+
+.be-check { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--text-body); cursor: pointer; }
+
+@media (max-width: 720px) {
+  .be-adv-grid2 { grid-template-columns: 1fr; }
+}
