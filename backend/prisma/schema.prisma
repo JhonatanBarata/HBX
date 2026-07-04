@@ -241,6 +241,7 @@ model Company {
   emailAssets CompanyEmailAsset[]
   websiteConfig CompanyWebsiteConfig?
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
+  contatos               Contato[]
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -869,17 +870,63 @@ model CustomerProfile {
   botOff               Boolean  @default(false)
   botOffReason         String?
   botOffAt             DateTime?
+  // NÚCLEO-CRM N1 (04/07) — a espinha de cadastro. Colunas ADITIVAS/opcionais:
+  // CustomerProfile passa a ser a CONTA (PJ com CNPJ ou PF pessoa). Nada aqui é
+  // obrigatório nem altera o comportamento existente; leads/vendas/recovery que
+  // já usam este model seguem intactos (todos os defaults preservam o legado).
+  tipo                 String   @default("pf") // "pj" | "pf"
+  cnpj                 String?  // só para tipo pj
+  endereco             String?
+  cidade               String?
+  uf                   String?
+  cep                  String?
+  lat                  Float?
+  lng                  Float?
+  // PAPÉIS (a mesma base filtrada por papel = as 3 janelas Empresas/Contatos/Clientes)
+  isLead               Boolean  @default(false)
+  isCliente            Boolean  @default(false)
+  isFornecedor         Boolean  @default(false)
+  origin               String   @default("manual") // "radar" | "manual" | "import"
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   atendimentoCustomers AtendimentoCustomer[]
   hbxRecoveryCustomers HbxRecoveryCustomer[]
   debtCases            DebtCase[]
   vendasLeads          VendasLead[]
+  contatos             Contato[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
   @@index([sourceConnectionId, externalCustomerId])
   @@index([companyId, status])
+  @@index([companyId, isCliente])
+  @@index([companyId, tipo])
+  @@index([companyId, cnpj])
+}
+
+// NÚCLEO-CRM N1 (04/07) — a PESSOA dentro da Conta (o dono, o comprador, quem
+// recebe a entrega). Filho de CustomerProfile; uma Conta tem N Contatos. Numa
+// PF, o contato é ela mesma. `source` registra de onde nasceu (Radar/manual/QSA).
+// companyId escalar + relation p/ tenant, no mesmo padrão dos demais models.
+// Tabela nova, isolada e aditiva — não altera nada existente.
+model Contato {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  nome              String
+  cargo             String?
+  whatsapp          String?
+  phone             String?
+  email             String?
+  isPrincipal       Boolean  @default(false)
+  source            String   @default("manual") // "radar" | "manual" | "cnpj_socio"
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, customerProfileId])
+  @@index([companyId, isPrincipal])
 }
 
 model DebtCase {

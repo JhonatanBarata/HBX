@@ -44,6 +44,7 @@ import { AssistenteModule } from './assistente/assistente.module';
 import { MasterCockpitModule } from './master-cockpit/master-cockpit.module';
 import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-capture.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
+import { NucleoModule } from './nucleo/nucleo.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
     MasterCockpitModule,
     WebsiteLeadCaptureModule,
     RelatoriosModule,
+    NucleoModule,
   ],
   controllers: [AppController],
   providers: [
