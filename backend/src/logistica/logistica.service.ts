@@ -344,7 +344,7 @@ export class LogisticaService {
       });
       whatsappSent = wa.status === 'enviado';
 
-      const cob = await this.lancarCobranca(companyId, entrega).catch((e) => {
+      const cob = await this.lancarCobranca(companyId, entrega, receiptMethod).catch((e) => {
         this.logger.warn(`[logistica] cobrança falhou entrega=${entrega.id}: ${String(e?.message || e)}`);
         return { lancada: false, outcome: 'falhou' as CobrancaOutcome };
       });
@@ -695,15 +695,23 @@ export class LogisticaService {
    *   pendura (fiado)    → 1 FinanceiroCharge LINKADO, dueDate = regra do cliente
    *                        (diaFechamento, senão hoje). Entrega 'lancada'.
    *
+   * M6 (05/07) — PAGO NA HORA: quando a forma é 'aberto'/'na_hora' E o entregador
+   * marcou um método imediato ('pix'|'dinheiro') na folha de chegada, o charge nasce
+   * JÁ QUITADO (status='approved', lifecycle='paid', paidAt=agora) em vez de 'pending'.
+   * É a mesma linha do FinanceiroCharge — só o desfecho muda. 'pendura'/sem método →
+   * 'pending' com dueDate (fiado). NADA dispara MercadoPago: paymentMethod='MANUAL',
+   * a baixa é MANUAL/local (não há webhook nem preferência MP).
+   *
    * O charge é o MESMO model do resto do sistema (não é caminho paralelo), marcado
-   * paymentMethod='MANUAL', status='pending' — NADA dispara MercadoPago.
+   * paymentMethod='MANUAL' — NADA dispara MercadoPago.
    *
    * IDEMPOTENTE em 2 camadas: (1) guarda por cobrancaStatus já-resolvido; (2) guarda
-   * por entregaId — se já existe um charge desta entrega, NÃO duplica.
+   * por entregaId — se já existe um charge desta entrega, NÃO duplica (não paga 2×).
    */
   private async lancarCobranca(
     companyId: number,
     entrega: { id: string; customerProfileId: string; valor: number; cobrancaStatus: string },
+    receiptMethod?: 'pix' | 'dinheiro' | 'fiado' | null,
   ): Promise<CobrancaResult> {
     // Camada 1: status já-resolvido (lançada/isenta/aguardando/nao_contabilizado) = no-op.
     // R4 — espelha o desfecho JÁ resolvido (mapeia p/ o vocabulário do outcome).
@@ -758,6 +766,13 @@ export class LogisticaService {
     // senão hoje). Só 'aberto'/'avulso'/'na_hora'/'pendura' chegam aqui.
     const dueDate = forma === 'pendura' ? proximoDiaFechamento(conta?.diaFechamento) : new Date();
 
+    // M6 — PAGO NA HORA: 'aberto'/'na_hora' + método imediato ('pix'|'dinheiro') →
+    // o charge nasce QUITADO. 'pendura' é fiado por definição (nunca pago na hora).
+    // 'fiado' como receiptMethod também NÃO quita (é a marcação de "deixou pendurado").
+    const pagoNaHora =
+      forma !== 'pendura' && (receiptMethod === 'pix' || receiptMethod === 'dinheiro');
+    const now = new Date();
+
     const nome = String(conta?.name || 'cliente').trim();
     // R3 — a criação do charge por entrega é ATÔMICA no banco: o índice UNIQUE PARCIAL
     // "FinanceiroCharge_entregaId_key" (WHERE entregaId IS NOT NULL) garante 1 charge
@@ -774,14 +789,24 @@ export class LogisticaService {
           // billingCycle: cobrança da entrega é PONTUAL (não recorrente) → ONCE.
           billingCycle: 'ONCE',
           paymentMethod: 'MANUAL',
-          status: 'pending',
-          lifecycle: 'in_progress',
+          // M6 — pago na hora: charge nasce QUITADO (approved/paid/paidAt). Senão,
+          // 'pending'/'in_progress' (o desfecho segue no fechar-mês ou no recovery).
+          status: pagoNaHora ? 'approved' : 'pending',
+          lifecycle: pagoNaHora ? 'paid' : 'in_progress',
+          paidAt: pagoNaHora ? now : null,
           // R2 — LINK: cliente + entrega + origem + vencimento (mata dívidas 2/3/4).
           customerProfileId: entrega.customerProfileId,
           entregaId: entrega.id,
           sourceModule: 'logistica_entrega',
           dueDate,
-          providerPayload: JSON.stringify({ source: 'logistica_entrega', entregaId: entrega.id, forma }),
+          providerPayload: JSON.stringify({
+            source: 'logistica_entrega',
+            entregaId: entrega.id,
+            forma,
+            // M6 — audita como o pago-na-hora foi decidido (método imediato do ato).
+            pagoNaHora,
+            receiptMethod: receiptMethod ?? null,
+          }),
         },
       });
     } catch (e: any) {
@@ -938,6 +963,132 @@ export class LogisticaService {
       })),
     };
   }
+
+  // ── M6 — RESUMO DO DIA (read-only, company-scoped) ──────────────────────────
+  /**
+   * M6 (05/07) — o card do admin na tela de Logística: quantas entregas foram
+   * concluídas HOJE, quanto FOI RECEBIDO (charges quitados no dia) e quanto está
+   * A RECEBER (charges pendentes com dueDate no dia). Read-only, company-scoped —
+   * não toca dinheiro nem dispara nada.
+   *
+   *   entregues     = entregas 'entregue' com deliveredAt no dia.
+   *   recebidoHoje  = Σ amount dos charges pagos (paidAt no dia) da logística.
+   *   aReceber      = Σ amount dos charges 'pending' com dueDate no dia da logística.
+   *
+   * Os charges são filtrados por sourceModule 'logistica_*' (entrega/fechamento) —
+   * a receita da assinatura HBX (sem sourceModule) NÃO entra neste resumo.
+   */
+  async resumoDia(companyId: number, dateInput?: string): Promise<ResumoDiaResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const { start, end, dayISO } = resolveDayRange(dateInput);
+    const logisticaSources = ['logistica_entrega', 'logistica_fechamento'];
+
+    const [entregues, pagos, aReceberRows] = await Promise.all([
+      // Entregas concluídas no dia (status 'entregue' + deliveredAt no range).
+      this.prisma.entrega.count({
+        where: { companyId, status: 'entregue', deliveredAt: { gte: start, lte: end } },
+      }),
+      // Recebido: charges da logística quitados no dia (paidAt no range).
+      this.prisma.financeiroCharge.findMany({
+        where: {
+          companyId,
+          sourceModule: { in: logisticaSources },
+          paidAt: { gte: start, lte: end },
+        },
+        select: { amount: true },
+      }),
+      // A receber: charges da logística ainda 'pending' com vencimento no dia.
+      this.prisma.financeiroCharge.findMany({
+        where: {
+          companyId,
+          sourceModule: { in: logisticaSources },
+          status: 'pending',
+          dueDate: { gte: start, lte: end },
+        },
+        select: { amount: true },
+      }),
+    ]);
+
+    const recebidoHoje = round2(pagos.reduce((sum, c) => sum + Math.max(0, Number(c.amount) || 0), 0));
+    const aReceber = round2(aReceberRows.reduce((sum, c) => sum + Math.max(0, Number(c.amount) || 0), 0));
+
+    return { date: dayISO, entregues, recebidoHoje, aReceber };
+  }
+
+  // ── M6 — EDITAR a forma de pagamento do cliente (ADMIN, na ficha) ───────────
+  /**
+   * M6 (05/07) — grava os DOIS eixos do contrato do cliente (o coração do M6):
+   * `formaPagamento` (aberto|mensal|na_hora|pendura), `metodoPadrao` (pix|dinheiro,
+   * só p/ na_hora), `contabilizar` (entra na contabilidade?) e `diaFechamento` (dia
+   * do mês p/ o modelo mensal). PATCH parcial: só os campos enviados mudam.
+   *
+   * Reconcilia com o `modeloCobranca` do N6: 'mensal'→'mensal', o resto→'avulso'
+   * (mantém a coluna legada coerente, sem quebrar quem lê modeloCobranca).
+   *
+   * company-scoped (o cliente TEM de ser desta empresa). NÃO dispara nada, NÃO
+   * toca cobrança existente — só o CONTRATO daqui pra frente. ADMIN-only (controller).
+   */
+  async updateFinanceiroCliente(
+    companyId: number,
+    clienteId: string,
+    input: UpdateFinanceiroClienteInput,
+  ): Promise<FinanceiroClienteDTO | null> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cid = String(clienteId || '').trim();
+    if (!cid) throw new BadRequestException('Cliente é obrigatório.');
+
+    const found = await this.prisma.customerProfile.findFirst({
+      where: { id: cid, companyId },
+      select: { id: true },
+    });
+    if (!found) return null;
+
+    const data: Record<string, unknown> = {};
+
+    if (input.formaPagamento !== undefined) {
+      const forma = normalizeForma(input.formaPagamento);
+      if (!forma) throw new BadRequestException('Forma de pagamento inválida.');
+      data.formaPagamento = forma;
+      // Mantém o modeloCobranca legado (N6) coerente: mensal↔mensal, resto=avulso.
+      data.modeloCobranca = forma === 'mensal' ? 'mensal' : 'avulso';
+      // na_hora exige método fixo; se saiu de na_hora, o metodoPadrao perde sentido
+      // (só é limpo se o cliente NÃO mandou um método novo neste PATCH).
+      if (forma !== 'na_hora' && input.metodoPadrao === undefined) data.metodoPadrao = null;
+    }
+
+    if (input.metodoPadrao !== undefined) {
+      const metodo = normalizeMetodoPadrao(input.metodoPadrao);
+      // string vazia/null limpa; 'pix'|'dinheiro' grava; qualquer outro = 400.
+      if (input.metodoPadrao && !metodo) throw new BadRequestException('Método padrão inválido.');
+      data.metodoPadrao = metodo;
+    }
+
+    if (input.contabilizar !== undefined) data.contabilizar = !!input.contabilizar;
+
+    if (input.diaFechamento !== undefined) {
+      data.diaFechamento = input.diaFechamento == null ? null : clampDiaFechamento(input.diaFechamento);
+    }
+
+    const updated = await this.prisma.customerProfile.update({
+      where: { id: found.id },
+      data,
+      select: {
+        id: true,
+        formaPagamento: true,
+        metodoPadrao: true,
+        contabilizar: true,
+        diaFechamento: true,
+      },
+    });
+
+    return {
+      id: updated.id,
+      formaPagamento: updated.formaPagamento ?? 'aberto',
+      metodoPadrao: updated.metodoPadrao ?? null,
+      contabilizar: updated.contabilizar,
+      diaFechamento: updated.diaFechamento ?? null,
+    };
+  }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -961,6 +1112,25 @@ function parseDateOrNull(value: string | null | undefined): Date | null {
 function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'fiado' | null {
   const s = String(v || '').trim().toLowerCase();
   return s === 'pix' || s === 'dinheiro' || s === 'fiado' ? s : null;
+}
+
+// M6 — forma de pagamento aceita (fonte da verdade do fluxo). Fora do conjunto = null.
+function normalizeForma(v: string | null | undefined): 'aberto' | 'mensal' | 'na_hora' | 'pendura' | null {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'aberto' || s === 'mensal' || s === 'na_hora' || s === 'pendura' ? s : null;
+}
+
+// M6 — método padrão do na_hora. Vazio/null = limpa; pix|dinheiro = grava; resto = null.
+function normalizeMetodoPadrao(v: string | null | undefined): 'pix' | 'dinheiro' | null {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'pix' || s === 'dinheiro' ? s : null;
+}
+
+// M6 — dia de fechamento válido (1..31); fora da faixa = clampado à borda.
+function clampDiaFechamento(v: number): number {
+  const n = Math.trunc(Number(v));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(31, Math.max(1, n));
 }
 
 // R2 — dinheiro é sempre 2 casas (evita 19.999999 virar cobrança).
@@ -1186,4 +1356,28 @@ export interface ExtratoResult {
   nome: string | null;
   total: number;
   charges: ExtratoCharge[];
+}
+
+// M6 — resumo do dia (card do admin na tela de Logística).
+export interface ResumoDiaResult {
+  date: string;
+  entregues: number;
+  recebidoHoje: number;
+  aReceber: number;
+}
+
+// M6 — editar a forma de pagamento do cliente (na ficha).
+export interface UpdateFinanceiroClienteInput {
+  formaPagamento?: string;
+  metodoPadrao?: string | null;
+  contabilizar?: boolean;
+  diaFechamento?: number | null;
+}
+
+export interface FinanceiroClienteDTO {
+  id: string;
+  formaPagamento: string;
+  metodoPadrao: string | null;
+  contabilizar: boolean;
+  diaFechamento: number | null;
 }

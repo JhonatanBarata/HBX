@@ -31,6 +31,7 @@ import {
   PlanejarRotaDto,
   SetAvisarClienteDto,
   UpdateClienteProdutoDto,
+  UpdateFinanceiroClienteDto,
   UpdateLogisticaConfigDto,
   VarrerRecoveryDto,
 } from './dto/logistica.dto';
@@ -157,6 +158,42 @@ export class LogisticaController {
   async extrato(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.extratoCliente(companyId, id);
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  // ── LOGÍSTICA-MOBILE M6 — financeiro na tela ────────────────────────────────
+
+  /**
+   * Resumo financeiro do dia (card do admin na tela de Logística): quantas
+   * entregas concluídas, quanto RECEBIDO (charges quitados no dia) e quanto A
+   * RECEBER (pending com vencimento no dia). Read-only, company-scoped. Não toca
+   * dinheiro nem dispara nada. Só charges da logística (não a assinatura HBX).
+   */
+  @Get('resumo-dia')
+  resumoDia(@Req() req: any, @Query('date') date?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.resumoDia(companyId, date);
+  }
+
+  /**
+   * Edita os DOIS eixos do contrato de cobrança de UM cliente (M6): forma de
+   * pagamento (aberto|mensal|na_hora|pendura) + método padrão (pix|dinheiro, p/
+   * na_hora) + contabilizar + dia de fechamento. PATCH parcial. ADMIN-only
+   * (RolesGuard + @Admin). company-scoped. Não dispara nada, não toca cobrança
+   * existente — só o contrato daqui pra frente.
+   */
+  @Patch('clientes/:id/financeiro')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async updateFinanceiroCliente(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateFinanceiroClienteDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.updateFinanceiroCliente(companyId, id, {
+      formaPagamento: dto?.formaPagamento,
+      metodoPadrao: dto?.metodoPadrao,
+      contabilizar: dto?.contabilizar,
+      diaFechamento: dto?.diaFechamento,
+    });
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
   }

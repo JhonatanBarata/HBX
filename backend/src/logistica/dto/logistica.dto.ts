@@ -320,6 +320,36 @@ export class FecharMesDto {
   mesRef?: string; // "YYYY-MM"
 }
 
+// ── LOGÍSTICA-MOBILE M6 — editar a forma de pagamento do cliente (na ficha) ───
+// PATCH parcial dos DOIS eixos do contrato (regra do dono 04/07, NÃO misturar):
+// formaPagamento (COMO/QUANDO paga) + contabilizar (entra na contabilidade?) +
+// metodoPadrao (pix|dinheiro, só p/ na_hora) + diaFechamento (modelo mensal).
+// companyId NUNCA vem do body (JWT). ADMIN-only no controller. Não dispara nada.
+export class UpdateFinanceiroClienteDto {
+  // aberto | mensal | na_hora | pendura (validação de conteúdo no serviço).
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  formaPagamento?: string;
+
+  // pix | dinheiro (só p/ na_hora). Vazio limpa; validação de conteúdo no serviço.
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  metodoPadrao?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  contabilizar?: boolean;
+
+  // Dia do mês em que fecha a fatura (modelo mensal). 1..31 (clampado no serviço).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  diaFechamento?: number;
+}
+
 // ── LOGÍSTICA-MOBILE M7 — recovery opt-in (varrer cobranças vencidas) ─────────
 export class VarrerRecoveryDto {
   // Data de corte (ISO YYYY-MM-DD); charges com dueDate < esse dia entram. Omitido = hoje.

@@ -570,3 +570,184 @@ test('R4 (d): whatsapp falha → emite 1 MasterEvent logistica.efeito_falhou', a
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOGÍSTICA-MOBILE M6 — financeiro na tela: PAGO NA HORA + resumo do dia + editor.
+//   (a) aberto + receiptMethod pix → charge nasce QUITADO (approved/paid/paidAt).
+//   (b) pendura → pending com dueDate (fiado; NUNCA pago na hora, mesmo com pix).
+//   (c) resumo-dia soma entregues/recebidoHoje/aReceber (só charges da logística).
+//   (d) confirmar 2× com pix → 1 charge só (idempotente por entregaId, não paga 2×).
+//   NADA dispara MP: paymentMethod='MANUAL' sempre; a baixa é MANUAL/local.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── M6 (a) — aberto + pix → charge PAGO NA HORA (approved/paid/paidAt) ────────
+test('M6 (a): aberto + receiptMethod pix → charge nasce QUITADO (approved/paid), MANUAL', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+
+  assert.equal(chargesCreated.length, 1, 'deve lançar 1 charge');
+  assert.equal(chargesCreated[0].paymentMethod, 'MANUAL', 'MANUAL — nada dispara MP');
+  assert.equal(chargesCreated[0].status, 'approved', 'pago na hora → status approved');
+  assert.equal(chargesCreated[0].lifecycle, 'paid', 'pago na hora → lifecycle paid');
+  assert.ok(chargesCreated[0].paidAt instanceof Date, 'pago na hora → paidAt setado');
+  assert.equal(res?.cobrancaLancada, true);
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M6 (b) — pendura → pending com dueDate (fiado; pix NÃO quita) ─────────────
+test('M6 (b): pendura → charge pending com dueDate (fiado, NÃO paga na hora nem com pix)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Seu Zé', formaPagamento: 'pendura', contabilizar: true, diaFechamento: 10, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  // Mesmo mandando pix, pendura é fiado por definição → NÃO quita.
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+
+  assert.equal(chargesCreated.length, 1, 'pendura lança 1 charge (fiado)');
+  assert.equal(chargesCreated[0].status, 'pending', 'pendura → pending (fiado)');
+  assert.equal(chargesCreated[0].lifecycle, 'in_progress', 'pendura → in_progress');
+  assert.equal(chargesCreated[0].paidAt, null, 'pendura → sem paidAt');
+  assert.ok(chargesCreated[0].dueDate instanceof Date, 'pendura tem dueDate (regra do cliente)');
+  assert.equal(res?.cobrancaLancada, true);
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M6 (c) — resumo do dia soma certo (só charges da logística) ──────────────
+test('M6 (c): resumo-dia soma entregues, recebidoHoje (paid) e aReceber (pending)', async () => {
+  // Mock focado no resumoDia: entrega.count + 2 findMany de charge (paidAt / pending).
+  const prisma = {
+    entrega: {
+      count: async (args: any) => {
+        // só conta 'entregue' com deliveredAt no range (o serviço já monta o where).
+        assert.equal(args?.where?.status, 'entregue');
+        assert.ok(args?.where?.deliveredAt?.gte instanceof Date);
+        return 3;
+      },
+    },
+    financeiroCharge: {
+      findMany: async (args: any) => {
+        const w = args?.where || {};
+        // Recebido: filtra por paidAt (charges quitados no dia).
+        if (w.paidAt) {
+          assert.ok(Array.isArray(w.sourceModule?.in), 'filtra por sourceModule logistica_*');
+          return [{ amount: 20 }, { amount: 15.5 }];
+        }
+        // A receber: status pending + dueDate no dia.
+        if (w.status === 'pending' && w.dueDate) {
+          return [{ amount: 40 }, { amount: 10 }];
+        }
+        return [];
+      },
+    },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.resumoDia(1, '2026-07-05');
+
+  assert.equal(res.entregues, 3, 'entregues = count de entregas concluídas no dia');
+  assert.equal(res.recebidoHoje, 35.5, 'recebidoHoje = soma dos charges pagos (20 + 15.5)');
+  assert.equal(res.aReceber, 50, 'aReceber = soma dos charges pending do dia (40 + 10)');
+  // date é o dia resolvido (mesma rotina do listRota, arredondado ao fuso local).
+  assert.match(res.date, /^\d{4}-\d{2}-\d{2}$/, 'date é ISO YYYY-MM-DD');
+});
+
+// ── M6 (d) — confirmar 2× com pix → 1 charge só (não paga 2×) ────────────────
+test('M6 (d): confirmar 2× com pix NÃO paga 2× (idempotente por entregaId)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const entrega = buildEntrega();
+  const { prisma, chargesCreated } = buildPrismaMock(
+    entrega,
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+  assert.equal(chargesCreated.length, 1, '1ª confirmação = 1 charge pago');
+  assert.equal(chargesCreated[0].status, 'approved');
+
+  // Força a corrida: status reaberto + cobrancaStatus revertido. A guarda dura por
+  // entregaId (findFirst) impede o 2º charge → NÃO paga 2×.
+  entrega.status = 'em_rota';
+  entrega.cobrancaStatus = 'pendente';
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+
+  assert.equal(chargesCreated.length, 1, 'confirmar 2× = 1 charge só (não paga 2×)');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M6 (e) — editor da forma de pagamento grava os 2 eixos (company-scoped) ───
+test('M6 (e): updateFinanceiroCliente grava forma/metodo/contabilizar/diaFechamento', async () => {
+  let updateArgs: any = null;
+  const prisma = {
+    customerProfile: {
+      findFirst: async () => ({ id: 'conta-1' }),
+      update: async (args: any) => {
+        updateArgs = args;
+        return {
+          id: 'conta-1',
+          formaPagamento: args.data.formaPagamento ?? 'aberto',
+          metodoPadrao: args.data.metodoPadrao ?? null,
+          contabilizar: args.data.contabilizar ?? true,
+          diaFechamento: args.data.diaFechamento ?? null,
+        };
+      },
+    },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.updateFinanceiroCliente(1, 'conta-1', {
+    formaPagamento: 'mensal',
+    contabilizar: false,
+    diaFechamento: 10,
+  });
+
+  assert.ok(res, 'retorna o DTO do cliente');
+  assert.equal(res?.formaPagamento, 'mensal');
+  assert.equal(res?.contabilizar, false);
+  assert.equal(res?.diaFechamento, 10);
+  // mensal → modeloCobranca legado coerente = 'mensal'.
+  assert.equal(updateArgs?.data?.modeloCobranca, 'mensal', 'reconcilia o modeloCobranca do N6');
+});
+
+test('M6 (e bis): forma inválida → 400; cliente de outra empresa → null', async () => {
+  const prisma = {
+    customerProfile: { findFirst: async () => ({ id: 'conta-1' }), update: async () => ({}) },
+  } as any;
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  await assert.rejects(() => service.updateFinanceiroCliente(1, 'conta-1', { formaPagamento: 'xxx' }), /inválida/i);
+
+  const prismaVazio = { customerProfile: { findFirst: async () => null } } as any;
+  const service2 = new LogisticaService(prismaVazio, {} as any, {} as any, {} as any);
+  const res = await service2.updateFinanceiroCliente(1, 'conta-de-outra-empresa', { contabilizar: true });
+  assert.equal(res, null, 'cliente fora da empresa → null');
+});

@@ -171,6 +171,74 @@ function EntregaDetail({
 // Resultado do POST /logistica/gerar-dia (LOGÍSTICA-MOBILE M2).
 type GerarDiaResult = { date: string; criadas: number; puladas: number; avancados: number; candidatos: number };
 
+// LOGÍSTICA-MOBILE M6 — resumo financeiro do dia (card do admin).
+type ResumoDia = { date: string; entregues: number; recebidoHoje: number; aReceber: number };
+
+// Resultado do POST /logistica/fechar-mes (R2 — modelo mensal).
+type FecharMesResult = { companyId: number; mesRef: string; faturas: unknown[]; chargesCriados: number };
+
+function fmtMoneyLog(v: number): string {
+  return `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`;
+}
+
+// M6 — card "Resumo do dia" (admin): entregues / recebido hoje / a receber +
+// botão "Fechar mês" (chama POST /logistica/fechar-mes com confirmação simples).
+function ResumoDiaCard({ onFecharMes }: { onFecharMes: () => void }) {
+  const [resumo, setResumo] = useState<ResumoDia | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [fechando, setFechando] = useState(false);
+  const [fecharMsg, setFecharMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    return apiFetch<ResumoDia>("/logistica/resumo-dia")
+      .then((res) => { setResumo(res); setError(null); })
+      .catch((err: unknown) => { setError(err instanceof Error ? err.message : "Não foi possível carregar o resumo."); });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const fecharMes = useCallback(() => {
+    if (typeof window !== "undefined" && !window.confirm("Fechar o mês dos clientes mensais? Gera uma fatura por cliente com as entregas do período.")) return;
+    setFechando(true);
+    setFecharMsg(null);
+    apiFetch<FecharMesResult>("/logistica/fechar-mes", { method: "POST", body: JSON.stringify({}) })
+      .then((res) => {
+        setFecharMsg(res.chargesCriados > 0 ? `${res.chargesCriados} fatura(s) gerada(s).` : "Nada a fechar hoje.");
+        onFecharMes();
+        return load();
+      })
+      .catch((err: unknown) => { setFecharMsg(err instanceof Error ? err.message : "Não foi possível fechar o mês."); })
+      .finally(() => setFechando(false));
+  }, [load, onFecharMes]);
+
+  if (error) return null; // resumo é aditivo; se falhar, não polui a tela.
+
+  return (
+    <div className="log-resumo">
+      <div className="log-resumo__stats">
+        <div className="log-resumo__stat">
+          <span className="log-resumo__num">{resumo?.entregues ?? "—"}</span>
+          <span className="log-resumo__lbl">Entregues hoje</span>
+        </div>
+        <div className="log-resumo__stat">
+          <span className="log-resumo__num is-ok">{resumo ? fmtMoneyLog(resumo.recebidoHoje) : "—"}</span>
+          <span className="log-resumo__lbl">Recebido hoje</span>
+        </div>
+        <div className="log-resumo__stat">
+          <span className="log-resumo__num is-due">{resumo ? fmtMoneyLog(resumo.aReceber) : "—"}</span>
+          <span className="log-resumo__lbl">A receber</span>
+        </div>
+      </div>
+      <div className="log-resumo__acts">
+        {fecharMsg && <span className="emp-count">{fecharMsg}</span>}
+        <button type="button" className="btn-ghost btn-xs" onClick={fecharMes} disabled={fechando}>
+          <I d={ICONS.check} size={13} /> {fechando ? "Fechando…" : "Fechar mês"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function LogisticaClient() {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
@@ -243,6 +311,9 @@ export function LogisticaClient() {
             )}
           </div>
         </div>
+
+        {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
+        {admin && <ResumoDiaCard onFecharMes={load} />}
 
         {loading && <div className="emp-empty"><span className="emp-empty__text">Carregando rota…</span></div>}
 
