@@ -29,6 +29,10 @@ const CSS_ALLOWED = [
   /hbx-theme[\\/]theme\.css$/,
   /hbx-theme[\\/]theme-[^\\/]+\.css$/,
   /hbx-theme[\\/]marketing\.css$/,
+  // Design System Entrega (LOGISTICA-MOBILE): arquivo de TOKEN/pele do app do
+  // entregador, escopo [data-skin="entrega"] — mesma categoria isenta das peles
+  // (é onde a Lei permite hex). TSX do app fica limpo (só classes .ent-*).
+  /hbx-theme[\\/]entrega\.css$/,
 ];
 const TSX_EXEMPT = [/app[\\/]page\.client\.tsx$/, /app[\\/]trabalhe-conosco[\\/]/];
 const NEUTRAL = /^#(fff|ffffff|000|000000)$/i;

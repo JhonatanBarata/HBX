@@ -74,3 +74,9 @@
 /* Camada MOBILE de 1ª classe — SEMPRE por último: tudo dentro de @media,
    o desktop não lê nada disto e fica idêntico. Ver mobile.css. */
 @import "./hbx-theme/mobile.css";
+
+/* Design System ENTREGA (LOGISTICA-MOBILE M1) — pele mobile do app do
+   entregador, TODA escopada em [data-skin="entrega"]. Não vaza pro
+   dashboard (nenhuma regra fora do escopo); as peles velhas não entram
+   no app (o wrapper redefine as próprias CSS vars). Ver entrega.css. */
+@import "./hbx-theme/entrega.css";

@@ -1,0 +1,459 @@
+/* ============================================================
+   DESIGN SYSTEM ENTREGA — pele mobile ISOLADA do app do entregador
+   docs/PLANEJAMENTOS/LOGISTICA-MOBILE/PLANO.md · seções 2 / 2b / M1
+
+   POR QUE UM ARQUIVO À PARTE (decisão do dono 04/07):
+   As peles do dashboard (aurora/ember/rose/cyber) são desktop-first e
+   ficam ruins no celular. O app de entrega NÃO usa nenhuma delas. Tudo
+   aqui é escopado em [data-skin="entrega"] — as peles velhas NÃO vazam
+   pra dentro (imune até ao PeleSwitch, que troca [data-theme] no <html>).
+
+   AS 5 LEIS continuam: este é um arquivo de TOKEN/pele (o único lugar
+   onde a Lei permite hex). check-pele reconhece 'entrega.css' na lista
+   de arquivos-de-pele isentos (CSS_ALLOWED). TSX do app fica limpo:
+   só usa as classes .ent-* e as CSS vars daqui.
+
+   Mobile-first: tipo base 17px, títulos 24/28, número grande 34px,
+   grade de 8, radius 16-20, alvos >=52px, cards full-bleed, transições
+   180-240ms com curva spring, safe-area. Claro de ALTO CONTRASTE por
+   default (entregador no sol) + escuro automático à noite.
+   ============================================================ */
+
+/* ---------- TOKENS · claro alto contraste (default) ---------- */
+[data-skin="entrega"] {
+  /* Cor: marca / ações (verde entrega, alto contraste no sol) */
+  --ent-brand: #0F7A3D;
+  --ent-brand-strong: #0A5C2D;
+  --ent-brand-soft: #E4F5EA;
+  --ent-on-brand: #FFFFFF;
+  --ent-accent: #0B6BCB;
+
+  /* Cor: status */
+  --ent-success: #0F7A3D;
+  --ent-warning: #B45309;
+  --ent-danger: #C2213A;
+  --ent-info: #0B6BCB;
+
+  /* Cor: superfícies */
+  --ent-canvas: #F4F6F8;
+  --ent-surface: #FFFFFF;
+  --ent-surface-soft: #EEF1F4;
+  --ent-surface-raised: #FFFFFF;
+  --ent-sheet: #FFFFFF;
+  --ent-overlay: rgba(9, 18, 28, 0.52);
+
+  /* Cor: texto / linhas */
+  --ent-ink: #0C1420;
+  --ent-ink-soft: #3A4656;
+  --ent-ink-muted: #6B7684;
+  --ent-hairline: #DCE2E8;
+  --ent-line-strong: #C2CAD3;
+
+  /* Chips */
+  --ent-chip-surface: #EEF1F4;
+  --ent-chip-ink: #26313F;
+  --ent-chip-on-surface: #D5EAF9;
+  --ent-chip-on-ink: #0B4E86;
+
+  /* Fonte (herda os webfonts já carregados no layout raiz) */
+  --ent-font: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --ent-font-num: "Sora", "Plus Jakarta Sans", system-ui, sans-serif;
+
+  /* Tipo (mobile-first) */
+  --ent-text: 17px;
+  --ent-text-sm: 14px;
+  --ent-title: 24px;
+  --ent-title-lg: 28px;
+  --ent-num: 34px;
+
+  /* Grade de 8 */
+  --ent-1: 4px;
+  --ent-2: 8px;
+  --ent-3: 12px;
+  --ent-4: 16px;
+  --ent-5: 20px;
+  --ent-6: 24px;
+  --ent-8: 32px;
+  --ent-10: 40px;
+
+  /* Forma */
+  --ent-radius: 18px;
+  --ent-radius-sm: 14px;
+  --ent-radius-lg: 22px;
+  --ent-radius-pill: 999px;
+
+  /* Alvo de toque (Lei: >=52px, 1 polegar) */
+  --ent-tap: 52px;
+  --ent-tap-lg: 60px;
+
+  /* Profundidade */
+  --ent-shadow-sm: 0 2px 10px rgba(12, 20, 32, 0.08);
+  --ent-shadow: 0 8px 26px rgba(12, 20, 32, 0.12);
+  --ent-shadow-lg: 0 -14px 40px rgba(12, 20, 32, 0.18);
+
+  /* Movimento (spring) */
+  --ent-motion: 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ent-motion-fast: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ent-motion-slow: 240ms cubic-bezier(0.34, 1.4, 0.5, 1);
+
+  /* Safe-area (notch / barra do gesto) */
+  --ent-safe-top: env(safe-area-inset-top, 0px);
+  --ent-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ent-safe-left: env(safe-area-inset-left, 0px);
+  --ent-safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ---------- TOKENS · escuro automático (noite) ---------- */
+@media (prefers-color-scheme: dark) {
+  [data-skin="entrega"] {
+    --ent-brand: #2FBF6B;
+    --ent-brand-strong: #23A257;
+    --ent-brand-soft: #123021;
+    --ent-on-brand: #04140A;
+    --ent-accent: #4AA3F0;
+
+    --ent-success: #2FBF6B;
+    --ent-warning: #F0A742;
+    --ent-danger: #F26D82;
+    --ent-info: #4AA3F0;
+
+    --ent-canvas: #0B1017;
+    --ent-surface: #131A24;
+    --ent-surface-soft: #1B2431;
+    --ent-surface-raised: #182130;
+    --ent-sheet: #182130;
+    --ent-overlay: rgba(2, 6, 12, 0.66);
+
+    --ent-ink: #F1F5F9;
+    --ent-ink-soft: #C4CDD8;
+    --ent-ink-muted: #8B96A4;
+    --ent-hairline: #263140;
+    --ent-line-strong: #35435400;
+
+    --ent-chip-surface: #1B2431;
+    --ent-chip-ink: #D5DEE8;
+    --ent-chip-on-surface: #123048;
+    --ent-chip-on-ink: #8FD0FF;
+
+    --ent-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
+    --ent-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+    --ent-shadow-lg: 0 -14px 40px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* ---------- CASCA DO APP ---------- */
+[data-skin="entrega"] {
+  min-height: 100dvh;
+  background: var(--ent-canvas);
+  color: var(--ent-ink);
+  font-family: var(--ent-font);
+  font-size: var(--ent-text);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  padding:
+    calc(var(--ent-safe-top))
+    var(--ent-safe-right)
+    var(--ent-safe-bottom)
+    var(--ent-safe-left);
+}
+[data-skin="entrega"] * { box-sizing: border-box; }
+[data-skin="entrega"] .ent-app {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- HEADER "Hoje" ---------- */
+[data-skin="entrega"] .ent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ent-3);
+  padding: var(--ent-6) var(--ent-4) var(--ent-4);
+}
+[data-skin="entrega"] .ent-head-title {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title-lg);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-head-sub {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+}
+
+/* ---------- PROGRESSO (X/N + previsão) ---------- */
+[data-skin="entrega"] .ent-progress {
+  margin: 0 var(--ent-4) var(--ent-4);
+  padding: var(--ent-4) var(--ent-5);
+  background: var(--ent-surface);
+  border-radius: var(--ent-radius);
+  box-shadow: var(--ent-shadow-sm);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ent-3);
+  margin-bottom: var(--ent-3);
+}
+[data-skin="entrega"] .ent-progress-count {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-progress-count b { color: var(--ent-brand); font-weight: 800; }
+[data-skin="entrega"] .ent-progress-eta {
+  text-align: right;
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+}
+[data-skin="entrega"] .ent-progress-eta strong {
+  display: block;
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  color: var(--ent-ink);
+  font-weight: 700;
+}
+[data-skin="entrega"] .ent-progress-bar {
+  height: 10px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-surface-soft);
+  overflow: hidden;
+}
+[data-skin="entrega"] .ent-progress-fill {
+  height: 100%;
+  border-radius: var(--ent-radius-pill);
+  background: linear-gradient(90deg, var(--ent-brand), var(--ent-brand-strong));
+  transition: width var(--ent-motion-slow);
+}
+
+/* ---------- CARD DE PARADA (full-bleed, o herói) ---------- */
+[data-skin="entrega"] .ent-stop-card {
+  margin: 0 var(--ent-4) var(--ent-4);
+  padding: var(--ent-6) var(--ent-5);
+  background: var(--ent-surface-raised);
+  border-radius: var(--ent-radius-lg);
+  box-shadow: var(--ent-shadow);
+  border: 1px solid var(--ent-hairline);
+  transition: transform var(--ent-motion), box-shadow var(--ent-motion);
+}
+[data-skin="entrega"] .ent-stop-card:active { transform: scale(0.99); }
+[data-skin="entrega"] .ent-stop-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ent-2);
+  padding: var(--ent-1) var(--ent-3);
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-brand-soft);
+  color: var(--ent-brand-strong);
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  margin-bottom: var(--ent-3);
+}
+[data-skin="entrega"] .ent-stop-name {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ent-ink);
+  margin-bottom: var(--ent-1);
+}
+[data-skin="entrega"] .ent-stop-addr {
+  font-size: var(--ent-text);
+  color: var(--ent-ink-soft);
+  margin-bottom: var(--ent-4);
+}
+[data-skin="entrega"] .ent-stop-items {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ent-2);
+  padding-top: var(--ent-4);
+  border-top: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-stop-items b {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+  font-weight: 800;
+  color: var(--ent-brand);
+  line-height: 1;
+}
+[data-skin="entrega"] .ent-stop-items span {
+  font-size: var(--ent-text);
+  color: var(--ent-ink-soft);
+  font-weight: 600;
+}
+
+/* ---------- STEPPER (quantos {produto}?) ---------- */
+[data-skin="entrega"] .ent-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-4);
+}
+[data-skin="entrega"] .ent-stepper-btn {
+  width: var(--ent-tap-lg);
+  height: var(--ent-tap-lg);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-line-strong);
+  background: var(--ent-surface);
+  color: var(--ent-ink);
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-stepper-btn:active { transform: scale(0.92); background: var(--ent-surface-soft); }
+[data-skin="entrega"] .ent-stepper-val {
+  flex: 1 1 auto;
+  text-align: center;
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+
+/* ---------- CHIPS (motivo / recebimento / posição) ---------- */
+[data-skin="entrega"] .ent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ent-2);
+}
+[data-skin="entrega"] .ent-chip {
+  min-height: var(--ent-tap);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ent-2);
+  padding: var(--ent-2) var(--ent-4);
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-chip-surface);
+  color: var(--ent-chip-ink);
+  font-size: var(--ent-text);
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-chip:active { transform: scale(0.96); }
+[data-skin="entrega"] .ent-chip.is-on {
+  background: var(--ent-chip-on-surface);
+  color: var(--ent-chip-on-ink);
+}
+/* linha de chips logo abaixo do stepper (recebimento na folha de chegada) */
+[data-skin="entrega"] .ent-stepper + .ent-chips { margin-top: var(--ent-4); }
+/* dots de posição do swipe (X de N) */
+[data-skin="entrega"] .ent-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ent-2);
+  padding: var(--ent-3) 0;
+}
+[data-skin="entrega"] .ent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-line-strong);
+  transition: transform var(--ent-motion), background var(--ent-motion);
+}
+[data-skin="entrega"] .ent-dot.is-on {
+  background: var(--ent-brand);
+  transform: scale(1.5);
+}
+
+/* ---------- SHEET (folha de chegada, sobe de baixo) ---------- */
+[data-skin="entrega"] .ent-sheet-veil {
+  position: fixed;
+  inset: 0;
+  background: var(--ent-overlay);
+  display: flex;
+  align-items: flex-end;
+  z-index: 40;
+}
+[data-skin="entrega"] .ent-sheet {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--ent-sheet);
+  border-radius: var(--ent-radius-lg) var(--ent-radius-lg) 0 0;
+  box-shadow: var(--ent-shadow-lg);
+  padding: var(--ent-4) var(--ent-5) calc(var(--ent-6) + var(--ent-safe-bottom));
+  animation: ent-sheet-up var(--ent-motion-slow) both;
+}
+[data-skin="entrega"] .ent-sheet-grip {
+  width: 44px;
+  height: 5px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-line-strong);
+  margin: 0 auto var(--ent-4);
+}
+@keyframes ent-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* ---------- BOTÕES (primário / secundário / ghost) ---------- */
+[data-skin="entrega"] .ent-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ent-2);
+  width: 100%;
+  min-height: var(--ent-tap-lg);
+  padding: 0 var(--ent-5);
+  border-radius: var(--ent-radius);
+  font-family: var(--ent-font);
+  font-size: var(--ent-text);
+  font-weight: 800;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast), box-shadow var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-btn:active { transform: translateY(1px) scale(0.99); }
+[data-skin="entrega"] .ent-btn--primary {
+  background: linear-gradient(140deg, var(--ent-brand), var(--ent-brand-strong));
+  color: var(--ent-on-brand);
+  box-shadow: var(--ent-shadow-sm);
+}
+[data-skin="entrega"] .ent-btn--secondary {
+  background: var(--ent-surface);
+  color: var(--ent-ink);
+  border-color: var(--ent-line-strong);
+}
+[data-skin="entrega"] .ent-btn--ghost {
+  background: transparent;
+  color: var(--ent-ink-soft);
+}
+[data-skin="entrega"] .ent-btn[disabled] { opacity: 0.5; cursor: default; }
+
+/* ---------- BARRA DE AÇÃO INFERIOR (1 polegar) ---------- */
+[data-skin="entrega"] .ent-actionbar {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--ent-3);
+  padding: var(--ent-4);
+  padding-bottom: calc(var(--ent-4) + var(--ent-safe-bottom));
+  background: linear-gradient(180deg, transparent, var(--ent-canvas) 30%);
+}
+
+/* ---------- RESPEITA quem pediu menos movimento ---------- */
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="entrega"] * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
