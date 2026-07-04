@@ -5,6 +5,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -12,7 +13,15 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { LogisticaService } from './logistica.service';
-import { CancelarEntregaDto, ConfirmarEntregaDto, CreateEntregaDto } from './dto/logistica.dto';
+import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
+import {
+  CancelarEntregaDto,
+  ConfirmarEntregaDto,
+  CreateClienteProdutoDto,
+  CreateEntregaDto,
+  GerarDiaDto,
+  UpdateClienteProdutoDto,
+} from './dto/logistica.dto';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — controller do módulo LOGÍSTICA (app de entrega).
@@ -28,7 +37,10 @@ import { CancelarEntregaDto, ConfirmarEntregaDto, CreateEntregaDto } from './dto
 @Controller('logistica')
 @UseGuards(JwtAuthGuard)
 export class LogisticaController {
-  constructor(private readonly service: LogisticaService) {}
+  constructor(
+    private readonly service: LogisticaService,
+    private readonly recorrencia: LogisticaRecorrenciaService,
+  ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
     const companyId = Number(user?.companyId);
@@ -69,5 +81,48 @@ export class LogisticaController {
     const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
+  }
+
+  // ── LOGÍSTICA-MOBILE M2 — produtos do cliente (recorrência) ────────────────
+
+  /** Catálogo de produtos da empresa (seletor da UI "Produtos do cliente"). */
+  @Get('produtos')
+  listProdutos(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recorrencia.listProdutos(companyId);
+  }
+
+  /** Vínculos produto×cliente de um cliente. */
+  @Get('cliente-produtos')
+  listClienteProdutos(@Req() req: any, @Query('customerProfileId') customerProfileId: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recorrencia.listByCliente(companyId, customerProfileId);
+  }
+
+  /** Cria um vínculo produto×cliente (qtd padrão, preço acordado, frequência). */
+  @Post('cliente-produtos')
+  createClienteProduto(@Req() req: any, @Body() dto: CreateClienteProdutoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recorrencia.create(companyId, dto);
+  }
+
+  /** Edita um vínculo (qtd/preço/frequência/ativo). Company-scoped. */
+  @Patch('cliente-produtos/:id')
+  async updateClienteProduto(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateClienteProdutoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.recorrencia.update(companyId, id, dto);
+    if (!res) throw new NotFoundException('Vínculo não encontrado');
+    return res;
+  }
+
+  /**
+   * Gera as entregas do dia a partir dos vínculos recorrentes vencidos.
+   * IDEMPOTENTE por [cliente, dia]: rodar 2× no mesmo dia = 1 entrega/cliente.
+   * Não dispara WhatsApp/cobrança (isso é só no confirmar, N6, atrás de flag).
+   */
+  @Post('gerar-dia')
+  gerarDia(@Req() req: any, @Body() dto: GerarDiaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recorrencia.gerarDia(companyId, dto?.date);
   }
 }

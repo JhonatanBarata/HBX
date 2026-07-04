@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { LogisticaService } from './logistica.service';
+import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaController } from './logistica.controller';
 
 /**
@@ -15,7 +16,7 @@ import { LogisticaController } from './logistica.controller';
 @Module({
   imports: [PrismaModule, MessagingModule],
   controllers: [LogisticaController],
-  providers: [LogisticaService],
-  exports: [LogisticaService],
+  providers: [LogisticaService, LogisticaRecorrenciaService],
+  exports: [LogisticaService, LogisticaRecorrenciaService],
 })
 export class LogisticaModule {}

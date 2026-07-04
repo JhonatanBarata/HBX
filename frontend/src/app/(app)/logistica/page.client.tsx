@@ -19,6 +19,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isTenantAdmin } from "@/lib/roles";
 
 type Cliente = {
   id: string;
@@ -166,12 +167,18 @@ function EntregaDetail({
   );
 }
 
+// Resultado do POST /logistica/gerar-dia (LOGÍSTICA-MOBILE M2).
+type GerarDiaResult = { date: string; criadas: number; puladas: number; avancados: number; candidatos: number };
+
 export function LogisticaClient() {
-  useCurrentUser();
+  const user = useCurrentUser();
+  const admin = isTenantAdmin(user);
   const [rota, setRota] = useState<Rota | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Entrega | null>(null);
+  const [gerando, setGerando] = useState(false);
+  const [gerarMsg, setGerarMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -189,6 +196,28 @@ export function LogisticaClient() {
 
   useEffect(() => { load(); }, [load]);
 
+  // "Gerar entregas de hoje" (admin): materializa as entregas recorrentes vencidas.
+  // Idempotente no backend — clicar 2× não duplica. Recarrega a rota ao terminar.
+  const gerarDia = useCallback(() => {
+    setGerando(true);
+    setGerarMsg(null);
+    apiFetch<GerarDiaResult>("/logistica/gerar-dia", { method: "POST", body: JSON.stringify({}) })
+      .then((res) => {
+        setGerarMsg(
+          res.criadas > 0
+            ? `${res.criadas} entrega(s) gerada(s).`
+            : res.candidatos > 0
+              ? "Nada novo a gerar hoje (já estava tudo criado)."
+              : "Nenhum produto recorrente vencido hoje.",
+        );
+        return load();
+      })
+      .catch((err: unknown) => {
+        setGerarMsg(err instanceof Error ? err.message : "Não foi possível gerar as entregas.");
+      })
+      .finally(() => setGerando(false));
+  }, [load]);
+
   const items = rota?.items ?? [];
   const pendentes = items.filter((e) => e.status === "agendada" || e.status === "em_rota").length;
   const isEmpty = !loading && !error && items.length === 0;
@@ -198,8 +227,14 @@ export function LogisticaClient() {
       <section className="panel">
         <div className="panel-head">
           <h2>Rota de hoje</h2>
-          <div className="meta">
+          <div className="meta" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {gerarMsg && <span className="emp-count">{gerarMsg}</span>}
             <span>{pendentes} pendente(s) · {items.length} no dia</span>
+            {admin && (
+              <button type="button" className="btn-ghost btn-xs" onClick={gerarDia} disabled={gerando}>
+                <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
+              </button>
+            )}
           </div>
         </div>
 

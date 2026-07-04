@@ -243,6 +243,8 @@ model Company {
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
   contatos               Contato[]
   entregas               Entrega[]
+  clienteProdutos        ClienteProduto[]
+  logisticaConfig        LogisticaConfig?
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -902,6 +904,7 @@ model CustomerProfile {
   vendasLeads          VendasLead[]
   contatos             Contato[]
   entregas             Entrega[]
+  clienteProdutos      ClienteProduto[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
@@ -966,11 +969,99 @@ model Entrega {
   deliveredLng      Float?
   cobrancaStatus    String   @default("pendente") // pendente | lancada | isenta | falhou
   notes             String?
+  // LOGÍSTICA-MOBILE M2 (05/07) — colunas ADITIVAS (todas opcionais, default null):
+  // rotaOrdem/etaAt alimentam o motor de rota+ETA (M3); whatsappStatus/cobrancaOutcome/
+  // recebidoNaHora/receiptMethod são o desfecho do app do entregador (M4/M6);
+  // idempotencyKey é a base do offline-first (M8, unique p/ sync sem duplicar).
+  rotaOrdem         Int?
+  etaAt             DateTime?
+  whatsappStatus    String?  // queued | sent | failed | null
+  cobrancaOutcome   String?  // pago | pendura | isenta | null
+  recebidoNaHora    Boolean?
+  receiptMethod     String?  // pix | dinheiro | fiado | null
+  idempotencyKey    String?  @unique
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  itens             EntregaItem[]
 
   @@index([companyId, status, scheduledAt])
   @@index([companyId, customerProfileId])
+  // LOGÍSTICA-MOBILE M2 — "entregas do dia" idempotentes por [empresa, cliente, dia]:
+  // o gerador varre esta faixa e não recria a entrega recorrente de um cliente no
+  // mesmo dia (a checagem real é feita no serviço; este índice acelera a varredura).
+  @@index([companyId, customerProfileId, scheduledAt])
+}
+
+// LOGÍSTICA-MOBILE M2 (05/07) — amarração PRODUTO×CLIENTE + recorrência.
+// Diz "o cliente X leva N do produto Y a cada Z dias (ou nos dias W da semana),
+// pelo preço acordado". É a agenda da logística: o gerador "entregas do dia"
+// (POST /logistica/gerar-dia) varre os vínculos ativos vencidos e materializa
+// Entrega + EntregaItem, avançando proximaData. Tabela nova, isolada e aditiva.
+model ClienteProduto {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId         Int
+  qtdPadrao         Int      @default(1)
+  precoAcordado     Float?   // vence o preço do catálogo/precoPadrao do cliente
+  frequenciaDias    Int?     // 7 = semanal (OU use diasSemana; não os dois)
+  diasSemana        String?  // "1,3,5" = seg/qua/sex (1=seg … 7=dom)
+  proximaData       DateTime?
+  ativo             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([companyId, customerProfileId, productId])
+  @@index([companyId, ativo, proximaData])
+  @@index([companyId, customerProfileId])
+  @@index([companyId, productId])
+}
+
+// LOGÍSTICA-MOBILE M2 (05/07) — item de uma Entrega (multi-produto).
+// A Entrega vira um "carrinho": 1..N EntregaItem. Backward-compat: Entrega.quantidade
+// e Entrega.valor continuam existindo e são mantidos coerentes (soma dos itens) pelo
+// serviço, então o N6 (confirmarEntrega/cobrança) segue funcionando sem tocar nada.
+model EntregaItem {
+  id           String   @id @default(cuid())
+  entrega      Entrega  @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  entregaId    String
+  product      Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId    Int?
+  qtdPrevista  Int      @default(1)
+  qtdEntregue  Int?
+  valorUnit    Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([entregaId])
+  @@index([productId])
+}
+
+// LOGÍSTICA-MOBILE M2 (05/07) — configuração do módulo Logística por EMPRESA
+// (1 linha por tenant). Guarda as regras que o admin controla: aviso de WhatsApp,
+// raio de chegada/geofence, velocidade média (ETA), cobrança na entrega e os
+// opt-ins de módulo (financeiro/recovery) + o gatilho do cron "gerar dia".
+// TODOS os toggles têm default seguro; gerarDiaAutomatico=false → cron INERTE.
+model LogisticaConfig {
+  id                    String   @id @default(cuid())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             Int
+  avisoWhatsEnabled     Boolean  @default(true)
+  templateAviso         String?  // variáveis {saudacao} {cliente} {itens} {qtd} {produto}
+  raioChegadaM          Int      @default(60)
+  velocidadeMediaKmH    Int      @default(25)
+  tempoParadaMin        Int      @default(5)
+  cobrancaNaEntrega     Boolean  @default(false)
+  moduloFinanceiroAtivo Boolean  @default(false)
+  moduloRecoveryAtivo   Boolean  @default(false)
+  gerarDiaAutomatico    Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([companyId])
 }
 
 model DebtCase {
@@ -3397,6 +3488,8 @@ model Product {
   versions    ProductVersion[]
   vendasLeads VendasLead[]
   entregas    Entrega[]
+  clienteProdutos ClienteProduto[]
+  entregaItens EntregaItem[]
 
   @@index([companyId, status, sortOrder])
   @@index([companyId, kind, status])

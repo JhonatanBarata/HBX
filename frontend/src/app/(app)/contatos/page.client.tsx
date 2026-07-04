@@ -78,6 +78,215 @@ function localCityUf(cidade: string | null, uf: string | null): string {
   return [String(cidade || "").trim(), String(uf || "").trim()].filter(Boolean).join(" · ");
 }
 
+// ── LOGÍSTICA-MOBILE M2 — "Produtos do cliente" (vínculo produto×cliente) ─────
+type ProdutoOption = {
+  id: number;
+  nome: string;
+  unidade: string | null;
+  usaLogistica: boolean;
+  precoCatalogo: number | null;
+};
+
+type ClienteProduto = {
+  id: string;
+  customerProfileId: string;
+  productId: number;
+  qtdPadrao: number;
+  precoAcordado: number | null;
+  frequenciaDias: number | null;
+  diasSemana: string | null;
+  proximaData: string | null;
+  ativo: boolean;
+  produto: { id: number; nome: string; unidade: string | null; precoCatalogo: number | null } | null;
+};
+
+function fmtRecorrencia(cp: ClienteProduto): string {
+  if (cp.diasSemana) {
+    const map = ["", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+    const dias = cp.diasSemana
+      .split(",")
+      .map((d) => map[Number(d.trim())] || "")
+      .filter(Boolean)
+      .join("/");
+    return dias ? `Toda ${dias}` : "Sem recorrência";
+  }
+  if (cp.frequenciaDias) return cp.frequenciaDias === 7 ? "Semanal" : `A cada ${cp.frequenciaDias} dias`;
+  return "Sem recorrência";
+}
+
+// Drawer com a lista + o formulário de adicionar produto ao cliente.
+function ClienteProdutosDrawer({
+  cliente,
+  onClose,
+}: {
+  cliente: { id: string; nome: string | null };
+  onClose: () => void;
+}) {
+  const [vinculos, setVinculos] = useState<ClienteProduto[]>([]);
+  const [produtos, setProdutos] = useState<ProdutoOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // form de novo vínculo
+  const [productId, setProductId] = useState<string>("");
+  const [qtdPadrao, setQtdPadrao] = useState("1");
+  const [precoAcordado, setPrecoAcordado] = useState("");
+  const [frequencia, setFrequencia] = useState(""); // "" | "7" | "15" | "30"
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const qs = new URLSearchParams({ customerProfileId: cliente.id });
+    return Promise.all([
+      apiFetch<ClienteProduto[]>(`/logistica/cliente-produtos?${qs.toString()}`),
+      apiFetch<ProdutoOption[]>(`/logistica/produtos`),
+    ])
+      .then(([vs, ps]) => {
+        setVinculos(vs || []);
+        setProdutos(ps || []);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Não foi possível carregar.");
+      })
+      .finally(() => setLoading(false));
+  }, [cliente.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function addVinculo(e: React.FormEvent) {
+    e.preventDefault();
+    if (!productId) {
+      setError("Escolha um produto.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch("/logistica/cliente-produtos", {
+        method: "POST",
+        body: JSON.stringify({
+          customerProfileId: cliente.id,
+          productId: Number(productId),
+          qtdPadrao: Math.max(1, Number(qtdPadrao) || 1),
+          precoAcordado: precoAcordado.trim() ? Number(precoAcordado) : undefined,
+          frequenciaDias: frequencia ? Number(frequencia) : undefined,
+        }),
+      });
+      setProductId("");
+      setQtdPadrao("1");
+      setPrecoAcordado("");
+      setFrequencia("");
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Não foi possível vincular o produto.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleAtivo(cp: ClienteProduto) {
+    try {
+      await apiFetch(`/logistica/cliente-produtos/${cp.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ativo: !cp.ativo }),
+      });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Não foi possível atualizar.");
+    }
+  }
+
+  // Só produtos ainda não vinculados aparecem no seletor.
+  const jaVinculados = new Set(vinculos.map((v) => v.productId));
+  const disponiveis = produtos.filter((p) => !jaVinculados.has(p.id));
+
+  return (
+    <div className="hbx-veil to-bottom" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="hbx-drawer-bottom cli-prod" role="dialog" aria-label="Produtos do cliente" aria-modal="true">
+        <div className="hbx-drawer-bottom__handle" aria-hidden />
+
+        <div className="cli-prod__head">
+          <strong className="cli-prod__title">Produtos do cliente</strong>
+          <span className="cli-prod__sub">{cliente.nome || "Cliente"}</span>
+        </div>
+
+        {loading && <p className="cli-prod__muted">Carregando…</p>}
+        {error && <p className="hint cli-prod__err">{error}</p>}
+
+        {!loading && vinculos.length > 0 && (
+          <div className="cli-prod__list">
+            {vinculos.map((cp) => (
+              <div className={`cli-prod__row${cp.ativo ? "" : " is-off"}`} key={cp.id}>
+                <span className="cli-prod__ico"><I d={ICONS.logistica} size={16} /></span>
+                <span className="cli-prod__main">
+                  <span className="cli-prod__name">
+                    {cp.qtdPadrao}× {cp.produto?.nome || "Produto"}
+                    {cp.produto?.unidade ? ` (${cp.produto.unidade})` : ""}
+                  </span>
+                  <span className="cli-prod__meta">
+                    {fmtRecorrencia(cp)}
+                    {cp.precoAcordado != null ? `  ·  R$ ${cp.precoAcordado.toFixed(2)}` : ""}
+                  </span>
+                </span>
+                <button type="button" className="btn-ghost btn-xs" onClick={() => toggleAtivo(cp)}>
+                  {cp.ativo ? "Desativar" : "Ativar"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && vinculos.length === 0 && (
+          <p className="cli-prod__muted">Nenhum produto vinculado ainda. Adicione abaixo.</p>
+        )}
+
+        <form className="cli-prod__form" onSubmit={addVinculo}>
+          <div className="cli-prod__form-row">
+            <select className="field-dark" value={productId} onChange={(e) => setProductId(e.target.value)} aria-label="Produto">
+              <option value="">Produto…</option>
+              {disponiveis.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}{p.unidade ? ` (${p.unidade})` : ""}
+                </option>
+              ))}
+            </select>
+            <input
+              className="field-dark cli-prod__qtd"
+              type="number"
+              min={1}
+              value={qtdPadrao}
+              onChange={(e) => setQtdPadrao(e.target.value)}
+              aria-label="Quantidade padrão"
+            />
+          </div>
+          <div className="cli-prod__form-row">
+            <input
+              className="field-dark"
+              placeholder="Preço acordado (opcional)"
+              inputMode="decimal"
+              value={precoAcordado}
+              onChange={(e) => setPrecoAcordado(e.target.value)}
+              aria-label="Preço acordado"
+            />
+            <select className="field-dark" value={frequencia} onChange={(e) => setFrequencia(e.target.value)} aria-label="Frequência">
+              <option value="">Sem recorrência</option>
+              <option value="7">Semanal (7 dias)</option>
+              <option value="15">Quinzenal (15 dias)</option>
+              <option value="30">Mensal (30 dias)</option>
+            </select>
+          </div>
+          <button type="submit" className="btn-teal" disabled={saving || !productId}>
+            <I d={ICONS.plus} size={13} /> {saving ? "Adicionando…" : "Adicionar produto"}
+          </button>
+        </form>
+
+        <button type="button" className="btn-ghost btn-xs cli-prod__close" onClick={onClose}>Fechar</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Modal: novo contato/cliente ──────────────────────────────────────────────
 function NovoClienteModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [nome, setNome] = useState("");
@@ -244,6 +453,8 @@ export function ContatosClient() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [showNovo, setShowNovo] = useState(false);
+  // LOGÍSTICA-MOBILE M2 — cliente com o drawer "Produtos do cliente" aberto.
+  const [prodCliente, setProdCliente] = useState<{ id: string; nome: string | null } | null>(null);
 
   const load = useCallback((only: boolean, q: string, p: number) => {
     setLoading(true);
@@ -399,6 +610,13 @@ export function ContatosClient() {
                       {e.isLead && <span className="emp-role is-lead">Lead</span>}
                       {e.isFornecedor && <span className="emp-role is-fornecedor">Fornecedor</span>}
                     </span>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs ctt-prod-btn"
+                      onClick={() => setProdCliente({ id: e.id, nome: e.name })}
+                    >
+                      <I d={ICONS.logistica} size={13} /> Produtos
+                    </button>
                     <span className="emp-row__contacts" title="Contatos">
                       <I d={ICONS.users} size={13} /> {e.contatosCount}
                     </span>
@@ -423,6 +641,7 @@ export function ContatosClient() {
       </section>
 
       {showNovo && <NovoClienteModal onClose={() => setShowNovo(false)} onSaved={afterSaved} />}
+      {prodCliente && <ClienteProdutosDrawer cliente={prodCliente} onClose={() => setProdCliente(null)} />}
     </div>
   );
 }

@@ -3786,3 +3786,34 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .log-detail__acts { display: flex; gap: 10px; }
 .log-nav, .log-confirm { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .log-detail__close { justify-self: center; margin-top: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LOGÍSTICA-MOBILE M2 — "Produtos do cliente" (vínculo produto×cliente).
+   Drawer aberto a partir da linha da view "Clientes" (reusa .hbx-drawer-bottom
+   da central). Zero hex/inline (5 Leis) — tudo em token central.
+   ══════════════════════════════════════════════════════════════════════════ */
+.ctt-prod-btn { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+
+.cli-prod { display: grid; gap: 12px; padding-bottom: 8px; }
+.cli-prod__head { display: grid; gap: 2px; }
+.cli-prod__title { font-size: 1rem; font-weight: 800; color: var(--text-strong); }
+.cli-prod__sub { font-size: 0.78rem; color: var(--text-muted); }
+.cli-prod__muted { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+.cli-prod__err { margin: 0; }
+
+.cli-prod__list { display: grid; gap: 8px; }
+.cli-prod__row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--radius-md, 12px);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised);
+}
+.cli-prod__row.is-off { opacity: 0.55; }
+.cli-prod__ico { color: var(--hbx-brand-strong); flex: none; display: inline-flex; }
+.cli-prod__main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cli-prod__name { font-size: 0.86rem; font-weight: 700; color: var(--text-body); }
+.cli-prod__meta { font-size: 0.72rem; color: var(--text-muted); }
+
+.cli-prod__form { display: grid; gap: 10px; padding-top: 4px; border-top: 1px solid var(--border-hairline); }
+.cli-prod__form-row { display: grid; grid-template-columns: 1fr 96px; gap: 10px; }
+.cli-prod__qtd { text-align: center; }
+.cli-prod__close { justify-self: center; margin-top: 2px; }

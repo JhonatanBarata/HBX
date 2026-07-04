@@ -1,5 +1,5 @@
 import {
-  IsIn,
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
@@ -81,4 +81,94 @@ export class CancelarEntregaDto {
   @IsString()
   @MaxLength(300)
   motivo?: string;
+}
+
+// ── LOGÍSTICA-MOBILE M2 — vínculo produto×cliente (recorrência) ──────────────
+// "O cliente X leva N do produto Y a cada Z dias (ou nos dias W), pelo preço P."
+// frequenciaDias E diasSemana são mutuamente exclusivos na prática (o serviço
+// prioriza diasSemana); ambos opcionais → vínculo só-manual (sem recorrência).
+export class CreateClienteProdutoDto {
+  @IsString()
+  @MaxLength(60)
+  customerProfileId!: string;
+
+  @IsInt()
+  productId!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9999)
+  qtdPadrao?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  precoAcordado?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  frequenciaDias?: number;
+
+  // "1,3,5" = seg/qua/sex (1=seg … 7=dom). Validação de conteúdo no serviço.
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  diasSemana?: string;
+
+  // ISO date; se omitido, o serviço calcula a próxima data pela frequência.
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  proximaData?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  ativo?: boolean;
+}
+
+// Update: todos opcionais (PATCH parcial). customerProfileId/productId NÃO mudam
+// (a identidade do vínculo) — para trocar produto/cliente, cria outro vínculo.
+export class UpdateClienteProdutoDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9999)
+  qtdPadrao?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  precoAcordado?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  frequenciaDias?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  diasSemana?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  proximaData?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  ativo?: boolean;
+}
+
+// ── LOGÍSTICA-MOBILE M2 — gerar entregas do dia ──────────────────────────────
+export class GerarDiaDto {
+  // ISO date do dia a gerar; se omitido = hoje.
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
 }
