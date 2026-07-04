@@ -8,7 +8,6 @@ import { getToken } from "@/lib/api";
 import { ArrivalSheet } from "./ArrivalSheet";
 import {
   cancelarEntrega,
-  confirmarEntrega,
   enderecoCurto,
   getRota,
   hhmm,
@@ -20,7 +19,7 @@ import {
   type RotaItem,
   type RotaResult,
 } from "./entrega-api";
-import { buzz, getPosicaoUma, useGeofence, useWakeLock } from "./entrega-hooks";
+import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock } from "./entrega-hooks";
 
 // ================================================================
 // LOGÍSTICA-MOBILE M4 — O APP DO ENTREGADOR (as 3 telas reais).
@@ -41,6 +40,7 @@ const SWIPE_THRESHOLD_PX = 60;
 export function EntregaHome() {
   const router = useRouter();
   const wakeLock = useWakeLock();
+  const sync = useOfflineSync(); // M8 — fila offline + pendências no header.
 
   const [rota, setRota] = useState<RotaResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -169,15 +169,21 @@ export function EntregaHome() {
       } catch {
         gps = undefined;
       }
+      // M8 — OFFLINE-FIRST: enfileira a confirmação (gera idempotencyKey) e tenta enviar
+      // já. Online → some da fila na hora; offline/falha → fica na fila e sincroniza ao
+      // reconectar (teto + backoff). Nunca perde a entrega por falta de sinal. O servidor
+      // dedupe pela key: reenviar o mesmo item não dispara WhatsApp/charge 2×.
       try {
-        await confirmarEntrega(paradaAtual.id, {
+        await sync.enqueueConfirmacao(paradaAtual.id, {
           lat: gps?.lat,
           lng: gps?.lng,
           receiptMethod: payload.receiptMethod,
           itens: payload.itens,
         });
         setSheetAberta(false);
-        await carregar();
+        // Recarrega best-effort: online reflete 'entregue'; offline mantém a parada (o
+        // sync a fecha depois). Erro de rede aqui NÃO reverte a confirmação enfileirada.
+        await carregar().catch(() => {});
         // Avança para a próxima parada (o índice se mantém: a lista encurtou).
         setIndice((i) => Math.max(0, Math.min(i, abertas.length - 2)));
       } catch (e) {
@@ -186,7 +192,7 @@ export function EntregaHome() {
         setSubmitting(false);
       }
     },
-    [abertas.length, carregar, paradaAtual],
+    [abertas.length, carregar, paradaAtual, sync],
   );
 
   const onNaoEntregue = useCallback(
@@ -215,11 +221,30 @@ export function EntregaHome() {
           <div className="ent-head-title">{view === "rota" ? "Rota" : "Hoje"}</div>
           <div className="ent-head-sub">{DATA_HOJE}</div>
         </div>
-        {view === "rota" ? (
-          <button type="button" className="ent-chip" onClick={() => setView("hoje")}>
-            Hoje
-          </button>
-        ) : null}
+        <div className="ent-head-actions">
+          {/* M8 — pendências não sincronizadas (fila offline). Ícone + número, sem texto
+              (Lei nº1). Vira alerta quando algum item estourou o teto de tentativas. */}
+          {sync.pendentes > 0 ? (
+            <span
+              className={`ent-pendencias${sync.precisamAtencao > 0 ? " is-attention" : ""}`}
+              role="status"
+              aria-label={`${sync.pendentes} confirmações não sincronizadas`}
+              title={
+                sync.precisamAtencao > 0
+                  ? `${sync.pendentes} não sincronizadas (${sync.precisamAtencao} precisam de atenção)`
+                  : `${sync.pendentes} aguardando sincronizar`
+              }
+            >
+              <span aria-hidden="true">⇅</span>
+              {sync.pendentes}
+            </span>
+          ) : null}
+          {view === "rota" ? (
+            <button type="button" className="ent-chip" onClick={() => setView("hoje")}>
+              Hoje
+            </button>
+          ) : null}
+        </div>
       </header>
 
       {loading ? (

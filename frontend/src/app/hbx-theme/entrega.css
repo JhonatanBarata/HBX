@@ -185,6 +185,31 @@
   color: var(--ent-ink-muted);
   font-weight: 600;
 }
+/* M8 — ações do header (pendências offline + atalho "Hoje"). */
+[data-skin="entrega"] .ent-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-2);
+}
+/* M8 — indicador de confirmações não sincronizadas (fila offline): ícone + número. */
+[data-skin="entrega"] .ent-pendencias {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ent-1);
+  min-height: 32px;
+  padding: 0 var(--ent-3);
+  border-radius: 999px;
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text-sm);
+  font-weight: 800;
+  color: var(--ent-on-brand);
+  background: var(--ent-accent);
+  border: 1px solid transparent;
+}
+/* Estourou o teto de tentativas em algum item → cor de alerta (precisa atenção). */
+[data-skin="entrega"] .ent-pendencias.is-attention {
+  background: var(--ent-danger);
+}
 
 /* ---------- PROGRESSO (X/N + previsão) ---------- */
 [data-skin="entrega"] .ent-progress {

@@ -10,9 +10,16 @@
 // só no cliente; ao servidor vai APENAS o ponto da confirmação (M3/N6).
 // ================================================================
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { distanciaMetros } from "./entrega-api";
+import { confirmarEntrega, distanciaMetros, type ConfirmarPayload } from "./entrega-api";
+import {
+  drain,
+  enqueue,
+  listAll,
+  novaIdempotencyKey,
+  type PendenciaItem,
+} from "./entrega-offline";
 
 // Tipos mínimos p/ APIs fora do lib.dom padrão (evita any, tsc estrito verde).
 type WakeLockSentinelLike = { release: () => Promise<void> };
@@ -129,4 +136,76 @@ export function useGeofence(
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, [alvo, ativo]);
+}
+
+// ── M8 (offline-first) — fila de confirmações + sync com teto/backoff ──────────
+const SYNC_INTERVAL_MS = 20_000; // varre a fila a cada 20s (NÃO é loop apertado).
+
+export interface OfflineSync {
+  pendentes: number; // total de itens ainda na fila (não sincronizados).
+  precisamAtencao: number; // itens que estouraram o teto de tentativas.
+  // Enfileira uma confirmação (gera a key) e tenta sincronizar já. Devolve a key usada.
+  enqueueConfirmacao: (entregaId: string, payload: Omit<ConfirmarPayload, "idempotencyKey">) => Promise<string>;
+  // Força uma passada de sync (ex.: quando a rota recarrega). Best-effort, não lança.
+  syncNow: () => Promise<void>;
+}
+
+/**
+ * Sync da fila offline: 1 passada por gatilho (evento 'online' + intervalo), NUNCA
+ * um loop apertado. O `drain` tem TETO de tentativas + backoff exponencial por item
+ * (o freio duro vive em entrega-offline.ts). A idempotência é do SERVIDOR (a key vai
+ * no confirmar), então reenviar o MESMO item não dispara efeito 2×.
+ */
+export function useOfflineSync(): OfflineSync {
+  const [pendentes, setPendentes] = useState(0);
+  const [precisamAtencao, setPrecisamAtencao] = useState(0);
+  const rodando = useRef(false); // evita 2 drains concorrentes (online + timer juntos).
+
+  const refreshContagem = useCallback(async () => {
+    const all = await listAll();
+    setPendentes(all.length);
+    setPrecisamAtencao(all.filter((i: PendenciaItem) => i.status === "needs_attention").length);
+  }, []);
+
+  const syncNow = useCallback(async () => {
+    if (rodando.current) return;
+    rodando.current = true;
+    try {
+      await drain(async (item: PendenciaItem) => {
+        // Manda o idempotencyKey ao servidor — a idempotência dura mora lá.
+        await confirmarEntrega(item.entregaId, { ...item.payload, idempotencyKey: item.idempotencyKey });
+      });
+    } catch {
+      /* drain já é best-effort; nunca deixa o timer/evento quebrar */
+    } finally {
+      rodando.current = false;
+      await refreshContagem();
+    }
+  }, [refreshContagem]);
+
+  const enqueueConfirmacao = useCallback(
+    async (entregaId: string, payload: Omit<ConfirmarPayload, "idempotencyKey">) => {
+      const key = novaIdempotencyKey();
+      await enqueue(entregaId, payload, key);
+      await refreshContagem();
+      // Tenta sincronizar já (online → some da fila na hora; offline → fica e drena depois).
+      void syncNow();
+      return key;
+    },
+    [refreshContagem, syncNow],
+  );
+
+  useEffect(() => {
+    void refreshContagem();
+    void syncNow();
+    const onOnline = () => void syncNow();
+    window.addEventListener("online", onOnline);
+    const timer = window.setInterval(() => void syncNow(), SYNC_INTERVAL_MS);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.clearInterval(timer);
+    };
+  }, [refreshContagem, syncNow]);
+
+  return { pendentes, precisamAtencao, enqueueConfirmacao, syncNow };
 }

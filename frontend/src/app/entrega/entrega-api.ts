@@ -92,6 +92,9 @@ export interface ConfirmarPayload {
   lng?: number;
   receiptMethod?: ReceiptMethod;
   itens?: Array<{ id: string; qtdEntregue: number }>;
+  // M8 (offline-first) — chave de idempotência (uuid). O servidor dedupe por ela:
+  // reenviar a MESMA confirmação (fila offline) NÃO dispara efeito 2×.
+  idempotencyKey?: string;
 }
 
 export function getRota(date?: string): Promise<RotaResult> {

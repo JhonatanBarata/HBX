@@ -275,9 +275,32 @@ export class LogisticaService {
     if (!companyId || !id) return null;
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId },
-      select: { id: true, status: true, customerProfileId: true, contatoId: true, valor: true, cobrancaStatus: true },
+      select: {
+        id: true, status: true, customerProfileId: true, contatoId: true, valor: true,
+        cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true,
+      },
     });
     if (!entrega) return null;
+
+    // M8 (offline-first) — REPLAY idempotente por key: se esta entrega JÁ tem a MESMA
+    // idempotencyKey gravada, esta é uma reentrega da fila offline (drenou depois de
+    // reconectar). NÃO re-executa NADA (nem status, nem WhatsApp, nem charge) — devolve
+    // o desfecho da confirmação original. É a idempotência DURA pedida no M8, casada
+    // com a idempotência por status (jaEntregue) que já existia.
+    const key = normalizeIdempotencyKey(gps.idempotencyKey);
+    if (key && entrega.idempotencyKey && entrega.idempotencyKey === key) {
+      // A key só é gravada DEPOIS que o status virou 'entregue' (transação do Passo 1),
+      // então uma key casada = a entrega FOI confirmada — reporta 'entregue' sempre.
+      return {
+        id: entrega.id,
+        status: 'entregue',
+        effectsEnabled: this.effectsEnabled,
+        whatsappSent: entrega.whatsappStatus === 'enviado',
+        cobrancaLancada: entrega.cobrancaOutcome === 'lancada',
+        replayed: true,
+      };
+    }
+
     if (entrega.status === 'cancelada') {
       throw new BadRequestException('Entrega cancelada não pode ser confirmada.');
     }
@@ -305,28 +328,54 @@ export class LogisticaService {
           .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue) }))
           .filter((it) => it.id && Number.isFinite(it.qtd))
       : [];
-    await this.prisma.$transaction(async (tx) => {
-      await tx.entrega.update({
-        where: { id: entrega.id },
-        data: {
-          status: 'entregue',
-          deliveredAt: new Date(),
-          deliveredLat: lat,
-          deliveredLng: lng,
-          startedAt: undefined,
-          receiptMethod: receiptMethod ?? undefined,
-          recebidoNaHora,
-        },
-      });
-      // M4 — quantidades do stepper por item. Só toca EntregaItem DESTA entrega (isolado
-      // por entregaId). Dentro da tx: se algo aqui falhar, o status também não muda.
-      for (const it of itensValidos) {
-        await tx.entregaItem.updateMany({
-          where: { id: it.id, entregaId: entrega.id },
-          data: { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) },
+    // M8 — grava a idempotencyKey (unique) JUNTO com o status/GPS. Só grava se ainda
+    // não houver key nesta entrega (a 1ª confirmação vence). Se o INSERT bater no
+    // unique (P2002 — outra reentrega da MESMA key ganhou a corrida), tratamos como
+    // REPLAY: nada foi re-executado por nós, devolvemos o desfecho já gravado.
+    const gravarKey = key && !entrega.idempotencyKey ? key : undefined;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.entrega.update({
+          where: { id: entrega.id },
+          data: {
+            status: 'entregue',
+            deliveredAt: new Date(),
+            deliveredLat: lat,
+            deliveredLng: lng,
+            startedAt: undefined,
+            receiptMethod: receiptMethod ?? undefined,
+            recebidoNaHora,
+            idempotencyKey: gravarKey,
+          },
         });
+        // M4 — quantidades do stepper por item. Só toca EntregaItem DESTA entrega (isolado
+        // por entregaId). Dentro da tx: se algo aqui falhar, o status também não muda.
+        for (const it of itensValidos) {
+          await tx.entregaItem.updateMany({
+            where: { id: it.id, entregaId: entrega.id },
+            data: { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) },
+          });
+        }
+      });
+    } catch (e: any) {
+      // Corrida de reentregas com a MESMA key: a unique barrou. Não re-executa efeito —
+      // relê o desfecho já persistido e devolve como replay (idempotência dura do M8).
+      if (isUniqueViolation(e)) {
+        const atual = await this.prisma.entrega.findFirst({
+          where: { id: entrega.id, companyId },
+          select: { id: true, whatsappStatus: true, cobrancaOutcome: true },
+        });
+        return {
+          id: entrega.id,
+          status: 'entregue',
+          effectsEnabled: this.effectsEnabled,
+          whatsappSent: atual?.whatsappStatus === 'enviado',
+          cobrancaLancada: atual?.cobrancaOutcome === 'lancada',
+          replayed: true,
+        };
       }
-    });
+      throw e;
+    }
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.
@@ -1108,6 +1157,13 @@ function parseDateOrNull(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// M8 — sanitiza a idempotencyKey do celular: trim, corta em 80 (coluna), vazio = null.
+// Não impõe formato uuid (fail-safe: qualquer key estável do cliente serve pra dedupe).
+function normalizeIdempotencyKey(v: string | null | undefined): string | null {
+  const s = String(v || '').trim().slice(0, 80);
+  return s.length > 0 ? s : null;
+}
+
 // M4 — só um dos métodos de recebimento aceitos passa; qualquer outro vira null.
 function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'fiado' | null {
   const s = String(v || '').trim().toLowerCase();
@@ -1278,6 +1334,10 @@ export interface ConfirmarGps {
   lng?: number;
   receiptMethod?: string;
   itens?: Array<{ id: string; qtdEntregue: number }>;
+  // M8 (offline-first) — chave de idempotência (uuid do celular). Se a MESMA key já
+  // foi gravada nesta entrega, o confirmar é um REPLAY (fila offline) → devolve o
+  // desfecho anterior SEM re-executar WhatsApp/charge.
+  idempotencyKey?: string;
 }
 
 export interface ConfirmarResult {
@@ -1286,6 +1346,9 @@ export interface ConfirmarResult {
   effectsEnabled: boolean;
   whatsappSent: boolean;
   cobrancaLancada: boolean;
+  // M8 — true quando este confirmar foi um replay idempotente (mesma key já gravada):
+  // nada foi re-executado, o desfecho é o da confirmação original.
+  replayed?: boolean;
 }
 
 // R4 — desfecho RICO dos efeitos (persistido na Entrega + base do MasterEvent de falha).

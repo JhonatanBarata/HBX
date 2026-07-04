@@ -90,6 +90,7 @@ export class LogisticaController {
       lng: dto?.lng,
       receiptMethod: dto?.receiptMethod,
       itens: dto?.itens,
+      idempotencyKey: dto?.idempotencyKey,
     });
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;

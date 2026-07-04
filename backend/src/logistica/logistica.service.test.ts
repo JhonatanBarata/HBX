@@ -41,7 +41,18 @@ function buildPrismaMock(entrega: any, conta: any) {
         if (args.data?.cobrancaStatus) entrega.cobrancaStatus = args.data.cobrancaStatus;
         if (args.data?.status) entrega.status = args.data.status;
         if (args.data?.whatsappStatus !== undefined) entrega.whatsappStatus = args.data.whatsappStatus;
+        if (args.data?.cobrancaOutcome !== undefined) entrega.cobrancaOutcome = args.data.cobrancaOutcome;
         if (args.data?.avisoReenviado !== undefined) entrega.avisoReenviado = args.data.avisoReenviado;
+        // M8 — a idempotencyKey (unique) reflete no "banco": grava e simula a corrida
+        // de unique (P2002) se OUTRA key já ocupa a coluna nesta entrega.
+        if (args.data?.idempotencyKey !== undefined && args.data.idempotencyKey !== null) {
+          if (entrega.idempotencyKey && entrega.idempotencyKey !== args.data.idempotencyKey) {
+            const err: any = new Error('Unique constraint failed');
+            err.code = 'P2002';
+            throw err;
+          }
+          entrega.idempotencyKey = args.data.idempotencyKey;
+        }
         return { id: entrega.id, ...args.data };
       },
       // R4 — claim atômico do teto do reenvio: só passa false→true 1 vez.
@@ -750,4 +761,84 @@ test('M6 (e bis): forma inválida → 400; cliente de outra empresa → null', a
   const service2 = new LogisticaService(prismaVazio, {} as any, {} as any, {} as any);
   const res = await service2.updateFinanceiroCliente(1, 'conta-de-outra-empresa', { contabilizar: true });
   assert.equal(res, null, 'cliente fora da empresa → null');
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOGÍSTICA-MOBILE M8 — offline-first: idempotência DURA por idempotencyKey.
+//   Reenviar a MESMA confirmação (mesma key, típico da fila offline drenando após
+//   reconectar) NÃO dispara efeito 2× — WhatsApp 1×, charge 1×, resultado igual.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── M8 (a) — confirmar 2× com a MESMA key → efeito 1× (WhatsApp + charge) ─────
+test('M8 (a): confirmar 2× com a MESMA idempotencyKey → WhatsApp 1x + charge 1x (replay)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const entrega = buildEntrega();
+  const { prisma, chargesCreated } = buildPrismaMock(
+    entrega,
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const KEY = 'idem-key-abc-123';
+
+  // 1ª confirmação (rede voltou, fila drena) — grava a key + dispara os efeitos 1x.
+  const r1 = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix', idempotencyKey: KEY });
+  assert.equal(r1?.status, 'entregue');
+  assert.equal(r1?.whatsappSent, true);
+  assert.equal(r1?.cobrancaLancada, true);
+  assert.equal(calls.length, 1, '1ª confirmação: WhatsApp 1x');
+  assert.equal(chargesCreated.length, 1, '1ª confirmação: 1 charge');
+
+  // 2ª confirmação com a MESMA key (a fila reenviou o mesmo item) — REPLAY: zero efeito
+  // novo. Mesmo forçando a "corrida" (reabre status/cobrança), a key barra a re-execução.
+  entrega.status = 'em_rota';
+  entrega.cobrancaStatus = 'pendente';
+  const r2 = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix', idempotencyKey: KEY });
+
+  assert.equal(r2?.replayed, true, '2ª confirmação com a mesma key = replay');
+  assert.equal(calls.length, 1, 'replay: WhatsApp NÃO é chamado de novo (efeito 1x)');
+  assert.equal(chargesCreated.length, 1, 'replay: nenhum charge novo (não paga 2x)');
+  // Resultado idêntico ao original (desfecho da 1ª confirmação, sem re-executar).
+  assert.equal(r2?.status, 'entregue');
+  assert.equal(r2?.whatsappSent, true, 'replay devolve o desfecho original do WhatsApp');
+  assert.equal(r2?.cobrancaLancada, true, 'replay devolve o desfecho original da cobrança');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M8 (b) — keys DIFERENTES na mesma entrega não colidem no replay ───────────
+// (confirmações distintas com keys distintas seguem a idempotência por status/entregaId
+//  já existente — a 1ª grava a key, a 2ª com key nova cai no jaEntregue e não duplica).
+test('M8 (b): sem key → comportamento clássico (idempotência por status), não quebra', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const entrega = buildEntrega();
+  const { prisma, chargesCreated } = buildPrismaMock(
+    entrega,
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  // Sem idempotencyKey: a 1ª confirma normalmente; a 2ª é barrada pelo jaEntregue.
+  const r1 = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+  assert.equal(r1?.replayed, undefined, 'sem key não marca replay');
+  assert.equal(calls.length, 1);
+  assert.equal(chargesCreated.length, 1);
+
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+  assert.equal(calls.length, 1, 'sem key, 2ª confirmação já-entregue não redispara WhatsApp');
+  assert.equal(chargesCreated.length, 1, 'sem key, 2ª confirmação não duplica charge');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
 });

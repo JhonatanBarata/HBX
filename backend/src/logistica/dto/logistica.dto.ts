@@ -93,6 +93,16 @@ export class ConfirmarEntregaDto {
   @ValidateNested({ each: true })
   @Type(() => ConfirmarEntregaItemDto)
   itens?: ConfirmarEntregaItemDto[];
+
+  // M8 (offline-first) — chave de idempotência gerada no celular (uuid) antes de
+  // enfileirar a confirmação. O reenvio da MESMA confirmação (mesma key, típico da
+  // fila offline drenando após reconectar) NÃO dispara efeito 2× (WhatsApp/charge):
+  // se a key já foi gravada na Entrega, o serviço devolve o desfecho anterior sem
+  // re-executar. Opcional: sem key = comportamento clássico (idempotência por status).
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  idempotencyKey?: string;
 }
 
 // Um item confirmado no stepper (id do EntregaItem + qtd entregue).
