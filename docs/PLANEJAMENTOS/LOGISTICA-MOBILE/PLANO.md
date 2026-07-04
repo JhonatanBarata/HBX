@@ -71,6 +71,14 @@ CENTRALIZAÇÃO, não a cara antiga:
   {cliente} {itens} {qtd} {produto}`), `raioChegadaM @default(60)`, `velocidadeMediaKmH @default(25)`,
   `tempoParadaMin @default(5)`, `cobrancaNaEntrega Bool`, `moduloFinanceiroAtivo`,
   `moduloRecoveryAtivo`, `gerarDiaAutomatico @default(false)`.
+- **`CustomerProfile` (cliente) ganha 2 EIXOS SEPARADOS (regra do dono 04/07 — não misturar):**
+  - `formaPagamento String @default("aberto")` = *como/quando* paga: `aberto` (novo/avulso: chips
+    aparecem, escolhe no ato) · `mensal` (fecha no `diaFechamento`) · `na_hora` (forma FIXA, não
+    escolhe no ato) · `pendura` (fiado). `metodoPadrao String?` (pix|dinheiro, p/ na_hora).
+  - `contabilizar Boolean @default(true)` = *entra na contabilidade?* Funciona com QUALQUER forma
+    (ex.: "dinheiro na hora e NÃO contabiliza"). `false` → NÃO cria `FinanceiroCharge`, invisível ao
+    extrato/recovery por design.
+  - `formaPagamento` é a fonte da verdade do fluxo de entrega; M6 reconcilia com o `modeloCobranca` do N6.
 - **`Entrega`** ganha: `rotaOrdem Int?`, `etaAt DateTime?`, `whatsappStatus String?`,
   `cobrancaOutcome String?`, `recebidoNaHora Bool?`, `receiptMethod String?` (pix|dinheiro|fiado),
   `idempotencyKey String? @unique` (base do offline M8).
@@ -112,8 +120,14 @@ Re-ETA a cada confirmar/cancelar/pular.
 - **"Rota":** card cheio da parada atual; **swipe ←/→**; dots + X/N + término previsto ao vivo;
   Navegar (deep-link Waze/Maps); geofence foreground → vibra + abre folha de chegada.
 - **Folha de chegada:** stepper por item (pré-preenchido `qtdPadrao`), **"Entregue" em 1 toque**;
-  "Não entregue" → chips de motivo (ausente | recusou | reagendar). Se `moduloFinanceiroAtivo`:
-  chips de recebimento (pix | dinheiro | pendura) — 1 toque.
+  "Não entregue" → chips de motivo (ausente | recusou | reagendar).
+- **Pagamento CONDICIONAL — NÃO misturar (regra do dono 04/07):** os chips de recebimento
+  (dinheiro | pix | pendura) **só aparecem quando `cliente.formaPagamento = 'aberto'`**. Cliente
+  costumeiro com forma acordada → **chips SOMEM**; a entrega só confirma quantidade e a cobrança segue
+  a regra dele em silêncio (`mensal` acumula p/ fechar; `na_hora` marca recebido no método fixo;
+  `contabilizar=false` = sem lançamento). Se o módulo financeiro do tenant estiver OFF → **nenhum
+  pagamento aparece, nunca** (só qtd + Entregue). Cliente costumeiro = tela MAIS simples (alinha com a
+  Lei "sem explicações"). A UI lê `cliente.formaPagamento` (seção 5).
 - ZERO texto explicativo (seção 2). Componentes do Design System Entrega (`ent-*`, seção 2b);
   transições com spring; vibrate. Telas vivem em `/entrega` (shell do M1), não no `(app)`.
 **Check:** Playwright mobile viewport com GPS mockado — fluxo Hoje→Rota→Chegada→Entregue completo.
@@ -127,9 +141,14 @@ automático. O confirmar passa a renderizar o template (substitui a msg fixa do 
 
 ### M6 — Financeiro do tenant (opt-in) — FRENTE FINANCEIRA (Opus direto + revisão de diff)
 Pressupõe ROBUSTEZ R2 (charge linkada a cliente/dueDate); **se R2 não rodou, M6 o absorve**.
-- Recebimento na entrega: pago → charge paga na hora (`receiptMethod`); pendura → `pending` com
-  `dueDate` pela regra do cliente.
-- Fechar-mês: entregas `aguardando_fechamento` agrupadas por cliente no `diaFechamento` → 1 charge.
+- **`formaPagamento` + `contabilizar` por cliente são o coração deste sprint** (ver seção 5 + regra do
+  M4). Editor na ficha: forma (`aberto` | `mensal` dia | `na_hora` pix/dinheiro | `pendura`) + toggle
+  "contabilizar" (default sim). Default `aberto`/contabiliza p/ cliente novo (pronto na hora);
+  costumeiro tem a forma setada 1× e some da entrega. Reconcilia com o `modeloCobranca` do N6.
+- Recebimento na entrega: `aberto`/`na_hora` pago → charge paga na hora (`receiptMethod`); pendura →
+  `pending` com `dueDate`. **`contabilizar=false` → NÃO cria `FinanceiroCharge`** (por design: não
+  entra em extrato nem em recovery).
+- Fechar-mês: `mensal` acumula entregas `aguardando_fechamento` por cliente no `diaFechamento` → 1 charge.
 - Extrato por cliente (na ficha) + resumo do dia do admin (entregue / recebido / a receber).
 **Check:** idempotência do fechamento; 2 entregas + 1 pagamento parcial; NADA dispara MP
 (`MANUAL`/`pending`). Dep: M4, M5.
