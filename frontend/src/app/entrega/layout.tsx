@@ -22,6 +22,9 @@ export const metadata: Metadata = {
   title: "HBX Entregas",
   description: "Rota do dia, chegada e confirmação de entregas",
   manifest: "/entrega/manifest.webmanifest",
+  // Ícone de app + apple-touch-icon (iOS não lê o manifest p/ o ícone da home):
+  // reaproveita o /icon.png (192², já existente) — sem inventar binário novo.
+  icons: { icon: "/icon.png", apple: "/icon.png" },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Entregas" },
 };
 

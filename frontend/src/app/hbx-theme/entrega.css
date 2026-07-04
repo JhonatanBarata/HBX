@@ -666,6 +666,80 @@
   margin-top: var(--ent-5);
 }
 
+/* ============================================================
+   M9 — ONBOARDING (3 telas visuais do 1º acesso).
+   Lei da seção 2: ícone + 1 verbo, ZERO parágrafo. Swipe ←/→ + dots + CTA.
+   Cobre a casca inteira; nada de texto explicativo.
+   ============================================================ */
+[data-skin="entrega"] .ent-onb {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 100dvh;
+  padding: var(--ent-6) var(--ent-4) calc(var(--ent-6) + var(--ent-safe-bottom));
+}
+[data-skin="entrega"] .ent-onb-skip {
+  align-self: flex-end;
+  min-height: var(--ent-tap);
+  padding: 0 var(--ent-3);
+  background: transparent;
+  border: 0;
+  color: var(--ent-ink-muted);
+  font-family: var(--ent-font);
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+[data-skin="entrega"] .ent-onb-stage {
+  flex: 1 1 auto;
+  overflow: hidden;
+  touch-action: pan-y;
+  display: flex;
+  align-items: center;
+}
+[data-skin="entrega"] .ent-onb-track {
+  display: flex;
+  width: 100%;
+  transition: transform var(--ent-motion-slow);
+  will-change: transform;
+}
+[data-skin="entrega"] .ent-onb-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ent-6);
+  padding: var(--ent-6) var(--ent-4);
+  text-align: center;
+}
+[data-skin="entrega"] .ent-onb-icon {
+  width: 132px;
+  height: 132px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-brand-soft);
+  color: var(--ent-brand-strong);
+  box-shadow: var(--ent-shadow-sm);
+}
+[data-skin="entrega"] .ent-onb-verbo {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title-lg);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ent-ink);
+  max-width: 22ch;
+}
+[data-skin="entrega"] .ent-onb-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  padding-top: var(--ent-4);
+}
+
 /* ---------- RESPEITA quem pediu menos movimento ---------- */
 @media (prefers-reduced-motion: reduce) {
   [data-skin="entrega"] * {

@@ -309,6 +309,11 @@ export function LogisticaClient() {
                 <I d={ICONS.config} size={13} /> Regras
               </Link>
             )}
+            {admin && (
+              <Link href="/logistica/instalar" className="btn-ghost btn-xs">
+                <I d={ICONS.phone} size={13} /> Instalar app
+              </Link>
+            )}
           </div>
         </div>
 

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
 
 import { ArrivalSheet } from "./ArrivalSheet";
+import { Onboarding, jaViuOnboarding } from "./Onboarding";
 import {
   cancelarEntrega,
   enderecoCurto,
@@ -50,11 +51,19 @@ export function EntregaHome() {
   const [indice, setIndice] = useState(0); // parada atual no carrossel
   const [sheetAberta, setSheetAberta] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // M9 — onboarding do 1º acesso (3 telas visuais). Começa null (indefinido no
+  // SSR/1º paint) e decide no cliente pra não piscar: null=não sabe, true=mostra.
+  const [onboarding, setOnboarding] = useState<boolean | null>(null);
 
   // AUTH: reusa a sessão do app. Sem token → login existente.
   useEffect(() => {
     if (!getToken()) router.replace("/login");
   }, [router]);
+
+  // M9 — decide o onboarding só no cliente (localStorage). Aparece 1× por device.
+  useEffect(() => {
+    setOnboarding(!jaViuOnboarding());
+  }, []);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -214,6 +223,15 @@ export function EntregaHome() {
   );
 
   // ── RENDER ─────────────────────────────────────────────────────────────────
+  // M9 — 1º acesso: cobre a tela com o onboarding de 3 telas até "Começar".
+  if (onboarding) {
+    return (
+      <div className="ent-app">
+        <Onboarding onDone={() => setOnboarding(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="ent-app">
       <header className="ent-head">

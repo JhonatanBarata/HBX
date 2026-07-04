@@ -3965,3 +3965,56 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .cli-ext__badge--paid { color: var(--hbx-ok, var(--hbx-brand-strong)); border-color: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 40%, transparent); background: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 12%, transparent); }
 .cli-ext__badge--pending { color: var(--hbx-danger, var(--text-body)); border-color: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 34%, transparent); background: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 10%, transparent); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LOGÍSTICA-MOBILE M9 — "Instalar o app de entrega" (painel do admin).
+   Card com o QR (canvas, gerado no cliente) + link copiável do /entrega.
+   Zero hex/inline (5 Leis) — tudo em token central. O QR em si é preto/branco
+   puro (neutros isentos), pintado no <canvas> (QrCanvas.tsx).
+   ══════════════════════════════════════════════════════════════════════════ */
+.log-qr { display: grid; place-items: center; padding: 16px; }
+.log-qr__card {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 360px;
+  padding: 20px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 18px;
+  background: var(--hbx-surface-raised, transparent);
+  text-align: center;
+}
+/* Moldura clara fixa do QR: garante contraste legível pela câmera mesmo no
+   tema escuro do painel (o QR precisa de fundo claro — regra da leitura). */
+.log-qr__code {
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+}
+.log-qr__canvas { display: block; image-rendering: pixelated; border-radius: 4px; }
+.log-qr__fallback {
+  display: grid;
+  place-items: center;
+  width: 248px;
+  height: 248px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.log-qr__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-body);
+}
+.log-qr__link { display: flex; align-items: center; gap: 8px; width: 100%; }
+.log-qr__url { flex: 1; min-width: 0; font-size: 0.8rem; }
+.log-qr__copy { flex: none; white-space: nowrap; }
+.log-qr__open { justify-self: center; }
