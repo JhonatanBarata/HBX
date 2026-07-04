@@ -5760,6 +5760,38 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // S2 (arquitetura nº14) — Ledger de eventos do bot. Fire-and-forget: uma falha de
+  // escrita da trilha NUNCA pode derrubar a geração/envio do link de cobrança do bot.
+  // A unificação total com o gerador da API foi ADIADA pro S4 (o bot sai do messaging lá);
+  // por ora ambos os geradores escrevem o mesmo ledger, cada um no seu lugar.
+  private async recordRecoveryPaymentEvent(input: {
+    companyId: number;
+    paymentId: string;
+    type: 'created' | 'link_sent' | 'failed';
+    amount?: number;
+    payload?: unknown;
+  }) {
+    const paymentId = String(input?.paymentId || '').trim();
+    if (!paymentId) return;
+    try {
+      await (this.prisma as any).hbxRecoveryPaymentEvent.create({
+        data: {
+          companyId: input.companyId,
+          paymentId,
+          type: input.type,
+          source: 'bot',
+          amount: Number.isFinite(Number(input.amount)) ? Number(Number(input.amount).toFixed(2)) : 0,
+          actorUserId: null,
+          payloadJson: input.payload === undefined ? null : JSON.stringify(input.payload ?? null),
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[recovery-ledger] falha ao gravar evento ${input.type} do bot payment=${paymentId}: ${String((error as any)?.message || error)}`,
+      );
+    }
+  }
+
   private async createAndSendRecoveryPaymentLink(
     companyId: number,
     customer: any,
@@ -5844,6 +5876,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    await this.recordRecoveryPaymentEvent({
+      companyId,
+      paymentId: payment.id,
+      type: 'created',
+      amount: totalAmount,
+      payload: { mode, chargeType, installmentCount: selectedInstallments, externalReference },
+    });
+
     try {
       const config = await this.getRecoveryBotConfig(companyId);
       const preferencePayload: any = {
@@ -5900,6 +5940,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           mpPreferenceId: preference?.id ? String(preference.id) : null,
           providerPayload: JSON.stringify({ preference }),
         },
+      });
+
+      await this.recordRecoveryPaymentEvent({
+        companyId,
+        paymentId: payment.id,
+        type: 'link_sent',
+        amount: totalAmount,
+        payload: { paymentUrl, mpPreferenceId: preference?.id ? String(preference.id) : null, mode },
       });
 
       const msgTemplate = mode === 'card' ? config.installmentLinkMessageTemplate : config.cashLinkMessageTemplate;
@@ -5960,6 +6008,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           lifecycle: 'cancelled',
           providerPayload: JSON.stringify({ error: String(error?.message || 'falha') }),
         },
+      });
+      await this.recordRecoveryPaymentEvent({
+        companyId,
+        paymentId: payment.id,
+        type: 'failed',
+        amount: totalAmount,
+        payload: { error: String(error?.message || 'falha'), mode },
       });
       await this.conversations.queueOutboundForCompany(companyId, {
         to: customer.whatsappNumber,

@@ -1,10 +1,6 @@
 import { Body, Controller, ForbiddenException, Headers, Logger, Post, Query, Req } from '@nestjs/common';
 import { HbxRecoveryService } from './hbx-recovery.service';
-import {
-  extractWebhookDataId,
-  getMercadoPagoWebhookSecret,
-  verifyMercadoPagoWebhookSignature,
-} from '../payments/mercado-pago-webhook-signature';
+import { evaluateMercadoPagoWebhookSignature } from '../payments/mercado-pago-webhook-signature';
 
 @Controller('webhooks/mercadopago')
 export class HbxRecoveryWebhookController {
@@ -22,20 +18,17 @@ export class HbxRecoveryWebhookController {
     @Headers('x-request-id') requestId?: string,
   ) {
     const query = req?.query || {};
-    // Verificação de assinatura OPT-IN (MERCADO_PAGO_WEBHOOK_SECRET); ver financeiro.webhook.controller.
-    if (getMercadoPagoWebhookSecret()) {
-      const check = verifyMercadoPagoWebhookSignature({
-        signatureHeader: signature,
-        requestId,
-        dataId: extractWebhookDataId(query),
-      });
-      if (!check.valid) {
-        this.logger.warn(`webhook MP recovery com assinatura inválida (${check.reason}).`);
-        throw new ForbiddenException('invalid webhook signature');
-      }
-    } else if (!this.warnedMissingSecret) {
+    // Assinatura MP com modo log/enforce (MP_WEBHOOK_SIGNATURE_MODE); ver mercado-pago-webhook-signature.
+    const gate = evaluateMercadoPagoWebhookSignature({ signatureHeader: signature, requestId, query });
+    if (!gate.allow) {
+      this.logger.error(`webhook MP recovery REJEITADO (mode=${gate.mode}, reason=${gate.reason}).`);
+      throw new ForbiddenException('invalid webhook signature');
+    }
+    if (gate.configured && !gate.valid) {
+      this.logger.warn(`webhook MP recovery assinatura inválida em modo log (reason=${gate.reason}) — aceito p/ observação.`);
+    } else if (!gate.configured && !this.warnedMissingSecret) {
       this.warnedMissingSecret = true;
-      this.logger.warn('MERCADO_PAGO_WEBHOOK_SECRET ausente — webhooks MP aceitos sem validar assinatura.');
+      this.logger.warn('MERCADO_PAGO_WEBHOOK_SECRET ausente (modo log) — webhooks MP aceitos sem validar assinatura.');
     }
 
     const companyId = Number(companyIdRaw || 0) || undefined;

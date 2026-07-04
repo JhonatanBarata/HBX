@@ -508,12 +508,7 @@ test('full payment closes linked debt case and saves paidAt', async () => {
   service.attachCustomerRegistry = async (_companyId: number, row: any) => row;
   service.prisma = {
     hbxRecoveryCustomer: {
-      update: async ({ data }: any) => ({
-        id: 'rec-1',
-        customerProfileId: 'profile-1',
-        createdAt: new Date('2026-03-01T12:00:00.000Z'),
-        ...data,
-      }),
+      updateMany: async () => ({ count: 1 }),
     },
     debtCase: {
       findFirst: async ({ where }: any) => {
@@ -558,12 +553,7 @@ test('partial payment keeps linked debt case open', async () => {
   service.attachCustomerRegistry = async (_companyId: number, row: any) => row;
   service.prisma = {
     hbxRecoveryCustomer: {
-      update: async ({ data }: any) => ({
-        id: 'rec-1',
-        customerProfileId: 'profile-1',
-        createdAt: new Date('2026-03-01T12:00:00.000Z'),
-        ...data,
-      }),
+      updateMany: async () => ({ count: 1 }),
     },
     debtCase: {
       findFirst: async ({ where }: any) => {
@@ -804,4 +794,184 @@ test('listInteractions uses a Prisma-safe Recovery conversation filter', async (
     { currentStep: { notIn: ['', 'novo'] } },
     { messages: { some: { sourceModule: { startsWith: 'hbx_recovery' } } } },
   ]);
+});
+
+test('applyPayment relê e reaplica sobre saldo novo quando perde a corrida (optimistic lock)', async () => {
+  const service = createService();
+  // Estado compartilhado; um "writer concorrente" abaixou o saldo de 100 p/ 70 e mudou
+  // o updatedAt ANTES do nosso primeiro updateMany fechar → 1ª tentativa casa 0 linhas.
+  const store: any = {
+    id: 'c1', companyId: 1, openAmount: 100, totalPaid: 0, recurringDelays: 2,
+    paymentHistoryScore: 5, averageDelay: 10, paymentHistory: '[]', delayHistory: '[]',
+    status: 'OVERDUE', updatedAt: new Date(1000),
+  };
+  let updateCalls = 0;
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      findFirst: async () => ({ ...store }),
+      updateMany: async ({ where, data }: any) => {
+        updateCalls += 1;
+        if (updateCalls === 1) {
+          store.openAmount = 70;
+          store.updatedAt = new Date(2000);
+          return { count: 0 };
+        }
+        if (where.updatedAt.getTime() !== store.updatedAt.getTime()) return { count: 0 };
+        Object.assign(store, data, { updatedAt: new Date(store.updatedAt.getTime() + 1) });
+        return { count: 1 };
+      },
+    },
+  };
+  service.attachCustomerRegistry = async (_c: number, r: any) => r;
+  service.syncRecoveryDebtCaseBalance = async () => {};
+
+  const res = await service.applyPayment(1, 'c1', 30, 'pagamento');
+
+  assert.equal(updateCalls, 2);
+  assert.equal(res.amount, 30);
+  assert.equal(store.openAmount, 40);
+});
+
+test('S2 ledger: syncMercadoPagoPayment grava evento approved num ciclo created→approved', async () => {
+  const service = createService();
+  const events: any[] = [];
+
+  // Pagamento ainda não pago (in_progress) que o webhook do MP acabou de aprovar.
+  const paymentRow: any = {
+    id: 'pay-1',
+    companyId: 7,
+    customerId: 'cust-1',
+    status: 'pending',
+    lifecycle: 'in_progress',
+    appliedToCustomerAmount: 0,
+    reversedAmount: 0,
+    refundAmount: 0,
+    mpPaymentId: 'mp-123',
+    customer: { id: 'cust-1', whatsappNumber: '+5519999998888', name: 'Cliente' },
+  };
+
+  service.mercadoPagoCredentials = async () => ({ accessToken: 'token', company: { name: 'Empresa' } });
+  service.mercadoPagoClient = {
+    getPayment: async () => ({
+      status: 'approved',
+      transaction_amount: 100,
+      transaction_amount_refunded: 0,
+      date_approved: '2026-07-03T12:00:00.000Z',
+      metadata: { company_id: 7, payment_request_id: 'pay-1' },
+      external_reference: 'hbx-recovery-7-cust-1-1',
+    }),
+  };
+  // applyPayment é atômico e testado à parte; aqui só precisamos que devolva o valor.
+  service.applyPayment = async (_companyId: number, _customerId: string, amount: number) => ({
+    changed: true,
+    amount,
+    customer: paymentRow.customer,
+  });
+  service.notifyApprovedPayment = async () => undefined;
+
+  service.prisma = {
+    hbxRecoveryPayment: {
+      findFirst: async () => ({ ...paymentRow }),
+      update: async ({ data }: any) => {
+        Object.assign(paymentRow, data);
+        // Após o update de status, o pagamento passa a refletir 'approved'.
+        return { ...paymentRow };
+      },
+    },
+    hbxRecoveryPaymentEvent: {
+      create: async ({ data }: any) => {
+        events.push(data);
+        return { id: `evt-${events.length}`, ...data };
+      },
+    },
+  };
+
+  const result = await service.syncMercadoPagoPayment(7, 'mp-123', { source: 'webhook' });
+
+  assert.equal(result.updated, true);
+  const approved = events.find((e) => e.type === 'approved');
+  assert.ok(approved, 'esperava um evento approved no ledger');
+  assert.equal(approved.source, 'webhook');
+  assert.equal(approved.companyId, 7);
+  assert.equal(approved.paymentId, 'pay-1');
+  assert.equal(approved.amount, 100);
+  // Nenhum estorno neste ciclo.
+  assert.equal(events.some((e) => e.type === 'refunded' || e.type === 'reversed'), false);
+});
+
+test('S2 ledger: falha de escrita do evento NÃO derruba o fluxo (fire-and-forget)', async () => {
+  const service = createService();
+
+  const paymentRow: any = {
+    id: 'pay-2',
+    companyId: 7,
+    customerId: 'cust-2',
+    status: 'pending',
+    lifecycle: 'in_progress',
+    appliedToCustomerAmount: 0,
+    reversedAmount: 0,
+    refundAmount: 0,
+    mpPaymentId: 'mp-999',
+    customer: { id: 'cust-2', whatsappNumber: '+5519999997777', name: 'Cliente 2' },
+  };
+
+  service.mercadoPagoCredentials = async () => ({ accessToken: 'token', company: { name: 'Empresa' } });
+  service.mercadoPagoClient = {
+    getPayment: async () => ({
+      status: 'approved',
+      transaction_amount: 50,
+      transaction_amount_refunded: 0,
+      date_approved: '2026-07-03T12:00:00.000Z',
+      metadata: { company_id: 7, payment_request_id: 'pay-2' },
+    }),
+  };
+  service.applyPayment = async (_c: number, _id: string, amount: number) => ({
+    changed: true,
+    amount,
+    customer: paymentRow.customer,
+  });
+  service.notifyApprovedPayment = async () => undefined;
+
+  service.prisma = {
+    hbxRecoveryPayment: {
+      findFirst: async () => ({ ...paymentRow }),
+      update: async ({ data }: any) => {
+        Object.assign(paymentRow, data);
+        return { ...paymentRow };
+      },
+    },
+    hbxRecoveryPaymentEvent: {
+      // O banco recusa a escrita do ledger; o pagamento tem que fechar mesmo assim.
+      create: async () => {
+        throw new Error('ledger indisponivel');
+      },
+    },
+  };
+
+  const result = await service.syncMercadoPagoPayment(7, 'mp-999', { source: 'webhook' });
+  assert.equal(result.updated, true);
+});
+
+test('applyPayment aborta com erro claro sob contenção patológica (sem loop infinito)', async () => {
+  const service = createService();
+  const store: any = {
+    id: 'c1', companyId: 1, openAmount: 100, totalPaid: 0, recurringDelays: 0,
+    paymentHistoryScore: 5, averageDelay: 0, paymentHistory: '[]', delayHistory: '[]',
+    status: 'OVERDUE', updatedAt: new Date(1000),
+  };
+  let updateCalls = 0;
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      findFirst: async () => ({ ...store }),
+      updateMany: async () => {
+        updateCalls += 1;
+        return { count: 0 };
+      },
+    },
+  };
+  service.attachCustomerRegistry = async (_c: number, r: any) => r;
+  service.syncRecoveryDebtCaseBalance = async () => {};
+
+  await assert.rejects(() => service.applyPayment(1, 'c1', 30, 'pagamento'), /Concorr/);
+  assert.equal(updateCalls, 5);
 });

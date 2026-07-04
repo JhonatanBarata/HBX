@@ -558,6 +558,7 @@ model HbxRecoveryPayment {
   createdByUserId        Int?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
+  events                 HbxRecoveryPaymentEvent[]
 
   @@index([companyId, createdAt])
   @@index([companyId, lifecycle, createdAt])
@@ -565,6 +566,25 @@ model HbxRecoveryPayment {
   @@index([companyId, conversationId, createdAt])
   @@index([debtCaseId, createdAt])
   @@index([externalReference])
+}
+
+// S2 (arquitetura nº14): trilha auditável de eventos de pagamento do Recovery.
+// Comissão de 3% em jogo → cada transição relevante grava um evento imutável.
+// Escrita é fire-and-forget no service (try/catch): NUNCA derruba o fluxo de pagamento.
+model HbxRecoveryPaymentEvent {
+  id           String   @id @default(cuid())
+  companyId    Int
+  payment      HbxRecoveryPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  paymentId    String
+  type         String // created | link_sent | approved | refunded | reversed | marked_paid | failed
+  amount       Float    @default(0)
+  actorUserId  Int?
+  source       String // api | bot | webhook | manual
+  payloadJson  String?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId, paymentId, createdAt])
+  @@index([companyId, createdAt])
 }
 
 model FinanceiroCharge {

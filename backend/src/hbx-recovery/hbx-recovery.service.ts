@@ -3065,51 +3065,95 @@ export class HbxRecoveryService {
       dia_registro: this.dateLabelPtBR(createdAt),
     };
   }
+  // S2 — Ledger de eventos de pagamento. Fire-and-forget: NUNCA deixa uma falha de
+  // escrita do ledger derrubar o fluxo de pagamento (comissão de 3% em jogo, mas a
+  // trilha é auxiliar; o caixa é a fonte da verdade). Try/catch, engole e segue.
+  private async recordPaymentEvent(input: {
+    companyId: number;
+    paymentId: string;
+    type: 'created' | 'link_sent' | 'approved' | 'refunded' | 'reversed' | 'marked_paid' | 'failed';
+    source: 'api' | 'bot' | 'webhook' | 'manual';
+    amount?: number;
+    actorUserId?: number | null;
+    payload?: unknown;
+  }) {
+    const paymentId = String(input?.paymentId || '').trim();
+    if (!paymentId) return;
+    try {
+      await (this.prisma as any).hbxRecoveryPaymentEvent.create({
+        data: {
+          companyId: input.companyId,
+          paymentId,
+          type: input.type,
+          source: input.source,
+          amount: Number.isFinite(Number(input.amount)) ? Number(Number(input.amount).toFixed(2)) : 0,
+          actorUserId: Number(input.actorUserId || 0) || null,
+          payloadJson: input.payload === undefined ? null : this.json(input.payload),
+        },
+      });
+    } catch {
+      // Ledger é auxiliar: falha de escrita não pode abortar cobrança/baixa/estorno.
+    }
+  }
+
+  // Optimistic lock: lê→calcula→escreve guardando por updatedAt. Webhook MP e baixa
+  // manual concorrentes liam o mesmo saldo e o 2º clobберava o 1º (lost update). Agora
+  // o updateMany casa 0 linhas quando outro writer já mexeu → relê e reaplica sobre o
+  // saldo novo. Statement único no banco = atômico; o loop cobre a corrida entre leitura
+  // e escrita. Teto de tentativas evita loop infinito sob contenção patológica.
   private async applyPayment(companyId: number, customerId: string, amountRaw: number, label: string, when?: Date) {
-    const row = await this.findCustomer(companyId, customerId);
-    const openAmount = Number(row.openAmount || 0);
-    if (openAmount <= 0) return { changed: false, amount: 0, customer: row };
     const desired = Number(amountRaw || 0);
     if (!Number.isFinite(desired) || desired <= 0) throw new BadRequestException('Valor de pagamento invalido.');
-    const applied = Math.min(openAmount, desired);
-    const nextOpen = Math.max(0, openAmount - applied);
-    const now = when || new Date();
-    const history = this.parseList<RecoveryPaymentRecord>(row.paymentHistory, []);
-    const delays = this.parseList<RecoveryDelayRecord>(row.delayHistory, []);
-    history.unshift({ id: `pay-${Date.now().toString(36)}`, label, date: this.isoDateOnly(now), amount: Number(applied.toFixed(2)), status: nextOpen <= 0 ? 'Quitado' : 'Parcial' });
-    delays.unshift({ id: `delay-${Date.now().toString(36)}`, period: this.dateLabelPtBR(now), daysLate: 0, outcome: nextOpen <= 0 ? 'Conta quitada no HBX Recovery' : 'Pagamento parcial registrado' });
-    const updated = await this.prisma.hbxRecoveryCustomer.update({
-      where: { id: row.id },
-      data: {
-        openAmount: Number(nextOpen.toFixed(2)), totalPaid: Number((Number(row.totalPaid || 0) + applied).toFixed(2)),
-        recurringDelays: Math.max(0, Number(row.recurringDelays || 0) - 1), paymentHistoryScore: Math.min(10, Number(row.paymentHistoryScore || 5) + 1), averageDelay: Math.max(0, Number((Number(row.averageDelay || 0) * 0.65).toFixed(1))),
-        lastContact: `Pagamento em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
-      },
-    });
-    await this.syncRecoveryDebtCaseBalance(companyId, row, nextOpen, now);
-    return { changed: true, amount: applied, customer: await this.attachCustomerRegistry(companyId, updated) };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const row = await this.findCustomer(companyId, customerId);
+      const openAmount = Number(row.openAmount || 0);
+      if (openAmount <= 0) return { changed: false, amount: 0, customer: row };
+      const applied = Math.min(openAmount, desired);
+      const nextOpen = Math.max(0, openAmount - applied);
+      const now = when || new Date();
+      const history = this.parseList<RecoveryPaymentRecord>(row.paymentHistory, []);
+      const delays = this.parseList<RecoveryDelayRecord>(row.delayHistory, []);
+      history.unshift({ id: `pay-${Date.now().toString(36)}`, label, date: this.isoDateOnly(now), amount: Number(applied.toFixed(2)), status: nextOpen <= 0 ? 'Quitado' : 'Parcial' });
+      delays.unshift({ id: `delay-${Date.now().toString(36)}`, period: this.dateLabelPtBR(now), daysLate: 0, outcome: nextOpen <= 0 ? 'Conta quitada no HBX Recovery' : 'Pagamento parcial registrado' });
+      const result = await this.prisma.hbxRecoveryCustomer.updateMany({
+        where: { id: row.id, updatedAt: row.updatedAt },
+        data: {
+          openAmount: Number(nextOpen.toFixed(2)), totalPaid: Number((Number(row.totalPaid || 0) + applied).toFixed(2)),
+          recurringDelays: Math.max(0, Number(row.recurringDelays || 0) - 1), paymentHistoryScore: Math.min(10, Number(row.paymentHistoryScore || 5) + 1), averageDelay: Math.max(0, Number((Number(row.averageDelay || 0) * 0.65).toFixed(1))),
+          lastContact: `Pagamento em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
+        },
+      });
+      if (result.count !== 1) continue;
+      await this.syncRecoveryDebtCaseBalance(companyId, row, nextOpen, now);
+      return { changed: true, amount: applied, customer: await this.findCustomer(companyId, customerId) };
+    }
+    throw new BadRequestException('Concorrência ao aplicar pagamento no Recovery; tente novamente.');
   }
 
   private async reversePayment(companyId: number, customerId: string, amountRaw: number, label: string, when?: Date) {
-    const row = await this.findCustomer(companyId, customerId);
     const amount = Number(amountRaw || 0);
-    if (!Number.isFinite(amount) || amount <= 0) return { changed: false, amount: 0, customer: row };
-    const now = when || new Date();
-    const history = this.parseList<RecoveryPaymentRecord>(row.paymentHistory, []);
-    const delays = this.parseList<RecoveryDelayRecord>(row.delayHistory, []);
-    history.unshift({ id: `refund-${Date.now().toString(36)}`, label, date: this.isoDateOnly(now), amount: Number((-amount).toFixed(2)), status: 'Estornado' });
-    delays.unshift({ id: `delay-refund-${Date.now().toString(36)}`, period: this.dateLabelPtBR(now), daysLate: 0, outcome: 'Estorno confirmado no Mercado Pago' });
-    const nextOpen = Number(row.openAmount || 0) + amount;
-    const updated = await this.prisma.hbxRecoveryCustomer.update({
-      where: { id: row.id },
-      data: {
-        openAmount: Number(nextOpen.toFixed(2)), totalPaid: Math.max(0, Number((Number(row.totalPaid || 0) - amount).toFixed(2))), recurringDelays: Number(row.recurringDelays || 0) + 1,
-        paymentHistoryScore: Math.max(1, Number(row.paymentHistoryScore || 5) - 1), averageDelay: Number((Number(row.averageDelay || 0) * 1.1 + 1).toFixed(1)),
-        lastContact: `Estorno em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
-      },
-    });
-    await this.syncRecoveryDebtCaseBalance(companyId, row, nextOpen, now);
-    return { changed: true, amount, customer: await this.attachCustomerRegistry(companyId, updated) };
+    if (!Number.isFinite(amount) || amount <= 0) return { changed: false, amount: 0, customer: await this.findCustomer(companyId, customerId) };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const row = await this.findCustomer(companyId, customerId);
+      const now = when || new Date();
+      const history = this.parseList<RecoveryPaymentRecord>(row.paymentHistory, []);
+      const delays = this.parseList<RecoveryDelayRecord>(row.delayHistory, []);
+      history.unshift({ id: `refund-${Date.now().toString(36)}`, label, date: this.isoDateOnly(now), amount: Number((-amount).toFixed(2)), status: 'Estornado' });
+      delays.unshift({ id: `delay-refund-${Date.now().toString(36)}`, period: this.dateLabelPtBR(now), daysLate: 0, outcome: 'Estorno confirmado no Mercado Pago' });
+      const nextOpen = Number(row.openAmount || 0) + amount;
+      const result = await this.prisma.hbxRecoveryCustomer.updateMany({
+        where: { id: row.id, updatedAt: row.updatedAt },
+        data: {
+          openAmount: Number(nextOpen.toFixed(2)), totalPaid: Math.max(0, Number((Number(row.totalPaid || 0) - amount).toFixed(2))), recurringDelays: Number(row.recurringDelays || 0) + 1,
+          paymentHistoryScore: Math.max(1, Number(row.paymentHistoryScore || 5) - 1), averageDelay: Number((Number(row.averageDelay || 0) * 1.1 + 1).toFixed(1)),
+          lastContact: `Estorno em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
+        },
+      });
+      if (result.count !== 1) continue;
+      await this.syncRecoveryDebtCaseBalance(companyId, row, nextOpen, now);
+      return { changed: true, amount, customer: await this.findCustomer(companyId, customerId) };
+    }
+    throw new BadRequestException('Concorrência ao estornar pagamento no Recovery; tente novamente.');
   }
 
   private approvedPaymentCustomerMessage(customer: any) {
@@ -3174,6 +3218,13 @@ export class HbxRecoveryService {
     const externalReference = String(provider.external_reference || '').trim() || null;
     const paymentRecordId = String(metadata.payment_request_id || metadata.paymentRequestId || metadata.recovery_payment_id || '').trim();
 
+    // Defense-in-depth: company_id vem da query do webhook (atacável). Se o metadata do
+    // próprio pagamento no MP aponta outra empresa, é pagamento de outro tenant — não processa.
+    const metaCompanyId = Number((metadata as any).company_id || (metadata as any).companyId || 0);
+    if (metaCompanyId && metaCompanyId !== companyId) {
+      return { updated: false, status, reason: 'tenant_mismatch' };
+    }
+
     let payment = await this.prisma.hbxRecoveryPayment.findFirst({ where: { companyId, mpPaymentId: String(paymentId) }, include: { customer: true } });
     if (!payment && externalReference) payment = await this.prisma.hbxRecoveryPayment.findFirst({ where: { companyId, externalReference }, include: { customer: true } });
     if (!payment && paymentRecordId) payment = await this.prisma.hbxRecoveryPayment.findFirst({ where: { companyId, id: paymentRecordId }, include: { customer: true } });
@@ -3216,6 +3267,45 @@ export class HbxRecoveryService {
           reversedAmount: Number((Number(updated.reversedAmount || 0) + incReversed).toFixed(2)),
         },
         include: { customer: true },
+      });
+    }
+
+    // Ledger: a fonte da sync é o webhook do MP, salvo quando chamada a partir do
+    // refund manual (context.source === 'refund') → aí quem estornou é o operador.
+    // Ancoramos os eventos no que REALMENTE mexeu no saldo do cliente nesta sync
+    // (incApplied/incReversed), não no gate de lifecycle — que é frágil por design.
+    const eventSource: 'webhook' | 'manual' = String(context?.source || '') === 'refund' ? 'manual' : 'webhook';
+    if (incApplied > 0) {
+      await this.recordPaymentEvent({
+        companyId,
+        paymentId: updated.id,
+        type: 'approved',
+        source: eventSource,
+        amount: incApplied,
+        payload: { status, mpPaymentId: String(paymentId), netPaid: targetNetPaid },
+      });
+    }
+    if (incReversed > 0) {
+      // Estorno que reverteu saldo do cliente → 'reversed' (movimento interno de saldo).
+      await this.recordPaymentEvent({
+        companyId,
+        paymentId: updated.id,
+        type: 'reversed',
+        source: eventSource,
+        amount: incReversed,
+        payload: { status, mpPaymentId: String(paymentId), refunded, netPaid: targetNetPaid },
+      });
+    }
+    // 'refunded' = espelho do estado de estorno reportado pelo MP (independe de já ter
+    // revertido saldo nesta sync; um webhook pode repetir). Fire-and-forget, auditável.
+    if (String(status).toLowerCase().includes('refund') && refunded > 0.009) {
+      await this.recordPaymentEvent({
+        companyId,
+        paymentId: updated.id,
+        type: 'refunded',
+        source: eventSource,
+        amount: refunded,
+        payload: { status, mpPaymentId: String(paymentId), refunded },
       });
     }
 
@@ -3585,6 +3675,27 @@ export class HbxRecoveryService {
     if (Number(row.openAmount || 0) <= 0) return { changed: false, paidAmount: 0, customer: this.toCustomerResponse(row) };
     const desired = typeof amountRaw === 'number' && Number.isFinite(amountRaw) ? Number(amountRaw) : Number(row.openAmount || 0);
     const result = await this.applyPayment(companyId, id, desired, 'Quitacao manual pelo operador');
+    if (result.changed) {
+      // Baixa manual não tem preferência MP própria; a trilha se ancora na cobrança mais
+      // recente do cliente (se houver). Sem cobrança, o evento não tem onde pendurar (FK) e
+      // recordPaymentEvent no-opa graciosamente com paymentId vazio.
+      const latestPayment = await this.prisma.hbxRecoveryPayment
+        .findFirst({
+          where: { companyId, customerId: String(id) },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { id: true },
+        })
+        .catch(() => null);
+      await this.recordPaymentEvent({
+        companyId,
+        paymentId: String(latestPayment?.id || ''),
+        type: 'marked_paid',
+        source: 'manual',
+        amount: Number(result.amount || 0),
+        actorUserId: Number(user?.id || 0) || null,
+        payload: { customerId: String(id), label: 'Quitacao manual pelo operador' },
+      });
+    }
     return { changed: Boolean(result.changed), paidAmount: Number(result.amount || 0), customer: this.toCustomerResponse(result.customer) };
   }
 
@@ -3629,6 +3740,16 @@ export class HbxRecoveryService {
       include: { customer: true },
     });
 
+    await this.recordPaymentEvent({
+      companyId,
+      paymentId: payment.id,
+      type: 'created',
+      source: 'api',
+      amount,
+      actorUserId: Number(user?.id || 0) || null,
+      payload: { chargeType: 'avista', installmentCount: 1, externalReference },
+    });
+
     try {
       const preference = await this.mercadoPagoClient.createPreference(
         accessToken,
@@ -3660,6 +3781,16 @@ export class HbxRecoveryService {
         include: { customer: true },
       });
 
+      await this.recordPaymentEvent({
+        companyId,
+        paymentId: payment.id,
+        type: 'link_sent',
+        source: 'api',
+        amount,
+        actorUserId: Number(user?.id || 0) || null,
+        payload: { paymentUrl, mpPreferenceId: preference?.id ? String(preference.id) : null },
+      });
+
       const body = `Oi ${customer.clientName || customer.name}, segue seu link de pagamento para regularizacao no HBX Recovery: ${paymentUrl}`;
       const queued = await this.queueRecoveryWithFallback(companyId, targetPhone, body, customer.id);
       const botConfig = await this.getRecoveryBotConfig(companyId);
@@ -3686,6 +3817,15 @@ export class HbxRecoveryService {
     } catch (error: any) {
       const reason = String(error?.message || 'Falha ao gerar link de pagamento');
       await this.prisma.hbxRecoveryPayment.update({ where: { id: payment.id }, data: { status: 'failed', lifecycle: 'cancelled', providerPayload: this.json({ error: reason }) } });
+      await this.recordPaymentEvent({
+        companyId,
+        paymentId: payment.id,
+        type: 'failed',
+        source: 'api',
+        amount,
+        actorUserId: Number(user?.id || 0) || null,
+        payload: { error: reason },
+      });
       throw new BadRequestException(`Falha ao gerar link de pagamento: ${reason}`);
     }
   }
