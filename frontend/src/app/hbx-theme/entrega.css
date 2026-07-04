@@ -450,6 +450,178 @@
   background: linear-gradient(180deg, transparent, var(--ent-canvas) 30%);
 }
 
+/* ============================================================
+   M4 — AS 3 TELAS REAIS (Hoje / Rota c/ swipe / Chegada c/ stepper)
+   Componentes adicionais do Design System Entrega. Toda cor/forma/sombra
+   vive AQUI (Lei); o TSX só usa estas classes .ent-*.
+   ============================================================ */
+
+/* ---------- LISTA "Hoje" (uma linha por parada) ---------- */
+[data-skin="entrega"] .ent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  padding: 0 var(--ent-4) var(--ent-4);
+  overflow-y: auto;
+}
+[data-skin="entrega"] .ent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-4);
+  min-height: var(--ent-tap-lg);
+  padding: var(--ent-4);
+  background: var(--ent-surface);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-sm);
+  transition: transform var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-row:active { transform: scale(0.99); }
+[data-skin="entrega"] .ent-row.is-done { opacity: 0.55; }
+[data-skin="entrega"] .ent-row-idx {
+  flex: 0 0 auto;
+  width: var(--ent-tap);
+  height: var(--ent-tap);
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-sm);
+  background: var(--ent-brand-soft);
+  color: var(--ent-brand-strong);
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+}
+[data-skin="entrega"] .ent-row.is-done .ent-row-idx {
+  background: var(--ent-surface-soft);
+  color: var(--ent-ink-muted);
+}
+[data-skin="entrega"] .ent-row-main { flex: 1 1 auto; min-width: 0; }
+[data-skin="entrega"] .ent-row-name {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text);
+  font-weight: 800;
+  color: var(--ent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-row-sub {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-row-tag {
+  flex: 0 0 auto;
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink-muted);
+}
+[data-skin="entrega"] .ent-row-tag.is-done { color: var(--ent-success); }
+
+/* ---------- CARROSSEL "Rota" (swipe ←/→) ---------- */
+[data-skin="entrega"] .ent-carousel { overflow: hidden; touch-action: pan-y; }
+[data-skin="entrega"] .ent-track {
+  display: flex;
+  transition: transform var(--ent-motion-slow);
+  will-change: transform;
+}
+[data-skin="entrega"] .ent-track.is-dragging { transition: none; }
+[data-skin="entrega"] .ent-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  padding: 0 var(--ent-1);
+}
+
+/* Botão "Navegar" (deep-link mapa) — link com cara de botão secundário. */
+[data-skin="entrega"] a.ent-btn { text-decoration: none; }
+
+/* Linha de meta na parada (previsão de chegada da parada atual). */
+[data-skin="entrega"] .ent-stop-eta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ent-2);
+  margin-top: var(--ent-3);
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 700;
+}
+[data-skin="entrega"] .ent-stop-eta strong {
+  font-family: var(--ent-font-num);
+  color: var(--ent-ink);
+  font-weight: 800;
+}
+
+/* ---------- ESTADO VAZIO / CARREGANDO (honesto, sem texto-parágrafo) ---------- */
+[data-skin="entrega"] .ent-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ent-3);
+  padding: var(--ent-10) var(--ent-5);
+  text-align: center;
+  color: var(--ent-ink-muted);
+}
+[data-skin="entrega"] .ent-empty-icon { font-size: var(--ent-num); line-height: 1; }
+[data-skin="entrega"] .ent-empty-title {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-spinner {
+  width: var(--ent-8);
+  height: var(--ent-8);
+  border-radius: var(--ent-radius-pill);
+  border: 3px solid var(--ent-surface-soft);
+  border-top-color: var(--ent-brand);
+  animation: ent-spin 720ms linear infinite;
+}
+@keyframes ent-spin { to { transform: rotate(360deg); } }
+
+/* ---------- STEPPER: rótulo do item + bloco por item ---------- */
+[data-skin="entrega"] .ent-item {
+  padding: var(--ent-4) 0;
+  border-bottom: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-item:last-child { border-bottom: 0; }
+[data-skin="entrega"] .ent-item-label {
+  font-size: var(--ent-text);
+  font-weight: 700;
+  color: var(--ent-ink-soft);
+  margin-bottom: var(--ent-3);
+}
+[data-skin="entrega"] .ent-sheet-title {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  color: var(--ent-ink);
+  margin-bottom: var(--ent-2);
+}
+[data-skin="entrega"] .ent-sheet-sub {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+  margin-bottom: var(--ent-4);
+}
+/* Rótulo de um grupo de chips na folha (recebimento / motivo). */
+[data-skin="entrega"] .ent-chips-label {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink-muted);
+  margin: var(--ent-4) 0 var(--ent-2);
+}
+[data-skin="entrega"] .ent-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  margin-top: var(--ent-5);
+}
+
 /* ---------- RESPEITA quem pediu menos movimento ---------- */
 @media (prefers-reduced-motion: reduce) {
   [data-skin="entrega"] * {

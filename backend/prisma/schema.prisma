@@ -896,6 +896,18 @@ model CustomerProfile {
   modeloCobranca       String?  // "mensal" | "avulso" | "assinatura" | null (não definido)
   diaFechamento        Int?     // dia do mês em que fecha a fatura (modelo mensal)
   precoPadrao          Float?   // preço padrão da entrega deste cliente (fallback do produto)
+  // LOGÍSTICA-MOBILE M4 (05/07) — pagamento condicional na entrega, 2 EIXOS SEPARADOS
+  // (regra do dono 04/07, NÃO misturar). Colunas ADITIVAS/opcionais com default seguro:
+  //  · formaPagamento = COMO/QUANDO paga. Fonte da verdade do fluxo do app do entregador:
+  //    "aberto" (novo/avulso: chips de recebimento aparecem, escolhe no ato) · "mensal"
+  //    (fecha no diaFechamento) · "na_hora" (forma FIXA, não escolhe no ato) · "pendura"
+  //    (fiado). Costumeiro (≠ aberto) → chips SOMEM na folha de chegada (tela mais simples).
+  //  · metodoPadrao = método fixo p/ na_hora ("pix" | "dinheiro").
+  //  · contabilizar = entra na contabilidade? Funciona com QUALQUER forma; false → M6 NÃO cria
+  //    FinanceiroCharge (invisível a extrato/recovery por design). M4 só LÊ formaPagamento p/ os chips.
+  formaPagamento       String   @default("aberto") // aberto | mensal | na_hora | pendura
+  metodoPadrao         String?  // pix | dinheiro (só para na_hora)
+  contabilizar         Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   atendimentoCustomers AtendimentoCustomer[]

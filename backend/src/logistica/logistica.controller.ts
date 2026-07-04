@@ -73,7 +73,12 @@ export class LogisticaController {
   @Post('entregas/:id/confirmar')
   async confirmar(@Req() req: any, @Param('id') id: string, @Body() dto: ConfirmarEntregaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    const res = await this.service.confirmarEntrega(companyId, id, { lat: dto?.lat, lng: dto?.lng });
+    const res = await this.service.confirmarEntrega(companyId, id, {
+      lat: dto?.lat,
+      lng: dto?.lng,
+      receiptMethod: dto?.receiptMethod,
+      itens: dto?.itens,
+    });
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
   }

@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNumber,
@@ -7,7 +8,9 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — DTOs de ESCRITA do módulo Logística (app de entrega).
@@ -73,6 +76,35 @@ export class ConfirmarEntregaDto {
   @Min(-180)
   @Max(180)
   lng?: number;
+
+  // M4 — pagamento condicional: método escolhido na folha de chegada. SÓ chega
+  // quando o cliente é 'aberto' (chips visíveis) e o módulo financeiro está ON;
+  // costumeiro/OFF nunca manda. Aceito e persistido (receiptMethod); a criação
+  // do charge é M6 — aqui só registra o desfecho.
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  receiptMethod?: string; // pix | dinheiro | fiado
+
+  // M4 — quantidades efetivamente entregues (stepper por item). Best-effort:
+  // se ausente, mantém a qtdPrevista de cada EntregaItem (M6 reconcilia).
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ConfirmarEntregaItemDto)
+  itens?: ConfirmarEntregaItemDto[];
+}
+
+// Um item confirmado no stepper (id do EntregaItem + qtd entregue).
+export class ConfirmarEntregaItemDto {
+  @IsString()
+  @MaxLength(60)
+  id!: string;
+
+  @IsInt()
+  @Min(0)
+  @Max(9999)
+  qtdEntregue!: number;
 }
 
 // ── Cancelar entrega ─────────────────────────────────────────────────────────

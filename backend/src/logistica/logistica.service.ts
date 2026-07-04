@@ -103,17 +103,46 @@ export class LogisticaService {
             lat: true,
             lng: true,
             phone: true,
+            // M4 — pagamento condicional: a folha de chegada lê formaPagamento p/
+            // decidir se mostra os chips (só 'aberto') ou some (costumeiro).
+            formaPagamento: true,
+            metodoPadrao: true,
           },
         },
         contato: { select: { id: true, nome: true, whatsapp: true, phone: true } },
         product: { select: { id: true, name: true, unidade: true } },
+        // M4 — itens previstos por entrega (multi-produto do M2). O stepper da folha
+        // de chegada vem pré-preenchido com qtdPrevista de cada item.
+        itens: {
+          select: {
+            id: true,
+            qtdPrevista: true,
+            qtdEntregue: true,
+            product: { select: { id: true, name: true, unidade: true } },
+          },
+        },
       },
     });
+
+    // M4 — a regra dos chips depende do módulo financeiro do tenant (opt-in).
+    // OFF → NENHUM chip de pagamento, nunca (só qtd + Entregue). Best-effort: se a
+    // config não existir ainda, o default do schema (false) é o comportamento seguro.
+    let moduloFinanceiroAtivo = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] listRota loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
 
     return {
       date: dayISO,
       total: rows.length,
       effectsEnabled: this.effectsEnabled,
+      moduloFinanceiroAtivo,
       items: rows.map((r) => ({
         id: r.id,
         status: r.status,
@@ -134,11 +163,36 @@ export class LogisticaService {
           lat: r.customerProfile.lat ?? null,
           lng: r.customerProfile.lng ?? null,
           phone: r.customerProfile.phone ?? null,
+          // M4 — a folha de chegada decide os chips por aqui (só 'aberto' mostra).
+          formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
+          metodoPadrao: r.customerProfile.metodoPadrao ?? null,
         },
         contato: r.contato
           ? { id: r.contato.id, nome: r.contato.nome, whatsapp: r.contato.whatsapp ?? null, phone: r.contato.phone ?? null }
           : null,
         produto: r.product ? { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null } : null,
+        // M4 — itens previstos (multi-produto). Fallback p/ o produto/qtd legado da
+        // Entrega quando ainda não há EntregaItem (entregas antigas do N6).
+        itens:
+          r.itens.length > 0
+            ? r.itens.map((it) => ({
+                id: it.id,
+                qtdPrevista: it.qtdPrevista,
+                qtdEntregue: it.qtdEntregue ?? null,
+                produto: it.product
+                  ? { id: it.product.id, nome: it.product.name, unidade: it.product.unidade ?? null }
+                  : null,
+              }))
+            : r.product
+              ? [
+                  {
+                    id: r.id,
+                    qtdPrevista: r.quantidade,
+                    qtdEntregue: null,
+                    produto: { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null },
+                  },
+                ]
+              : [],
       })),
     };
   }
@@ -214,7 +268,7 @@ export class LogisticaService {
    * Marca a entrega como 'entregue' com o GPS capturado no celular. Só DEPOIS
    * de gravar o status/GPS é que os efeitos rodam — e SÓ se a flag estiver ON.
    */
-  async confirmarEntrega(companyId: number, id: string, gps: { lat?: number; lng?: number }): Promise<ConfirmarResult | null> {
+  async confirmarEntrega(companyId: number, id: string, gps: ConfirmarGps): Promise<ConfirmarResult | null> {
     if (!companyId || !id) return null;
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId },
@@ -228,6 +282,13 @@ export class LogisticaService {
     const lat = typeof gps.lat === 'number' && Number.isFinite(gps.lat) ? gps.lat : null;
     const lng = typeof gps.lng === 'number' && Number.isFinite(gps.lng) ? gps.lng : null;
 
+    // M4 — desfecho do pagamento: só um dos métodos aceitos é gravado (o resto é
+    // ignorado). Vem da folha de chegada SOMENTE quando o cliente é 'aberto' + módulo
+    // financeiro ON; costumeiro/OFF nunca manda. A CRIAÇÃO do charge é M6 — aqui só
+    // registra o método e marca recebidoNaHora quando pago no ato.
+    const receiptMethod = normalizeReceipt(gps.receiptMethod);
+    const recebidoNaHora = receiptMethod === 'pix' || receiptMethod === 'dinheiro' ? true : undefined;
+
     // Passo 1 (SEMPRE): grava status/GPS. Idempotente — reconfirmar não duplica efeito.
     const jaEntregue = entrega.status === 'entregue';
     await this.prisma.entrega.update({
@@ -238,8 +299,28 @@ export class LogisticaService {
         deliveredLat: lat,
         deliveredLng: lng,
         startedAt: undefined,
+        receiptMethod: receiptMethod ?? undefined,
+        recebidoNaHora,
       },
     });
+
+    // M4 — grava as quantidades do stepper por item (best-effort, aditivo). Só toca
+    // EntregaItem DESTA entrega (isolado por entregaId). Erro aqui não afeta o desfecho.
+    if (Array.isArray(gps.itens) && gps.itens.length > 0) {
+      for (const it of gps.itens) {
+        const itemId = String(it?.id || '').trim();
+        const qtd = Number(it?.qtdEntregue);
+        if (!itemId || !Number.isFinite(qtd)) continue;
+        try {
+          await this.prisma.entregaItem.updateMany({
+            where: { id: itemId, entregaId: entrega.id },
+            data: { qtdEntregue: Math.max(0, Math.trunc(qtd)) },
+          });
+        } catch (e: any) {
+          this.logger.warn(`[logistica] gravar qtdEntregue item=${itemId} falhou: ${String(e?.message || e)}`);
+        }
+      }
+    }
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.
@@ -408,6 +489,12 @@ function parseDateOrNull(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// M4 — só um dos métodos de recebimento aceitos passa; qualquer outro vira null.
+function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'fiado' | null {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'pix' || s === 'dinheiro' || s === 'fiado' ? s : null;
+}
+
 // ── tipos ───────────────────────────────────────────────────────────────────
 export interface CreateEntregaInput {
   customerProfileId: string;
@@ -428,6 +515,21 @@ export interface RotaCliente {
   lat: number | null;
   lng: number | null;
   phone: string | null;
+  formaPagamento: string;
+  metodoPadrao: string | null;
+}
+
+export interface RotaProduto {
+  id: number;
+  nome: string;
+  unidade: string | null;
+}
+
+export interface RotaEntregaItem {
+  id: string;
+  qtdPrevista: number;
+  qtdEntregue: number | null;
+  produto: RotaProduto | null;
 }
 
 export interface RotaItem {
@@ -443,14 +545,23 @@ export interface RotaItem {
   notes: string | null;
   cliente: RotaCliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
-  produto: { id: number; nome: string; unidade: string | null } | null;
+  produto: RotaProduto | null;
+  itens: RotaEntregaItem[];
 }
 
 export interface RotaResult {
   date: string;
   total: number;
   effectsEnabled: boolean;
+  moduloFinanceiroAtivo: boolean;
   items: RotaItem[];
+}
+
+export interface ConfirmarGps {
+  lat?: number;
+  lng?: number;
+  receiptMethod?: string;
+  itens?: Array<{ id: string; qtdEntregue: number }>;
 }
 
 export interface ConfirmarResult {
