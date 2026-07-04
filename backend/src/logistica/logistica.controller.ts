@@ -23,6 +23,7 @@ import {
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
+  FecharMesDto,
   GerarDiaDto,
   IniciarRotaDto,
   PlanejarRotaDto,
@@ -95,6 +96,34 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo);
     if (!res) throw new NotFoundException('Entrega não encontrada');
+    return res;
+  }
+
+  // ── NÚCLEO-CRM R2 — financeiro de verdade (fechar-mês + extrato) ────────────
+
+  /**
+   * Fecha a fatura mensal: agrupa as entregas 'aguardando_fechamento' por cliente
+   * ('mensal') no diaFechamento e cria 1 FinanceiroCharge linkado por cliente.
+   * ADMIN-only (RolesGuard + @Admin). IDEMPOTENTE (rodar 2× no mesmo mês não
+   * duplica). paymentMethod='MANUAL'/'pending' — NÃO dispara MercadoPago.
+   */
+  @Post('fechar-mes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  fecharMes(@Req() req: any, @Body() dto: FecharMesDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.fecharMes(companyId, { clienteId: dto?.clienteId, mesRef: dto?.mesRef });
+  }
+
+  /**
+   * Extrato financeiro de UM cliente: lista os FinanceiroCharge linkados a ele.
+   * Read-only, company-scoped (o cliente TEM de ser desta empresa).
+   */
+  @Get('clientes/:id/extrato')
+  async extrato(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.extratoCliente(companyId, id);
+    if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
   }
 

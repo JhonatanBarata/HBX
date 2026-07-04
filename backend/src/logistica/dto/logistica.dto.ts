@@ -303,3 +303,19 @@ export class SetAvisarClienteDto {
   @IsBoolean()
   avisar!: boolean;
 }
+
+// ── NÚCLEO-CRM R2 — fechar o mês (modelo mensal) ─────────────────────────────
+// Agrupa as entregas 'aguardando_fechamento' por cliente e cria 1 charge. Ambos
+// opcionais: clienteId → fecha só ele; mesRef ("YYYY-MM") → mês de referência
+// (default hoje). companyId NUNCA vem do body (JWT). ADMIN-only no controller.
+export class FecharMesDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  clienteId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(7)
+  mesRef?: string; // "YYYY-MM"
+}

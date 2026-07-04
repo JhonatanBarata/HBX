@@ -638,12 +638,24 @@ model FinanceiroCharge {
   lastWebhookAt     DateTime?
   lastWebhookPayload String?
   createdByUserId   Int?
+  // NÚCLEO-CRM R2 (05/07) — LINK da cobrança à espinha (mata dívidas 2/3/4 do
+  // PLANO-ROBUSTEZ). Colunas ADITIVAS/opcionais: charge legada (assinatura HBX,
+  // recovery) segue com todas null — nada muda. Só a cobrança nascida na Logística
+  // preenche. Com isso dá pra fazer extrato por cliente, fechar-mês e recovery.
+  customerProfile   CustomerProfile? @relation(fields: [customerProfileId], references: [id], onDelete: SetNull)
+  customerProfileId String?
+  dueDate           DateTime?
+  sourceModule      String?  // "logistica_entrega" | "logistica_fechamento" | null
+  entregaId         String?  // idempotência da cobrança por entrega (avulso/na_hora/pendura)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   @@index([companyId, createdAt])
   @@index([companyId, lifecycle, createdAt])
   @@index([companyId, status, createdAt])
+  @@index([companyId, customerProfileId])
+  @@index([companyId, dueDate, status])
+  @@index([companyId, entregaId])
 }
 
 model HbxRecoveryFlowStage {
@@ -921,6 +933,8 @@ model CustomerProfile {
   contatos             Contato[]
   entregas             Entrega[]
   clienteProdutos      ClienteProduto[]
+  // NÚCLEO-CRM R2 (05/07) — cobranças linkadas a este cliente (extrato/fechar-mês).
+  financeiroCharges    FinanceiroCharge[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])

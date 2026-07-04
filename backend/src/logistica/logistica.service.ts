@@ -492,41 +492,77 @@ export class LogisticaService {
     return vars;
   }
 
-  // ── EFEITO 2: cobrança conforme contrato do cliente ──────────────────────────
+  // ── EFEITO 2: cobrança conforme o CONTRATO do cliente (R2 — financeiro de verdade) ─
   /**
-   * Lê modeloCobranca do cliente e lança um FinanceiroCharge (mesmo model do
-   * resto do sistema — não é caminho paralelo). paymentMethod='MANUAL',
-   * status='pending' (nada dispara MercadoPago). Modelo mensal acumula p/ fechar
-   * no diaFechamento; avulso/assinatura lançam a entrega direto.
+   * R2 (05/07) — lê os DOIS eixos do cliente (M4): `formaPagamento` (COMO/QUANDO
+   * paga) e `contabilizar` (entra na contabilidade?). Decide o desfecho da entrega:
+   *
+   *   contabilizar=false → NÃO cria charge; entrega vira 'nao_contabilizado'. Sai.
+   *   mensal             → NÃO lança por entrega; entrega vira 'aguardando_fechamento'.
+   *                        O charge (1 só) nasce no fechar-mês, agrupado por diaFechamento.
+   *   avulso/na_hora     → 1 FinanceiroCharge LINKADO, dueDate = hoje. Entrega 'lancada'.
+   *   pendura (fiado)    → 1 FinanceiroCharge LINKADO, dueDate = regra do cliente
+   *                        (diaFechamento, senão hoje). Entrega 'lancada'.
+   *
+   * O charge é o MESMO model do resto do sistema (não é caminho paralelo), marcado
+   * paymentMethod='MANUAL', status='pending' — NADA dispara MercadoPago.
+   *
+   * IDEMPOTENTE em 2 camadas: (1) guarda por cobrancaStatus já-resolvido; (2) guarda
+   * por entregaId — se já existe um charge desta entrega, NÃO duplica.
    */
   private async lancarCobranca(
     companyId: number,
     entrega: { id: string; customerProfileId: string; valor: number; cobrancaStatus: string },
   ): Promise<boolean> {
-    if (entrega.cobrancaStatus === 'lancada' || entrega.cobrancaStatus === 'isenta') return false;
+    // Camada 1: status já-resolvido (lançada/isenta/aguardando/nao_contabilizado) = no-op.
+    if (isCobrancaResolvida(entrega.cobrancaStatus)) return false;
 
     const conta = await this.prisma.customerProfile.findFirst({
       where: { id: entrega.customerProfileId, companyId },
-      select: { id: true, name: true, modeloCobranca: true },
+      select: { id: true, name: true, formaPagamento: true, contabilizar: true, diaFechamento: true },
     });
-    const modelo = String(conta?.modeloCobranca || '').trim().toLowerCase();
 
-    // Sem modelo definido = cliente não configurado p/ cobrança: marca isenta e sai.
-    if (!modelo || modelo === 'assinatura') {
-      // 'assinatura' = já paga um fixo recorrente à parte; a entrega não gera avulsa.
+    // contabilizar=false → invisível à contabilidade por design (M4/M6): sem charge.
+    if (conta?.contabilizar === false) {
       await this.prisma.entrega.update({
         where: { id: entrega.id },
-        data: { cobrancaStatus: 'isenta' },
+        data: { cobrancaStatus: 'nao_contabilizado' },
       });
       return false;
     }
 
-    // 'mensal' e 'avulso' geram um FinanceiroCharge da entrega (regime de caixa manual).
-    const amount = Math.max(0, Number(entrega.valor) || 0);
+    const forma = String(conta?.formaPagamento || 'aberto').trim().toLowerCase();
+
+    // 'mensal' = fatura fecha no diaFechamento: NÃO lança por entrega. O charge (1 só,
+    // agrupando N entregas) nasce no fechar-mês. A entrega fica aguardando.
+    if (forma === 'mensal') {
+      await this.prisma.entrega.update({
+        where: { id: entrega.id },
+        data: { cobrancaStatus: 'aguardando_fechamento' },
+      });
+      return false;
+    }
+
+    // Valor zero = nada a cobrar: marca isenta e sai (sem charge).
+    const amount = round2(Math.max(0, Number(entrega.valor) || 0));
     if (amount <= 0) {
       await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'isenta' } });
       return false;
     }
+
+    // Camada 2 (idempotência dura): se já existe charge DESTA entrega, não duplica.
+    const jaExiste = await this.prisma.financeiroCharge.findFirst({
+      where: { companyId, entregaId: entrega.id },
+      select: { id: true },
+    });
+    if (jaExiste) {
+      await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
+      return false;
+    }
+
+    // dueDate: avulso/na_hora = hoje; pendura (fiado) = regra do cliente (diaFechamento,
+    // senão hoje). Só 'aberto'/'avulso'/'na_hora'/'pendura' chegam aqui.
+    const dueDate = forma === 'pendura' ? proximoDiaFechamento(conta?.diaFechamento) : new Date();
 
     const nome = String(conta?.name || 'cliente').trim();
     await this.prisma.financeiroCharge.create({
@@ -535,15 +571,164 @@ export class LogisticaService {
         amount,
         currency: 'BRL',
         description: `Entrega — ${nome}`.slice(0, 180),
-        billingCycle: modelo === 'mensal' ? 'MONTHLY' : 'MONTHLY',
+        // billingCycle: cobrança da entrega é PONTUAL (não recorrente) → ONCE.
+        billingCycle: 'ONCE',
         paymentMethod: 'MANUAL',
         status: 'pending',
         lifecycle: 'in_progress',
-        providerPayload: JSON.stringify({ source: 'logistica_entrega', entregaId: entrega.id, modelo }),
+        // R2 — LINK: cliente + entrega + origem + vencimento (mata dívidas 2/3/4).
+        customerProfileId: entrega.customerProfileId,
+        entregaId: entrega.id,
+        sourceModule: 'logistica_entrega',
+        dueDate,
+        providerPayload: JSON.stringify({ source: 'logistica_entrega', entregaId: entrega.id, forma }),
       },
     });
     await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
     return true;
+  }
+
+  // ── FECHAR-MÊS (modelo mensal): agrupa as entregas 'aguardando_fechamento' ─────
+  /**
+   * R2 (05/07) — fecha a fatura mensal: para cada cliente 'mensal' cujo diaFechamento
+   * bate (ou p/ o clienteId informado), soma as entregas 'aguardando_fechamento' e
+   * cria UM único FinanceiroCharge linkado (dueDate = diaFechamento do mês de ref),
+   * marcando as entregas somadas como 'faturada'.
+   *
+   * ADMIN-only (controller). paymentMethod='MANUAL'/'pending' — NADA dispara MP.
+   *
+   * IDEMPOTENTE: só varre entregas 'aguardando_fechamento' e, ao faturar, muda p/
+   * 'faturada' na MESMA transação em que cria o charge. Rodar 2× no mesmo mês não
+   * acha mais nada aberto → 0 charges novos. Sem entregas abertas = no-op p/ o cliente.
+   */
+  async fecharMes(
+    companyId: number,
+    input: { clienteId?: string; mesRef?: string } = {},
+  ): Promise<FecharMesResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+
+    const ref = parseMesRef(input.mesRef);
+    const clienteId = String(input.clienteId || '').trim() || null;
+
+    // Alvo: clientes 'mensal' desta empresa. Se clienteId veio, só ele; senão, os
+    // que fecham HOJE (diaFechamento === dia do mesRef). company-scoped duro.
+    const clientes = await this.prisma.customerProfile.findMany({
+      where: {
+        companyId,
+        formaPagamento: 'mensal',
+        contabilizar: true,
+        ...(clienteId ? { id: clienteId } : { diaFechamento: ref.dia }),
+      },
+      select: { id: true, name: true, diaFechamento: true },
+    });
+
+    const faturas: FecharMesFatura[] = [];
+    let totalCharges = 0;
+
+    for (const cliente of clientes) {
+      // Entregas deste cliente aguardando o fechamento (idempotência: só as abertas).
+      const entregas = await this.prisma.entrega.findMany({
+        where: { companyId, customerProfileId: cliente.id, cobrancaStatus: 'aguardando_fechamento' },
+        select: { id: true, valor: true },
+      });
+      if (entregas.length === 0) continue;
+
+      const amount = round2(entregas.reduce((sum, e) => sum + Math.max(0, Number(e.valor) || 0), 0));
+      const entregaIds = entregas.map((e) => e.id);
+      const dueDate = fechamentoDoMes(ref, cliente.diaFechamento);
+      const nome = String(cliente.name || 'cliente').trim();
+
+      // Atômico: cria O charge + marca TODAS as entregas 'faturada' numa transação.
+      // Se algo falhar, nada é gravado (nem charge órfão, nem entrega meio-faturada).
+      await this.prisma.$transaction(async (tx) => {
+        if (amount > 0) {
+          await tx.financeiroCharge.create({
+            data: {
+              companyId,
+              amount,
+              currency: 'BRL',
+              description: `Fatura mensal — ${nome} (${ref.label})`.slice(0, 180),
+              billingCycle: 'MONTHLY',
+              paymentMethod: 'MANUAL',
+              status: 'pending',
+              lifecycle: 'in_progress',
+              customerProfileId: cliente.id,
+              sourceModule: 'logistica_fechamento',
+              dueDate,
+              providerPayload: JSON.stringify({
+                source: 'logistica_fechamento',
+                mesRef: ref.label,
+                entregaIds,
+              }),
+            },
+          });
+        }
+        // Marca as entregas somadas como faturadas (idempotência: só as que estavam
+        // 'aguardando_fechamento' passam a 'faturada' — a 2ª rodada não acha nenhuma).
+        await tx.entrega.updateMany({
+          where: { companyId, id: { in: entregaIds }, cobrancaStatus: 'aguardando_fechamento' },
+          data: { cobrancaStatus: 'faturada' },
+        });
+      });
+
+      if (amount > 0) totalCharges += 1;
+      faturas.push({ clienteId: cliente.id, nome, amount, entregas: entregaIds.length, dueDate: dueDate.toISOString() });
+    }
+
+    return { companyId, mesRef: ref.label, faturas, chargesCriados: totalCharges };
+  }
+
+  // ── EXTRATO por cliente (read-only, company-scoped) ──────────────────────────
+  /**
+   * R2 (05/07) — lista os FinanceiroCharge de UM cliente (as cobranças linkadas
+   * via customerProfileId). Read-only, company-scoped: o cliente TEM de ser desta
+   * empresa. Não toca dinheiro nem dispara nada.
+   */
+  async extratoCliente(companyId: number, clienteId: string): Promise<ExtratoResult | null> {
+    if (!companyId || !clienteId) return null;
+    const cliente = await this.prisma.customerProfile.findFirst({
+      where: { id: String(clienteId).trim(), companyId },
+      select: { id: true, name: true },
+    });
+    if (!cliente) return null;
+
+    const charges = await this.prisma.financeiroCharge.findMany({
+      where: { companyId, customerProfileId: cliente.id },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 500,
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        description: true,
+        status: true,
+        lifecycle: true,
+        dueDate: true,
+        sourceModule: true,
+        entregaId: true,
+        createdAt: true,
+        paidAt: true,
+      },
+    });
+
+    return {
+      clienteId: cliente.id,
+      nome: String(cliente.name || '').trim() || null,
+      total: charges.length,
+      charges: charges.map((c) => ({
+        id: c.id,
+        amount: c.amount,
+        currency: c.currency,
+        description: c.description,
+        status: c.status,
+        lifecycle: c.lifecycle,
+        dueDate: c.dueDate ? c.dueDate.toISOString() : null,
+        sourceModule: c.sourceModule ?? null,
+        entregaId: c.entregaId ?? null,
+        createdAt: c.createdAt ? c.createdAt.toISOString() : null,
+        paidAt: c.paidAt ? c.paidAt.toISOString() : null,
+      })),
+    };
   }
 }
 
@@ -568,6 +753,65 @@ function parseDateOrNull(value: string | null | undefined): Date | null {
 function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'fiado' | null {
   const s = String(v || '').trim().toLowerCase();
   return s === 'pix' || s === 'dinheiro' || s === 'fiado' ? s : null;
+}
+
+// R2 — dinheiro é sempre 2 casas (evita 19.999999 virar cobrança).
+function round2(v: number): number {
+  return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+// R2 — status de cobrança já-RESOLVIDO (não relança). 'lancada'/'faturada' já viraram
+// charge; 'isenta'/'nao_contabilizado' são desfechos sem charge; 'aguardando_fechamento'
+// espera o fechar-mês. Só 'pendente'/'falhou' (ou vazio) seguem para o lançamento.
+function isCobrancaResolvida(status: string | null | undefined): boolean {
+  const s = String(status || '').trim().toLowerCase();
+  return (
+    s === 'lancada' ||
+    s === 'isenta' ||
+    s === 'faturada' ||
+    s === 'aguardando_fechamento' ||
+    s === 'nao_contabilizado'
+  );
+}
+
+// R2 (pendura) — próximo diaFechamento do cliente a partir de hoje; se não houver
+// dia configurado ou for inválido, vence hoje (fail-safe: não perde a cobrança).
+function proximoDiaFechamento(dia: number | null | undefined): Date {
+  const d = Number(dia);
+  const hoje = new Date();
+  if (!Number.isInteger(d) || d < 1 || d > 31) return hoje;
+  const alvo = new Date(hoje.getFullYear(), hoje.getMonth(), Math.min(d, diasNoMes(hoje.getFullYear(), hoje.getMonth())), 12, 0, 0);
+  if (alvo.getTime() < hoje.getTime()) {
+    // já passou o dia neste mês → próximo mês.
+    const m = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear() + Math.floor(m / 12);
+    const mes = m % 12;
+    return new Date(ano, mes, Math.min(d, diasNoMes(ano, mes)), 12, 0, 0);
+  }
+  return alvo;
+}
+
+function diasNoMes(ano: number, mes: number): number {
+  return new Date(ano, mes + 1, 0).getDate();
+}
+
+// R2 (fechar-mês) — resolve o mês de referência (default: hoje). Aceita "YYYY-MM".
+function parseMesRef(mesRef?: string): { ano: number; mes: number; dia: number; label: string } {
+  const now = new Date();
+  const raw = String(mesRef || '').trim();
+  const m = raw.match(/^(\d{4})-(\d{1,2})$/);
+  const ano = m ? Number(m[1]) : now.getFullYear();
+  const mes = m ? Math.min(11, Math.max(0, Number(m[2]) - 1)) : now.getMonth();
+  return { ano, mes, dia: now.getDate(), label: `${ano}-${String(mes + 1).padStart(2, '0')}` };
+}
+
+// R2 (fechar-mês) — data de vencimento da fatura: diaFechamento do mês de referência
+// (clampado ao último dia do mês). Sem dia configurado = último dia do mês.
+function fechamentoDoMes(ref: { ano: number; mes: number }, dia: number | null | undefined): Date {
+  const ultimo = diasNoMes(ref.ano, ref.mes);
+  const d = Number(dia);
+  const alvo = Number.isInteger(d) && d >= 1 && d <= 31 ? Math.min(d, ultimo) : ultimo;
+  return new Date(ref.ano, ref.mes, alvo, 12, 0, 0);
 }
 
 // ── tipos ───────────────────────────────────────────────────────────────────
@@ -645,4 +889,42 @@ export interface ConfirmarResult {
   effectsEnabled: boolean;
   whatsappSent: boolean;
   cobrancaLancada: boolean;
+}
+
+// R2 — fechar-mês
+export interface FecharMesFatura {
+  clienteId: string;
+  nome: string;
+  amount: number;
+  entregas: number;
+  dueDate: string;
+}
+
+export interface FecharMesResult {
+  companyId: number;
+  mesRef: string;
+  faturas: FecharMesFatura[];
+  chargesCriados: number;
+}
+
+// R2 — extrato por cliente
+export interface ExtratoCharge {
+  id: string;
+  amount: number;
+  currency: string;
+  description: string;
+  status: string;
+  lifecycle: string;
+  dueDate: string | null;
+  sourceModule: string | null;
+  entregaId: string | null;
+  createdAt: string | null;
+  paidAt: string | null;
+}
+
+export interface ExtratoResult {
+  clienteId: string;
+  nome: string | null;
+  total: number;
+  charges: ExtratoCharge[];
 }
