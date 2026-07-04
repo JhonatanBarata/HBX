@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -84,6 +85,7 @@ export class ConfirmarEntregaDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @IsIn(['pix', 'dinheiro', 'fiado'])
   receiptMethod?: string; // pix | dinheiro | fiado
 
   // M4 — quantidades efetivamente entregues (stepper por item). Best-effort:
@@ -336,16 +338,19 @@ export class FecharMesDto {
 // metodoPadrao (pix|dinheiro, só p/ na_hora) + diaFechamento (modelo mensal).
 // companyId NUNCA vem do body (JWT). ADMIN-only no controller. Não dispara nada.
 export class UpdateFinanceiroClienteDto {
-  // aberto | mensal | na_hora | pendura (validação de conteúdo no serviço).
+  // aberto | mensal | na_hora | pendura. Enum travado no DTO (rejeita fora do conjunto);
+  // o serviço ainda normaliza/valida por segurança.
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @IsIn(['aberto', 'mensal', 'na_hora', 'pendura'])
   formaPagamento?: string;
 
-  // pix | dinheiro (só p/ na_hora). Vazio limpa; validação de conteúdo no serviço.
+  // pix | dinheiro (só p/ na_hora). '' limpa o método. Enum travado no DTO.
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @IsIn(['pix', 'dinheiro', ''])
   metodoPadrao?: string;
 
   @IsOptional()

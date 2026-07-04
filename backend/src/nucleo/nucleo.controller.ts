@@ -71,8 +71,9 @@ export class NucleoController {
   async getEmpresa(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const empresa = await this.service.getEmpresa(companyId, id);
-    // Isolamento por-tenant: id inexistente OU de outra empresa → 404, nunca vaza.
-    if (!empresa) throw new ForbiddenException('Empresa não encontrada');
+    // Isolamento por-tenant: id inexistente OU de outra empresa → 404 (NÃO 403), pra
+    // nunca vazar a EXISTÊNCIA de um registro de outro tenant (R5 — borda de auth).
+    if (!empresa) throw new NotFoundException('Empresa não encontrada');
     return empresa;
   }
 
