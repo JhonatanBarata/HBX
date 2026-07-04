@@ -54,6 +54,7 @@ import {
   resolveEffectiveCapability,
   type AccessGovernor,
 } from '../access/seller-access-governance';
+import { resolveActorKind, isAdminTierActor } from '../access/actor-kind';
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
@@ -1952,10 +1953,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   // canViewBilling). USER (Vendedor) resolve do molho do cargo; financeiro e
   // gerencial sao muro (nunca de vendedor); o resto cai no seed (vendas+radar).
   private resolveCargoModuleAllowed(user: any, moduleKey: string, cargoAccess: Map<string, boolean>) {
-    if (user?.isSystemMaster) return true;
+    // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) veem tudo — fonte única.
+    if (isAdminTierActor(user)) return true;
     const role = String(user?.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin: ve tudo da empresa, igual a ADMIN.
-    if (role === 'ADMIN' || role === 'USERMASTER') return true;
     if (role !== 'USER') return false;
     const norm = this.normalizeRequestedModuleKey(moduleKey);
     if (SELLER_CARGO_WALL_MODULES.has(norm)) return false;
@@ -2012,8 +2012,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private canUseAdminOnlyModule(user: any, moduleKey: string, _context?: ModuleAccessContext) {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
     const role = String(user?.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin: acesso admin-only, igual a ADMIN.
-    if (Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER') return true;
+    // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) via fonte única.
+    if (isAdminTierActor(user)) return true;
     if (role === 'USER' && SELLER_ELIGIBLE_MODULE_KEYS.has(normalized)) return true;
     return !EMPLOYEE_BLOCKED_MODULE_KEYS.has(normalized);
   }
@@ -2406,10 +2406,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
   async listCompanyAccessForAdmin(adminUserId: number) {
     await this.ensureDefaultSystemModules();
-    const { user, companyId, isSystemMaster } = await this.resolveUserContext(adminUserId);
-    const adminRole = String((user as any).role || '').toUpperCase();
-    const isAdmin = adminRole === 'ADMIN' || adminRole === 'USERMASTER';
-    if (!companyId || (!isAdmin && !isSystemMaster)) throw new ForbiddenException('Admin role required');
+    const { user, companyId } = await this.resolveUserContext(adminUserId);
+    // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) via fonte única.
+    if (!companyId || !isAdminTierActor(user)) throw new ForbiddenException('Admin role required');
     await this.ensureTrialBundleForCompany(companyId);
 
     const [users, modules, company] = await Promise.all([
@@ -2493,9 +2492,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   async updateCompanyUserModuleAccess(adminUserId: number, targetUserId: number, modulePermissions: Array<{ key: string; allowed: boolean }>) {
     await this.ensureDefaultSystemModules();
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(adminUserId);
-    const adminRole = String((user as any).role || '').toUpperCase();
-    const isAdmin = adminRole === 'ADMIN' || adminRole === 'USERMASTER';
-    if (!isSystemMaster && (!companyId || !isAdmin)) throw new ForbiddenException('Admin role required');
+    // RBAC Sprint 3: master ignora companyId; ADMIN (dono/gerente) exige companyId — fonte única.
+    const actorKind = resolveActorKind(user);
+    const isAdmin = actorKind === 'dono' || actorKind === 'gerente';
+    if (actorKind !== 'master' && (!companyId || !isAdmin)) throw new ForbiddenException('Admin role required');
 
     const target = await this.usersService.findById(targetUserId);
     if (!target) throw new BadRequestException('Usuario alvo nao encontrado');

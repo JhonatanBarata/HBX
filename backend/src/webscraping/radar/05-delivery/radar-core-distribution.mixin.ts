@@ -504,6 +504,14 @@ export class RadarCoreDistributionMixin {
     if (!this.canUseWebscrapingRole(user)) {
       throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
     }
+    // RBAC Sprint 1: `radar.distribution.manage` (criar/alterar regra) vale
+    // inclusive para o GERENTE (role=ADMIN). Master nunca e bloqueado; cron
+    // (processActiveRadarAutoDistributions) nao passa por aqui.
+    await this.assertTeamPolicyAccessAnyRole(
+      user,
+      'radar.distribution.manage',
+      'Gerir distribuicao automatica do Radar esta bloqueado pela politica da equipe.',
+    );
     const context = this.resolveContext(user);
     const existing = await this.prisma.radarAutoDistributionRule.findUnique({
       where: { companyId_scope: { companyId: context.companyId, scope: 'company' } },
@@ -996,6 +1004,13 @@ export class RadarCoreDistributionMixin {
     if (!this.canUseWebscrapingRole(user)) {
       throw new ForbiddenException('Apenas ADMIN pode executar distribuição automática do Radar.');
     }
+    // RBAC Sprint 1: disparar a distribuicao automatica e acao de gestao
+    // (`radar.distribution.manage`) — vale inclusive para o GERENTE (role=ADMIN).
+    await this.assertTeamPolicyAccessAnyRole(
+      user,
+      'radar.distribution.manage',
+      'Gerir distribuicao automatica do Radar esta bloqueado pela politica da equipe.',
+    );
     const context = this.resolveContext(user);
     const rule = await this.prisma.radarAutoDistributionRule.findUnique({
       where: { companyId_scope: { companyId: context.companyId, scope: 'company' } },

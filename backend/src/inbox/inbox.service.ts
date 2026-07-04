@@ -57,6 +57,7 @@ import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
+import { resolveActorKind, isGerenteActor, isBillingOwnerActor, isAdminTierActor } from '../access/actor-kind';
 import type { Request, Response } from 'express';
 
 type BotConfigProviderCapabilities = {
@@ -216,9 +217,8 @@ export class InboxService {
   }
 
   private assertAdministrativeAction(user: any) {
-    const role = String(user?.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin: acao administrativa liberada, igual a ADMIN.
-    if (Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER') return;
+    // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) via fonte única.
+    if (isAdminTierActor(user)) return;
     throw new ForbiddenException({
       code: 'USER_ADMIN_ACTION_NOT_ALLOWED',
       message: 'USER não pode executar esta ação administrativa. Contate seu ADMIN ou o suporte da empresa.',
@@ -230,32 +230,26 @@ export class InboxService {
     throw new ForbiddenException('Somente o suporte HBX pode executar esta ação.');
   }
 
+  // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) via fonte única.
   private isAggregateUser(user: any): boolean {
-    const role = String(user?.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin: visao agregada da empresa, igual a ADMIN.
-    return Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER';
+    return isAdminTierActor(user);
   }
 
-  // GERENTE = ADMIN sem acesso ao financeiro (canViewBilling === false). Mesmo padrão do
-  // team-policy.service (isGerente). Vê o TIME de vendedores, mas NUNCA o admin-dono/master
+  // GERENTE = ADMIN sem acesso ao financeiro (canViewBilling === false). Fonte única em
+  // ../access/actor-kind. Vê o TIME de vendedores, mas NUNCA o admin-dono/master
   // (ordem do dono: "admin nunca vaza pra nenhum user — nem gerente, nem vendedor").
   private isGerenteUser(user: any): boolean {
-    const role = String(user?.role || '').trim().toUpperCase();
-    return !user?.isSystemMaster && role === 'ADMIN' && user?.canViewBilling === false;
+    return isGerenteActor(user);
   }
 
   // Dona "admin" de uma sessão = master OU ADMIN-dono (com billing). A sessão dessa gente é
   // o que fica de fora da visão do gerente/vendedor. Gerente (ADMIN sem billing) NÃO é dono →
-  // a linha dele entra no time.
+  // a linha dele entra no time. Fonte única: isBillingOwnerActor = master|dono.
   private isAdminOwnerSessionUser(
     sessionUser: { role?: string | null; isSystemMaster?: boolean | null; canViewBilling?: boolean | null } | null | undefined,
   ): boolean {
     if (!sessionUser) return false;
-    if (sessionUser.isSystemMaster) return true;
-    const role = String(sessionUser.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin-dono: a sessao dele fica fora da visao
-    // de gerente/vendedor, igual ao ADMIN-dono com billing.
-    return (role === 'ADMIN' || role === 'USERMASTER') && sessionUser.canViewBilling !== false;
+    return isBillingOwnerActor(sessionUser);
   }
 
   private normalizeVendasPhone(value: unknown) {
@@ -492,10 +486,8 @@ export class InboxService {
   }
 
   private assertCanManageAgenda(user: any) {
-    if (Boolean(user?.isSystemMaster)) return;
-    const role = String(user?.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin: edita a agenda, igual a ADMIN.
-    if (role === 'ADMIN' || role === 'USERMASTER') return;
+    // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) via fonte única.
+    if (isAdminTierActor(user)) return;
     throw new ForbiddenException('Somente administradores podem editar a agenda.');
   }
 
@@ -600,11 +592,9 @@ export class InboxService {
     return String(c?.whatsappAttendanceMode || '').trim().toLowerCase() === 'shared' ? 'shared' : 'individual';
   }
 
+  // RBAC Sprint 3: master OU ADMIN-dono (com billing) via fonte única = isBillingOwnerActor.
   private isCompanyAdminOwner(user: any): boolean {
-    if (user?.isSystemMaster) return true;
-    const role = String(user?.role || '').trim().toUpperCase();
-    // USERMASTER (dono do tenant) = admin-dono, igual ao ADMIN com billing.
-    return (role === 'ADMIN' || role === 'USERMASTER') && user?.canViewBilling !== false;
+    return isBillingOwnerActor(user);
   }
 
   // Número limpo pra exibir no painel (tira o "@s.whatsapp.net" e formata BR).
@@ -1097,11 +1087,9 @@ export class InboxService {
     });
 
     const team = users.map((u) => {
-      const roleUp = String(u.role || '').trim().toUpperCase();
-      // USERMASTER (dono do tenant) = admin-dono no roster do time, igual a ADMIN com billing.
-      const isAdminOwner = Boolean(u.isSystemMaster) || ((roleUp === 'ADMIN' || roleUp === 'USERMASTER') && u.canViewBilling !== false);
-      const isGerente = roleUp === 'ADMIN' && u.canViewBilling === false && !u.isSystemMaster;
-      const roleLabel = isAdminOwner ? 'admin' : isGerente ? 'gerente' : 'vendedor';
+      // RBAC Sprint 3: rótulo do time derivado da fonte única (resolveActorKind).
+      const kind = resolveActorKind(u);
+      const roleLabel = kind === 'master' || kind === 'dono' ? 'admin' : kind === 'gerente' ? 'gerente' : 'vendedor';
       const sess = sessionByUser.get(Number(u.id)) || null;
       return {
         userId: String(u.id),

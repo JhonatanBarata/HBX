@@ -370,9 +370,15 @@ test('policy update persists explicit team access map over legacy modules', asyn
   assert.equal(result.effectiveAccessMap['radar.search.run'], false);
   assert.equal(result.effectiveAccessMap['commission.editPercent'], true);
   assert.equal(result.effectiveAccessMap['seller.documents.request'], true);
+  // RBAC Sprint 1: commission.editPercent passou a ser enforced; seller.documents.request
+  // segue na divida (service de onboarding nao recebe o actor) — usa ele como exemplo vivo.
+  assert.equal(
+    result.missingBackendEnforcement.some((item) => item.key === 'seller.documents.request'),
+    true,
+  );
   assert.equal(
     result.missingBackendEnforcement.some((item) => item.key === 'commission.editPercent'),
-    true,
+    false,
   );
 
   const rows = JSON.parse(state.user.teamPolicy.modulesJson);

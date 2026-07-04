@@ -304,7 +304,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'webscraping',
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'radar.filters.useSegments',
@@ -376,7 +376,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'webscraping',
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.cards.viewOwn',
@@ -448,7 +448,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     requiresModule: 'vendas',
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'vendas.cards.close',
@@ -696,7 +696,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'commission.editDueDays',
@@ -751,7 +751,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'sellerNetwork.recruitSellers',
@@ -762,7 +762,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'medium',
     sellerVisible: true,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'sellerNetwork.viewReferrals',
@@ -784,7 +784,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'sellerNetwork.receiveInheritedCommission',
@@ -916,7 +916,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'team.users.edit',
@@ -927,7 +927,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'team.users.disable',
@@ -938,7 +938,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'team.users.delete',
@@ -949,7 +949,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'critical',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'team.access.applyPreset',
@@ -960,7 +960,7 @@ export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
     defaultForSeller: false,
     riskLevel: 'high',
     sellerVisible: false,
-    backendEnforced: false,
+    backendEnforced: true,
   },
   {
     key: 'team.access.viewAudit',

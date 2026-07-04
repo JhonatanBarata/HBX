@@ -7,6 +7,8 @@ import {
   resolveEffectiveTeamAccess,
   resolveProductsAccessContext,
   resolveVendasAccessContext,
+  __getEffectiveTeamAccessResolveCount,
+  __resetEffectiveTeamAccessResolveCount,
 } from './team-access-runtime';
 import { TEAM_ACCESS_CATALOG } from './team-access-catalog';
 import {
@@ -360,6 +362,155 @@ test('System Master without active tenant context cannot operate Products', asyn
     () => resolveProductsAccessContext(prisma as any, master),
     ForbiddenException,
   );
+});
+
+test('RBAC Sprint 1: GERENTE (ADMIN) com team.users.create=false e bloqueado', async () => {
+  const gerente = buildUser({ id: 30, role: 'ADMIN' });
+  const prisma = buildPrisma({
+    user: gerente,
+    policy: buildPolicy({
+      userId: 30,
+      access: { 'team.users.create': false },
+    }),
+  });
+
+  await assert.rejects(
+    () => assertEffectiveTeamAccess(prisma as any, gerente, 'team.users.create'),
+    ForbiddenException,
+  );
+  // outras chaves de gestao seguem no default do admin (true)
+  assert.equal(await hasEffectiveTeamAccess(prisma as any, gerente, 'team.users.delete'), true);
+});
+
+test('RBAC Sprint 1: ADMIN sem bloqueio explicito passa nas 4 team.users.* (default admin)', async () => {
+  const admin = buildUser({ id: 31, role: 'ADMIN' });
+  const prisma = buildPrisma({
+    user: admin,
+    policy: buildPolicy({ userId: 31 }),
+  });
+  for (const key of ['team.users.create', 'team.users.edit', 'team.users.disable', 'team.users.delete']) {
+    assert.equal(await hasEffectiveTeamAccess(prisma as any, admin, key), true, `admin default para ${key}`);
+  }
+});
+
+test('RBAC Sprint 1: SYSTEM MASTER nunca e bloqueado mesmo com politica false', async () => {
+  const master = buildUser({
+    id: 1,
+    role: 'USERMASTER',
+    isSystemMaster: true,
+    companyId: 99,
+    company: { id: 99, name: 'HBX Plataforma', companyKind: 'platform_infra' },
+  });
+  // Mesmo que exista uma politica com false, o master nao tem policy row real;
+  // aqui simulamos policy=null (comportamento de producao para master).
+  const prisma = buildPrisma({
+    user: master,
+    policy: null,
+  });
+  for (const key of ['team.users.create', 'radar.cards.distribute', 'radar.distribution.manage']) {
+    assert.equal(await hasEffectiveTeamAccess(prisma as any, master, key), true, `master nunca bloqueado em ${key}`);
+    await assertEffectiveTeamAccess(prisma as any, master, key); // nao lanca
+  }
+});
+
+test('RBAC Sprint 1: radar.cards.distribute=false bloqueia inclusive ADMIN via runtime', async () => {
+  const gerente = buildUser({ id: 32, role: 'ADMIN' });
+  const prisma = buildPrisma({
+    user: gerente,
+    policy: buildPolicy({
+      userId: 32,
+      access: { 'radar.cards.distribute': false, 'radar.distribution.manage': false },
+    }),
+  });
+  await assert.rejects(
+    () => assertEffectiveTeamAccess(prisma as any, gerente, 'radar.cards.distribute'),
+    ForbiddenException,
+  );
+  await assert.rejects(
+    () => assertEffectiveTeamAccess(prisma as any, gerente, 'radar.distribution.manage'),
+    ForbiddenException,
+  );
+});
+
+// RBAC Sprint 3 — instrumentação: prisma que conta as leituras de política.
+function buildCountingPrisma(input: {
+  user?: any;
+  policy?: any;
+} = {}) {
+  const counts = { userFindUnique: 0, policyFindUnique: 0, total: 0 };
+  const base = buildPrisma(input);
+  const wrapped = {
+    ...base,
+    user: {
+      findUnique: async (...args: any[]) => {
+        counts.userFindUnique += 1;
+        counts.total += 1;
+        return (base.user.findUnique as any)(...args);
+      },
+    },
+    userTeamPolicy: {
+      findUnique: async (...args: any[]) => {
+        counts.policyFindUnique += 1;
+        counts.total += 1;
+        return (base.userTeamPolicy.findUnique as any)(...args);
+      },
+    },
+  };
+  return { prisma: wrapped, counts };
+}
+
+test('RBAC Sprint 3: cache por request colapsa o Vendas para 1 resolve (mede queries antes/depois)', async () => {
+  const user = buildUser({ id: 77 });
+
+  // ANTES (baseline sem cache): cada chamada re-executa o resolve → N× as queries.
+  // Simulamos com prismas DISTINTOS (cache MISS proposital) para medir o custo cru.
+  __resetEffectiveTeamAccessResolveCount();
+  const c1 = buildCountingPrisma({ user, policy: buildPolicy({ userId: 77 }) });
+  const c2 = buildCountingPrisma({ user, policy: buildPolicy({ userId: 77 }) });
+  const c3 = buildCountingPrisma({ user, policy: buildPolicy({ userId: 77 }) });
+  await resolveVendasAccessContext(c1.prisma as any, user);
+  await hasEffectiveTeamAccess(c2.prisma as any, user, 'vendas.cards.edit');
+  await assertEffectiveTeamAccess(c3.prisma as any, user, 'vendas.access');
+  const baselineResolves = __getEffectiveTeamAccessResolveCount();
+  const baselineQueries = c1.counts.total + c2.counts.total + c3.counts.total;
+  assert.equal(baselineResolves, 3, 'sem cache: 1 resolve por chamada');
+  assert.ok(baselineQueries >= 6, `sem cache: 2 queries x 3 chamadas = ${baselineQueries}`);
+
+  // DEPOIS (com cache por request): MESMO prisma (singleton do request) + MESMO
+  // user (req.user) → 1 único resolve; as chamadas seguintes leem o cache.
+  __resetEffectiveTeamAccessResolveCount();
+  const req = buildCountingPrisma({ user, policy: buildPolicy({ userId: 77 }) });
+  await resolveVendasAccessContext(req.prisma as any, user);
+  await hasEffectiveTeamAccess(req.prisma as any, user, 'vendas.cards.edit');
+  await assertEffectiveTeamAccess(req.prisma as any, user, 'vendas.access');
+  await resolveVendasAccessContext(req.prisma as any, user);
+  const cachedResolves = __getEffectiveTeamAccessResolveCount();
+  assert.equal(cachedResolves, 1, 'com cache: 1 resolve para o request inteiro');
+  assert.equal(req.counts.userFindUnique, 1, 'com cache: 1 hydrateUser por request');
+  assert.equal(req.counts.policyFindUnique, 1, 'com cache: 1 loadUserTeamPolicy por request');
+});
+
+test('RBAC Sprint 3: cache nao vaza entre users nem entre prismas diferentes', async () => {
+  __resetEffectiveTeamAccessResolveCount();
+  const userA = buildUser({ id: 91 });
+  const userB = buildUser({ id: 92 });
+  const prismaA = buildPrisma({ user: userA, policy: buildPolicy({ userId: 91 }) });
+  const prismaB = buildPrisma({ user: userB, policy: buildPolicy({ userId: 92 }) });
+
+  // users distintos → 1 resolve cada (nao compartilham entrada de cache).
+  await resolveEffectiveTeamAccess(prismaA as any, userA);
+  await resolveEffectiveTeamAccess(prismaB as any, userB);
+  assert.equal(__getEffectiveTeamAccessResolveCount(), 2);
+
+  // mesmo user, OUTRO prisma (outro estado de banco) → cache MISS de proposito.
+  const prismaA2 = buildPrisma({
+    user: userA,
+    policy: buildPolicy({ userId: 91, access: { 'vendas.cards.viewCompany': true } }),
+  });
+  const before = await resolveVendasAccessContext(prismaA as any, userA);
+  const after = await resolveVendasAccessContext(prismaA2 as any, userA);
+  assert.equal(before.canViewCompanyCards, false, 'estado 1 preservado');
+  assert.equal(after.canViewCompanyCards, true, 'estado 2 (outro prisma) nao vem do cache velho');
 });
 
 test('catalog marks products and tenant communication enforcement honestly', () => {
