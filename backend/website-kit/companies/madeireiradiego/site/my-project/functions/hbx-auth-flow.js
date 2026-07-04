@@ -6,14 +6,43 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-function setCorsHeaders(res) {
-  res.set("Access-Control-Allow-Origin", "*");
+// CORS honesto (Sprint 2 / T4, 02/07): antes liberava "*" pra qualquer origem.
+// HBX_ALLOWED_ORIGIN (env da Function, configurado no Firebase — "firebase
+// functions:config:set" ou painel) trava pra origem(ns) exata(s) do site do
+// cliente (publicUrl/adminUrl). Sem a env configurada, cai no fallback "*"
+// (comportamento anterior) pra NUNCA quebrar um site vivo por falta de config —
+// fechar de verdade exige setar a env por projeto (ver docs/Rules/WEBSITE-KIT.md).
+function getAllowedOrigins() {
+  const raw = sanitizeText(process.env.HBX_ALLOWED_ORIGIN, "");
+  if (!raw) return null; // null = modo fallback (qualquer origem, igual antes)
+  return raw
+    .split(",")
+    .map((value) => value.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+}
+
+function resolveCorsOrigin(req) {
+  const allowedOrigins = getAllowedOrigins();
+  if (allowedOrigins === null) return "*";
+
+  const requestOrigin = sanitizeText(req.get("Origin")).replace(/\/$/, "");
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+  // Origem fora da lista: não ecoa Origin (nega CORS), mas usa a 1a
+  // configurada como valor neutro pra não vazar "*" quando a env já existe.
+  return allowedOrigins[0] || "null";
+}
+
+function setCorsHeaders(req, res) {
+  res.set("Access-Control-Allow-Origin", resolveCorsOrigin(req));
+  res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Headers", "Content-Type, Accept");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
 }
 
 function handleOptions(req, res) {
-  setCorsHeaders(res);
+  setCorsHeaders(req, res);
   if (req.method === "OPTIONS") {
     res.status(204).send("");
     return true;
@@ -91,7 +120,7 @@ exports.createHbxAdminFirebaseToken = onRequest({ region: "southamerica-east1" }
     return;
   }
 
-  setCorsHeaders(res);
+  setCorsHeaders(req, res);
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   if (req.method !== "POST") {

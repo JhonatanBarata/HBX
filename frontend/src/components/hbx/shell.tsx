@@ -101,6 +101,7 @@ export const ICONS: Record<string, string[]> = {
   trash: ["M4 7h16", "M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2", "M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"],
   crown: ["M2 19h20", "M6 19l1.5-6 4 2.5L12 8l.5 7.5 4-2.5L18 19", "M12 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "M3.5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z", "M20.5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"],
   help: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9.6 9.3a2.4 2.4 0 0 1 4.7.7c0 1.6-2.3 1.9-2.3 3.5", "M12 17h.01"],
+  website: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M3 12h18", "M12 3a13 13 0 0 1 4 9 13 13 0 0 1-4 9 13 13 0 0 1-4-9 13 13 0 0 1 4-9Z"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -268,6 +269,10 @@ export const NAV_LINKS = [
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
   { id: "assistente", label: "Assistente IA", href: "/assistente" },
   { id: "relat", label: "Relatórios", href: "/relatorios" },
+  // Website (WEBSITE-KIT Sprint 1): tela ocasional, não entra na mobile-tab-bar
+  // (só no menu). Gate fail-closed via /modules/me — some quando o módulo não
+  // está liberado pro usuário/empresa.
+  { id: "website", label: "Website", href: "/dashboard/website" },
   { id: "config", label: "Configurações", href: "/configuracoes" },
 ];
 
@@ -552,6 +557,10 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   bot: null,
   assistente: null,
   relat: "vendas",
+  // Website não é um tier de plano (webscraping/vendas/atendimento_chat) — é
+  // módulo companyAssignable ligado pelo MASTER por empresa (monthlyPrice: 0
+  // hoje). O gate real vive em NAV_MODULE_KEY (/modules/me), não em entitlement.
+  website: null,
   config: null,
 };
 
@@ -568,6 +577,7 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   bot: null,
   assistente: null,
   relat: "vendas",
+  website: "website",
   config: null,
 };
 

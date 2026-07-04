@@ -5,6 +5,7 @@ import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { UpdateCompanyWebsiteConfigDto } from './dto/update-company-website-config.dto';
 import { WebsiteAdminExchangeDto } from './dto/website-admin-exchange.dto';
+import { WebsiteAdminFirebaseTokenDto } from './dto/website-admin-firebase-token.dto';
 import { WebsiteAdminVerifyDto } from './dto/website-admin-verify.dto';
 import { WebsiteService } from './website.service';
 
@@ -61,5 +62,15 @@ export class WebsiteController {
   @Post('admin/verify')
   verifyAdminSession(@Body() dto: WebsiteAdminVerifyDto, @Ip() ip?: string) {
     return this.websiteService.verifyAdminSession(dto, ip);
+  }
+
+  // Mint central do Firebase Custom Token (Sprint 3 / T3, 02/07). Sem guard de
+  // JWT do app — mesma familia do exchange/verify, a sessao HBX (sessionToken)
+  // ja e a prova de identidade. Atras de WEBSITE_TOKEN_MINT_ENABLED (ver
+  // WebsiteFirebaseMintService); quando desligado responde 503 com mensagem
+  // clara e o hbx-admin-auth.js do site cai no fallback da Function antiga.
+  @Post('admin/firebase-token')
+  mintFirebaseToken(@Body() dto: WebsiteAdminFirebaseTokenDto, @Ip() ip?: string) {
+    return this.websiteService.mintFirebaseTokenForAdmin(dto.sessionToken, ip);
   }
 }
