@@ -243,6 +243,9 @@ model Company {
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
   contatos               Contato[]
   entregas               Entrega[]
+  // CRÉDITOS S1 (fundação da carteira, docs/PLANEJAMENTOS/CREDITOS): relação inversa mínima.
+  // Módulo credits vive atrás de HBX_CREDITS_ENABLED (default OFF); sem enforcement neste sprint.
+  creditWallet  CreditWallet?
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -4017,4 +4020,84 @@ model FiscalAutomationLog {
 
   @@index([sistema, operacao])
   @@index([createdAt])
+}
+
+// CRÉDITOS S1 (docs/PLANEJAMENTOS/CREDITOS/S1-SPEC.md) — fundação da carteira de crédito.
+// Sprint 0 fechado 04/07: 1 crédito = 1 lead; saldo em LOTES com expiração FIFO; fail-closed
+// nunca negativo; idempotência por usageKey. Migration ADITIVA (só estas 2 tabelas). Atrás de
+// flag HBX_CREDITS_ENABLED (default OFF) — nasce inerte, SEM enforcement (isso é S2/S3).
+//
+// CreditWallet: 1:1 com Company. É a linha-âncora do débito atômico (reusa o padrão do
+// hbx-recovery.service.ts: updateMany condicional + retry em vez de SELECT...FOR UPDATE).
+model CreditWallet {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId Int      @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries CreditLedgerEntry[]
+}
+
+// CreditLedgerEntry: append-only. Entradas de saldo são LOTES (grant | recharge | promo,
+// remaining>0 decrescente); movimentos (debit | refund | expire | adjust) têm remaining=0 e
+// só registram o rastro. Saldo = Σ(lotes remaining>0 E não expirados) — fonte ÚNICA derivada
+// do ledger (nunca contar CompanyCommercialUsageLog, esse é o modelo antigo a aposentar).
+//
+// Um débito que cruza 2+ lotes gera 1 linha `debit` POR lote consumido (cada uma com
+// parentEntryId apontando pro lote), todas com a MESMA usageKey (idempotência é da AÇÃO
+// inteira, não da linha). refund aponta pro débito revertido via parentEntryId.
+model CreditLedgerEntry {
+  id        String       @id @default(cuid())
+  wallet    CreditWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId  String
+  companyId Int // denormalizado p/ índice/consulta sem join
+
+  kind String // grant | recharge | promo (LOTES) · debit | refund | expire | adjust (movimentos)
+
+  amount    Int // sempre positivo; o `kind` dá o sinal semântico
+  remaining Int @default(0) // SÓ lotes: começa = amount, cai ao consumir. Movimentos ficam 0.
+
+  expiresAt  DateTime? // SÓ lotes; null = não expira (concessão manual permanente do master)
+  grantType  String? // paid | courtesy_internal | promo (SÓ lotes; alimenta o fiscal no S5)
+  actionKey  String? // SÓ débitos: o que consumiu (ex.: lead_delivery)
+  usageKey   String? // idempotência (débito/recarga/refund) — MESMA chave em todas as linhas da ação
+  sourceRef  String? // id do pagamento MP / id da ação master (rastreio)
+  parentEntryId String? // débito -> lote consumido; refund -> débito revertido
+
+  createdByUserId Int?
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+
+  // Fix B (revisão Opus S1): trava de idempotência de DINHEIRO no banco, não só em código.
+  // Linhas de LOTE (grant/recharge/promo) têm parentEntryId=null → no Postgres NULLs não
+  // colidem em unique, então lotes NUNCA quebram aqui. Linhas `debit` sempre têm parentEntryId
+  // (o lote consumido) → o par (usageKey, lote) vira único: duas ações concorrentes com a MESMA
+  // usageKey não conseguem debitar o MESMO lote 2x (a 2ª bate P2002 e é tratada como já-processada).
+  @@unique([usageKey, parentEntryId])
+  @@index([companyId, kind])
+  @@index([walletId, expiresAt])
+  @@index([usageKey])
+}
+
+// CRÉDITOS S3-PARTE1 (docs/PLANEJAMENTOS/CREDITOS/S3-PARTE1-RESULTADO.md) — overlay editável
+// dos PACOTES de recarga de crédito. Espelha EXATAMENTE `PlanModuleConfig`: base em código
+// (credit-pack-catalog.ts) + override persistido aqui, recarregado no boot/edição para os
+// getters síncronos do catálogo (mesmo padrão de refreshCommercialCatalogOverlay). Migration
+// ADITIVA (só esta tabela nova).
+model CreditPackConfig {
+  packKey      String   @id // starter | growth | scale
+  configJson   String   @default("{}") // { credits, price, status, defaultExpiryDays, title, observation }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Config global de crédito (S3-PARTE1): hoje só o prazo default de expiração (D6). Linha
+// única (key fixo) em vez de tabela key-value nova — mesmo espírito enxuto do
+// MasterGlobalIntegrationConfig, mas escopado a Créditos pra não colidir com billing.
+model CreditGlobalConfig {
+  key                      String   @id @default("default")
+  defaultExpiryDays        Int      @default(90)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
