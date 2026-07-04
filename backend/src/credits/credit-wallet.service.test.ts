@@ -359,7 +359,7 @@ test('refund: débito depois refund devolve o saldo; refund 2x é idempotente', 
   assert.equal(await service.getBalance(1), 10); // não duplica
 });
 
-test('refund: lote original já expirado vira lote novo sem expiração (não perde o crédito)', async () => {
+test('refund: lote original já expirado vira lote novo COM validade nova (decisão do dono — não perde o crédito nem vira perpétuo)', async () => {
   const { service } = buildService();
   const now = new Date('2026-07-04T12:00:00Z');
   const soon = new Date('2026-07-05T00:00:00Z');
@@ -376,7 +376,14 @@ test('refund: lote original já expirado vira lote novo sem expiração (não pe
   assert.equal(result.refunded, 3);
 
   const balanceAfter = await service.getBalance(1, afterExpiry);
-  assert.equal(balanceAfter, 3); // devolvido como lote novo sem expiração
+  assert.equal(balanceAfter, 3); // devolvido como lote novo consumível
+
+  // O lote de reposição tem validade NOVA no futuro (não é perpétuo, não é o prazo morto).
+  const snapshot = await service.getWalletSnapshot(1, afterExpiry);
+  assert.equal(snapshot.lots.length, 1);
+  const refundLot = snapshot.lots[0];
+  assert.ok(refundLot.expiresAt, 'lote de reposição deve ter expiração');
+  assert.ok(refundLot.expiresAt!.getTime() > afterExpiry.getTime(), 'validade deve ser futura');
 });
 
 // ─── 6. expireLots ──────────────────────────────────────────────────────────────────────────────

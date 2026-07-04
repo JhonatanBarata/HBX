@@ -68,6 +68,11 @@ export type ExpireLotsResult = {
 
 const MAX_CONCURRENCY_RETRIES = 8;
 
+// Validade do lote de REPOSIÇÃO quando um refund cai sobre um lote já expirado (decisão do
+// dono 04/07: "lote novo com validade nova"). Default aqui; o S3/master-config torna isto
+// configurável junto com o prazo padrão de expiração do crédito (D6). Nunca `null` (perpétuo).
+const REFUND_EXPIRED_LOT_VALIDITY_MS = 365 * 24 * 60 * 60 * 1000;
+
 // Sinal interno: abortar a transação do par decremento+trilha porque o optimistic lock
 // não casou (outro writer mexeu no lote). NÃO é erro de banco — é retry controlado. Fica
 // distinto do P2002 (duplicata de usageKey) para os dois serem tratados de formas diferentes.
@@ -415,9 +420,11 @@ export class CreditWalletService {
           }
 
           if (!restoredToOriginalLot) {
-            // Lote original expirado/ausente: devolve como LOTE novo sem expiração (kind:'grant'
-            // proposital — precisa ser lote consumível; `adjust` é MOVIMENTO remaining=0 e não
-            // entraria no saldo). `sourceRef` deixa rastreável a origem "refund sobre expirado".
+            // Lote original expirado/ausente: devolve como LOTE novo com VALIDADE NOVA (decisão
+            // do dono 04/07 — não ressuscita o prazo morto, mas também não perde o crédito nem
+            // cria passivo perpétuo). kind:'grant' proposital (precisa ser lote consumível;
+            // `adjust` é MOVIMENTO remaining=0 e não entraria no saldo). `sourceRef` deixa
+            // rastreável a origem "refund sobre expirado".
             const parentLot = debitRow.parentEntryId
               ? await tx.creditLedgerEntry.findUnique({ where: { id: debitRow.parentEntryId } })
               : null;
@@ -428,7 +435,7 @@ export class CreditWalletService {
                 kind: 'grant',
                 amount: debitRow.amount,
                 remaining: debitRow.amount,
-                expiresAt: null,
+                expiresAt: new Date(now.getTime() + REFUND_EXPIRED_LOT_VALIDITY_MS),
                 grantType: parentLot?.grantType ?? null,
                 sourceRef: `refund-expired-lot:${debitRow.id}`,
               },
