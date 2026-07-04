@@ -218,29 +218,6 @@ export class RadarCorePresentationMixin {
     return Boolean(user?.companyId || user?.company?.id);
   }
 
-  private assertRadarLeadVisibleForUser(user: any, context: SearchExecutionContext, row: any) {
-    if (!this.isCompanySellerUser(user)) return;
-    const companyStates = Array.isArray(row?.companyStates) ? row.companyStates : [];
-    const assignedToUser = companyStates.some((state: any) => Number(state?.assignedUserId || 0) === context.userId);
-    if (!assignedToUser) throw new NotFoundException('Card do Radar nao encontrado.');
-  }
-
-  /**
-   * Checagem de "pode puxar" (vitrine → Vendas).
-   * Admin passa direto.
-   * Vendedor passa se o card esta LIVRE (assignedUserId nulo) OU ja e dele.
-   * Lanca NotFound apenas se o card pertence a OUTRO vendedor.
-   * Mantém assertRadarLeadVisibleForUser intacto para o detalhe do card.
-   */
-  private assertRadarLeadClaimableForUser(user: any, context: SearchExecutionContext, row: any) {
-    if (!this.isCompanySellerUser(user)) return;
-    const companyStates = Array.isArray(row?.companyStates) ? row.companyStates : [];
-    const state = companyStates[0];
-    const assignedTo = state?.assignedUserId ? Number(state.assignedUserId) : null;
-    const isOwnedByOther = assignedTo !== null && assignedTo !== context.userId;
-    if (isOwnedByOther) throw new NotFoundException('Card do Radar nao encontrado.');
-  }
-
   private canSeeDiagnostics(user: any) {
     return this.canUseWebscrapingRole(user);
   }
@@ -1445,7 +1422,6 @@ export class RadarCorePresentationMixin {
       includeHidden?: boolean;
       ownershipEnabled?: boolean;
       availableOnly?: boolean;
-      assignedUserId?: number | null;
     } = {},
   ) {
     const where: any = {};
@@ -1523,17 +1499,8 @@ export class RadarCorePresentationMixin {
       }
     }
 
-    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || 0;
-    if (companyId && assignedUserId) {
-      and.push({
-        companyStates: {
-          some: {
-            companyId,
-            assignedUserId,
-          },
-        },
-      });
-    }
+    // LIMPEZA-DESTRUTIVA L3: assignedUserId morreu como filtro de visibilidade/posse aqui —
+    // nenhum caller mais passa esse recorte; a lagoa é da empresa, igual pra todo papel.
 
     const excludePhoneDigits = Array.from(new Set((options.excludePhoneDigits || []).map((phone) => normalizePhoneDigits(phone)).filter(Boolean)));
     if (excludePhoneDigits.length) {
@@ -1885,7 +1852,7 @@ export class RadarCorePresentationMixin {
   private async queryRadarRowsForCompany(
     companyId: number,
     filters: NormalizedRadarFilters,
-    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean; availableOnly?: boolean; assignedUserId?: number | null } = {},
+    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean; availableOnly?: boolean } = {},
   ) {
     if (!(await this.supportsRadarPersistence())) return [];
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
@@ -2867,12 +2834,12 @@ export class RadarCorePresentationMixin {
   async listRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
     const filters = this.normalizeRadarFilters({ ...input, engine: undefined });
-    // VITRINE (carrossel do Radar, dono 14/06): mostra a LAGOA compartilhada pra
-    // TODOS — inclusive o vendedor (que antes via tela branca por causa do filtro
-    // "atribuído a você"). Só leads disponíveis (availableOnly) e contato mascarado.
-    // Sem vitrine (tela Leads), segue por assignedUserId pro vendedor (o que ele puxou).
+    // LIMPEZA-DESTRUTIVA L3 (dono 04/07): vitrine E funil são a MESMA lagoa da empresa
+    // pra TODOS os papéis — vendedor, admin e master veem o mesmo conjunto de cards.
+    // assignedUserId deixou de ser filtro de visibilidade (é só informativo, "Responsável"
+    // = quem puxou). Só leads disponíveis (availableOnly) na vitrine; contato mascarado
+    // segue na camada de apresentação (LEI DO VENDEDOR, preço só pra admin).
     const vitrine = String((input as any).scope || '').trim().toLowerCase() === 'vitrine';
-    const assignedUserId = (!vitrine && this.isCompanySellerUser(user)) ? context.userId : null;
     if (!(await this.supportsRadarPersistence())) {
       return { items: [], total: 0, facets: [], meta: { available: false, message: 'Banco do Radar ainda nao foi migrado neste ambiente.' } };
     }
@@ -2889,13 +2856,11 @@ export class RadarCorePresentationMixin {
     const availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
-      assignedUserId,
       availableOnly: vitrine,
     });
     const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
-      assignedUserId,
       availableOnly: vitrine,
     });
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
@@ -2914,7 +2879,6 @@ export class RadarCorePresentationMixin {
           where: this.buildRadarWhere(baseFilters, context.companyId, {
             availableOnly: vitrine,
             ownershipEnabled,
-            assignedUserId,
             requirePhone: false,
           }),
         }).catch(() => filteredRows.length);
@@ -2999,7 +2963,8 @@ export class RadarCorePresentationMixin {
       },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    this.assertRadarLeadVisibleForUser(user, context, row);
+    // LIMPEZA-DESTRUTIVA L3: card e da EMPRESA — qualquer papel (vendedor, admin, master)
+    // pode ver o detalhe, independente de quem esta como "Responsável" (assignedUserId).
     const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
     const leadRow = enrichedRow || row;
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);

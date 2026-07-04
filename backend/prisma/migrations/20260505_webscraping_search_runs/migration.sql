@@ -14,6 +14,11 @@ CREATE TABLE "WebscrapingSearchRun" (
   "duplicateCount" INTEGER NOT NULL DEFAULT 0,
   "skippedCount" INTEGER NOT NULL DEFAULT 0,
   "errorMessage" TEXT,
+  "assignedEngineId" TEXT,
+  "assignedEngineUrl" TEXT,
+  "assignedEngineIndex" INTEGER,
+  "googleEmergencyUsedCount" INTEGER NOT NULL DEFAULT 0,
+  "lastFoundCountChangeAt" TIMESTAMP(3),
   "startedAt" TIMESTAMP(3),
   "finishedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -48,6 +53,8 @@ CREATE TABLE "WebscrapingSearchRunItem" (
 CREATE INDEX "WebscrapingSearchRun_companyId_createdAt_idx" ON "WebscrapingSearchRun"("companyId", "createdAt");
 CREATE INDEX "WebscrapingSearchRun_companyId_status_updatedAt_idx" ON "WebscrapingSearchRun"("companyId", "status", "updatedAt");
 CREATE INDEX "WebscrapingSearchRun_userId_createdAt_idx" ON "WebscrapingSearchRun"("userId", "createdAt");
+CREATE INDEX "WebscrapingSearchRun_status_createdAt_idx" ON "WebscrapingSearchRun"("status", "createdAt");
+CREATE INDEX "WebscrapingSearchRun_assignedEngineId_idx" ON "WebscrapingSearchRun"("assignedEngineId");
 
 CREATE INDEX "WebscrapingSearchRunItem_runId_createdAt_idx" ON "WebscrapingSearchRunItem"("runId", "createdAt");
 CREATE INDEX "WebscrapingSearchRunItem_runId_status_idx" ON "WebscrapingSearchRunItem"("runId", "status");

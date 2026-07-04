@@ -422,18 +422,19 @@ test.describe("Atendimento", () => {
 
     await page.goto("/atendimento?atendimentoQueue=scheduled");
 
-    await expect(page.getByLabel("Carregando conversas")).toBeVisible();
     const conversation = page.getByRole("button", { name: new RegExp(CUSTOMER_NAME) });
     await expect(conversation).toBeVisible();
 
     await conversation.click();
 
-    const messageBubbles = page.locator('[class*="whatsAppBubbleText"]');
-    await expect(messageBubbles.filter({ hasText: "Oi, preciso de atendimento" })).toBeVisible();
-    await expect(messageBubbles.filter({ hasText: "Claro, estou verificando." })).toBeVisible();
-    await expect(page.getByLabel("Contato online")).toBeVisible();
-    await expect(page.getByText("digitando...").first()).toBeVisible();
+    await expect(page.getByText("Oi, preciso de atendimento", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Claro, estou verificando.", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/digitando/).first()).toBeVisible();
 
-    expect(Array.from(seen)).toEqual(expect.arrayContaining(["bootstrap", "detail", "messages", "presence"]));
+    await page.getByRole("button", { name: /WhatsApp: Conectado/ }).click();
+    await expect(page.getByRole("heading", { name: "Conexão WhatsApp" })).toBeVisible();
+    await expect(page.getByText("WhatsApp conectado — pronto para receber e responder aqui")).toBeVisible();
+
+    expect(Array.from(seen)).toEqual(expect.arrayContaining(["list", "events", "messages", "presence"]));
   });
 });

@@ -7,8 +7,8 @@ import { SavedSearchController } from './saved-search.controller';
 import { SavedSearchService } from './saved-search.service';
 
 // WORM-15 — pesquisas salvas do Radar. Reusa a query do Radar
-// (WebscrapingService.listRadarLeadsForUser) e a distribuicao por vendedor
-// (saveRadarSellerStandingOrder) importando o WebscrapingModule.
+// (WebscrapingService.listRadarLeadsForUser) importando o WebscrapingModule.
+// (standing order por vendedor removido — LIMPEZA-DESTRUTIVA L4, 04/07.)
 @Module({
   imports: [PrismaModule, ModulesAccessModule, AuthModule, WebscrapingModule],
   controllers: [SavedSearchController],

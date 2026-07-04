@@ -31,6 +31,36 @@
      moldura (width). É PROIBIDO re-centralizar, re-posicionar ou re-empilhar
      (`z-index`) inline na tela. Pop-up fora do centro / "não aparece" = a tela
      está furando isto — o conserto é na classe central, NUNCA na página.
+   - **Seleção ativa (menu/aba/chip/passo) = SEMPRE Glass Pill deslizante**
+     (ordem do dono, 05/07 — nasceu do menu lateral, virou regra pra TODO
+     grupo de botões/links com um "ativo" por vez). Nunca um `background`/
+     `border` próprio que troca instantâneo no item clicado — o destaque é
+     uma pílula de vidro (blur + brilho + sombra) que MEDE a posição do item
+     ativo e desliza até ele, com uma leve "chacoalhada" de pouso ao chegar
+     (squash/stretch, como uma gota assentando). Hook + componente prontos:
+     `components/hbx/glass-pill.tsx` (`useGlassPill` + `<GlassPill>`); CSS
+     genérico em `kit.css` (`.glass-pill-track`, `.glass-pill-item`,
+     `.glass-pill`, `.glass-pill__glass`); cada pele veste o vidro em
+     `theme-<nome>.css` via `.glass-pill__glass` (não recriar o efeito). Uso:
+     ```tsx
+     const gp = useGlassPill(activeKey, outrasDeps...);
+     <div className="glass-pill-track algumaClasseDoContainer">
+       <GlassPill {...gp} />
+       {items.map(it => (
+         <button key={it.key} ref={gp.itemRef(it.key)}
+           className={"glass-pill-item algumaClasseDoItem" + (it.key === activeKey ? " active" : "")}>
+           {it.label}
+         </button>
+       ))}
+     </div>
+     ```
+     O container do grupo precisa de `position:relative` (a classe
+     `.glass-pill-track` já dá isso). Forma padrão = `--radius-pill`; grupo
+     com cantos quadrados (ex.: sub-menu de Configurações) seta
+     `--glass-pill-radius: var(--radius-sm)` (ou a variável de radius que já
+     usava) no container. Aplica-se a QUALQUER menu novo: sub-nav vertical,
+     abas horizontais, chips de filtro/período, passos de wizard — não só ao
+     menu lateral.
 3. **Tema SÓ troca tokens (+ camada de vestir).** Pele nova =
    `theme-<nome>.css` (tokens claro/escuro + reestilo visual das classes
    centrais, tudo sob `[data-theme="nome"]`) + import no `globals.css` +

@@ -165,10 +165,6 @@ export class SavedSearchService {
       },
     })) as SavedSearchRow;
 
-    if (assignedSellerId) {
-      await this.applyAssignedSellerStandingOrder(context.companyId, assignedSellerId, filtro).catch(() => null);
-    }
-
     return { ok: true, search: this.serialize(row) };
   }
 
@@ -210,10 +206,6 @@ export class SavedSearchService {
       where: { id: existing.id },
       data,
     })) as SavedSearchRow;
-
-    if (assignedSellerId) {
-      await this.applyAssignedSellerStandingOrder(context.companyId, assignedSellerId, nextFiltro).catch(() => null);
-    }
 
     return { ok: true, search: this.serialize(row) };
   }
@@ -278,27 +270,7 @@ export class SavedSearchService {
     return input;
   }
 
-  // Atribuir recorte ao vendedor = alimentar a distribuicao existente: grava o
-  // standing order (cidade/UF/segmento) no proprio vendedor via a rotina do
-  // Radar, para o motor de reabastecimento tratar aquele recorte como fonte
-  // preferencial daquele vendedor (nao inventa mecanismo novo). Best-effort.
-  private async applyAssignedSellerStandingOrder(companyId: number, sellerId: number, filtro: SavedSearchFiltro) {
-    const city = String((filtro as any).city || '').trim();
-    const state = String((filtro as any).state || '').trim();
-    const segment = String((filtro as any).segment || '').trim();
-    // Sem cidade+segmento a distribuicao nao tem alvo — nao mexe no standing order.
-    if (!city || !segment) return;
-
-    const alcanceRaw = (filtro as any).alcance ?? (filtro as any).radiusKm;
-    const alcance = alcanceRaw != null && String(alcanceRaw).trim() ? String(alcanceRaw).trim() : '';
-    const quantosRaw = Number((filtro as any).quantos ?? (filtro as any).limit ?? 0);
-    const quantos = Number.isFinite(quantosRaw) && quantosRaw > 0 ? Math.min(20, Math.trunc(quantosRaw)) : 5;
-
-    // Reusa a rotina oficial: passa um "user" minimo do proprio vendedor para o
-    // saveRadarSellerStandingOrder gravar no radarSellerStandingOrderJson dele.
-    await this.webscraping.saveRadarSellerStandingOrder(
-      { id: sellerId, companyId },
-      { active: true, city, state, segment, alcance, quantos },
-    );
-  }
+  // applyAssignedSellerStandingOrder: REMOVIDO (LIMPEZA-DESTRUTIVA L4, 04/07).
+  // Atribuir recorte a vendedor (assignedSellerId) agora e so informativo —
+  // nao alimenta mais standing order nem dispara busca automatica.
 }

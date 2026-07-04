@@ -1350,9 +1350,12 @@ test('cnpj_public provider filtra cidade UF segmento e situacao ativa', async ()
     ],
   });
 
-  assert.equal(result.acceptedCount, 1);
+  // Segmento sem match de CNAE NÃO descarta desde 03/07 (vira AVISO na porta, decisão do dono):
+  // "Restaurante X" passa junto de "Barbearia Centro". Só cidade/UF (Campinas) e situação
+  // não-ativa (baixada) é que rejeitam — 2 aceitos, 2 rejeitados.
+  assert.equal(result.acceptedCount, 2);
   assert.equal(result.results[0].name, 'Barbearia Centro');
-  assert.equal(result.rejectedCount, 3);
+  assert.equal(result.rejectedCount, 2);
 });
 
 test('executor executa cnpj_public e preserva origem real', async () => withEnv({

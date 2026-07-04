@@ -1,3 +1,9 @@
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "commissionDueBusinessDays" INTEGER NOT NULL DEFAULT 3;
+
+ALTER TABLE "User"
+ADD COLUMN IF NOT EXISTS "sellerDistributionDailyLimitOverride" INTEGER;
+
 CREATE TABLE IF NOT EXISTS "TeamPolicyPreset" (
   "id" TEXT NOT NULL,
   "companyId" INTEGER,

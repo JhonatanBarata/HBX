@@ -445,23 +445,6 @@ class RadarMarkSentDto {
   leadIds?: string[];
 }
 
-class RadarDistributeDto {
-  @IsArray()
-  @IsString({ each: true })
-  leadIds!: string[];
-
-  @IsArray()
-  @Type(() => Number)
-  @IsInt({ each: true })
-  @Min(1, { each: true })
-  userIds!: number[];
-
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  skipWhatsappValidation?: boolean;
-}
-
 class RadarAutoDistributionRunDto {
   @IsOptional()
   @Type(() => Number)
@@ -469,35 +452,6 @@ class RadarAutoDistributionRunDto {
   @Min(1)
   @Max(100)
   limit?: number;
-}
-
-class RadarSellerStandingOrderDto {
-  @IsOptional()
-  @IsBoolean()
-  active?: boolean;
-
-  @IsOptional()
-  @IsString()
-  city?: string;
-
-  @IsOptional()
-  @IsString()
-  state?: string;
-
-  @IsOptional()
-  @IsString()
-  segment?: string;
-
-  @IsOptional()
-  @IsString()
-  alcance?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(20)
-  quantos?: number;
 }
 
 class RadarTenantAutoDistributionDto {
@@ -647,24 +601,9 @@ export class WebscrapingController {
     return this.webscrapingService.markRadarLeadsSentToVendasForUser(req.user, dto?.leadIds || []);
   }
 
-  @Post('radar/leads/distribute-to-vendedores')
-  radarLeadsDistributeToVendedores(@Req() req: any, @Body() dto: RadarDistributeDto) {
-    return this.webscrapingService.distributeRadarLeadsToVendedoresForUser(req.user, dto || ({} as any));
-  }
-
   @Get('radar/auto-distribution')
   radarAutoDistributionRule(@Req() req: any) {
     return this.webscrapingService.getRadarAutoDistributionRuleForUser(req.user);
-  }
-
-  @Get('radar/standing-order')
-  getSellerStandingOrder(@Req() req: any) {
-    return this.webscrapingService.getRadarSellerStandingOrder(req.user);
-  }
-
-  @Put('radar/standing-order')
-  saveSellerStandingOrder(@Req() req: any, @Body() dto: RadarSellerStandingOrderDto) {
-    return this.webscrapingService.saveRadarSellerStandingOrder(req.user, dto || {});
   }
 
   @Post('radar/leads/:id/event')

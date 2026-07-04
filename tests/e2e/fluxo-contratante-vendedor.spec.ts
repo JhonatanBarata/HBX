@@ -52,6 +52,20 @@ function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
+function cpfFromSeed(seed: string) {
+  let base = seed.replace(/\D/g, "").slice(-9).padStart(9, "1");
+  if (/^(\d)\1{8}$/.test(base)) base = "529982247";
+  const digits = base.split("").map(Number);
+  const calculate = (values: number[], factor: number) => {
+    const remainder = values.reduce((sum, value, index) => sum + value * (factor - index), 0) % 11;
+    const digit = 11 - remainder;
+    return digit >= 10 ? 0 : digit;
+  };
+  const first = calculate(digits, 10);
+  const second = calculate([...digits, first], 11);
+  return `${base}${first}${second}`;
+}
+
 function expectNoBillingWords(payload: unknown, context: string) {
   const text = JSON.stringify(payload).toLowerCase();
   for (const word of ["cobrança", "cobranca", "pagamento em atraso", "checkout", "r$"]) {
@@ -82,15 +96,36 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
         selectedPlanKey: "hbx_padrao",
         trialModuleSelection: "vendas",
         trialContactName: "Dono E2E",
-        trialTaxDocument: "52998224725",
+        trialTaxDocument: cpfFromSeed(stamp),
         trialContactPhone: phone,
         acceptedTerms: true,
       },
     });
     expect(signup.ok(), `signup falhou: ${await signup.text()}`).toBe(true);
 
-    // 2. 1º login do contratante: no fluxo mock local confirma o e-mail e a
-    //    máquina nativa inicia o trial (C.1). Gate manda para o dashboard.
+    // 2. O primeiro login confirma a identidade, mas NÃO libera trial sem
+    //    cartão. O gate permanece no dashboard e exige checkout.
+    const adminPending = await login(request, adminEmail, password);
+    expect(adminPending.next).toBe("/dashboard");
+    expect(adminPending.requiresCheckout).toBe(true);
+
+    const pendingProfile = await (await request.get(`${API}/profile/current-user`, {
+      headers: authHeaders(adminPending.access_token),
+    })).json();
+    expect(pendingProfile.userKind).toBe("admin");
+    expect(pendingProfile.company.accessState).toBe("pending_checkout");
+    const companyId = Number(pendingProfile.company.id);
+    expect(companyId).toBeGreaterThan(0);
+
+    // Simula o resultado do checkout mock: cartão capturado e trial iniciado.
+    sql(
+      `UPDATE "Company" SET "status" = 'trial', "isActive" = true, ` +
+        `"trialModuleSelection" = 'vendas', "trialStartsAt" = NOW(), ` +
+        `"trialEndsAt" = NOW() + interval '14 days', "deactivatedAt" = NULL, ` +
+        `"statusChangedAt" = NOW() WHERE id = ${companyId}`,
+    );
+    sql(`UPDATE "CompanyModule" SET "enabled" = true WHERE "companyId" = ${companyId}`);
+
     const adminLogin = await login(request, adminEmail, password);
     expect(adminLogin.next).toBe("/dashboard");
     expect(adminLogin.requiresCheckout).toBe(false);
@@ -98,10 +133,7 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     const adminProfile = await (await request.get(`${API}/profile/current-user`, {
       headers: authHeaders(adminLogin.access_token),
     })).json();
-    expect(adminProfile.userKind).toBe("admin");
     expect(["trial", "trial_ending"]).toContain(adminProfile.company.accessState);
-    const companyId = Number(adminProfile.company.id);
-    expect(companyId).toBeGreaterThan(0);
 
     // 3. Contratante convida o vendedor (nasce sem senha + link — C.3).
     const sellerCreate = await request.post(`${API}/users/company/create`, {
@@ -188,7 +220,7 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
 
     // Contratante cai no pré-checkout com o motivo certo (C.1b)...
     const adminAfterExpiry = await login(request, adminEmail, password);
-    expect(adminAfterExpiry.next).toBe("/pre-checkout?reason=trial_expired");
+    expect(adminAfterExpiry.next).toBe("/dashboard");
     expect(adminAfterExpiry.requiresCheckout).toBe(true);
 
     // ...e o vendedor continua SEM destino nem flag de cobrança (D.2/D.4).
@@ -263,7 +295,7 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     // 1. Master entra no master puro e cria a empresa com o contato do
     //    contratante (B.6/C.1c): nasce pending_checkout + ADMIN sem senha.
     const masterLogin = await login(request, masterUsername, masterPassword);
-    expect(masterLogin.next).toBe("/dashboard/master");
+    expect(masterLogin.next).toBe("/master");
 
     const createCompany = await request.post(`${API}/companies/master`, {
       headers: authHeaders(masterLogin.access_token),
@@ -297,7 +329,7 @@ test.describe("fluxo completo: contratante → trial → vendedor → expiraçã
     // 3. Login do contratante: empresa criada pelo master fica em checkout
     //    pendente até concluir a contratação (gate canônico C.1b).
     const adminPending = await login(request, contratanteEmail, password);
-    expect(adminPending.next).toBe("/pre-checkout?reason=pending_checkout");
+    expect(adminPending.next).toBe("/dashboard");
     expect(adminPending.requiresCheckout).toBe(true);
 
     // 4. Checkout concluído (escrita do estado único como o financeiro grava).

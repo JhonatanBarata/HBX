@@ -6,7 +6,6 @@ import * as XLSX from 'xlsx';
 import { WebscrapingService } from './webscraping.service';
 import { shouldRadarIssueBlockDelivery } from './radar/shared/radar-stage-policy';
 import { SourceBudgetService } from './source-budget/source-budget.service';
-import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 
 // SourceBudgetService.tryConsumePaid('google_places') é FAIL-CLOSED e usa um PrismaClient PRÓPRIO,
 // real (`_counterDb`, lazy), independente do mock de Prisma que cada teste injeta no
@@ -2469,14 +2468,15 @@ test('startRadarSearchRunForUser usa estoque sem perfil quando perfil lead plus 
     status: 'clean',
   };
   const calls: any[] = [];
-  service.assertRadarCanFeedVendas = async () => ({ pendingCount: 0 });
   service.queryRadarRowsForCompany = async (_companyId: number, filters: any) => {
     calls.push(filters);
     return filters.salesProfile ? [] : [relaxedRow];
   };
-  service.markRadarDelivered = async (_companyId: number, _userId: number, rows: any[]) => rows;
+  // LIMPEZA-DESTRUTIVA L1: o START nunca reivindica; se markRadarDelivered for chamado, falha.
+  let markRadarDeliveredCalls = 0;
+  service.markRadarDelivered = async () => { markRadarDeliveredCalls += 1; return []; };
   service.recalculateSearchRunCounters = async () => ({ foundCount: 1, duplicateCount: 0, skippedCount: 0 });
-  service.buildRadarSearchRunResponse = async () => ({ status: run.status, foundCount: 1 });
+  service.buildRadarSearchRunResponse = async () => ({ status: run.status });
 
   const response = await service.startRadarSearchRunForUser(createUser(), {
     city: 'Hortolandia',
@@ -2489,14 +2489,18 @@ test('startRadarSearchRunForUser usa estoque sem perfil quando perfil lead plus 
   });
 
   const metrics = JSON.parse((run as any).metricsJson);
-  assert.equal(response.status, 'completed');
+  // Estoque existe na vitrine, mas o run vai pra FILA (queued) — nada entregue no funil.
+  assert.equal(response.status, 'queued');
+  assert.equal(run.status, 'queued');
+  assert.equal(markRadarDeliveredCalls, 0);
+  // O fallback de perfil (consulta com perfil -> vazio -> consulta sem perfil) segue valendo.
   assert.equal(calls.length, 2);
   assert.equal(calls[0].salesProfile.targetSegments[0], 'servicos locais');
   assert.equal(calls[1].salesProfile, null);
   assert.equal(metrics.relaxedStockLookup, true);
 });
 
-test('startRadarSearchRunForUser VENDEDOR pausa quando Vendas ja esta no limite (teto explicito do vendedor)', async () => {
+test('LIMPEZA-DESTRUTIVA L2: VENDEDOR com 20 cards pendentes em Vendas NAO pausa mais a busca (gate de estoque morto)', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'completed',
     city: 'Campinas',
@@ -2507,9 +2511,8 @@ test('startRadarSearchRunForUser VENDEDOR pausa quando Vendas ja esta no limite 
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
   service.supportsRadarPersistence = async () => true;
-  // Vendedor real (role=USER): o gate de estoque continua valendo pra ele — a
-  // regra-mãe é "vendedor consome dentro do teto"; aqui a carteira dele (não a
-  // da empresa) já está com 20 cards pendentes.
+  // Cota comercial (a única trava de quantidade que sobrevive) segue folgada:
+  // se o run pausar aqui, só pode ser por ela — nunca pelo estoque do funil.
   service.commercialUsageLimits = {
     getUsageSnapshot: async () => ({
       cards: { dailyRemaining: 999999, remaining: 999999 },
@@ -2522,10 +2525,6 @@ test('startRadarSearchRunForUser VENDEDOR pausa quando Vendas ja esta no limite 
       seller: true, paused: false, activeCount: 0, effectiveLimit: 20, availableSlots: 20, code: null,
     }),
   };
-  service.radarVendasSync = Object.assign(new RadarVendasSyncService(prisma), {
-    getPendingCount: async () => 0,
-    getPendingCountForSeller: async () => 20,
-  });
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
     queriedStock = true;
@@ -2556,14 +2555,16 @@ test('startRadarSearchRunForUser VENDEDOR pausa quando Vendas ja esta no limite 
     targetType: 'pj',
   });
 
-  assert.equal(response.status, 'sleeping');
-  assert.equal(run.status, 'sleeping');
-  assert.equal(run.lastBatchStatus, 'vendas_stock_limit_start');
-  assert.equal(run.nextRetryAt instanceof Date, true);
-  assert.equal(queriedStock, false);
+  // Sem RadarVendasSyncService/getPendingCountForSeller: mesmo com 20 cards
+  // pendentes na carteira do vendedor, o run vai pra FILA — busca sempre roda
+  // até targetQuantity, nunca olhando o funil.
+  assert.equal(response.status, 'queued');
+  assert.equal(run.status, 'queued');
+  assert.notEqual(run.lastBatchStatus, 'vendas_stock_limit_start');
+  assert.equal(queriedStock, true);
 });
 
-test('VENDAS-REFAB S1: ADMIN com 20 cards pendentes na EMPRESA NAO pausa a busca (cerne do bug)', async () => {
+test('VENDAS-REFAB S1 / LIMPEZA-DESTRUTIVA L2: ADMIN com 20 cards pendentes na EMPRESA NAO pausa a busca (gate de estoque morto)', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'completed',
     city: 'Campinas',
@@ -2574,8 +2575,8 @@ test('VENDAS-REFAB S1: ADMIN com 20 cards pendentes na EMPRESA NAO pausa a busca
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
   service.supportsRadarPersistence = async () => true;
-  // Cota comercial da empresa (teto real do Master) segue folgada — não é isso que
-  // está em teste aqui.
+  // Cota comercial da empresa (teto real do Master, único freio de quantidade
+  // que sobrevive à L2) segue folgada — não é isso que está em teste aqui.
   service.commercialUsageLimits = {
     getUsageSnapshot: async () => ({
       cards: { dailyRemaining: 999999, remaining: 999999 },
@@ -2585,17 +2586,6 @@ test('VENDAS-REFAB S1: ADMIN com 20 cards pendentes na EMPRESA NAO pausa a busca
       quota: { seller: false },
     }),
     getSellerActiveCardQuotaSnapshot: async () => ({ seller: false }),
-  };
-  // A ÁRVORE: 20 cards pendentes são da EMPRESA (Gabriele/outros vendedores), não
-  // do admin. Antes do fix, getVendasPendingCountForRadarContext caía no "senão"
-  // (getPendingCount = empresa toda) pra qualquer não-vendedor e pausava o admin.
-  let companyPendingCountCalled = false;
-  service.radarVendasSync = {
-    getPendingCount: async () => {
-      companyPendingCountCalled = true;
-      return 20;
-    },
-    getPendingCountForSeller: async () => 0,
   };
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
@@ -2633,12 +2623,10 @@ test('VENDAS-REFAB S1: ADMIN com 20 cards pendentes na EMPRESA NAO pausa a busca
   assert.notEqual(response.status, 'sleeping');
   assert.notEqual(run.status, 'sleeping');
   assert.notEqual(run.lastBatchStatus, 'vendas_stock_limit_start');
-  // A contagem de empresa nunca deveria ter sido chamada pra decidir o gate do admin.
-  assert.equal(companyPendingCountCalled, false);
   assert.equal(queriedStock, true);
 });
 
-test('startRadarSearchRunForUser vendedor ignora estoque global e usa estoque do vendedor', async () => {
+test('LIMPEZA-DESTRUTIVA L2: startRadarSearchRunForUser vendedor nunca consulta estoque (pendente de ninguem) pra decidir a busca', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'completed',
     city: 'Rio Claro',
@@ -2675,14 +2663,6 @@ test('startRadarSearchRunForUser vendedor ignora estoque global e usa estoque do
       availableSlots: 10,
       code: null,
     }),
-  };
-  let globalStockCounted = false;
-  service.radarVendasSync = {
-    getPendingCount: async () => {
-      globalStockCounted = true;
-      return 100;
-    },
-    getPendingCountForSeller: async () => 0,
   };
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
@@ -2725,32 +2705,40 @@ test('startRadarSearchRunForUser vendedor ignora estoque global e usa estoque do
     targetType: 'pj',
   });
 
+  // Sem gate de estoque: a busca vira fila (queued) direto, sem qualquer
+  // dependência de RadarVendasSyncService/getPendingCount(-ForSeller).
   assert.equal(response.status, 'queued');
   assert.equal(run.status, 'queued');
   assert.equal(run.lastBatchStatus, null);
-  assert.equal(globalStockCounted, false);
   assert.equal(queriedStock, true);
 });
 
-test('resumePausedSearchRunIfPossible retoma Radar pausado quando Vendas libera espaco', async () => {
+test('LIMPEZA-DESTRUTIVA L2: resumePausedSearchRunIfPossible retoma Radar pausado por cota quando a EMPRESA libera espaco', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'sleeping',
+    companyId: 7,
+    userId: 9,
     city: 'Campinas',
     state: 'SP',
     segment: 'barbearias',
     targetQuantity: 20,
-    lastBatchStatus: 'vendas_stock_limit_start',
+    lastBatchStatus: 'vendas_card_limit_start',
     errorMessage: 'Radar pausado.',
     nextRetryAt: new Date(Date.now() - 1000),
     metricsJson: JSON.stringify({
-      vendasStockTarget: 20,
-      radarPauseReason: 'vendas_stock_limit_start',
+      radarPauseReason: 'vendas_card_limit_start',
       status: 'sleeping',
     }),
   });
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
-  service.getVendasPendingCountForRadarContext = async () => 3;
+  // Sem gate de estoque: quem decide se o run pausado pode retomar é só a cota
+  // comercial da EMPRESA (CommercialUsageLimitsService) — aqui ela liberou espaco.
+  service.commercialUsageLimits = {
+    getUsageSnapshot: async () => ({
+      cards: { remaining: 5 },
+    }),
+  };
 
   const resumed = await service.resumePausedSearchRunIfPossible(run);
 
@@ -3658,7 +3646,7 @@ test('Radar duplicate forte por telefone bloqueia item repetido', () => {
   assert.match(classified.duplicateReason, /Telefone repetido/i);
 });
 
-test('Radar search-run em andamento autoimporta cards encontrados para Vendas', async () => {
+test('LIMPEZA-DESTRUTIVA L1: Radar search-run em andamento NUNCA autoimporta para Vendas (USERMASTER incluso) e sempre enche a vitrine', async () => {
   const run = {
     id: 'run-live-import',
     companyId: 7,
@@ -3704,83 +3692,48 @@ test('Radar search-run em andamento autoimporta cards encontrados para Vendas', 
       findFirst: async () => run,
     },
   })) as any;
-  let autoImportCalls = 0;
-  service.syncRadarSearchRunItemsToPool = async () => undefined;
+  let syncToPoolCalls = 0;
+  let markRadarDeliveredCalls = 0;
+  service.syncRadarSearchRunItemsToPool = async () => { syncToPoolCalls += 1; };
+  service.markRadarDelivered = async () => { markRadarDeliveredCalls += 1; return []; };
   service.findRadarPoolRowsForRunItems = async () => [];
   service.canUseRadarSmartLeadFields = async () => false;
   service.applyRadarWhatsappCheck = async (_context: any, items: any[]) => ({ items, meta: { mode: 'off' } });
-  service.autoImportRadarSearchRunToVendas = async () => {
-    autoImportCalls += 1;
-    return { ran: true, importedCount: 1, processedCount: 1, pendingCount: 1, remaining: null, failures: [] };
-  };
 
-  const response = await service.buildRadarSearchRunResponse(createUser(), run.id);
+  // Usuário USERMASTER (o papel do dono) — o caso que sempre escapou do refab por papel.
+  const usermaster = { ...createUser(), role: 'USERMASTER' };
+  const response = await service.buildRadarSearchRunResponse(usermaster, run.id);
 
-  assert.equal(autoImportCalls, 1);
+  // Vitrine sempre enchida (skipClaim morreu — o método nem aceita mais essa opção).
+  assert.ok(syncToPoolCalls >= 1);
+  // Funil NUNCA reivindicado automaticamente pelo run, nem pra USERMASTER.
+  assert.equal(markRadarDeliveredCalls, 0);
   assert.equal(response.status, 'running');
-  assert.equal(response.meta.autoImport.ran, true);
-  assert.equal(response.meta.autoImport.importedCount, 1);
+  assert.equal(response.meta.autoImport.ran, false);
 });
 
-test('autoImportRadarSearchRunToVendas pausa quando ultimo card completa o limite do Vendas', async () => {
-  const { prisma, run, items } = createSearchRunPrisma({
+test('LIMPEZA-DESTRUTIVA L1: syncRadarSearchRunItemsToPool nao aceita mais skipClaim e nunca chama markRadarDelivered', async () => {
+  const { prisma, run } = createSearchRunPrisma({
     status: 'running',
     city: 'Aguas da Prata',
     state: 'SP',
     segment: 'barbearias',
     targetQuantity: 1,
-    foundCount: 1,
+    foundCount: 0,
     importedCount: 0,
-    metricsJson: JSON.stringify({ vendasStockTarget: 1 }),
-  });
-  items.push({
-    id: 'item-limit-fill',
-    runId: run.id,
-    companyId: 7,
-    placeId: 'hbx:pj:19999990001',
-    name: 'Barbearia Limite',
-    phone: '(19) 99999-0001',
-    phoneDigits: '19999990001',
-    city: 'Aguas da Prata',
-    state: 'SP',
-    segment: 'barbearias',
-    source: 'hbx',
-    status: 'found',
-    rawJson: JSON.stringify({
-      name: 'Barbearia Limite',
-      phone: '(19) 99999-0001',
-      phoneDigits: '19999990001',
-      city: 'Aguas da Prata',
-      state: 'SP',
-      segment: 'barbearias',
-    }),
-    createdAt: new Date(),
   });
   const service = new WebscrapingService(prisma) as any;
-  disableSearchRunAutoPump(service);
-  service.vendasService = {};
-  let pendingCount = 0;
-  service.getVendasPendingCountForRadarContext = async () => pendingCount;
-  service.syncRadarSearchRunItemsToPool = async () => undefined;
-  service.isRunItemPrimaryDeliverable = () => true;
-  service.findRadarPoolRowsForRunItems = async () => [{
-    id: 'radar-limit-fill',
-    status: 'clean',
-    name: 'Barbearia Limite',
-    phone: '(19) 99999-0001',
-    phoneDigits: '19999990001',
-    companyStates: [],
-  }];
-  service.importRadarLeadToVendasForUser = async () => {
-    pendingCount = 1;
-    return { import: { deliveredCount: 1 } };
-  };
+  let markRadarDeliveredCalls = 0;
+  service.markRadarDelivered = async () => { markRadarDeliveredCalls += 1; return []; };
+  service.persistRadarLeadPoolBatch = async () => undefined;
 
-  const result = await service.autoImportRadarSearchRunToVendas(createUser(), run.id);
+  // Assinatura antiga aceitava um 3º argumento { skipClaim }; hoje o método só recebe
+  // (context, run) — mesmo passando um 3º argumento por engano, nada reivindica.
+  await service.syncRadarSearchRunItemsToPool({ companyId: 7, userId: 9 }, run, { skipClaim: false });
 
-  assert.equal(result.blocked, true);
-  assert.equal(run.status, 'sleeping');
-  assert.equal(run.lastBatchStatus, 'vendas_stock_limit_after_import');
+  assert.equal(markRadarDeliveredCalls, 0);
+  assert.equal(typeof service.shouldAutoImportRadarRunToVendas, 'undefined');
+  assert.equal(typeof service.autoImportRadarSearchRunToVendas, 'undefined');
 });
 
 function normalizeQueryForTest(value: string) {
@@ -5766,6 +5719,139 @@ test('listRadarLeadsForUser (vitrine): sem CnpjBaseQueryService injetado -> degr
 
   assert.equal(response.meta.baseAvailable, false);
   assert.equal(response.meta.baseTotal, null);
+});
+
+// ─── LIMPEZA-DESTRUTIVA L3 (04/07) — mata a bifurcação de papel na visibilidade/posse de card
+// do Radar. Vitrine e funil são a MESMA lagoa da empresa pra todo papel; assignedUserId vira só
+// informativo ("Responsável" = quem puxou), nunca filtro de visibilidade nem trava de claim.
+test('LIMPEZA-DESTRUTIVA L3: listRadarLeadsForUser (funil, sem vitrine) devolve o MESMO conjunto de cards pra DOIS vendedores diferentes da mesma empresa', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-mine',
+    name: 'Loja Puxada Por Mim',
+    phone: '(19) 99999-1111',
+    phoneDigits: '19999991111',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'reserved',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    companyStates: [{ status: 'reserved', assignedUserId: 101, assignedByUserId: 101, assignedAt: new Date() }],
+  });
+  leads.push({
+    id: 'lead-colega',
+    name: 'Loja Puxada Pelo Colega',
+    phone: '(19) 99999-2222',
+    phoneDigits: '19999992222',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'reserved',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    companyStates: [{ status: 'reserved', assignedUserId: 202, assignedByUserId: 202, assignedAt: new Date() }],
+  });
+  const service = new WebscrapingService(prisma);
+
+  const sellerA = { id: 101, companyId: 7, role: 'USER', masterContext: { active: false } };
+  const sellerB = { id: 202, companyId: 7, role: 'USER', masterContext: { active: false } };
+
+  const inputFunil = { city: 'Campinas', state: 'SP', segment: 'Lojas', engine: 'hbx', limit: 20 };
+  const responseA = await service.listRadarLeadsForUser(sellerA, inputFunil);
+  const responseB = await service.listRadarLeadsForUser(sellerB, inputFunil);
+
+  // Antes do L3: sellerA só via lead-mine (assignedUserId=101) e sellerB só via lead-colega.
+  // Depois do L3: os dois veem a MESMA lagoa da empresa — os 2 cards, pra ambos os papéis.
+  assert.equal(responseA.total, 2);
+  assert.equal(responseB.total, 2);
+  const namesA = responseA.items.map((item: any) => item.name).sort();
+  const namesB = responseB.items.map((item: any) => item.name).sort();
+  assert.deepEqual(namesA, ['Loja Puxada Por Mim', 'Loja Puxada Pelo Colega'].sort());
+  assert.deepEqual(namesB, namesA);
+});
+
+test('LIMPEZA-DESTRUTIVA L3: vendedor consegue ver/agir num card cujo "Responsável" (assignedUserId) é OUTRO colega — sem NotFound', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-do-colega',
+    name: 'Empresa Do Colega',
+    phone: '(19) 99999-3333',
+    phoneDigits: '19999993333',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    status: 'reserved',
+    contactedCount: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    companyStates: [{ status: 'reserved', assignedUserId: 101, assignedByUserId: 101, contactedCount: 0 }],
+    events: [],
+  });
+  const service = new WebscrapingService(prisma) as any;
+
+  const sellerB = { id: 202, companyId: 7, role: 'USER', masterContext: { active: false } };
+
+  // Antes do L3: addRadarLeadEventForUser (via assertRadarLeadVisibleForUser) e
+  // getRadarLeadForUser lançavam NotFoundException pro vendedor B, porque o card
+  // estava "assignedUserId=101" (vendedor A). Agora é lagoa única — B pode agir.
+  const result = await service.addRadarLeadEventForUser(sellerB, 'lead-do-colega', {
+    eventType: 'contacted',
+    note: 'Liguei e conversamos.',
+  });
+
+  assert.equal(result.item.name, 'Empresa Do Colega');
+
+  // getRadarLeadForUser (chamado no fim de addRadarLeadEventForUser) também não bloqueia mais.
+  const detail = await service.getRadarLeadForUser(sellerB, 'lead-do-colega');
+  assert.equal(detail.item.name, 'Empresa Do Colega');
+});
+
+test('LIMPEZA-DESTRUTIVA L3: pullRadarLeadsForUser grava assignedUserId (Responsável) pra QUALQUER papel que puxa, não só vendedor', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-pull-admin',
+    name: 'Loja Puxada Pelo Admin',
+    phone: '(19) 99999-4444',
+    phoneDigits: '19999994444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+  const capturedUpserts: any[] = [];
+  (service as any).prisma.radarLeadCompanyState.upsert = async ({ create }: any) => {
+    capturedUpserts.push(create);
+    return create;
+  };
+  // claimRadarLeadForCompany (ownership habilitado) precisa de updateMany no
+  // radarLeadPool — createCampaignPrisma não tem esse método mockado.
+  (service as any).prisma.radarLeadPool.updateMany = async () => ({ count: 1 });
+
+  // createUser() = ADMIN (role ADMIN) — antes do L3, markRadarDelivered só gravava
+  // assignedUserId quando isCompanySellerUser(user) era true, então admin puxando
+  // pra si mesmo gravava assignedUserId=null (perdia o "Responsável").
+  const response = await service.pullRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    targetType: 'pj',
+    quantity: 5,
+    minimumStock: 1,
+  }) as any;
+
+  assert.equal(response.items.length, 1);
+  assert.ok(capturedUpserts.length >= 1);
+  assert.ok(capturedUpserts.every((row) => row.assignedUserId === 9));
 });
 
 // ─── VENDAS-REFAB item 4 (04/07) — queryCnpjBaseForUser: filtro AVANÇADO do "Buscar empresas"

@@ -1,26 +1,6 @@
 import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { VendasService } from '../../../vendas/vendas.service';
-import type { SearchExecutionContext } from '../shared/radar-types';
-
-export type RadarVendasSyncHost = {
-  getPendingCount: (context: SearchExecutionContext) => Promise<number>;
-  resolveContext: (user: any) => SearchExecutionContext;
-  syncRadarSearchRunItemsToPool: (context: SearchExecutionContext, run: any) => Promise<void>;
-  buildRadarFiltersFromSearchRun: (run: any) => any;
-  isRunItemPrimaryDeliverable: (item: any, filters: any) => boolean;
-  findRadarPoolRowsForRunItems: (companyId: number, items: any[], limit: number) => Promise<any[]>;
-  normalizeRadarLeadStatus: (value: unknown) => string;
-  isRadarProtectedStatus: (value: unknown) => boolean;
-  importRadarLeadToVendasForUser: (user: any, radarLeadId: string, input?: any) => Promise<any>;
-  stopSearchRunIfVendasStockLimitReached: (run: any, reason?: string) => Promise<boolean>;
-  stopSearchRunAutoImportBlocked: (run: any, reason?: string) => Promise<boolean>;
-};
-
-function safeInteger(value: unknown, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
 
 function parseJsonObject(raw: unknown): Record<string, any> {
   if (!raw) return {};
@@ -49,33 +29,6 @@ export class RadarVendasSyncService {
     private readonly vendasService?: VendasService,
   ) {}
 
-  async getPendingCount(companyId: number) {
-    if (!this.vendasService || typeof (this.vendasService as any).getPendingVendasCardCountForCompany !== 'function') return 0;
-    return this.vendasService.getPendingVendasCardCountForCompany(companyId).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] falha ao contar cards pendentes company=${companyId}: ${String(error?.message || error)}`);
-      return 0;
-    });
-  }
-
-  async getPendingCountForSeller(companyId: number, userId: number) {
-    if (!this.vendasService || typeof (this.vendasService as any).getPendingVendasCardCountForSeller !== 'function') return 0;
-    return this.vendasService.getPendingVendasCardCountForSeller(companyId, userId).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] falha ao contar cards pendentes company=${companyId} seller=${userId}: ${String(error?.message || error)}`);
-      return 0;
-    });
-  }
-
-  getRunStockTarget(run: any) {
-    const metrics = parseJsonObject(run?.metricsJson);
-    const explicitTarget = safeInteger(
-      metrics?.vendasStockTarget
-      || metrics?.desiredStock
-      || metrics?.stockTarget
-      || metrics?.targetStock,
-    );
-    return Math.max(0, explicitTarget || safeInteger(run?.targetQuantity));
-  }
-
   getLimitPauseRetryDelayMs(reason?: string | null) {
     const normalized = String(reason || '').toLowerCase();
     if (normalized.includes('quota') || normalized.includes('card_limit') || normalized.includes('limite')) {
@@ -84,14 +37,16 @@ export class RadarVendasSyncService {
     return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_VENDAS_PAUSE_RETRY_MS', 15_000));
   }
 
+  // LIMPEZA-DESTRUTIVA L2 (04/07): o gate de estoque do Vendas (`vendas_stock_limit*`) foi
+  // deletado — a busca nunca mais pausa por estoque do funil. O que sobra aqui é a pausa
+  // por COTA COMERCIAL DA EMPRESA (`vendas_card_limit_start`/`quota`), decidida pelo Master
+  // via CommercialUsageLimitsService — único freio de quantidade que segue vivo.
   isSearchRunPausedByLimit(run: any, normalizeSearchRunStatus: (status: unknown) => string) {
     const status = normalizeSearchRunStatus(run?.status);
     if (status !== 'sleeping') return false;
     const metrics = parseJsonObject(run?.metricsJson);
     const reason = String(run?.lastBatchStatus || metrics?.radarPauseReason || metrics?.autoImportBlockedReason || '').toLowerCase();
-    return reason.includes('vendas_stock_limit')
-      || reason.includes('vendas_card_limit')
-      || reason.includes('card_limit')
+    return reason.includes('card_limit')
       || reason.includes('quota')
       || reason.includes('limit');
   }
@@ -119,123 +74,10 @@ export class RadarVendasSyncService {
       || message.includes('quota');
   }
 
-  async assertCanFeed(context: SearchExecutionContext) {
-    const pendingCount = await this.getPendingCount(context.companyId);
-    return {
-      pendingCount,
-      remaining: null,
-    };
-  }
-
-  async autoImportSearchRunToVendas(user: any, runId: string, host: RadarVendasSyncHost) {
-    if (!this.vendasService) return { ran: false, importedCount: 0, pendingCount: 0, remaining: null };
-    const context = host.resolveContext(user);
-    let pendingCount = await host.getPendingCount(context);
-    const remaining = null;
-
-    const run = await this.prisma.webscrapingSearchRun.findFirst({
-      where: {
-        id: String(runId || '').trim(),
-        companyId: context.companyId,
-      },
-      include: {
-        items: {
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    });
-    if (!run) return { ran: false, importedCount: 0, pendingCount, remaining };
-    const stockTarget = this.getRunStockTarget(run);
-    if (stockTarget > 0 && pendingCount >= stockTarget) {
-      await host.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_before_import');
-      return {
-        ran: true,
-        importedCount: 0,
-        processedCount: 0,
-        pendingCount,
-        remaining,
-        blocked: true,
-        failures: [{ reason: 'vendas_stock_limit' }],
-      };
-    }
-
-    await host.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
-      this.logger.warn(`[radar-vendas] sync antes do auto-import falhou run=${run.id}: ${String(error?.message || error)}`);
-    });
-
-    const filters = host.buildRadarFiltersFromSearchRun(run);
-    const primaryFoundItems = (run.items || []).filter((item: any) => host.isRunItemPrimaryDeliverable(item, filters));
-    if (!primaryFoundItems.length) {
-      return { ran: true, importedCount: 0, pendingCount, remaining, failures: [] };
-    }
-    const requestedQuantity = Math.max(safeInteger(run.targetQuantity), 1);
-    const candidateLookupLimit = requestedQuantity;
-    const orderedRows = await host.findRadarPoolRowsForRunItems(
-      context.companyId,
-      primaryFoundItems,
-      candidateLookupLimit,
-    );
-    const failures: Array<{ reason: string }> = [];
-    if (orderedRows.length < primaryFoundItems.length) {
-      failures.push({ reason: 'card_nao_materializado_no_pool' });
-    }
-
-    let importedCount = 0;
-    let processedCount = 0;
-    let blockedByLimit = false;
-    for (const row of orderedRows.slice(0, requestedQuantity)) {
-      pendingCount = await host.getPendingCount(context);
-      if (stockTarget > 0 && pendingCount >= stockTarget) {
-        await host.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_during_import');
-        failures.push({ reason: 'vendas_stock_limit' });
-        blockedByLimit = true;
-        break;
-      }
-      const state = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
-      const status = host.normalizeRadarLeadStatus(state?.status || row?.status);
-      if (status === 'sent_to_vendas' || host.isRadarProtectedStatus(status)) {
-        failures.push({ reason: status === 'sent_to_vendas' ? 'ja_enviado_para_vendas' : 'estado_protegido' });
-        continue;
-      }
-      try {
-        const imported = await host.importRadarLeadToVendasForUser(user, row.id, { skipWhatsappValidation: true });
-        processedCount += 1;
-        pendingCount = await host.getPendingCount(context);
-        importedCount += Math.max(0, safeInteger(imported?.import?.deliveredCount));
-      } catch (error: any) {
-        const reason = String(error?.response?.code || error?.code || 'falha_importacao_vendas');
-        failures.push({ reason });
-        this.logger.warn(`[radar-vendas] auto-import ignorou lead=${row?.id || '-'} run=${run.id}: ${String(error?.message || error)}`);
-        if (this.isAutoImportLimitError(error)) {
-          await host.stopSearchRunAutoImportBlocked(run, reason || 'vendas_card_limit');
-          blockedByLimit = true;
-          break;
-        }
-      }
-    }
-
-    if (processedCount > 0) {
-      await this.prisma.webscrapingSearchRun.update({
-        where: { id: run.id },
-        data: {
-          importedCount: { increment: processedCount },
-        },
-      }).catch(() => null);
-    }
-    const finalPendingCount = await host.getPendingCount(context);
-    if (!blockedByLimit && stockTarget > 0 && finalPendingCount >= stockTarget) {
-      await host.stopSearchRunIfVendasStockLimitReached(run, 'vendas_stock_limit_after_import');
-      failures.push({ reason: 'vendas_stock_limit' });
-      blockedByLimit = true;
-    }
-    return {
-      ran: true,
-      importedCount,
-      processedCount,
-      pendingCount: finalPendingCount,
-      remaining: null,
-      blocked: blockedByLimit,
-      failures: this.summarizeAutoImportFailures(failures),
-    };
-  }
+  // LIMPEZA-DESTRUTIVA L1 (04/07): `autoImportSearchRunToVendas` (a máquina de reivindicar
+  // o run pro funil de Vendas sozinho) foi deletada. O run só enche a vitrine via
+  // syncRadarSearchRunItemsToPool (host); o funil só recebe card por puxada manual.
+  // LIMPEZA-DESTRUTIVA L2 (04/07): `getPendingCount`/`getPendingCountForSeller`/
+  // `getRunStockTarget`/`assertCanFeed` (o gate de estoque em si) foram deletados —
+  // já não tinham mais razão de existir sem o gate que os consumia.
 }

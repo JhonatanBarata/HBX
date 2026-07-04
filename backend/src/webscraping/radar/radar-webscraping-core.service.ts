@@ -36,7 +36,7 @@ import { RadarDeliveryOrchestratorService } from './05-delivery/radar-delivery-o
 import { RadarPostDeliveryUpdateService } from './05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './05-delivery/radar-post-delivery-vendas-update.service';
 import { RadarPostDeliveryAiSaneamentoService } from './05-delivery/radar-post-delivery-ai-saneamento.service';
-import { RadarVendasSyncService, type RadarVendasSyncHost } from './05-delivery/radar-vendas-sync.service';
+import { RadarVendasSyncService } from './05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './06-presentation/radar-run-presenter.service';
 import { RadarRunRepositoryService } from './persistence/radar-run-repository.service';
@@ -609,23 +609,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       isRadarProtectedStatus: (value) => this.isRadarProtectedStatus(value),
     };
   }
-
-  private buildRadarVendasSyncHost(): RadarVendasSyncHost {
-    return {
-      getPendingCount: (context) => this.getVendasPendingCountForRadarContext(context),
-      resolveContext: (user) => this.resolveContext(user),
-      syncRadarSearchRunItemsToPool: (context, run) => this.syncRadarSearchRunItemsToPool(context, run),
-      buildRadarFiltersFromSearchRun: (run) => this.buildRadarFiltersFromSearchRun(run),
-      isRunItemPrimaryDeliverable: (item, filters) => this.isRunItemPrimaryDeliverable(item, filters),
-      findRadarPoolRowsForRunItems: (companyId, items, limit) => this.findRadarPoolRowsForRunItems(companyId, items, limit),
-      normalizeRadarLeadStatus: (value) => this.normalizeRadarLeadStatus(value),
-      isRadarProtectedStatus: (value) => this.isRadarProtectedStatus(value),
-      importRadarLeadToVendasForUser: (user, radarLeadId, input) => this.importRadarLeadToVendasForUser(user, radarLeadId, input),
-      stopSearchRunIfVendasStockLimitReached: (run, reason) => this.stopSearchRunIfVendasStockLimitReached(run, reason),
-      stopSearchRunAutoImportBlocked: (run, reason) => this.stopSearchRunAutoImportBlocked(run, reason),
-    };
-  }
-
 
 }
 

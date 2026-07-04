@@ -1868,12 +1868,9 @@ export class RadarCoreDistributionMixin {
     }).catch(() => []);
     const now = new Date();
     let updatedCount = 0;
+    // LIMPEZA-DESTRUTIVA L3: card e da EMPRESA — qualquer papel pode marcar como enviado
+    // pro Vendas, mesmo que "Responsável" (assignedUserId) seja outro colega.
     for (const row of rows || []) {
-      if (this.isCompanySellerUser(user)) {
-        const assignedToUser = (Array.isArray(row?.companyStates) ? row.companyStates : [])
-          .some((state: any) => Number(state?.assignedUserId || 0) === context.userId);
-        if (!assignedToUser) continue;
-      }
       const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
       if (this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
       try {
@@ -2216,62 +2213,9 @@ export class RadarCoreDistributionMixin {
     };
   }
 
-  // ── Bloco 6 (PR18062026046) — DESLIGADO (VENDAS-REFAB item 5, 04/07) ────────
-  // Standing order por vendedor: lê/grava em user.radarSellerStandingOrderJson.
-  // Self-serve PURO: o "Auto" NÃO dispara mais busca/reabastecimento nem afeta
-  // `shouldAutoImportRadarRunToVendas` (sempre false pra vendedor agora, ver
-  // radar-core-delivery.mixin.ts). GET/PUT seguem respondendo só pra não quebrar
-  // o front atual (botão "Automático") enquanto o Worker B remove a tela; toggle
-  // aqui é inerte — salva a preferência, mas não alimenta o Vendas sozinho.
-
-  async getRadarSellerStandingOrder(user: any) {
-    const context = this.resolveContext(user);
-    const row = await this.prisma.user.findUnique({
-      where: { id: context.userId },
-      select: { radarSellerStandingOrderJson: true },
-    }).catch(() => null);
-    const order = this.parseSellerStandingOrder(row?.radarSellerStandingOrderJson);
-    return { ok: true, standingOrder: order };
-  }
-
-  async saveRadarSellerStandingOrder(user: any, input: any) {
-    const context = this.resolveContext(user);
-    const existing = await this.prisma.user.findUnique({
-      where: { id: context.userId },
-      select: { radarSellerStandingOrderJson: true },
-    }).catch(() => null);
-    const current = this.parseSellerStandingOrder(existing?.radarSellerStandingOrderJson);
-    const next = {
-      active: typeof input.active === 'boolean' ? input.active : current.active,
-      city: input.city !== undefined ? String(input.city || '').trim() : current.city,
-      state: input.state !== undefined ? String(input.state || '').trim() : current.state,
-      segment: input.segment !== undefined ? String(input.segment || '').trim() : current.segment,
-      alcance: input.alcance !== undefined ? String(input.alcance || '').trim() : current.alcance,
-      quantos: input.quantos !== undefined ? Math.max(1, Math.min(20, Number(input.quantos || 5) || 5)) : current.quantos,
-    };
-    await this.prisma.user.update({
-      where: { id: context.userId },
-      data: { radarSellerStandingOrderJson: JSON.stringify(next) },
-    });
-    // VENDAS-REFAB item 5: NÃO dispara mais ciclo de reabastecimento automático
-    // (triggerSellerStandingOrderPump removido) — self-serve puro, o vendedor
-    // sempre puxa na mão.
-    return { ok: true, standingOrder: next };
-  }
-
-  private parseSellerStandingOrder(json?: string | null) {
-    try {
-      const parsed = JSON.parse(json || '{}');
-      return {
-        active: Boolean(parsed?.active),
-        city: String(parsed?.city || '').trim(),
-        state: String(parsed?.state || '').trim(),
-        segment: String(parsed?.segment || '').trim(),
-        alcance: String(parsed?.alcance || '').trim(),
-        quantos: Math.max(1, Math.min(20, Number(parsed?.quantos || 5) || 5)),
-      };
-    } catch {
-      return { active: false, city: '', state: '', segment: '', alcance: '', quantos: 5 };
-    }
-  }
+  // ── Standing order do vendedor: REMOVIDO (LIMPEZA-DESTRUTIVA L4, 04/07) ─────
+  // Era self-serve inerte (pump já morto desde o VENDAS-REFAB item 5) — sem
+  // endpoint, sem leitura/escrita de radarSellerStandingOrderJson. No modelo
+  // atual, admin distribui CRÉDITO (camada CREDITOS), não busca automática por
+  // vendedor. Coluna radarSellerStandingOrderJson no schema fica órfã (histórico).
 }

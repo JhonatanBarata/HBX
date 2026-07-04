@@ -340,7 +340,7 @@ export class RadarCoreDeliveryMixin {
     return this.getRadarVendasSyncService().summarizeAutoImportFailures(failures);
   }
 
-  private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any, options?: { skipClaim?: boolean }) {
+  private async syncRadarSearchRunItemsToPool(context: SearchExecutionContext, run: any) {
     if (!(await this.supportsRadarPersistence())) return;
     const normalized = await this.applyTeamPolicyRadarFilters(context, this.normalizeSearchInput({
       city: String(run?.city || ''),
@@ -407,86 +407,18 @@ export class RadarCoreDeliveryMixin {
       }
     }
 
-    // Com "Auto" (standing order) OFF no caminho do vendedor, NÃO reservamos os cards
-    // pra empresa: reservar seta ownerCompanyId e a vitrine ("Disponíveis") só lista
-    // cards SEM dono. Persistimos no pool (rows existem, ownerCompanyId=null) e deixamos
-    // o vendedor puxar manualmente. Auto ON / admin / fábrica seguem reservando (comportamento atual).
-    if (options?.skipClaim) return;
-    const rowsInRun = await this.findRadarPoolRowsForRunItems(
-      context.companyId,
-      foundItems,
-      Math.max(safeInteger(run?.targetQuantity) * 2, 100),
-    );
-    const maxToClaim = Math.max(0, safeInteger(run?.targetQuantity));
-    await this.markRadarDelivered(context.companyId, context.userId, rowsInRun.slice(0, maxToClaim)).catch((error: any) => {
-      this.logger.warn(`[radar-run] falha ao reservar cards do run=${run?.id || '-'}: ${String(error?.message || error)}`);
-    });
+    // LIMPEZA-DESTRUTIVA L1 (04/07): o run NUNCA reivindica pro funil, pra NENHUM papel
+    // (inclusive USERMASTER/admin/master). Este método só enche a vitrine (pool com
+    // ownerCompanyId=null) — o funil só recebe card por PUXADA MANUAL
+    // (send-to-vendas / mark-sent-to-vendas). Ver docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md.
   }
 
-  private async getRadarSellerQuotaForContext(companyIdRaw: number, userIdRaw?: number | null) {
-    const companyId = safeInteger(companyIdRaw);
-    const userId = safeInteger(userIdRaw);
-    if (!this.commercialUsageLimits || !companyId || !userId) return null;
-    return this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(companyId, userId).catch(() => null);
-  }
-
-  // Resolve papel diretamente no banco (role='USER', sem isSystemMaster) SEM depender
-  // do CommercialUsageLimitsService estar injetado — usado como fallback quando o
-  // caminho só tem companyId/userId crus (sem o objeto `user` da sessão), pra nunca
-  // deixar admin cair no gate de estoque por falta de serviço opcional.
-  private async isRadarSellerUserId(companyId: number, userId: number): Promise<boolean> {
-    if (!companyId || !userId) return false;
-    const userDelegate = (this.prisma as any)?.user;
-    if (!userDelegate?.findFirst) return false;
-    const user = await userDelegate.findFirst({
-      where: { id: userId, companyId },
-      select: { role: true, isSystemMaster: true },
-    }).catch(() => null);
-    if (!user) return false;
-    const role = String(user.role || '').trim().toUpperCase();
-    return role === 'USER' && !user.isSystemMaster;
-  }
-
-  /**
-   * ÁRVORE (docs/PLANEJAMENTOS/VENDAS-REFAB/PLANO.md): Master decide a cota da
-   * EMPRESA; Admin NUNCA é capado por regra de vendedor. O gate de "estoque pendente
-   * em Vendas vs quanto puxar" existe só pra proteger o VENDEDOR de acumular cards
-   * demais na carteira dele — não é (e nunca deveria ter sido) trava da empresa.
-   * Se o contexto NÃO é vendedor confirmado (admin/master/import automático/sistema),
-   * este método devolve 0 incondicionalmente: o gate nunca pausa a busca do admin.
-   * O único teto real do admin é a cota comercial da empresa (CommercialUsageLimitsService,
-   * decidida pelo Master) — que continua sendo verificada em outro ponto do fluxo.
-   */
-  private async getVendasPendingCountForRadarContext(contextOrCompanyId: SearchExecutionContext | number, userIdRaw?: number | null) {
-    const context = typeof contextOrCompanyId === 'object' && contextOrCompanyId
-      ? contextOrCompanyId
-      : null;
-    const companyId = context ? safeInteger(context.companyId) : safeInteger(contextOrCompanyId);
-    const userId = context ? safeInteger(context.userId) : safeInteger(userIdRaw);
-    if (!companyId) return 0;
-
-    // Fonte primária: objeto `user` da sessão já presente no contexto (sem round-trip
-    // extra no banco). Cobre o caminho quente (startRadarSearchRunForUser etc).
-    if (context?.user) {
-      if (!this.isCompanySellerUser(context.user)) return 0;
-      return this.getRadarVendasSyncService().getPendingCountForSeller(companyId, userId);
-    }
-
-    // Caminhos que só têm companyId/userId (run pausado, resposta assíncrona): resolve
-    // "é vendedor?" via CommercialUsageLimitsService quando disponível; senão, fallback
-    // direto no banco. Em QUALQUER caso de dúvida (sellerQuota null e sem userId), trata
-    // como NÃO-vendedor — nunca o contrário — pra jamais travar admin por omissão.
-    const sellerQuota = await this.getRadarSellerQuotaForContext(companyId, userId);
-    const isSeller = sellerQuota
-      ? Boolean(sellerQuota.seller)
-      : await this.isRadarSellerUserId(companyId, userId);
-    if (!isSeller) return 0;
-    return this.getRadarVendasSyncService().getPendingCountForSeller(companyId, userId);
-  }
-
-  private getRadarRunVendasStockTarget(run: any) {
-    return this.getRadarVendasSyncService().getRunStockTarget(run);
-  }
+  // LIMPEZA-DESTRUTIVA L2 (04/07, docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md):
+  // `getRadarSellerQuotaForContext`/`isRadarSellerUserId`/`getVendasPendingCountForRadarContext`/
+  // `getRadarRunVendasStockTarget` (o gate de estoque do Vendas) foram deletados — a busca
+  // nunca mais pausa/para em função de quantos cards estão pendentes no funil. O único freio
+  // de quantidade que sobra é a cota comercial da EMPRESA (CommercialUsageLimitsService,
+  // decidida pelo Master) — verificada em startRadarSearchRunForUser via quotaBlocked.
 
   private getRadarLimitPauseRetryDelayMs(reason?: string | null) {
     return this.getRadarVendasSyncService().getLimitPauseRetryDelayMs(reason);
@@ -518,11 +450,8 @@ export class RadarCoreDeliveryMixin {
     const companyId = safeInteger(run?.companyId);
     const userId = safeInteger(run?.userId);
     if (!companyId || !userId) return false;
-    const target = this.getRadarRunVendasStockTarget(run);
-    if (target > 0) {
-      const pendingCount = await this.getVendasPendingCountForRadarContext(companyId, userId);
-      if (pendingCount >= target) return false;
-    }
+    // LIMPEZA-DESTRUTIVA L2: o gate de estoque do Vendas saiu daqui — só a cota
+    // comercial da EMPRESA decide se o run pausado pode retomar.
     const quotaRemaining = await this.getRadarCardQuotaRemaining(companyId, userId);
     return !Number.isFinite(quotaRemaining) || quotaRemaining > 0;
   }
@@ -593,91 +522,15 @@ export class RadarCoreDeliveryMixin {
     }
   }
 
-  private async pauseSearchRunForLimit(run: any, reason: string, message: string) {
-    const runId = String(run?.id || '').trim();
-    if (!runId) return false;
-    const nextRetryAt = new Date(Date.now() + this.getRadarLimitPauseRetryDelayMs(reason));
-    await this.updateSearchRunMetrics(runId, {
-      radarPauseReason: reason,
-      radarPausedAt: new Date().toISOString(),
-      radarPauseRetryAt: nextRetryAt.toISOString(),
-      status: 'sleeping',
-    }).catch(() => null);
-    await this.prisma.webscrapingSearchRun.update({
-      where: { id: runId },
-      data: {
-        status: 'sleeping',
-        lastBatchStatus: reason,
-        errorMessage: message,
-        nextRetryAt,
-        assignedEngineId: null,
-        assignedEngineUrl: null,
-        assignedEngineIndex: null,
-        finishedAt: null,
-      },
-    }).catch(() => null);
-    this.scheduleSearchRunPump(nextRetryAt.getTime() - Date.now());
-    return true;
-  }
-
-  private async stopSearchRunIfVendasStockLimitReached(run: any, reason = 'vendas_stock_limit') {
-    const runId = String(run?.id || '').trim();
-    const companyId = safeInteger(run?.companyId);
-    if (!runId || !companyId) return false;
-    const userId = safeInteger(run?.userId);
-    const target = this.getRadarRunVendasStockTarget(run);
-    if (target <= 0) return false;
-    const pendingCount = await this.getVendasPendingCountForRadarContext(companyId, userId);
-    if (pendingCount < target) return false;
-    return this.pauseSearchRunForLimit(run, reason, `Radar pausado. Vendas ja esta com ${pendingCount} de ${target} card(s). Vou retomar esta mesma pesquisa quando houver espaco.`);
-  }
-
+  // LIMPEZA-DESTRUTIVA L2 (04/07): `pauseSearchRunForLimit`, `stopSearchRunIfVendasStockLimitReached`
+  // (o gate de estoque em si) e `stopSearchRunAutoImportBlocked` (órfão desde o L1 — 0
+  // call-sites, dependia deste mesmo helper) foram deletados. `assertRadarCanFeedVendas`
+  // também saiu: só existia pra alimentar o gate de estoque. Run nunca mais para/pausa por
+  // causa do funil de Vendas; a única pausa de quantidade que sobrevive é a cota comercial
+  // da empresa, tratada em startRadarSearchRunForUser (quotaBlocked) e no backoff normal de
+  // motor (restSearchRunIfEligible, em radar-core-search-runner.mixin.ts).
   private isRadarAutoImportLimitError(error: any) {
     return this.getRadarVendasSyncService().isAutoImportLimitError(error);
-  }
-
-  private async stopSearchRunAutoImportBlocked(run: any, reason = 'vendas_card_limit') {
-    const runId = String(run?.id || '').trim();
-    if (!runId) return false;
-    const message = 'Radar pausado pelo limite de cards. Vou retomar esta mesma pesquisa quando houver cota ou espaco.';
-    await this.updateSearchRunMetrics(runId, {
-      autoImportBlocked: true,
-      autoImportBlockedReason: reason,
-      autoImportBlockedAt: new Date().toISOString(),
-      radarPauseReason: reason,
-      radarPausedAt: new Date().toISOString(),
-      status: 'sleeping',
-    }).catch(() => null);
-    return this.pauseSearchRunForLimit(run, reason, message);
-  }
-
-  private async assertRadarCanFeedVendas(context: SearchExecutionContext) {
-    const pendingCount = await this.getVendasPendingCountForRadarContext(context);
-    return {
-      pendingCount,
-      remaining: null,
-    };
-  }
-
-  private async autoImportRadarSearchRunToVendas(user: any, runId: string) {
-    return this.getRadarVendasSyncService().autoImportSearchRunToVendas(
-      user,
-      runId,
-      this.buildRadarVendasSyncHost(),
-    );
-  }
-
-  /**
-   * Gate do auto-import Radar→Vendas para o caminho do VENDEDOR.
-   * VENDAS-REFAB item 5 (04/07, ordem do dono): self-serve PURO — o vendedor
-   * SEMPRE filtra e PUXA na mão ("Puxar"/"Puxar selecionados"). O standing
-   * order (botão "Auto") foi desligado: os leads de vendedor ficam sempre
-   * reservados na vitrine "Disponíveis" (skipClaim), nunca caem sozinhos na
-   * carteira. Não-vendedor (admin / import-as-admin / Night Factory) mantém
-   * o comportamento atual (sempre importa) — fora do escopo desta remoção.
-   */
-  private async shouldAutoImportRadarRunToVendas(user: any): Promise<boolean> {
-    return !this.isCompanySellerUser(user);
   }
 
   private async buildPausedRadarSearchRunResponse(run: any) {
@@ -688,13 +541,11 @@ export class RadarCoreDeliveryMixin {
     } as SearchExecutionContext, this.buildRadarFiltersFromSearchRun(run));
     const metrics = parseJsonObject(run?.metricsJson);
     const requestedQuantity = Math.max(1, safeInteger(run?.targetQuantity));
-    const stockTarget = this.getRadarRunVendasStockTarget(run);
-    const pendingCount = stockTarget > 0
-      ? await this.getVendasPendingCountForRadarContext(safeInteger(run?.companyId), safeInteger(run?.userId))
-      : null;
-    const deliveredCount = pendingCount == null
-      ? safeInteger(run?.importedCount)
-      : safeInteger(pendingCount);
+    // LIMPEZA-DESTRUTIVA L2: sem gate de estoque, a única pausa que chega aqui é a
+    // cota comercial da empresa — não há mais "estoque pendente" pra reportar.
+    const pendingCount: number | null = null;
+    const stockTarget = 0;
+    const deliveredCount = safeInteger(run?.importedCount);
     const message = String(run?.errorMessage || '').trim()
       || 'Radar pausado. Vou retomar esta mesma pesquisa quando houver espaco.';
     const pauseDiagnostics = await this.buildRadarPauseDiagnostics(run, {
@@ -795,11 +646,11 @@ export class RadarCoreDeliveryMixin {
     const dailyUsed = intOrNull(cards.dailyUsed);
     const dailyRemaining = intOrNull(cards.dailyRemaining);
     const monthlyRemaining = intOrNull(cards.monthlyRemaining ?? cards.remaining);
-    const currentStock = input.pendingCount == null
-      ? intOrNull(input.metrics?.vendasStockBefore)
-      : Math.max(0, safeInteger(input.pendingCount));
-    const stockTarget = Math.max(0, safeInteger(input.stockTarget || input.metrics?.vendasStockTarget || input.requestedQuantity));
-    const stockRemaining = currentStock == null || stockTarget <= 0 ? null : Math.max(0, stockTarget - currentStock);
+    // LIMPEZA-DESTRUTIVA L2: sem gate de estoque do funil — currentStock/stockTarget
+    // não existem mais como conceito (a pausa que sobra é cota/seller, não estoque).
+    const currentStock: number | null = null;
+    const stockTarget = 0;
+    const stockRemaining: number | null = null;
     const sellerActiveCount = intOrNull((sellerQuota as any)?.activeCount);
     const sellerCapacity = intOrNull((sellerQuota as any)?.effectiveLimit);
     const sellerAvailableSlots = intOrNull((sellerQuota as any)?.availableSlots);
@@ -810,8 +661,6 @@ export class RadarCoreDeliveryMixin {
     const sellerStockFull = code === 'SELLER_CARD_QUOTA_REACHED'
       || (sellerCapacity != null && sellerActiveCount != null && sellerCapacity > 0 && sellerActiveCount >= sellerCapacity)
       || (sellerAvailableSlots != null && sellerAvailableSlots <= 0 && Boolean((sellerQuota as any)?.seller));
-    const vendasStockFull = lowerReason.includes('vendas_stock')
-      || (currentStock != null && stockTarget > 0 && currentStock >= stockTarget);
     const commercialQuotaReached = !dailyLimitReached && monthlyRemaining != null && monthlyRemaining <= 0;
     const permissionBlocked = /permission|permiss|unauthor|forbidden|sem_regra|sem regra|distribu/i.test(`${reason} ${input.message}`);
     const kind = sellerPaused
@@ -822,19 +671,16 @@ export class RadarCoreDeliveryMixin {
           ? 'daily_limit'
           : commercialQuotaReached
             ? 'commercial_quota'
-            : vendasStockFull
-              ? 'vendas_stock_full'
-              : permissionBlocked
-                ? 'permission_or_distribution'
-                : /quota|limite|limit|cota/i.test(`${lowerReason} ${lowerMessage}`)
-                  ? 'card_limit'
-                  : 'operational_pause';
+            : permissionBlocked
+              ? 'permission_or_distribution'
+              : /quota|limite|limit|cota/i.test(`${lowerReason} ${lowerMessage}`)
+                ? 'card_limit'
+                : 'operational_pause';
     const titleByKind: Record<string, string> = {
       seller_paused: 'Distribuição pausada para este vendedor',
       seller_stock_full: 'Limite de cards ativos do vendedor atingido',
       daily_limit: 'Limite diário de cards atingido',
       commercial_quota: 'Cota comercial de cards atingida',
-      vendas_stock_full: 'Vendas já está com estoque suficiente',
       permission_or_distribution: 'Distribuição ou permissão pendente',
       card_limit: 'Limite de cards atingido',
       operational_pause: 'Radar pausado aguardando retomada',
@@ -844,7 +690,6 @@ export class RadarCoreDeliveryMixin {
       seller_stock_full: 'Finalize, transfira ou descarte cards em Vendas para abrir espaço.',
       daily_limit: 'Aguarde o reset diário para receber novos cards.',
       commercial_quota: 'Peça ao responsável para revisar a cota comercial.',
-      vendas_stock_full: 'Trabalhe os cards em Vendas; o Radar retoma quando houver espaço.',
       permission_or_distribution: 'Peça ao responsável para revisar regras de distribuição e permissão.',
       card_limit: 'Libere espaço ou aguarde a cota retornar.',
       operational_pause: 'Acompanhe a retomada automática ou pare o Radar para editar filtros.',
@@ -924,15 +769,16 @@ export class RadarCoreDeliveryMixin {
     };
   }
 
+  // `options.skipAutoImport` virou no-op pela LIMPEZA-DESTRUTIVA L1: o run nunca importa
+  // pro funil de qualquer forma. Assinatura preservada só pra não mexer nos call-sites.
   private async buildRadarSearchRunResponse(user: any, runId: string, options?: { skipAutoImport?: boolean }) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
+    // LIMPEZA-DESTRUTIVA L3: run de busca e da EMPRESA — sem escopo por vendedor.
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...sellerScope,
       },
       include: {
         items: {
@@ -942,16 +788,14 @@ export class RadarCoreDeliveryMixin {
     });
     if (!run) throw new NotFoundException('Pesquisa do Radar nao encontrada.');
 
-    // Vendedor com "Auto" OFF: persiste no pool mas NÃO reserva (cards ficam sem dono
-    // pra aparecer na vitrine "Disponíveis"). Auto ON / admin reservam normalmente.
-    const skipClaimForVitrine = !(await this.shouldAutoImportRadarRunToVendas(user));
+    // LIMPEZA-DESTRUTIVA L1: sync só enche a vitrine, pra TODO papel — nunca reivindica.
     if (this.normalizeSearchRunStatus(run.status) !== 'canceled' && !this.isSearchRunPausedByLimit(run)) {
-      await this.syncRadarSearchRunItemsToPool(context, run, { skipClaim: skipClaimForVitrine }).catch((error: any) => {
+      await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
         this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
       });
     }
     const freshRun = await this.prisma.webscrapingSearchRun.findFirst({
-      where: { id: run.id, companyId: context.companyId, ...sellerScope },
+      where: { id: run.id, companyId: context.companyId },
       include: {
         items: {
           orderBy: { createdAt: 'asc' },
@@ -966,17 +810,9 @@ export class RadarCoreDeliveryMixin {
       }
       return this.buildRadarSearchRunResponse(user, runId, options);
     }
-    const stockTarget = this.getRadarRunVendasStockTarget(effectiveRun);
-    const pendingCount = stockTarget > 0
-      ? await this.getVendasPendingCountForRadarContext(context)
-      : 0;
-    const hasFoundRunItemsBeforeStockGate = (effectiveRun.items || []).some((item: any) => String(item?.status || '') === 'found');
-    const hasImportedRunItemsBeforeStockGate = safeInteger(effectiveRun.importedCount) > 0 || safeInteger(effectiveRun.foundCount) > 0;
-    if (stockTarget > 0 && pendingCount >= stockTarget && !hasFoundRunItemsBeforeStockGate && !hasImportedRunItemsBeforeStockGate) {
-      await this.stopSearchRunIfVendasStockLimitReached(effectiveRun, 'vendas_stock_limit_response');
-      const paused = await this.prisma.webscrapingSearchRun.findUnique({ where: { id: effectiveRun.id } }).catch(() => null);
-      return this.buildPausedRadarSearchRunResponse(paused || effectiveRun);
-    }
+    // LIMPEZA-DESTRUTIVA L2 (04/07): não há mais recheck de estoque do funil aqui — a
+    // única pausa possível vem do quotaBlocked tratado em startRadarSearchRunForUser
+    // (já refletido no status/lastBatchStatus do run persistido).
     const metrics = parseJsonObject(effectiveRun.metricsJson);
     const filters = await this.applyTeamPolicyRadarFilters(context, this.buildRadarFiltersFromSearchRun(effectiveRun));
     const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
@@ -992,149 +828,16 @@ export class RadarCoreDeliveryMixin {
     );
     const status = this.normalizeSearchRunStatus(effectiveRun.status);
     const terminal = this.isTerminalRadarSearchRunStatus(status);
-    const autoImportProcessedCount = safeInteger(effectiveRun.importedCount);
-    const hasAutoImportPendingCards = primaryFoundItems.length > 0 && primaryFoundItems.length > autoImportProcessedCount;
-    const lastBatchStatus = String((effectiveRun as any)?.lastBatchStatus || '').toLowerCase();
-    const pausedByLimit = status === 'sleeping' && this.isSearchRunPausedByLimit(effectiveRun);
-    const autoImportBlocked = !pausedByLimit && (Boolean(metrics?.autoImportBlocked)
-      || status === 'completed_insufficient_results'
-      || lastBatchStatus.includes('limit')
-      || lastBatchStatus === 'radar_rest_disabled');
-    if (autoImportBlocked && hasAutoImportPendingCards) {
-      const message = String(effectiveRun.errorMessage || 'Radar parado. A pesquisa antiga nao sera retomada automaticamente.');
-      return {
-        id: effectiveRun.id,
-        runId: effectiveRun.id,
-        status,
-        items: [],
-        total: 0,
-        code: 'RADAR_SEARCH_COMPLETED',
-        message,
-        retryable: false,
-        targetQuantity: requestedQuantity,
-        foundCount: safeInteger(effectiveRun.foundCount),
-        errorMessage: message,
-        meta: {
-          requestedQuantity,
-          deliveredCount: 0,
-          databaseCount: 0,
-          fetchedCount: 0,
-          requiredChannels: filters.requiredChannels,
-          channelMatchMode: filters.channelMatchMode,
-          requiredChannelRejectedCount: 0,
-          progress: 100,
-          terminal: true,
-          operationalState: 'parado' as RadarOperationalState,
-          operationalReason: lastBatchStatus || 'auto_import_blocked',
-          operationalMessage: message,
-          expansionSuggestion: this.buildRadarRunExpansionSuggestion(
-            filters,
-            primaryFoundItems.length,
-            requestedQuantity,
-            'parado',
-            status,
-          ),
-          status,
-          runId: effectiveRun.id,
-          nextRetryAt: null,
-          attemptCount: safeInteger(effectiveRun.attemptCount),
-          autoImport: {
-            ran: false,
-            importedCount: safeInteger(effectiveRun.importedCount),
-            pendingCount: null,
-            remaining: null,
-            blocked: true,
-            failures: [{ reason: lastBatchStatus || 'auto_import_blocked' }],
-          },
-          filters: {
-            state: filters.state,
-            city: filters.city,
-            segment: filters.segment,
-            radiusKm: filters.radiusKm,
-            regionalCities: filters.regionalCities.map((item) => ({
-              city: item.city,
-              state: item.state,
-              distanceKm: item.distanceKm,
-            })),
-            selectedSegments: this.splitHbxBatchSegments(filters.segment),
-          },
-        },
-      };
-    }
-    const autoImportAllowedByStandingOrder = (!autoImportBlocked && !options?.skipAutoImport && hasAutoImportPendingCards)
-      ? await this.shouldAutoImportRadarRunToVendas(user)
-      : false;
-    const autoImport = autoImportAllowedByStandingOrder
-      ? await this.autoImportRadarSearchRunToVendas(user, effectiveRun.id).catch((error: any) => {
-          this.logger.warn(`[radar-vendas] auto-import ignorado run=${effectiveRun.id}: ${String(error?.message || error)}`);
-          return null;
-        })
-      : null;
-    if (autoImport?.blocked) {
-      const pausedRun = await this.prisma.webscrapingSearchRun.findUnique({ where: { id: effectiveRun.id } }).catch(() => null);
-      if (pausedRun && this.isSearchRunPausedByLimit(pausedRun)) {
-        return this.buildPausedRadarSearchRunResponse(pausedRun);
-      }
-      const message = 'Radar parado pelo limite de cards. Nada sera entregue depois automaticamente.';
-      return {
-        id: effectiveRun.id,
-        runId: effectiveRun.id,
-        status: 'completed_insufficient_results',
-        items: [],
-        total: 0,
-        code: 'RADAR_SEARCH_COMPLETED',
-        message,
-        retryable: false,
-        targetQuantity: requestedQuantity,
-        foundCount: safeInteger(effectiveRun.foundCount),
-        errorMessage: message,
-        meta: {
-          requestedQuantity,
-          deliveredCount: 0,
-          databaseCount: 0,
-          fetchedCount: 0,
-          requiredChannels: filters.requiredChannels,
-          channelMatchMode: filters.channelMatchMode,
-          requiredChannelRejectedCount: 0,
-          progress: 100,
-          terminal: true,
-          operationalState: 'parado' as RadarOperationalState,
-          operationalReason: 'auto_import_blocked',
-          operationalMessage: message,
-          expansionSuggestion: this.buildRadarRunExpansionSuggestion(
-            filters,
-            primaryFoundItems.length,
-            requestedQuantity,
-            'parado',
-            'completed_insufficient_results',
-          ),
-          status: 'completed_insufficient_results',
-          runId: effectiveRun.id,
-          nextRetryAt: null,
-          attemptCount: safeInteger(effectiveRun.attemptCount),
-          autoImport,
-          filters: {
-            state: filters.state,
-            city: filters.city,
-            segment: filters.segment,
-            radiusKm: filters.radiusKm,
-            regionalCities: filters.regionalCities.map((item) => ({
-              city: item.city,
-              state: item.state,
-              distanceKm: item.distanceKm,
-            })),
-            selectedSegments: this.splitHbxBatchSegments(filters.segment),
-          },
-        },
-      };
-    }
-    if (autoImport?.processedCount || autoImport?.importedCount) {
-      orderedRows = await this.findRadarPoolRowsForRunItems(
-        context.companyId,
-        primaryFoundItems,
-        candidateLookupLimit,
-      );
-    }
+    // LIMPEZA-DESTRUTIVA L1 (04/07): o run NUNCA importa/reivindica pro funil de Vendas,
+    // pra NENHUM papel. `autoImport` fica sempre "ran: false" — só informativo pro front
+    // (contrato preservado). A vitrine já foi enchida acima por syncRadarSearchRunItemsToPool.
+    const autoImport: { ran: boolean; importedCount: number; pendingCount: null; remaining: null; failures: any[] } = {
+      ran: false,
+      importedCount: safeInteger(effectiveRun.importedCount),
+      pendingCount: null,
+      remaining: null,
+      failures: [],
+    };
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields }));
     const seenPhones = new Set(
@@ -1364,17 +1067,16 @@ export class RadarCoreDeliveryMixin {
       return this.buildRadarSearchRunResponse(user, matchingRun.id);
     }
 
-    const vendasGate = await this.assertRadarCanFeedVendas(context);
-    const vendasStockTarget = Math.max(1, safeInteger(filters.stockOverride ? filters.desiredStock : filters.quantity));
-    if (safeInteger(vendasGate.pendingCount) >= vendasStockTarget || quotaBlocked) {
+    // LIMPEZA-DESTRUTIVA L2 (04/07): o gate de estoque do Vendas (vendasGate/vendasStockTarget)
+    // foi deletado. A busca só pausa no START pela cota comercial da EMPRESA (quotaBlocked,
+    // decidida pelo Master) — nunca mais por quantidade de cards pendentes no funil.
+    if (quotaBlocked) {
       const now = new Date();
-      const pauseReason = quotaBlocked ? 'vendas_card_limit_start' : 'vendas_stock_limit_start';
-      const pauseMessage = quotaBlocked
-        ? quotaBlockedMessage
-          || (quotaDailyLimit != null && quotaDailyRemaining === 0
-            ? `Limite diário de cards atingido. ${quotaDailyUsed ?? quotaDailyLimit} de ${quotaDailyLimit} usado(s) hoje. O Radar retoma no reset diário.`
-            : 'Radar pausado. Limite de cards atingido; vou retomar esta mesma pesquisa quando houver cota.')
-        : `Radar pausado. Vendas ja esta com ${safeInteger(vendasGate.pendingCount)} de ${vendasStockTarget} card(s). Vou retomar esta mesma pesquisa quando houver espaco.`;
+      const pauseReason = 'vendas_card_limit_start';
+      const pauseMessage = quotaBlockedMessage
+        || (quotaDailyLimit != null && quotaDailyRemaining === 0
+          ? `Limite diário de cards atingido. ${quotaDailyUsed ?? quotaDailyLimit} de ${quotaDailyLimit} usado(s) hoje. O Radar retoma no reset diário.`
+          : 'Radar pausado. Limite de cards atingido; vou retomar esta mesma pesquisa quando houver cota.');
       const retryAt = new Date(Date.now() + this.getRadarLimitPauseRetryDelayMs(pauseReason));
       const run = await this.prisma.webscrapingSearchRun.create({
         data: {
@@ -1394,8 +1096,6 @@ export class RadarCoreDeliveryMixin {
           nextRetryAt: retryAt,
           metricsJson: JSON.stringify({
             activeSearchSignature: this.buildRadarActiveSearchSignature(filters),
-            vendasStockTarget,
-            vendasStockBefore: safeInteger(vendasGate.pendingCount),
             desiredStock: filters.desiredStock,
             minimumStock: filters.minimumStock,
             quotaRemaining,
@@ -1469,54 +1169,31 @@ export class RadarCoreDeliveryMixin {
       });
       relaxedStockLookup = stockRows.length > 0;
     }
-    let immediateRows = stockRows.slice(0, filters.quantity);
-    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
-    if (filters.whatsappCheckMode === 'only_valid' && immediateRows.length) {
-      const whatsappPrecheck = await this.applyRadarWhatsappCheck(
-        context,
-        immediateRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
-        'only_valid',
-      );
-      const confirmedIds = new Set(whatsappPrecheck.items.map((item: any) => String(item?.id || '')).filter(Boolean));
-      immediateRows = immediateRows.filter((row) => confirmedIds.has(String(row?.id || '')));
-    }
-    let claimedRows = immediateRows;
-    if (immediateRows.length) {
-      const assignToUserId = this.isCompanySellerUser(user) ? context.userId : null;
-      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, immediateRows, {
-        assignedUserId: assignToUserId,
-        assignedByUserId: assignToUserId ? context.userId : null,
-      }).catch((error: any) => {
-        this.logger.warn(`[radar-run] falha ao reservar estoque inicial company=${context.companyId}: ${String(error?.message || error)}`);
-        return immediateRows;
-      });
-      if (!claimedRows.length) claimedRows = immediateRows;
-    }
-
-    const now = new Date();
-    const completedFromDatabase = claimedRows.length >= filters.quantity;
+    // LIMPEZA-DESTRUTIVA L1 (04/07): o START da busca NUNCA reivindica estoque pro funil,
+    // pra NENHUM papel (inclusive USERMASTER/admin/master). O estoque existente já está
+    // consultável na VITRINE (queryRadarRowsForCompany availableOnly=true, ownerCompanyId=null);
+    // o usuário puxa na mão (pullRadarLeadsForUser / send-to-vendas). A busca só enfileira o run
+    // e o motor trabalha pra completar/enriquecer a vitrine — não há mais "entrega imediata do banco"
+    // nem markRadarDelivered aqui. Ver docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md.
+    const availableStockCount = stockRows.length;
     const run = await this.prisma.webscrapingSearchRun.create({
       data: {
         companyId: context.companyId,
         userId: context.userId,
-        status: completedFromDatabase ? 'completed' : 'queued',
+        status: 'queued',
         city: normalized.city,
         state: normalized.state || null,
         segment: normalized.segment,
         engine: 'hbx',
         targetType: normalized.targetType,
         targetQuantity: normalized.quantity,
-        startedAt: claimedRows.length ? now : null,
-        finishedAt: completedFromDatabase ? now : null,
-        errorMessage: completedFromDatabase
-          ? 'Entregue do banco Radar. O motor de busca nao foi acionado.'
-          : claimedRows.length
-            ? `Entreguei ${claimedRows.length} card(s) do banco. Radar trabalhando para completar a pesquisa.`
-            : 'Sem cards prontos no banco. Busca enviada para a fila do Radar.',
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: availableStockCount > 0
+          ? `${availableStockCount} card(s) ja disponivel(is) na vitrine para puxar. Radar tambem trabalhando para trazer mais.`
+          : 'Sem cards prontos na vitrine. Busca enviada para a fila do Radar.',
         metricsJson: JSON.stringify({
           activeSearchSignature: this.buildRadarActiveSearchSignature(filters),
-          vendasStockTarget,
-          vendasStockBefore: safeInteger(vendasGate.pendingCount),
           desiredStock: filters.desiredStock,
           minimumStock: filters.minimumStock,
           radiusKm: filters.radiusKm,
@@ -1561,27 +1238,10 @@ export class RadarCoreDeliveryMixin {
     });
     this.radarWhatsappCheckModeByRunId.set(run.id, filters.whatsappCheckMode);
 
-    if (claimedRows.length) {
-      const savedCounts = await this.saveSearchRunResults(
-        context,
-        normalized,
-        run.id,
-        this.restoreRadarPoolResults(claimedRows).slice(0, filters.quantity),
-        'radar_database',
-      );
-      await this.recalculateSearchRunCounters(run.id);
-      await this.updateSearchRunMetrics(run.id, {
-        sourceEngine: 'radar_database',
-        cacheHit: true,
-        status: completedFromDatabase ? 'completed' : 'queued',
-      }).catch(() => null);
-    }
-
-    if (completedFromDatabase) {
-      await this.persistSearchRunHistoryIfPossible(run.id, normalized, context).catch(() => null);
-    } else {
-      this.scheduleSearchRunPump(0);
-    }
+    // LIMPEZA-DESTRUTIVA L1: sem entrega imediata do banco pro funil — o estoque fica na
+    // vitrine e o run vai sempre pra fila; o motor trabalha e syncRadarSearchRunItemsToPool
+    // mantém a vitrine cheia. Nada é reivindicado/salvo como "entregue" no START.
+    this.scheduleSearchRunPump(0);
 
     return this.buildRadarSearchRunResponse(user, run.id);
   }
@@ -1593,11 +1253,10 @@ export class RadarCoreDeliveryMixin {
   async getLatestRadarSearchRunForUser(user: any) {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
+    // LIMPEZA-DESTRUTIVA L3: ultimo run da EMPRESA, nao so do vendedor que pediu.
     const run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         companyId: context.companyId,
-        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping', 'paused'] as any },
       },
@@ -1618,11 +1277,10 @@ export class RadarCoreDeliveryMixin {
   private async findActiveRadarRunForFilters(context: SearchExecutionContext, filters: NormalizedRadarFilters) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return null;
-    const sellerScope = this.isCompanySellerUser(context.user) ? { userId: context.userId } : {};
+    // LIMPEZA-DESTRUTIVA L3: runs ativos da EMPRESA (lagoa unica), sem escopo por vendedor.
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
-        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1638,11 +1296,10 @@ export class RadarCoreDeliveryMixin {
   private async cancelIncompatibleActiveRadarRuns(context: SearchExecutionContext, filters: NormalizedRadarFilters, keepRunId?: string | null) {
     const delegate = (this.prisma as any).webscrapingSearchRun;
     if (!delegate?.findMany) return { canceledCount: 0 };
-    const sellerScope = this.isCompanySellerUser(context.user) ? { userId: context.userId } : {};
+    // LIMPEZA-DESTRUTIVA L3: cancela runs incompativeis da EMPRESA inteira, sem escopo por vendedor.
     const activeRuns = await delegate.findMany({
       where: {
         companyId: context.companyId,
-        ...sellerScope,
         engine: 'hbx',
         status: { in: ['queued', 'running', 'sleeping'] as any },
       },
@@ -1661,7 +1318,6 @@ export class RadarCoreDeliveryMixin {
         where: {
           id: runId,
           companyId: context.companyId,
-          ...sellerScope,
           status: { in: ['queued', 'running', 'sleeping'] as any },
         },
         data: {
@@ -1969,11 +1625,13 @@ export class RadarCoreDeliveryMixin {
     }
     
     let claimedRows = deliveredRows;
-    const assignToUserId = this.isCompanySellerUser(user) ? context.userId : null;
+    // LIMPEZA-DESTRUTIVA L3: assignedUserId agora e so INFORMATIVO ("Responsavel" = quem
+    // puxou) — grava pra QUALQUER papel que puxa (vendedor, admin, master), nunca so vendedor.
+    const assignToUserId = context.userId;
     try {
       claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows, {
         assignedUserId: assignToUserId,
-        assignedByUserId: assignToUserId ? context.userId : null,
+        assignedByUserId: assignToUserId,
       });
       if (!claimedRows.length && deliveredRows.length) {
         claimedRows = deliveredRows;
@@ -2043,11 +1701,12 @@ export class RadarCoreDeliveryMixin {
   // Pull do vendedor (modelo B / PR13062026008): o PRÓPRIO vendedor puxa cards
   // da lagoa compartilhada (RadarLeadPool, companyId null) filtrando por
   // preferencia (segmento obrigatorio; cidade/UF opcionais) e eles caem DIRETO
-  // na carteira dele em Vendas. Reaproveita o encanamento testado do push
+  // na carteira dele em Vendas. Reaproveita o encanamento testado
   // (importRadarLeadToVendasForUser, assignedUserId=self), so que disparado pelo
   // vendedor para si mesmo, respeitando quota de cards ativos + teto diario.
-  // O push (distributeRadarLeadsToVendedoresForUser) e o radar/pull reserve-only
-  // (pullRadarLeadsForUser) seguem vivos e intocados.
+  // O push admin→vendedor (distributeRadarLeadsToVendedoresForUser) foi REMOVIDO
+  // (LIMPEZA-DESTRUTIVA L4, 04/07); radar/pull reserve-only (pullRadarLeadsForUser)
+  // segue vivo e intocado.
   private async _bumpSegmentAffinity(userId: number, segment: string): Promise<void> {
     const n = normalizeLookupValue(String(segment || ''));
     if (!n || !userId) return;
@@ -3354,7 +3013,8 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    this.assertRadarLeadVisibleForUser(user, context, row);
+    // LIMPEZA-DESTRUTIVA L3: card e da EMPRESA — qualquer papel pode registrar evento,
+    // independente de quem esta como "Responsável" (assignedUserId, so informativo).
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
     if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
@@ -3610,7 +3270,8 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    this.assertRadarLeadClaimableForUser(user, context, row);
+    // LIMPEZA-DESTRUTIVA L3: qualquer vendedor/admin/master da empresa pode puxar um card
+    // que já esteja atribuído a OUTRO colega — assignedUserId nunca mais é trava de posse.
     let leadRow = row;
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
@@ -3620,13 +3281,14 @@ export class RadarCoreDeliveryMixin {
     // útil e ENTREGA NORMAL. O front exibe o WhatsApp clicável quando existe.
     const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow);
     if (resolvedWhatsappStatus) this.applyRadarWhatsappStatusSignalToRow(leadRow, resolvedWhatsappStatus);
-    // Quando o vendedor puxa um card livre para si (sem assignedUserId explícito),
-    // o card passa a ser dele: usa context.userId como assignedUserId.
-    // Callers de distribuição sempre passam assignedUserId explícito, não são afetados.
+    // LIMPEZA-DESTRUTIVA L3: quando QUALQUER papel (vendedor, admin, master) puxa um card
+    // livre para si (sem assignedUserId explícito), o campo é só INFORMATIVO ("Responsável"
+    // = quem puxou) — usa context.userId. Callers de distribuição sempre passam
+    // assignedUserId explícito, não são afetados.
     const explicitAssignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
     const assignedUserId = explicitAssignedUserId !== null
       ? explicitAssignedUserId
-      : (this.isCompanySellerUser(user) ? context.userId : null);
+      : context.userId;
     const assignedByUserId = assignedUserId
       ? Math.trunc(Number(options.assignedByUserId || context.userId || 0)) || null
       : null;
@@ -3861,182 +3523,8 @@ export class RadarCoreDeliveryMixin {
       .catch(() => undefined);
   }
 
-  async distributeRadarLeadsToVendedoresForUser(
-    user: any,
-    input: { leadIds?: string[]; userIds?: number[]; skipWhatsappValidation?: boolean } = {},
-  ) {
-    if (!this.canUseWebscrapingRole(user)) {
-      throw new ForbiddenException('Apenas ADMIN pode distribuir cards do Radar para vendedores.');
-    }
-    // RBAC Sprint 1: o toggle `radar.cards.distribute` do Gerencial passa a valer
-    // inclusive para o GERENTE (role=ADMIN). Master nunca e bloqueado.
-    await this.assertTeamPolicyAccessAnyRole(
-      user,
-      'radar.cards.distribute',
-      'Distribuir cards do Radar esta bloqueado pela politica da equipe.',
-    );
-    const context = this.resolveContext(user);
-    const leadIds = Array.from(new Set(
-      (Array.isArray(input.leadIds) ? input.leadIds : [])
-        .map((id) => String(id || '').trim())
-        .filter(Boolean),
-    )).slice(0, 100);
-    if (!leadIds.length) throw new BadRequestException('Selecione pelo menos um card para distribuir.');
-
-    const requestedUserIds = Array.from(new Set(
-      (Array.isArray(input.userIds) ? input.userIds : [])
-        .map((id) => Math.trunc(Number(id || 0)))
-        .filter((id) => Number.isInteger(id) && id > 0),
-    )).slice(0, 50);
-    if (!requestedUserIds.length) throw new BadRequestException('Selecione pelo menos um vendedor.');
-
-    const sellers = await this.prisma.user.findMany({
-      where: {
-        id: { in: requestedUserIds },
-        companyId: context.companyId,
-        isActive: true,
-        isSystemMaster: false,
-        role: { in: ['USER', 'ADMIN'] },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        username: true,
-        phone: true,
-        commissionPercent: true,
-      },
-      orderBy: [{ name: 'asc' }, { email: 'asc' }, { id: 'asc' }],
-    });
-    if (!sellers.length) {
-      throw new BadRequestException('Nenhum vendedor ativo foi encontrado para esta empresa.');
-    }
-    const sellerById = new Map(sellers.map((seller) => [seller.id, seller]));
-    const orderedSellers = requestedUserIds.map((id) => sellerById.get(id)).filter(Boolean) as typeof sellers;
-    const targets = orderedSellers.length ? orderedSellers : sellers;
-    const activeRule = await this.prisma.radarAutoDistributionRule.findUnique({
-      where: { companyId_scope: { companyId: context.companyId, scope: 'company' } },
-    }).catch(() => null);
-    const dailyLimitPerSeller = this.normalizeDailyDistributionLimit((activeRule as any)?.dailyLimitPerSeller, 20);
-    const dayKey = this.getSaoPauloDayKey();
-    const dailyStateBySeller = new Map<number, Awaited<ReturnType<typeof this.getDailyDistributionSnapshot>>>();
-    const dailyLimitBySeller = new Map<number, number>();
-    const activeQuotaBySeller = new Map<number, any>();
-    for (const target of targets) {
-      const sellerDailyLimit = this.resolveSellerDistributionDailyLimit(target, dailyLimitPerSeller);
-      dailyLimitBySeller.set(Number(target.id), sellerDailyLimit);
-      dailyStateBySeller.set(
-        Number(target.id),
-        await this.getDailyDistributionSnapshot(context.companyId, Number(target.id), sellerDailyLimit, dayKey),
-      );
-      activeQuotaBySeller.set(
-        Number(target.id),
-        this.commercialUsageLimits
-          ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, Number(target.id)).catch(() => null)
-          : null,
-      );
-    }
-
-    let distributedCount = 0;
-    let failedCount = 0;
-    const assignments: Array<{
-      radarLeadId: string;
-      vendasLeadId?: string | null;
-      userId: number;
-      userName: string;
-      commissionPercent: number;
-    }> = [];
-    const failures: Array<{ radarLeadId: string; error: string }> = [];
-
-    for (let index = 0; index < leadIds.length; index += 1) {
-      const radarLeadId = leadIds[index];
-      let target: (typeof targets)[number] | null = null;
-      for (let offset = 0; offset < targets.length; offset += 1) {
-        const candidate = targets[(index + offset) % targets.length];
-        const state = candidate ? dailyStateBySeller.get(Number(candidate.id)) : null;
-        const activeQuota = candidate ? activeQuotaBySeller.get(Number(candidate.id)) : null;
-        const hasActiveSlot = !activeQuota?.seller || Number(activeQuota.availableSlots || 0) > 0;
-        if (candidate && (!state || state.remainingToday > 0) && hasActiveSlot) {
-          target = candidate;
-          break;
-        }
-      }
-      if (!target) {
-        failedCount += 1;
-        failures.push({
-          radarLeadId,
-          error: 'Todos os vendedores atingiram limite diário ou limite de cards ativos.',
-        });
-        continue;
-      }
-      const dailyState = dailyStateBySeller.get(Number(target.id));
-      const targetDailyLimit = dailyLimitBySeller.get(Number(target.id)) ?? dailyLimitPerSeller;
-      const activeQuota = activeQuotaBySeller.get(Number(target.id));
-      if (dailyState?.remainingToday <= 0) {
-        failedCount += 1;
-        await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_diario_atingido', dayKey);
-        failures.push({
-          radarLeadId,
-          error: 'Limite diário do vendedor atingido.',
-        });
-        continue;
-      }
-      if (activeQuota?.seller && Number(activeQuota.availableSlots || 0) <= 0) {
-        failedCount += 1;
-        await this.recordDailyDistributionSkip(context.companyId, Number(target.id), targetDailyLimit, 'limite_cards_ativos_atingido', dayKey);
-        failures.push({
-          radarLeadId,
-          error: 'Limite de cards ativos do vendedor atingido.',
-        });
-        continue;
-      }
-      try {
-        const result = await this.importRadarLeadToVendasForUser(user, radarLeadId, {
-          skipWhatsappValidation: Boolean(input.skipWhatsappValidation),
-          debitOnImport: true,
-          assignedUserId: target.id,
-          assignedByUserId: context.userId,
-        });
-        await this.incrementDailyDistributionDelivery(context.companyId, target.id, targetDailyLimit, dayKey);
-        if (dailyState) {
-          dailyState.deliveredToday += 1;
-          dailyState.remainingToday = Math.max(0, dailyState.remainingToday - 1);
-        }
-        if (activeQuota?.seller) {
-          activeQuota.activeCount = Math.max(0, Number(activeQuota.activeCount || 0) + 1);
-          activeQuota.availableSlots = Math.max(0, Number(activeQuota.availableSlots || 0) - 1);
-        }
-        distributedCount += 1;
-        assignments.push({
-          radarLeadId,
-          vendasLeadId: result?.vendasLeadId || null,
-          userId: target.id,
-          userName: String(target.name || target.username || target.email || `Vendedor ${target.id}`).trim(),
-          commissionPercent: Math.max(0, Math.min(100, Number(target.commissionPercent || 0) || 0)),
-        });
-      } catch (error: any) {
-        failedCount += 1;
-        failures.push({
-          radarLeadId,
-          error: String(error?.message || error || 'Falha ao distribuir card.'),
-        });
-      }
-    }
-
-    if (!distributedCount && failures.length) {
-      throw new BadRequestException(`Nenhum card foi distribuído. Primeira falha: ${failures[0]?.error || 'erro desconhecido'}`);
-    }
-
-    return {
-      ok: true,
-      distributedCount,
-      failedCount,
-      assignments,
-      failures,
-      message:
-        failedCount > 0
-          ? `${distributedCount} card(s) distribuídos. ${failedCount} falharam ou foram protegidos.`
-          : `${distributedCount} card(s) distribuídos entre ${targets.length} vendedor(es).`,
-    };
-  }
+  // distributeRadarLeadsToVendedoresForUser (o "push" admin→vendedor de CARDS):
+  // REMOVIDO (LIMPEZA-DESTRUTIVA L4, 04/07). No modelo novo admin distribui
+  // CRÉDITO (CREDITOS S4), não card. pullRadarLeadsForUser (puxada manual do
+  // próprio vendedor) e importRadarLeadToVendasForUser seguem intocados.
 }

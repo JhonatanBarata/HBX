@@ -471,46 +471,12 @@ export class RadarCoreSearchLoopMixin {
     return this.persistHistory(context, normalized, results, null).catch(() => null);
   }
 
-  private getExplicitRadarVendasStockTarget(run: any) {
-    const metrics = parseJsonObject(run?.metricsJson);
-    return Math.max(0, safeInteger(metrics?.vendasStockTarget));
-  }
-
-  private isRadarVendasStockGatedRun(run: any) {
-    return this.getExplicitRadarVendasStockTarget(run) > 0;
-  }
-
-  private async getRadarVendasStockSnapshotForRun(run: any) {
-    const target = this.getExplicitRadarVendasStockTarget(run);
-    const companyId = safeInteger(run?.companyId);
-    const pendingCount = target > 0 && companyId > 0
-      ? await this.getVendasPendingCountForRadarContext(companyId).catch(() => 0)
-      : 0;
-    return { target, pendingCount };
-  }
-
-  private async hasReachedRadarVendasStockTarget(run: any) {
-    const snapshot = await this.getRadarVendasStockSnapshotForRun(run);
-    return snapshot.target > 0 && snapshot.pendingCount >= snapshot.target;
-  }
-
-  private async buildRadarVendasStockExhaustedMessage(run: any, foundCount: number, targetQuantity: number) {
-    const snapshot = await this.getRadarVendasStockSnapshotForRun(run);
-    const target = Math.max(1, snapshot.target || safeInteger(targetQuantity));
-    const currentStock = Math.max(0, Math.min(target, safeInteger(snapshot.pendingCount)));
-    const locatedCount = Math.max(0, safeInteger(foundCount));
-    const missing = Math.max(0, target - currentStock);
-    const missingText = missing === 1 ? 'faltou 1' : `faltaram ${missing}`;
-    const prefix = currentStock > 0
-      ? missing > 0
-        ? `Radar parou: Vendas ficou com ${currentStock} de ${target} card(s); ${missingText}.`
-        : `Radar parou: Vendas ficou com ${currentStock} de ${target} card(s).`
-      : 'Radar parou sem cards novos para Vendas.';
-    const locatedLine = locatedCount > currentStock
-      ? ` Localizei ${locatedCount} candidato(s), mas os repetidos/filtros nao viraram cards unicos suficientes.`
-      : '';
-    return `${prefix}${locatedLine} Para continuar automatico, aumente o alcance ou ajuste segmentos.`;
-  }
+  // LIMPEZA-DESTRUTIVA L2 (04/07, docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md): a
+  // família do gate de estoque do Vendas (getExplicitRadarVendasStockTarget/
+  // isRadarVendasStockGatedRun/getRadarVendasStockSnapshotForRun/hasReachedRadarVendasStockTarget/
+  // buildRadarVendasStockExhaustedMessage) foi deletada. O run de busca nunca mais para/pausa
+  // olhando quantos cards estão pendentes no funil de Vendas — só busca até targetQuantity e
+  // termina normal (completed / completed_insufficient_results / failed).
 
   private async runGoogleEmergencyComplementIfEligible(
     runId: string,
@@ -533,15 +499,10 @@ export class RadarCoreSearchLoopMixin {
       },
     });
     if (!current || current.googleEmergencyUsedCount > 0) return;
-    const stockGated = this.isRadarVendasStockGatedRun(current);
-    if (!stockGated && current.foundCount >= current.targetQuantity) return;
-    if (stockGated && await this.hasReachedRadarVendasStockTarget(current)) return;
-    const stockSnapshot = stockGated
-      ? await this.getRadarVendasStockSnapshotForRun(current)
-      : null;
-    const missingCount = stockSnapshot
-      ? Math.max(1, stockSnapshot.target - stockSnapshot.pendingCount)
-      : Math.max(1, current.targetQuantity - current.foundCount);
+    // LIMPEZA-DESTRUTIVA L2: sem gate de estoque — o complemento Google só olha
+    // targetQuantity/foundCount do próprio run, nunca o funil de Vendas.
+    if (current.foundCount >= current.targetQuantity) return;
+    const missingCount = Math.max(1, current.targetQuantity - current.foundCount);
 
     const quantity = Math.min(
       this.getEnginePool().googleEmergencyMaxPerRun(),
@@ -721,9 +682,8 @@ export class RadarCoreSearchLoopMixin {
           await this.scheduleNextDueSearchRunPump();
           break;
         }
-        if (await this.stopSearchRunIfVendasStockLimitReached(run)) {
-          continue;
-        }
+        // LIMPEZA-DESTRUTIVA L2: sem gate de estoque — o pump nunca mais para o run aqui
+        // por causa do funil de Vendas.
 
         const avoidEngineId = ['batch_error', 'engine_error'].includes(String(run.lastBatchStatus || ''))
           ? String(run.lastEngineUrl || run.assignedEngineId || '')
@@ -829,19 +789,9 @@ export class RadarCoreSearchLoopMixin {
       if (lease) await this.getEnginePool().releaseEngine(lease.engineId);
       return;
     }
-    if (await this.stopSearchRunIfVendasStockLimitReached(current)) {
-      if (lease) await this.getEnginePool().releaseEngine(lease.engineId);
-      return;
-    }
-
+    // LIMPEZA-DESTRUTIVA L2 (04/07): sem gate de estoque do Vendas — o run nunca mais
+    // para aqui por causa do funil; só busca até normalized.quantity/targetQuantity.
     const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
-    const useVendasStockGate = this.isRadarVendasStockGatedRun(current);
-    const vendasStockSnapshot = useVendasStockGate
-      ? await this.getRadarVendasStockSnapshotForRun(current)
-      : null;
-    const vendasStockMissing = vendasStockSnapshot
-      ? Math.max(1, vendasStockSnapshot.target - vendasStockSnapshot.pendingCount)
-      : null;
     const hasRequiredEnrichmentGate = this.hasExplicitRequiredChannels(normalized);
     const batchLimit = this.getHbxRunBatchLimit(normalized.quantity);
     const queryTaskCount = this.buildHbxBatchQueryTasks(normalized).length;
@@ -859,27 +809,26 @@ export class RadarCoreSearchLoopMixin {
     const attempt = safeInteger(current.attemptCount) + 1;
     const quantity = hasRequiredEnrichmentGate
       ? batchLimit
-      : Math.min(batchLimit, Math.max(1, useVendasStockGate && vendasStockMissing != null ? vendasStockMissing : normalized.quantity - safeInteger(current.foundCount)));
+      : Math.min(batchLimit, Math.max(1, normalized.quantity - safeInteger(current.foundCount)));
     const attemptTask = this.buildHbxBatchAttemptTask(normalized, attempt);
     const attemptInput = attemptTask.input;
     const queryUsed = attemptTask.query;
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
+    // LIMPEZA-DESTRUTIVA L1 (04/07): pra TODO papel (inclusive USERMASTER/admin/master),
+    // o run NUNCA importa/reivindica pro funil de Vendas sozinho. Este passo do ciclo só
+    // enche a vitrine (RadarLeadPool com ownerCompanyId=null) e devolve se o run está
+    // pausado por limite (semântica que já existia no ramo vendedor). O funil só recebe
+    // card por puxada manual (send-to-vendas / mark-sent-to-vendas).
     const autoImportAndStopIfPaused = async (label: string) => {
-      // Gate do vendedor: com "Auto" (standing order) OFF, não empurra pro Vendas durante o
-      // ciclo — os leads ficam reservados na vitrine "Disponíveis" pra puxar manualmente.
-      // Não-vendedor (admin / Night Factory) mantém comportamento atual (sempre importa).
-      if (!(await this.shouldAutoImportRadarRunToVendas(user))) {
-        const latest = await this.prisma.webscrapingSearchRun.findUnique({
-          where: { id: runId },
-          select: { id: true, status: true, lastBatchStatus: true, metricsJson: true },
-        }).catch(() => null);
-        return this.isSearchRunPausedByLimit(latest);
+      const latestForSync = await this.prisma.webscrapingSearchRun.findFirst({
+        where: { id: runId, companyId: context.companyId },
+        include: { items: { orderBy: { createdAt: 'asc' } } },
+      }).catch(() => null);
+      if (latestForSync) {
+        await this.syncRadarSearchRunItemsToPool(context, latestForSync).catch((error: any) => {
+          this.logger.warn(`[radar-run] sync (vitrine) ${label} ignorado run=${runId}: ${String(error?.message || error)}`);
+        });
       }
-      const imported = await this.autoImportRadarSearchRunToVendas(user, runId).catch((error: any) => {
-        this.logger.warn(`[radar-vendas] auto-import ${label} ignorado run=${runId}: ${String(error?.message || error)}`);
-        return null;
-      });
-      if ((imported as any)?.blocked) return true;
       const latest = await this.prisma.webscrapingSearchRun.findUnique({
         where: { id: runId },
         select: { id: true, status: true, lastBatchStatus: true, metricsJson: true },
@@ -888,7 +837,7 @@ export class RadarCoreSearchLoopMixin {
     };
 
     try {
-      if (!useVendasStockGate && safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(normalized, safeInteger(current.attemptCount))) {
+      if (safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(normalized, safeInteger(current.attemptCount))) {
         const requiredChannelMatches = hasRequiredEnrichmentGate
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(current.foundCount);
@@ -937,9 +886,7 @@ export class RadarCoreSearchLoopMixin {
           if (rested) return;
         }
         const finalMessage = counters.foundCount > 0
-          ? useVendasStockGate
-            ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
-            : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
+          ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
         if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
           if (await autoImportAndStopIfPaused('parcial')) return;
@@ -995,8 +942,7 @@ export class RadarCoreSearchLoopMixin {
       if (!liveRun || liveRun.status === 'canceled') return;
       if (this.isTerminalSearchRunStatus(liveRun.status)) return;
       if (
-        !useVendasStockGate
-        && safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)
+        safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)
         && this.hasCompletedHbxMinimumCoverage(normalized, attempt - 1)
       ) {
         const requiredChannelMatches = hasRequiredEnrichmentGate
@@ -1112,11 +1058,9 @@ export class RadarCoreSearchLoopMixin {
       const requiredChannelMatches = hasRequiredEnrichmentGate && counters.foundCount >= normalized.quantity
         ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
         : counters.foundCount;
-      const reachedTargetBeforeCoverage = useVendasStockGate
-        ? false
-        : hasRequiredEnrichmentGate
-          ? requiredChannelMatches >= normalized.quantity
-          : counters.foundCount >= normalized.quantity;
+      const reachedTargetBeforeCoverage = hasRequiredEnrichmentGate
+        ? requiredChannelMatches >= normalized.quantity
+        : counters.foundCount >= normalized.quantity;
       const reachedTarget = reachedTargetBeforeCoverage && this.hasCompletedHbxMinimumCoverage(normalized, attempt);
       const reachedRequiredCandidateWindow = hasRequiredEnrichmentGate && counters.foundCount >= requiredCandidateWindow;
       const reachedMaxAttempts = attempt >= maxAttempts;
@@ -1187,9 +1131,7 @@ export class RadarCoreSearchLoopMixin {
           if (rested) return;
         }
         const finalMessage = counters.foundCount > 0
-          ? useVendasStockGate
-            ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
-            : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
+          ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
         if (counters.foundCount > 0) {
           await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
@@ -1295,9 +1237,7 @@ export class RadarCoreSearchLoopMixin {
         if (rested) return;
       }
       const finalMessage = counters.foundCount > 0
-        ? useVendasStockGate
-          ? await this.buildRadarVendasStockExhaustedMessage(current, counters.foundCount, normalized.quantity)
-          : this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
+        ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
         : reachedMaxAttempts
           ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);

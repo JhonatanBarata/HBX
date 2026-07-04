@@ -412,12 +412,12 @@ export class RadarCorePublicSearchMixin {
   async getSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
+    // LIMPEZA-DESTRUTIVA L3: pesquisa e da EMPRESA, nao do vendedor que a iniciou —
+    // qualquer papel da empresa pode ver o run.
     let run = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...sellerScope,
       },
       include: {
         items: {
@@ -434,12 +434,11 @@ export class RadarCorePublicSearchMixin {
   async cancelSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
-    const sellerScope = this.isCompanySellerUser(user) ? { userId: context.userId } : {};
+    // LIMPEZA-DESTRUTIVA L3: qualquer papel da empresa pode cancelar o run (lagoa unica).
     const current = await this.prisma.webscrapingSearchRun.findFirst({
       where: {
         id: String(runId || '').trim(),
         companyId: context.companyId,
-        ...sellerScope,
       },
       select: {
         id: true,

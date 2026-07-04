@@ -1,9 +1,9 @@
-ALTER TABLE "WebscrapingSearchRun"
-  ADD COLUMN "assignedEngineId" TEXT,
-  ADD COLUMN "assignedEngineUrl" TEXT,
-  ADD COLUMN "assignedEngineIndex" INTEGER,
-  ADD COLUMN "googleEmergencyUsedCount" INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN "lastFoundCountChangeAt" TIMESTAMP(3);
+ALTER TABLE IF EXISTS "WebscrapingSearchRun"
+  ADD COLUMN IF NOT EXISTS "assignedEngineId" TEXT,
+  ADD COLUMN IF NOT EXISTS "assignedEngineUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "assignedEngineIndex" INTEGER,
+  ADD COLUMN IF NOT EXISTS "googleEmergencyUsedCount" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "lastFoundCountChangeAt" TIMESTAMP(3);
 
 CREATE TABLE "HbxEngineLock" (
   "id" TEXT NOT NULL,
@@ -28,8 +28,6 @@ CREATE TABLE "HbxEngineLock" (
 );
 
 CREATE UNIQUE INDEX "HbxEngineLock_engineIndex_key" ON "HbxEngineLock"("engineIndex");
-CREATE INDEX "WebscrapingSearchRun_status_createdAt_idx" ON "WebscrapingSearchRun"("status", "createdAt");
-CREATE INDEX "WebscrapingSearchRun_assignedEngineId_idx" ON "WebscrapingSearchRun"("assignedEngineId");
 CREATE INDEX "HbxEngineLock_status_lockedUntil_idx" ON "HbxEngineLock"("status", "lockedUntil");
 CREATE INDEX "HbxEngineLock_cooldownUntil_idx" ON "HbxEngineLock"("cooldownUntil");
 CREATE INDEX "HbxEngineLock_lockedRunId_idx" ON "HbxEngineLock"("lockedRunId");
