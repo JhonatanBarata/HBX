@@ -26,6 +26,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
+import { CreditsWalletSection } from "@/components/hbx/credits-wallet-section";
 import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { MetaLeadAdsSection } from "@/components/hbx/meta-lead-ads-section";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
@@ -42,8 +43,8 @@ import { useTabParam } from "@/lib/use-tab-param";
 // Equipe saiu de Configurações → vive agora em Gerencial → aba Equipe.
 // "Integrações" (ARQ11 S2 item 3) — hoje só Meta Ads (Leads); admin da empresa configura
 // pageId/token/webhook direto na tela em vez de curl na API.
-const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Notificações", "Plano e cobrança"];
-const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Notificações": "bell", "Plano e cobrança": "money" };
+const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Notificações", "Plano e cobrança", "Créditos"];
+const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Notificações": "bell", "Plano e cobrança": "money", "Créditos": "money" };
 
 type CurrentUser = {
   name?: string | null;
@@ -339,8 +340,14 @@ export function ConfiguracoesClient() {
   // nunca vê a aba. Régua canônica; o backend (requireCompanyAdmin) deve tratar
   // USERMASTER como admin, senão a aba aparece mas a chamada barra (403).
   const canSeeIntegracoes = isTenantAdmin(user);
+  // Créditos: mesma régua de "Plano e cobrança" (LEI DO VENDEDOR) — o vendedor
+  // e o gerente sem cobrança não veem a seção. O shape neutro de /credits/me
+  // já existe pra eles (leadsDisponiveis), mas por decisão de escopo do S6 a
+  // seção fica só na audiência de cobrança nesta tela (o vendedor enxerga seu
+  // "leads disponíveis" em outro lugar do produto, não aqui).
   const sections = SECTIONS
     .filter(s => s !== "Plano e cobrança" || canSeeBilling)
+    .filter(s => s !== "Créditos" || canSeeBilling)
     .filter(s => s !== "E-mail" || canSeeEmail)
     .filter(s => s !== "Integrações" || canSeeIntegracoes);
   const current = plansMe?.current;
@@ -605,6 +612,8 @@ export function ConfiguracoesClient() {
                 )}
               </React.Fragment>
             )}
+
+            {sec === "Créditos" && canSeeBilling && <CreditsWalletSection />}
           </div>
         </div>
 
