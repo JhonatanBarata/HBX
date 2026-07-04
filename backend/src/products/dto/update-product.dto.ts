@@ -94,6 +94,16 @@ export class UpdateProductDto {
   @Min(0)
   stock?: number;
 
+  // NÚCLEO-CRM N5 — unidade de venda ("galão 20L", "kg", "unidade").
+  @IsOptional()
+  @IsString()
+  unidade?: string;
+
+  // NÚCLEO-CRM N5 — item entra no módulo Logística (roteiro de entrega).
+  @IsOptional()
+  @IsBoolean()
+  usaLogistica?: boolean;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

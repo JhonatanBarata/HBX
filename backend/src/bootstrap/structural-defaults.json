@@ -73,6 +73,15 @@
       "serviceUrl": "/contatos"
     },
     {
+      "key": "produtos",
+      "name": "Produtos",
+      "description": "Catálogo de produtos do tenant (NÚCLEO-CRM) — o que o vendedor vende/entrega, com unidade, preço e flag de Logística. Kill-switch por empresa; nasce ligado.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/produtos"
+    },
+    {
       "key": "bot",
       "name": "Bot IA",
       "description": "Automacao de atendimento e prospecção via bot configurado pela empresa.",

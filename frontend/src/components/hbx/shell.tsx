@@ -110,6 +110,9 @@ export const ICONS: Record<string, string[]> = {
   // PRECISA existir (nav id sem entrada em ICONS derruba a Sidebar — foi o P0
   // do "assistente"). Ícone próprio (2 pessoas) p/ não confundir com Empresas.
   contatos: ["M16 19c0-2.5-2-4.5-4.5-4.5S7 16.5 7 19", "M11.5 12a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z", "M17.5 13.5c1.9 0 3.5 1.6 3.5 3.5", "M16.5 6.2a2.6 2.6 0 0 1 0 5"],
+  // NÚCLEO-CRM N5 — catálogo "Produtos": caixa/pacote. A chave PRECISA existir
+  // (nav id sem entrada em ICONS derruba a Sidebar — foi o P0 do "assistente").
+  produtos: ["M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8Z", "M3.3 7 12 12l8.7-5", "M12 22V12"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -280,6 +283,9 @@ export const NAV_LINKS = [
   // quem recebe) + criar cliente MANUAL + a view "Clientes" (papel). Mesma base
   // das Empresas, recorte por pessoa/papel. Kill-switch, não paywall (null).
   { id: "contatos", label: "Contatos", href: "/contatos" },
+  // NÚCLEO-CRM N5: catálogo "Produtos" — o que o vendedor vende/entrega (galão
+  // 20L etc.), com unidade/preço + flag Logística. Kill-switch, não paywall (null).
+  { id: "produtos", label: "Produtos", href: "/produtos" },
   { id: "bot", label: "Bot", href: "/bot" },
   // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
@@ -576,6 +582,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   empresas: null,
   // NÚCLEO-CRM N4: Contatos = kill-switch, NÃO paywall → sem gate de plano.
   contatos: null,
+  // NÚCLEO-CRM N5: Produtos = kill-switch, NÃO paywall → sem gate de plano.
+  produtos: null,
   bot: null,
   assistente: null,
   relat: "vendas",
@@ -602,6 +610,9 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // NÚCLEO-CRM N4: sem gate por usuário/plano (null) — a aba nasce ligada. Se
   // no futuro o master ligar o kill-switch por empresa, trocar para "contatos".
   contatos: null,
+  // NÚCLEO-CRM N5: sem gate por usuário/plano (null) — a aba nasce ligada. Se
+  // no futuro o master ligar o kill-switch por empresa, trocar para "produtos".
+  produtos: null,
   bot: null,
   assistente: null,
   relat: "vendas",

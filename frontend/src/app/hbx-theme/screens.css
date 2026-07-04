@@ -2071,11 +2071,25 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    NÃO é grade de quadradinhos (isso já foi feito e o dono odiou) — é o MESMO
    disco-sonar de sempre, só sem estado/texto por trás (item 2/8).
    ══════════════════════════════════════════════════════════════════════════ */
-.radar-hero { display: flex; align-items: center; gap: 12px; padding: 2px 2px 4px; }
-.radar-hero__disc { flex: 0 0 auto; width: 64px; height: 64px; }
-.radar-hero__copy { min-width: 0; display: grid; gap: 1px; }
-.radar-hero__eyebrow { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-muted); }
-.radar-hero__title { margin: 0; font-family: var(--font-display); font-size: 1.06rem; font-weight: 800; color: var(--text-strong); letter-spacing: -0.01em; }
+/* Hero: disco-sonar PROTAGONISTA — grande, centralizado, num pedestal suave
+   (radial glow + moldura arredondada). É só enfeite: nenhum estado por trás. */
+.radar-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 18px 14px 16px; margin-bottom: 2px;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--hbx-brand) 12%, transparent) 0%, transparent 70%),
+    var(--hbx-surface-soft);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-inset);
+}
+.radar-hero__disc {
+  flex: 0 0 auto; width: 148px; height: 148px;
+  filter: drop-shadow(0 10px 24px color-mix(in srgb, var(--hbx-brand-strong) 22%, transparent));
+}
+.radar-hero__copy { min-width: 0; display: grid; gap: 2px; justify-items: center; text-align: center; }
+.radar-hero__eyebrow { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--hbx-brand-strong); }
+.radar-hero__title { margin: 0; font-family: var(--font-display); font-size: 1.24rem; font-weight: 800; color: var(--text-strong); letter-spacing: -0.01em; }
 
 /* Painel de filtro "lindo" — card único com seções bem espaçadas (referência
    Apollo/CNPJ Biz: cantos arredondados, sombra sutil via token, respiro). */
@@ -3707,3 +3721,30 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 @media (max-width: 720px) {
   .be-adv-grid2 { grid-template-columns: 1fr; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   NÚCLEO-CRM N5 — catálogo "Produtos" (o que o vendedor vende/entrega).
+   Reusa .emp-* (linhas/empty) e .ctt-form* (modal). Aqui SÓ o específico de
+   produto: preço/unidade na linha, badge Logística, ações da linha e os campos
+   novos do modal. Zero hex/inline (5 Leis) — tudo em token central.
+   ══════════════════════════════════════════════════════════════════════════ */
+.prod-row__price { font-size: 0.82rem; font-weight: 800; color: var(--hbx-brand-strong); white-space: nowrap; }
+.prod-row__unit { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+.prod-badge-log {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--hbx-brand-strong); color: var(--hbx-brand-strong); background: var(--hbx-brand-soft);
+  white-space: nowrap;
+}
+.prod-row.is-archived { opacity: 0.55; }
+.prod-row__acts { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.prod-row__pricecol { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+
+/* Toggle "usa na Logística" no modal — mesmo padrão do .ctt-toggle */
+.prod-toggle {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 0.78rem; color: var(--text-body);
+}
+.prod-toggle input { width: 15px; height: 15px; accent-color: var(--hbx-brand); cursor: pointer; }
+.prod-toggle__note { font-size: 0.66rem; color: var(--text-muted); line-height: 1.4; }

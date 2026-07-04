@@ -172,6 +172,9 @@ export class ProductsService {
       defaultCommissionPercent: normalizePercent(dto.defaultCommissionPercent, 'defaultCommissionPercent', null),
       sortOrder: normalizeInteger(dto.sortOrder, 'sortOrder', 0) ?? 0,
       stock: normalizePositiveInteger(dto.stock, 'stock', 0) ?? 0,
+      // NÚCLEO-CRM N5 — catálogo do tenant: unidade de venda + flag Logística.
+      unidade: normalizeText(dto.unidade, 60),
+      usaLogistica: normalizeBoolean(dto.usaLogistica, false),
       companyId,
       categoryId: normalizePositiveInteger(dto.categoryId, 'categoryId', null),
       metadataJson: normalizeText(dto.metadataJson, 5000),
@@ -217,6 +220,9 @@ export class ProductsService {
     }
     if (hasOwn(dto, 'sortOrder')) data.sortOrder = normalizeInteger(dto.sortOrder, 'sortOrder', 0) ?? 0;
     if (hasOwn(dto, 'stock')) data.stock = normalizePositiveInteger(dto.stock, 'stock', 0) ?? 0;
+    // NÚCLEO-CRM N5 — catálogo do tenant: unidade de venda + flag Logística.
+    if (hasOwn(dto, 'unidade')) data.unidade = normalizeText(dto.unidade, 60);
+    if (hasOwn(dto, 'usaLogistica')) data.usaLogistica = normalizeBoolean(dto.usaLogistica, false);
     if (hasOwn(dto, 'categoryId')) data.categoryId = normalizePositiveInteger(dto.categoryId, 'categoryId', null);
     if (hasOwn(dto, 'metadataJson')) data.metadataJson = normalizeText(dto.metadataJson, 5000);
     data.updatedByUserId = authorId || null;

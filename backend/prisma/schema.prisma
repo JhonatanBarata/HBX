@@ -3329,6 +3329,11 @@ model Product {
   defaultCommissionPercent Float?
   sortOrder   Int              @default(0)
   stock       Int              @default(0)
+  // NÚCLEO-CRM N5 (catálogo tenant): unidade de venda (ex.: "galão 20L", "kg",
+  // "unidade") e flag de item que entra no módulo Logística (roteiro de entrega).
+  // Colunas ADITIVAS — default preserva o comportamento legado (planos/checkout).
+  unidade     String?
+  usaLogistica Boolean         @default(false)
   company     Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId   Int?
   categoryRef Category?        @relation(fields: [categoryId], references: [id])
