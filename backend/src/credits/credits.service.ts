@@ -1,9 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService, CreditGrantType, GrantOptions } from './credit-wallet.service';
 import { CreditPackConfigService } from './credit-pack-config.service';
 import { computeDefaultExpiresAt, CreditPackDefinition, normalizeCreditPackKey } from './credit-pack-catalog';
-import { isCreditsFeatureEnabled } from './credits.flags';
+import { isCreditsFeatureEnabled, isCreditsShadowEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
 
 // CRÉDITOS S3-PARTE1 — camada de orquestração entre o ledger (S1, CreditWalletService) e o
@@ -24,6 +24,8 @@ const VALID_GRANT_TYPES = new Set<CreditGrantType>(['paid', 'courtesy_internal',
 
 @Injectable()
 export class CreditsService {
+  private readonly logger = new Logger(CreditsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
@@ -207,5 +209,59 @@ export class CreditsService {
     return isBillingAudience
       ? this.getMeForBillingAudience(companyId)
       : this.getMeForSellerAudience(companyId);
+  }
+
+  // ── S2 — shadow-debit no choke único de baixa de lead ────────────────────────
+  /**
+   * MEDIÇÃO, não enforcement. Chamado logo após `recordCardCommercialUseOnce` (o choke ÚNICO
+   * de "1 lead = 1 baixa" hoje em vendas.service.ts) ter sucesso. Grava 1 linha
+   * `CreditLedgerEntry` com `kind: 'debit_shadow'`, `remaining: 0` — NUNCA entra no FIFO de
+   * saldo (`openLotsFifo` só lê `kind IN (grant, recharge, promo)`), então `getBalance` é
+   * matematicamente indiferente a esta chamada, com ou sem a flag.
+   *
+   * Best-effort: nunca lança, nunca bloqueia o caminho de venda. Atrás de
+   * `HBX_CREDITS_SHADOW` (default OFF) — flag OFF é no-op imediato, sem tocar o banco.
+   * Idempotente em código por `usageKey` (`shadow:<actionKey>:<leadId>`) + `kind: 'debit_shadow'`
+   * — o `@@unique([usageKey, parentEntryId])` do schema NÃO cobre este caso (parentEntryId fica
+   * null aqui, e NULLs não colidem em unique no Postgres), então o `findFirst` abaixo É a trava.
+   */
+  async recordShadowDebit(
+    companyId: number,
+    userId: number | null,
+    input: { leadId: string | number; actionKey: string },
+  ): Promise<void> {
+    if (!isCreditsShadowEnabled()) return;
+    try {
+      const companyIdNum = Number(companyId);
+      if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return;
+      const actionKey = String(input?.actionKey || '').trim();
+      const leadId = String(input?.leadId ?? '').trim();
+      if (!actionKey || !leadId) return;
+
+      const usageKey = `shadow:${actionKey}:${leadId}`;
+
+      const existing = await this.prisma.creditLedgerEntry.findFirst({
+        where: { companyId: companyIdNum, kind: 'debit_shadow', usageKey },
+        select: { id: true },
+      });
+      if (existing) return;
+
+      const wallet = await this.wallet.ensureWallet(companyIdNum);
+      await this.prisma.creditLedgerEntry.create({
+        data: {
+          walletId: wallet.id,
+          companyId: companyIdNum,
+          kind: 'debit_shadow',
+          amount: 1,
+          remaining: 0,
+          actionKey,
+          usageKey,
+          createdByUserId: userId ?? null,
+        },
+      });
+    } catch (error: any) {
+      // Best-effort puro: shadow-debit nunca pode quebrar/atrasar o fluxo de venda real.
+      this.logger.warn(`shadow_debit_failed company=${companyId} error=${String(error?.message || error)}`);
+    }
   }
 }
