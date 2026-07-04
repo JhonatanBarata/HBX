@@ -67,6 +67,7 @@ import { RadarGoogleResponseService } from './providers/google-search/radar-goog
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './shared/radar-shared-normalizer.service';
 import { CnpjBaseQueryService } from './providers/cnpj-public/cnpj-base-query.service';
+import { NucleoCadastroService } from '../../nucleo/nucleo-cadastro.service';
 
 import {
   PLACES_NEW_TEXT_SEARCH_URL,
@@ -343,6 +344,18 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarPostDeliveryAiSaneamento() {
     return this.radarPostDeliveryAiSaneamento || new RadarPostDeliveryAiSaneamentoService();
+  }
+
+  // NÚCLEO-CRM N2 (04/07): serviço da espinha (Conta+Contato) acessível aos mixins pelo
+  // MESMO padrão lazy do resto (não entra no construtor — a assinatura é super() posicional
+  // de webscraping.service.ts). `new NucleoCadastroService(this.prisma)` não registra
+  // lifecycle/timers; é só upsert idempotente sobre CustomerProfile/Contato.
+  private nucleoCadastroLazy: NucleoCadastroService | null = null;
+  private getNucleoCadastro(): NucleoCadastroService {
+    if (!this.nucleoCadastroLazy) {
+      this.nucleoCadastroLazy = new NucleoCadastroService(this.prisma);
+    }
+    return this.nucleoCadastroLazy;
   }
 
   private getRadarSharedNormalizer() {

@@ -98,6 +98,10 @@ import {
   formatCityWithState,
 } from '../radar-core-method-imports';
 import { incrementAffinity } from '../../../users/segment-affinity.util';
+import {
+  materializeNucleoFromRadarLead as materializeNucleoIngestaoFromRadarLead,
+  nucleoIngestaoEnabled,
+} from '../../../nucleo/nucleo-ingestao';
 
 import type {
   AutonomousMassDataCandidate,
@@ -3805,12 +3809,56 @@ export class RadarCoreDeliveryMixin {
     // igual ao padrão L4/web-enrichment desta mesma função) — nunca atrasa nem falha a
     // entrega. No-op silencioso se `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default).
     this.enqueueRadarPostDeliveryAiSaneamento(leadRow);
+    // NÚCLEO-CRM N2 — materializa Conta(PJ)+Contato(dono) na espinha a partir do CNPJ do lead
+    // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`
+    // (default OFF → no-op total). NUNCA quebra o pull (a função engole o próprio erro).
+    void this.materializeNucleoFromRadarLead(context.companyId, leadRow);
     return {
       ok: true,
       radarLeadId: leadRow.id,
       vendasLeadId,
       import: imported,
     };
+  }
+
+  // NÚCLEO-CRM N2 — hook aditivo da ingestão no PULL. O único choke onde um lead da base 28M
+  // vira VendasLead é `importRadarLeadToVendasForUser` (acima); aqui, DEPOIS que ele já
+  // respondeu, plugamos a materialização da espinha (Conta+Contato). Delega toda a lógica pro
+  // helper puro/testável `materializeNucleoIngestaoFromRadarLead` (nucleo/nucleo-ingestao.ts),
+  // que checa a flag `HBX_NUCLEO_INGESTAO_ENABLED` (default OFF) e recupera o CNPJ do pool row
+  // (sourceUrl `internal://cnpj-base/<cnpj>` ou evidenceJson). Flag OFF: no-op total, pull
+  // idêntico ao de hoje (protege o refab "Buscar empresas" do dono).
+  private materializeNucleoFromRadarLead(companyId: number, leadRow: any): Promise<void> {
+    // Sai barato quando a flag está OFF, sem instanciar serviço nem tocar env duas vezes.
+    if (!nucleoIngestaoEnabled()) return Promise.resolve();
+    return materializeNucleoIngestaoFromRadarLead(
+      {
+        cadastro: this.getNucleoCadastro(),
+        loadCnpjPublic: async (cnpj: string) => {
+          if (!(await this.prisma.hasTable('CnpjPublicCompany').catch(() => false))) return null;
+          return (this.prisma as any).cnpjPublicCompany
+            .findUnique({
+              where: { cnpj },
+              select: {
+                cnpj: true,
+                razaoSocial: true,
+                nomeFantasia: true,
+                ownerName: true,
+                ownerQualification: true,
+                address: true,
+                city: true,
+                state: true,
+              },
+            })
+            .catch(() => null);
+        },
+        logger: this.logger,
+      },
+      companyId,
+      leadRow,
+    )
+      .then(() => undefined)
+      .catch(() => undefined);
   }
 
   async distributeRadarLeadsToVendedoresForUser(
