@@ -16,6 +16,7 @@ import {
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { isTenantCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
+import { assertEffectiveTeamAccess } from '../team/team-access-runtime';
 import {
   buildPreferredSegmentsJsonValue,
   parsePreferredSegments,
@@ -35,6 +36,18 @@ type UserMutationGuardOptions = {
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  // RBAC Sprint 1: gate de gestao de usuarios da empresa (team.users.*). Fica
+  // no service (reutilizavel/testavel) e e chamado pelos endpoints de empresa
+  // ANTES do primitivo (create/updateById/deactivate/hardDelete) — os primitivos
+  // seguem intocados para os caminhos master/sistema (sem user). Semantica:
+  // `false` explicito na politica bloqueia INCLUSIVE ADMIN/Gerente; system_master
+  // nunca e bloqueado (assertEffectiveTeamAccess so cai no bloqueio quando a
+  // politica persistida resolve false, e o master nao tem politica).
+  async assertCompanyUserManagementAccess(actingUser: any, accessKey: string, message: string) {
+    if (actingUser?.isSystemMaster) return;
+    await assertEffectiveTeamAccess(this.prisma, actingUser, accessKey, message);
+  }
 
   private normalizeTeamRole(role?: string | null) {
     const normalized = String(role || '').trim().toUpperCase();

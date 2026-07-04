@@ -14,6 +14,8 @@ function buildUsersController(overrides: {
   hbxPartnerReferrals?: Record<string, any>;
 } = {}) {
   const usersService = {
+    // RBAC Sprint 1: gate de gestao de usuarios (no-op nestes testes que nao sao de RBAC).
+    assertCompanyUserManagementAccess: async () => {},
     findById: async () => ({ id: 10, companyId: 1, role: 'USER', isActive: true, deactivatedAt: null, isSystemMaster: false }),
     isSellerNetworkCompany: async () => true,
     getCompanyTrialSeatUsage: async () => ({

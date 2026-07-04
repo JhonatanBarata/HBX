@@ -171,7 +171,7 @@ async function loadCurrentModuleAccessRows(_prisma: any, user: any) {
   return normalizeModuleAccessRowsFromUser(user);
 }
 
-export async function resolveEffectiveTeamAccess(prisma: any, user: any): Promise<EffectiveTeamAccess> {
+async function resolveEffectiveTeamAccessUncached(prisma: any, user: any): Promise<EffectiveTeamAccess> {
   const hydratedUser = await hydrateUserForTeamAccess(prisma, user);
   const userId = normalizePositiveId(hydratedUser?.id);
   if (!userId) throw new ForbiddenException('Usuario nao identificado.');
@@ -211,6 +211,62 @@ export async function resolveEffectiveTeamAccess(prisma: any, user: any): Promis
     moduleAccessMap,
     explicitAccessMap,
   };
+}
+
+// ---------------------------------------------------------------------------
+// RBAC Sprint 3 — AccessContext 1× por request.
+//
+// resolveEffectiveTeamAccess faz 2+ queries (hydrateUser + loadUserTeamPolicy)
+// e um request de Vendas o chamava mais de uma vez (resolveVendasAccessContext,
+// depois asserts/has espalhados) → N× as mesmas queries no caminho quente.
+//
+// Cache: WeakMap<user, { prisma, promise }>. A chave é o PRÓPRIO objeto `user`
+// do request (req.user, hidratado pelo JwtStrategy) — vive exatamente o tempo do
+// request e é coletado com ele. NADA persiste entre requests (WeakMap não é
+// iterável e não segura a chave viva). Guardamos a Promise (não o valor) para
+// coalescer chamadas concorrentes no mesmo tick.
+//
+// Amarramos a entrada ao `prisma` que a gerou: num request real `prisma` é o
+// mesmo singleton em todas as chamadas → 1 resolve. Se a MESMA referência de
+// `user` for reusada com OUTRO `prisma` (padrão dos testes, que simula outro
+// estado de banco), o cache MISS de propósito e resolve de novo — sem estado
+// falso vazando entre cenários.
+//
+// Invalidação: nenhuma. Vida = request. Se a política mudar, é outro request,
+// outro `user`, outra entrada.
+type TeamAccessCacheEntry = { prisma: any; promise: Promise<EffectiveTeamAccess> };
+const teamAccessRequestCache = new WeakMap<object, TeamAccessCacheEntry>();
+
+// Contador de instrumentação (dev/test): quantas vezes o resolve REAL (uncached)
+// rodou. Prova a queda de queries por request. Não usar em produção para lógica.
+let effectiveTeamAccessResolveCount = 0;
+export function __getEffectiveTeamAccessResolveCount() {
+  return effectiveTeamAccessResolveCount;
+}
+export function __resetEffectiveTeamAccessResolveCount() {
+  effectiveTeamAccessResolveCount = 0;
+}
+
+export async function resolveEffectiveTeamAccess(prisma: any, user: any): Promise<EffectiveTeamAccess> {
+  // Só cacheia quando `user` é objeto (é sempre, em request real). Sem objeto
+  // não há chave WeakMap possível → resolve direto.
+  if (!user || typeof user !== 'object') {
+    effectiveTeamAccessResolveCount += 1;
+    return resolveEffectiveTeamAccessUncached(prisma, user);
+  }
+
+  const cached = teamAccessRequestCache.get(user as object);
+  if (cached && cached.prisma === prisma) return cached.promise;
+
+  effectiveTeamAccessResolveCount += 1;
+  const promise = resolveEffectiveTeamAccessUncached(prisma, user).catch((err) => {
+    // Falha não fica grudada no cache — o próximo acesso tenta de novo.
+    const current = teamAccessRequestCache.get(user as object);
+    if (current && current.promise === promise) teamAccessRequestCache.delete(user as object);
+    throw err;
+  });
+  teamAccessRequestCache.set(user as object, { prisma, promise });
+  return promise;
 }
 
 export async function hasEffectiveTeamAccess(prisma: any, user: any, key: unknown) {

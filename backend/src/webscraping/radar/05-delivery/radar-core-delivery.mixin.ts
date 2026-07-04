@@ -193,6 +193,21 @@ export class RadarCoreDeliveryMixin {
     }
   }
 
+  // RBAC Sprint 1: enforcement de chaves criticas que atingem tambem o GERENTE
+  // (role=ADMIN com canViewBilling=false). O toggle do Gerencial deixa de ser
+  // decorativo: um `false` explicito na politica bloqueia INCLUSIVE ADMIN. O
+  // system_master nunca e bloqueado (nao tem politica persistida; guard extra
+  // por seguranca). Caminhos de sistema/cron NAO passam por aqui (sem user).
+  private async assertTeamPolicyAccessAnyRole(user: any, accessKey: string, message: string) {
+    if (user?.isSystemMaster) return;
+    const userId = Math.trunc(Number(user?.id || 0));
+    if (!userId) return;
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
+    if (resolveTeamPolicyAccessAllowed(policy, accessKey) === false) {
+      throw new ForbiddenException(message);
+    }
+  }
+
   private async applyTeamPolicyRadarFilters<T extends { requiredChannels?: any; channelMatchMode?: any }>(
     context: SearchExecutionContext,
     filters: T,
@@ -3607,6 +3622,13 @@ export class RadarCoreDeliveryMixin {
     if (!this.canUseWebscrapingRole(user)) {
       throw new ForbiddenException('Apenas ADMIN pode distribuir cards do Radar para vendedores.');
     }
+    // RBAC Sprint 1: o toggle `radar.cards.distribute` do Gerencial passa a valer
+    // inclusive para o GERENTE (role=ADMIN). Master nunca e bloqueado.
+    await this.assertTeamPolicyAccessAnyRole(
+      user,
+      'radar.cards.distribute',
+      'Distribuir cards do Radar esta bloqueado pela politica da equipe.',
+    );
     const context = this.resolveContext(user);
     const leadIds = Array.from(new Set(
       (Array.isArray(input.leadIds) ? input.leadIds : [])

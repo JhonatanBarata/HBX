@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import type { User } from '@prisma/client';
 import { isTenantCompany } from '../common/company-kind';
 import { PrismaService } from '../prisma/prisma.service';
+import { loadUserTeamPolicyRuntime, resolveTeamPolicyAccessAllowed } from '../team/team-policy-persistence';
 
 type RequesterUser = Pick<User, 'id' | 'companyId' | 'role' | 'isActive' | 'deactivatedAt' | 'isSystemMaster'>;
 
@@ -19,6 +20,18 @@ export class HbxPartnerReferralService {
   private normalizeText(value: unknown) {
     const normalized = String(value || '').trim().replace(/\s+/g, ' ');
     return normalized || null;
+  }
+
+  // RBAC Sprint 1: gate por politica no service. `false` explicito bloqueia
+  // inclusive ADMIN/Gerente; system_master nunca e bloqueado (nao tem politica).
+  private async assertTeamPolicyAccess(actingUser: any, accessKey: string, message: string) {
+    if (actingUser?.isSystemMaster) return;
+    const userId = Math.trunc(Number(actingUser?.id || 0));
+    if (!userId) return;
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userId).catch(() => null);
+    if (resolveTeamPolicyAccessAllowed(policy, accessKey) === false) {
+      throw new ForbiddenException(message);
+    }
   }
 
   private normalizePhoneDigits(phone?: string | null) {
@@ -89,6 +102,8 @@ export class HbxPartnerReferralService {
   async createCandidate(requesterUser: RequesterUser, dto: CreateCandidateDto) {
     const companyId = await this.assertHbxOperation(requesterUser?.companyId);
     this.assertActiveHbxPartner(requesterUser);
+    // RBAC Sprint 1: indicar vendedor exige sellerNetwork.recruitSellers.
+    await this.assertTeamPolicyAccess(requesterUser, 'sellerNetwork.recruitSellers', 'Indicar vendedores esta bloqueado pela politica da equipe.');
 
     const candidateName = this.normalizeText(dto?.candidateName);
     const candidatePhone = this.normalizeText(dto?.candidatePhone);
@@ -134,6 +149,8 @@ export class HbxPartnerReferralService {
 
   async approveCandidate(masterUser: Pick<User, 'id' | 'companyId'>, candidateId: string) {
     const companyId = await this.assertHbxOperation(masterUser?.companyId);
+    // RBAC Sprint 1: aprovar indicacao exige sellerNetwork.approveReferrals.
+    await this.assertTeamPolicyAccess(masterUser, 'sellerNetwork.approveReferrals', 'Aprovar indicacoes esta bloqueado pela politica da equipe.');
     const normalizedCandidateId = String(candidateId || '').trim();
     if (!normalizedCandidateId) throw new BadRequestException('Indicação inválida');
 
@@ -158,6 +175,8 @@ export class HbxPartnerReferralService {
 
   async rejectCandidate(masterUser: Pick<User, 'id' | 'companyId'>, candidateId: string, _reason?: string | null) {
     const companyId = await this.assertHbxOperation(masterUser?.companyId);
+    // RBAC Sprint 1: rejeitar indicacao tambem e sellerNetwork.approveReferrals.
+    await this.assertTeamPolicyAccess(masterUser, 'sellerNetwork.approveReferrals', 'Aprovar/rejeitar indicacoes esta bloqueado pela politica da equipe.');
     const normalizedCandidateId = String(candidateId || '').trim();
     if (!normalizedCandidateId) throw new BadRequestException('Indicação inválida');
 

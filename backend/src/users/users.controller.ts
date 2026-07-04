@@ -909,6 +909,9 @@ export class UsersController {
 			throw new BadRequestException('role must be USER or ADMIN');
 		}
 
+		// RBAC Sprint 1: team.users.edit — o `false` no Gerencial bloqueia inclusive o GERENTE.
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.edit', 'Editar usuarios esta bloqueado pela politica da equipe.');
+
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (Number(target.companyId) !== companyId) {
@@ -949,6 +952,9 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 
+		// RBAC Sprint 1: team.users.edit — o `false` no Gerencial bloqueia inclusive o GERENTE.
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.edit', 'Editar usuarios esta bloqueado pela politica da equipe.');
+
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (Number(target.companyId) !== companyId) {
@@ -956,6 +962,16 @@ export class UsersController {
 		}
 		if (target.isSystemMaster) {
 			throw new ForbiddenException('Usuário MASTER não pode ser alterado por admin da empresa');
+		}
+
+		// RBAC Sprint 1 (Lote B $): editar percentual/teto de comissao exige commission.editPercent;
+		// mexer em indicador/heranca exige commission.inheritance.configure. So dispara quando o
+		// campo de dinheiro vem no payload — editar nome/telefone segue livre. Master nunca bloqueia.
+		if (dto.commissionPercent !== undefined || dto.commissionMonthlyCap !== undefined || dto.setupCommissionCap !== undefined) {
+			await this.usersService.assertCompanyUserManagementAccess(req.user, 'commission.editPercent', 'Editar percentual de comissao esta bloqueado pela politica da equipe.');
+		}
+		if (dto.referredByUserId !== undefined || dto.sellerReferralCommissionPercent !== undefined || dto.referredByCommissionPercentSnapshot !== undefined) {
+			await this.usersService.assertCompanyUserManagementAccess(req.user, 'commission.inheritance.configure', 'Configurar heranca de comissao esta bloqueado pela politica da equipe.');
 		}
 
 		const data: any = {};
@@ -1040,6 +1056,9 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 
+		// RBAC Sprint 1: resetar senha e edicao de acesso — team.users.edit.
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.edit', 'Editar usuarios esta bloqueado pela politica da equipe.');
+
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (Number(target.companyId) !== companyId) throw new ForbiddenException('Usuário fora da sua empresa');
@@ -1061,6 +1080,10 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		const requesterId = Number(req?.user?.id);
 		if (!companyId) throw new ForbiddenException('Company context required');
+
+		// RBAC Sprint 1: ligar/desligar acesso da equipe — team.users.disable.
+		// O `false` no Gerencial bloqueia inclusive o GERENTE (role=ADMIN).
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.disable', 'Desativar usuarios esta bloqueado pela politica da equipe.');
 
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
@@ -1162,6 +1185,9 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 
+		// RBAC Sprint 1: excluir usuario da empresa — team.users.delete.
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.delete', 'Excluir usuarios esta bloqueado pela politica da equipe.');
+
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (Number(target.companyId) !== companyId) {
@@ -1189,6 +1215,17 @@ export class UsersController {
 	async createCompanyUser(@Req() req: any, @Body() dto: CreateCompanyUserDto) {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
+
+		// RBAC Sprint 1: criar acesso de vendedor/admin no Gerencial — team.users.create.
+		// O `false` no Gerencial bloqueia inclusive o GERENTE (role=ADMIN).
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.create', 'Criar usuarios esta bloqueado pela politica da equipe.');
+		// RBAC Sprint 1 (Lote B $): definir percentual/heranca no cadastro segue as mesmas chaves de dinheiro.
+		if (dto.commissionPercent !== undefined || dto.commissionMonthlyCap !== undefined || dto.setupCommissionCap !== undefined) {
+			await this.usersService.assertCompanyUserManagementAccess(req.user, 'commission.editPercent', 'Editar percentual de comissao esta bloqueado pela politica da equipe.');
+		}
+		if (dto.referredByUserId !== undefined || dto.sellerReferralCommissionPercent !== undefined || dto.referredByCommissionPercentSnapshot !== undefined) {
+			await this.usersService.assertCompanyUserManagementAccess(req.user, 'commission.inheritance.configure', 'Configurar heranca de comissao esta bloqueado pela politica da equipe.');
+		}
 
 		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);

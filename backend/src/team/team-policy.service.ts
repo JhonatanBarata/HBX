@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { isTenantCompany } from '../common/company-kind';
+import { isGerenteActor } from '../access/actor-kind';
 import { ModulesService } from '../modules/modules.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -459,9 +460,10 @@ export class TeamPolicyService {
     return Object.keys(next).length ? next : undefined;
   }
 
+  // RBAC Sprint 3: fonte única em ../access/actor-kind (resolveActorKind).
+  // Semântica idêntica ao inline anterior (caracterização em actor-kind.test.ts).
   private isGerente(requester: any): boolean {
-    const role = this.normalizeRole(requester?.role);
-    return !requester?.isSystemMaster && role === 'ADMIN' && requester?.canViewBilling === false;
+    return isGerenteActor(requester);
   }
 
   private getActorKind(user: any, company?: any): TeamPolicyActorKind {
@@ -1198,6 +1200,16 @@ export class TeamPolicyService {
   async updatePolicy(requester: any, targetUserId: number, patch: TeamPolicyPatch) {
     const target = await this.findTargetUser(targetUserId);
     await this.assertCanManage(requester, target);
+
+    // RBAC Sprint 1: aplicar preset de acesso exige team.access.applyPreset.
+    // So dispara quando um preset valido e pedido. Master nunca e bloqueado
+    // (assertCanManage ja retorna cedo para o system_master).
+    if (!requester?.isSystemMaster && this.resolveAccessPresetKey(patch)) {
+      const requesterPolicy = await loadUserTeamPolicyRuntime(this.prisma, requester?.id).catch(() => null);
+      if (resolveTeamPolicyAccessAllowed(requesterPolicy, 'team.access.applyPreset') === false) {
+        throw new ForbiddenException('Aplicar preset de acesso esta bloqueado pela politica da equipe.');
+      }
+    }
 
     if (this.isGerente(requester)) {
       const hasNonModulePatch =

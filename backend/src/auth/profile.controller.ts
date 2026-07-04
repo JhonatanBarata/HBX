@@ -11,6 +11,7 @@ import { resolveCompanyKind, isPlatformInfraCompany, isTenantCompany } from '../
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { parsePreferredSegments } from '../users/preferred-segments.util';
 import { topSegment } from '../users/segment-affinity.util';
+import { resolveActorKind, isBillingOwnerActor } from '../access/actor-kind';
 
 class ChangePasswordDto {
   @IsString()
@@ -32,6 +33,8 @@ class UpdateDisplayNameDto {
 export function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
   const role = String(user.role || '').trim().toUpperCase();
+  // RBAC Sprint 3: papel hierárquico derivado 1× da fonte única.
+  const actorKind = resolveActorKind(user);
   const isReferralSeller = false;
   const userKind = user.isSystemMaster
     ? 'system_master'
@@ -50,7 +53,8 @@ export function sanitizeUser(user: any, masterContext?: any) {
   // preco e datas de trial NAO saem do backend para role USER.
   // Régua única (PR13062026007 P3): "gerente pra baixo ninguém vê o vínculo
   // HBX×contratante" — só Dono e Master. Gerente = ADMIN com canViewBilling=false.
-  const billingAudience = Boolean(user.isSystemMaster) || (role === 'ADMIN' && user.canViewBilling !== false);
+  // RBAC Sprint 3: master OU ADMIN-dono via fonte única (isBillingOwnerActor = master|dono).
+  const billingAudience = isBillingOwnerActor(user);
   // Ramo-alvo da empresa (dono, 14/06/2026): segmento(s) que a empresa quer
   // prospectar. Lista vazia + dono (ADMIN dono, não gerente, não vendedor, não
   // master) ⇒ portão pergunta no primeiro login.
@@ -63,9 +67,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
     }
   })();
   const ramoPending =
-    role === 'ADMIN' &&
-    !user.isSystemMaster &&
-    user.canViewBilling !== false &&
+    actorKind === 'dono' &&
     Boolean(user.company) &&
     // Só DEPOIS de ter acesso (cartão/pago/trial). Sem isto a tela de ramo
     // aparecia antes do cartão (pending_checkout) — o certo é pagar primeiro,
@@ -87,9 +89,7 @@ export function sanitizeUser(user: any, masterContext?: any) {
     }
   })();
   const adminOnboardingPending =
-    role === 'ADMIN' &&
-    !user.isSystemMaster &&
-    user.canViewBilling !== false &&
+    actorKind === 'dono' &&
     Boolean(user.company) &&
     Boolean(companyAccess?.canUse) &&
     !adminModeChosen;
@@ -120,8 +120,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     adminOnboardingPending,
     sellerProfile: {
       isReferralSeller,
-      isCommonSeller: role === 'USER' && !isReferralSeller && !user.isSystemMaster,
-      isAdmin: role === 'ADMIN' && !user.isSystemMaster,
+      isCommonSeller: actorKind === 'vendedor' && !isReferralSeller,
+      // RBAC Sprint 3: ADMIN não-master = dono OU gerente (fonte única).
+      isAdmin: actorKind === 'dono' || actorKind === 'gerente',
       canRecruitSellers: Boolean(user.canRegisterHbxSellers),
       // comissao de venda do proprio vendedor (a tela /leads mostra para o
       // vendedor; nao e cobranca/plano da empresa) — ordem do dono 13/06/2026.
@@ -519,12 +520,17 @@ const MANAGER_CHECKLIST: ChecklistStep[] = [
 
 // 'admin' aqui é o DONO (vê cobrança). O GERENTE também é role ADMIN no banco, mas
 // com canViewBilling=false (régua única PR13062026007). Separamos os dois.
+// RBAC Sprint 3: papel derivado da fonte única (resolveActorKind); aqui só
+// traduzimos o vocabulário PT → o vocabulário local (EN) que o checklist usa.
+// Semântica idêntica ao inline anterior (caracterização em access/actor-kind.test.ts).
 function resolveUserKind(user: any): 'system_master' | 'admin' | 'manager' | 'seller' | 'user' {
-  const role = String(user?.role || '').trim().toUpperCase();
-  if (user?.isSystemMaster) return 'system_master';
-  if (role === 'ADMIN') return (user as any)?.canViewBilling === false ? 'manager' : 'admin';
-  if (role === 'USER') return 'seller';
-  return 'user';
+  switch (resolveActorKind(user)) {
+    case 'master': return 'system_master';
+    case 'dono': return 'admin';
+    case 'gerente': return 'manager';
+    case 'vendedor': return 'seller';
+    default: return 'user';
+  }
 }
 
 // Modo de operação do admin (solo|time). Decidido no 1º login (portão) e gravado
