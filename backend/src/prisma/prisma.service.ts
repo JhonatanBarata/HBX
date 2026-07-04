@@ -1,5 +1,10 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import {
+  buildTenantGuardExtension,
+  logTenantGuardBoot,
+  resolveTenantGuardMode,
+} from './tenant-guard.extension';
 
 function buildRuntimeDatabaseUrl() {
   return String(process.env.DATABASE_URL || '').trim();
@@ -447,6 +452,50 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         : undefined,
     );
     this.runtimeDatabaseUrl = runtimeDatabaseUrl;
+
+    // Trava de escopo de tenant (multi-tenancy Sprint 1). O $extends devolve um
+    // NOVO client imutável (não muta `this`); os dois compartilham a MESMA conexão,
+    // então o $connect/$disconnect de `this` cobre os dois. Delegamos os acessos a
+    // model (this.user, this.company, ...) e os métodos $transaction/$queryRaw pro
+    // client estendido via Proxy, mantendo os métodos próprios do PrismaService
+    // (onModuleInit, hasTable, ensures...) intactos. O guard lê o tenant do request
+    // no AsyncLocalStorage — ver tenant-guard.extension.ts.
+    const guardMode = resolveTenantGuardMode();
+    logTenantGuardBoot(guardMode);
+    if (guardMode === 'off') {
+      return;
+    }
+
+    // Membros PRÓPRIOS do PrismaService (lifecycle, ensures de schema, helpers
+    // hasTable/hasColumn, isSqliteUrl, logger, caches) — coletados da cadeia de
+    // protótipo ATÉ (sem incluir) o PrismaClient, mais as props de instância. Ficam
+    // sempre no target real: o $extends não os conhece e os ensures rodam SQL cru no
+    // client cru (por isso $queryRaw/$executeRaw não passam pela trava, documentado).
+    const ownMembers = new Set<string>(Object.getOwnPropertyNames(this));
+    let proto = Object.getPrototypeOf(this);
+    while (proto && proto !== PrismaClient.prototype && proto !== Object.prototype) {
+      for (const name of Object.getOwnPropertyNames(proto)) {
+        if (name !== 'constructor') ownMembers.add(name);
+      }
+      proto = Object.getPrototypeOf(proto);
+    }
+
+    const extended = this.$extends(buildTenantGuardExtension(guardMode)) as unknown as PrismaClient;
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        // Todo o resto (delegates de model `this.user`/`this.company`... + $transaction)
+        // vem do client estendido, que aplica a trava de tenant.
+        if (typeof prop === 'string' && ownMembers.has(prop)) {
+          const value = Reflect.get(target, prop, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+        if (prop in extended) {
+          const value = Reflect.get(extended as object, prop, extended);
+          return typeof value === 'function' ? value.bind(extended) : value;
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
   }
 
   async onModuleInit() {

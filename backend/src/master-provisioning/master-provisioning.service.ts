@@ -19,6 +19,13 @@ import {
   type TenantProductSeed,
   type TenantProductSeedInput,
 } from '../products/tenant-product-seed';
+import {
+  buildProvisioningLedger,
+  seedManualEntitlementsTx,
+  seedTenantModulesTx,
+  serializeProvisioningLedger,
+  type TenantProvisioningLedgerStep,
+} from './tenant-provisioning.pipeline';
 
 type ProvisioningStepStatus = 'ready' | 'done' | 'deferred' | 'pending_schema';
 
@@ -315,6 +322,9 @@ export class MasterProvisioningService {
     const entitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[plan.commercial.planKey] || [];
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Trilha de nascimento: registra cada passo do preset master_full (a
+      // porta monta a empresa; o pipeline aplica os passos compartilháveis).
+      const ledgerSteps: TenantProvisioningLedgerStep[] = [];
       const company = await (tx.company as any).create({
         data: {
           name: plan.tenant.name,
@@ -352,50 +362,24 @@ export class MasterProvisioningService {
         select: { id: true },
       });
 
-      const moduleRows = plan.modules.length
-        ? await tx.systemModule.findMany({
-            where: {
-              companyAssignable: true,
-              key: { in: plan.modules.map((moduleItem) => moduleItem.key) },
-            },
-            select: { id: true, key: true },
-          })
-        : [];
-      const moduleIdByKey = new Map(moduleRows.map((row) => [String(row.key), Number(row.id)]));
-      for (const moduleItem of plan.modules) {
-        const moduleId = moduleIdByKey.get(moduleItem.key);
-        if (!moduleId) continue;
-        await tx.companyModule.upsert({
-          where: { companyId_moduleId: { companyId: company.id, moduleId } },
-          update: { enabled: moduleItem.enabled },
-          create: { companyId: company.id, moduleId, enabled: moduleItem.enabled },
-        });
-      }
+      ledgerSteps.push({ key: 'create_tenant', status: 'done' });
 
-      if (plan.commercial.manualAccess && !plan.commercial.priceIsZero) {
-        const now = new Date();
-        for (const key of entitlementKeys) {
-          await tx.companyCommercialEntitlement.upsert({
-            where: { companyId_key: { companyId: company.id, key } },
-            update: {
-              status: 'manual',
-              source: 'master_provisioning',
-              currentPeriodStart: now,
-              currentPeriodEnd: null,
-              metadataJson: JSON.stringify({ planKey: plan.commercial.planKey, source: 'master_provisioning' }),
-            },
-            create: {
-              companyId: company.id,
-              key,
-              status: 'manual',
-              source: 'master_provisioning',
-              currentPeriodStart: now,
-              currentPeriodEnd: null,
-              metadataJson: JSON.stringify({ planKey: plan.commercial.planKey, source: 'master_provisioning' }),
-            },
-          });
-        }
+      // POST-IT (fix S4): CompanyModule só é gravado quando o master mandou
+      // módulos EXPLÍCITOS. Default (módulos do plano) NÃO grava nada — a caixa
+      // do plano resolve ao vivo. O pipeline centraliza esse gate.
+      const explicitModules = plan.modules.some((moduleItem) => moduleItem.source === 'input');
+      const { resolvedModuleKeys } = await seedTenantModulesTx(tx, company.id, plan.modules);
+      ledgerSteps.push({
+        key: 'release_modules',
+        status: explicitModules ? 'done' : 'skipped',
+        detail: explicitModules ? null : 'post-it vazio (módulos do plano ao vivo)',
+      });
+
+      const grantsEntitlements = plan.commercial.manualAccess && !plan.commercial.priceIsZero;
+      if (grantsEntitlements) {
+        await seedManualEntitlementsTx(tx, company.id, plan.commercial.planKey);
       }
+      ledgerSteps.push({ key: 'grant_manual_entitlements', status: grantsEntitlements ? 'done' : 'skipped' });
 
       const admin = plan.admin && adminPasswordHash
         ? await tx.user.create({
@@ -415,15 +399,28 @@ export class MasterProvisioningService {
             select: { id: true },
           })
         : null;
+      ledgerSteps.push({ key: 'create_initial_admin', status: admin ? 'done' : 'skipped' });
 
       const products = await ensureTenantProductsTx(tx, company.id, plan.products, {
         authorId: admin?.id || null,
+      });
+      ledgerSteps.push({
+        key: 'prepare_initial_products',
+        status: products.length ? 'done' : 'skipped',
+        detail: `${products.filter((product) => product.created).length} criado(s)`,
+      });
+
+      // Persiste a trilha de nascimento (aditivo, nullable).
+      const ledger = buildProvisioningLedger('master_full', 'master_provisioning', ledgerSteps);
+      await tx.company.update({
+        where: { id: company.id },
+        data: { provisioningLedgerJson: serializeProvisioningLedger(ledger) },
       });
 
       return {
         companyId: company.id,
         adminUserId: admin?.id || null,
-        resolvedModuleKeys: moduleRows.map((row) => String(row.key)),
+        resolvedModuleKeys,
         products,
       };
     });

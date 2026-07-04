@@ -83,6 +83,7 @@ test('buildProvisioningPlan defaults modules from selected plan and validates ad
 test('provisionTenant persists initial products and support channels for the tenant', async () => {
   const productCreates: any[] = [];
   const companyCreates: any[] = [];
+  const companyUpdates: any[] = [];
   const service = new MasterProvisioningService({
     company: { findUnique: async () => null },
     user: { findFirst: async () => null },
@@ -90,6 +91,10 @@ test('provisionTenant persists initial products and support channels for the ten
       company: {
         create: async ({ data }: any) => {
           companyCreates.push(data);
+          return { id: 42 };
+        },
+        update: async ({ data }: any) => {
+          companyUpdates.push(data);
           return { id: 42 };
         },
       },
@@ -141,6 +146,76 @@ test('provisionTenant persists initial products and support channels for the ten
   assert.equal(productCreates[0].createdByUserId, 77);
   assert.equal(result.products[0].created, true);
   assert.equal(result.products[0].productId, 1);
+  // Ledger de nascimento persistido no full.
+  assert.equal(companyUpdates.length, 1);
+  const ledger = JSON.parse(companyUpdates[0].provisioningLedgerJson);
+  assert.equal(ledger.preset, 'master_full');
+  assert.equal(ledger.source, 'master_provisioning');
+  assert.ok(ledger.steps.find((step: any) => step.key === 'create_tenant'));
+});
+
+test('provisionTenant WITHOUT explicit modules does NOT write CompanyModule (post-it)', async () => {
+  const moduleUpserts: any[] = [];
+  let systemModuleQueried = false;
+  const companyUpdates: any[] = [];
+  const service = new MasterProvisioningService({
+    company: { findUnique: async () => null },
+    user: { findFirst: async () => null },
+    $transaction: async (callback: any) => callback({
+      company: {
+        create: async () => ({ id: 99 }),
+        update: async ({ data }: any) => {
+          companyUpdates.push(data);
+          return { id: 99 };
+        },
+      },
+      systemModule: {
+        findMany: async () => {
+          systemModuleQueried = true;
+          return [];
+        },
+      },
+      companyModule: { upsert: async (args: any) => { moduleUpserts.push(args); return {}; } },
+      companyCommercialEntitlement: { upsert: async () => ({}) },
+      user: { create: async () => ({ id: 1 }) },
+      product: { findFirst: async () => null, create: async () => ({ id: 1 }) },
+    }),
+  } as any);
+
+  // manualAccess=true (default) mas SEM modules explícitos: o full concede
+  // entitlements do plano, porém o post-it NÃO grava nenhum CompanyModule.
+  await service.provisionTenant({ companyName: 'Sem Modulos Explicitos', planKey: 'hbx_padrao' });
+
+  assert.equal(moduleUpserts.length, 0);
+  assert.equal(systemModuleQueried, false);
+  const ledger = JSON.parse(companyUpdates[0].provisioningLedgerJson);
+  assert.equal(ledger.steps.find((step: any) => step.key === 'release_modules')?.status, 'skipped');
+});
+
+test('provisionTenant WITH explicit modules writes CompanyModule (exceção do master)', async () => {
+  const moduleUpserts: any[] = [];
+  const service = new MasterProvisioningService({
+    company: { findUnique: async () => null },
+    user: { findFirst: async () => null },
+    $transaction: async (callback: any) => callback({
+      company: { create: async () => ({ id: 7 }), update: async () => ({ id: 7 }) },
+      systemModule: {
+        findMany: async ({ where }: any) => where.key.in.map((key: string, index: number) => ({ id: index + 1, key })),
+      },
+      companyModule: { upsert: async (args: any) => { moduleUpserts.push(args); return {}; } },
+      companyCommercialEntitlement: { upsert: async () => ({}) },
+      user: { create: async () => ({ id: 1 }) },
+      product: { findFirst: async () => null, create: async () => ({ id: 1 }) },
+    }),
+  } as any);
+
+  await service.provisionTenant({
+    companyName: 'Com Modulos',
+    planKey: 'hbx_padrao',
+    modules: ['vendas', 'webscraping'],
+  });
+
+  assert.equal(moduleUpserts.length, 2);
 });
 
 test('backfillTenantProducts dry-run reports products that would be created', async () => {

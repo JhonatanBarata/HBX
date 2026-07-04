@@ -1,10 +1,8 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
-import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Admin } from '../auth/admin.decorator';
 import { RolesGuard } from '../auth/roles.guard';
-import { UsersService } from '../users/users.service';
 import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
@@ -151,7 +149,6 @@ class MasterHardDeleteCompanyDto {
 export class CompaniesController {
   constructor(
     private readonly companiesService: CompaniesService,
-    private readonly usersService: UsersService,
     private readonly whatsappStatus: WhatsAppStatusService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly masterContextService: MasterContextService,
@@ -359,16 +356,11 @@ export class CompaniesController {
     return Number(companyId);
   }
 
-  @Post()
-  @UseGuards(JwtAuthGuard)
-  async create(@Req() req: any, @Body() dto: CreateCompanyDto) {
-    const company = await this.companiesService.create(dto);
-    // associate authenticated user with this company
-    if (req.user && req.user.id) {
-      await this.usersService.updateCompany(req.user.id, company.id);
-    }
-    return company;
-  }
+  // NOTE (multi-tenancy Sprint 1): o antigo `POST /companies` foi REMOVIDO. Era uma
+  // porta órfã — qualquer autenticado criava uma empresa E se re-associava a ela sem
+  // auditoria (superfície de escalonamento/tenant-hopping). Frontend não chama
+  // (verificado 01/07). Criação de empresa passa só pelo fluxo master
+  // (`POST /companies/master`, com auditoria) e pelo signup. Autorizado pelo dono.
 
   @Post('master')
   @UseGuards(JwtAuthGuard, MasterGuard)

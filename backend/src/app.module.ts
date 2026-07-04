@@ -12,7 +12,8 @@ import { MessagingModule } from './messaging/messaging.module';
 import { MailModule } from './mail/mail.module';
 import { SupportModule } from './support/support.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { TenantContextInterceptor } from './prisma/tenant-context.interceptor';
 import { InboxModule } from './inbox/inbox.module';
 import { GerencialModule } from './gerencial/gerencial.module';
 import { ModulesAccessModule } from './modules/modules.module';
@@ -101,6 +102,12 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    // Abre o escopo de tenant (AsyncLocalStorage) por request pra trava do Prisma
+    // (multi-tenancy Sprint 1). Global: cobre todo controller.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantContextInterceptor,
     },
   ],
 })

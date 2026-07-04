@@ -124,6 +124,11 @@ model Company {
   assistedSetupCompletedAt DateTime?
   assistedSetupCompletedByUserId Int?
   assistedSetupNote       String?
+  // Trilha de nascimento (multi-tenancy S4): registra COMO a empresa nasceu —
+  // por qual porta (signup/convite/provisionamento full), qual preset e o
+  // resultado de cada passo do pipeline único. Nullable aditivo; suporte lê pra
+  // saber por que uma empresa está sem produto/entitlement sem adivinhar.
+  provisioningLedgerJson  String?
   themePreferenceConfig   String?
   billingCardBrand        String?
   billingCardLast4        String?
@@ -171,7 +176,6 @@ model Company {
   currentWhatsappConnectionSession WhatsAppConnectionSession? @relation("CompanyCurrentWhatsappConnectionSession", fields: [currentWhatsappConnectionSessionId], references: [id], onDelete: SetNull)
   whatsappConnectionSessions WhatsAppConnectionSession[] @relation("CompanyWhatsappConnectionSessions")
   atendimentoAppointments AtendimentoAppointment[]
-  inboxConversations Conversation[]
 
   autoReplyRules       AutoReplyRule[]
   inboundMessages      InboundMessage[]
@@ -424,7 +428,7 @@ model TrialPhoneUsage {
 
 model CompanyWhatsAppEndpoint {
   id                      String   @id @default(cuid())
-  company                 Company  @relation(fields: [companyId], references: [id])
+  company                 Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId               Int
   label                   String?
   moduleKey               String?
@@ -496,7 +500,7 @@ model CompanySubscription {
 
 model HbxRecoveryCustomer {
   id                  String   @id @default(cuid())
-  company             Company  @relation(fields: [companyId], references: [id])
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId           Int
   customerProfile     CustomerProfile? @relation(fields: [customerProfileId], references: [id])
   customerProfileId   String?
@@ -525,9 +529,9 @@ model HbxRecoveryCustomer {
 
 model HbxRecoveryPayment {
   id                     String   @id @default(cuid())
-  company                Company  @relation(fields: [companyId], references: [id])
+  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId              Int
-  customer               HbxRecoveryCustomer @relation(fields: [customerId], references: [id])
+  customer               HbxRecoveryCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   customerId             String
   debtCase               DebtCase? @relation(fields: [debtCaseId], references: [id])
   debtCaseId             String?
@@ -626,7 +630,7 @@ model FinanceiroCharge {
 
 model HbxRecoveryFlowStage {
   id        String   @id @default(cuid())
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId Int
   title     String
   channel   String   @default("WhatsApp API")
@@ -643,7 +647,7 @@ model HbxRecoveryFlowStage {
 
 model CompanyConversation {
   id            Int      @id @default(autoincrement())
-  company       Company  @relation(fields: [companyId], references: [id])
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId     Int
   whatsappConnectionSession WhatsAppConnectionSession? @relation(fields: [whatsappConnectionSessionId], references: [id], onDelete: SetNull)
   whatsappConnectionSessionId String?
@@ -677,7 +681,7 @@ model CompanyConversation {
 
 model AtendimentoAppointment {
   id                    Int      @id @default(autoincrement())
-  company               Company  @relation(fields: [companyId], references: [id])
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId             Int
   conversation          CompanyConversation? @relation(fields: [conversationId], references: [id])
   conversationId        Int?
@@ -742,9 +746,9 @@ model InboxTrashMeticulousPurgeJob {
 
 model CompanyMessage {
   id             Int                 @id @default(autoincrement())
-  company        Company             @relation(fields: [companyId], references: [id])
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId      Int
-  conversation   CompanyConversation @relation(fields: [conversationId], references: [id])
+  conversation   CompanyConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   conversationId Int
   whatsappConnectionSession WhatsAppConnectionSession? @relation(fields: [whatsappConnectionSessionId], references: [id], onDelete: SetNull)
   whatsappConnectionSessionId String?
@@ -778,14 +782,13 @@ model CompanyMessage {
   @@map("Message")
 }
 
-model Customer {
-  id            String         @id @default(uuid())
-  phone         String         @unique
-  name          String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  conversations Conversation[]
-}
+// Inbox legado (Customer global / Conversation@InboxConversation /
+// Message@InboxMessage / SatisfactionSurvey) APOSENTADO em 03/07 (multi-tenancy
+// Sprint 2). Nunca teve escrita viva — o atendimento real usa CompanyConversation /
+// CompanyMessage (@@map "Message") / AtendimentoCustomer / CustomerProfile, todos com
+// companyId. As 4 tabelas estavam VAZIAS (censo local + prod = 0 linhas). Dropadas na
+// migration 20260703_drop_legacy_inbox. Removidos daqui pra encolher a cascata de
+// deleção e zerar o passivo LGPD de PII global sem finalidade (art. 15/16 LGPD).
 
 model AtendimentoCustomer {
   id                  String   @id @default(cuid())
@@ -831,7 +834,7 @@ model AtendimentoQuickReply {
 
 model CustomerProfile {
   id                   String   @id @default(cuid())
-  company              Company  @relation(fields: [companyId], references: [id])
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId            Int
   sourceConnection     IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
   sourceConnectionId   String?
@@ -867,9 +870,9 @@ model CustomerProfile {
 
 model DebtCase {
   id                 String   @id @default(cuid())
-  company            Company  @relation(fields: [companyId], references: [id])
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId          Int
-  customerProfile    CustomerProfile @relation(fields: [customerProfileId], references: [id])
+  customerProfile    CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
   customerProfileId  String
   sourceConnection   IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
   sourceConnectionId String?
@@ -891,7 +894,7 @@ model DebtCase {
 
 model IntegrationConnection {
   id                 String   @id @default(cuid())
-  company            Company  @relation(fields: [companyId], references: [id])
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId          Int
   provider           String
   instanceName       String
@@ -919,9 +922,9 @@ model IntegrationConnection {
 
 model IntegrationSyncRun {
   id                String   @id @default(cuid())
-  company           Company  @relation(fields: [companyId], references: [id])
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId         Int
-  connection        IntegrationConnection @relation(fields: [connectionId], references: [id])
+  connection        IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   connectionId      String
   provider          String?
   type              String
@@ -1004,9 +1007,9 @@ model MetaLeadConnection {
 
 model AuvoExternalRecord {
   id                 String   @id @default(cuid())
-  company            Company  @relation(fields: [companyId], references: [id])
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId          Int
-  connection         IntegrationConnection @relation(fields: [connectionId], references: [id])
+  connection         IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   connectionId       String
   externalId         String
   title              String?
@@ -1026,41 +1029,12 @@ model AuvoExternalRecord {
   @@index([companyId, status])
 }
 
-model Conversation {
-  id         String   @id @default(uuid())
-  companyId  Int?
-  customerId String
-  status     String   @default("new") // new | open | closed
-  assignedTo String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  company  Company?             @relation(fields: [companyId], references: [id])
-  customer Customer             @relation(fields: [customerId], references: [id])
-  messages Message[]
-  surveys  SatisfactionSurvey[]
-
-  @@index([companyId, status, updatedAt])
-  @@index([customerId, status, updatedAt])
-  @@map("InboxConversation")
-}
-
-model Message {
-  id             String   @id @default(uuid())
-  conversationId String
-  direction      String // inbound | outbound
-  content        String
-  createdAt      DateTime @default(now())
-
-  conversation Conversation @relation(fields: [conversationId], references: [id])
-
-  @@index([conversationId, createdAt])
-  @@map("InboxMessage")
-}
+// Inbox legado Conversation@InboxConversation + Message@InboxMessage APOSENTADO
+// (multi-tenancy Sprint 2, 03/07). Ver nota no lugar do antigo `model Customer`.
 
 model ConversationSession {
   id            Int      @id @default(autoincrement())
-  company       Company  @relation(fields: [companyId], references: [id])
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId     Int
   channel       String   @default("whatsapp")
   from          String
@@ -1079,10 +1053,10 @@ model ConversationSession {
 
 model OrderDraft {
   id        Int     @id @default(autoincrement())
-  company   Company @relation(fields: [companyId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId Int
 
-  session   ConversationSession @relation(fields: [sessionId], references: [id])
+  session   ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sessionId Int                 @unique
 
   status String  @default("DRAFT") // DRAFT | ABANDONED
@@ -1150,7 +1124,11 @@ model User {
   botAccessEnabled  Boolean  @default(false)
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referredUsers   User[]           @relation("UserSellerReferralNetwork")
-  company         Company?         @relation(fields: [companyId], references: [id])
+  // multi-tenancy S3: Cascade (era SetNull). Excluir a empresa apaga os usuários dela —
+  // o banco cascateia num `company.delete()` único. O usuário MASTER do sistema é
+  // protegido ANTES do delete (guard em permanentlyDeleteCompanyInternal). A rede de
+  // indicação (referredByUserId) é SetNull, então indicações cruzadas viram null, não travam.
+  company         Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int?
   role            String           @default("USER")
   isSystemMaster  Boolean          @default(false)
@@ -1526,9 +1504,9 @@ model AuthSession {
 
 model WebscrapingSearchHistory {
   id              String   @id @default(cuid())
-  company         Company  @relation(fields: [companyId], references: [id])
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          Int
   city            String
   segment         String
@@ -1575,7 +1553,7 @@ model WebscrapingSearchRun {
   id              String   @id @default(cuid())
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          Int
   status          String   @default("queued") // queued | running | sleeping | completed | partial_error | failed | canceled
   city            String
@@ -1735,9 +1713,9 @@ model WebscrapingGlobalCachePlace {
 
 model WebscrapingUsageLog {
   id              String   @id @default(cuid())
-  company         Company  @relation(fields: [companyId], references: [id])
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          Int
   eventType       String   @default("EXECUTED") // EXECUTED | BLOCKED_DAILY_LIMIT
   source          String? // history | google | hybrid | global_cache
@@ -2110,7 +2088,7 @@ model WebscrapingCampaign {
   id                         String   @id @default(cuid())
   company                    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId                  Int
-  user                       User     @relation(fields: [userId], references: [id])
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId                     Int
   status                     String   @default("queued") // queued | running | paused | sleeping | completed | completed_insufficient_results | partial_error | failed | canceled
   mode                       String   @default("radar_database")
@@ -2443,7 +2421,7 @@ model RadarStockConfig {
 
 model VendasLead {
   id                String   @id @default(cuid())
-  company           Company  @relation(fields: [companyId], references: [id])
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId         Int
   customerProfile   CustomerProfile? @relation(fields: [customerProfileId], references: [id])
   customerProfileId String?
@@ -2864,7 +2842,7 @@ model CadenciaRotina {
 
 model TechAssistantInteraction {
   id                String   @id @default(cuid())
-  user              User     @relation(fields: [userId], references: [id])
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId            Int
   company           Company? @relation(fields: [companyId], references: [id])
   companyId         Int?
@@ -3041,7 +3019,7 @@ model MasterEmailAsset {
 // internamente pelo CompanyMailerService (nunca via endpoint master).
 model CompanyEmailSettings {
   companyId              Int      @id
-  company                Company  @relation(fields: [companyId], references: [id])
+  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   enabled                Boolean  @default(false)
   smtpHost               String?
   smtpPort               Int?
@@ -3064,7 +3042,7 @@ model CompanyEmailSettings {
 
 model CompanyEmailTemplate {
   id        Int      @id @default(autoincrement())
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId Int
   kind      String
   label     String
@@ -3081,7 +3059,7 @@ model CompanyEmailTemplate {
 
 model CompanyEmailAsset {
   id           Int      @id @default(autoincrement())
-  company      Company  @relation(fields: [companyId], references: [id])
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId    Int
   key          String // presentation_pptx | business_card
   originalName String
@@ -3148,7 +3126,7 @@ model SystemModule {
 
 model CompanyModule {
   id             Int          @id @default(autoincrement())
-  company        Company      @relation(fields: [companyId], references: [id])
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId      Int
   systemModule   SystemModule @relation(fields: [moduleId], references: [id])
   moduleId       Int
@@ -3201,7 +3179,7 @@ model DeletionRecord {
 model PasswordReset {
   id        Int      @id @default(autoincrement())
   token     String   @unique
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   used      Boolean  @default(false)
   expiresAt DateTime
@@ -3232,7 +3210,7 @@ model Product {
   defaultCommissionPercent Float?
   sortOrder   Int              @default(0)
   stock       Int              @default(0)
-  company     Company?         @relation(fields: [companyId], references: [id])
+  company     Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId   Int?
   categoryRef Category?        @relation(fields: [categoryId], references: [id])
   categoryId  Int?
@@ -3263,7 +3241,7 @@ model Product {
 
 model AutoReplyRule {
   id              Int                 @id @default(autoincrement())
-  company         Company             @relation(fields: [companyId], references: [id])
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int
   enabled         Boolean             @default(true)
   priority        Int                 @default(0)
@@ -3277,7 +3255,7 @@ model AutoReplyRule {
 
 model AutoReplyResponse {
   id           Int           @id @default(autoincrement())
-  rule         AutoReplyRule @relation(fields: [ruleId], references: [id])
+  rule         AutoReplyRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
   ruleId       Int
   order        Int
   delaySeconds Int           @default(0)
@@ -3286,7 +3264,7 @@ model AutoReplyResponse {
 
 model InboundMessage {
   id         Int      @id @default(autoincrement())
-  company    Company  @relation(fields: [companyId], references: [id])
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId  Int
   from       String
   body       String
@@ -3295,7 +3273,7 @@ model InboundMessage {
 
 model OutboundMessage {
   id        Int     @id @default(autoincrement())
-  company   Company @relation(fields: [companyId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId Int
   whatsappEndpoint   CompanyWhatsAppEndpoint? @relation(fields: [whatsappEndpointId], references: [id])
   whatsappEndpointId String?
@@ -3335,7 +3313,7 @@ model OutboundMessage {
 
 model OutboundAttempt {
   id           Int             @id @default(autoincrement())
-  message      OutboundMessage @relation(fields: [messageId], references: [id])
+  message      OutboundMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
   messageId    Int
   attemptNo    Int
   startedAt    DateTime        @default(now())
@@ -3358,7 +3336,7 @@ model WhatsAppWebhookEvent {
 
 model WhatsAppAuditLog {
   id        Int      @id @default(autoincrement())
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId Int
   scope     String
   event     String
@@ -3439,7 +3417,7 @@ model Category {
 
 model ProductVersion {
   id        Int      @id @default(autoincrement())
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId Int
   data      String
   author    User?    @relation(fields: [authorId], references: [id])
@@ -3448,19 +3426,13 @@ model ProductVersion {
   createdAt DateTime @default(now())
 }
 
-model SatisfactionSurvey {
-  id             String   @id @default(uuid())
-  conversationId String
-  rating         Int?
-  feedback       String?
-  createdAt      DateTime @default(now())
-
-  conversation Conversation @relation(fields: [conversationId], references: [id])
-}
+// SatisfactionSurvey (pesquisa de satisfação/NPS) APOSENTADO com o Inbox legado
+// (multi-tenancy Sprint 2, 03/07). Feature morta: sem writer vivo, tabela sempre
+// vazia. A leitura órfã no gerencial foi removida junto.
 
 model CadastroFornecedor {
   id        Int      @id @default(autoincrement())
-  company   Company  @relation(fields: [empresaId], references: [id])
+  company   Company  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   empresaId Int
   nome      String
   paisId    Int?
@@ -3479,7 +3451,7 @@ model CadastroFornecedor {
 
 model CadastroPais {
   id        Int      @id @default(autoincrement())
-  company   Company  @relation(fields: [empresaId], references: [id])
+  company   Company  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   empresaId Int
   nome      String
   createdAt DateTime @default(now())
@@ -3494,7 +3466,7 @@ model CadastroPais {
 
 model CadastroPorto {
   id        Int      @id @default(autoincrement())
-  company   Company  @relation(fields: [empresaId], references: [id])
+  company   Company  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   empresaId Int
   nome      String
   paisId    Int?
@@ -3513,7 +3485,7 @@ model CadastroPorto {
 
 model CadastroTransitTime {
   id             Int      @id @default(autoincrement())
-  company        Company  @relation(fields: [empresaId], references: [id])
+  company        Company  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   empresaId      Int
   portoOrigemId  Int
   portoDestinoId Int
@@ -3521,8 +3493,8 @@ model CadastroTransitTime {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  portoOrigem  CadastroPorto @relation("TransitTimeOrigem", fields: [portoOrigemId], references: [id])
-  portoDestino CadastroPorto @relation("TransitTimeDestino", fields: [portoDestinoId], references: [id])
+  portoOrigem  CadastroPorto @relation("TransitTimeOrigem", fields: [portoOrigemId], references: [id], onDelete: Cascade)
+  portoDestino CadastroPorto @relation("TransitTimeDestino", fields: [portoDestinoId], references: [id], onDelete: Cascade)
 
   @@unique([empresaId, portoOrigemId, portoDestinoId])
   @@index([empresaId])

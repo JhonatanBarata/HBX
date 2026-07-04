@@ -38,7 +38,11 @@ import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyAccessAllowed,
 } from '../team/team-policy-persistence';
-import { buildTenantProductSeeds, ensureTenantProductsTx } from '../products/tenant-product-seed';
+import {
+  buildProvisioningLedger,
+  seedTenantDefaultProductsTx,
+  serializeProvisioningLedger,
+} from '../master-provisioning/tenant-provisioning.pipeline';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -655,12 +659,11 @@ export class AuthService implements OnModuleInit {
   }
 
   private async seedDefaultTenantProductsTx(tx: any, companyId: number) {
-    const seeds = buildTenantProductSeeds(null, {
-      source: 'auth_signup',
-      defaultStatus: 'draft',
-    });
-    if (!seeds.length) return;
-    await ensureTenantProductsTx(tx, companyId, seeds);
+    // Pipeline único de nascimento (multi-tenancy S4), preset self_service: a
+    // semente default aqui é a MESMA das portas do master (produtos default,
+    // rascunho). Comportamento idêntico ao inline anterior — só converge para a
+    // fonte única para que o signup não divirja do provisionamento.
+    return seedTenantDefaultProductsTx(tx, companyId, { source: 'auth_signup' });
   }
 
   private async syncTrialSelectedModulesTx(
@@ -1647,8 +1650,24 @@ export class AuthService implements OnModuleInit {
       });
 
       await this.seedDefaultCompanyModulesTx(tx, company.id);
-      await this.seedDefaultTenantProductsTx(tx, company.id);
+      const seededProducts = await this.seedDefaultTenantProductsTx(tx, company.id);
       await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
+
+      // Trilha de nascimento (multi-tenancy S4), preset self_service. O signup
+      // segue seu funil próprio (módulos do plano via syncPlanModulesTx, acesso
+      // só no checkout com cartão — regra travada 16/06); a trilha só REGISTRA
+      // como nasceu, sem mudar o comportamento do cadastro.
+      const signupLedger = buildProvisioningLedger('self_service', 'auth_signup', [
+        { key: 'create_tenant', status: 'done' },
+        {
+          key: 'prepare_initial_products',
+          status: (seededProducts?.length ?? 0) ? 'done' : 'skipped',
+        },
+      ]);
+      await tx.company.update({
+        where: { id: company.id },
+        data: { provisioningLedgerJson: serializeProvisioningLedger(signupLedger) },
+      });
 
       const user = await tx.user.create({
         data: {
