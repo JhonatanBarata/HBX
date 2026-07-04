@@ -771,7 +771,7 @@ model ConnectionEvent {
 
 // GATEWAY-WA S2: event outbox duravel (id serial = cursor). Dupla entrega junto do webhook HTTP.
 model EventOutbox {
-  id           Int      @id @default(autoincrement())
+  id           BigInt   @id @default(autoincrement())
   instanceName String   @db.VarChar(255)
   eventName    String   @db.VarChar(100)
   payload      Json     @db.Json

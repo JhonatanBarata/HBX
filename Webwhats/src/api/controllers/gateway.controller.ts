@@ -52,8 +52,17 @@ export class GatewayController {
   // GET /events?cursor={id}&limit={n} — eventos da outbox com id > cursor, ordem asc.
   // limit default 100, teto 500. Payload leve, sem joins.
   public async events(cursor?: string, limit?: string) {
-    const parsedCursor = Number.parseInt(cursor ?? '', 10);
-    const afterId = Number.isFinite(parsedCursor) && parsedCursor > 0 ? parsedCursor : 0;
+    // GATEWAY-WA S2: cursor em BigInt (EventOutbox.id e int8). Parse tolerante: vazio/invalido = 0.
+    let afterId = 0n;
+    const rawCursor = (cursor ?? '').trim();
+    if (rawCursor) {
+      try {
+        const parsed = BigInt(rawCursor);
+        if (parsed > 0n) afterId = parsed;
+      } catch {
+        afterId = 0n;
+      }
+    }
 
     const parsedLimit = Number.parseInt(limit ?? '', 10);
     const take = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 500) : 100;
@@ -67,6 +76,13 @@ export class GatewayController {
 
     const nextCursor = events.length > 0 ? events[events.length - 1].id : afterId;
 
-    return { cursor: afterId, nextCursor, count: events.length, events };
+    // BigInt nao e serializavel em JSON — devolve id/cursor como string. O consumer do backend
+    // ja faz BigInt(raw.id), entao string e o formato que ele espera.
+    return {
+      cursor: afterId.toString(),
+      nextCursor: nextCursor.toString(),
+      count: events.length,
+      events: events.map((event) => ({ ...event, id: event.id.toString() })),
+    };
   }
 }
