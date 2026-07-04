@@ -103,6 +103,7 @@ import { resolveEnrichmentPaidFlags } from '../../enrichment-cost/enrichment-pai
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
 import { confirmedSegments } from '../../../users/segment-affinity.util';
+import { buildCnpjBaseQueryInputFromRadarFilters } from '../providers/cnpj-public/radar-base-availability.util';
 
 import type {
   AutonomousMassDataCandidate,
@@ -2927,6 +2928,16 @@ export class RadarCorePresentationMixin {
     const pageRows = orderedRows.slice(offset, offset + filters.limit);
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const enrichmentSummary = this.buildRadarEnrichmentSummary(allRows);
+    // VENDAS-REFAB S3 (04/07) — "Total no Brasil"/"Leads na base (Radar)" liam SÓ o pool local
+    // (radarLeadPool, ~893 aqui em cima) fingindo ser a base RFB inteira (~28M). Descoberta =
+    // LISTA (CnpjPublicCompany) + WEB enriquece — o número "disponível/total" tem que vir da
+    // LISTA, filtrado pelo mesmo filtro ativo (cidade/UF/segmento/CNAE/contato). Só computa na
+    // VITRINE (é isso que o front pergunta pro topo do Vendas/Dashboard); nunca lança, nunca
+    // inventa número fixo — sem a base carregada neste ambiente, `baseAvailable=false` e quem
+    // consome cai pro `totalAvailable` do pool (fallback já existente no front).
+    const baseCount = vitrine && this.cnpjBaseQuery
+      ? await this.cnpjBaseQuery.countBase(buildCnpjBaseQueryInputFromRadarFilters(filters)).catch(() => ({ available: false, count: null }))
+      : { available: false, count: null };
     return {
       items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields, maskContact: vitrine })),
       total: filteredRows.length,
@@ -2935,6 +2946,11 @@ export class RadarCorePresentationMixin {
         available: true,
         vitrine,
         totalAvailable,
+        // Contrato S4: baseAvailable=true => baseTotal é o número REAL da base 28M (RFB) já
+        // filtrado (cidade/UF/segmento-ou-CNAE/tem-telefone/tem-celular). false => base não
+        // carregada neste ambiente (ex.: local); front deve exibir totalAvailable como fallback.
+        baseAvailable: baseCount.available,
+        baseTotal: baseCount.count,
         page: filters.page,
         limit: filters.limit,
         filterKey: filters.filterKey || null,

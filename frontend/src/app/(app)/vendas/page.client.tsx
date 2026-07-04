@@ -16,9 +16,9 @@ import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, us
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { VendasModoFoco } from "@/components/hbx/vendas-modo-foco";
-import { FocoGame, type FocoLead } from "@/components/hbx/foco-game";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
+import { isCompanySeller } from "@/lib/roles";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
@@ -375,6 +375,9 @@ export function VendasClient() {
   const userVnd = useCurrentUser();
   const modsVnd = useMyModules();
   const podeBuscarLeads = isModuleVisible("leads", entVnd, userVnd, modsVnd);
+  // Cota/valor/baixa só pro ADMIN (docs/Rules/PAGAMENTOS.md + VENDAS-REFAB invariante
+  // nº6, 04/07): vendedor nunca vê a cota financeira da empresa.
+  const isSellerVnd = isCompanySeller(userVnd);
   // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
@@ -737,9 +740,6 @@ export function VendasClient() {
   // a venda for REALMENTE concluída"; ligamos ao onDone do modal (sucesso). Cancelar
   // (✕) só fecha o modal e devolve o MESMO lead, sem avançar/contar.
   const focoWinConfirmRef = useRef<(() => void) | null>(null);
-  // Desktop: Modo Foco GAME (cinematográfico — queima + tablado 4 etapas + missões).
-  // Separado do mobile acima; só monta em !isMobile. EDIT 1 = casca front-first.
-  const [focoGameOpen, setFocoGameOpen] = useState(false);
 
   // Quadro arrastável (drag-and-drop nativo): arrastar um card pra outra coluna
   // muda a ETAPA (status). dragId = card sendo arrastado; dragOverStage = coluna
@@ -1006,22 +1006,6 @@ export function VendasClient() {
   const summary = board?.summary;
   const deal = sel;
 
-  // Modo Foco GAME (desktop): mapeia os leads reais nas 4 etapas da jornada.
-  // novo→Pesquisa · contato→Análise · inbox/retorno/qualificado→Atendimento ·
-  // encerrado/fechado→Fechamento. O componente FILTRA pelo foco escolhido (1
-  // segmento + cidade) e corta em 10 — nunca mistura segmentos/cidades.
-  const focoLeads: FocoLead[] = board
-    ? BLOCK_ORDER.flatMap(({ key }) => board.blocks?.[key] || []).map(c => {
-        const st = normalizeStage(c.status);
-        const col: FocoLead["col"] =
-          c.block === "closed" || c.saleConfirmedAt || st === "encerrado" ? "fechamento"
-          : c.isInInbox || st === "retorno" || st === "qualificado" ? "atendimento"
-          : st === "contato" ? "analise"
-          : "pesquisa";
-        return { id: c.id, name: c.name, segment: c.segment, city: c.city, phone: c.phone, col, inInbox: c.isInInbox ?? false };
-      })
-    : [];
-
   // 2 botões acoplados (toggle de modo) — vivem no topo persistente da casca ÚNICA,
   // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
   // Ativo destacado (preenchido).
@@ -1042,31 +1026,19 @@ export function VendasClient() {
 
   return (
     <React.Fragment>
-        {!isMobile && focoGameOpen && board && (
-          <FocoGame
-            summary={summary ? { total: summary.total, overdue: summary.overdue, closed: summary.closed } : null}
-            leads={focoLeads}
-            canRobot={Boolean(botStatus?.botModuleEnabled)}
-            onExit={() => setFocoGameOpen(false)}
-            onOpenProspector={() => setProspOpen(true)}
-            onSelectLead={id => { const c = BLOCK_ORDER.flatMap(({ key }) => board?.blocks?.[key] || []).find(x => x.id === id); if (c) setSel(c); }}
-          />
-        )}
         <div className="vnd-modehost" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
 
           {/* TOPO — UMA casca: toggle + 3 cards. Os NÚMEROS trocam por modo
               (funil ↔ Radar) em crossfade no MESMO lugar; nada desliza. 29/06. */}
           <div className="vnd-funhead">
             {segToggle}
-            {!isMobile && canAtendimento && (
-              <button type="button" className="foco-enter" onClick={() => setFocoGameOpen(true)}>
-                <I d={ICONS.bolt} size={15} /> Ativar modo foco
-              </button>
-            )}
             <div className="vnd-stats">
               <div className={"vnd-stats__layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
                 <KpiRow items={[
-                  { icon: "users", label: "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
+                  // board.team só vem preenchido pra quem gerencia o time (canManageTeam,
+                  // ver tipo BoardResponse acima) — pra esse perfil o summary é o AGREGADO
+                  // da empresa (todos os vendedores), nunca "meu funil" (VENDAS-REFAB 04/07).
+                  { icon: "users", label: board?.team ? "Cards no funil (empresa)" : "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
                   { icon: "doc", label: "Atrasados", value: summary ? String(summary.overdue) : "—", delta: "—", down: Boolean(summary && summary.overdue > 0) },
                   { icon: "check", label: "Fechados", value: summary ? String(summary.closed) : "—", delta: "—" },
                 ]} />
@@ -1075,7 +1047,13 @@ export function VendasClient() {
                 <KpiRow items={[
                   { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
                   { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
-                  { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—" },
+                  // Cota/valor/baixa só pro ADMIN — vendedor vê só a carteira dele (o
+                  // /webscraping/radar/standing-order label já vem "Em mãos" pro seller;
+                  // aqui a gente reforça no front pra nunca vazar rótulo/valor de cota
+                  // financeira da empresa por engano num futuro contrato do backend).
+                  isSellerVnd
+                    ? { icon: "bolt", label: "Em mãos", value: buscarStats.cotaValue || "—", delta: "—" }
+                    : { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—" },
                 ]} />
               </div>
             </div>

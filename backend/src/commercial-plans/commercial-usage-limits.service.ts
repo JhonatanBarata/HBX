@@ -18,6 +18,13 @@ const SELLER_ACTIVE_CARD_LIMIT_MIN = 5;
 const SELLER_ACTIVE_CARD_LIMIT_MAX = 100;
 // Sentinela "sem teto" — vendedor ilimitado até o teto do plano (lei do dono 27/06).
 const SELLER_ACTIVE_CARD_LIMIT_UNLIMITED = 999999;
+// VENDAS-REFAB S1: penalidade automática de inatividade (corta effectiveLimit sozinha
+// com o vendedor sumido) só roda se o admin ligar explicitamente. Default OFF — mesmo
+// vendedor COM teto configurado (targetStockPerSeller) não perde slot por inatividade
+// até o admin optar. Isso é adicional à regra-mãe: sem teto nenhum, já é ilimitado.
+function isSellerInactivityPenaltyEnabled(): boolean {
+  return String(process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED || '').trim().toLowerCase() === 'true';
+}
 const ACTIVE_VENDAS_CARD_STATUSES = [
   'novo',
   'contato',
@@ -267,14 +274,6 @@ export class CommercialUsageLimitsService {
     return this.parseDate(session?.lastSeenAt) || fallback || null;
   }
 
-  private resolveInactivityPenalty(baseWithBonus: number, lastSeenAt: Date | null, now = new Date()) {
-    const days = this.daysSince(lastSeenAt, now);
-    if (days <= 3) return 0;
-    if (days <= 7) return Math.floor(baseWithBonus * 0.25);
-    if (days <= 14) return Math.floor(baseWithBonus * 0.5);
-    return Math.max(0, baseWithBonus - SELLER_ACTIVE_CARD_LIMIT_MIN);
-  }
-
   async getSellerActiveCardQuotaSnapshot(companyIdRaw: number, userIdRaw: number): Promise<SellerActiveCardQuotaSnapshot> {
     const companyId = Math.trunc(Number(companyIdRaw || 0));
     const userId = Math.trunc(Number(userIdRaw || 0));
@@ -374,6 +373,7 @@ export class CommercialUsageLimitsService {
           minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
           maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
           paused,
+          allowInactivityPenalty: isSellerInactivityPenaltyEnabled(),
         },
         salesWonLast30,
         inactivityDays: this.daysSince(lastSeenAt, now),

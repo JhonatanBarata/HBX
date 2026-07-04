@@ -380,3 +380,57 @@ test('top opportunities preferem LeadQualityV2 finalRankScore quando disponivel'
   assert.equal(result.items[0].id, 'lead-quality-v2');
   assert.equal(result.items[0].score, 96);
 });
+
+// ─── VENDAS-REFAB S3 — getLeadsBank ganha baseTotal/baseAvailable (base 28M real via
+// CnpjBaseQueryService.countBase), sem substituir o `total` do pool (RadarLeadPool) que outras
+// telas ainda usam para "pronto pra puxar". Nunca inventa numero fixo — o mock devolve um N
+// arbitrario so pra provar que o dado vem do count() da base, nao do pool local.
+function createLeadsBankPrisma(options: { poolCount?: number; hasRadarLeadPool?: boolean } = {}) {
+  const poolCount = options.poolCount ?? 3;
+  return {
+    hasTable: async (name: string) => (name === 'RadarLeadPool' ? options.hasRadarLeadPool !== false : false),
+    radarLeadPool: {
+      count: async () => poolCount,
+    },
+  } as any;
+}
+
+test('getLeadsBank: baseTotal vem do countBase() da base 28M, total continua o pool local', async () => {
+  const prisma = createLeadsBankPrisma({ poolCount: 3 });
+  const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: true, count: 6068 }) };
+  const service = new NightFactoryService(prisma, undefined as any, fakeCnpjBaseQuery) as any;
+
+  const result = await service.getLeadsBank();
+
+  assert.equal(result.available, true);
+  assert.equal(result.total, 3);
+  assert.equal(result.baseAvailable, true);
+  assert.equal(result.baseTotal, 6068);
+  assert.notEqual(result.baseTotal, result.total);
+});
+
+test('getLeadsBank: RadarLeadPool ausente -> pool indisponivel, mas baseTotal segue reportado', async () => {
+  const prisma = createLeadsBankPrisma({ hasRadarLeadPool: false });
+  const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: true, count: 6068 }) };
+  const service = new NightFactoryService(prisma, undefined as any, fakeCnpjBaseQuery) as any;
+
+  const result = await service.getLeadsBank();
+
+  assert.equal(result.available, false);
+  assert.equal(result.total, 0);
+  assert.equal(result.baseAvailable, true);
+  assert.equal(result.baseTotal, 6068);
+});
+
+test('getLeadsBank: base 28M indisponivel neste ambiente -> baseAvailable false, nunca lanca', async () => {
+  const prisma = createLeadsBankPrisma({ poolCount: 3 });
+  const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: false, count: null }) };
+  const service = new NightFactoryService(prisma, undefined as any, fakeCnpjBaseQuery) as any;
+
+  const result = await service.getLeadsBank();
+
+  assert.equal(result.available, true);
+  assert.equal(result.total, 3);
+  assert.equal(result.baseAvailable, false);
+  assert.equal(result.baseTotal, null);
+});

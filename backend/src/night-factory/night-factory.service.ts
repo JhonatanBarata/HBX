@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { buildRadarLeadEnrichment } from '../webscraping/radar-lead-enrichment';
 import { checkEmailDomainMx, type EmailMxStatus } from '../webscraping/email-mx-validation';
 import { WebsiteCrawlProviderService } from '../webscraping/radar/providers/website-crawl/website-crawl-provider.service';
+import { CnpjBaseQueryService } from '../webscraping/radar/providers/cnpj-public/cnpj-base-query.service';
 import {
   DEFAULT_NIGHT_FACTORY_CONFIG,
   NightFactoryConfig,
@@ -117,6 +118,9 @@ export class NightFactoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly websiteCrawlProvider: WebsiteCrawlProviderService = new WebsiteCrawlProviderService(),
+    // VENDAS-REFAB S3: sem módulo cruzado (night-factory não importa WebscrapingModule) —
+    // mesmo padrão do websiteCrawlProvider acima, instância local (só depende do prisma).
+    private readonly cnpjBaseQuery: CnpjBaseQueryService = new CnpjBaseQueryService(prisma),
   ) {}
 
   async getConfig(): Promise<NightFactoryConfig> {
@@ -304,13 +308,28 @@ export class NightFactoryService {
 
   // "Banco de Leads": número global defensável (exclui histórico negativo/inválido)
   // + delta do dia. Cacheado 5min. Só o número — nunca expõe contato aqui.
+  //
+  // VENDAS-REFAB S3 (04/07): `total` aqui sempre foi o POOL local (RadarLeadPool, ~893) —
+  // é isso que alimentava "Total no Brasil"/"Leads na base (Radar)" fingindo ser a base RFB
+  // inteira (~28M). Descoberta = LISTA (CnpjPublicCompany) + WEB enriquece (docs/Rules/MOTOR.md).
+  // `baseTotal` é o número REAL da LISTA (sem filtro — visão global do banco); `total` (pool)
+  // continua existindo pro que já é ENRIQUECIDO/pronto pra puxar. Quem consome decide qual exibir
+  // (contrato pro S4: baseAvailable=true => baseTotal é a verdade; false => cai no `total`).
   async getLeadsBank() {
     const now = Date.now();
     if (this.leadsBankCache && this.leadsBankCache.expiresAt > now) {
       return this.leadsBankCache.value;
     }
+    const baseCount = await this.cnpjBaseQuery.countBase({}).catch(() => ({ available: false, count: null }));
     if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
-      const empty = { generatedAt: new Date().toISOString(), total: 0, deltaToday: 0, available: false };
+      const empty = {
+        generatedAt: new Date().toISOString(),
+        total: 0,
+        deltaToday: 0,
+        available: false,
+        baseAvailable: baseCount.available,
+        baseTotal: baseCount.count,
+      };
       this.leadsBankCache = { value: empty, expiresAt: now + 60_000 };
       return empty;
     }
@@ -329,6 +348,8 @@ export class NightFactoryService {
       deltaToday,
       available: true,
       label: 'Banco de Leads',
+      baseAvailable: baseCount.available,
+      baseTotal: baseCount.count,
     };
     this.leadsBankCache = { value, expiresAt: now + 5 * 60_000 };
     return value;

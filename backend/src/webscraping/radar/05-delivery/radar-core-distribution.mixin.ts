@@ -446,6 +446,7 @@ export class RadarCoreDistributionMixin {
         sellerDistributionPausedUntil: true,
         sellerDistributionDailyLimitOverride: true,
         sellerDistributionNote: true,
+        preferredSegmentsJson: true,
         teamPolicy: {
           select: {
             cardDeliveryDailyMode: true,
@@ -458,6 +459,17 @@ export class RadarCoreDistributionMixin {
     return (sellers || [])
       .filter((seller: any) => !this.isSellerDistributionPaused(seller))
       .sort((a: any, b: any) => this.sellerDistributionPriorityWeight(a) - this.sellerDistributionPriorityWeight(b));
+  }
+
+  // VENDAS-REFAB S2: cerca do vendedor = território (já existente) + segmento
+  // preferido (`User.preferredSegmentsJson`). Lê o mesmo campo que o Radar/Leads
+  // já usa como BOOST (resolveRadarPreferenceSegments, 06-presentation) — nunca
+  // filtro, nunca trava a empresa: vendedor sem preferência recebe do segmento
+  // da regra normalmente; vendedor COM preferência é priorizado nela primeiro.
+  private resolveSellerPreferredSegments(seller: any): string[] {
+    return this.extractPreferredSegmentList(seller?.preferredSegmentsJson)
+      .map((segment: string) => normalizeLookupValue(segment))
+      .filter(Boolean);
   }
 
   async getRadarAutoDistributionRuleForUser(user: any) {
@@ -663,12 +675,23 @@ export class RadarCoreDistributionMixin {
     }).catch(() => 0);
   }
 
-  private buildRadarAutoDistributionFilterInput(rule: any, quantity: number): RadarFiltersInput {
+  private buildRadarAutoDistributionFilterInput(rule: any, quantity: number, extraSegments: string[] = []): RadarFiltersInput {
     const safeQuantity = Math.max(1, Math.min(100, Math.trunc(Number(quantity || 1) || 1)));
+    // VENDAS-REFAB S2: segmento da regra continua a base, mas a busca alarga a
+    // rede pros segmentos preferidos dos vendedores da fila (união, sem
+    // duplicar) — sem isso, pickRowForTarget nunca teria candidato pra bater
+    // preferência de vendedor cujo segmento é diferente do segmento da regra.
+    // Território/cidade seguem hard-filter (a cerca real); segmento é boost.
+    const ruleSegment = String(rule?.segment || '').trim();
+    const combinedSegments = Array.from(new Set(
+      [ruleSegment, ...(extraSegments || [])]
+        .map((item) => String(item || '').trim())
+        .filter(Boolean),
+    )).slice(0, 20);
     return {
       state: String(rule?.preferredState || '').trim().toUpperCase(),
       city: String(rule?.preferredCity || '').trim(),
-      segment: String(rule?.segment || '').trim(),
+      segment: combinedSegments.length > 1 ? combinedSegments.join(', ') : ruleSegment,
       radiusKm: rule?.radiusKm == null ? undefined : Math.max(0, Math.trunc(Number(rule.radiusKm || 0) || 0)),
       quantity: safeQuantity,
       limit: Math.min(300, Math.max(safeQuantity * 3, 30)),
@@ -769,6 +792,7 @@ export class RadarCoreDistributionMixin {
       dailyRemaining: number;
       noDeliveryReason?: string | null;
       territoryCities?: Array<{ city: string; state: string }>;
+      preferredSegments?: string[];
       needed: number;
       delivered: number;
     }> = [];
@@ -787,6 +811,7 @@ export class RadarCoreDistributionMixin {
         dailyRemaining: adminDailyLimit,
         noDeliveryReason: null,
         territoryCities: [],
+        preferredSegments: [],
         needed: 0,
         delivered: 0,
       });
@@ -821,6 +846,7 @@ export class RadarCoreDistributionMixin {
         dailyRemaining: sellerDailyLimit,
         noDeliveryReason: territoryReason,
         territoryCities,
+        preferredSegments: this.resolveSellerPreferredSegments(seller),
         needed: 0,
         delivered: 0,
       });
@@ -884,7 +910,14 @@ export class RadarCoreDistributionMixin {
     let blockedByLimit = false;
 
     if (queue.length) {
-      const filters = this.normalizeRadarFilters(this.buildRadarAutoDistributionFilterInput(rule, queue.length));
+      // União dos segmentos preferidos de quem está na fila (a cerca de cada
+      // vendedor) — alarga a leitura do banco pra ter candidato real pra
+      // pickRowForTarget priorizar; a fábrica externa (replenish) continua só
+      // no segmento da regra, que é o gatilho comercial da campanha.
+      const queueSegments = Array.from(new Set(
+        queue.flatMap((recipient) => recipient.preferredSegments || []),
+      ));
+      const filters = this.normalizeRadarFilters(this.buildRadarAutoDistributionFilterInput(rule, queue.length, queueSegments));
       let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
         limit: Math.min(300, Math.max(queue.length * 3, queue.length, 30)),
         requirePhone: false,
@@ -908,10 +941,31 @@ export class RadarCoreDistributionMixin {
         });
       }
 
+      // VENDAS-REFAB S2: a fila (`queue`) tem 1 slot por card-a-entregar, na ordem
+      // round-robin dos recipients — mas o CARD que cada slot recebe agora é
+      // escolhido pela preferência de segmento do vendedor daquele slot (a cerca),
+      // não pela ordem crua da query. BOOST, nunca filtro: vendedor sem preferência
+      // ou sem lead do seu segmento disponível recebe do pool geral normalmente —
+      // ninguém fica sem card por causa da preferência de outro.
+      const usedRowIds = new Set<string>();
+      const pickRowForTarget = (target: (typeof queue)[number]) => {
+        const preferred = target.preferredSegments;
+        if (preferred && preferred.length) {
+          const preferredMatch = rows.find((row: any) => (
+            !usedRowIds.has(String(row.id))
+            && preferred.includes(normalizeLookupValue(String(row?.normalizedSegment || row?.segment || '')))
+          ));
+          if (preferredMatch) return preferredMatch;
+        }
+        return rows.find((row: any) => !usedRowIds.has(String(row.id))) || null;
+      };
+
       let queueIndex = 0;
-      for (const row of rows) {
-        if (queueIndex >= queue.length || blockedByLimit) break;
+      while (queueIndex < queue.length && !blockedByLimit) {
         const target = queue[queueIndex];
+        const row = pickRowForTarget(target);
+        if (!row) break;
+        usedRowIds.add(String(row.id));
         try {
           const imported = await this.importRadarLeadToVendasForUser(user, row.id, {
             skipWhatsappValidation: true,
@@ -932,6 +986,10 @@ export class RadarCoreDistributionMixin {
             userName: target.label,
           });
         } catch (error: any) {
+          // Mantém o mesmo target (não avança queueIndex): a row falhou (ex.: já
+          // importada por outro processo concorrente), mas o slot ainda precisa
+          // de card — pickRowForTarget já marcou esta row como usada, então a
+          // próxima iteração tenta outra row pra este mesmo target.
           const reason = String(error?.response?.message || error?.message || error || 'Falha ao distribuir card.');
           failures.push({
             radarLeadId: row?.id || null,

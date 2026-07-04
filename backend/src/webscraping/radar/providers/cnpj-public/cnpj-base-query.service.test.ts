@@ -222,3 +222,50 @@ test('materialize: chama LeadHarvestImportService com leads mapeados da CnpjPubl
   assert.equal(capturedBody.leads[0].externalId, `cnpj:${baseRow.cnpj}`);
   assert.equal(capturedBody.leads[0].sourceProvider, 'cnpj_base_query');
 });
+
+// ─── VENDAS-REFAB S3 — countBase (count puro sobre a base 28M, sem amostra) ───────────────────
+// Ambiente local NÃO tem os 28M carregados (só ~893 no pool RadarLeadPool) — estes testes provam
+// a LÓGICA do count via mock do Prisma (N arbitrário), nunca um número fixo. A validação do
+// número real (28M) é do dono na VPS após publish (CLAUDE.md: nunca inventar número).
+
+test('countBase: conta a CnpjPublicCompany real filtrada (mock N), nao o pool', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    count: 6068, // N arbitrário só pra provar que o valor vem do count() da base, nao inventado
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  const result = await service.countBase({ cities: ['fortaleza'], states: ['CE'] });
+  assert.equal(result.available, true);
+  assert.equal(result.count, 6068);
+  assert.equal(capturedWhere.state.in[0], 'CE');
+  assert.equal(capturedWhere.normalizedCity.in[0], 'fortaleza');
+});
+
+test('countBase: tabela CnpjPublicCompany ausente -> available false, count null (nunca lanca)', async () => {
+  const prisma = makeMockPrisma({ hasTables: { CnpjPublicCompany: false } });
+  const service = new CnpjBaseQueryService(prisma);
+  const result = await service.countBase({});
+  assert.equal(result.available, false);
+  assert.equal(result.count, null);
+});
+
+test('countBase: falha no count() da base -> available true, count null (degrade gracioso)', async () => {
+  const prisma = makeMockPrisma({});
+  prisma.cnpjPublicCompany.count = async () => { throw new Error('conexao caiu'); };
+  const service = new CnpjBaseQueryService(prisma);
+  const result = await service.countBase({});
+  assert.equal(result.available, true);
+  assert.equal(result.count, null);
+});
+
+test('countBase: nunca usa amostra/query() — so chama count(), sem findMany', async () => {
+  let findManyCalled = false;
+  const prisma = makeMockPrisma({ count: 100 });
+  const originalFindMany = prisma.cnpjPublicCompany.findMany;
+  prisma.cnpjPublicCompany.findMany = async (...args: any[]) => { findManyCalled = true; return originalFindMany(...args); };
+  const service = new CnpjBaseQueryService(prisma);
+  const result = await service.countBase({ cnaes: ['5611203'] });
+  assert.equal(result.count, 100);
+  assert.equal(findManyCalled, false);
+});

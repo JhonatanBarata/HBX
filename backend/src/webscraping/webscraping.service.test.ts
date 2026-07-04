@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { WebscrapingService } from './webscraping.service';
 import { shouldRadarIssueBlockDelivery } from './radar/shared/radar-stage-policy';
 import { SourceBudgetService } from './source-budget/source-budget.service';
+import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 
 // SourceBudgetService.tryConsumePaid('google_places') é FAIL-CLOSED e usa um PrismaClient PRÓPRIO,
 // real (`_counterDb`, lazy), independente do mock de Prisma que cada teste injeta no
@@ -2495,7 +2496,7 @@ test('startRadarSearchRunForUser usa estoque sem perfil quando perfil lead plus 
   assert.equal(metrics.relaxedStockLookup, true);
 });
 
-test('startRadarSearchRunForUser pausa quando Vendas ja esta no limite', async () => {
+test('startRadarSearchRunForUser VENDEDOR pausa quando Vendas ja esta no limite (teto explicito do vendedor)', async () => {
   const { prisma, run } = createSearchRunPrisma({
     status: 'completed',
     city: 'Campinas',
@@ -2506,12 +2507,114 @@ test('startRadarSearchRunForUser pausa quando Vendas ja esta no limite', async (
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
   service.supportsRadarPersistence = async () => true;
-  service.assertRadarCanFeedVendas = async () => ({ pendingCount: 20 });
+  // Vendedor real (role=USER): o gate de estoque continua valendo pra ele — a
+  // regra-mãe é "vendedor consome dentro do teto"; aqui a carteira dele (não a
+  // da empresa) já está com 20 cards pendentes.
+  service.commercialUsageLimits = {
+    getUsageSnapshot: async () => ({
+      cards: { dailyRemaining: 999999, remaining: 999999 },
+    }),
+    limitRequestedCardsBySellerActiveQuota: async () => ({
+      limit: 20,
+      quota: { seller: true, paused: false, activeCount: 0, effectiveLimit: 20, availableSlots: 20, code: null },
+    }),
+    getSellerActiveCardQuotaSnapshot: async () => ({
+      seller: true, paused: false, activeCount: 0, effectiveLimit: 20, availableSlots: 20, code: null,
+    }),
+  };
+  service.radarVendasSync = Object.assign(new RadarVendasSyncService(prisma), {
+    getPendingCount: async () => 0,
+    getPendingCountForSeller: async () => 20,
+  });
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
     queriedStock = true;
     return [];
   };
+  service.buildRadarSearchRunResponse = async (_user: any, runId: string) => ({
+    runId,
+    status: run.status,
+    message: run.errorMessage,
+  });
+
+  const sellerUser = {
+    id: 44,
+    companyId: 7,
+    name: 'Henrique',
+    role: 'USER',
+    isSystemMaster: false,
+    company: { slug: 'hbx' },
+    masterContext: { active: false },
+  };
+
+  const response = await service.startRadarSearchRunForUser(sellerUser, {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 20,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  assert.equal(response.status, 'sleeping');
+  assert.equal(run.status, 'sleeping');
+  assert.equal(run.lastBatchStatus, 'vendas_stock_limit_start');
+  assert.equal(run.nextRetryAt instanceof Date, true);
+  assert.equal(queriedStock, false);
+});
+
+test('VENDAS-REFAB S1: ADMIN com 20 cards pendentes na EMPRESA NAO pausa a busca (cerne do bug)', async () => {
+  const { prisma, run } = createSearchRunPrisma({
+    status: 'completed',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 20,
+  });
+  const service = new WebscrapingService(prisma) as any;
+  disableSearchRunAutoPump(service);
+  service.supportsRadarPersistence = async () => true;
+  // Cota comercial da empresa (teto real do Master) segue folgada — não é isso que
+  // está em teste aqui.
+  service.commercialUsageLimits = {
+    getUsageSnapshot: async () => ({
+      cards: { dailyRemaining: 999999, remaining: 999999 },
+    }),
+    limitRequestedCardsBySellerActiveQuota: async () => ({
+      limit: 20,
+      quota: { seller: false },
+    }),
+    getSellerActiveCardQuotaSnapshot: async () => ({ seller: false }),
+  };
+  // A ÁRVORE: 20 cards pendentes são da EMPRESA (Gabriele/outros vendedores), não
+  // do admin. Antes do fix, getVendasPendingCountForRadarContext caía no "senão"
+  // (getPendingCount = empresa toda) pra qualquer não-vendedor e pausava o admin.
+  let companyPendingCountCalled = false;
+  service.radarVendasSync = {
+    getPendingCount: async () => {
+      companyPendingCountCalled = true;
+      return 20;
+    },
+    getPendingCountForSeller: async () => 0,
+  };
+  let queriedStock = false;
+  service.queryRadarRowsForCompany = async () => {
+    queriedStock = true;
+    return [{
+      id: 'radar-admin-1',
+      placeId: 'place-admin-1',
+      name: 'Barbearia Admin',
+      phone: '(19) 99999-0002',
+      phoneDigits: '19999990002',
+      city: 'Campinas',
+      state: 'SP',
+      segment: 'barbearias',
+      opportunityScore: 80,
+      status: 'clean',
+    }];
+  };
+  service.markRadarDelivered = async (_companyId: number, _userId: number, rows: any[]) => rows;
+  service.recalculateSearchRunCounters = async () => ({ foundCount: 1, duplicateCount: 0, skippedCount: 0 });
   service.buildRadarSearchRunResponse = async (_user: any, runId: string) => ({
     runId,
     status: run.status,
@@ -2527,11 +2630,12 @@ test('startRadarSearchRunForUser pausa quando Vendas ja esta no limite', async (
     targetType: 'pj',
   });
 
-  assert.equal(response.status, 'sleeping');
-  assert.equal(run.status, 'sleeping');
-  assert.equal(run.lastBatchStatus, 'vendas_stock_limit_start');
-  assert.equal(run.nextRetryAt instanceof Date, true);
-  assert.equal(queriedStock, false);
+  assert.notEqual(response.status, 'sleeping');
+  assert.notEqual(run.status, 'sleeping');
+  assert.notEqual(run.lastBatchStatus, 'vendas_stock_limit_start');
+  // A contagem de empresa nunca deveria ter sido chamada pra decidir o gate do admin.
+  assert.equal(companyPendingCountCalled, false);
+  assert.equal(queriedStock, true);
 });
 
 test('startRadarSearchRunForUser vendedor ignora estoque global e usa estoque do vendedor', async () => {
@@ -5562,6 +5666,106 @@ test('listagem radar tolera engine=hbx sem quebrar', async () => {
 
   assert.equal(response.total, 1);
   assert.equal(response.items[0].name, 'Loja Radar');
+});
+
+// ─── VENDAS-REFAB S3 — "Total no Brasil"/"Leads na base (Radar)" tem que vir da base 28M
+// (CnpjPublicCompany), nao do pool local (RadarLeadPool, ~893 no ambiente do dono). Estes testes
+// prova a composicao: scope=vitrine chama CnpjBaseQueryService.countBase com o filtro ativo
+// (cidade/UF/segmento) e devolve o resultado em meta.baseTotal/baseAvailable — nunca inventa
+// numero fixo (o mock devolve um N arbitrario so pra provar que o dado vem de la).
+test('listRadarLeadsForUser (vitrine): meta.baseTotal vem do count() da base 28M filtrado, nao do pool', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-vitrine-1',
+    name: 'Loja Vitrine',
+    phone: '(19) 99999-4444',
+    phoneDigits: '19999994444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+  let capturedInput: any = null;
+  (service as any).cnpjBaseQuery = {
+    countBase: async (input: any) => {
+      capturedInput = input;
+      return { available: true, count: 6068 };
+    },
+  };
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    scope: 'vitrine',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  assert.equal(response.meta.baseAvailable, true);
+  assert.equal(response.meta.baseTotal, 6068);
+  // A prova de que NAO é o pool: o pool só tem 1 lead, mas baseTotal veio do mock (6068).
+  assert.notEqual(response.meta.baseTotal, response.meta.totalAvailable);
+  assert.deepEqual(capturedInput.cities, ['Campinas']);
+  assert.deepEqual(capturedInput.states, ['SP']);
+});
+
+test('listRadarLeadsForUser (sem vitrine): NAO consulta a base 28M (só a tela Leads/vendedor pede vitrine)', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  let called = false;
+  (service as any).cnpjBaseQuery = {
+    countBase: async () => { called = true; return { available: true, count: 999 }; },
+  };
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  assert.equal(called, false);
+  assert.equal(response.meta.baseAvailable, false);
+  assert.equal(response.meta.baseTotal, null);
+});
+
+test('listRadarLeadsForUser (vitrine): base 28M indisponivel no ambiente -> baseAvailable false, sem lancar', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  (service as any).cnpjBaseQuery = {
+    countBase: async () => ({ available: false, count: null }),
+  };
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    scope: 'vitrine',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  assert.equal(response.meta.baseAvailable, false);
+  assert.equal(response.meta.baseTotal, null);
+  assert.equal(response.meta.available, true);
+});
+
+test('listRadarLeadsForUser (vitrine): sem CnpjBaseQueryService injetado -> degrade gracioso (nunca lanca)', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  // cnpjBaseQuery fica undefined (nao injetado) — simula ambiente/boot sem o provider.
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    scope: 'vitrine',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  assert.equal(response.meta.baseAvailable, false);
+  assert.equal(response.meta.baseTotal, null);
 });
 
 test('pullRadarLeadsForUser entrega banco quando reposicao do motor falha', async () => {

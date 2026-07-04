@@ -66,6 +66,7 @@ import { GoogleSearchProviderService } from './providers/google-search/google-se
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './shared/radar-shared-normalizer.service';
+import { CnpjBaseQueryService } from './providers/cnpj-public/cnpj-base-query.service';
 
 import {
   PLACES_NEW_TEXT_SEARCH_URL,
@@ -263,6 +264,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly googleSearchProvider?: GoogleSearchProviderService,
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
+    @Optional() private readonly cnpjBaseQuery?: CnpjBaseQueryService,
   ) {}
 
   onModuleInit() {

@@ -220,6 +220,21 @@ export class CnpjBaseQueryService {
   }
 
   /**
+   * VENDAS-REFAB S3 — count PURO (sem amostra) sobre a base 28M, pro "Buscar empresas"/Dashboard
+   * mostrarem o total REAL da LISTA (RFB) filtrado, não o pool local pequeno (RadarLeadPool).
+   * Nunca lança: sem a tabela carregada (ambiente local, ~893 no pool) devolve `available:false`
+   * e count `null` — quem chama decide o fallback (nunca inventar um número fixo aqui).
+   */
+  async countBase(input: CnpjBaseQueryInput): Promise<{ available: boolean; count: number | null }> {
+    if (!(await this.supports())) {
+      return { available: false, count: null };
+    }
+    const where = this.buildWhere(input);
+    const count = await this.db().cnpjPublicCompany.count({ where }).catch(() => null);
+    return { available: true, count: typeof count === 'number' ? count : null };
+  }
+
+  /**
    * POST /modules/owner/cnpj-base/query — count + amostra de 20 + cursor. Query builder com
    * WHERE dinâmico; SEMPRE state/city entram primeiro no WHERE (índice composto absorve o resto).
    */

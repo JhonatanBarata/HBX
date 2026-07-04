@@ -177,6 +177,46 @@ test('admin que CONFIGURA teto por vendedor corta o ilimitado (regra de distribu
   assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
 });
 
+test('VENDAS-REFAB S1: penalidade de inatividade fica OFF por default mesmo com teto explicito e vendedor sumido ha 30 dias', async () => {
+  delete process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 5,
+    activeRadar: 0,
+    targetStockPerSeller: 20,
+    lastSeenAt: thirtyDaysAgo,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.baseLimit, 20);
+  assert.equal(snapshot.inactivityPenalty, 0);
+  // Sem a env ligada, 30 dias sumido NAO zera/reduz o teto sozinho.
+  assert.equal(snapshot.effectiveLimit, 20);
+});
+
+test('VENDAS-REFAB S1: penalidade de inatividade só corta o teto quando o admin liga HBX_SELLER_INACTIVITY_PENALTY_ENABLED', async () => {
+  process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED = 'true';
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const service = new CommercialUsageLimitsService(buildPrismaMock({
+      activeVendas: 5,
+      activeRadar: 0,
+      targetStockPerSeller: 20,
+      lastSeenAt: thirtyDaysAgo,
+    }) as any);
+
+    const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+    assert.equal(snapshot.seller, true);
+    assert.ok(snapshot.inactivityPenalty > 0);
+    assert.ok(snapshot.effectiveLimit < 20);
+  } finally {
+    delete process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED;
+  }
+});
+
 test('tenant seller active quota follows configured distribution rule', async () => {
   const service = new CommercialUsageLimitsService(buildPrismaMock({
     targetStockPerSeller: 80,

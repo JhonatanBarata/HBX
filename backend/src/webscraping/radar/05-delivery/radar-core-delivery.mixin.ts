@@ -426,6 +426,33 @@ export class RadarCoreDeliveryMixin {
     return this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(companyId, userId).catch(() => null);
   }
 
+  // Resolve papel diretamente no banco (role='USER', sem isSystemMaster) SEM depender
+  // do CommercialUsageLimitsService estar injetado — usado como fallback quando o
+  // caminho só tem companyId/userId crus (sem o objeto `user` da sessão), pra nunca
+  // deixar admin cair no gate de estoque por falta de serviço opcional.
+  private async isRadarSellerUserId(companyId: number, userId: number): Promise<boolean> {
+    if (!companyId || !userId) return false;
+    const userDelegate = (this.prisma as any)?.user;
+    if (!userDelegate?.findFirst) return false;
+    const user = await userDelegate.findFirst({
+      where: { id: userId, companyId },
+      select: { role: true, isSystemMaster: true },
+    }).catch(() => null);
+    if (!user) return false;
+    const role = String(user.role || '').trim().toUpperCase();
+    return role === 'USER' && !user.isSystemMaster;
+  }
+
+  /**
+   * ÁRVORE (docs/PLANEJAMENTOS/VENDAS-REFAB/PLANO.md): Master decide a cota da
+   * EMPRESA; Admin NUNCA é capado por regra de vendedor. O gate de "estoque pendente
+   * em Vendas vs quanto puxar" existe só pra proteger o VENDEDOR de acumular cards
+   * demais na carteira dele — não é (e nunca deveria ter sido) trava da empresa.
+   * Se o contexto NÃO é vendedor confirmado (admin/master/import automático/sistema),
+   * este método devolve 0 incondicionalmente: o gate nunca pausa a busca do admin.
+   * O único teto real do admin é a cota comercial da empresa (CommercialUsageLimitsService,
+   * decidida pelo Master) — que continua sendo verificada em outro ponto do fluxo.
+   */
   private async getVendasPendingCountForRadarContext(contextOrCompanyId: SearchExecutionContext | number, userIdRaw?: number | null) {
     const context = typeof contextOrCompanyId === 'object' && contextOrCompanyId
       ? contextOrCompanyId
@@ -433,11 +460,24 @@ export class RadarCoreDeliveryMixin {
     const companyId = context ? safeInteger(context.companyId) : safeInteger(contextOrCompanyId);
     const userId = context ? safeInteger(context.userId) : safeInteger(userIdRaw);
     if (!companyId) return 0;
-    const sellerQuota = await this.getRadarSellerQuotaForContext(companyId, userId);
-    if (sellerQuota?.seller) {
+
+    // Fonte primária: objeto `user` da sessão já presente no contexto (sem round-trip
+    // extra no banco). Cobre o caminho quente (startRadarSearchRunForUser etc).
+    if (context?.user) {
+      if (!this.isCompanySellerUser(context.user)) return 0;
       return this.getRadarVendasSyncService().getPendingCountForSeller(companyId, userId);
     }
-    return this.getRadarVendasSyncService().getPendingCount(companyId);
+
+    // Caminhos que só têm companyId/userId (run pausado, resposta assíncrona): resolve
+    // "é vendedor?" via CommercialUsageLimitsService quando disponível; senão, fallback
+    // direto no banco. Em QUALQUER caso de dúvida (sellerQuota null e sem userId), trata
+    // como NÃO-vendedor — nunca o contrário — pra jamais travar admin por omissão.
+    const sellerQuota = await this.getRadarSellerQuotaForContext(companyId, userId);
+    const isSeller = sellerQuota
+      ? Boolean(sellerQuota.seller)
+      : await this.isRadarSellerUserId(companyId, userId);
+    if (!isSeller) return 0;
+    return this.getRadarVendasSyncService().getPendingCountForSeller(companyId, userId);
   }
 
   private getRadarRunVendasStockTarget(run: any) {

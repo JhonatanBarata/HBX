@@ -128,8 +128,16 @@ export function DashboardClient() {
     apiFetch<Board>("/vendas/board")
       .then(res => { if (alive) { setBoard(res); setLoadError(null); } })
       .catch((err: unknown) => { if (alive) setLoadError(err instanceof Error ? err.message : "Falha ao carregar o painel."); });
-    apiFetch<{ total?: number }>("/webscraping/radar/leads?page=1&limit=1")
-      .then(res => { if (alive) setRadarTotal(Number(res?.total ?? 0)); })
+    // Contrato S3 (VENDAS-REFAB): /night-factory/leads-bank devolve baseTotal/
+    // baseAvailable (contagem REAL da base 28M). Cai pro total do pool (antigo)
+    // só quando baseAvailable===false (ambiente sem a carga da RFB) — nunca
+    // inventa 28M fixo.
+    apiFetch<{ total?: number; baseAvailable?: boolean; baseTotal?: number | null }>("/night-factory/leads-bank")
+      .then(res => {
+        if (!alive) return;
+        const real = res?.baseAvailable ? (res?.baseTotal ?? null) : (res?.total ?? null);
+        setRadarTotal(real);
+      })
       .catch(() => { /* sem base */ });
     apiFetch<Array<unknown>>("/inbox/conversations?take=50")
       .then(res => { if (alive) setConvCount(Array.isArray(res) ? res.length : 0); })
@@ -195,7 +203,16 @@ export function DashboardClient() {
             <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
           ) : null}
           <KpiRow items={[
-            { icon: "money", label: "Cards no funil", value: summary ? String(summary.total) : "—", href: "/vendas" },
+            {
+              icon: "money",
+              // GET /vendas/board devolve o AGREGADO da empresa (todos os vendedores)
+              // pra quem gerencia o time (canManageTeam) — só o vendedor comum vê o
+              // próprio funil. Rótulo explícito pra admin/master nunca confundir com
+              // "meu funil" (VENDAS-REFAB, lixo catalogado 04/07).
+              label: isSeller ? "Cards no funil" : "Cards no funil (empresa)",
+              value: summary ? String(summary.total) : "—",
+              href: "/vendas",
+            },
             // Vendedor vê a comissão dele (ordem do dono); demais perfis veem a base do Radar.
             isSeller
               ? {

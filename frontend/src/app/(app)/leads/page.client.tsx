@@ -5,7 +5,8 @@
 //   IDLE (sem lead selecionado) → RADAR console: disco animado + filtros + Play/STOP + Automático
 //   LEAD SELECIONADO → mini-radar no topo + DetalhesNegocio + botão voltar
 // Lista engordou: sem KPIs (exceto Total no Brasil como linha fininha) e sem rail lateral.
-// Barra de 6 ícones de canal: modo "Filtrar resultado" (client-side) e "Forçar na busca".
+// Filtro estilo CNPJ Biz (VENDAS-REFAB S4, 04/07): tem-site/tem-WhatsApp sobre a base
+// (substituiu "Canais exigidos" — não existe na nova regra lista+web).
 // operationalState do backend ("funcionando"|"pausado"|"parado") dirige a animação e o botão.
 // Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
@@ -90,6 +91,11 @@ type LeadsResponse = {
     available?: boolean;
     message?: string;
     totalAvailable?: number;
+    // Contrato S3 (VENDAS-REFAB): contagem REAL da base 28M (CnpjPublicCompany) já
+    // filtrada. baseAvailable=false = base não carregada neste ambiente → cai pro
+    // totalAvailable/total (pool) no consumo.
+    baseAvailable?: boolean;
+    baseTotal?: number | null;
     limit?: number;
     filteredOut?: number;
     whatsappVerified?: number;
@@ -138,7 +144,15 @@ type RunResponse = {
   };
 } | null;
 
-type BankResponse = { total?: number; deltaToday?: number; available?: boolean } | null;
+type BankResponse = {
+  total?: number;
+  deltaToday?: number;
+  available?: boolean;
+  // Contrato S3: mesmo par baseAvailable/baseTotal do /webscraping/radar/leads,
+  // aqui sem filtro (visão global do banco).
+  baseAvailable?: boolean;
+  baseTotal?: number | null;
+} | null;
 
 type SellerActiveQuota = {
   seller?: boolean;
@@ -158,10 +172,6 @@ type Tab = "shelf" | "carteira";
 
 // B0: statuses realmente terminais — removeu "error" fantasma, adicionou partial_error
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
-
-// Tipos de canal pra barra de 6 ícones
-type CanalKey = "whatsapp" | "email" | "telefone" | "instagram" | "facebook" | "site";
-const ALL_CANAIS: CanalKey[] = ["whatsapp", "email", "telefone", "instagram", "facebook", "site"];
 
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
   const seen = new Set<string>();
@@ -233,7 +243,6 @@ function buildFiltroSnapshot(input: {
   segment: string;
   alcance: string;
   quantos: number;
-  requiredChannels: string[];
 }): SavedFiltro {
   const f: SavedFiltro = {};
   if (input.city.trim()) f.city = input.city.trim();
@@ -241,15 +250,13 @@ function buildFiltroSnapshot(input: {
   if (input.segment.trim()) f.segment = input.segment.trim();
   if (input.alcance.trim()) f.alcance = input.alcance.trim();
   if (input.quantos > 0) f.quantos = input.quantos;
-  if (input.requiredChannels.length) {
-    f.requiredChannels = input.requiredChannels;
-    f.channelMatchMode = "all_required";
-  }
   return f;
 }
 
 // Resumo LEGIVEL do filtro salvo → frases (igual "deles"). Traduz o filtroJson em
 // texto para o usuario saber exatamente o que pediu sem abrir nada. Sem valores R$.
+// requiredChannels ("Canais exigidos") foi removido da UI (VENDAS-REFAB S4, 04/07) —
+// a leitura aqui fica só pra descrever pesquisas SALVAS antigas com esse campo.
 const CANAL_LABEL_PT: Record<string, string> = {
   whatsapp: "WhatsApp",
   email: "E-mail",
@@ -451,9 +458,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [dragDx, setDragDx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Barra de canais
-  const [canalAtivos, setCanalAtivos] = useState<Set<CanalKey>>(new Set());
-  const [forcarCanais, setForcarCanais] = useState(false);
+  // Filtro estilo CNPJ Biz sobre a base (VENDAS-REFAB S4, 04/07): tem-site e
+  // tem-WhatsApp provável. Tri-estado (qualquer/sim/não) — mapeia direto pros
+  // params que o GET /webscraping/radar/leads já aceita (noWebsite/withWebsite/
+  // likelyWhatsapp). Substituiu "Canais exigidos" (removido — não existe na
+  // nova regra lista+web).
+  const [siteFiltro, setSiteFiltro] = useState<"qualquer" | "com" | "sem">("qualquer");
+  const [zapFiltro, setZapFiltro] = useState<"qualquer" | "com">("qualquer");
 
   // Geolocalização — sincroniza com o botão do Topbar via localStorage + evento
   const [geoBusy, setGeoBusy] = useState(false);
@@ -517,7 +528,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       .catch(() => setUsage(null));
   }, []);
 
-  const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number; canaisForcar?: Set<CanalKey> }) => {
+  const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
     const limit = which === "shelf" ? (opts?.quantosOverride ?? quantos) : pageSize;
@@ -527,9 +538,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (city) params.set("city", city);
     if (uf) params.set("state", uf);
     if (which === "shelf" && alcance) params.set("radius", alcance);
-    // Modo "Forçar na busca": tenta passar canais como restrição query.
-    // O endpoint /radar/leads NÃO aceita filtro de canal (confirmado na análise de loadList).
-    // O "Forçar" age na URL do search-run (POST), não aqui — ver executarBusca().
+    // Filtro estilo CNPJ Biz (tem-site/tem-WhatsApp) — só na prateleira (vitrine),
+    // igual ao resto do bloco B3. Params já existem no DTO do backend
+    // (noWebsite/withWebsite/likelyWhatsapp); só não estavam expostos na UI.
+    if (which === "shelf" && siteFiltro === "com") params.set("withWebsite", "true");
+    if (which === "shelf" && siteFiltro === "sem") params.set("noWebsite", "true");
+    if (which === "shelf" && zapFiltro === "com") params.set("likelyWhatsapp", "true");
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
       .then(res => {
         setData(res);
@@ -541,7 +555,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         setData(null);
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
       });
-  }, [segment, city, uf, alcance, quantos]);
+  }, [segment, city, uf, alcance, quantos, siteFiltro, zapFiltro]);
 
   useEffect(() => {
     loadBank();
@@ -596,7 +610,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const handle = setTimeout(() => { setPage(1); setSelected(new Set()); loadList(tab, { page: 1 }); }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment, city, uf]);
+  }, [segment, city, uf, siteFiltro, zapFiltro]);
 
   // B0: polling por operationalState do backend (não por status fantasma)
   useEffect(() => {
@@ -713,8 +727,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setPullMsg(null);
     setSelected(new Set());
     setSelLead(null);
-    setCanalAtivos(new Set());
-    setForcarCanais(false);
+    setSiteFiltro("qualquer");
+    setZapFiltro("qualquer");
     setPage(1);
     setTab("shelf");
     try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
@@ -732,6 +746,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   // Aplica um recorte salvo aos filtros da tela e recarrega a prateleira.
+  // "Canais exigidos" foi removido (não existe na nova regra lista+web) — recorte
+  // salvo antigo com requiredChannels simplesmente ignora esse campo, sem erro.
   function applySavedSearch(s: SavedSearch) {
     const f = s.filtro || {};
     const nextUf = String((f as SavedFiltro).state || "").trim();
@@ -739,19 +755,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const nextSeg = String((f as SavedFiltro).segment || "").trim();
     const nextAlc = String((f as SavedFiltro).alcance || "").trim();
     const nextQtd = Number((f as SavedFiltro).quantos || 0) || 5;
-    const req = Array.isArray((f as SavedFiltro).requiredChannels) ? ((f as SavedFiltro).requiredChannels as string[]) : [];
     setUf(nextUf);
     setCity(nextCity);
     setSegment(nextSeg);
     setAlcance(nextAlc);
     setQuantos(nextQtd);
-    if (req.length) {
-      setCanalAtivos(new Set(req.filter(c => (ALL_CANAIS as string[]).includes(c)) as CanalKey[]));
-      setForcarCanais(true);
-    } else {
-      setCanalAtivos(new Set());
-      setForcarCanais(false);
-    }
     setPage(1);
     setTab("shelf");
     setSavedBar(false);
@@ -770,10 +778,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   async function saveCurrentFilter() {
     const nome = saveName.trim();
     if (!nome) { setSavedMsg("Dê um nome para a pesquisa."); return; }
-    const filtro = buildFiltroSnapshot({
-      uf, city, segment, alcance, quantos,
-      requiredChannels: forcarCanais ? Array.from(canalAtivos) : [],
-    });
+    const filtro = buildFiltroSnapshot({ uf, city, segment, alcance, quantos });
     setSavedBusy(true);
     setSavedMsg(null);
     try {
@@ -907,10 +912,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       const body: Record<string, unknown> = { city, state: uf || undefined, segment: effSegment, quantity: quantos };
       if (effRadius > 0) body.radiusKm = effRadius;
       if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
-      if (forcarCanais && canalAtivos.size > 0) {
-        body.requiredChannels = Array.from(canalAtivos);
-        body.channelMatchMode = "any";
-      }
+      // Filtro estilo CNPJ Biz (mesmo DTO do GET /radar/leads — RadarPullDto estende
+      // RadarDatabaseQueryDto): reflete tem-site/tem-WhatsApp na busca ao vivo também.
+      if (siteFiltro === "com") body.withWebsite = true;
+      if (siteFiltro === "sem") body.noWebsite = true;
+      if (zapFiltro === "com") body.likelyWhatsapp = true;
       const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
         method: "POST",
         body: JSON.stringify(body),
@@ -1008,15 +1014,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (embedded && ok > 0) onLeadPulled?.(true);
   }
 
-  // Canal toggle
-  function toggleCanal(c: CanalKey) {
-    setCanalAtivos(prev => {
-      const next = new Set(prev);
-      if (next.has(c)) next.delete(c); else next.add(c);
-      return next;
-    });
-  }
-
   const items = data?.items || [];
 
   // Resumo de origem da vitrine (só usado na aba "Disponíveis"): quantos cards
@@ -1075,17 +1072,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
   ));
 
+  // "Total no Brasil" (contrato S3, VENDAS-REFAB): a base 28M (CnpjPublicCompany)
+  // quando carregada no ambiente; cai pro pool antigo (bank.total) só quando
+  // baseAvailable===false (ex.: local, sem a carga da RFB). Nunca inventa 28M fixo.
+  const totalBrasilReal = bank?.baseAvailable ? (bank?.baseTotal ?? null) : (bank?.total ?? null);
+
   // Embutido no Vendas: espelha os 3 números pro topo da casca única. setState do
   // pai é estável (não dispara loop). 29/06.
   useEffect(() => {
     onEmbedStats?.({
-      totalBrasil: bank?.total ?? null,
+      totalBrasil: totalBrasilReal,
       disponiveis: counts.shelf,
       cotaLabel: meterLabel,
       cotaValue: meterValue,
       cotaPct: meterPct,
     });
-  }, [onEmbedStats, bank, counts.shelf, meterLabel, meterValue, meterPct]);
+  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct]);
 
   function contatoMascarado(row: RadarLead) {
     const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
@@ -1451,41 +1453,50 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         </div>
 
-        {/* BLOCO B3: Canais — forçar na busca */}
+        {/* BLOCO B3: filtro estilo CNPJ Biz sobre a base — tem-site / tem-WhatsApp.
+            Substituiu "Canais exigidos" (removido — não existe na nova regra
+            lista+web, VENDAS-REFAB S4 04/07). Mesmas classes centrais (Lei 2). */}
         <div className="radar-box">
           <div className="radar-canais">
             <div className="radar-canais__head">
-              <span className="radar-canais__lbl">Canais exigidos</span>
-              <button
-                type="button"
-                className={"radar-canais__switch" + (forcarCanais ? " radar-canais__switch--on" : "")}
-                onClick={() => setForcarCanais(v => !v)}
-                aria-pressed={forcarCanais}
-                title="Forçar a busca a trazer só leads com os canais escolhidos"
-              >
-                {forcarCanais ? "Forçar: Ligado" : "Forçar: Desligado"}
-              </button>
+              <span className="radar-canais__lbl">Tem site</span>
+              <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
+                {([
+                  { key: "qualquer", label: "Qualquer" },
+                  { key: "com", label: "Com site" },
+                  { key: "sem", label: "Sem site" },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                    onClick={() => setSiteFiltro(opt.key)}
+                    aria-pressed={siteFiltro === opt.key}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="radar-canais__chips">
-              {ALL_CANAIS.map(c => (
-                <button
-                  key={c}
-                  type="button"
-                  className={"radar-canal-toggle" + (canalAtivos.has(c) ? " radar-canal-toggle--active" : "")}
-                  onClick={() => toggleCanal(c)}
-                  disabled={!forcarCanais}
-                  title={c.charAt(0).toUpperCase() + c.slice(1)}
-                  aria-pressed={canalAtivos.has(c)}
-                >
-                  <CanalIcon canal={c} size="lg" />
-                </button>
-              ))}
+            <div className="radar-canais__head">
+              <span className="radar-canais__lbl">Tem WhatsApp provável</span>
+              <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
+                {([
+                  { key: "qualquer", label: "Qualquer" },
+                  { key: "com", label: "Com WhatsApp" },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                    onClick={() => setZapFiltro(opt.key)}
+                    aria-pressed={zapFiltro === opt.key}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            {forcarCanais && (
-              <p className="radar-canais__warn">
-                Forçar canais deixa a busca mais lenta e pode trazer menos resultados — o motor tem que verificar WhatsApp/site/redes de cada lead na hora, e às vezes falha.
-              </p>
-            )}
           </div>
         </div>
 
@@ -1789,7 +1800,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         <section className="panel" style={{ padding: 0 }}>
           <div className="leads-bank-strip" data-tut="leads-kpis">
             <span>{isMobile ? "Brasil:" : "Total no Brasil:"}</span>
-            <span className="leads-bank-strip__num">{bank ? fmtInt(bank.total) : "—"}</span>
+            <span className="leads-bank-strip__num">{totalBrasilReal != null ? fmtInt(totalBrasilReal) : "—"}</span>
             {bank && Number(bank.deltaToday || 0) > 0 && (
               <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
             )}
@@ -2139,7 +2150,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <div className="hbx-modal" style={{ width: "min(420px, 92vw)" }} onClick={e => e.stopPropagation()}>
             <div className="radar-save-modal">
               <h3>Salvar pesquisa</h3>
-              <p className="radar-save-modal__desc">{describeFiltro(buildFiltroSnapshot({ uf, city, segment, alcance, quantos, requiredChannels: forcarCanais ? Array.from(canalAtivos) : [] }))}</p>
+              <p className="radar-save-modal__desc">{describeFiltro(buildFiltroSnapshot({ uf, city, segment, alcance, quantos }))}</p>
               <div className="f">
                 <label htmlFor="save-name">Nome da pesquisa</label>
                 <input
