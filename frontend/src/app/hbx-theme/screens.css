@@ -3748,3 +3748,41 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .prod-toggle input { width: 15px; height: 15px; accent-color: var(--hbx-brand); cursor: pointer; }
 .prod-toggle__note { font-size: 0.66rem; color: var(--text-muted); line-height: 1.4; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   NÚCLEO-CRM N6 — módulo "Logística" (app de entrega, cliente água), mobile-first.
+   Reusa .emp-* (linhas/empty) e .hbx-drawer-bottom (sheet do detalhe). Aqui SÓ o
+   específico da entrega: badge de status, o sheet de detalhe (endereço/ações) e os
+   botões Navegar/Confirmar. Zero hex/inline (5 Leis) — tudo em token central.
+   ══════════════════════════════════════════════════════════════════════════ */
+.log-row { cursor: pointer; }
+.log-row--entregue { opacity: 0.62; }
+.log-row--cancelada { opacity: 0.5; }
+
+.log-badge {
+  display: inline-flex; align-items: center;
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: var(--radius-pill); white-space: nowrap;
+  border: 1px solid var(--border-hairline); color: var(--text-muted); background: var(--hbx-surface-raised);
+}
+.log-badge--agendada { color: var(--text-body); border-color: var(--border-hairline); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
+.log-badge--em_rota { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }
+.log-badge--entregue { color: var(--hbx-ok, var(--hbx-brand-strong)); border-color: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 40%, transparent); background: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 12%, transparent); }
+.log-badge--cancelada { color: var(--hbx-danger, var(--text-muted)); border-color: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 34%, transparent); background: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 10%, transparent); }
+
+/* Sheet de detalhe da entrega (usa .hbx-drawer-bottom da central) */
+.log-detail { display: grid; gap: 12px; padding-bottom: 8px; }
+.log-detail__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.log-detail__name { font-size: 1rem; font-weight: 800; color: var(--text-strong); }
+.log-detail__addr {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 0.82rem; line-height: 1.5; color: var(--text-body);
+}
+.log-detail__addr svg { color: var(--hbx-brand-strong); flex: none; margin-top: 2px; }
+.log-detail__meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.76rem; color: var(--text-muted); }
+.log-detail__notes { font-size: 0.76rem; line-height: 1.5; color: var(--text-muted); margin: 0; }
+.log-detail__ok { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 800; color: var(--hbx-ok, var(--hbx-brand-strong)); margin: 0; }
+.log-detail__err { margin: 0; }
+.log-detail__acts { display: flex; gap: 10px; }
+.log-nav, .log-confirm { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.log-detail__close { justify-self: center; margin-top: 2px; }

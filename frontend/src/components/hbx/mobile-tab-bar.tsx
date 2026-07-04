@@ -23,12 +23,18 @@ const TABS = [
   { id: "leads",  label: "Buscar",     href: "/leads",        icon: "leads" },
 ] as const;
 
+// NÚCLEO-CRM N6 — aba "Rota" (Logística). Só entra na barra quando o módulo
+// 'logistica' está ativo pro tenant (mesmo gate isModuleVisible da Sidebar);
+// aditiva, não substitui nenhuma aba fixa acima.
+const LOGISTICA_TAB = { id: "logistica", label: "Rota", href: "/logistica", icon: "logistica" } as const;
+
 // Mapeamento rota → id de aba (para calcular a aba ativa)
 const ROUTE_TO_TAB: Record<string, string> = {
   "/dashboard": "dash",
   "/leads": "leads",
   "/vendas": "vendas",
   "/atendimento": "atend",
+  "/logistica": "logistica",
 };
 
 export function MobileTabBar() {
@@ -49,7 +55,11 @@ export function MobileTabBar() {
   const activeTab = ROUTE_TO_TAB[pathname] ?? "";
 
   // Filtra abas pelo gate isModuleVisible (mesma lógica da Sidebar)
-  const visibleTabs = TABS.filter(t => isModuleVisible(t.id, ent, user, mods));
+  const baseTabs = TABS.filter(t => isModuleVisible(t.id, ent, user, mods));
+  // Aba "Rota" só aparece quando o módulo Logística está ativo pro tenant (aditiva).
+  const visibleTabs = isModuleVisible(LOGISTICA_TAB.id, ent, user, mods)
+    ? [...baseTabs, LOGISTICA_TAB]
+    : baseTabs;
 
   async function sairMobile() {
     if (signingOut) return;

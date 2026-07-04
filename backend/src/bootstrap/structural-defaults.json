@@ -82,6 +82,15 @@
       "serviceUrl": "/produtos"
     },
     {
+      "key": "logistica",
+      "name": "Logística",
+      "description": "App de entrega do tenant (NÚCLEO-CRM) — rota do dia, navegar (deep-link), confirmar entrega com GPS. WhatsApp \"entregue\" e cobrança ficam atrás da flag HBX_LOGISTICA_ENABLED. Kill-switch por empresa; nasce ligado.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/logistica"
+    },
+    {
       "key": "bot",
       "name": "Bot IA",
       "description": "Automacao de atendimento e prospecção via bot configurado pela empresa.",

@@ -242,6 +242,7 @@ model Company {
   websiteConfig CompanyWebsiteConfig?
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
   contatos               Contato[]
+  entregas               Entrega[]
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -887,6 +888,12 @@ model CustomerProfile {
   isCliente            Boolean  @default(false)
   isFornecedor         Boolean  @default(false)
   origin               String   @default("manual") // "radar" | "manual" | "import"
+  // NÚCLEO-CRM N6 (05/07) — CONTRATO de cobrança POR CLIENTE (o "configurável por
+  // cliente" do módulo Logística). Colunas ADITIVAS/opcionais: só o vendedor de
+  // água configura; leads/vendas/recovery seguem intactos (todos null por default).
+  modeloCobranca       String?  // "mensal" | "avulso" | "assinatura" | null (não definido)
+  diaFechamento        Int?     // dia do mês em que fecha a fatura (modelo mensal)
+  precoPadrao          Float?   // preço padrão da entrega deste cliente (fallback do produto)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   atendimentoCustomers AtendimentoCustomer[]
@@ -894,6 +901,7 @@ model CustomerProfile {
   debtCases            DebtCase[]
   vendasLeads          VendasLead[]
   contatos             Contato[]
+  entregas             Entrega[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
@@ -924,9 +932,45 @@ model Contato {
   source            String   @default("manual") // "radar" | "manual" | "cnpj_socio"
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  entregas          Entrega[]
 
   @@index([companyId, customerProfileId])
   @@index([companyId, isPrincipal])
+}
+
+// NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
+// Uma ENTREGA liga uma Conta (o cliente = CustomerProfile) a um Produto opcional
+// (galão 20L) e a um Contato opcional (quem recebe). Ciclo:
+//   agendada → em_rota → entregue (ou cancelada).
+// Ao "confirmar", grava GPS (deliveredLat/Lng) e — SOMENTE se a flag
+// HBX_LOGISTICA_ENABLED estiver ON — dispara WhatsApp "entregue" (via
+// ConversationsService, caminho blindado) + lança cobrança conforme contrato.
+// Tabela nova, isolada e aditiva — não altera nada existente.
+model Entrega {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  contato           Contato? @relation(fields: [contatoId], references: [id], onDelete: SetNull)
+  contatoId         String?
+  product           Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId         Int?
+  quantidade        Int      @default(1)
+  valor             Float    @default(0)
+  status            String   @default("agendada") // agendada | em_rota | entregue | cancelada
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  deliveredAt       DateTime?
+  deliveredLat      Float?
+  deliveredLng      Float?
+  cobrancaStatus    String   @default("pendente") // pendente | lancada | isenta | falhou
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, status, scheduledAt])
+  @@index([companyId, customerProfileId])
 }
 
 model DebtCase {
@@ -3352,6 +3396,7 @@ model Product {
   updatedAt   DateTime         @updatedAt
   versions    ProductVersion[]
   vendasLeads VendasLead[]
+  entregas    Entrega[]
 
   @@index([companyId, status, sortOrder])
   @@index([companyId, kind, status])

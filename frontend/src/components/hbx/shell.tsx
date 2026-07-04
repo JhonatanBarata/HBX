@@ -113,6 +113,9 @@ export const ICONS: Record<string, string[]> = {
   // NÚCLEO-CRM N5 — catálogo "Produtos": caixa/pacote. A chave PRECISA existir
   // (nav id sem entrada em ICONS derruba a Sidebar — foi o P0 do "assistente").
   produtos: ["M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8Z", "M3.3 7 12 12l8.7-5", "M12 22V12"],
+  // NÚCLEO-CRM N6 — módulo "Logística": caminhão de entrega. A chave PRECISA
+  // existir (nav id sem entrada em ICONS derruba a Sidebar — P0 do "assistente").
+  logistica: ["M3 6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9H3z", "M14 9h3.6a1 1 0 0 1 .8.4l2.4 3.1a1 1 0 0 1 .2.6V15h-7z", "M7.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z", "M17.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -286,6 +289,10 @@ export const NAV_LINKS = [
   // NÚCLEO-CRM N5: catálogo "Produtos" — o que o vendedor vende/entrega (galão
   // 20L etc.), com unidade/preço + flag Logística. Kill-switch, não paywall (null).
   { id: "produtos", label: "Produtos", href: "/produtos" },
+  // NÚCLEO-CRM N6: módulo "Logística" — app de entrega (rota do dia, navegar,
+  // confirmar com GPS). WhatsApp/cobrança atrás de flag OFF no backend.
+  // Kill-switch, não paywall (null nos gates abaixo).
+  { id: "logistica", label: "Logística", href: "/logistica" },
   { id: "bot", label: "Bot", href: "/bot" },
   // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
@@ -584,6 +591,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   contatos: null,
   // NÚCLEO-CRM N5: Produtos = kill-switch, NÃO paywall → sem gate de plano.
   produtos: null,
+  // NÚCLEO-CRM N6: Logística = kill-switch, NÃO paywall → sem gate de plano.
+  logistica: null,
   bot: null,
   assistente: null,
   relat: "vendas",
@@ -613,6 +622,9 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // NÚCLEO-CRM N5: sem gate por usuário/plano (null) — a aba nasce ligada. Se
   // no futuro o master ligar o kill-switch por empresa, trocar para "produtos".
   produtos: null,
+  // NÚCLEO-CRM N6: sem gate por usuário/plano (null) — a aba nasce ligada. Se
+  // no futuro o master ligar o kill-switch por empresa, trocar para "logistica".
+  logistica: null,
   bot: null,
   assistente: null,
   relat: "vendas",
