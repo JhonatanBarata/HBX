@@ -234,6 +234,8 @@ model Company {
   emailSettings CompanyEmailSettings?
   emailTemplates CompanyEmailTemplate[]
   emailAssets CompanyEmailAsset[]
+  websiteConfig CompanyWebsiteConfig?
+  websiteAdminEntryTokens WebsiteAdminEntryToken[]
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -1059,6 +1061,41 @@ model OrderDraft {
   @@index([companyId])
 }
 
+// Website Kit (Sprint 2, 02/07): tabelas que já existiam em produção como
+// "sombra" (criadas em runtime via $executeRawUnsafe em website-runtime.ts).
+// Migration correspondente é IDEMPOTENTE (CREATE TABLE IF NOT EXISTS) —
+// nomes de colunas/índices abaixo espelham exatamente o que já está no VPS.
+model CompanyWebsiteConfig {
+  company              Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId            Int     @id
+  websiteEnabled       Boolean @default(false)
+  websitePublicUrl     String?
+  websiteAdminUrl      String?
+  websiteProjectId     String?
+  websiteAdminEnabled  Boolean @default(false)
+  websiteLaunchMode    String  @default("public") // public | admin
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([websiteProjectId], name: "CompanyWebsiteConfig_project_idx")
+}
+
+model WebsiteAdminEntryToken {
+  id               String    @id
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId        Int
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           Int
+  websiteProjectId String
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  usedAt           DateTime?
+  usedByIp         String?
+
+  @@index([companyId, expiresAt], name: "WebsiteAdminEntryToken_companyId_expiresAt_idx")
+  @@index([userId, expiresAt], name: "WebsiteAdminEntryToken_userId_expiresAt_idx")
+}
+
 model User {
   id              Int              @id @default(autoincrement())
   username        String?          @unique
@@ -1164,6 +1201,7 @@ model User {
   referredUserTeamPolicies UserTeamPolicy[] @relation("UserTeamPolicyReferrer")
   whatsappConnectionSessions WhatsAppConnectionSession[]
   gmailConnection GmailConnection?
+  websiteAdminEntryTokens WebsiteAdminEntryToken[]
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])

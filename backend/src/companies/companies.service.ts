@@ -10,7 +10,6 @@ import { computeRemainingRatio, remainingDays as prorationRemainingDays } from '
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { WhatsAppModalService } from './whatsapp-modal.service';
-import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
 import { MailService } from '../mail/mail.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import {
@@ -1207,7 +1206,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     if (!id) throw new BadRequestException('Empresa invalida');
 
     await ensureMasterBillingRuntimeSchema(this.prisma);
-    await ensureWebsiteRuntimeSchema(this.prisma);
     const supportsWhatsAppEndpointTable = await this.supportsWhatsAppEndpointTable();
 
     const company = await this.loadCompanyForPermanentDeletion(id);
@@ -1265,8 +1263,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      await tx.$executeRaw`DELETE FROM "WebsiteAdminEntryToken" WHERE "companyId" = ${id}`;
-      await tx.$executeRaw`DELETE FROM "CompanyWebsiteConfig" WHERE "companyId" = ${id}`;
+      await tx.websiteAdminEntryToken.deleteMany({ where: { companyId: id } });
+      await tx.companyWebsiteConfig.deleteMany({ where: { companyId: id } });
       await tx.$executeRaw`DELETE FROM "MasterBillingLedgerEntry" WHERE "companyId" = ${id}`;
       await tx.$executeRaw`DELETE FROM "FinanceiroCharge" WHERE "companyId" = ${id}`;
 
@@ -1357,9 +1355,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         await tx.$executeRawUnsafe(
           `UPDATE "MasterBillingLedgerEntry" SET "createdByUserId" = NULL WHERE "createdByUserId" IN (${userIds.join(',')})`,
         );
-        await tx.$executeRawUnsafe(
-          `DELETE FROM "WebsiteAdminEntryToken" WHERE "userId" IN (${userIds.join(',')})`,
-        );
+        await tx.websiteAdminEntryToken.deleteMany({ where: { userId: { in: userIds } } });
         await tx.user.deleteMany({ where: { id: { in: userIds } } });
       }
 

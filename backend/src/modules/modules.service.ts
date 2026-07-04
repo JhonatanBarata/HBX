@@ -10,7 +10,7 @@ import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
 import { CompanyOperationalStatusService } from '../companies/company-operational-status.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
-import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
+import { listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
 import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
@@ -2829,7 +2829,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
     await this.syncCompanyModulesForAllCompanies();
-    await ensureWebsiteRuntimeSchema(this.prisma);
     await ensureMasterBillingRuntimeSchema(this.prisma);
 
     const companies = await this.prisma.company.findMany({
@@ -3263,7 +3262,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   async getMasterCompanyDetail(masterUserId: number, companyId: number) {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
-    await ensureWebsiteRuntimeSchema(this.prisma);
     await ensureMasterBillingRuntimeSchema(this.prisma);
 
     const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
@@ -3468,7 +3466,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
     await this.syncCompanyModulesForAllCompanies();
-    await ensureWebsiteRuntimeSchema(this.prisma);
 
     const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
     const companies = supportsEndpointTable

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "companySlug": "exemplo-cliente",
+  "companyName": "Exemplo Cliente LTDA",
+  "companyId": null,
+  "templateKey": "diego-firebase",
+  "firebaseProjectId": "exemplo-cliente-00000",
+  "firebase": {
+    "apiKey": "PENDENTE-DONO: colar do console Firebase > Configuracoes do projeto > Seus apps",
+    "authDomain": "exemplo-cliente-00000.firebaseapp.com",
+    "storageBucket": "exemplo-cliente-00000.firebasestorage.app",
+    "messagingSenderId": "PENDENTE-DONO",
+    "appId": "PENDENTE-DONO"
+  },
+  "logo": {
+    "assetPath": "logo.svg",
+    "alt": "Exemplo Cliente"
+  },
+  "tokens": {
+    "accent": "#6ce42e",
+    "accentStrong": "#255fcf",
+    "bg": "#dde5ef",
+    "bgElevated": "#ffffff",
+    "text": "#101010",
+    "muted": "#4a4a4a"
+  },
+  "sections": ["home", "colecao", "sobre", "contato"],
+  "contact": {
+    "whatsapp": "5511999999999",
+    "email": "contato@exemplo.com.br",
+    "address": "",
+    "instagram": ""
+  },
+  "assets": {
+    "sourceDir": "C:\\Users\\Jhonatan\\Desktop\\clientes\\exemplo-cliente\\fotos",
+    "storageBucketPath": "produtos/"
+  },
+  "mint": {
+    "useCentralMint": true
+  },
+  "notes": "Config de exemplo para novo cliente. Copie para backend/website-kit/companies/<slug>/site.config.json e ajuste."
+}

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,15 +7,23 @@ import { ModulesService } from '../modules/modules.service';
 import { UpdateCompanyWebsiteConfigDto } from './dto/update-company-website-config.dto';
 import { WebsiteAdminExchangeDto } from './dto/website-admin-exchange.dto';
 import { WebsiteAdminVerifyDto } from './dto/website-admin-verify.dto';
+import { WebsiteFirebaseMintService } from './website-firebase-mint.service';
 import {
   CompanyWebsiteConfigRecord,
   consumeWebsiteAdminEntryTokenRecord,
   createWebsiteAdminEntryTokenRecord,
-  ensureWebsiteRuntimeSchema,
+  deleteExpiredWebsiteAdminEntryTokens,
   getCompanyWebsiteConfig,
   getWebsiteAdminEntryTokenRecord,
   upsertCompanyWebsiteConfig,
 } from './website-runtime';
+
+// Cron de limpeza (Sprint 2 / T3, 02/07): WebsiteAdminEntryToken só recebia
+// INSERT/UPDATE e nunca era limpo (1 linha por launch, cresce pra sempre).
+// Padrão igual ao FinanceiroService/NightFactoryWorker (setInterval interno,
+// sem @nestjs/schedule no projeto): sweep diário + 1 passada no boot.
+const WEBSITE_ENTRY_TOKEN_SWEEP_MS = 24 * 60 * 60 * 1000;
+const WEBSITE_ENTRY_TOKEN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 type LaunchTarget = 'public' | 'admin';
 
@@ -37,18 +45,63 @@ type WebsitePortalPayload = {
 };
 
 @Injectable()
-export class WebsiteService implements OnModuleInit {
+export class WebsiteService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebsiteService.name);
+  private entryTokenSweepHandle: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly modulesService: ModulesService,
     private readonly masterContextService: MasterContextService,
+    private readonly firebaseMintService: WebsiteFirebaseMintService,
   ) {}
 
-  async onModuleInit() {
-    await ensureWebsiteRuntimeSchema(this.prisma);
+  onModuleInit() {
+    // Fail-hard (Sprint 2 / T2, 02/07): em produção os secrets dedicados da
+    // ponte Website são OBRIGATÓRIOS no boot — nunca mais silenciosamente caem
+    // pro JWT_SECRET do app (a fronteira era segura por ACIDENTE, não desenho:
+    // ver docs/PLANEJAMENTOS/WEBSITE-KIT/WEBSITE-KIT-SPRINT2.md). Em dev/test o
+    // fallback pro JWT_SECRET continua liberado pra não travar onboarding local.
+    if (process.env.NODE_ENV === 'production') {
+      const missing: string[] = [];
+      if (!String(process.env.WEBSITE_ENTRY_TOKEN_SECRET || '').trim()) missing.push('WEBSITE_ENTRY_TOKEN_SECRET');
+      if (!String(process.env.WEBSITE_ADMIN_SESSION_SECRET || '').trim()) missing.push('WEBSITE_ADMIN_SESSION_SECRET');
+
+      if (missing.length) {
+        throw new Error(
+          `[website] Boot abortado em producao: variavel(is) obrigatoria(s) ausente(s): ${missing.join(', ')}. ` +
+            'Gere segredos dedicados (nao reaproveitar JWT_SECRET) e configure no .env da VPS antes do deploy.',
+        );
+      }
+    }
+
+    this.entryTokenSweepHandle = setInterval(() => {
+      void this.sweepExpiredEntryTokens('interval');
+    }, WEBSITE_ENTRY_TOKEN_SWEEP_MS);
+
+    setTimeout(() => {
+      void this.sweepExpiredEntryTokens('startup');
+    }, 5000);
+  }
+
+  onModuleDestroy() {
+    if (this.entryTokenSweepHandle) clearInterval(this.entryTokenSweepHandle);
+    this.entryTokenSweepHandle = null;
+  }
+
+  private async sweepExpiredEntryTokens(trigger: 'startup' | 'interval') {
+    try {
+      const cutoff = new Date(Date.now() - WEBSITE_ENTRY_TOKEN_RETENTION_MS);
+      const deletedCount = await deleteExpiredWebsiteAdminEntryTokens(this.prisma, cutoff);
+      if (deletedCount > 0) {
+        this.websiteLog('WEBSITE_ADMIN_ENTRY_TOKEN_SWEEP', { trigger, deletedCount, cutoff: cutoff.toISOString() });
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `WEBSITE_ADMIN_ENTRY_TOKEN_SWEEP_FAILED trigger=${trigger} error=${String(error?.message || error)}`,
+      );
+    }
   }
 
   private requireWebsiteSecret(primary: unknown, fallback: unknown, primaryName: string, fallbackName: string) {
@@ -659,20 +712,26 @@ export class WebsiteService implements OnModuleInit {
     };
   }
 
-  async verifyAdminSession(dto: WebsiteAdminVerifyDto, _ip?: string) {
-    const sessionToken = String(dto?.sessionToken || '').trim();
+  /**
+   * Nucleo de validacao da sessao do admin do website — extraido em 02/07
+   * (Sprint 3 / T3) para ser reaproveitado tal e qual por `verifyAdminSession`
+   * (endpoint existente) e `mintFirebaseTokenForAdmin` (endpoint novo do mint
+   * central). Mesma lógica, mesmos eventos de log, mesma rejeicao — o mint
+   * central NUNCA aceita uma sessao que o verify recusaria.
+   */
+  private async resolveVerifiedAdminSession(sessionToken: string, ip: string | undefined, logPrefix: string) {
     if (!sessionToken) {
-      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+      this.websiteWarn(`${logPrefix}_REJECTED`, {
         reason: 'missing_session_token',
-        ip: _ip || null,
+        ip: ip || null,
       });
       throw new BadRequestException('sessionToken e obrigatorio.');
     }
 
-    this.websiteLog('WEBSITE_ADMIN_SESSION_VERIFY_RECEIVED', {
+    this.websiteLog(`${logPrefix}_RECEIVED`, {
       hasSessionToken: true,
       sessionTokenPreview: `${sessionToken.slice(0, 8)}...${sessionToken.slice(-6)}`,
-      ip: _ip || null,
+      ip: ip || null,
       sessionSecretSource: this.websiteSessionSecretSource(),
       sessionTtlSeconds: this.websiteSessionTtlSeconds(),
       transport: 'query+hbxSessionStorage',
@@ -686,9 +745,9 @@ export class WebsiteService implements OnModuleInit {
         audience: 'hbx-website-admin-session',
       });
     } catch (error: any) {
-      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+      this.websiteWarn(`${logPrefix}_REJECTED`, {
         reason: 'session_token_verify_failed',
-        ip: _ip || null,
+        ip: ip || null,
         errorName: error?.name || 'UnknownError',
         errorMessage: error?.message || 'unknown',
         sessionSecretSource: this.websiteSessionSecretSource(),
@@ -700,9 +759,9 @@ export class WebsiteService implements OnModuleInit {
     const userId = Number(claims?.sub || 0);
     const websiteProjectId = String(claims?.websiteProjectId || '');
     if (!companyId || !userId || !websiteProjectId) {
-      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+      this.websiteWarn(`${logPrefix}_REJECTED`, {
         reason: 'session_token_incomplete_claims',
-        ip: _ip || null,
+        ip: ip || null,
         companyId,
         userId,
         websiteProjectId,
@@ -718,9 +777,9 @@ export class WebsiteService implements OnModuleInit {
 
     const config = await getCompanyWebsiteConfig(this.prisma, companyId);
     if (!config?.websiteEnabled || !config.websiteAdminEnabled || config.websiteProjectId !== websiteProjectId) {
-      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+      this.websiteWarn(`${logPrefix}_REJECTED`, {
         reason: 'website_config_mismatch',
-        ip: _ip || null,
+        ip: ip || null,
         companyId,
         userId,
         claimedWebsiteProjectId: websiteProjectId,
@@ -732,12 +791,24 @@ export class WebsiteService implements OnModuleInit {
     }
 
     const user = await this.assertWebsiteAdminAccess(userId, companyId);
-    this.websiteLog('WEBSITE_ADMIN_SESSION_VERIFY_ACCEPTED', {
+    this.websiteLog(`${logPrefix}_ACCEPTED`, {
       companyId,
       userId,
       websiteProjectId,
-      ip: _ip || null,
+      ip: ip || null,
     });
+
+    return { company, config, user };
+  }
+
+  async verifyAdminSession(dto: WebsiteAdminVerifyDto, _ip?: string) {
+    const sessionToken = String(dto?.sessionToken || '').trim();
+    const { company, config, user } = await this.resolveVerifiedAdminSession(
+      sessionToken,
+      _ip,
+      'WEBSITE_ADMIN_SESSION_VERIFY',
+    );
+
     return {
       ok: true,
       company: {
@@ -755,6 +826,66 @@ export class WebsiteService implements OnModuleInit {
         username: user.username || null,
         name: user.name || null,
         role: user.role || null,
+      },
+    };
+  }
+
+  /**
+   * Mint central do Firebase Custom Token (Sprint 3 / T3, 02/07) — mata a
+   * necessidade de Cloud Function (`hbx-auth-flow.js`) por projeto de cliente.
+   * Valida a sessao com a MESMA logica do verify (`resolveVerifiedAdminSession`)
+   * e so entao pede o custom token ao `WebsiteFirebaseMintService`.
+   *
+   * Atras de flag (`WEBSITE_TOKEN_MINT_ENABLED`, ver WebsiteFirebaseMintService)
+   * — desligado por default. Quando desligado, lanca ServiceUnavailableException
+   * com mensagem clara; o `hbx-admin-auth.js` do template trata isso como sinal
+   * pra cair no fallback da Function antiga (`/api/admin/hbx-auth`), nunca como
+   * bloqueio pro usuario final.
+   */
+  async mintFirebaseTokenForAdmin(sessionToken: string, ip?: string) {
+    const normalizedToken = String(sessionToken || '').trim();
+    const { company, config, user } = await this.resolveVerifiedAdminSession(
+      normalizedToken,
+      ip,
+      'WEBSITE_ADMIN_FIREBASE_TOKEN',
+    );
+
+    if (!config.websiteProjectId) {
+      throw new BadRequestException('websiteProjectId nao configurado para esta empresa.');
+    }
+
+    // uid no MESMO formato que a Function antiga (hbx-auth-flow.js:
+    // buildFirebaseUid) sempre gerou — trocar de mecanismo (Function -> mint
+    // central) NUNCA pode trocar o uid de um admin ja existente, ou regras do
+    // Firestore/Storage baseadas em request.auth.uid do site do cliente
+    // quebram silenciosamente na migracao.
+    const uid = `hbx-${config.websiteProjectId}-${company.id}-${user.id}`.slice(0, 128);
+    const minted = await this.firebaseMintService.mintCustomToken({
+      firebaseProjectId: config.websiteProjectId,
+      uid,
+      claims: {
+        hbxCompanyId: company.id,
+        hbxUserId: user.id,
+        hbxRole: user.role || null,
+        hbxWebsiteProjectId: config.websiteProjectId,
+        hbxSource: 'hbx-website-admin',
+      },
+    });
+
+    this.websiteLog('WEBSITE_ADMIN_FIREBASE_TOKEN_MINTED', {
+      companyId: company.id,
+      userId: user.id,
+      websiteProjectId: config.websiteProjectId,
+      expiresInSeconds: minted.expiresInSeconds,
+      ip: ip || null,
+    });
+
+    return {
+      ok: true,
+      firebaseCustomToken: minted.customToken,
+      expiresInSeconds: minted.expiresInSeconds,
+      website: {
+        projectId: config.websiteProjectId,
       },
     };
   }

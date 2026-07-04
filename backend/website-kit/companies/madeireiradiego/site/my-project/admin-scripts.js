@@ -197,24 +197,16 @@ async function signInFirebaseFromHbxSession() {
     authDomain: firebase.app?.().options?.authDomain || null,
   });
 
-  const response = await fetch(HBX_FIREBASE_AUTH_BRIDGE_PATH, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    cache: 'no-store',
-    body: JSON.stringify({ sessionToken }),
-  });
-
-  const data = await response.json().catch(() => ({}));
+  // Sprint 3 / T3 (02/07): tenta o mint central do HBX primeiro
+  // (POST /website/admin/firebase-token); cai automaticamente pra Cloud
+  // Function local (HBX_FIREBASE_AUTH_BRIDGE_PATH) se o mint central estiver
+  // desligado ou falhar. Ver hbx-admin-auth.js#mintFirebaseCustomToken.
+  const data = await hbxAdminAuth.mintFirebaseCustomToken(HBX_FIREBASE_AUTH_BRIDGE_PATH);
   logAdminAuth('bridge_response_received', {
-    status: response.status,
-    ok: response.ok,
     hasFirebaseCustomToken: Boolean(data?.firebaseCustomToken),
     error: data?.error || data?.message || null,
   });
-  if (!response.ok || !data.ok || !data.firebaseCustomToken) {
+  if (!data.ok || !data.firebaseCustomToken) {
     throw new Error(data.error || data.message || 'Nao foi possivel abrir o admin automaticamente.');
   }
 

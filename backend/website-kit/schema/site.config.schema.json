@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hbx-website-kit/site.config.schema.json",
+  "title": "HBX Website Kit — site.config.json",
+  "description": "Config config-driven de um site de cliente (Sprint 3 / T1). Um site novo = este arquivo + template, zero fork de codigo. Ver docs/PLANEJAMENTOS/WEBSITE-KIT/WEBSITE-KIT-SPRINT3.md e backend/website-kit/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "companySlug", "companyName", "templateKey", "firebaseProjectId", "tokens"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Versao do formato do site.config.json. Sobe se o schema mudar de forma incompativel."
+    },
+    "companySlug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Slug do cliente no HBX (minusculo, hifen). Vira o nome da pasta em backend/website-kit/companies/<slug>/."
+    },
+    "companyName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Nome comercial exibido no site (rodape, meta tags, admin)."
+    },
+    "companyId": {
+      "type": ["integer", "null"],
+      "description": "Company.id no banco HBX, quando ja existe cadastro (preenchido depois do onboarding comercial; pode nascer null e ser linkado via PATCH /website/master/company/:id/config)."
+    },
+    "templateKey": {
+      "type": "string",
+      "enum": ["abner-firebase", "diego-firebase"],
+      "description": "Chave do template em backend/website-kit/templates/<key>/. hbx-master-saas fica de fora (e o site do proprio HBX, nao um template de cliente)."
+    },
+    "firebaseProjectId": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{6,30}$",
+      "description": "Project ID do Firebase do cliente (1 projeto por cliente — ver docs/Rules/WEBSITE-KIT.md). Criado manualmente no console; o script new-site so grava aqui e faz o stamp, nunca cria o projeto."
+    },
+    "firebase": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bloco de config Firebase Web SDK (stampado em firebase-config.js). Ver 'PENDENTE-DONO' no HBX-DEPLOY.md gerado — esses valores saem do console do projeto novo, o script nao inventa.",
+      "properties": {
+        "apiKey": { "type": "string" },
+        "authDomain": { "type": "string" },
+        "storageBucket": { "type": "string" },
+        "messagingSenderId": { "type": "string" },
+        "appId": { "type": "string" }
+      }
+    },
+    "logo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assetPath": {
+          "type": "string",
+          "description": "Caminho do arquivo de logo relativo a pasta de assets do cliente (ver 'assets', T4). Nunca aponta pra dentro do template — logo e sempre asset de cliente."
+        },
+        "alt": { "type": "string" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accent", "accentStrong", "bg", "text"],
+      "description": "Tokens de cor stampados nas CSS custom properties do template (:root em site-theme.css / mobile-responsive.css). Mesmo espirito das 5 Leis do Design System do app: cor nasce em token, nao solta em tela.",
+      "properties": {
+        "accent": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "accentStrong": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "bg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "bgElevated": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "text": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "muted": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "description": "Secoes habilitadas no site publico, na ordem de exibicao. Cada template define seu proprio catalogo de secoes suportadas (ver template.json); o new-site so valida contra ele quando presente.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "whatsapp": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "instagram": { "type": "string" }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Onde vivem as fotos/imagens reais do cliente ANTES do deploy (T4). Nunca aponta pra dentro do git do template/companies — regra dura do dominio (docs/Rules/WEBSITE-KIT.md: nunca foto real de cliente no git).",
+      "properties": {
+        "sourceDir": {
+          "type": "string",
+          "description": "Pasta LOCAL (fora do repo, ex. Desktop/clientes/<slug>/fotos) de onde o new-site le as imagens pra gerar o manifest de upload. Nunca copiada pro repo."
+        },
+        "storageBucketPath": {
+          "type": "string",
+          "description": "Prefixo dentro do Storage do projeto Firebase do cliente onde as imagens devem subir, ex. 'produtos/'."
+        }
+      }
+    },
+    "mint": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Config do mint central de custom token (T3). Quando true, o hbx-admin-auth.js do site tenta o endpoint novo do HBX antes de cair na Function antiga.",
+      "properties": {
+        "useCentralMint": {
+          "type": "boolean",
+          "default": true,
+          "description": "true = site nasce hosting-only (plano Spark, sem Cloud Function, sem cartao). false = mantem o padrao antigo (Function hbx-auth-flow.js por projeto, precisa Blaze) — usado so por compatibilidade/migracao gradual."
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Observacoes livres para quem for operar o site depois (nao usado pelo build, so documentacao)."
+    }
+  }
+}

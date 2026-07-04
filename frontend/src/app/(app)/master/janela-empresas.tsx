@@ -144,7 +144,35 @@ type UserEditForm = { id: number; name: string; email: string; username: string;
 const EMP_VAZIO = { name: "", primaryContactName: "", contactEmail: "", contactPhone: "", taxDocument: "", paymentMethod: "", billingProvider: "" };
 const PAG_VAZIO = { value: "", competence: "", paidAt: "", paymentMethod: "PIX", observation: "", settlePending: true };
 
-const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Implantação", "Auditoria"] as const;
+const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Implantação", "Website", "Auditoria"] as const;
+
+// Espelha as validações do backend (website.service.ts updateCompanyConfigByMaster
+// — NÃO editar o backend, só refletir aqui pra não deixar o Master submeter algo
+// que o backend vai recusar de qualquer forma):
+//   websiteEnabled=true       → websitePublicUrl obrigatório
+//   websiteAdminEnabled=true  → websiteAdminUrl + websiteProjectId obrigatórios
+//   websiteLaunchMode=admin   → exige websiteAdminEnabled=true
+const WEBSITE_VAZIO = {
+  websiteEnabled: false,
+  websitePublicUrl: "",
+  websiteAdminUrl: "",
+  websiteProjectId: "",
+  websiteAdminEnabled: false,
+  websiteLaunchMode: "public" as "public" | "admin",
+};
+
+type WebsiteConfigPortal = {
+  configured?: boolean;
+  websiteEnabled?: boolean;
+  websitePublicUrl?: string | null;
+  websiteAdminUrl?: string | null;
+  websiteProjectId?: string | null;
+  websiteAdminEnabled?: boolean;
+  websiteLaunchMode?: "public" | "admin";
+  adminAllowed?: boolean;
+  launchUrl?: string | null;
+  message?: string | null;
+};
 
 function fmtBRL(v?: number | null) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -224,6 +252,15 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [tasteForm, setTasteForm] = useState({ planKey: "", revertsAt: "", reason: "" });
   const [tasteBusy, setTasteBusy] = useState(false);
 
+  // Website (WEBSITE-KIT Sprint 1, T2): config por empresa via
+  // PATCH /website/master/company/:id/config; teste ao vivo via
+  // GET /website/master/company/:id/launch (só no clique — mesmo gotcha de
+  // token do portal do cliente).
+  const [websiteForm, setWebsiteForm] = useState(WEBSITE_VAZIO);
+  const [websiteBusy, setWebsiteBusy] = useState(false);
+  const [websiteMsg, setWebsiteMsg] = useState<string | null>(null);
+  const [websiteLaunchBusy, setWebsiteLaunchBusy] = useState<"public" | "admin" | null>(null);
+
   // financeiro (fase 2)
   const [pagOpen, setPagOpen] = useState(false);
   const [pagForm, setPagForm] = useState(PAG_VAZIO);
@@ -253,10 +290,24 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setSubCancelArm(false);
     setPlanoArm(false);
     setDelRefund(null);
+    setWebsiteMsg(null);
+    setWebsiteForm(WEBSITE_VAZIO);
     // F2 — quanto seria reembolsado se esta empresa fosse excluída agora (mostra no confirm).
     apiFetch<{ refund?: DeletionRefundPreview }>(`/companies/master/${id}/deletion-refund-preview`)
       .then(res => setDelRefund(res?.refund || null))
       .catch(() => setDelRefund(null));
+    // Website: GET .../launch?target=public NÃO gera token (mesmo gotcha do
+    // portal do cliente) — seguro pra usar só como leitura de config no load.
+    apiFetch<WebsiteConfigPortal>(`/website/master/company/${id}/launch?target=public`)
+      .then(res => setWebsiteForm({
+        websiteEnabled: Boolean(res?.websiteEnabled),
+        websitePublicUrl: res?.websitePublicUrl || "",
+        websiteAdminUrl: res?.websiteAdminUrl || "",
+        websiteProjectId: res?.websiteProjectId || "",
+        websiteAdminEnabled: Boolean(res?.websiteAdminEnabled),
+        websiteLaunchMode: res?.websiteLaunchMode === "admin" ? "admin" : "public",
+      }))
+      .catch(() => setWebsiteForm(WEBSITE_VAZIO));
     apiFetch<Detail>(`/modules/master/company/${id}/detail`)
       .then(res => {
         setDetail(res);
@@ -660,6 +711,73 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       setComMsg(err instanceof Error ? err.message : "Falha ao encerrar degustação.");
     } finally {
       setTasteBusy(false);
+    }
+  }
+
+  // Validações espelham o backend (website.service.ts) ANTES de submeter — o
+  // backend segue sendo a fonte da verdade (rejeita de novo se algo escapar
+  // daqui), isto só evita round-trip com erro óbvio.
+  function validarWebsiteForm(f: typeof WEBSITE_VAZIO): string | null {
+    if (f.websiteEnabled && !f.websitePublicUrl.trim()) {
+      return "URL pública é obrigatória quando o website está habilitado.";
+    }
+    if (f.websiteAdminEnabled && !f.websiteAdminUrl.trim()) {
+      return "URL do admin é obrigatória quando o admin do website está habilitado.";
+    }
+    if (f.websiteAdminEnabled && !f.websiteProjectId.trim()) {
+      return "Project ID é obrigatório quando o admin do website está habilitado.";
+    }
+    if (f.websiteLaunchMode === "admin" && !f.websiteAdminEnabled) {
+      return "Modo de abertura \"admin\" exige o admin do website habilitado.";
+    }
+    return null;
+  }
+
+  async function salvarWebsite() {
+    if (websiteBusy || selId == null) return;
+    const invalido = validarWebsiteForm(websiteForm);
+    if (invalido) { setWebsiteMsg(invalido); return; }
+    setWebsiteBusy(true);
+    setWebsiteMsg(null);
+    try {
+      await apiFetch(`/website/master/company/${selId}/config`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          websiteEnabled: websiteForm.websiteEnabled,
+          websitePublicUrl: websiteForm.websitePublicUrl.trim() || undefined,
+          websiteAdminUrl: websiteForm.websiteAdminUrl.trim() || undefined,
+          websiteProjectId: websiteForm.websiteProjectId.trim() || undefined,
+          websiteAdminEnabled: websiteForm.websiteAdminEnabled,
+          websiteLaunchMode: websiteForm.websiteLaunchMode,
+        }),
+      });
+      setWebsiteMsg("✓ Configuração do website salva.");
+      await recarregarTudo();
+    } catch (err) {
+      setWebsiteMsg(err instanceof Error ? err.message : "Falha ao salvar a configuração do website.");
+    } finally {
+      setWebsiteBusy(false);
+    }
+  }
+
+  // Teste ao vivo: SÓ no clique (nunca na carga da aba) — target=admin gera um
+  // entry token de 90s de uso único a cada chamada (mesmo gotcha do portal do
+  // cliente). O launchUrl nunca é guardado em estado para reabrir depois.
+  async function abrirWebsiteLaunch(target: "public" | "admin") {
+    if (websiteLaunchBusy || selId == null) return;
+    setWebsiteLaunchBusy(target);
+    setWebsiteMsg(null);
+    try {
+      const res = await apiFetch<WebsiteConfigPortal>(`/website/master/company/${selId}/launch?target=${target}`);
+      if (res?.launchUrl) {
+        window.open(res.launchUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setWebsiteMsg(res?.message || `Não foi possível abrir o ${target === "admin" ? "admin" : "site público"}.`);
+      }
+    } catch (err) {
+      setWebsiteMsg(err instanceof Error ? err.message : `Falha ao abrir o ${target === "admin" ? "admin" : "site público"}.`);
+    } finally {
+      setWebsiteLaunchBusy(null);
     }
   }
 
@@ -1405,6 +1523,75 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           {comBusy === "fin" ? "Salvando…" : "Salvar implantação"}
                         </button>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {detailTab === "Website" && (
+                  <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>
+                    <span className="field-label">
+                      Site institucional da empresa (Website Kit). O cliente acessa a URL pública direto; o admin
+                      entra por token de uso único (90s) — nunca guardado, só na hora do clique.
+                    </span>
+                    {websiteMsg && (
+                      <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: websiteMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{websiteMsg}</div>
+                    )}
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.76rem", fontWeight: 700, cursor: "pointer" }}>
+                      <input type="checkbox" checked={websiteForm.websiteEnabled}
+                        onChange={e => setWebsiteForm(f => ({ ...f, websiteEnabled: e.target.checked }))} />
+                      Website habilitado
+                    </label>
+
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <label className="field-label">URL pública {websiteForm.websiteEnabled && "*"}</label>
+                      <input className="field-dark" placeholder="https://cliente.hbxsystem.com.br"
+                        value={websiteForm.websitePublicUrl}
+                        onChange={e => setWebsiteForm(f => ({ ...f, websitePublicUrl: e.target.value }))} />
+                    </div>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.76rem", fontWeight: 700, cursor: "pointer" }}>
+                      <input type="checkbox" checked={websiteForm.websiteAdminEnabled}
+                        onChange={e => setWebsiteForm(f => ({ ...f, websiteAdminEnabled: e.target.checked }))} />
+                      Admin do website habilitado
+                    </label>
+
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ display: "grid", gap: 4, flex: "1 1 260px" }}>
+                        <label className="field-label">URL do admin {websiteForm.websiteAdminEnabled && "*"}</label>
+                        <input className="field-dark" placeholder="https://cliente.hbxsystem.com.br/admin"
+                          value={websiteForm.websiteAdminUrl}
+                          onChange={e => setWebsiteForm(f => ({ ...f, websiteAdminUrl: e.target.value }))} />
+                      </div>
+                      <div style={{ display: "grid", gap: 4, flex: "1 1 160px" }}>
+                        <label className="field-label">Project ID {websiteForm.websiteAdminEnabled && "*"}</label>
+                        <input className="field-dark" placeholder="ex.: madeireira-diego"
+                          value={websiteForm.websiteProjectId}
+                          onChange={e => setWebsiteForm(f => ({ ...f, websiteProjectId: e.target.value }))} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 4, maxWidth: 260 }}>
+                      <label className="field-label">Modo de abertura padrão</label>
+                      <select className="field-dark" value={websiteForm.websiteLaunchMode}
+                        onChange={e => setWebsiteForm(f => ({ ...f, websiteLaunchMode: e.target.value === "admin" ? "admin" : "public" }))}>
+                        <option value="public">Público</option>
+                        <option value="admin">Admin (exige admin habilitado)</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button className="btn-teal" disabled={websiteBusy} onClick={salvarWebsite}>
+                        {websiteBusy ? "Salvando…" : "Salvar configuração"}
+                      </button>
+                      <button className="btn-ghost" disabled={websiteLaunchBusy != null || !websiteForm.websitePublicUrl.trim()}
+                        onClick={() => abrirWebsiteLaunch("public")}>
+                        {websiteLaunchBusy === "public" ? "Abrindo…" : "Abrir público"}
+                      </button>
+                      <button className="btn-ghost" disabled={websiteLaunchBusy != null || !websiteForm.websiteAdminEnabled}
+                        onClick={() => abrirWebsiteLaunch("admin")}>
+                        {websiteLaunchBusy === "admin" ? "Abrindo…" : "Abrir admin"}
+                      </button>
                     </div>
                   </div>
                 )}
