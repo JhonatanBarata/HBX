@@ -129,6 +129,92 @@ export class MasterPaymentNotificationsController {
     }
   }
 
+  // COCKPIT-MASTER Sprint 4 (entrega opcional 4): além do MasterPaymentNotificationLog
+  // (tabela antiga, intacta), a janela Pagamentos também enxerga MasterEvent com
+  // severity=action_required — são os MESMOS "toque à mão" que hoje só aparecem em
+  // e-mail/zap (implantacao.sold, fullplan.requested, bot.config_missing etc.), agora
+  // também no histórico. Mapeados pro MESMO shape de NotificationRow do frontend
+  // (status sempre 'sent' — evento é informativo, não um disparo que pode falhar).
+  // Best-effort: se a consulta de MasterEvent falhar, o histórico antigo segue
+  // respondendo normalmente (união silenciosamente vira só a tabela antiga).
+  private async fetchActionRequiredEvents(opts: { companyId: number; limit: number }): Promise<Array<{
+    id: string;
+    companyId: number;
+    companyName: string | null;
+    target: string;
+    text: string;
+    status: string;
+    providerMessageId: string | null;
+    errorMessage: string | null;
+    createdAt: string;
+  }>> {
+    try {
+      const events = await this.prisma.masterEvent.findMany({
+        where: {
+          severity: 'action_required',
+          companyId: { not: null },
+          ...(opts.companyId > 0 ? { companyId: opts.companyId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: opts.limit,
+      });
+      if (!events.length) return [];
+
+      const companyIds = Array.from(new Set(events.map((e) => e.companyId).filter((id): id is number => id != null)));
+      const companies = companyIds.length
+        ? await this.prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } })
+        : [];
+      const nameById = new Map(companies.map((c) => [c.id, c.name]));
+
+      return events.map((event) => {
+        const payload = this.safeParseEventPayload(event.payloadJson);
+        return {
+          id: `master-event:${event.id}`,
+          companyId: Number(event.companyId || 0),
+          companyName: event.companyId ? nameById.get(event.companyId) || null : null,
+          target: this.eventTypeLabel(event.type),
+          text: this.buildEventText(event.type, payload),
+          status: 'sent',
+          providerMessageId: null,
+          errorMessage: null,
+          createdAt: event.createdAt.toISOString(),
+        };
+      });
+    } catch {
+      return []; // MasterEvent indisponível neste ambiente — histórico antigo segue sozinho.
+    }
+  }
+
+  private safeParseEventPayload(payloadJson: string | null): Record<string, unknown> | null {
+    if (!payloadJson) return null;
+    try {
+      const parsed = JSON.parse(payloadJson);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private eventTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      'fullplan.requested': 'HBX Full solicitado',
+      'implantacao.sold': 'Venda com implantação',
+      'bot.config_missing': 'Bot IA sem configuração',
+      'chip.dropped': 'Chip do WhatsApp caiu',
+      'billing.webhook_stale': 'Webhook de cobrança sem novidade',
+    };
+    return labels[type] || type;
+  }
+
+  private buildEventText(type: string, payload: Record<string, unknown> | null): string {
+    const label = this.eventTypeLabel(type);
+    if (!payload) return label;
+    const lines = Object.entries(payload)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => `${k}: ${v}`);
+    return [label, ...lines].join('\n');
+  }
+
   // E8: leitura do histórico para a janela Pagamentos do /master.
   @Get('history')
   @UseGuards(JwtAuthGuard, MasterGuard)
@@ -157,19 +243,33 @@ export class MasterPaymentNotificationsController {
           })
         : [];
       const nameById = new Map(companies.map((company) => [company.id, company.name]));
+      const legacyNotifications = rows.map((row) => ({
+        id: row.id,
+        companyId: row.companyId,
+        companyName: nameById.get(row.companyId) || null,
+        target: row.target,
+        text: row.text,
+        status: row.status,
+        providerMessageId: row.providerMessageId,
+        errorMessage: row.errorMessage,
+        createdAt: row.createdAt.toISOString(),
+      }));
+
+      // União com MasterEvent (action_required) SÓ quando o filtro de status
+      // não pede algo que só existe na tabela antiga ('failed' não tem
+      // equivalente em MasterEvent — evento nunca "falha", é write-through).
+      const includeEvents = !normalizedStatus || normalizedStatus === 'all' || normalizedStatus === 'sent';
+      const eventNotifications = includeEvents
+        ? await this.fetchActionRequiredEvents({ companyId: normalizedCompanyId, limit })
+        : [];
+
+      const merged = [...legacyNotifications, ...eventNotifications]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, limit);
+
       return {
         ok: true,
-        notifications: rows.map((row) => ({
-          id: row.id,
-          companyId: row.companyId,
-          companyName: nameById.get(row.companyId) || null,
-          target: row.target,
-          text: row.text,
-          status: row.status,
-          providerMessageId: row.providerMessageId,
-          errorMessage: row.errorMessage,
-          createdAt: row.createdAt.toISOString(),
-        })),
+        notifications: merged,
       };
     } catch {
       return { ok: false, notifications: [], message: 'Histórico indisponível neste ambiente (tabela ainda não criada).' };

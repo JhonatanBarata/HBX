@@ -73,6 +73,33 @@ type SellerDrill = {
   commissionPayable: number;
 };
 
+// Sprint 2 — tail da trilha única de eventos do dono (MasterEvent).
+type MasterEventItem = {
+  id: string;
+  type: string;
+  severity: "info" | "attention" | "action_required" | string;
+  companyId: number | null;
+  companyName: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+// Sprint 2 — faixa de saúde v1 (cada sub-bloco é best-effort: erro no backend → null).
+type WhatsappHealth = {
+  total: number;
+  open: number;
+  connecting: number;
+  closed: number;
+  other: number;
+  checkedAt: string;
+} | null;
+
+type HealthBlock = {
+  whatsapp: WhatsappHealth;
+  billing: { lastWebhookAt: string | null } | null;
+  factory: { lastLeadSeenAt: string | null } | null;
+} | null;
+
 type Overview = {
   generatedAt: string;
   feed: { sales: SaleFeedItem[]; commissions: CommissionFeedItem[] };
@@ -97,6 +124,9 @@ type Overview = {
   };
   roster: RosterCompany[];
   sellers: SellerDrill[];
+  // Sprint 2 — só adições (opcionais: backend antigo continua rendendo a tela).
+  events?: MasterEventItem[];
+  health?: HealthBlock;
 } | null;
 
 const REFRESH_MS = 30000;
@@ -123,12 +153,76 @@ function commissionDot(status: string) {
   return "ckm-dot warn";
 }
 
+// ── Sprint 2: eventos + faixa de saúde ─────────────────────────────────────────
+
+function severityDot(severity: string) {
+  if (severity === "action_required") return "ckm-dot bad";
+  if (severity === "attention") return "ckm-dot warn";
+  return "ckm-dot ok";
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  "sale.closed": "Venda fechada",
+  "implantacao.sold": "Implantação vendida — toque à mão",
+  "fullplan.requested": "HBX Full solicitado",
+  "bot.config_missing": "Bot IA sem chave-mestra",
+  "master_context.assumed": "Contexto de empresa assumido",
+  "master_context.exited": "Contexto de empresa encerrado",
+  "master_context.expired": "Contexto de empresa expirado",
+};
+
+function eventLabel(type: string) {
+  return EVENT_LABELS[type] || type;
+}
+
+type PillTone = "ok" | "warn" | "bad" | "off";
+
+// Tom da pill por IDADE do sinal: fresco=verde, envelhecendo=âmbar, parado=vermelho,
+// sem sinal=neutro. Sinal "do futuro" (skew de relógio) conta como recém-chegado.
+function agePillTone(iso: string | null | undefined, warnMs: number, badMs: number): PillTone {
+  if (!iso) return "off";
+  const age = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(age)) return "off";
+  if (age <= warnMs) return "ok";
+  if (age <= badMs) return "warn";
+  return "bad";
+}
+
+function agoShort(iso: string | null | undefined): string {
+  if (!iso) return "sem sinal";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return "sem sinal";
+  const min = Math.max(0, Math.round(ms / 60000));
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `há ${h} h`;
+  return `há ${Math.round(h / 24)} d`;
+}
+
+// Pill do zap: estado dos chips lido do MOTOR AO VIVO (null = sem leitura/motor off).
+function whatsappPill(wa: WhatsappHealth | undefined): { tone: PillTone; hint: string } {
+  if (!wa) return { tone: "off", hint: "sem leitura do motor" };
+  if (wa.total === 0) return { tone: "warn", hint: "nenhum chip no motor" };
+  if (wa.open === wa.total) return { tone: "ok", hint: `${wa.open}/${wa.total} conectados` };
+  if (wa.open > 0) return { tone: "warn", hint: `${wa.open}/${wa.total} conectados` };
+  return { tone: "bad", hint: `0/${wa.total} conectados` };
+}
+
+// Dot interno da pill: reusa .ckm-dot (off = neutro da base, sem sufixo).
+function pillDot(tone: PillTone) {
+  return tone === "off" ? "ckm-dot" : "ckm-dot " + tone;
+}
+
+const H = 3600_000;
+const D = 24 * H;
+
 export function JanelaCockpit() {
   const [data, setData] = useState<Overview>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [auto, setAuto] = useState(true);
-  const [feedTab, setFeedTab] = useState<"sales" | "commissions">("sales");
+  const [feedTab, setFeedTab] = useState<"events" | "sales" | "commissions">("events");
   // Drill-down god-view: empresa selecionada → vendedores dela → negócios.
   const [drillCompanyId, setDrillCompanyId] = useState<number | null>(null);
   const [drillSellerId, setDrillSellerId] = useState<number | null>(null);
@@ -167,6 +261,19 @@ export function JanelaCockpit() {
   const sellers = data?.sellers || [];
   const sales = data?.feed.sales || [];
   const commissions = data?.feed.commissions || [];
+  const events = data?.events || [];
+  const health = data?.health || null;
+
+  // Feed: eventos quando presentes; vazio → fallback pro feed atual (vendas).
+  const effectiveTab = feedTab === "events" && events.length === 0 ? "sales" : feedTab;
+
+  // Faixa de saúde v1 — zap (estado dos chips no motor), cobrança (idade do último
+  // webhook de pagamento) e fábrica (idade do último lead visto pelo Radar).
+  const waPill = whatsappPill(health?.whatsapp ?? undefined);
+  const billingAt = health?.billing?.lastWebhookAt ?? null;
+  const billingTone = health?.billing ? agePillTone(billingAt, 2 * D, 7 * D) : "off";
+  const factoryAt = health?.factory?.lastLeadSeenAt ?? null;
+  const factoryTone = health?.factory ? agePillTone(factoryAt, D, 3 * D) : "off";
 
   const drillCompany = drillCompanyId ? roster.find((r) => r.id === drillCompanyId) || null : null;
   const drillSeller = drillSellerId ? sellers.find((s) => s.userId === drillSellerId) || null : null;
@@ -197,6 +304,22 @@ export function JanelaCockpit() {
 
   return (
     <React.Fragment>
+      {/* Faixa de saúde v1 (Sprint 2): zap · cobrança · fábrica */}
+      <div className="ckm-health">
+        <span className={"ckm-pill " + waPill.tone} title="Estado dos chips lido do motor ao vivo (cache de 60 s)">
+          <span className={pillDot(waPill.tone)} />
+          WhatsApp <em>{waPill.hint}</em>
+        </span>
+        <span className={"ckm-pill " + billingTone} title="Último webhook de pagamento processado">
+          <span className={pillDot(billingTone)} />
+          Cobrança <em>{health?.billing ? (billingAt ? `webhook ${agoShort(billingAt)}` : "sem webhook ainda") : "sem leitura"}</em>
+        </span>
+        <span className={"ckm-pill " + factoryTone} title="Último lead visto pela fábrica (Radar)">
+          <span className={pillDot(factoryTone)} />
+          Fábrica <em>{health?.factory ? (factoryAt ? `lead ${agoShort(factoryAt)}` : "sem lead ainda") : "sem leitura"}</em>
+        </span>
+      </div>
+
       {/* Faixa de KPIs */}
       <div className="ckm-kpis">
         <div className="ckm-kpi ckm-kpi-north">
@@ -249,23 +372,47 @@ export function JanelaCockpit() {
           </div>
           <div style={{ padding: "12px 16px 6px" }}>
             <div className="ckm-tabs">
-              <button className={"ckm-tab" + (feedTab === "sales" ? " active" : "")} onClick={() => setFeedTab("sales")}>
+              {events.length > 0 && (
+                <button className={"ckm-tab" + (effectiveTab === "events" ? " active" : "")} onClick={() => setFeedTab("events")}>
+                  Eventos ({events.length})
+                </button>
+              )}
+              <button className={"ckm-tab" + (effectiveTab === "sales" ? " active" : "")} onClick={() => setFeedTab("sales")}>
                 Vendas ({sales.length})
               </button>
-              <button className={"ckm-tab" + (feedTab === "commissions" ? " active" : "")} onClick={() => setFeedTab("commissions")}>
+              <button className={"ckm-tab" + (effectiveTab === "commissions" ? " active" : "")} onClick={() => setFeedTab("commissions")}>
                 Comissões ({commissions.length})
               </button>
             </div>
           </div>
           <div className="ckm-feed">
             {data === null && !error && <div className="ckm-empty">Carregando o feed…</div>}
-            {feedTab === "sales" && data !== null && sales.length === 0 && (
+            {effectiveTab === "sales" && data !== null && sales.length === 0 && (
               <div className="ckm-empty">Nenhuma venda no feed ainda — o fluxo nasce no primeiro fechamento.</div>
             )}
-            {feedTab === "commissions" && data !== null && commissions.length === 0 && (
+            {effectiveTab === "commissions" && data !== null && commissions.length === 0 && (
               <div className="ckm-empty">Nenhuma comissão no feed ainda.</div>
             )}
-            {feedTab === "sales" &&
+            {effectiveTab === "events" &&
+              events.map((ev) => (
+                <div
+                  key={ev.id}
+                  className={"ckm-feed-item" + (ev.companyId && drillCompanyId === ev.companyId ? " sel" : "")}
+                  onClick={() => {
+                    if (ev.companyId) { setDrillCompanyId(ev.companyId); setDrillSellerId(null); }
+                  }}
+                  title={ev.companyId ? "Abrir no drill-down" : undefined}
+                >
+                  <span className={severityDot(ev.severity)} />
+                  <div className="ckm-feed-body">
+                    <span className="ckm-feed-line">
+                      <strong>{ev.companyName || "Plataforma"}</strong> · {eventLabel(ev.type)}
+                    </span>
+                    <span className="ckm-feed-meta">{ev.severity} · {fmtDataHora(ev.createdAt)}</span>
+                  </div>
+                </div>
+              ))}
+            {effectiveTab === "sales" &&
               sales.map((s) => (
                 <div
                   key={s.leadId}
@@ -283,7 +430,7 @@ export function JanelaCockpit() {
                   <span className="ckm-feed-amount">{brl(s.saleValue)}</span>
                 </div>
               ))}
-            {feedTab === "commissions" &&
+            {effectiveTab === "commissions" &&
               commissions.map((c) => (
                 <div
                   key={c.id}

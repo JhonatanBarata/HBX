@@ -223,6 +223,7 @@ model Company {
   vendasCommissionPayouts VendasCommissionPayout[]
   vendasCommissionReceivables VendasCommissionReceivable[]
   masterNotices       MasterNotice[]
+  masterEvents        MasterEvent[]
   billableSeatUsages CompanyBillableSeatUsage[]
   salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
@@ -1456,6 +1457,28 @@ model MasterPaymentNotificationLog {
 
   @@index([companyId, createdAt])
   @@index([createdAt])
+}
+
+// COCKPIT-MASTER Sprint 1: trilha ÚNICA de eventos do dono. Toda ocorrência que o
+// MASTER precisa ver vira UM evento tipado e consultável aqui (write-through — as
+// trilhas antigas MasterPaymentNotificationLog/MasterNotice/MasterSupportAuditLog
+// continuam intactas). Tabela criada em runtime pelo ensureMasterEventTable
+// (prisma.service.ts); shouldBecomeMigration=true. FK em Company com SET NULL de
+// propósito: o histórico do dono sobrevive à exclusão da empresa.
+model MasterEvent {
+  id          String   @id @default(uuid())
+  type        String   // ex.: sale.closed | implantacao.sold | fullplan.requested | bot.config_missing | master_context.assumed
+  severity    String   @default("info") // info | attention | action_required
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId   Int?
+  dedupKey    String?  // dedup opcional (mesmo estado/janela não repete — ver emitMasterEvent)
+  payloadJson String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([companyId, createdAt])
+  @@index([dedupKey, createdAt])
 }
 
 model VendasCardComplaint {

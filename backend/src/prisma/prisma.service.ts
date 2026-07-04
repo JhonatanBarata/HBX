@@ -186,6 +186,18 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     target: 'MasterPaymentNotificationLog table and indexes (E8 PLAN12062026001)',
     shouldBecomeMigration: true,
   },
+  {
+    key: 'master-event-table',
+    method: 'ensureMasterEventTable',
+    target: 'MasterEvent table, FK and indexes (COCKPIT-MASTER Sprint 1 — trilha única do dono)',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'master-context-tables',
+    method: 'ensureMasterContextTables',
+    target: 'MasterAssumedContextSession + MasterSupportAuditLog tables, FKs and indexes (COCKPIT-MASTER Sprint 4 — DDL migrado do master-context.service.ts)',
+    shouldBecomeMigration: true,
+  },
 ];
 
 const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
@@ -405,6 +417,27 @@ const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'masterEvent.table',
+    ensureKey: 'master-event-table',
+    type: 'table',
+    table: 'MasterEvent',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'masterAssumedContextSession.table',
+    ensureKey: 'master-context-tables',
+    type: 'table',
+    table: 'MasterAssumedContextSession',
+    shouldBecomeMigration: true,
+  },
+  {
+    key: 'masterSupportAuditLog.table',
+    ensureKey: 'master-context-tables',
+    type: 'table',
+    table: 'MasterSupportAuditLog',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'externalWebhookEvent.table',
     type: 'table',
     table: 'ExternalWebhookEvent',
@@ -523,7 +556,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('vendas-cancellation-case-columns', () => this.ensureVendasCancellationCaseColumns());
     await this.runRuntimeSchemaEnsure('hbx-job-application-table', () => this.ensureHbxJobApplicationTable());
     await this.runRuntimeSchemaEnsure('master-payment-notification-log-table', () => this.ensureMasterPaymentNotificationLogTable());
+    await this.runRuntimeSchemaEnsure('master-event-table', () => this.ensureMasterEventTable());
     await this.runRuntimeSchemaEnsure('trial-identity-columns', () => this.ensureTrialIdentityColumns());
+    await this.runRuntimeSchemaEnsure('master-context-tables', () => this.ensureMasterContextTables());
   }
 
   async onModuleDestroy() {
@@ -1448,6 +1483,96 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     `);
     await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterPaymentNotificationLog_companyId_createdAt_idx" ON "MasterPaymentNotificationLog"("companyId", "createdAt")`);
     await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterPaymentNotificationLog_createdAt_idx" ON "MasterPaymentNotificationLog"("createdAt")`);
+  }
+
+  // COCKPIT-MASTER Sprint 1: trilha única de eventos do dono (MasterEvent).
+  // FK em Company com SET NULL de propósito — o evento é histórico do MASTER e
+  // sobrevive à exclusão da empresa (não some junto com o tenant).
+  private async ensureMasterEventTable() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MasterEvent" (
+        "id" TEXT NOT NULL,
+        "type" TEXT NOT NULL,
+        "severity" TEXT NOT NULL DEFAULT 'info',
+        "companyId" INTEGER,
+        "dedupKey" TEXT,
+        "payloadJson" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "MasterEvent_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    await this.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'MasterEvent_companyId_fkey'
+        ) THEN
+          ALTER TABLE "MasterEvent"
+          ADD CONSTRAINT "MasterEvent_companyId_fkey"
+          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+      END $$;
+    `);
+
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterEvent_createdAt_idx" ON "MasterEvent"("createdAt")`);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterEvent_type_createdAt_idx" ON "MasterEvent"("type", "createdAt")`);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterEvent_companyId_createdAt_idx" ON "MasterEvent"("companyId", "createdAt")`);
+    await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MasterEvent_dedupKey_createdAt_idx" ON "MasterEvent"("dedupKey", "createdAt")`);
+  }
+
+  // COCKPIT-MASTER Sprint 4: DDL migrado de master-context.service.ts (ensureSchema
+  // rodava no onModuleInit daquele service — higiene: todo DDL vive SÓ aqui, no
+  // framework central). SQL IDÊNTICO ao original, sem mudar nenhuma coluna/índice.
+  private async ensureMasterContextTables() {
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MasterAssumedContextSession" (
+        "id" TEXT PRIMARY KEY,
+        "masterUserId" INTEGER NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+        "companyId" INTEGER NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+        "reason" TEXT,
+        "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" TIMESTAMP(3),
+        "endedAt" TIMESTAMP(3),
+        "endedByUserId" INTEGER REFERENCES "User"("id") ON DELETE SET NULL
+      )
+    `);
+
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "MasterAssumedContextSession_masterUserId_startedAt_idx" ON "MasterAssumedContextSession"("masterUserId", "startedAt")',
+    );
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "MasterAssumedContextSession_companyId_startedAt_idx" ON "MasterAssumedContextSession"("companyId", "startedAt")',
+    );
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "MasterAssumedContextSession_masterUserId_endedAt_idx" ON "MasterAssumedContextSession"("masterUserId", "endedAt")',
+    );
+
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "MasterSupportAuditLog" (
+        "id" TEXT PRIMARY KEY,
+        "masterUserId" INTEGER NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+        "companyId" INTEGER REFERENCES "Company"("id") ON DELETE SET NULL,
+        "assumedContextSessionId" TEXT REFERENCES "MasterAssumedContextSession"("id") ON DELETE SET NULL,
+        "scope" TEXT NOT NULL,
+        "action" TEXT NOT NULL,
+        "severity" TEXT NOT NULL DEFAULT 'INFO',
+        "route" TEXT,
+        "metadata" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "MasterSupportAuditLog_masterUserId_createdAt_idx" ON "MasterSupportAuditLog"("masterUserId", "createdAt")',
+    );
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "MasterSupportAuditLog_companyId_createdAt_idx" ON "MasterSupportAuditLog"("companyId", "createdAt")',
+    );
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "MasterSupportAuditLog_scope_action_createdAt_idx" ON "MasterSupportAuditLog"("scope", "action", "createdAt")',
+    );
   }
 
   private async ensureVendasCancellationCaseColumns() {

@@ -1,6 +1,16 @@
-import { ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { emitMasterEvent } from '../common/master-event';
+
+// Ação da auditoria → sufixo do evento tipado na trilha única do dono
+// (`master_context.assumed` etc. — COCKPIT-MASTER Sprint 1). Ação fora do mapa
+// (ex.: ações livres de support_operation) vira o próprio nome em minúsculo.
+const MASTER_CONTEXT_EVENT_SUFFIX: Record<string, string> = {
+  ASSUME_CONTEXT: 'assumed',
+  EXIT_CONTEXT: 'exited',
+  EXPIRE_CONTEXT: 'expired',
+};
 
 type MasterContextSummary = {
   active: boolean;
@@ -29,13 +39,13 @@ type ActiveSessionRow = {
   companyName: string;
 };
 
+// COCKPIT-MASTER Sprint 4 (higiene): este service NÃO faz mais DDL. O antigo
+// ensureSchema() (onModuleInit) migrou pro framework runtime-schema-ensure
+// central (`prisma.service.ts` → ensureMasterContextTables), SQL idêntico —
+// todo o resto da classe é regra de negócio pura, como deveria ser.
 @Injectable()
-export class MasterContextService implements OnModuleInit {
+export class MasterContextService {
   constructor(private readonly prisma: PrismaService) {}
-
-  async onModuleInit() {
-    await this.ensureSchema();
-  }
 
   async assumeContext(masterUserId: number, companyId: number, opts?: { reason?: string; ttlMinutes?: number; route?: string }) {
     await this.ensureMaster(masterUserId);
@@ -356,55 +366,25 @@ export class MasterContextService implements OnModuleInit {
         ${new Date()}
       )
     `;
-  }
 
-  private async ensureSchema() {
-    await this.prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "MasterAssumedContextSession" (
-        "id" TEXT PRIMARY KEY,
-        "masterUserId" INTEGER NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-        "companyId" INTEGER NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
-        "reason" TEXT,
-        "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "expiresAt" TIMESTAMP(3),
-        "endedAt" TIMESTAMP(3),
-        "endedByUserId" INTEGER REFERENCES "User"("id") ON DELETE SET NULL
-      )
-    `);
-
-    await this.prisma.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "MasterAssumedContextSession_masterUserId_startedAt_idx" ON "MasterAssumedContextSession"("masterUserId", "startedAt")',
-    );
-    await this.prisma.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "MasterAssumedContextSession_companyId_startedAt_idx" ON "MasterAssumedContextSession"("companyId", "startedAt")',
-    );
-    await this.prisma.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "MasterAssumedContextSession_masterUserId_endedAt_idx" ON "MasterAssumedContextSession"("masterUserId", "endedAt")',
-    );
-
-    await this.prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "MasterSupportAuditLog" (
-        "id" TEXT PRIMARY KEY,
-        "masterUserId" INTEGER NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-        "companyId" INTEGER REFERENCES "Company"("id") ON DELETE SET NULL,
-        "assumedContextSessionId" TEXT REFERENCES "MasterAssumedContextSession"("id") ON DELETE SET NULL,
-        "scope" TEXT NOT NULL,
-        "action" TEXT NOT NULL,
-        "severity" TEXT NOT NULL DEFAULT 'INFO',
-        "route" TEXT,
-        "metadata" TEXT,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await this.prisma.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "MasterSupportAuditLog_masterUserId_createdAt_idx" ON "MasterSupportAuditLog"("masterUserId", "createdAt")',
-    );
-    await this.prisma.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "MasterSupportAuditLog_companyId_createdAt_idx" ON "MasterSupportAuditLog"("companyId", "createdAt")',
-    );
-    await this.prisma.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "MasterSupportAuditLog_scope_action_createdAt_idx" ON "MasterSupportAuditLog"("scope", "action", "createdAt")',
-    );
+    // Write-through COCKPIT-MASTER (Sprint 1): além da auditoria antiga (intacta,
+    // acima), cada registro também vira evento tipado na trilha única do dono.
+    // emitMasterEvent é best-effort por contrato (nunca lança) — não muda o
+    // comportamento do writeAuditLog para quem chama.
+    const action = String(input.action || 'UNKNOWN_ACTION');
+    await emitMasterEvent(this.prisma, {
+      type: `master_context.${MASTER_CONTEXT_EVENT_SUFFIX[action] || action.toLowerCase()}`,
+      severity: 'info',
+      companyId: input.companyId ? Number(input.companyId) : null,
+      payload: {
+        masterUserId: Number(input.masterUserId),
+        sessionId: input.sessionId || null,
+        scope: String(input.scope || 'master_context'),
+        action,
+        severity: String(input.severity || 'INFO'),
+        route: input.route ? String(input.route) : null,
+        metadata: input.metadata || null,
+      },
+    });
   }
 }

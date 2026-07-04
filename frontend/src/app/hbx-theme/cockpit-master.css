@@ -7,6 +7,45 @@
    Tokens: ver theme.css / skeleton.css.
    ============================================================ */
 
+/* Faixa de saúde v1 (Sprint 2) — 3 pills: zap · cobrança · fábrica.
+   Tom por token (verde=brand, âmbar=warning, vermelho=danger, cinza=sem leitura);
+   o ponto interno reusa .ckm-dot. */
+.ckm-health {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ckm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-body);
+}
+.ckm-pill em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.ckm-pill.ok {
+  border-color: color-mix(in srgb, var(--hbx-brand) 35%, transparent);
+}
+.ckm-pill.warn {
+  border-color: color-mix(in srgb, var(--hbx-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--hbx-warning) 6%, var(--hbx-surface));
+}
+.ckm-pill.bad {
+  border-color: color-mix(in srgb, var(--hbx-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--hbx-danger) 6%, var(--hbx-surface));
+}
+/* .ckm-pill.off = sem leitura (fica no neutro da base). */
+
 /* Faixa de KPIs do topo */
 .ckm-kpis {
   display: grid;
