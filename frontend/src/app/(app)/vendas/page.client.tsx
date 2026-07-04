@@ -16,9 +16,8 @@ import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, us
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { VendasModoFoco } from "@/components/hbx/vendas-modo-foco";
-import { LeadsClient } from "../leads/page.client";
+import { BuscarEmpresas } from "@/components/hbx/buscar-empresas";
 import { apiFetch } from "@/lib/api";
-import { isCompanySeller } from "@/lib/roles";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
@@ -375,17 +374,14 @@ export function VendasClient() {
   const userVnd = useCurrentUser();
   const modsVnd = useMyModules();
   const podeBuscarLeads = isModuleVisible("leads", entVnd, userVnd, modsVnd);
-  // Cota/valor/baixa só pro ADMIN (docs/Rules/PAGAMENTOS.md + VENDAS-REFAB invariante
-  // nº6, 04/07): vendedor nunca vê a cota financeira da empresa.
-  const isSellerVnd = isCompanySeller(userVnd);
   // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
   const [buscarMounted, setBuscarMounted] = useState(false);
-  // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
-  // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
-  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }>(
-    { totalBrasil: null, disponiveis: null, cotaLabel: "Cota do mês", cotaValue: "—", cotaPct: 0 });
+  // "Disponíveis" pro topo da casca ÚNICA (vem do BuscarEmpresas via callback) —
+  // o topo é o mesmo nos 2 modos; só os DADOS trocam (VENDAS-REFAB 04/07: caiu
+  // "Total no Brasil"/cota do standing-order antigo, item 5/8/9 — sem estado).
+  const [buscarCount, setBuscarCount] = useState<number | null>(null);
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
@@ -406,12 +402,10 @@ export function VendasClient() {
     } catch { /* sem storage */ }
   }, []);
   const [sel, setSel] = useState<VendasLead | null>(null);
-  // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
-  // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
-  const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
-  // Automático — standing order compartilhado com /leads
-  const [autoAtivo, setAutoAtivo] = useState(false);
-  const [autoBusy, setAutoBusy] = useState(false);
+  // Quantas empresas a base tem disponíveis agora (pra deixar CLARO, no funil
+  // vazio, por que está vazio e o que fazer) — mesmo número do topo em "Buscar
+  // empresas" (buscarCount). Automação de auto-alimentar (standing order) foi
+  // REMOVIDA (VENDAS-REFAB item 5, 04/07): só "Puxar"/"Puxar selecionados" manual.
   // Status do bot para a empresa (F5): bot-módulo habilitado + chave-mestra armada.
   // Carregado uma vez na montagem; null = ainda consultando.
   const [botStatus, setBotStatus] = useState<BotStatus>(null);
@@ -502,14 +496,7 @@ export function VendasClient() {
   // pro funil mostrando ele (puxar manual). Auto-pull manda focus=false (só recarrega).
   function handlePulled(focus?: boolean) { loadBoard(); if (focus) setModo("funil"); }
 
-  // Conta os leads disponíveis no pool (vitrine) — só pra mostrar no funil vazio.
   useEffect(() => {
-    apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
-      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
-      .catch(() => setPoolDisponivel(null));
-    apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order")
-      .then(res => { if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active); })
-      .catch(() => null);
     apiFetch<BotStatus>("/vendas/bot-status")
       .then(res => setBotStatus(res))
       .catch(() => setBotStatus({ botModuleEnabled: false, botArmed: false }));
@@ -1045,15 +1032,7 @@ export function VendasClient() {
               </div>
               <div className={"vnd-stats__layer" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
                 <KpiRow items={[
-                  { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
-                  { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
-                  // Cota/valor/baixa só pro ADMIN — vendedor vê só a carteira dele (o
-                  // /webscraping/radar/standing-order label já vem "Em mãos" pro seller;
-                  // aqui a gente reforça no front pra nunca vazar rótulo/valor de cota
-                  // financeira da empresa por engano num futuro contrato do backend).
-                  isSellerVnd
-                    ? { icon: "bolt", label: "Em mãos", value: buscarStats.cotaValue || "—", delta: "—" }
-                    : { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—" },
+                  { icon: "scrape", label: "Disponíveis agora", value: buscarCount != null ? buscarCount.toLocaleString("pt-BR") : "—", delta: "—" },
                 ]} />
               </div>
             </div>
@@ -1149,32 +1128,14 @@ export function VendasClient() {
                   </div>
                   <div className="funil-cta">
                     <span className="funil-cta-count">
-                      {poolDisponivel == null
-                        ? "Tem leads esperando no Radar."
-                        : poolDisponivel > 0
-                          ? <React.Fragment>Tem <strong>{poolDisponivel.toLocaleString("pt-BR")} leads disponíveis</strong> no Radar agora.</React.Fragment>
-                          : "O pool está sendo reabastecido — volte em instantes."}
+                      {buscarCount == null
+                        ? "Tem empresas esperando na base."
+                        : buscarCount > 0
+                          ? <React.Fragment>Tem <strong>{buscarCount.toLocaleString("pt-BR")} empresas disponíveis</strong> agora.</React.Fragment>
+                          : "Ajuste o filtro pra achar empresas disponíveis."}
                     </span>
                     <div className="funil-cta-acts">
-                      <button className="btn-teal" onClick={() => router.push("/leads")}>Puxar leads →</button>
-                      <button
-                        className={"btn-teal radar2-auto" + (autoAtivo ? " radar2-auto--on" : "")}
-                        disabled={autoBusy}
-                        aria-pressed={autoAtivo}
-                        onClick={async () => {
-                          setAutoBusy(true);
-                          try {
-                            const res = await apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order", {
-                              method: "PUT",
-                              body: JSON.stringify({ active: !autoAtivo }),
-                            });
-                            if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active);
-                          } catch { /**/ } finally { setAutoBusy(false); }
-                        }}
-                      >
-                        {autoAtivo ? "◉ Automático" : "◎ Automático"}
-                      </button>
-                      <button className="btn-ghost" onClick={() => router.push("/leads")}>Ver o Radar</button>
+                      <button className="btn-teal" onClick={irBuscar}>Buscar empresas →</button>
                     </div>
                   </div>
                 </div>
@@ -1414,16 +1375,11 @@ export function VendasClient() {
             </div>{/* /vnd-layer funil */}
 
             <div className={"vnd-layer vnd-layer--buscar" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
-              {/* MESMA casca: o título "Pipeline de pesquisa" digita DENTRO do painel do
-                  Radar (prop embedTitle) — mesmo tratamento do "Pipeline de vendas".
-                  Conteúdo intacto; os 3 números do topo vêm por callback. 29/06. */}
+              {/* Redesenho VENDAS-REFAB (04/07): "Buscar empresas" agora consome direto o
+                  CONTRATO-FILTRO (base fria RFB, 28M) via BuscarEmpresas — substitui o Radar
+                  antigo (LeadsClient/search-runs/standing-order, itens 5/8/9 removidos). */}
               {buscarMounted ? (
-                <LeadsClient
-                  embedded
-                  onLeadPulled={handlePulled}
-                  onEmbedStats={setBuscarStats}
-                  embedTitle={<TypedText key={"t-busca-" + modo} text="Pipeline de pesquisa" />}
-                />
+                <BuscarEmpresas onLeadPulled={handlePulled} onCountChange={setBuscarCount} />
               ) : null}
             </div>{/* /vnd-layer buscar */}
           </div>{/* /vnd-stage */}
