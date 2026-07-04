@@ -24,6 +24,11 @@ type TeamMember = {
   role: string | null;
   canAttendSharedInbox?: boolean | null;
   whatsappConnected?: boolean | null;
+  // WEBWHATS-ARQ3 S3 — projeção canônica: sessão ativa (mesmo órfã) + frescor do carimbo.
+  whatsappHasSession?: boolean | null;
+  whatsappSeenAgoSeconds?: number | null;
+  whatsappMotorState?: string | null;
+  whatsappStale?: boolean | null;
   whatsappPhone?: string | null;
   whatsappConnectedAt?: string | null;
   openConversations?: number | null;
@@ -36,6 +41,10 @@ type CompanyWhatsapp = {
   connectedByName?: string | null;
   lastActivityAt?: string | null;
   sessionId?: string | null;
+  // WEBWHATS-ARQ3 S3 — frescor da projeção do número da empresa.
+  seenAgoSeconds?: number | null;
+  motorState?: string | null;
+  stale?: boolean | null;
 };
 
 type AdminPanel = {
@@ -73,6 +82,19 @@ function fmtSince(iso?: string | null) {
   if (hrs < 24) return `há ${hrs} h`;
   const days = Math.floor(hrs / 24);
   return `há ${days} ${days === 1 ? "dia" : "dias"}`;
+}
+
+// WEBWHATS-ARQ3 S3 — "visto há Xs/min": frescor do carimbo da projeção (quando o app confirmou
+// o estado contra o motor ao vivo). Diz ao admin se o "Conectado" é fresco ou uma projeção velha.
+function fmtSeen(seconds?: number | null): string | null {
+  if (seconds == null || !isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) return `visto há ${Math.floor(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `visto há ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `visto há ${hrs} h`;
+  const days = Math.floor(hrs / 24);
+  return `visto há ${days} ${days === 1 ? "dia" : "dias"}`;
 }
 
 // ---- component -----------------------------------------------------------
@@ -284,6 +306,10 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                   {panel.companyWhatsapp?.connected
                     ? <span className="tag teal">Conectado</span>
                     : <span className="tag red">Desconectado</span>}
+                  {/* WEBWHATS-ARQ3 S3 — frescor da projeção do número da empresa (visto há Xs). */}
+                  {fmtSeen(panel.companyWhatsapp?.seenAgoSeconds) && (
+                    <span className="tag">{fmtSeen(panel.companyWhatsapp?.seenAgoSeconds)}</span>
+                  )}
                 </div>
 
                 <div className="kv">
@@ -346,7 +372,9 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                             <td>
                               {m.whatsappConnected
                                 ? <span className="tag teal">● Conectado</span>
-                                : <span className="tag red">○ Desconectado</span>}
+                                : m.whatsappHasSession
+                                  ? <span className="tag warn">◐ Sem confirmação</span>
+                                  : <span className="tag red">○ Desconectado</span>}
                             </td>
                           </tr>
                         ))}
@@ -371,7 +399,15 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                 <span className="tag">{sel.role || "—"}</span>
                 {sel.whatsappConnected
                   ? <span className="tag teal">● Conectado</span>
-                  : <span className="tag red">○ Desconectado</span>}
+                  // Órfão (RUIM#2): banco diz sessão ativa mas a projeção não confirma vivo →
+                  // rótulo honesto "Sem confirmação" (e o botão Derrubar fica disponível abaixo).
+                  : sel.whatsappHasSession
+                    ? <span className="tag warn">◐ Sem confirmação</span>
+                    : <span className="tag red">○ Desconectado</span>}
+                {/* Frescor do carimbo da projeção (visto há Xs): mostra ao admin o quão fresco é o estado. */}
+                {fmtSeen(sel.whatsappSeenAgoSeconds) && (
+                  <span className="tag">{fmtSeen(sel.whatsappSeenAgoSeconds)}</span>
+                )}
               </div>
 
               <div className="kv">
@@ -395,7 +431,11 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
 
               {msg && <span className="tag red">{msg}</span>}
 
-              {sel.whatsappConnected ? (
+              {/* WEBWHATS-ARQ3 S3 — "Derrubar conexão" visível sempre que HÁ uma sessão ativa no
+                  banco (viva OU órfã). Antes só aparecia com whatsappConnected=true → o órfão
+                  (chip morto que ficou 'active') ficava sem como ser limpo justamente quando mais
+                  precisava (RUIM#2). disconnectCompanySession limpa motor + projeção juntos. */}
+              {(sel.whatsappConnected || sel.whatsappHasSession) ? (
                 dropArm ? (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button className="btn-ghost btn-danger" disabled={dropBusy} onClick={() => derrubar(String(sel.userId))}>

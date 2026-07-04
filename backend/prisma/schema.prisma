@@ -264,6 +264,15 @@ model WhatsAppConnectionSession {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   metadataJson    String?
+  // WEBWHATS-ARQ3 S3 — projeção canônica do estado de conexão. A VERDADE é o motor ao vivo;
+  // estas colunas são o carimbo de frescor dessa verdade, escritas pelo writer ÚNICO
+  // (WhatsAppConnectionProjectionService), alimentado pelo webhook connection.update (push)
+  // e pelo reconciler central (pull). Consumidores de estado leem daqui — nunca mais um
+  // `status === 'active'` cru que mente "Conectado fantasma".
+  // lastReconciledAt: quando o app confirmou o estado desta sessão contra o motor.
+  lastReconciledAt DateTime?
+  // motorState: último estado do socket reportado pelo motor (open | close | connecting | ...).
+  motorState       String?
 
   currentForCompanies Company[] @relation("CompanyCurrentWhatsappConnectionSession")
   conversations CompanyConversation[]
@@ -273,6 +282,8 @@ model WhatsAppConnectionSession {
   @@index([companyId, provider, phoneNormalized, status])
   @@index([companyId, tenantKey, status])
   @@index([userId, status])
+  // WEBWHATS-ARQ3 S3 — leitura por frescor da projeção.
+  @@index([companyId, status, lastReconciledAt])
 }
 
 model WhatsappConsentLedger {

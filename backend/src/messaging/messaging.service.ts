@@ -62,6 +62,7 @@ import { CustomerProfileService } from '../customer-profile/customer-profile.ser
 import { WebwhatsBridgeService, type WebwhatsFetchedMessage } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { WaSendThrottleService } from './wa-send-throttle.service';
+import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   isCommercialEntitlementActive,
@@ -273,6 +274,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // AutoReplyRule). @Optional() para não quebrar quem instancia o serviço direto nos
     // testes — quando ausente, `processPersistedInbound` monta um a partir das deps locais.
     @Optional() private readonly legacyRulesHandler?: LegacyRulesInboundHandler,
+    // WEBWHATS-ARQ3 S3: writer ÚNICO da projeção de estado de conexão. @Optional() pelo mesmo
+    // motivo (testes instanciam direto); ausente = carimbo de projeção é no-op, sem regressão.
+    @Optional() private readonly connectionProjection?: WhatsAppConnectionProjectionService,
   ) {}
 
   onModuleInit() {
@@ -1341,6 +1345,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'disconnected',
           disconnectedAt: now,
+          // WEBWHATS-ARQ3 S3: carimbo da projeção junto com a transição (push = fonte fresca).
+          // motorState 'close' + carimbo AGORA fazem o painel Equipe/selo pararem de mentir
+          // "Conectado" imediatamente, sem depender do próximo poll.
+          lastReconciledAt: now,
+          motorState: 'close',
         },
       });
       return { action: 'disconnected', count: result.count };
@@ -1432,8 +1441,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       data: {
         status: 'disconnected',
         disconnectedAt: now,
+        // WEBWHATS-ARQ3 S3: as sessões desbancadas também são fantasmas em potencial → carimba
+        // close para que nenhum leitor as trate como vivas.
+        lastReconciledAt: now,
+        motorState: 'close',
       },
     });
+
+    // WEBWHATS-ARQ3 S3 — carimbo da projeção na sessão VENCEDORA (writer único). motorState
+    // 'open' + lastReconciledAt=agora tornam esta a verdade fresca que os painéis leem. O
+    // reconcile* acima já setou connectedAt=now nesta sessão (push sempre bumpa em close→open),
+    // então não pedimos re-bump aqui. Best-effort — nunca derruba o processamento do webhook.
+    await this.connectionProjection?.stampProjection(String(session.id), 'open', { at: now });
 
     // Trava de ponteiro (espelha o PR4 no whatsapp-modal, que só cobria o status-poll):
     // no modo individual o currentWhatsappConnectionSessionId NÃO pode cair na sessão de um

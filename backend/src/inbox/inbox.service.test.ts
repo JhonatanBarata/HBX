@@ -2505,3 +2505,134 @@ test('clearEmptyConversations remove só-FAILED mas PRESERVA conversa com mensag
   assert.deepEqual(deletedIds.sort((a, b) => a - b), [1, 2]);
   assert.equal(result.deleted, 2);
 });
+
+// ===========================================================================
+// WEBWHATS-ARQ3 Sprint 3 — Fonte única do estado no painel "Equipe".
+// Caracteriza que getWhatsappAdminPanel deriva "conectado?" da PROJEÇÃO (motor ao vivo
+// carimbado), não mais de `status === 'active'` cru — matando o "Conectado fantasma".
+// ===========================================================================
+
+function buildAdminPanelService(sessions: any[]) {
+  const service = createBareService();
+  (service as any).assertCompanyAdminOwner = () => undefined;
+  (service as any).prisma = {
+    company: {
+      findUnique: async () => ({
+        whatsappAttendanceMode: 'individual',
+        currentWhatsappConnectionSession: null,
+      }),
+    },
+    whatsAppConnectionSession: {
+      findMany: async () => sessions,
+    },
+    companyConversation: {
+      groupBy: async () => [],
+    },
+    user: {
+      findMany: async () =>
+        sessions.map((s, i) => ({
+          id: s.userId,
+          name: `User ${s.userId}`,
+          username: `user${s.userId}`,
+          role: 'USER',
+          isSystemMaster: false,
+          canViewBilling: false,
+        })),
+    },
+  };
+  return service;
+}
+
+test('ARQ3-S3: painel Equipe mostra Conectado quando a projeção diz vivo (active+open+fresco)', async () => {
+  const prev = process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+  process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = '180';
+  try {
+    const service = buildAdminPanelService([
+      {
+        id: 'sess-live',
+        userId: 10,
+        displayPhone: '5511999990000',
+        phoneNormalized: '5511999990000',
+        status: 'active',
+        connectedAt: new Date(Date.now() - 3600_000),
+        lastReconciledAt: new Date(Date.now() - 5_000), // fresco
+        motorState: 'open',
+      },
+    ]);
+    const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+    const m = res.team.find((t: any) => String(t.userId) === '10');
+    assert.equal(m.whatsappConnected, true);
+    assert.equal(m.whatsappHasSession, true);
+    assert.ok(m.whatsappSeenAgoSeconds >= 0);
+  } finally {
+    if (prev === undefined) delete process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+    else process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = prev;
+  }
+});
+
+test('ARQ3-S3 FANTASMA: sessão active mas motorState close → painel NÃO mostra Conectado (mostra órfão)', async () => {
+  const service = buildAdminPanelService([
+    {
+      id: 'sess-ghost',
+      userId: 20,
+      displayPhone: '5511988887777',
+      phoneNormalized: '5511988887777',
+      status: 'active', // banco ainda diz ativo (o legado mostraria Conectado)
+      connectedAt: new Date(Date.now() - 7200_000),
+      lastReconciledAt: new Date(Date.now() - 2_000),
+      motorState: 'close', // motor morreu
+    },
+  ]);
+  const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+  const m = res.team.find((t: any) => String(t.userId) === '20');
+  // Verdade honesta: NÃO conectado…
+  assert.equal(m.whatsappConnected, false);
+  // …mas HÁ sessão ativa no banco → "Derrubar conexão" deve ficar disponível (RUIM#2).
+  assert.equal(m.whatsappHasSession, true);
+});
+
+test('ARQ3-S3 ÓRFÃO STALE: sessão active sem confirmação recente → NÃO conectado, mas com sessão p/ derrubar', async () => {
+  const prev = process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+  process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = '180';
+  try {
+    const service = buildAdminPanelService([
+      {
+        id: 'sess-stale',
+        userId: 30,
+        displayPhone: '5511977776666',
+        phoneNormalized: '5511977776666',
+        status: 'active',
+        connectedAt: new Date(Date.now() - 7200_000),
+        lastReconciledAt: new Date(Date.now() - 10_000_000), // carimbo MUITO velho
+        motorState: 'open',
+      },
+    ]);
+    const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+    const m = res.team.find((t: any) => String(t.userId) === '30');
+    assert.equal(m.whatsappConnected, false);
+    assert.equal(m.whatsappHasSession, true);
+    assert.equal(m.whatsappStale, true);
+  } finally {
+    if (prev === undefined) delete process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+    else process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = prev;
+  }
+});
+
+test('ARQ3-S3 retrocompat: sessão active pré-migração (sem carimbo) → segue Conectado (sem regressão)', async () => {
+  const service = buildAdminPanelService([
+    {
+      id: 'sess-legacy',
+      userId: 40,
+      displayPhone: '5511966665555',
+      phoneNormalized: '5511966665555',
+      status: 'active',
+      connectedAt: new Date(Date.now() - 3600_000),
+      lastReconciledAt: null, // pré-migração
+      motorState: null,
+    },
+  ]);
+  const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+  const m = res.team.find((t: any) => String(t.userId) === '40');
+  assert.equal(m.whatsappConnected, true); // não regride o legado
+  assert.equal(m.whatsappStale, true); // mas sinaliza "visto há —"
+});

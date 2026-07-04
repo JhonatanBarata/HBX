@@ -23,6 +23,8 @@ import {
 } from '../hbx-recovery/recovery-bot-config';
 import { buildStructuredWhatsAppLog, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
 import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
+// WEBWHATS-ARQ3 S3: leitor PURO da projeção canônica de estado de conexão (fonte única).
+import { WhatsAppConnectionProjectionService } from '../messaging/whatsapp-connection-projection.service';
 import {
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
@@ -1016,6 +1018,9 @@ export class InboxService {
             phoneNormalized: true,
             status: true,
             connectedAt: true,
+            // WEBWHATS-ARQ3 S3 — projeção canônica (frescor + estado do motor).
+            lastReconciledAt: true,
+            motorState: true,
             user: { select: { id: true, name: true } },
           },
         },
@@ -1026,29 +1031,54 @@ export class InboxService {
     const mode = rawMode === 'shared' || rawMode === 'individual' ? rawMode : null;
     const effectiveMode = mode ?? 'individual';
 
+    // WEBWHATS-ARQ3 S3 — a VERDADE do "conectado?" agora sai da PROJEÇÃO (motor ao vivo carimbado),
+    // não de `status === 'active'` cru. Isso mata o "Conectado fantasma": sessão que ficou 'active'
+    // no banco mas cujo socket morreu (motorState 'close' OU carimbo velho) não mente mais.
+    const nowMs = Date.now();
     const principal = company?.currentWhatsappConnectionSession || null;
-    const principalActive = principal && String(principal.status || '').trim().toLowerCase() === 'active';
+    const principalDerived = WhatsAppConnectionProjectionService.derive(principal as any, nowMs);
     const companyWhatsapp = {
-      connected: Boolean(principalActive),
+      connected: principalDerived.live,
       phone: this.cleanDisplayPhone(principal?.displayPhone || principal?.phoneNormalized || null),
       connectedByUserId: (principal?.user as any)?.id ? String((principal!.user as any).id) : null,
       connectedByName: (principal?.user as any)?.name || null,
       lastActivityAt: principal?.connectedAt || null,
       sessionId: principal?.id ? String(principal.id) : null,
+      // Frescor da projeção — o front mostra "visto há Xs" e sabe quando não confiar cegamente.
+      seenAgoSeconds: principalDerived.seenAgoSeconds,
+      motorState: principalDerived.motorState,
+      stale: principalDerived.stale,
     };
 
     const sessions = await this.prisma.whatsAppConnectionSession.findMany({
       where: { companyId, provider: 'webwhats', status: 'active' },
-      select: { id: true, userId: true, displayPhone: true, phoneNormalized: true, connectedAt: true },
+      select: {
+        id: true,
+        userId: true,
+        displayPhone: true,
+        phoneNormalized: true,
+        status: true,
+        connectedAt: true,
+        lastReconciledAt: true,
+        motorState: true,
+      },
     });
-    const sessionByUser = new Map<number, { id: string; phone: string | null; connectedAt: Date | null }>();
+    const sessionByUser = new Map<
+      number,
+      { id: string; phone: string | null; connectedAt: Date | null; seenAgoSeconds: number | null; motorState: string; stale: boolean; live: boolean }
+    >();
     for (const s of sessions) {
       const uid = Number(s.userId || 0);
       if (uid && !sessionByUser.has(uid)) {
+        const derived = WhatsAppConnectionProjectionService.derive(s as any, nowMs);
         sessionByUser.set(uid, {
           id: String(s.id),
           phone: this.cleanDisplayPhone(s.displayPhone || s.phoneNormalized || null),
           connectedAt: s.connectedAt || null,
+          seenAgoSeconds: derived.seenAgoSeconds,
+          motorState: derived.motorState,
+          stale: derived.stale,
+          live: derived.live,
         });
       }
     }
@@ -1096,9 +1126,20 @@ export class InboxService {
         name: u.name || u.username || `#${u.id}`,
         role: roleLabel,
         canAttendSharedInbox: true,
-        whatsappConnected: Boolean(sess?.id),
+        // WEBWHATS-ARQ3 S3 — selo HONESTO: só "Conectado" quando a projeção diz vivo (motor
+        // não-close + carimbo fresco). Um chip morto que ficou 'active' no banco NÃO aparece
+        // mais como Conectado (mata o fantasma que fazia a vendedora perder o dia).
+        whatsappConnected: Boolean(sess?.live),
+        // Existe uma sessão ATIVA no banco para este user? (independe de estar viva). Deixa o
+        // painel oferecer "Derrubar conexão" também no ÓRFÃO (RUIM#2): projeção velha/close mas
+        // linha ainda 'active' — a rotina disconnectCompanySession limpa motor + projeção juntos.
+        whatsappHasSession: Boolean(sess?.id),
         whatsappPhone: sess?.phone || null,
         whatsappConnectedAt: sess?.connectedAt || null,
+        // Frescor por atendente (o front mostra "visto há Xs").
+        whatsappSeenAgoSeconds: sess?.seenAgoSeconds ?? null,
+        whatsappMotorState: sess?.motorState ?? null,
+        whatsappStale: Boolean(sess?.stale),
         openConversations: sess?.id ? openBySessionId.get(sess.id) || 0 : 0,
         currentAssignedConversations: assignedCountByUser.get(Number(u.id)) || 0,
       };

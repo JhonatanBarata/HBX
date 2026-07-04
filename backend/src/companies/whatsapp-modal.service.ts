@@ -1,10 +1,11 @@
-import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppConnectionProjectionService } from '../messaging/whatsapp-connection-projection.service';
 
 type WhatsAppModalStatus = 'offline' | 'starting' | 'waiting_qr' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 type WhatsAppLiveHealthStatus = 'healthy' | 'stale' | 'reconnecting' | 'disconnected' | 'error';
@@ -200,7 +201,13 @@ export class WhatsAppModalService {
     Math.min(15 * 60_000, Number(process.env.WHATSAPP_MODAL_RECONNECT_GRACE_MS || 5 * 60_000) || 5 * 60_000),
   );
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // WEBWHATS-ARQ3 S3: writer ÚNICO da projeção de estado (compartilhado com o caminho push).
+    // @Optional() para não quebrar os muitos testes que instanciam o service direto com só o
+    // prisma; ausente = carimbo é no-op (sem regressão).
+    @Optional() private readonly connectionProjection?: WhatsAppConnectionProjectionService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Gate de conexão (Etapa 4 — Modelo de atendimento)
@@ -1639,6 +1646,16 @@ export class WhatsAppModalService {
       // NUNCA deleta conversa/mensagem — só MOVE.
       await this.reconcileSameTenantKeyGhosts(Number(company.id), tenantKey, String(session.id));
 
+      // WEBWHATS-ARQ3 S3 — carimbo da projeção na sessão VIVA (writer único, mesmo do push).
+      // Este é o caminho PULL (reconciler contra o motor ao vivo): motorState 'open' +
+      // lastReconciledAt=agora. bumpConnectedAtOnOpen re-bumpa connectedAt para AGORA pois o
+      // pull pode reusar um connectedAt antigo (snapshot.connectedAt || whatsappModalConnectedAt)
+      // — isso mata a "data velha" que o freio de warm-up (S4) lia errado numa reconexão.
+      await this.connectionProjection?.stampProjection(String(session.id), 'open', {
+        at: now,
+        bumpConnectedAtOnOpen: true,
+      });
+
       return String(session.id);
     }
 
@@ -1658,6 +1675,9 @@ export class WhatsAppModalService {
         data: {
           status: 'disconnected',
           disconnectedAt: now,
+          // WEBWHATS-ARQ3 S3: carimbo da projeção junto com a demoção (motor confirmou caído).
+          lastReconciledAt: now,
+          motorState: 'close',
         },
       });
       return null;
