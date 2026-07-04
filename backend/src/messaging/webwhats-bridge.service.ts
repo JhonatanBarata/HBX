@@ -1327,6 +1327,31 @@ export class WebwhatsBridgeService {
     });
   }
 
+  // COCKPIT-MASTER Sprint 2 — leitura SÓ-GET do estado dos chips no MOTOR AO VIVO
+  // (`/instance/fetchInstances`; fonte única da verdade — regra dura de
+  // docs/Rules/WHATSAPP.md). JAMAIS chama connect/reconnect/logout/delete. De
+  // propósito NÃO usa requestRead: a sonda de saúde não pode ter retry com sleep
+  // nem o efeito colateral de marcar empresa como RECONNECTING. Motor
+  // indisponível/não configurado/erro = null (chamador trata como "sem leitura").
+  public async listMotorInstances(): Promise<any[] | null> {
+    const config = this.readConfig();
+    if (!config.available) return null;
+    try {
+      const all = await this.request<any[]>({
+        method: 'GET',
+        path: '/instance/fetchInstances',
+        purpose: 'leitura do estado dos chips (cockpit master)',
+        treatNotFoundAsNull: true,
+      });
+      return Array.isArray(all) ? all : [];
+    } catch (error) {
+      this.logger.warn(
+        `Webwhats listMotorInstances falhou: ${String((error as any)?.message || error)}`,
+      );
+      return null;
+    }
+  }
+
   // Apaga TODAS as instâncias da company no MOTOR (company-{id} e company-{id}-user-*).
   // Store-on-arrival: não recria — o próximo connect cria instância nova limpa.
   public async wipeMotorInstance(companyId: number): Promise<{ loggedOut: boolean; deleted: boolean; recreated: boolean }> {

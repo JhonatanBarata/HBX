@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import {
   resolveCompanyAccessState,
   CompanyAccessSnapshot,
@@ -83,7 +84,48 @@ type SellerDrill = {
   commissionPayable: number;
 };
 
+// COCKPIT-MASTER Sprint 2 — tail da trilha única de eventos do dono (MasterEvent).
+type MasterEventItem = {
+  id: string;
+  type: string;
+  severity: string;
+  companyId: number | null;
+  companyName: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+// Saúde da operação (v1): chips por estado (MOTOR AO VIVO), último webhook de
+// pagamento processado e último lead visto pela fábrica. Best-effort por
+// sub-bloco: erro → null (o cockpit nunca quebra por uma sonda).
+type WhatsappHealth = {
+  total: number;
+  open: number;
+  connecting: number;
+  closed: number;
+  other: number;
+  checkedAt: string;
+};
+
+type BillingHealth = { lastWebhookAt: string | null };
+
+type FactoryHealth = { lastLeadSeenAt: string | null };
+
+type HealthBlock = {
+  whatsapp: WhatsappHealth | null;
+  billing: BillingHealth | null;
+  factory: FactoryHealth | null;
+};
+
 const ACTIVATION_EVENT = 'first_conversation_started';
+
+// Cache do overview (Sprint 2): full scan de até 500 empresas + vendedores a cada
+// 30 s POR ABA era o endpoint mais caro do /master. 1 instância de backend → cache
+// in-memory simples; `generatedAt` já informa a idade do snapshot ao frontend.
+const OVERVIEW_CACHE_TTL_MS = 30_000;
+// Chips: leitura do motor ao vivo tem cache próprio (não martelar o motor).
+const WHATSAPP_HEALTH_TTL_MS = 60_000;
+const EVENTS_TAIL_SIZE = 40;
 
 function toIso(value: unknown): string | null {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
@@ -95,6 +137,19 @@ function toIso(value: unknown): string | null {
 function money(value: unknown): number {
   const n = Number(value || 0);
   return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
+}
+
+// payloadJson do MasterEvent → objeto (JSON quebrado/lixo antigo vira null).
+function parseEventPayload(raw: unknown): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseOnboardingEvents(raw: unknown): Record<string, string> {
@@ -114,16 +169,59 @@ function parseOnboardingEvents(raw: unknown): Record<string, string> {
 
 @Injectable()
 export class MasterCockpitService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(MasterCockpitService.name);
 
-  // Visão única do cockpit. Faz as leituras em paralelo e monta o payload.
+  // Cache in-memory do overview (TTL 30 s) + single-flight: requests dentro do
+  // TTL devolvem o snapshot; rebuilds concorrentes aguardam a MESMA promise.
+  private overviewCache: { at: number; payload: any } | null = null;
+  private overviewInFlight: Promise<any> | null = null;
+  // Contador de dev (aceite Sprint 2: 2 abas → 1 rebuild por janela de 30 s).
+  private overviewRebuilds = 0;
+
+  // Cache próprio da sonda de chips (60 s) — não martelar o motor ao vivo.
+  private whatsappHealthCache: { at: number; value: WhatsappHealth | null } | null = null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webwhats: WebwhatsBridgeService,
+  ) {}
+
+  // Visão única do cockpit — com cache (TTL 30 s) e single-flight. O payload em
+  // si é montado por buildOverview(); `generatedAt` informa a idade do snapshot.
   async overview(): Promise<any> {
+    const cached = this.overviewCache;
+    if (cached && Date.now() - cached.at < OVERVIEW_CACHE_TTL_MS) {
+      return cached.payload;
+    }
+    if (this.overviewInFlight) {
+      return this.overviewInFlight;
+    }
+    this.overviewInFlight = this.buildOverview()
+      .then((payload) => {
+        this.overviewCache = { at: Date.now(), payload };
+        return payload;
+      })
+      .finally(() => {
+        this.overviewInFlight = null;
+      });
+    return this.overviewInFlight;
+  }
+
+  // Monta o payload completo. Faz as leituras em paralelo — cada bloco é
+  // defensivo (erro → vazio/null) para o cockpit nunca quebrar.
+  private async buildOverview(): Promise<any> {
+    this.overviewRebuilds += 1;
+    this.logger.debug(`overview rebuild #${this.overviewRebuilds}`);
     const nowMs = Date.now();
-    const [feed, commissions, roster, sellers] = await Promise.all([
+    const [feed, commissions, roster, sellers, events, health] = await Promise.all([
       this.buildSaleFeed().catch(() => [] as SaleFeedItem[]),
       this.buildCommissionFeed().catch(() => [] as CommissionFeedItem[]),
       this.buildRoster(nowMs).catch(() => [] as RosterCompany[]),
       this.buildSellers().catch(() => [] as SellerDrill[]),
+      this.buildEvents().catch(() => [] as MasterEventItem[]),
+      this.buildHealth().catch(
+        () => ({ whatsapp: null, billing: null, factory: null }) as HealthBlock,
+      ),
     ]);
 
     const activatedSellers = sellers.filter((s) => s.activated);
@@ -187,7 +285,121 @@ export class MasterCockpitService {
       },
       roster,
       sellers,
+      // Sprint 2 — SÓ adições (campos existentes acima ficam intactos).
+      events,
+      health,
     };
+  }
+
+  // ── Tail de eventos (trilha única MasterEvent — Sprint 2) ────────────────────
+  private async buildEvents(): Promise<MasterEventItem[]> {
+    const rows = await this.prisma.masterEvent.findMany({
+      orderBy: [{ createdAt: 'desc' }],
+      take: EVENTS_TAIL_SIZE,
+      select: {
+        id: true,
+        type: true,
+        severity: true,
+        companyId: true,
+        payloadJson: true,
+        createdAt: true,
+      },
+    });
+
+    const companyNames = await this.resolveCompanyNames(
+      rows.map((r) => r.companyId).filter((x): x is number => typeof x === 'number'),
+    );
+
+    return rows.map((row) => ({
+      id: String(row.id),
+      type: String(row.type || ''),
+      severity: String(row.severity || 'info'),
+      companyId: row.companyId ?? null,
+      companyName: row.companyId
+        ? companyNames.get(row.companyId) || `Empresa #${row.companyId}`
+        : null,
+      payload: parseEventPayload(row.payloadJson),
+      createdAt: toIso(row.createdAt) || new Date().toISOString(),
+    }));
+  }
+
+  // ── Faixa de saúde v1 (Sprint 2) — best-effort POR sub-bloco (erro → null) ──
+  private async buildHealth(): Promise<HealthBlock> {
+    const [whatsapp, billing, factory] = await Promise.all([
+      this.buildWhatsappHealth().catch(() => null),
+      this.buildBillingHealth().catch(() => null),
+      this.buildFactoryHealth().catch(() => null),
+    ]);
+    return { whatsapp, billing, factory };
+  }
+
+  // Chips por estado lidos do MOTOR AO VIVO (WebwhatsBridgeService.listMotorInstances,
+  // SÓ leitura — fonte única = motor, nunca o banco do app). Cache próprio de 60 s.
+  // Motor desligado/não configurado → null (e o null também fica cacheado 60 s,
+  // pra não martelar um motor caído a cada rebuild).
+  private async buildWhatsappHealth(): Promise<WhatsappHealth | null> {
+    const cached = this.whatsappHealthCache;
+    if (cached && Date.now() - cached.at < WHATSAPP_HEALTH_TTL_MS) {
+      return cached.value;
+    }
+    const instances = await this.webwhats.listMotorInstances();
+    const value = instances === null ? null : this.countInstancesByState(instances);
+    this.whatsappHealthCache = { at: Date.now(), value };
+    return value;
+  }
+
+  // Defensivo aos DOIS formatos que o motor já devolveu: linha crua da tabela
+  // Instance (`connectionStatus`) e o formato aninhado antigo (`instance.state`).
+  private countInstancesByState(instances: any[]): WhatsappHealth {
+    let open = 0;
+    let connecting = 0;
+    let closed = 0;
+    let other = 0;
+    for (const inst of instances) {
+      const state = String(
+        inst?.connectionStatus ??
+          inst?.instance?.state ??
+          inst?.instance?.status ??
+          inst?.state ??
+          inst?.status ??
+          '',
+      )
+        .trim()
+        .toLowerCase();
+      if (state === 'open') open += 1;
+      else if (state === 'connecting') connecting += 1;
+      else if (state === 'close' || state === 'closed') closed += 1;
+      else other += 1;
+    }
+    return {
+      total: instances.length,
+      open,
+      connecting,
+      closed,
+      other,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  // Último webhook de pagamento processado — fonte: FinanceiroCharge.lastWebhookAt
+  // (carimbado pelo FinanceiroService a cada webhook MP sincronizado, inclusive os
+  // de assinatura, que viram charge). Sem webhook ainda → lastWebhookAt null.
+  private async buildBillingHealth(): Promise<BillingHealth | null> {
+    const row = await this.prisma.financeiroCharge.findFirst({
+      where: { lastWebhookAt: { not: null } },
+      orderBy: [{ lastWebhookAt: 'desc' }],
+      select: { lastWebhookAt: true },
+    });
+    return { lastWebhookAt: toIso(row?.lastWebhookAt) };
+  }
+
+  // Fábrica respirando: último RadarLeadPool.lastSeenAt (lead novo/re-visto).
+  private async buildFactoryHealth(): Promise<FactoryHealth | null> {
+    const row = await this.prisma.radarLeadPool.findFirst({
+      orderBy: [{ lastSeenAt: 'desc' }],
+      select: { lastSeenAt: true },
+    });
+    return { lastLeadSeenAt: toIso(row?.lastSeenAt) };
   }
 
   // ── Feed de VENDAS (fonte da verdade: VendasLead cross-company) ──────────────

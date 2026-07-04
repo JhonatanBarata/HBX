@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { parsePreferredSegments } from '../users/preferred-segments.util';
 import { IcpFingerprintService } from '../webscraping/icp/icp-fingerprint.service';
+import { emitMasterEvent } from '../common/master-event';
 
 type HbxPulseScopeType = 'company' | 'user';
 
@@ -407,6 +408,22 @@ export class HbxPulseService {
         ${now}, ${now}
       )
     `;
+
+    // COCKPIT-MASTER Sprint 4: o nudge do brain também vira evento tipado na
+    // trilha única do dono — best-effort (emitMasterEvent nunca lança), dedup
+    // pelo próprio nudgeKey (mesmo ângulo não martela a trilha). NÃO muda o
+    // retorno deste método nem qualquer outro comportamento do pulse.
+    await emitMasterEvent(this.prisma, {
+      type: 'pulse.nudge_sent',
+      severity: 'info',
+      companyId: scope.companyId,
+      dedupKey: chosen.nudgeKey,
+      payload: {
+        targetUserId: scope.userId,
+        title: chosen.title,
+        tone: chosen.tone,
+      },
+    });
 
     return {
       notice: {
