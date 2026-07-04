@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildRadarLeadEnrichment } from '../webscraping/radar-lead-enrichment';
 import { checkEmailDomainMx, type EmailMxStatus } from '../webscraping/email-mx-validation';
@@ -118,9 +118,10 @@ export class NightFactoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly websiteCrawlProvider: WebsiteCrawlProviderService = new WebsiteCrawlProviderService(),
-    // VENDAS-REFAB S3: sem módulo cruzado (night-factory não importa WebscrapingModule) —
-    // mesmo padrão do websiteCrawlProvider acima, instância local (só depende do prisma).
-    private readonly cnpjBaseQuery: CnpjBaseQueryService = new CnpjBaseQueryService(prisma),
+    // VENDAS-REFAB S3 (fix P0 boot): sem módulo cruzado (night-factory não importa
+    // WebscrapingModule). @Optional() + default garante instância local só-prisma sem
+    // o Nest tentar resolver o provider (que arrastaria deps ausentes = crash no boot).
+    @Optional() private readonly cnpjBaseQuery: CnpjBaseQueryService = new CnpjBaseQueryService(prisma),
   ) {}
 
   async getConfig(): Promise<NightFactoryConfig> {
