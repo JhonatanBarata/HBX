@@ -75,6 +75,9 @@ type RadarLead = {
   vendasSaleValue?: number | null;
   // sourceChain (P1, 02/07 — cutover ordem fixa): "rfb" | "web" | "rfb+web". Opcional.
   sourceChain?: string | null;
+  // enrichedBy/enrichmentEngines (03/07): quem só ENRIQUECEU (separado da descoberta). Opcionais.
+  enrichedBy?: string[] | null;
+  enrichmentEngines?: string[] | null;
   // HOT-07 (empresa recém-aberta): badge de urgência + prioridade na entrega. Opcional.
   isFreshCompany?: boolean | null;
   daysSinceOpened?: number | null;
@@ -174,6 +177,20 @@ function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: Filte
 
 function fmtInt(n: number | null | undefined) {
   return Number(n || 0).toLocaleString("pt-BR");
+}
+
+// sourceChain (P1, 02/07): quem DESCOBRIU o lead. Rótulos curtos p/ badge da lista
+// (versão longa mora em detalhes-negocio.tsx). Opcional — card antigo sem chain
+// não mostra nada (originBadge devolve null).
+const ORIGIN_BADGE_META: Record<string, { label: string; cls: string }> = {
+  web: { label: "Web", cls: "radar-origin-badge--web" },
+  rfb: { label: "Receita", cls: "radar-origin-badge--rfb" },
+  "rfb+web": { label: "Receita + Web", cls: "radar-origin-badge--fusion" },
+};
+
+function originBadge(chain?: string | null): { label: string; cls: string } | null {
+  const key = String(chain || "").trim().toLowerCase();
+  return ORIGIN_BADGE_META[key] || null;
 }
 
 const SIGNAL_META: Record<string, { label: string; tone: "hot" | "warn" | "danger" }> = {
@@ -1002,6 +1019,20 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   const items = data?.items || [];
 
+  // Resumo de origem da vitrine (só usado na aba "Disponíveis"): quantos cards
+  // vieram de cada fonte de DESCOBERTA. Card antigo sem sourceChain cai em "Sem origem".
+  const originCounts = items.reduce(
+    (acc, row) => {
+      const key = String(row.sourceChain || "").trim().toLowerCase();
+      if (key === "web") acc.web += 1;
+      else if (key === "rfb") acc.rfb += 1;
+      else if (key === "rfb+web") acc.fusion += 1;
+      else acc.none += 1;
+      return acc;
+    },
+    { web: 0, rfb: 0, fusion: 0, none: 0 },
+  );
+
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
@@ -1561,6 +1592,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   // ── Vista mobile: lista vertical ──────────────────────────────────────────
+  // Origem do lead na lista: badge de quem DESCOBRIU (sourceChain) + chip de quem
+  // só ENRIQUECEU. Card antigo sem esses campos → devolve null (renderiza idêntico a hoje).
+  function renderOriginBadge(row: RadarLead) {
+    const ob = originBadge(row.sourceChain);
+    const hasEnriched = Boolean(row.enrichedBy && row.enrichedBy.length);
+    if (!ob && !hasEnriched) return null;
+    return (
+      <div className="radar-origin">
+        {ob && <span className={`radar-origin-badge ${ob.cls}`}>{ob.label}</span>}
+        {hasEnriched && (
+          <span className="radar-origin-enriched">enriquecido: {row.enrichedBy!.join(", ")}</span>
+        )}
+      </div>
+    );
+  }
+
   // Paywall "momento de desejo" (WORM-17): cota MENSAL de cards do plano estourada.
   // Só empresa/admin — vendedor de carteira cheia NÃO é paywall (não compra plano).
   // Reusa .radar-expand (mesmo card do banner de oferta esgotada) — zero CSS novo.
@@ -1610,6 +1657,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   {row.segment || row.businessCategory || "—"}
                   {row.city ? ` · ${row.city}${row.state ? `/${row.state}` : ""}` : ""}
                 </span>
+                {renderOriginBadge(row)}
                 {row.opportunitySignals && row.opportunitySignals.length > 0 && (
                   <div className="lead-list-row__pills">
                     {row.opportunitySignals.slice(0, 2).map(sig => {
@@ -1894,6 +1942,16 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 );
               })()}
 
+              {/* Resumo de origem da vitrine — de onde vieram os cards desta lista */}
+              {tab === "shelf" && items.length > 0 && (
+                <div className="radar-origin-summary" role="status" aria-label="Origem dos leads">
+                  <span className="radar-origin-summary__item"><strong>{fmtInt(originCounts.web)}</strong> Web</span>
+                  <span className="radar-origin-summary__item"><strong>{fmtInt(originCounts.rfb)}</strong> Receita</span>
+                  <span className="radar-origin-summary__item"><strong>{fmtInt(originCounts.fusion)}</strong> Fusão</span>
+                  <span className="radar-origin-summary__item radar-origin-summary__item--muted"><strong>{fmtInt(originCounts.none)}</strong> Sem origem</span>
+                </div>
+              )}
+
               {/* Branch mobile/desktop */}
               {isMobile ? (
                 renderListMobile()
@@ -1935,6 +1993,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                                   )}
                                 </strong>
                                 <span className="sub2">{row.segment || row.businessCategory || "—"}</span>
+                                {renderOriginBadge(row)}
                                 {row.opportunitySignals && row.opportunitySignals.length > 0 && (
                                   <div className="radar2-signals">
                                     {row.opportunitySignals.slice(0, 4).map(sig => {
