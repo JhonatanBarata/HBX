@@ -4,6 +4,7 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaController } from './logistica.controller';
 
 /**
@@ -17,7 +18,7 @@ import { LogisticaController } from './logistica.controller';
 @Module({
   imports: [PrismaModule, MessagingModule],
   controllers: [LogisticaController],
-  providers: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService],
-  exports: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService],
+  providers: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService, LogisticaConfigService],
+  exports: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService, LogisticaConfigService],
 })
 export class LogisticaModule {}

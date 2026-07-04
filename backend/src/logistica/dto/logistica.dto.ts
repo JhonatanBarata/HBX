@@ -247,3 +247,59 @@ export class IniciarRotaDto {
   @Max(180)
   origemLng?: number;
 }
+
+// ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ───────────────────
+// PATCH parcial da config da empresa: template do aviso + toggles + params de rota.
+// Só campos declarados passam (whitelist). companyId NUNCA vem do body (JWT).
+export class UpdateLogisticaConfigDto {
+  @IsOptional()
+  @IsBoolean()
+  avisoWhatsEnabled?: boolean;
+
+  // Template do aviso "entregue". Variáveis: {saudacao} {cliente} {itens} {qtd} {produto}.
+  // Vazio → volta ao fallback (a mensagem fixa do N6).
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  templateAviso?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(10)
+  @Max(5000)
+  raioChegadaM?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  velocidadeMediaKmH?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(240)
+  tempoParadaMin?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  cobrancaNaEntrega?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  moduloFinanceiroAtivo?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  moduloRecoveryAtivo?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  gerarDiaAutomatico?: boolean;
+}
+
+// Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).
+export class SetAvisarClienteDto {
+  @IsBoolean()
+  avisar!: boolean;
+}

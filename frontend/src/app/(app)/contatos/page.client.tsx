@@ -127,6 +127,9 @@ function ClienteProdutosDrawer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // LOGÍSTICA-MOBILE M5 — toggle "avisar entrega" POR CLIENTE (2º nível, soma com
+  // o global de LogisticaConfig). null = ainda carregando; default do backend = true.
+  const [avisarEntrega, setAvisarEntrega] = useState<boolean | null>(null);
 
   // form de novo vínculo
   const [productId, setProductId] = useState<string>("");
@@ -140,10 +143,12 @@ function ClienteProdutosDrawer({
     return Promise.all([
       apiFetch<ClienteProduto[]>(`/logistica/cliente-produtos?${qs.toString()}`),
       apiFetch<ProdutoOption[]>(`/logistica/produtos`),
+      apiFetch<{ id: string; avisarEntrega: boolean }>(`/logistica/cliente/${cliente.id}/aviso`),
     ])
-      .then(([vs, ps]) => {
+      .then(([vs, ps, av]) => {
         setVinculos(vs || []);
         setProdutos(ps || []);
+        setAvisarEntrega(av?.avisarEntrega ?? true);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -153,6 +158,20 @@ function ClienteProdutosDrawer({
   }, [cliente.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Liga/desliga o aviso de entrega deste cliente (PATCH /logistica/cliente/:id/aviso).
+  async function toggleAvisar(next: boolean) {
+    setAvisarEntrega(next); // otimista
+    try {
+      await apiFetch(`/logistica/cliente/${cliente.id}/aviso`, {
+        method: "PATCH",
+        body: JSON.stringify({ avisar: next }),
+      });
+    } catch (err: unknown) {
+      setAvisarEntrega(!next); // reverte
+      setError(err instanceof Error ? err.message : "Não foi possível atualizar o aviso.");
+    }
+  }
 
   async function addVinculo(e: React.FormEvent) {
     e.preventDefault();
@@ -210,6 +229,18 @@ function ClienteProdutosDrawer({
           <strong className="cli-prod__title">Produtos do cliente</strong>
           <span className="cli-prod__sub">{cliente.nome || "Cliente"}</span>
         </div>
+
+        {/* M5 — aviso de entrega POR CLIENTE (soma com o global das Regras). */}
+        {avisarEntrega !== null && (
+          <label className="ctt-toggle cli-prod__aviso">
+            <input
+              type="checkbox"
+              checked={avisarEntrega}
+              onChange={(e) => toggleAvisar(e.target.checked)}
+            />
+            <span>Avisar no WhatsApp quando entregar</span>
+          </label>
+        )}
 
         {loading && <p className="cli-prod__muted">Carregando…</p>}
         {error && <p className="hint cli-prod__err">{error}</p>}

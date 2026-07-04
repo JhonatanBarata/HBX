@@ -16,6 +16,7 @@
 // screens.css + kit .field-dark/.btn-teal/.btn-ghost). Inline aqui = só layout.
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -234,6 +235,11 @@ export function LogisticaClient() {
               <button type="button" className="btn-ghost btn-xs" onClick={gerarDia} disabled={gerando}>
                 <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
               </button>
+            )}
+            {admin && (
+              <Link href="/logistica/config" className="btn-ghost btn-xs">
+                <I d={ICONS.config} size={13} /> Regras
+              </Link>
             )}
           </div>
         </div>

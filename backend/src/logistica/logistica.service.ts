@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -38,6 +39,7 @@ export class LogisticaService {
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
     private readonly rota: LogisticaRotaService,
+    private readonly config: LogisticaConfigService,
   ) {}
 
   /**
@@ -375,39 +377,56 @@ export class LogisticaService {
     companyId: number,
     entrega: { id: string; customerProfileId: string; contatoId: string | null },
   ): Promise<boolean> {
+    // M5 — a CONTA manda: o telefone, o nome do cliente e o toggle avisarEntrega.
+    const conta = await this.prisma.customerProfile.findFirst({
+      where: { id: entrega.customerProfileId, companyId },
+      select: { name: true, phone: true, phoneNormalized: true, avisarEntrega: true },
+    });
+
+    // M5 — 2 níveis de aviso: global (LogisticaConfig.avisoWhatsEnabled) + por
+    // cliente (avisarEntrega). Se qualquer um estiver OFF, NÃO dispara (no-op).
+    const aviso = await this.config.resolverAviso(companyId, conta?.avisarEntrega);
+    if (!aviso.habilitado) {
+      this.logger.log(`[logistica] entrega=${entrega.id} aviso desligado (global/cliente) — WhatsApp pulado (no-op).`);
+      return false;
+    }
+
     // Destinatário: o contato da entrega (whatsapp/phone) ou o telefone da conta.
     let contact = '';
-    let nome = '';
+    let nome = String(conta?.name || '').trim();
     if (entrega.contatoId) {
       const contato = await this.prisma.contato.findFirst({
         where: { id: entrega.contatoId, companyId },
         select: { nome: true, whatsapp: true, phone: true },
       });
       contact = String(contato?.whatsapp || contato?.phone || '').trim();
-      nome = String(contato?.nome || '').trim();
+      if (contato?.nome) nome = String(contato.nome).trim();
     }
     if (!contact) {
-      const conta = await this.prisma.customerProfile.findFirst({
-        where: { id: entrega.customerProfileId, companyId },
-        select: { name: true, phone: true, phoneNormalized: true },
-      });
       contact = String(conta?.phoneNormalized || conta?.phone || '').trim();
-      if (!nome) nome = String(conta?.name || '').trim();
     }
     if (!contact) {
       this.logger.log(`[logistica] entrega=${entrega.id} sem telefone — WhatsApp pulado (no-op).`);
       return false;
     }
 
-    const saudacao = nome ? `Olá, ${nome}! ` : 'Olá! ';
-    const body = `${saudacao}Sua entrega foi concluída. Obrigado pela preferência!`;
+    // M5 — variáveis do template a partir dos itens efetivamente entregues (M2/M4).
+    const vars = await this.montarVarsAviso(companyId, entrega.id, nome);
+
+    // Template do admin (M5) OU a mensagem fixa de fallback (comportamento antigo).
+    const body = aviso.template
+      ? renderTemplateAviso(aviso.template, vars)
+      : `${nome ? `Olá, ${nome}! ` : 'Olá! '}Sua entrega foi concluída. Obrigado pela preferência!`;
+
+    // Guard defensivo: template que renderiza vazio não vira mensagem em branco.
+    const finalBody = body.trim() || 'Sua entrega foi concluída. Obrigado pela preferência!';
 
     // MESMO caminho da cadência (queueOutboundForCompany) — disjuntor, 1-número=1-conexão,
     // gate de conexão viva, warmup e outbox com retry. NUNCA API crua, NUNCA socket novo.
     await this.conversations.queueOutboundForCompany(companyId, {
       to: contact,
       contactId: contact,
-      body,
+      body: finalBody,
       messageType: 'text',
       sourceModule: 'logistica_entrega',
       senderType: 'system',
@@ -415,6 +434,62 @@ export class LogisticaService {
       flowState: { botActive: false, humanAssigned: false, flowResult: null },
     });
     return true;
+  }
+
+  /**
+   * M5 — monta as variáveis do template a partir dos EntregaItem (entregues, com
+   * fallback pra qtdPrevista) + o legado escalar da Entrega. Best-effort: se algo
+   * falhar, devolve vars mínimas (só o cliente) — a mensagem ainda sai.
+   *   {itens}   = "2× Galão 20L, 1× Água com gás"
+   *   {qtd}     = soma das quantidades
+   *   {produto} = nome do produto principal (o primeiro item / o produto legado)
+   */
+  private async montarVarsAviso(
+    companyId: number,
+    entregaId: string,
+    cliente: string,
+  ): Promise<{ cliente: string; itens: string; qtd: number; produto: string }> {
+    const vars = { cliente, itens: '', qtd: 0, produto: '' };
+    try {
+      const entrega = await this.prisma.entrega.findFirst({
+        where: { id: entregaId, companyId },
+        select: {
+          quantidade: true,
+          product: { select: { name: true, unidade: true } },
+          itens: {
+            select: {
+              qtdPrevista: true,
+              qtdEntregue: true,
+              product: { select: { name: true, unidade: true } },
+            },
+          },
+        },
+      });
+      if (!entrega) return vars;
+
+      const linhas: string[] = [];
+      let total = 0;
+      if (Array.isArray(entrega.itens) && entrega.itens.length > 0) {
+        for (const it of entrega.itens) {
+          const q = it.qtdEntregue ?? it.qtdPrevista ?? 0;
+          const nomeProd = String(it.product?.name || '').trim();
+          if (nomeProd) linhas.push(`${q}× ${nomeProd}`);
+          total += Number(q) || 0;
+          if (!vars.produto && nomeProd) vars.produto = nomeProd;
+        }
+      } else if (entrega.product) {
+        const q = entrega.quantidade ?? 0;
+        const nomeProd = String(entrega.product.name || '').trim();
+        if (nomeProd) linhas.push(`${q}× ${nomeProd}`);
+        total += Number(q) || 0;
+        vars.produto = nomeProd;
+      }
+      vars.itens = linhas.join(', ');
+      vars.qtd = total;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] montarVarsAviso entrega=${entregaId} falhou: ${String(e?.message || e)}`);
+    }
+    return vars;
   }
 
   // ── EFEITO 2: cobrança conforme contrato do cliente ──────────────────────────

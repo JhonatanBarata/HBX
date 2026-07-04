@@ -908,6 +908,10 @@ model CustomerProfile {
   formaPagamento       String   @default("aberto") // aberto | mensal | na_hora | pendura
   metodoPadrao         String?  // pix | dinheiro (só para na_hora)
   contabilizar         Boolean  @default(true)
+  // LOGÍSTICA-MOBILE M5 (05/07) — toggle POR CLIENTE do aviso "entregue" no zap.
+  // Soma com o global (LogisticaConfig.avisoWhatsEnabled): o N6 só dispara quando
+  // ambos true. Default true = mantém o comportamento atual (aditivo/seguro).
+  avisarEntrega        Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   atendimentoCustomers AtendimentoCustomer[]

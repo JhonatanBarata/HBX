@@ -11,10 +11,13 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaConfigService } from './logistica-config.service';
 import {
   CancelarEntregaDto,
   ConfirmarEntregaDto,
@@ -23,7 +26,9 @@ import {
   GerarDiaDto,
   IniciarRotaDto,
   PlanejarRotaDto,
+  SetAvisarClienteDto,
   UpdateClienteProdutoDto,
+  UpdateLogisticaConfigDto,
 } from './dto/logistica.dto';
 
 /**
@@ -44,6 +49,7 @@ export class LogisticaController {
     private readonly service: LogisticaService,
     private readonly recorrencia: LogisticaRecorrenciaService,
     private readonly rota: LogisticaRotaService,
+    private readonly config: LogisticaConfigService,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -165,5 +171,53 @@ export class LogisticaController {
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
     });
+  }
+
+  // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ─────────────────
+
+  /**
+   * Config da empresa (template do aviso + toggles + params de rota). GET fica só
+   * com JwtAuthGuard (o app do entregador também lê a config); cria o default se
+   * ainda não existir. company-scoped.
+   */
+  @Get('config')
+  getConfig(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.config.getConfig(companyId);
+  }
+
+  /**
+   * Grava a config (PATCH parcial). ADMIN-only (regras do admin): RolesGuard +
+   * @Admin() — vendedor não edita as regras. company-scoped. Não dispara nada.
+   */
+  @Patch('config')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  updateConfig(@Req() req: any, @Body() dto: UpdateLogisticaConfigDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.config.updateConfig(companyId, dto);
+  }
+
+  /** Lê o toggle "avisar entrega" de UM cliente (p/ a ficha). company-scoped. */
+  @Get('cliente/:id/aviso')
+  async getAvisarCliente(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.config.getAvisarEntregaCliente(companyId, id);
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  /**
+   * Liga/desliga o aviso de entrega de UM cliente (2º nível, soma com o global).
+   * ADMIN-only. company-scoped: o cliente TEM de ser desta empresa.
+   */
+  @Patch('cliente/:id/aviso')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async setAvisarCliente(@Req() req: any, @Param('id') id: string, @Body() dto: SetAvisarClienteDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.config.setAvisarEntregaCliente(companyId, id, dto?.avisar);
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
   }
 }

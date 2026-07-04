@@ -423,10 +423,12 @@ html, body { height: 100%; }
 .hbar .num { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted); text-align: right; }
 
 /* ---------- Configuracoes.html ---------- */
-.set-nav { display: grid; gap: 2px; align-content: start; }
-.set-link { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; }
+/* Sub-menu de Configurações usa Glass Pill (Lei nº2, FRONTEND.md) — forma
+   quadrada (radius-sm), não a pill total do menu lateral. */
+.set-nav { position: relative; display: grid; gap: 2px; align-content: start; --glass-pill-radius: var(--radius-sm); }
+.set-link { position: relative; z-index: 1; display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.82rem; font-weight: 600; cursor: pointer; text-align: left; transition: background var(--motion-fast), color var(--motion-fast); }
 .set-link:hover { background: var(--hbx-surface-raised); }
-.set-link.on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.set-link.on { color: var(--hbx-brand-strong); }
 .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .frow .f, .config-f { display: grid; gap: 6px; }
 .frow .f label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
@@ -1177,9 +1179,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* Checkout na casca (passo de pagamento embutido após o cadastro) */
 .reg-checkout { gap: 12px; }
 .reg-checkout__summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.reg-checkout__cycle { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid var(--border-hairline); background-color: var(--hbx-surface-soft); }
-.reg-checkout__cycle button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 6px 14px; border-radius: 999px; font: inherit; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: background-color .2s, color .2s; }
-.reg-checkout__cycle button.is-on { background-color: var(--login-accent); color: var(--hbx-background); }
+/* Ciclo Mensal/Anual — Glass Pill (Lei nº2, FRONTEND.md); forma pill total já
+   é o default do vidro, só precisa do track relative. */
+.reg-checkout__cycle { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid var(--border-hairline); background-color: var(--hbx-surface-soft); position: relative; }
+.reg-checkout__cycle button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 6px 14px; border-radius: 999px; font: inherit; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: background-color .2s, color .2s; }
+.reg-checkout__cycle button.is-on { color: var(--login-accent); }
 .reg-checkout__cycle button span { font-size: 0.6rem; opacity: 0.85; }
 .reg-checkout__total { display: inline-flex; align-items: baseline; gap: 4px; color: var(--text-strong); font-family: var(--font-display); line-height: 1; }
 .reg-checkout__total b { font-size: 1.3rem; font-weight: 800; color: var(--login-accent); }
@@ -1541,12 +1545,16 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   display: flex; align-items: stretch; gap: 8px; padding: 8px 16px; min-height: 58px; pointer-events: none; }
 .vnd-funhead > * { pointer-events: auto; }
 
-/* Toggle wrapper: sem visual próprio — distribui 2 filhos */
+/* Toggle wrapper: sem visual próprio — distribui 2 filhos. Glass Pill (Lei
+   nº2) — mesma forma quadrada (12px) que já usava, vidro mais forte porque o
+   ativo era preenchido/invertido (não o brand-soft padrão). */
 .vnd-segbtns { flex: 2; display: flex; align-items: stretch; gap: 8px;
-  background: none; border: none; box-shadow: none; padding: 0; border-radius: 0; }
+  background: none; border: none; box-shadow: none; padding: 0; border-radius: 0;
+  position: relative; --glass-pill-radius: 12px; }
 
 /* Forma-base compartilhada por segbtn (2) + kpi (3) + supcard (1) + foco (1) = 7 */
 .vnd-segbtn {
+  position: relative; z-index: 1;
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   padding: 0 14px; border: 1px solid var(--border-hairline);
   background: var(--hbx-surface-soft); border-radius: 12px;
@@ -1555,9 +1563,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
 .vnd-segbtn:hover { background: var(--hbx-surface); border-color: var(--border-strong); color: var(--text-strong); }
-.vnd-segbtn.is-on { background: var(--hbx-primary); color: var(--hbx-action-ink); border-color: var(--hbx-primary);
-  box-shadow: 0 4px 16px -6px color-mix(in srgb, var(--hbx-primary) 55%, transparent); }
-.vnd-segbtn.is-on:hover { background: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
+.vnd-segbtn.is-on { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
 .vnd-segbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-brand); }
 
 /* Stats: área flex que distribui os 3 KPIs como colunas iguais */
@@ -3496,15 +3502,16 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    literal — só tokens do contrato.
    ============================================================ */
 
-/* Abas da tela (Cadências | Gatilhos | Rotinas) */
+/* Abas da tela (Cadências | Gatilhos | Rotinas) — Glass Pill (Lei nº2, FRONTEND.md) */
 .auto-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .auto-tab {
+  position: relative; z-index: 1;
   padding: 8px 16px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline);
   background: var(--hbx-field-surface); color: var(--text-muted); font-size: 0.78rem; font-weight: 700;
   cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .auto-tab:hover { color: var(--text-strong); }
-.auto-tab.is-active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
+.auto-tab.is-active { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
 
 /* Grade dos 3 cards de persona */
 .persona-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
@@ -3696,15 +3703,18 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .be-adv-preview__err { font-size: 0.74rem; color: var(--hbx-danger); font-weight: 600; }
 .be-adv-foot__actions { display: flex; gap: 8px; flex: none; }
 
-/* Tri-state (Qualquer/Sim/Não) — mesmo padrão visual do .radar-canais__switch */
-.be-tristate { display: flex; gap: 5px; flex-wrap: wrap; }
+/* Tri-state (Qualquer/Sim/Não) — Glass Pill (Lei nº2, FRONTEND.md). Cada
+   campo do filtro renderiza seu PRÓPRIO <TriState>, cada um com o seu
+   useGlassPill (componente próprio — não é hook dentro de .map()). */
+.be-tristate { display: flex; gap: 5px; flex-wrap: wrap; position: relative; }
 .be-tristate__opt {
+  position: relative; z-index: 1;
   font-size: 0.66rem; font-weight: 700; padding: 5px 12px; border-radius: 999px;
   border: 1px solid var(--border-hairline); background: var(--hbx-surface-raised);
   color: var(--text-muted); cursor: pointer; white-space: nowrap;
   transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
 }
-.be-tristate__opt.is-on { color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
+.be-tristate__opt.is-on { color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
 
 /* Chip multi-select (popup avançado) */
 .be-chipset { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3816,4 +3826,75 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .cli-prod__form { display: grid; gap: 10px; padding-top: 4px; border-top: 1px solid var(--border-hairline); }
 .cli-prod__form-row { display: grid; grid-template-columns: 1fr 96px; gap: 10px; }
 .cli-prod__qtd { text-align: center; }
+
+/* Chips de filtro por tipo — AGENDA (Todos | Ligação | Reunião | Visita |
+   Mensagem) — Glass Pill (Lei nº2, FRONTEND.md). */
+.age-tabs { display: flex; gap: 6px; align-items: center; }
+.age-tab { color: var(--text-body); }
+.age-tab.is-on { color: var(--hbx-brand-strong); }
+
+/* Chips de período — RELATÓRIOS (Hoje | 7 dias | 30 dias) — Glass Pill
+   (Lei nº2, FRONTEND.md). */
+.rel-tabs { display: flex; gap: 10px; align-items: center; }
+.rel-tab { color: var(--text-body); }
+.rel-tab.is-on { color: var(--hbx-brand-strong); }
 .cli-prod__close { justify-self: center; margin-top: 2px; }
+
+/* ── LOGÍSTICA-MOBILE M5 — regras do admin (editor da config) ───────────────── */
+/* Toggle "avisar entrega" por cliente no drawer Produtos (mesmo padrão .ctt-toggle). */
+.cli-prod__aviso {
+  padding: 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hbx-brand) 6%, transparent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-body);
+}
+
+.log-cfg { display: grid; gap: 16px; padding: 12px 16px 16px; }
+.log-cfg__block {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface-raised, transparent);
+}
+.log-cfg__block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.log-cfg__block-title { font-size: 0.88rem; font-weight: 800; color: var(--text-strong); }
+
+.log-cfg__vars { display: flex; flex-wrap: wrap; gap: 6px; }
+.log-cfg__var { display: inline-flex; align-items: center; gap: 4px; }
+
+.log-cfg__ta {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.log-cfg__preview {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--hbx-brand) 5%, transparent);
+}
+.log-cfg__preview-label { font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.log-cfg__preview-body { margin: 0; font-size: 0.84rem; line-height: 1.5; color: var(--text-body); white-space: pre-wrap; }
+
+.log-cfg__save { justify-self: start; display: inline-flex; align-items: center; gap: 7px; }
+
+.log-cfg__switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.log-cfg__switch input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--hbx-brand); cursor: pointer; flex: none; }
+.log-cfg__switch-txt { display: grid; gap: 2px; }
+.log-cfg__switch-name { font-size: 0.82rem; font-weight: 700; color: var(--text-body); }
+.log-cfg__switch-hint { font-size: 0.72rem; color: var(--text-muted); }
+
+.log-cfg__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.log-cfg__grid .f { display: grid; gap: 6px; }
+.log-cfg__grid .f span { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+.log-cfg__note { margin: 0; font-size: 0.72rem; color: var(--text-muted); }

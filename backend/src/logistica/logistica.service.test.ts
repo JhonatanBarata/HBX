@@ -81,18 +81,34 @@ function buildConversationsMock() {
   };
 }
 
+// M5 — LogisticaConfigService mock: resolverAviso decide o 2-níveis de aviso.
+// habilitado padrão = true (avisa), template null (usa a msg fixa de fallback).
+function buildConfigMock(over: { habilitado?: boolean; template?: string | null } = {}) {
+  const calls: any[] = [];
+  return {
+    calls,
+    config: {
+      resolverAviso: async (companyId: number, avisarCliente: boolean | null | undefined) => {
+        calls.push({ companyId, avisarCliente });
+        return { habilitado: over.habilitado ?? true, template: over.template ?? null };
+      },
+    } as any,
+  };
+}
+
 test('confirmarEntrega: flag OFF → NÃO chama WhatsApp e NÃO cria cobrança (só status/GPS)', async () => {
   const prev = process.env.HBX_LOGISTICA_ENABLED;
   delete process.env.HBX_LOGISTICA_ENABLED; // default OFF
 
   const { prisma, chargesCreated, entregaUpdates } = buildPrismaMock(
     buildEntrega(),
-    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso' },
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso', avisarEntrega: true },
   );
   const { conversations, calls } = buildConversationsMock();
   const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
 
-  const service = new LogisticaService(prisma, conversations, rota);
+  const service = new LogisticaService(prisma, conversations, rota, config);
   const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
 
   assert.equal(res?.status, 'entregue');
@@ -119,12 +135,13 @@ test('confirmarEntrega: flag ON → chama WhatsApp blindado 1x e lança a cobran
 
   const { prisma, chargesCreated } = buildPrismaMock(
     buildEntrega(),
-    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso' },
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso', avisarEntrega: true },
   );
   const { conversations, calls } = buildConversationsMock();
   const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
 
-  const service = new LogisticaService(prisma, conversations, rota);
+  const service = new LogisticaService(prisma, conversations, rota, config);
   const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
 
   assert.equal(res?.effectsEnabled, true);
@@ -138,6 +155,35 @@ test('confirmarEntrega: flag ON → chama WhatsApp blindado 1x e lança a cobran
   assert.equal(chargesCreated[0].paymentMethod, 'MANUAL');
   assert.equal(chargesCreated[0].status, 'pending');
   assert.equal(res?.cobrancaLancada, true);
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// M5 — o 2-níveis de aviso é FREIO do WhatsApp: com a flag ON, se resolverAviso
+// devolver habilitado=false (avisoWhatsEnabled global OFF OU cliente.avisarEntrega
+// OFF), o disparo NÃO chama queueOutboundForCompany. A cobrança segue independente.
+test('confirmarEntrega: flag ON mas aviso OFF (global/cliente) → NÃO chama WhatsApp', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso', avisarEntrega: false },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock({ habilitado: false }); // cliente e/ou global desligou
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(res?.effectsEnabled, true);
+  // O disparo de WhatsApp NÃO foi chamado — o freio do aviso venceu a flag ON.
+  assert.equal(calls.length, 0, 'aviso OFF → queueOutboundForCompany NÃO deve ser chamado');
+  assert.equal(res?.whatsappSent, false);
+  // A cobrança é independente do aviso — segue lançando (modelo avulso, valor > 0).
+  assert.equal(chargesCreated.length, 1, 'a cobrança não depende do aviso');
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
