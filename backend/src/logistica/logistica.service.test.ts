@@ -28,9 +28,11 @@ function buildEntrega(overrides: Record<string, any> = {}) {
 
 // Prisma mock mínimo: só o que confirmarEntrega/lancarCobranca tocam.
 // R2: financeiroCharge.findFirst (idempotência por entregaId) + um "banco" de charges.
+// R4: entrega.updateMany (claim do teto do reenvio) + masterEvent (trilha de falha).
 function buildPrismaMock(entrega: any, conta: any) {
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
+  const masterEvents: any[] = [];
   const prisma: any = {
     entrega: {
       findFirst: async () => entrega,
@@ -38,7 +40,20 @@ function buildPrismaMock(entrega: any, conta: any) {
         entregaUpdates.push(args.data);
         if (args.data?.cobrancaStatus) entrega.cobrancaStatus = args.data.cobrancaStatus;
         if (args.data?.status) entrega.status = args.data.status;
+        if (args.data?.whatsappStatus !== undefined) entrega.whatsappStatus = args.data.whatsappStatus;
+        if (args.data?.avisoReenviado !== undefined) entrega.avisoReenviado = args.data.avisoReenviado;
         return { id: entrega.id, ...args.data };
+      },
+      // R4 — claim atômico do teto do reenvio: só passa false→true 1 vez.
+      updateMany: async (args: any) => {
+        const wantsReenvio = args?.data?.avisoReenviado === true;
+        const guardFalse = args?.where?.avisoReenviado === false;
+        if (wantsReenvio && guardFalse) {
+          if (entrega.avisoReenviado === true) return { count: 0 }; // já reenviado
+          entrega.avisoReenviado = true;
+          return { count: 1 };
+        }
+        return { count: 0 };
       },
     },
     // M4/R3 — quantidades por item (dentro da tx do confirmar). No-op observável.
@@ -62,11 +77,23 @@ function buildPrismaMock(entrega: any, conta: any) {
         return { id: `charge-${chargesCreated.length}`, ...args.data };
       },
     },
+    // R4 — trilha do cockpit master (emitMasterEvent). Sem dedupKey batendo, sempre insere.
+    masterEvent: {
+      findFirst: async (args: any) => {
+        const key = args?.where?.dedupKey;
+        const hits = masterEvents.filter((e) => e.dedupKey === key);
+        return hits.length ? hits[hits.length - 1] : null;
+      },
+      create: async (args: any) => {
+        masterEvents.push(args.data);
+        return { id: args.data?.id, ...args.data };
+      },
+    },
     // R3 — transação interativa do confirmar: roda o callback com o MESMO prisma (o
     // mock não isola de verdade, mas prova que o serviço passa por $transaction).
     $transaction: async (fn: any) => fn(prisma),
   };
-  return { chargesCreated, entregaUpdates, prisma };
+  return { chargesCreated, entregaUpdates, masterEvents, prisma };
 }
 
 // LogisticaRotaService stub: o re-ETA pós-ação (M3) é aditivo/best-effort e não
@@ -405,4 +432,141 @@ test('R2 extrato: cliente de outra empresa → null (company-scoped)', async () 
   const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
   const res = await service.extratoCliente(1, 'conta-de-outra-empresa');
   assert.equal(res, null, 'cliente fora da empresa → null');
+});
+
+// ── R4 (a) — confirmar com aviso OFF → whatsappStatus='pulado' PERSISTIDO ─────
+test('R4 (a): flag ON, aviso OFF → persiste whatsappStatus=pulado (aviso_off), sem enviar', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: false },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock({ habilitado: false }); // aviso desligado
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(res?.whatsappSent, false);
+  assert.equal(calls.length, 0, 'aviso OFF → NÃO envia');
+  // O desfecho foi PERSISTIDO na entrega (não só logado).
+  const persist = entregaUpdates.find((u) => u.whatsappStatus !== undefined);
+  assert.ok(persist, 'whatsappStatus deve ser gravado');
+  assert.equal(persist.whatsappStatus, 'pulado');
+  assert.equal(persist.whatsappMotivo, 'aviso_off');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── R4 (b) — confirmar com envio OK → whatsappStatus='enviado' PERSISTIDO ─────
+test('R4 (b): flag ON, envio OK → persiste whatsappStatus=enviado + cobrancaOutcome', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(res?.whatsappSent, true);
+  assert.equal(calls.length, 1, 'envia 1x pelo caminho blindado');
+  const persist = entregaUpdates.find((u) => u.whatsappStatus !== undefined);
+  assert.ok(persist, 'whatsappStatus deve ser gravado');
+  assert.equal(persist.whatsappStatus, 'enviado');
+  assert.equal(persist.whatsappMotivo, null);
+  assert.equal(persist.cobrancaOutcome, 'lancada', 'cobrancaOutcome espelha o desfecho da cobrança');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── R4 (c) — reenviar 1× funciona; 2× é BARRADO pelo teto (não re-envia) ──────
+test('R4 (c): reenviar 1x envia pelo caminho blindado; 2x é barrado (teto 1)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const entrega = buildEntrega({ status: 'entregue', avisoReenviado: false });
+  const { prisma } = buildPrismaMock(
+    entrega,
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+
+  // 1º reenvio → dispara 1x pelo caminho blindado.
+  const r1 = await service.reenviarAviso(1, 'entrega-1');
+  assert.equal(r1?.reenviado, true);
+  assert.equal(r1?.whatsappStatus, 'enviado');
+  assert.equal(calls.length, 1, '1º reenvio envia exatamente 1x');
+
+  // 2º reenvio → BARRADO pelo teto: NÃO chama queueOutbound de novo.
+  await assert.rejects(
+    () => service.reenviarAviso(1, 'entrega-1'),
+    /já foi reenviado/i,
+    '2º reenvio deve ser barrado pelo teto de 1',
+  );
+  assert.equal(calls.length, 1, 'teto 1: queueOutboundForCompany NÃO é chamado de novo');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('R4 (c bis): reenviar só entrega já entregue; não-entregue = 400', async () => {
+  const entrega = buildEntrega({ status: 'em_rota', avisoReenviado: false });
+  const { prisma } = buildPrismaMock(
+    entrega,
+    { id: 'conta-1', name: 'Dona Maria', avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await assert.rejects(() => service.reenviarAviso(1, 'entrega-1'), /concluída/i);
+  assert.equal(calls.length, 0, 'entrega não concluída → não dispara nada');
+});
+
+// ── R4 (d) — falha de efeito emite MasterEvent 1× ────────────────────────────
+test('R4 (d): whatsapp falha → emite 1 MasterEvent logistica.efeito_falhou', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, masterEvents } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  // Conversations que EXPLODE → o disparo do WhatsApp falha (catch → status 'falhou').
+  const conversations = {
+    queueOutboundForCompany: async () => {
+      throw new Error('motor offline');
+    },
+  } as any;
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(res?.whatsappSent, false, 'whatsapp falhou');
+  assert.equal(masterEvents.length, 1, 'exatamente 1 MasterEvent de falha');
+  assert.equal(masterEvents[0].type, 'logistica.efeito_falhou');
+  assert.equal(masterEvents[0].severity, 'attention');
+  assert.equal(masterEvents[0].companyId, 1);
+  assert.equal(masterEvents[0].dedupKey, 'logistica.efeito_falhou:entrega-1');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
 });

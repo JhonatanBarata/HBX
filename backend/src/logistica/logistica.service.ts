@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
+import { emitMasterEvent } from '../common/master-event';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -329,23 +330,157 @@ export class LogisticaService {
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.
+    //
+    // R4 — FALHA VISÍVEL: o desfecho dos DOIS efeitos é PERSISTIDO na Entrega
+    // (whatsappStatus/whatsappMotivo + cobrancaOutcome), não só logado. Se algum
+    // efeito FALHA, emite UM MasterEvent (trilha do cockpit master). Best-effort:
+    // gravar o desfecho/emitir o evento NUNCA pode derrubar o confirmar.
     let whatsappSent = false;
     let cobrancaLancada = false;
     if (this.effectsEnabled && !jaEntregue) {
-      whatsappSent = await this.dispararWhatsappEntregue(companyId, entrega).catch((e) => {
+      const wa = await this.dispararWhatsappEntregue(companyId, entrega).catch((e) => {
         this.logger.warn(`[logistica] whatsapp entregue falhou entrega=${entrega.id}: ${String(e?.message || e)}`);
-        return false;
+        return { status: 'falhou' as WhatsappStatus, motivo: 'erro' };
       });
-      cobrancaLancada = await this.lancarCobranca(companyId, entrega).catch((e) => {
+      whatsappSent = wa.status === 'enviado';
+
+      const cob = await this.lancarCobranca(companyId, entrega).catch((e) => {
         this.logger.warn(`[logistica] cobrança falhou entrega=${entrega.id}: ${String(e?.message || e)}`);
-        return false;
+        return { lancada: false, outcome: 'falhou' as CobrancaOutcome };
       });
+      cobrancaLancada = cob.lancada;
+
+      // Persiste o desfecho (aditivo, best-effort — não muda o retorno se falhar).
+      await this.persistirDesfecho(entrega.id, wa, cob.outcome);
+
+      // Um efeito que falhou VIRA evento no cockpit master (dedup por entrega+tipo).
+      if (wa.status === 'falhou' || cob.outcome === 'falhou') {
+        await this.emitirFalhaEfeito(companyId, entrega.id, wa, cob.outcome);
+      }
     }
 
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
     await this.recalcularEtaSilencioso(companyId);
 
     return { id: entrega.id, status: 'entregue', effectsEnabled: this.effectsEnabled, whatsappSent, cobrancaLancada };
+  }
+
+  // ── R4 — persistir o desfecho dos efeitos (não só logar) ────────────────────
+  /**
+   * Grava na Entrega o desfecho dos efeitos do confirmar: whatsappStatus/whatsappMotivo
+   * (enviado|falhou|pulado + razão curta) e cobrancaOutcome (espelha o desfecho do
+   * lancarCobranca). Best-effort: se a escrita falhar, só loga — o confirmar já
+   * gravou o status 'entregue' antes; um erro AQUI não pode reverter a entrega.
+   */
+  private async persistirDesfecho(
+    entregaId: string,
+    wa: WhatsappResult,
+    cobrancaOutcome: CobrancaOutcome,
+  ): Promise<void> {
+    try {
+      await this.prisma.entrega.update({
+        where: { id: entregaId },
+        data: {
+          whatsappStatus: wa.status,
+          whatsappMotivo: wa.motivo ?? null,
+          cobrancaOutcome,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[logistica] persistirDesfecho entrega=${entregaId} falhou: ${String(e?.message || e)}`);
+    }
+  }
+
+  /**
+   * R4 — um efeito que FALHOU vira UM MasterEvent na trilha do cockpit master
+   * (reusa emitMasterEvent — best-effort por contrato, nunca lança). Dedup por
+   * entrega: 1 fato de falha por entrega não metralha a trilha. Cockpit-UI é
+   * frontend (adiado); aqui só emitimos o evento.
+   */
+  private async emitirFalhaEfeito(
+    companyId: number,
+    entregaId: string,
+    wa: WhatsappResult,
+    cobrancaOutcome: CobrancaOutcome,
+  ): Promise<void> {
+    const whatsappFalhou = wa.status === 'falhou';
+    const cobrancaFalhou = cobrancaOutcome === 'falhou';
+    await emitMasterEvent(this.prisma, {
+      type: 'logistica.efeito_falhou',
+      severity: 'attention',
+      companyId,
+      dedupKey: `logistica.efeito_falhou:${entregaId}`,
+      payload: {
+        entregaId,
+        state: `wa=${wa.status}${whatsappFalhou ? `(${wa.motivo ?? 'erro'})` : ''};cob=${cobrancaOutcome}`,
+        whatsappFalhou,
+        whatsappMotivo: whatsappFalhou ? wa.motivo ?? 'erro' : null,
+        cobrancaFalhou,
+      },
+    });
+  }
+
+  // ── R4 — REENVIAR aviso (ADMIN, teto DURO de 1, caminho blindado) ───────────
+  /**
+   * Reenvia o aviso "entregue" de UMA entrega — SOMENTE pelo caminho blindado
+   * (dispararWhatsappEntregue → queueOutboundForCompany). TETO DURO: 1 reenvio
+   * manual por entrega (guarda avisoReenviado). ZERO loop/retry automático — o
+   * segundo clique é BARRADO (loop de reconexão = chip banido). Atualiza o
+   * whatsappStatus persistido com o desfecho. Company-scoped. Só reenvia entrega
+   * JÁ 'entregue' (não faz sentido avisar entrega não concluída).
+   */
+  async reenviarAviso(companyId: number, id: string): Promise<ReenviarAvisoResult | null> {
+    if (!companyId || !id) return null;
+    const entrega = await this.prisma.entrega.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: { id: true, status: true, customerProfileId: true, contatoId: true, avisoReenviado: true },
+    });
+    if (!entrega) return null;
+    if (entrega.status !== 'entregue') {
+      throw new BadRequestException('Só é possível reenviar o aviso de uma entrega já concluída.');
+    }
+    // TETO DURO: 1 reenvio manual por entrega. Segundo clique = barrado (sem loop).
+    if (entrega.avisoReenviado) {
+      throw new BadRequestException('O aviso desta entrega já foi reenviado (limite de 1 reenvio).');
+    }
+
+    // Marca o teto ANTES de disparar (idempotência dura: mesmo sob 2 cliques
+    // simultâneos, só o primeiro passa a flag de false→true e segue; o outro
+    // pega o registro já reenviado). updateMany com guarda no WHERE = atômico.
+    const claim = await this.prisma.entrega.updateMany({
+      where: { id: entrega.id, companyId, avisoReenviado: false },
+      data: { avisoReenviado: true },
+    });
+    if (!claim.count) {
+      // Corrida perdida: outra chamada já reenviou. NÃO dispara de novo.
+      throw new BadRequestException('O aviso desta entrega já foi reenviado (limite de 1 reenvio).');
+    }
+
+    // Dispara SÓ pelo caminho blindado (mesma rotina do confirmar). Uma mensagem.
+    const wa = await this.dispararWhatsappEntregue(companyId, {
+      id: entrega.id,
+      customerProfileId: entrega.customerProfileId,
+      contatoId: entrega.contatoId,
+    }).catch((e) => {
+      this.logger.warn(`[logistica] reenviar aviso entrega=${entrega.id} falhou: ${String(e?.message || e)}`);
+      return { status: 'falhou' as WhatsappStatus, motivo: 'erro' };
+    });
+
+    // Atualiza o desfecho persistido do WhatsApp (a cobrança NÃO é tocada no reenvio).
+    try {
+      await this.prisma.entrega.update({
+        where: { id: entrega.id },
+        data: { whatsappStatus: wa.status, whatsappMotivo: wa.motivo ?? null },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[logistica] reenviar aviso persist entrega=${entrega.id} falhou: ${String(e?.message || e)}`);
+    }
+
+    if (wa.status === 'falhou') {
+      await this.emitirFalhaEfeito(companyId, entrega.id, wa, 'nao_avaliada');
+    }
+
+    return { id: entrega.id, whatsappStatus: wa.status, motivo: wa.motivo ?? null, reenviado: true };
   }
 
   // ── CANCELAR ────────────────────────────────────────────────────────────────
@@ -422,11 +557,17 @@ export class LogisticaService {
   /**
    * SOMENTE via queueOutboundForCompany (disjuntor/1-número=1-conexão/outbox).
    * Uma mensagem, on-success, acabou. Sem telefone = no-op silencioso.
+   *
+   * R4 — devolve um resultado RICO ({status, motivo}) em vez de bool, para o
+   * caller PERSISTIR o desfecho na Entrega e emitir MasterEvent na falha:
+   *   'enviado'         → enfileirado no caminho blindado.
+   *   'pulado' + motivo → 'aviso_off' (global/cliente) ou 'sem_telefone'.
+   *   'falhou' + motivo → exceção do caminho blindado (caller trata no catch).
    */
   private async dispararWhatsappEntregue(
     companyId: number,
     entrega: { id: string; customerProfileId: string; contatoId: string | null },
-  ): Promise<boolean> {
+  ): Promise<WhatsappResult> {
     // M5 — a CONTA manda: o telefone, o nome do cliente e o toggle avisarEntrega.
     const conta = await this.prisma.customerProfile.findFirst({
       where: { id: entrega.customerProfileId, companyId },
@@ -438,7 +579,7 @@ export class LogisticaService {
     const aviso = await this.config.resolverAviso(companyId, conta?.avisarEntrega);
     if (!aviso.habilitado) {
       this.logger.log(`[logistica] entrega=${entrega.id} aviso desligado (global/cliente) — WhatsApp pulado (no-op).`);
-      return false;
+      return { status: 'pulado', motivo: 'aviso_off' };
     }
 
     // Destinatário: o contato da entrega (whatsapp/phone) ou o telefone da conta.
@@ -457,7 +598,7 @@ export class LogisticaService {
     }
     if (!contact) {
       this.logger.log(`[logistica] entrega=${entrega.id} sem telefone — WhatsApp pulado (no-op).`);
-      return false;
+      return { status: 'pulado', motivo: 'sem_telefone' };
     }
 
     // M5 — variáveis do template a partir dos itens efetivamente entregues (M2/M4).
@@ -483,7 +624,7 @@ export class LogisticaService {
       variables: { module: 'logistica', event: 'entregue', entregaId: entrega.id },
       flowState: { botActive: false, humanAssigned: false, flowResult: null },
     });
-    return true;
+    return { status: 'enviado', motivo: null };
   }
 
   /**
@@ -563,9 +704,12 @@ export class LogisticaService {
   private async lancarCobranca(
     companyId: number,
     entrega: { id: string; customerProfileId: string; valor: number; cobrancaStatus: string },
-  ): Promise<boolean> {
+  ): Promise<CobrancaResult> {
     // Camada 1: status já-resolvido (lançada/isenta/aguardando/nao_contabilizado) = no-op.
-    if (isCobrancaResolvida(entrega.cobrancaStatus)) return false;
+    // R4 — espelha o desfecho JÁ resolvido (mapeia p/ o vocabulário do outcome).
+    if (isCobrancaResolvida(entrega.cobrancaStatus)) {
+      return { lancada: false, outcome: outcomeDoStatus(entrega.cobrancaStatus) };
+    }
 
     const conta = await this.prisma.customerProfile.findFirst({
       where: { id: entrega.customerProfileId, companyId },
@@ -578,7 +722,7 @@ export class LogisticaService {
         where: { id: entrega.id },
         data: { cobrancaStatus: 'nao_contabilizado' },
       });
-      return false;
+      return { lancada: false, outcome: 'nao_contabilizado' };
     }
 
     const forma = String(conta?.formaPagamento || 'aberto').trim().toLowerCase();
@@ -590,14 +734,14 @@ export class LogisticaService {
         where: { id: entrega.id },
         data: { cobrancaStatus: 'aguardando_fechamento' },
       });
-      return false;
+      return { lancada: false, outcome: 'aguardando_fechamento' };
     }
 
     // Valor zero = nada a cobrar: marca isenta e sai (sem charge).
     const amount = round2(Math.max(0, Number(entrega.valor) || 0));
     if (amount <= 0) {
       await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'isenta' } });
-      return false;
+      return { lancada: false, outcome: 'isenta' };
     }
 
     // Camada 2 (idempotência dura): se já existe charge DESTA entrega, não duplica.
@@ -607,7 +751,7 @@ export class LogisticaService {
     });
     if (jaExiste) {
       await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
-      return false;
+      return { lancada: false, outcome: 'lancada' };
     }
 
     // dueDate: avulso/na_hora = hoje; pendura (fiado) = regra do cliente (diaFechamento,
@@ -644,12 +788,12 @@ export class LogisticaService {
       if (isUniqueViolation(e)) {
         // Corrida perdida: o charge desta entrega já foi criado por outra chamada.
         await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
-        return false;
+        return { lancada: false, outcome: 'lancada' };
       }
       throw e;
     }
     await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
-    return true;
+    return { lancada: true, outcome: 'lancada' };
   }
 
   // ── FECHAR-MÊS (modelo mensal): agrupa as entregas 'aguardando_fechamento' ─────
@@ -846,6 +990,17 @@ function isCobrancaResolvida(status: string | null | undefined): boolean {
   );
 }
 
+// R4 — mapeia o cobrancaStatus JÁ resolvido para o vocabulário do cobrancaOutcome
+// persistido (M2). 'faturada' colapsa em 'lancada' (ambos = já virou charge).
+function outcomeDoStatus(status: string | null | undefined): CobrancaOutcome {
+  const s = String(status || '').trim().toLowerCase();
+  if (s === 'faturada' || s === 'lancada') return 'lancada';
+  if (s === 'isenta') return 'isenta';
+  if (s === 'nao_contabilizado') return 'nao_contabilizado';
+  if (s === 'aguardando_fechamento') return 'aguardando_fechamento';
+  return 'falhou';
+}
+
 // R2 (pendura) — próximo diaFechamento do cliente a partir de hoje; se não houver
 // dia configurado ou for inválido, vence hoje (fail-safe: não perde a cobrança).
 function proximoDiaFechamento(dia: number | null | undefined): Date {
@@ -961,6 +1116,38 @@ export interface ConfirmarResult {
   effectsEnabled: boolean;
   whatsappSent: boolean;
   cobrancaLancada: boolean;
+}
+
+// R4 — desfecho RICO dos efeitos (persistido na Entrega + base do MasterEvent de falha).
+export type WhatsappStatus = 'enviado' | 'falhou' | 'pulado';
+
+export interface WhatsappResult {
+  status: WhatsappStatus;
+  // razão curta quando pulado/falhou: aviso_off | sem_telefone | erro. null quando enviado.
+  motivo: string | null;
+}
+
+// Espelha o cobrancaStatus da entrega em vocabulário estável + 'falhou' (exceção)
+// e 'nao_avaliada' (usado quando a cobrança não é reprocessada, ex.: reenviar aviso).
+export type CobrancaOutcome =
+  | 'lancada'
+  | 'aguardando_fechamento'
+  | 'nao_contabilizado'
+  | 'isenta'
+  | 'falhou'
+  | 'nao_avaliada';
+
+export interface CobrancaResult {
+  lancada: boolean;
+  outcome: CobrancaOutcome;
+}
+
+// R4 — retorno do reenviar-aviso (endpoint ADMIN, teto 1).
+export interface ReenviarAvisoResult {
+  id: string;
+  whatsappStatus: WhatsappStatus;
+  motivo: string | null;
+  reenviado: boolean;
 }
 
 // R2 — fechar-mês

@@ -1016,8 +1016,15 @@ model Entrega {
   // idempotencyKey é a base do offline-first (M8, unique p/ sync sem duplicar).
   rotaOrdem         Int?
   etaAt             DateTime?
-  whatsappStatus    String?  // queued | sent | failed | null
-  cobrancaOutcome   String?  // pago | pendura | isenta | null
+  // R4 (05/07 — falha visível): desfecho PERSISTIDO dos efeitos do confirmar.
+  //   whatsappStatus  = 'enviado' | 'falhou' | 'pulado' (+ razão em whatsappMotivo)
+  //   cobrancaOutcome = 'lancada' | 'aguardando_fechamento' | 'nao_contabilizado' | 'isenta' | 'falhou'
+  // avisoReenviado = TETO DURO de 1 reenvio manual do aviso por entrega (guarda o
+  // endpoint /reenviar-aviso). Uma vez true, nunca mais reenvia — ZERO loop (chip).
+  whatsappStatus    String?  // enviado | falhou | pulado | null
+  whatsappMotivo    String?  // razão curta quando falhou/pulado (sem_telefone | aviso_off | erro …)
+  cobrancaOutcome   String?  // lancada | aguardando_fechamento | nao_contabilizado | isenta | falhou | null
+  avisoReenviado    Boolean  @default(false)
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
   idempotencyKey    String?  @unique
@@ -1391,7 +1398,8 @@ model User {
   // Sellers Brains (17/06): null = push ligado; preenchido = push mutado (sino vermelho).
   brainPushMutedAt DateTime?
   // Radar Automático (18/06): JSON = { active, city, state, segment, alcance, quantos }.
-  // null = nunca configurado (botão apagado). Persiste mesmo offline — "reserva no estoque".
+  // ÓRFÃ (LIMPEZA-DESTRUTIVA L4, 04/07): standing-order deletado (endpoints +
+  // service). Coluna mantida sem migration; nenhum código lê/grava mais aqui.
   radarSellerStandingOrderJson String?
   botAccessEnabled  Boolean  @default(false)
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
@@ -2909,9 +2917,9 @@ model Atividade {
 // WORM-15 (02/07) — pesquisa SALVA nomeada pelo usuario (diferente do
 // WebscrapingSearchHistory, que e historico automatico de busca). Guarda um
 // recorte de filtros do Radar (filtroJson = subset de RadarFiltersInput) para
-// re-rodar depois (`POST /saved-search/:id/run` reusa listRadarLeadsForUser) e,
-// quando atribuida a um vendedor (assignedSellerId), vira fonte preferencial da
-// distribuicao daquele vendedor (grava no radarSellerStandingOrderJson dele).
+// re-rodar depois (`POST /saved-search/:id/run` reusa listRadarLeadsForUser).
+// assignedSellerId (vendedor "dono" do recorte) e so INFORMATIVO — o hook que
+// alimentava standing-order foi removido (LIMPEZA-DESTRUTIVA L4, 04/07).
 // Colunas Int cruas (companyId/ownerId/assignedSellerId) sem back-relation,
 // mesmo padrao do Atividade — migration escrita a mao (banco dev desligado).
 model SavedSearch {

@@ -104,6 +104,21 @@ export class LogisticaController {
   }
 
   /**
+   * R4 — reenvia o aviso "entregue" de UMA entrega pelo caminho BLINDADO. TETO
+   * DURO: 1 reenvio manual por entrega (2º clique = 400). ZERO loop/retry. ADMIN-only.
+   * company-scoped. Só reenvia entrega já 'entregue'.
+   */
+  @Post('entregas/:id/reenviar-aviso')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async reenviarAviso(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.reenviarAviso(companyId, id);
+    if (!res) throw new NotFoundException('Entrega não encontrada');
+    return res;
+  }
+
+  /**
    * R3 — soft-delete de uma entrega: snapshot em DeletionRecord + esconde (marca
    * 'cancelada'). Company-scoped. Idempotente. NÃO dispara nada externo.
    */
