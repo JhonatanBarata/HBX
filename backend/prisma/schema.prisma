@@ -3982,3 +3982,25 @@ model CreditLedgerEntry {
   @@index([walletId, expiresAt])
   @@index([usageKey])
 }
+
+// CRÉDITOS S3-PARTE1 (docs/PLANEJAMENTOS/CREDITOS/S3-PARTE1-RESULTADO.md) — overlay editável
+// dos PACOTES de recarga de crédito. Espelha EXATAMENTE `PlanModuleConfig`: base em código
+// (credit-pack-catalog.ts) + override persistido aqui, recarregado no boot/edição para os
+// getters síncronos do catálogo (mesmo padrão de refreshCommercialCatalogOverlay). Migration
+// ADITIVA (só esta tabela nova).
+model CreditPackConfig {
+  packKey      String   @id // starter | growth | scale
+  configJson   String   @default("{}") // { credits, price, status, defaultExpiryDays, title, observation }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Config global de crédito (S3-PARTE1): hoje só o prazo default de expiração (D6). Linha
+// única (key fixo) em vez de tabela key-value nova — mesmo espírito enxuto do
+// MasterGlobalIntegrationConfig, mas escopado a Créditos pra não colidir com billing.
+model CreditGlobalConfig {
+  key                      String   @id @default("default")
+  defaultExpiryDays        Int      @default(90)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
