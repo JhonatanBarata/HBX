@@ -172,3 +172,46 @@ export class GerarDiaDto {
   @MaxLength(40)
   date?: string;
 }
+
+// ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ────────────────────────────────
+// Planejar: ordena a rota do dia (NN+2-opt Haversine), grava rotaOrdem/etaAt e
+// devolve a previsão de término. origemLat/Lng = GPS do entregador (ponto de
+// partida); se ausente, começa pela 1ª parada com coordenada.
+export class PlanejarRotaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  origemLat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  origemLng?: number;
+}
+
+// Iniciar: re-planeja com a origem atual e marca a 1ª parada em rota.
+export class IniciarRotaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  origemLat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  origemLng?: number;
+}

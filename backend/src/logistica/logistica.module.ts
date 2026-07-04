@@ -3,6 +3,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
+import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaController } from './logistica.controller';
 
 /**
@@ -16,7 +17,7 @@ import { LogisticaController } from './logistica.controller';
 @Module({
   imports: [PrismaModule, MessagingModule],
   controllers: [LogisticaController],
-  providers: [LogisticaService, LogisticaRecorrenciaService],
-  exports: [LogisticaService, LogisticaRecorrenciaService],
+  providers: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService],
+  exports: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService],
 })
 export class LogisticaModule {}

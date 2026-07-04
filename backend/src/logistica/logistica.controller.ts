@@ -14,12 +14,15 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
+import { LogisticaRotaService } from './logistica-rota.service';
 import {
   CancelarEntregaDto,
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
   GerarDiaDto,
+  IniciarRotaDto,
+  PlanejarRotaDto,
   UpdateClienteProdutoDto,
 } from './dto/logistica.dto';
 
@@ -40,6 +43,7 @@ export class LogisticaController {
   constructor(
     private readonly service: LogisticaService,
     private readonly recorrencia: LogisticaRecorrenciaService,
+    private readonly rota: LogisticaRotaService,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -124,5 +128,37 @@ export class LogisticaController {
   gerarDia(@Req() req: any, @Body() dto: GerarDiaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.recorrencia.gerarDia(companyId, dto?.date);
+  }
+
+  // ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ───────────────────────────────
+
+  /**
+   * Planeja a rota do dia: ordena as entregas abertas (NN+2-opt Haversine),
+   * grava rotaOrdem/etaAt e devolve a rota ordenada + término previsto + quantas
+   * paradas sem coordenada. origemLat/Lng = GPS do entregador (ponto de partida).
+   * 100% local — sem API paga. Não dispara WhatsApp/cobrança.
+   */
+  @Post('rota/planejar')
+  planejarRota(@Req() req: any, @Body() dto: PlanejarRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rota.planejarRota(companyId, {
+      date: dto?.date,
+      origemLat: dto?.origemLat,
+      origemLng: dto?.origemLng,
+    });
+  }
+
+  /**
+   * Inicia a rota: re-planeja com a origem atual e marca a 1ª parada em rota
+   * (status 'em_rota' + startedAt). Devolve a rota ordenada + término previsto.
+   */
+  @Post('rota/iniciar')
+  iniciarRota(@Req() req: any, @Body() dto: IniciarRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rota.iniciarRota(companyId, {
+      date: dto?.date,
+      origemLat: dto?.origemLat,
+      origemLng: dto?.origemLng,
+    });
   }
 }

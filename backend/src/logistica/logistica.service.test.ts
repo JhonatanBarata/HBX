@@ -52,6 +52,21 @@ function buildPrismaMock(entrega: any, conta: any) {
   };
 }
 
+// LogisticaRotaService stub: o re-ETA pós-ação (M3) é aditivo/best-effort e não
+// faz parte do que este teste do FREIO N6 prova. No-op observável (conta chamadas).
+function buildRotaStub() {
+  const calls: any[] = [];
+  return {
+    calls,
+    rota: {
+      recalcularEtaRestantes: async (companyId: number) => {
+        calls.push({ companyId });
+        return { recalculadas: 0 };
+      },
+    } as any,
+  };
+}
+
 // ConversationsService mock: conta as chamadas do caminho blindado.
 function buildConversationsMock() {
   const calls: any[] = [];
@@ -75,8 +90,9 @@ test('confirmarEntrega: flag OFF → NÃO chama WhatsApp e NÃO cria cobrança (
     { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso' },
   );
   const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
 
-  const service = new LogisticaService(prisma, conversations);
+  const service = new LogisticaService(prisma, conversations, rota);
   const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
 
   assert.equal(res?.status, 'entregue');
@@ -106,8 +122,9 @@ test('confirmarEntrega: flag ON → chama WhatsApp blindado 1x e lança a cobran
     { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', modeloCobranca: 'avulso' },
   );
   const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
 
-  const service = new LogisticaService(prisma, conversations);
+  const service = new LogisticaService(prisma, conversations, rota);
   const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
 
   assert.equal(res?.effectsEnabled, true);

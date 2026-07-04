@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
+import { LogisticaRotaService } from './logistica-rota.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -36,7 +37,21 @@ export class LogisticaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
+    private readonly rota: LogisticaRotaService,
   ) {}
+
+  /**
+   * M3 — re-ETA aditivo: após confirmar/cancelar, recalcula o etaAt das paradas
+   * RESTANTES do dia (sem reordenar o que já foi feito). Best-effort: qualquer
+   * erro é engolido (log) — NÃO afeta o desfecho do confirmar/cancelar (N6).
+   */
+  private async recalcularEtaSilencioso(companyId: number): Promise<void> {
+    try {
+      await this.rota.recalcularEtaRestantes(companyId);
+    } catch (e: any) {
+      this.logger.warn(`[logistica] re-ETA pós-ação falhou company=${companyId}: ${String(e?.message || e)}`);
+    }
+  }
 
   /**
    * Único interruptor dos EFEITOS (WhatsApp + cobrança). Default OFF: sem a flag,
@@ -241,6 +256,9 @@ export class LogisticaService {
       });
     }
 
+    // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
+    await this.recalcularEtaSilencioso(companyId);
+
     return { id: entrega.id, status: 'entregue', effectsEnabled: this.effectsEnabled, whatsappSent, cobrancaLancada };
   }
 
@@ -262,6 +280,8 @@ export class LogisticaService {
       where: { id: entrega.id },
       data: { status: 'cancelada', notes },
     });
+    // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
+    await this.recalcularEtaSilencioso(companyId);
     return { id: entrega.id };
   }
 
