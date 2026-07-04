@@ -665,15 +665,15 @@ export class RadarCoreDeliveryMixin {
 
   /**
    * Gate do auto-import Radar→Vendas para o caminho do VENDEDOR.
-   * - Não-vendedor (admin / import-as-admin / Night Factory): mantém comportamento atual (sempre importa).
-   * - Vendedor: só auto-importa quando o standing order (botão "Auto" da tela) está ATIVO.
-   *   Com "Auto" OFF, os leads ficam reservados na vitrine "Disponíveis" e o vendedor
-   *   puxa manualmente com "Puxar selecionados". Sem standing order salvo = inativo (Auto OFF).
+   * VENDAS-REFAB item 5 (04/07, ordem do dono): self-serve PURO — o vendedor
+   * SEMPRE filtra e PUXA na mão ("Puxar"/"Puxar selecionados"). O standing
+   * order (botão "Auto") foi desligado: os leads de vendedor ficam sempre
+   * reservados na vitrine "Disponíveis" (skipClaim), nunca caem sozinhos na
+   * carteira. Não-vendedor (admin / import-as-admin / Night Factory) mantém
+   * o comportamento atual (sempre importa) — fora do escopo desta remoção.
    */
   private async shouldAutoImportRadarRunToVendas(user: any): Promise<boolean> {
-    if (!this.isCompanySellerUser(user)) return true;
-    const result = await this.getRadarSellerStandingOrder(user).catch(() => null);
-    return Boolean(result?.standingOrder?.active);
+    return !this.isCompanySellerUser(user);
   }
 
   private async buildPausedRadarSearchRunResponse(run: any) {

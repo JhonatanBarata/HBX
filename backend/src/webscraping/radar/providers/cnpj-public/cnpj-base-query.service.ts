@@ -18,6 +18,10 @@ export type CnpjBaseContatoFilter = {
   comEmail?: boolean;
   comCelular?: boolean;
   comTelefone?: boolean;
+  // "tem site"/"tem WhatsApp validado" NÃO entram aqui de propósito (decisão 02/07, ver
+  // comentário em buildWhere): `website` NUNCA é populado por import-cnpj-dataset.js na base
+  // fria — filtrar por ele devolveria vitrine vazia. Presença digital é OUTPUT do enriquecimento
+  // (RadarLeadPool), não filtro da Base Receita.
   maxPhoneShare?: number; // default 3 (HOT-03: "remover mesmo número" graduado)
   maxEmailShare?: number;
   blocklistEmail?: boolean; // aplica BLOCKLIST_EMAIL_CONTADOR
@@ -31,7 +35,8 @@ export type CnpjBaseQueryInput = {
   porte?: string[];
   mei?: boolean;
   simples?: boolean;
-  matrizFilial?: string;
+  // Aceita 1 valor (legado) ou vários (seleção múltipla Matriz+Filial no filtro avançado).
+  matrizFilial?: string | string[];
   capitalMin?: number;
   capitalMax?: number;
   // NÃO filtra nada hoje: regimeTributario é fase 2 da RFB (coluna sempre NULL na carga atual
@@ -45,7 +50,19 @@ export type CnpjBaseQueryInput = {
   ddd?: string;
   abertaDe?: string; // ISO date
   abertaAte?: string;
+  // Idade da empresa em anos (derivado de openedAt) — açúcar sintático sobre abertaDe/abertaAte
+  // pro front não ter que calcular data; aplicado no mesmo campo openedAt (nunca os dois juntos
+  // com abertaDe/abertaAte sem sentido — quem manda os dois, os dois entram em AND).
+  idadeMinAnos?: number;
+  idadeMaxAnos?: number;
   contato?: CnpjBaseContatoFilter;
+  // VENDAS-REFAB item 4: "Sócio/dono" — ownerName/ownerQualification (denormalizados do QSA da
+  // RFB, ver comentário no schema.prisma). `donoConhecido` filtra só quem tem sócio identificado
+  // (ownerName preenchido); `ownerNameKeyword` busca por nome do sócio; `ownerQualifications`
+  // filtra pelo cargo/qualificação do sócio-administrador (ex.: "Sócio-Administrador").
+  donoConhecido?: boolean;
+  ownerNameKeyword?: string;
+  ownerQualifications?: string[];
   excluirJaEntregues?: boolean;
   limit?: number;
   cursor?: string | null;
@@ -74,6 +91,8 @@ export type CnpjBaseSampleRow = {
   firstSeenAt: string | null;
   phoneShareCount: number | null;
   emailShareCount: number | null;
+  ownerName: string | null;
+  ownerQualification: string | null;
   selo: 'whatsapp_validado' | 'celular_provavel' | 'fixo' | 'provavel_contador' | 'sem_contato';
 };
 
@@ -156,7 +175,12 @@ export class CnpjBaseQueryService {
     if (input.naturezas?.length) where.naturezaJuridica = { in: input.naturezas };
     if (input.situacoes?.length) where.situacao = { in: input.situacoes.map((s) => String(s).trim().toLowerCase()) };
     if (input.porte?.length) where.porte = { in: input.porte };
-    if (input.matrizFilial) where.matrizFilial = input.matrizFilial;
+    if (input.matrizFilial) {
+      const matrizFilialList = Array.isArray(input.matrizFilial) ? input.matrizFilial : [input.matrizFilial];
+      const values = matrizFilialList.map((v) => String(v).trim()).filter(Boolean);
+      if (values.length === 1) where.matrizFilial = values[0];
+      else if (values.length > 1) where.matrizFilial = { in: values };
+    }
     if (input.mei != null) where.mei = input.mei;
     if (input.simples != null) where.simples = input.simples;
     // input.regime NUNCA filtra (correção de escopo 02/07): regimeTributario é fase 2 da RFB,
@@ -182,6 +206,36 @@ export class CnpjBaseQueryService {
       where.openedAt = {};
       if (input.abertaDe) where.openedAt.gte = new Date(input.abertaDe);
       if (input.abertaAte) where.openedAt.lte = new Date(input.abertaAte);
+    }
+    // Idade da empresa (anos) — açúcar sobre openedAt: "idadeMinAnos=5" = aberta há PELO MENOS
+    // 5 anos (openedAt <= hoje-5anos); "idadeMaxAnos=2" = aberta há NO MÁXIMO 2 anos
+    // (openedAt >= hoje-2anos). Combina em AND com abertaDe/abertaAte se ambos vierem (raro,
+    // mas não é erro — o front decide qual UI oferecer, o backend só aplica).
+    if (input.idadeMinAnos != null || input.idadeMaxAnos != null) {
+      const ageWhere: Record<string, any> = { ...(where.openedAt || {}) };
+      const now = Date.now();
+      const yearMs = 365.25 * 24 * 60 * 60 * 1000;
+      if (input.idadeMinAnos != null) {
+        const cutoff = new Date(now - Math.max(0, Number(input.idadeMinAnos) || 0) * yearMs);
+        ageWhere.lte = ageWhere.lte ? new Date(Math.min(ageWhere.lte.getTime(), cutoff.getTime())) : cutoff;
+      }
+      if (input.idadeMaxAnos != null) {
+        const cutoff = new Date(now - Math.max(0, Number(input.idadeMaxAnos) || 0) * yearMs);
+        ageWhere.gte = ageWhere.gte ? new Date(Math.max(ageWhere.gte.getTime(), cutoff.getTime())) : cutoff;
+      }
+      where.openedAt = ageWhere;
+    }
+
+    // ---- Sócio/dono (item 4 PLANO-UI) ----
+    if (input.donoConhecido) {
+      and.push({ ownerName: { not: null } });
+    }
+    if (input.ownerNameKeyword) {
+      and.push({ ownerName: { contains: input.ownerNameKeyword, mode: 'insensitive' } });
+    }
+    if (input.ownerQualifications?.length) {
+      const qualifications = input.ownerQualifications.map((q) => String(q).trim()).filter(Boolean);
+      if (qualifications.length) where.ownerQualification = { in: qualifications };
     }
 
     // ---- HOT-03 anti-contador / opções de contato ----
@@ -265,7 +319,7 @@ export class CnpjBaseQueryService {
           porte: true, situacao: true, matrizFilial: true, capitalSocial: true, naturezaJuridica: true,
           simples: true, mei: true, city: true, state: true, phone: true, phone2: true, email: true,
           website: true, openedAt: true, firstSeenAt: true, phoneShareCount: true, emailShareCount: true,
-          phoneDigits: true,
+          phoneDigits: true, ownerName: true, ownerQualification: true,
         },
       }).catch(() => []),
     ]);
@@ -296,6 +350,8 @@ export class CnpjBaseQueryService {
       firstSeenAt: row.firstSeenAt ? new Date(row.firstSeenAt).toISOString() : null,
       phoneShareCount: row.phoneShareCount ?? null,
       emailShareCount: row.emailShareCount ?? null,
+      ownerName: row.ownerName || null,
+      ownerQualification: row.ownerQualification || null,
       selo: selarQualidade({ phone: row.phone, email: row.email, phoneShareCount: row.phoneShareCount, emailShareCount: row.emailShareCount, whatsappValidado: whatsappValidados.has(normalizePhoneDigits(row.phoneDigits) || '') }, maxShare),
     }));
 

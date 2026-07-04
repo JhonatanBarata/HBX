@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../../../../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../../../../auth/guards/master.guard';
@@ -24,7 +24,7 @@ class CnpjBaseContatoDto implements CnpjBaseContatoFilter {
   @IsOptional() @IsBoolean() blocklistEmail?: boolean;
 }
 
-class CnpjBaseQueryDto implements CnpjBaseQueryInput {
+export class CnpjBaseQueryDto implements CnpjBaseQueryInput {
   @IsOptional() @IsArray() @IsString({ each: true }) cnaes?: string[];
   @IsOptional() @IsBoolean() cnaePrincipalOnly?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) naturezas?: string[];
@@ -32,7 +32,10 @@ class CnpjBaseQueryDto implements CnpjBaseQueryInput {
   @IsOptional() @IsArray() @IsString({ each: true }) porte?: string[];
   @IsOptional() @IsBoolean() mei?: boolean;
   @IsOptional() @IsBoolean() simples?: boolean;
-  @IsOptional() @IsIn(['matriz', 'filial']) matrizFilial?: string;
+  // Aceita 1 valor (legado) ou array (seleção múltipla Matriz+Filial no filtro avançado) — o
+  // service (buildWhere) normaliza os dois formatos, sem validação estrita de union type aqui.
+  @IsOptional()
+  matrizFilial?: string | string[];
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) capitalMin?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) capitalMax?: number;
   // regime aceito mas IGNORADO no WHERE (fase 2 da RFB, sempre NULL hoje — ver cnpj-base-query.service.ts).
@@ -43,7 +46,12 @@ class CnpjBaseQueryDto implements CnpjBaseQueryInput {
   @IsOptional() @IsString() ddd?: string;
   @IsOptional() @IsString() abertaDe?: string;
   @IsOptional() @IsString() abertaAte?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(200) idadeMinAnos?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(200) idadeMaxAnos?: number;
   @IsOptional() @IsObject() contato?: CnpjBaseContatoDto;
+  @IsOptional() @IsBoolean() donoConhecido?: boolean;
+  @IsOptional() @IsString() ownerNameKeyword?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) ownerQualifications?: string[];
   @IsOptional() @IsBoolean() excluirJaEntregues?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(20) limit?: number;
   @IsOptional() @IsString() cursor?: string | null;

@@ -104,6 +104,7 @@ import { resolveCompanyAccessState } from '../../../modules/company-access-state
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
 import { confirmedSegments } from '../../../users/segment-affinity.util';
 import { buildCnpjBaseQueryInputFromRadarFilters } from '../providers/cnpj-public/radar-base-availability.util';
+import type { CnpjBaseQueryInput } from '../providers/cnpj-public/cnpj-base-query.service';
 
 import type {
   AutonomousMassDataCandidate,
@@ -2961,6 +2962,24 @@ export class RadarCorePresentationMixin {
         filteredOut: enrichmentSummary.discardedOrBlocked,
       },
     };
+  }
+
+  /**
+   * VENDAS-REFAB item 4 (04/07) — filtro AVANÇADO do "Buscar empresas" sobre a base 28M
+   * (CnpjPublicCompany), aberto pra QUALQUER usuário da empresa (admin OU vendedor — self-serve
+   * puro do item 5, ninguém precisa pedir pro Master). Só valida que existe empresa/usuário
+   * (resolveContext) — a base fria é leitura pública, sem gravação, sem dado sensível de outra
+   * empresa (dedup `excluirJaEntregues` já cruza por phoneDigits no RadarLeadPool, sem vazar
+   * card de outra empresa: só usa a existência do telefone, nunca o conteúdo do card alheio).
+   * Mesmo CnpjBaseQueryInput/query() do painel do Master (`modules/owner/cnpj-base/query`) —
+   * único CONTRATO, dois pontos de entrada (ver docs/PLANEJAMENTOS/VENDAS-REFAB/CONTRATO-FILTRO.md).
+   */
+  async queryCnpjBaseForUser(user: any, input: CnpjBaseQueryInput) {
+    this.resolveContext(user);
+    if (!this.cnpjBaseQuery) {
+      throw new ServiceUnavailableException('Base Receita (CnpjPublicCompany) indisponivel neste processo.');
+    }
+    return this.cnpjBaseQuery.query(input || {});
   }
 
   async getRadarLeadForUser(user: any, radarLeadId: string) {

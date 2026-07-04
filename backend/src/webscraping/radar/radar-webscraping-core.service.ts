@@ -272,15 +272,17 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     // (processNextRadarCampaigns / ensureNightFactoryWork / recoverRadarCampaignWork) saíram junto
     // com os mixins mass-data/campaign-planner/factory-admin. A fábrica nova é de ENRIQUECIMENTO,
     // roda sobre a fila S4 (radar/missions/) via PONTE local — não nasce aqui.
-    this.radarAutoDistributionTimer = setInterval(() => {
-      void this.processActiveRadarAutoDistributions();
-    }, 60_000);
+    //
+    // VENDAS-REFAB item 5 (04/07, ordem do dono): pump de auto-distribuição ~2min
+    // DESLIGADO — self-serve puro, ninguém alimenta o Vendas sozinho. O timer
+    // `radarAutoDistributionTimer`/`processActiveRadarAutoDistributions` (era
+    // setInterval 60s + disparo aos 7s do boot) foi removido daqui. Os endpoints
+    // de distribuição sob demanda (POST radar/auto-distribution/run,
+    // POST radar-auto-distribution/run) continuam existindo como AÇÃO EXPLÍCITA
+    // do admin/master — não são "automação que alimenta sozinho".
     setTimeout(() => {
       void this.processNextQueuedSearchRun();
     }, 2_000);
-    setTimeout(() => {
-      void this.processActiveRadarAutoDistributions();
-    }, 7_000);
   }
 
   onModuleDestroy() {

@@ -52,13 +52,41 @@ export class CnpjPublicDatasetService {
     if (cnaeCode) matchers.push({ cnae: { startsWith: cnaeCode } });
     if (matchers.length) where.OR = matchers;
 
+    // FURO PROVADO NA VPS (04/07 — 37.922 restaurantes SP, 97,6% COM telefone, mas o
+    // motor recebia 199/200 SEM telefone → accepted=0 → "0 Receita/0 Fusão"): a carga do
+    // dump é EM LOTE, então `updatedAt` é IDÊNTICO pra base inteira. `orderBy: updatedAt desc`
+    // vira empate total e o Postgres, no empate, sobe justamente a minoria SEM contato — que
+    // o gate mata como "Contato publico ausente" antes de virar card. A base tinha o telefone
+    // o tempo todo; o SELECT do passo 2 da árvore-mestra é que servia o lixo.
+    //
+    // Correção na FONTE (não no gate): priorizar quem TEM canal de contato utilizável (a lane
+    // grátis do cliente não vira card sem contato — RFB sem contato é trabalho da fábrica de
+    // enriquecimento, não da vitrine imediata). `phoneShareCount asc` desempata pelo telefone
+    // MENOS compartilhado (evita a linha do contador dividida por milhares de CNPJs). Só
+    // completo o `take` com registros sem contato quando o nicho tem pouca cobertura, pra a
+    // busca nunca voltar vazia.
+    const hasContact: Array<Record<string, any>> = [
+      { AND: [{ phone: { not: null } }, { phone: { not: '' } }] },
+      { AND: [{ email: { not: null } }, { email: { not: '' } }] },
+    ];
+    const withContactWhere = { AND: [where, { OR: hasContact }] };
+    const withoutContactWhere = { AND: [where, { NOT: { OR: hasContact } }] };
+
     let rows: any[] = [];
     try {
       rows = await prisma.cnpjPublicCompany.findMany({
-        where,
+        where: withContactWhere,
         take,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: [{ phoneShareCount: 'asc' }, { openedAt: 'desc' }],
       });
+      if (rows.length < take) {
+        const fill = await prisma.cnpjPublicCompany.findMany({
+          where: withoutContactWhere,
+          take: take - rows.length,
+          orderBy: { openedAt: 'desc' },
+        });
+        rows = rows.concat(fill || []);
+      }
     } catch {
       return [];
     }

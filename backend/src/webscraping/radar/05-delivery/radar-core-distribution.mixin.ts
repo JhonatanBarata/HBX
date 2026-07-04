@@ -517,8 +517,9 @@ export class RadarCoreDistributionMixin {
       throw new ForbiddenException('Apenas ADMIN pode configurar distribuição automática do Radar.');
     }
     // RBAC Sprint 1: `radar.distribution.manage` (criar/alterar regra) vale
-    // inclusive para o GERENTE (role=ADMIN). Master nunca e bloqueado; cron
-    // (processActiveRadarAutoDistributions) nao passa por aqui.
+    // inclusive para o GERENTE (role=ADMIN). Master nunca e bloqueado.
+    // VENDAS-REFAB item 5: o cron automático (processActiveRadarAutoDistributions)
+    // foi DESLIGADO — esta rota só roda por ação explícita (run sob demanda).
     await this.assertTeamPolicyAccessAnyRole(
       user,
       'radar.distribution.manage',
@@ -1080,48 +1081,16 @@ export class RadarCoreDistributionMixin {
     });
   }
 
-  private async processActiveRadarAutoDistributions() {
-    if (this.radarAutoDistributionPumpActive) return;
-    this.radarAutoDistributionPumpActive = true;
-    try {
-      const dueBefore = new Date(Date.now() - 2 * 60_000);
-      const rules = await this.prisma.radarAutoDistributionRule.findMany({
-        where: {
-          scope: { in: ['company', 'tenant_distribution'] },
-          status: 'active',
-          OR: [
-            { lastRunAt: null },
-            { lastRunAt: { lte: dueBefore } },
-          ],
-        },
-        orderBy: [{ lastRunAt: 'asc' }, { updatedAt: 'asc' }],
-        take: 8,
-      }).catch(() => []);
-      for (const rule of rules || []) {
-        if (String(rule?.scope || '') === 'tenant_distribution') {
-          const adminUser = await this.resolveRadarAutoDistributionAdminUser(rule);
-          if (!adminUser) continue;
-          await this.executeRadarTenantDistributionRule(this.buildRadarAutoDistributionUser(adminUser), rule, {
-            limit: 40,
-            triggeredBy: 'worker',
-          }).catch((error: any) => {
-            this.logger.warn(`[radar-auto-distribution] execucao tenant_distribution ignorada rule=${rule?.id || '-'} company=${rule?.companyId || '-'}: ${String(error?.message || error)}`);
-          });
-          continue;
-        }
-        const adminUser = await this.resolveRadarAutoDistributionAdminUser(rule);
-        if (!adminUser) continue;
-        await this.executeRadarAutoDistributionRule(this.buildRadarAutoDistributionUser(adminUser), rule, {
-          limit: 40,
-          triggeredBy: 'worker',
-        }).catch((error: any) => {
-          this.logger.warn(`[radar-auto-distribution] execucao ignorada rule=${rule?.id || '-'} company=${rule?.companyId || '-'}: ${String(error?.message || error)}`);
-        });
-      }
-    } finally {
-      this.radarAutoDistributionPumpActive = false;
-    }
-  }
+  // REMOVIDO (VENDAS-REFAB item 5, 04/07): processActiveRadarAutoDistributions
+  // era o cron ~2min que varria regras `active` (scope company/tenant_distribution)
+  // e disparava executeRadarAutoDistributionRule/executeRadarTenantDistributionRule
+  // sozinho, sem ação humana — o pump "que alimenta o Vendas sozinho" que o dono
+  // pediu pra tirar. `radarAutoDistributionPumpActive`/`radarAutoDistributionTimer`
+  // seguem declarados em radar-webscraping-core.service.ts (onModuleDestroy ainda
+  // limpa o timer se algum dia for setado de novo), mas nada mais os alimenta.
+  // As rotas manuais (POST radar/auto-distribution/run, POST
+  // radar-auto-distribution/run) continuam chamando executeRadar*DistributionRule
+  // por ação EXPLÍCITA do admin/master — isso não é automação, é botão.
 
   private parseRadarTerritories(value: unknown): Array<{ userId: number; cities: Array<{ city: string; state: string }> }> {
     const parsed = this.parseMaybeJsonObject(value);
@@ -2247,10 +2216,13 @@ export class RadarCoreDistributionMixin {
     };
   }
 
-  // ── Bloco 6 (PR18062026046): Preferência permanente "Automático" ────────────
+  // ── Bloco 6 (PR18062026046) — DESLIGADO (VENDAS-REFAB item 5, 04/07) ────────
   // Standing order por vendedor: lê/grava em user.radarSellerStandingOrderJson.
-  // Quando active=true, o agendador existente usa esses filtros pra reabastecer
-  // a carteira até o teto de 20 (respeitando returnAt e a cota compartilhada).
+  // Self-serve PURO: o "Auto" NÃO dispara mais busca/reabastecimento nem afeta
+  // `shouldAutoImportRadarRunToVendas` (sempre false pra vendedor agora, ver
+  // radar-core-delivery.mixin.ts). GET/PUT seguem respondendo só pra não quebrar
+  // o front atual (botão "Automático") enquanto o Worker B remove a tela; toggle
+  // aqui é inerte — salva a preferência, mas não alimenta o Vendas sozinho.
 
   async getRadarSellerStandingOrder(user: any) {
     const context = this.resolveContext(user);
@@ -2281,10 +2253,9 @@ export class RadarCoreDistributionMixin {
       where: { id: context.userId },
       data: { radarSellerStandingOrderJson: JSON.stringify(next) },
     });
-    // Quando ativa e tem cidade, dispara um ciclo de reabastecimento (motor existente).
-    if (next.active && next.city) {
-      this.triggerSellerStandingOrderPump(user, next).catch(() => null);
-    }
+    // VENDAS-REFAB item 5: NÃO dispara mais ciclo de reabastecimento automático
+    // (triggerSellerStandingOrderPump removido) — self-serve puro, o vendedor
+    // sempre puxa na mão.
     return { ok: true, standingOrder: next };
   }
 
@@ -2302,16 +2273,5 @@ export class RadarCoreDistributionMixin {
     } catch {
       return { active: false, city: '', state: '', segment: '', alcance: '', quantos: 5 };
     }
-  }
-
-  private async triggerSellerStandingOrderPump(user: any, order: any) {
-    // Usa o search-run existente para garantir que a prateleira está reabastecida.
-    // O motor já limita por cota (assertSellerActiveCardSlots).
-    if (!order.city || !order.segment) return;
-    await this.startSearchRunForUser(user, {
-      city: order.city,
-      state: order.state || undefined,
-      segment: order.segment,
-    }).catch(() => null);
   }
 }

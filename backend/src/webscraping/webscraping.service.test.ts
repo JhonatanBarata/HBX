@@ -5768,6 +5768,58 @@ test('listRadarLeadsForUser (vitrine): sem CnpjBaseQueryService injetado -> degr
   assert.equal(response.meta.baseTotal, null);
 });
 
+// ─── VENDAS-REFAB item 4 (04/07) — queryCnpjBaseForUser: filtro AVANÇADO do "Buscar empresas"
+// sobre a base 28M, aberto a admin OU vendedor (self-serve puro, item 5) — nao só ao Master.
+test('queryCnpjBaseForUser: delega pro CnpjBaseQueryService.query com o input recebido', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  let capturedInput: any = null;
+  (service as any).cnpjBaseQuery = {
+    query: async (input: any) => {
+      capturedInput = input;
+      return { count: 1, sample: [{ cnpj: '123' }], cursorNext: null, statsAmostra: {} };
+    },
+  };
+
+  const result = await service.queryCnpjBaseForUser(createUser(), {
+    cities: ['Campinas'],
+    states: ['SP'],
+    donoConhecido: true,
+    matrizFilial: ['matriz', 'filial'],
+  } as any);
+
+  assert.equal(result.count, 1);
+  assert.deepEqual(capturedInput.cities, ['Campinas']);
+  assert.equal(capturedInput.donoConhecido, true);
+  assert.deepEqual(capturedInput.matrizFilial, ['matriz', 'filial']);
+});
+
+test('queryCnpjBaseForUser: vendedor (role USER da empresa) tambem pode chamar — self-serve puro, nao so ADMIN/Master', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  (service as any).cnpjBaseQuery = {
+    query: async () => ({ count: 0, sample: [], cursorNext: null, statsAmostra: {} }),
+  };
+  const seller = { id: 42, companyId: 7, role: 'USER', masterContext: { active: false } };
+
+  const result = await service.queryCnpjBaseForUser(seller, {});
+  assert.equal(result.count, 0);
+});
+
+test('queryCnpjBaseForUser: sem CnpjBaseQueryService injetado -> ServiceUnavailableException (nunca inventa resultado)', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  // cnpjBaseQuery fica undefined — ambiente/boot sem o provider.
+  await assert.rejects(() => service.queryCnpjBaseForUser(createUser(), {}));
+});
+
+test('queryCnpjBaseForUser: usuario sem empresa/id -> ForbiddenException (resolveContext)', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  (service as any).cnpjBaseQuery = { query: async () => ({ count: 0 }) };
+  await assert.rejects(() => service.queryCnpjBaseForUser({ id: 0, companyId: 0 }, {}));
+});
+
 test('pullRadarLeadsForUser entrega banco quando reposicao do motor falha', async () => {
   const { prisma, leads } = createCampaignPrisma();
   leads.push({

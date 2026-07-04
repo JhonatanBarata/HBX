@@ -172,6 +172,98 @@ test('query: tabela CnpjPublicCompany ausente -> ServiceUnavailableException', a
   await assert.rejects(() => service.query({}));
 });
 
+// ─── VENDAS-REFAB item 4 (04/07) — colunas novas do contrato de filtro ────────────────────────
+
+test('query: matrizFilial aceita array (seleção múltipla Matriz+Filial)', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, matrizFilial: ['matriz', 'filial'] });
+  assert.deepEqual(capturedWhere.matrizFilial.in, ['matriz', 'filial']);
+});
+
+test('query: matrizFilial com 1 valor continua igualdade simples (compat legado)', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, matrizFilial: 'matriz' });
+  assert.equal(capturedWhere.matrizFilial, 'matriz');
+});
+
+test('query: donoConhecido filtra ownerName not null', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, donoConhecido: true });
+  assert.deepEqual(capturedWhere.AND, [{ ownerName: { not: null } }]);
+});
+
+test('query: ownerNameKeyword busca por nome do sócio (contains insensitive)', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, ownerNameKeyword: 'Joao' });
+  assert.deepEqual(capturedWhere.AND, [{ ownerName: { contains: 'Joao', mode: 'insensitive' } }]);
+});
+
+test('query: ownerQualifications filtra pelo cargo do sócio', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, ownerQualifications: ['49-Socio-Administrador'] });
+  assert.deepEqual(capturedWhere.ownerQualification.in, ['49-Socio-Administrador']);
+});
+
+test('query: sample devolve ownerName/ownerQualification quando a coluna vem populada', async () => {
+  const rowComDono = { ...baseRow, ownerName: 'Joao da Silva', ownerQualification: '49-Socio-Administrador' };
+  const prisma = makeMockPrisma({ companies: [rowComDono], count: 1 });
+  const service = new CnpjBaseQueryService(prisma);
+  const result = await service.query({ limit: 20 });
+  assert.equal(result.sample[0].ownerName, 'Joao da Silva');
+  assert.equal(result.sample[0].ownerQualification, '49-Socio-Administrador');
+});
+
+test('query: idadeMinAnos filtra openedAt <= hoje-N anos (empresa "aberta há pelo menos N anos")', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, idadeMinAnos: 5 });
+  assert.ok(capturedWhere.openedAt.lte instanceof Date);
+  const expectedCutoff = Date.now() - 5 * 365.25 * 24 * 60 * 60 * 1000;
+  assert.ok(Math.abs(capturedWhere.openedAt.lte.getTime() - expectedCutoff) < 5000);
+});
+
+test('query: idadeMaxAnos filtra openedAt >= hoje-N anos (empresa "aberta há no máximo N anos")', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    companies: [baseRow],
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+  await service.query({ limit: 20, idadeMaxAnos: 2 });
+  assert.ok(capturedWhere.openedAt.gte instanceof Date);
+  const expectedCutoff = Date.now() - 2 * 365.25 * 24 * 60 * 60 * 1000;
+  assert.ok(Math.abs(capturedWhere.openedAt.gte.getTime() - expectedCutoff) < 5000);
+});
+
 test('searchCities: distinct normalizedCity+state, query curta devolve vazio', async () => {
   const prisma = makeMockPrisma({});
   const service = new CnpjBaseQueryService(prisma);

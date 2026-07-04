@@ -15,6 +15,7 @@ import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
 import { RadarTreeStatusService } from './radar-tree-status/radar-tree-status.service';
 import { SourceBudgetService } from './source-budget/source-budget.service';
 import { WebscrapingService } from './webscraping.service';
+import { CnpjBaseQueryDto } from './radar/providers/cnpj-public/cnpj-base.controller';
 
 class WebscrapingSearchDto {
   @IsOptional()
@@ -611,6 +612,19 @@ export class WebscrapingController {
   @Get('radar/preference-suggestions')
   radarPreferenceSuggestions(@Req() req: any) {
     return this.webscrapingService.getPreferenceSuggestionsForUser(req.user);
+  }
+
+  // VENDAS-REFAB item 4 (04/07) — filtro AVANÇADO do "Buscar empresas" sobre a base 28M
+  // (CnpjPublicCompany), aberto a qualquer usuário da empresa (admin OU vendedor — self-serve
+  // puro, item 5). Mesmo contrato do painel do Master em modules/owner/cnpj-base/query; ver
+  // docs/PLANEJAMENTOS/VENDAS-REFAB/CONTRATO-FILTRO.md.
+  @Post('radar/cnpj-base/query')
+  async radarCnpjBaseQuery(@Req() req: any, @Body() dto: CnpjBaseQueryDto) {
+    try {
+      return await this.webscrapingService.queryCnpjBaseForUser(req.user, dto || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/cnpj-base/query', error);
+    }
   }
 
   @Get('radar/leads/:id')
