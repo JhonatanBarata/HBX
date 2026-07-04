@@ -24,6 +24,12 @@ reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/
 -o dono vai informar onde está o lugar para teste se não informar: credenciais de teste em .test-login.local.md (gitignored) - full acesso, teste o q quiser - usar o chrome, localhost/3001. Muitos erros no preview Claude. Caso precise subir, usar o npm run up - navegador sempre chrome
 seguir exatamente o q o dono fala, falou publicar vc publica caralho npm run publish.
 
+## Git — NÃO criar branch por conta própria (regra do dono, 04/07)
+Nunca criar branch nem worktree sozinho. Trabalhar **SEMPRE direto na branch atual** (normalmente `master`);
+commit fica local, publicar só quando o dono mandar. **SÓ criar branch se o dono pedir EXPLICITAMENTE no chat.**
+Isto **SOBREPÕE** o default "se está na branch default, crie uma branch antes". Contexto: o dono consolida tudo
+no master e deletou ~53 branches — proliferação de branch atrapalha o fluxo dele.
+
 ## Webwhats / Motor WhatsApp (regras duras — custaram chips banidos em jun/26)
 `Webwhats/` é projeto separado (Evolution API/Baileys). Leia `Webwhats/AGENTS.md` antes de tocar. No VPS roda como systemd
 `webwhats.service` (host `:8080`, log `journalctl -u webwhats.service`, banco `webwhats_prod`) — **NÃO é container**; o backend

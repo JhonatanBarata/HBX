@@ -24,9 +24,29 @@ segue a regra financeira (pago na hora | pendura | fecha no mês) → vencida e 
 3. **Swipe é a navegação primária** (parada anterior/próxima) com dots de posição.
 4. **Feedback físico:** `navigator.vibrate` na chegada e na confirmação.
 5. **Sempre visível:** progresso (X/N) + previsão de término. O entregador vive por isso.
+<<<<<<< Updated upstream
 6. Bonito = tokens do hbx-theme (5 Leis). Classes novas `.rota-*` centrais; zero hex/inline.
 7. Mockup de referência: conversa de 04/07 (3 telas: Hoje / Rota c/ swipe+ETA / Chegada c/ stepper).
 
+=======
+6. Bonito = Design System **Entrega** (seção 2b). Zero hex/inline em TSX; `check-pele` verde.
+7. Mockup de referência: conversa de 04/07 (3 telas: Hoje / Rota c/ swipe+ETA / Chegada c/ stepper).
+
+## 2b. Design System Entrega — a saída das peles velhas (decisão do dono 04/07)
+As peles do dashboard (`aurora/ember/rose/cyber`) são desktop-first e ficam ruins no mobile
+(`mobile.css` é remendo). O app NÃO usa nenhuma delas. As 5 Leis continuam valendo — elas exigem
+CENTRALIZAÇÃO, não a cara antiga:
+- **Arquivo central novo `hbx-theme/entrega.css`** com escopo `[data-skin="entrega"]` no wrapper do
+  shell — as peles velhas NÃO vazam pra dentro (imune até ao PeleSwitch). Hex vive SÓ aqui (onde a
+  Lei permite); TSX limpo; `check-pele` verde.
+- **Tokens mobile-first:** tipo base 17px; títulos 24/28; números grandes 34px (stepper/progresso);
+  espaçamento em grade de 8; radius 16–20; alvos ≥52px; cards full-bleed (sem tabela, sem densidade
+  de dashboard); transições 180–240ms com spring no swipe; safe-area.
+- **Modo:** claro de ALTO CONTRASTE por default (entregador no sol) + escuro automático à noite.
+- **Componentes nomeados:** `ent-stop-card`, `ent-stepper`, `ent-chips`, `ent-progress`, `ent-sheet`.
+- Critério de aceite visual: o mockup de 04/07 (não "parecido com o dashboard").
+
+>>>>>>> Stashed changes
 ## 3. Decisões de arquitetura (trade-off na cara)
 | Decisão | Escolha | Por quê / custo |
 |---|---|---|
@@ -65,11 +85,26 @@ segue a regra financeira (pago na hora | pendura | fecha no mês) → vencida e 
 
 ## 6. Sprints
 
+<<<<<<< Updated upstream
 ### M1 — PWA shell (o "vira app")
 Manifest (nome "HBX Entregas", ícones maskable, `display: standalone`, theme), service worker de
 shell, botão "Instalar" (`beforeinstallprompt`) + QR de instalação no painel do admin, viewport/
 safe-area, Screen Wake Lock ativo durante a rota. Sem flag (só casca).
 **Check:** Lighthouse "instalável" ✅; zero regressão nas rotas atuais.
+=======
+### M1 — Shell independente + Design System Entrega (o "vira app")
+- **Rota FORA do `(app)`**: `frontend/src/app/entrega/` com `layout` próprio — SEM AppShell/Sidebar/
+  MobileTabBar/chrome do dashboard. Wrapper com `data-skin="entrega"`.
+- **`hbx-theme/entrega.css`** (seção 2b): tokens + componentes base do app. Nenhuma pele velha entra.
+- **Manifest PRÓPRIO** (`/entrega/manifest.webmanifest`): nome "HBX Entregas", `start_url: /entrega`,
+  ícones maskable, `display: standalone` — instalar abre DIRETO no app (o manifest global "HBX System"
+  do dashboard fica intocado; o SW `hbx-sw.js` que já existe é reusado).
+- Botão "Instalar" (`beforeinstallprompt`) + QR de instalação no painel do admin; viewport/safe-area;
+  Screen Wake Lock durante a rota. Auth: reusa a sessão/JWT existente (login enxuto se deslogado).
+- Nota de perf: o `globals.css` do root ainda carrega o CSS do dashboard nesta rota (cascata do layout
+  raiz) — aceitável na V1; se o Lighthouse do M9 reclamar, mover os imports pro layout do `(app)`.
+**Check:** Lighthouse "instalável" ✅ em `/entrega`; zero regressão nas rotas atuais; `check-pele` verde.
+>>>>>>> Stashed changes
 
 ### M2 — Amarração produto×cliente + recorrência (schema/backend)
 `ClienteProduto` + `EntregaItem` + `LogisticaConfig` + colunas novas da `Entrega` (seção 5).
@@ -93,7 +128,12 @@ Re-ETA a cada confirmar/cancelar/pular.
 - **Folha de chegada:** stepper por item (pré-preenchido `qtdPadrao`), **"Entregue" em 1 toque**;
   "Não entregue" → chips de motivo (ausente | recusou | reagendar). Se `moduloFinanceiroAtivo`:
   chips de recebimento (pix | dinheiro | pendura) — 1 toque.
+<<<<<<< Updated upstream
 - ZERO texto explicativo (seção 2). Classes `.rota-*` centrais; transições curtas; vibrate.
+=======
+- ZERO texto explicativo (seção 2). Componentes do Design System Entrega (`ent-*`, seção 2b);
+  transições com spring; vibrate. Telas vivem em `/entrega` (shell do M1), não no `(app)`.
+>>>>>>> Stashed changes
 **Check:** Playwright mobile viewport com GPS mockado — fluxo Hoje→Rota→Chegada→Entregue completo.
 Dep: M2 (M3 pra ordem/ETA; se M3 atrasar, stub com ordem manual — não bloquear).
 

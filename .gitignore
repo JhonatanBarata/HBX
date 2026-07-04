@@ -33,6 +33,11 @@ index 26-01 com auth.txt
 backups/
 .worktrees/
 
+# Generated lead datasets and scraping caches must stay out of Git.
+hbx-local-lab/storage/
+hbx-scraping-engine/data*/
+exports/
+
 # Runtime uploads and local storage
 backend/public/uploads/**
 !backend/public/uploads/.gitkeep
