@@ -16,6 +16,7 @@
 
 import { useMemo, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import type { ReceiptMethod, RotaItem } from "./entrega-api";
 import { buzz } from "./entrega-hooks";
 
@@ -66,6 +67,8 @@ export function ArrivalSheet({
   const [receipt, setReceipt] = useState<ReceiptMethod | null>(null);
   const [motivo, setMotivo] = useState<MotivoNaoEntregue | null>(null);
   const [naoEntregueAberto, setNaoEntregueAberto] = useState(false);
+  const receiptPill = useGlassPill<HTMLButtonElement>(receipt);
+  const motivoPill = useGlassPill<HTMLButtonElement>(motivo);
 
   const chipsVisiveis = useMemo(
     () => mostrarChips(moduloFinanceiroAtivo, parada.cliente.formaPagamento),
@@ -125,8 +128,10 @@ export function ArrivalSheet({
               <>
                 <div className="ent-chips-label">Recebimento</div>
                 <div className="ent-chips">
+                  <GlassPill {...receiptPill} />
                   <button
                     type="button"
+                    ref={receiptPill.itemRef("dinheiro")}
                     className={`ent-chip${receipt === "dinheiro" ? " is-on" : ""}`}
                     onClick={() => setReceipt("dinheiro")}
                     disabled={submitting}
@@ -135,6 +140,7 @@ export function ArrivalSheet({
                   </button>
                   <button
                     type="button"
+                    ref={receiptPill.itemRef("pix")}
                     className={`ent-chip${receipt === "pix" ? " is-on" : ""}`}
                     onClick={() => setReceipt("pix")}
                     disabled={submitting}
@@ -143,6 +149,7 @@ export function ArrivalSheet({
                   </button>
                   <button
                     type="button"
+                    ref={receiptPill.itemRef("fiado")}
                     className={`ent-chip${receipt === "fiado" ? " is-on" : ""}`}
                     onClick={() => setReceipt("fiado")}
                     disabled={submitting}
@@ -176,8 +183,10 @@ export function ArrivalSheet({
           <>
             <div className="ent-chips-label">Por quê?</div>
             <div className="ent-chips">
+              <GlassPill {...motivoPill} />
               <button
                 type="button"
+                ref={motivoPill.itemRef("ausente")}
                 className={`ent-chip${motivo === "ausente" ? " is-on" : ""}`}
                 onClick={() => setMotivo("ausente")}
                 disabled={submitting}
@@ -186,6 +195,7 @@ export function ArrivalSheet({
               </button>
               <button
                 type="button"
+                ref={motivoPill.itemRef("recusou")}
                 className={`ent-chip${motivo === "recusou" ? " is-on" : ""}`}
                 onClick={() => setMotivo("recusou")}
                 disabled={submitting}
@@ -194,6 +204,7 @@ export function ArrivalSheet({
               </button>
               <button
                 type="button"
+                ref={motivoPill.itemRef("reagendar")}
                 className={`ent-chip${motivo === "reagendar" ? " is-on" : ""}`}
                 onClick={() => setMotivo("reagendar")}
                 disabled={submitting}

@@ -11,6 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
@@ -79,6 +80,7 @@ export function AgendaClient() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tipoFilter, setTipoFilter] = useState<string>("");
+  const tipoPill = useGlassPill<HTMLButtonElement>(tipoFilter || "todos");
   const [msg, setMsg] = useState<string | null>(null);
 
   // Conclusão: qual atividade está com a pergunta de resultado aberta.
@@ -223,14 +225,13 @@ export function AgendaClient() {
           <span className="badge-win">{semana.length} na semana</span>
         </div>
 
-        <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 4 }}>
-          <button className={"btn-ghost btn-xs"} onClick={() => setTipoFilter("")}
-            style={tipoFilter === "" ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : undefined}>
+        <div className="age-tabs glass-pill-track" style={{ marginLeft: 4 }}>
+          <GlassPill {...tipoPill} />
+          <button ref={tipoPill.itemRef("todos")} className={"btn-ghost btn-xs glass-pill-item age-tab" + (tipoFilter === "" ? " is-on" : "")} onClick={() => setTipoFilter("")}>
             Todos
           </button>
           {TIPOS.map((t) => (
-            <button key={t} className="btn-ghost btn-xs" onClick={() => setTipoFilter(t)}
-              style={tipoFilter === t ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : undefined}>
+            <button key={t} ref={tipoPill.itemRef(t)} className={"btn-ghost btn-xs glass-pill-item age-tab" + (tipoFilter === t ? " is-on" : "")} onClick={() => setTipoFilter(t)}>
               {tipoLabel(t)}
             </button>
           ))}

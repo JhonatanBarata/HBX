@@ -11,6 +11,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import {
   FALLBACK_PLANS, PLAN_STATIC, fetchPublicPlans, getPlanFallback, formatBRL,
   type PublicPlan,
@@ -110,6 +111,7 @@ export function CheckoutPanel({
   const planName = PLAN_STATIC[planKey]?.accent ?? plan.title;
   const isTrial = !reactivation && !submitOverride && plan.trialDays > 0;
   const [cycle, setCycle] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
+  const cyclePill = useGlassPill<HTMLButtonElement>(cycle);
   const [cfg, setCfg] = useState<PayConfig | null>(null);
   const [card, setCard] = useState({ number: "", holder: "", exp: "", cvv: "" });
   // CPF/CNPJ do pagador é pedido AQUI (ordem do dono 19/06: saiu do cadastro,
@@ -275,9 +277,10 @@ export function CheckoutPanel({
       <h2>{title ?? `Ativar o HBX ${planName}`}</h2>
       <div className="reg-checkout__summary">
         {!hideCycle && (
-          <div className="reg-checkout__cycle" role="tablist" aria-label="Ciclo de cobrança">
-            <button type="button" role="tab" aria-selected={cycle === "MONTHLY"} className={cycle === "MONTHLY" ? "is-on" : ""} onClick={() => setCycle("MONTHLY")}>Mensal</button>
-            <button type="button" role="tab" aria-selected={cycle === "ANNUAL"} className={cycle === "ANNUAL" ? "is-on" : ""} onClick={() => setCycle("ANNUAL")}>Anual <span>-{discount}%</span></button>
+          <div className="reg-checkout__cycle glass-pill-track" role="tablist" aria-label="Ciclo de cobrança">
+            <GlassPill {...cyclePill} />
+            <button ref={cyclePill.itemRef("MONTHLY")} type="button" role="tab" aria-selected={cycle === "MONTHLY"} className={"glass-pill-item" + (cycle === "MONTHLY" ? " is-on" : "")} onClick={() => setCycle("MONTHLY")}>Mensal</button>
+            <button ref={cyclePill.itemRef("ANNUAL")} type="button" role="tab" aria-selected={cycle === "ANNUAL"} className={"glass-pill-item" + (cycle === "ANNUAL" ? " is-on" : "")} onClick={() => setCycle("ANNUAL")}>Anual <span>-{discount}%</span></button>
           </div>
         )}
         <div className="reg-checkout__total"><b>{formatBRL(shownTotal)}</b><em>{hideCycle ? "" : (cycle === "ANNUAL" ? "/ano" : "/mês")}</em></div>

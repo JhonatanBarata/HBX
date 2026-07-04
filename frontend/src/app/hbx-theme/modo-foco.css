@@ -556,15 +556,23 @@
 
 .vf-sheet__input { width: 100%; }
 
+/* Presets de data (Hoje/Amanhã/+3 dias) e motivo de encerramento — Glass Pill
+   (Lei nº2, FRONTEND.md). Tracks separados: chips é linha pill, motivos é
+   coluna com radius-sm (formas diferentes, cada um com seu --glass-pill-radius). */
 .vf-sheet__chips,
 .vf-sheet__motivos {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  position: relative;
 }
+.vf-sheet__chips { --glass-pill-radius: var(--radius-pill); }
+.vf-sheet__motivos { --glass-pill-radius: var(--radius-sm); }
 
 .vf-sheet-chip,
 .vf-sheet-motivo {
+  position: relative;
+  z-index: 1;
   flex: 1 1 auto;
   min-height: 40px;
   padding: 8px 12px;
@@ -589,7 +597,6 @@
 .vf-sheet-chip.is-on,
 .vf-sheet-motivo.is-on {
   color: var(--hbx-brand-strong);
-  background: color-mix(in srgb, var(--hbx-brand-strong) 12%, transparent);
   border-color: color-mix(in srgb, var(--hbx-brand-strong) 40%, transparent);
 }
 

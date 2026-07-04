@@ -99,11 +99,18 @@
 }
 [data-theme="aurora"] .ctx-tl-dot { box-shadow: 0 0 0 3px var(--hbx-brand-soft), 0 0 8px -1px color-mix(in srgb, var(--hbx-brand) 70%, transparent); }
 [data-theme="aurora"] .nav-item { border-radius: var(--radius-pill); }
-[data-theme="aurora"] .nav-item.active {
-  background: color-mix(in srgb, var(--hbx-brand) 14%, var(--hbx-surface));
+/* vidro líquido: mesmo material em QUALQUER grupo de seleção (Lei nº2,
+   FRONTEND.md) — só a FORMA muda por contexto, via --glass-pill-radius que
+   cada track define (default = pill, o "molde" do aurora). */
+[data-theme="aurora"] .glass-pill__glass {
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 50%, transparent), transparent 55%),
+    color-mix(in srgb, var(--hbx-brand) 14%, var(--hbx-surface));
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 34%, var(--hbx-line));
-  padding-top: 8px; padding-bottom: 8px;
-  box-shadow: 0 12px 24px -16px var(--soft-ring);
+  border-radius: var(--glass-pill-radius, var(--radius-pill));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 65%, transparent),
+    0 12px 24px -16px var(--soft-ring);
 }
 [data-theme="aurora"] .btn-teal {
   background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-secondary));

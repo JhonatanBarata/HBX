@@ -17,6 +17,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
@@ -130,6 +131,10 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
   const [templateKey, setTemplateKey] = useState<TemplateItem["key"]>("agil");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const stepPill = useGlassPill<HTMLSpanElement>(String(step));
+  const tomPill = useGlassPill<HTMLButtonElement>(tom);
+  const perfilPill = useGlassPill<HTMLButtonElement>(perfil);
+  const tplPill = useGlassPill<HTMLButtonElement>(templateKey, templates.length);
 
   // carrega os seeds do perfil escolhido (passo 3)
   useEffect(() => {
@@ -162,10 +167,12 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
   return (
     <div className="panel ia-form">
       <div className="ia-steps">
+        <GlassPill {...stepPill} />
         {[1, 2, 3].map((n, i) => (
           <React.Fragment key={n}>
             {i > 0 && <span className="ia-step-sep" />}
-            <span className={"ia-step-pill" + (step === n ? " is-active" : step > n ? " is-done" : "")}>
+            <span ref={step === n ? stepPill.itemRef(String(n)) : undefined}
+              className={"ia-step-pill" + (step === n ? " is-active" : step > n ? " is-done" : "")}>
               <span className="ia-step-pill__num">{step > n ? "✓" : n}</span>
               {n === 1 ? "Identidade" : n === 2 ? "Negócio" : "Fluxo inicial"}
             </span>
@@ -184,8 +191,9 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
           <div className="ia-field">
             <label className="field-label">Estilo de comunicação</label>
             <div className="ia-choice-row">
+              <GlassPill {...tomPill} />
               {TONS.map((t) => (
-                <button key={t.key} type="button" className={"ia-choice" + (tom === t.key ? " is-on" : "")} onClick={() => setTom(t.key)}>
+                <button key={t.key} ref={tomPill.itemRef(t.key)} type="button" className={"ia-choice" + (tom === t.key ? " is-on" : "")} onClick={() => setTom(t.key)}>
                   <span className="ia-choice__title">{t.title}</span>
                   <span className="ia-choice__desc">{t.desc}</span>
                 </button>
@@ -208,8 +216,9 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
           <div className="ia-field">
             <label className="field-label">Perfil do assistente</label>
             <div className="ia-choice-row">
+              <GlassPill {...perfilPill} />
               {PERFIS.map((p) => (
-                <button key={p.key} type="button" className={"ia-choice" + (perfil === p.key ? " is-on" : "")} onClick={() => setPerfil(p.key)}>
+                <button key={p.key} ref={perfilPill.itemRef(p.key)} type="button" className={"ia-choice" + (perfil === p.key ? " is-on" : "")} onClick={() => setPerfil(p.key)}>
                   <span className="ia-choice__title">{p.title}</span>
                   <span className="ia-choice__desc">{p.desc}</span>
                 </button>
@@ -243,8 +252,9 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
             <span className="ia-field__hint">Começa pronto — você ajusta cada mensagem e condição na próxima tela.</span>
           </div>
           <div className="ia-tpl-grid">
+            <GlassPill {...tplPill} />
             {templates.map((t) => (
-              <button key={t.key} type="button" className={"ia-tpl-card" + (templateKey === t.key ? " is-on" : "")} onClick={() => setTemplateKey(t.key)}>
+              <button key={t.key} ref={tplPill.itemRef(t.key)} type="button" className={"ia-tpl-card" + (templateKey === t.key ? " is-on" : "")} onClick={() => setTemplateKey(t.key)}>
                 <span className="ia-tpl-card__name">{t.label}</span>
                 <span className="ia-tpl-card__meta">{t.passos} mensagem{t.passos > 1 ? "s" : ""} · {t.condicoes} condiç{t.condicoes > 1 ? "ões" : "ão"}</span>
                 <span className="ia-tpl-card__desc">

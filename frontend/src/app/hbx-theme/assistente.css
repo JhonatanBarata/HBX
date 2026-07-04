@@ -19,13 +19,16 @@
 }
 
 /* ── Wizard: barra de progresso 3 passos ───────────────────────────────────── */
-.ia-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Só o passo .is-active usa Glass Pill (Lei nº2) — .is-done mantém o próprio
+   visual de check/concluído, fora do vidro deslizante. */
+.ia-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; position: relative; }
 .ia-step-pill {
+  position: relative; z-index: 1;
   display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: var(--radius-pill);
   border: 1px solid var(--border-hairline); background: var(--hbx-field-surface); color: var(--text-muted);
   font-size: 0.74rem; font-weight: 700;
 }
-.ia-step-pill.is-active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
+.ia-step-pill.is-active { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
 .ia-step-pill.is-done { color: var(--hbx-success); border-color: color-mix(in srgb, var(--hbx-success) 40%, transparent); }
 .ia-step-pill__num {
   display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; flex: none;
@@ -39,15 +42,16 @@
 .ia-field { display: flex; flex-direction: column; gap: 6px; }
 .ia-field__hint { font-size: 0.68rem; color: var(--text-muted); }
 
-/* Chips de escolha (tom / perfil) */
-.ia-choice-row { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Chips de escolha (tom / perfil) — Glass Pill (Lei nº2). */
+.ia-choice-row { display: flex; gap: 8px; flex-wrap: wrap; position: relative; --glass-pill-radius: var(--radius-md); }
 .ia-choice {
+  position: relative; z-index: 1;
   display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; min-width: 120px;
   border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-field-surface);
   color: var(--text-muted); cursor: pointer; text-align: left; transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 .ia-choice:hover { color: var(--text-strong); }
-.ia-choice.is-on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 42%, transparent); }
+.ia-choice.is-on { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 42%, transparent); }
 .ia-choice__title { font-size: 0.8rem; font-weight: 800; }
 .ia-choice__desc { font-size: 0.68rem; font-weight: 600; opacity: 0.85; }
 
@@ -57,15 +61,17 @@
   background: var(--hbx-brand-soft); color: var(--text-strong); font-size: 0.82rem; line-height: 1.5;
 }
 
-/* Cards de template (passo 3) */
-.ia-tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+/* Cards de template (passo 3) — Glass Pill (Lei nº2); grid/wrap, o vidro
+   mede o retângulo real do card ativo mesmo com quebra de linha. */
+.ia-tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; position: relative; --glass-pill-radius: var(--panel-radius); }
 .ia-tpl-card {
+  position: relative; z-index: 1;
   display: flex; flex-direction: column; gap: 10px; padding: 16px; cursor: pointer; text-align: left;
   border-radius: var(--panel-radius); border: 1px solid var(--border-hairline); background: var(--hbx-surface);
   box-shadow: var(--shadow-inset), var(--shadow-sm); transition: border-color .15s ease, transform .12s ease;
 }
 .ia-tpl-card:hover { transform: translateY(-2px); }
-.ia-tpl-card.is-on { border-color: color-mix(in srgb, var(--hbx-brand) 46%, transparent); background: var(--hbx-brand-soft); }
+.ia-tpl-card.is-on { border-color: color-mix(in srgb, var(--hbx-brand) 46%, transparent); }
 .ia-tpl-card__name { font-size: 0.92rem; font-weight: 800; color: var(--text-strong); }
 .ia-tpl-card__meta { font-size: 0.7rem; font-weight: 700; color: var(--hbx-brand-strong); }
 .ia-tpl-card__desc { font-size: 0.72rem; color: var(--text-muted); line-height: 1.5; }

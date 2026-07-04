@@ -8,6 +8,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import {
@@ -168,6 +169,8 @@ export function VendasModoFoco({
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [noteText, setNoteText] = useState("");
   const [closeMotivo, setCloseMotivo] = useState("");
+  const reschedulePill = useGlassPill<HTMLButtonElement>(rescheduleDate);
+  const motivoPill = useGlassPill<HTMLButtonElement>(closeMotivo);
 
   // Montagem (portal SSR-safe)
   const [mounted, setMounted] = useState(false);
@@ -483,9 +486,10 @@ export function VendasModoFoco({
                   <h3 className="vf-sheet__title">Reagendar — {lead.name || "lead"}</h3>
                   {sheetErr && <div className="vf-sheet__err">{sheetErr}</div>}
                   <div className="vf-sheet__chips">
-                    <button type="button" className={"vf-sheet-chip" + (rescheduleDate === plusDays(0) ? " is-on" : "")} onClick={() => setRescheduleDate(plusDays(0))}>Hoje</button>
-                    <button type="button" className={"vf-sheet-chip" + (rescheduleDate === plusDays(1) ? " is-on" : "")} onClick={() => setRescheduleDate(plusDays(1))}>Amanhã</button>
-                    <button type="button" className={"vf-sheet-chip" + (rescheduleDate === plusDays(3) ? " is-on" : "")} onClick={() => setRescheduleDate(plusDays(3))}>+3 dias</button>
+                    <GlassPill {...reschedulePill} />
+                    <button ref={reschedulePill.itemRef(plusDays(0))} type="button" className={"vf-sheet-chip" + (rescheduleDate === plusDays(0) ? " is-on" : "")} onClick={() => setRescheduleDate(plusDays(0))}>Hoje</button>
+                    <button ref={reschedulePill.itemRef(plusDays(1))} type="button" className={"vf-sheet-chip" + (rescheduleDate === plusDays(1) ? " is-on" : "")} onClick={() => setRescheduleDate(plusDays(1))}>Amanhã</button>
+                    <button ref={reschedulePill.itemRef(plusDays(3))} type="button" className={"vf-sheet-chip" + (rescheduleDate === plusDays(3) ? " is-on" : "")} onClick={() => setRescheduleDate(plusDays(3))}>+3 dias</button>
                   </div>
                   <label className="vf-sheet__label">Ou escolha a data</label>
                   <input className="field-dark vf-sheet__input" type="date" value={rescheduleDate}
@@ -524,8 +528,9 @@ export function VendasModoFoco({
                   <h3 className="vf-sheet__title">Encerrar — motivo?</h3>
                   {sheetErr && <div className="vf-sheet__err">{sheetErr}</div>}
                   <div className="vf-sheet__motivos">
+                    <GlassPill {...motivoPill} />
                     {ENCERRAR_MOTIVOS.map(opt => (
-                      <button key={opt.status} type="button"
+                      <button key={opt.status} ref={motivoPill.itemRef(opt.status)} type="button"
                         className={"vf-sheet-motivo" + (closeMotivo === opt.status ? " is-on" : "")}
                         onClick={() => setCloseMotivo(opt.status)} disabled={busy}>
                         {opt.label}

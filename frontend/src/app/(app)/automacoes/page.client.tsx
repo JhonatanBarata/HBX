@@ -15,6 +15,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
@@ -59,13 +60,15 @@ type Tab = "cadencias" | "gatilhos" | "rotinas";
 export function AutomacoesClient() {
   useCurrentUser();
   const [tab, setTab] = useState<Tab>("cadencias");
+  const tabPill = useGlassPill<HTMLButtonElement>(tab);
 
   return (
     <div className="work" style={{ flex: 1 }}>
-      <div className="auto-tabs">
-        <button className={"auto-tab" + (tab === "cadencias" ? " is-active" : "")} onClick={() => setTab("cadencias")}>Cadências</button>
-        <button className={"auto-tab" + (tab === "gatilhos" ? " is-active" : "")} onClick={() => setTab("gatilhos")}>Gatilhos</button>
-        <button className={"auto-tab" + (tab === "rotinas" ? " is-active" : "")} onClick={() => setTab("rotinas")}>Rotinas</button>
+      <div className="auto-tabs glass-pill-track">
+        <GlassPill {...tabPill} />
+        <button ref={tabPill.itemRef("cadencias")} className={"auto-tab" + (tab === "cadencias" ? " is-active" : "")} onClick={() => setTab("cadencias")}>Cadências</button>
+        <button ref={tabPill.itemRef("gatilhos")} className={"auto-tab" + (tab === "gatilhos" ? " is-active" : "")} onClick={() => setTab("gatilhos")}>Gatilhos</button>
+        <button ref={tabPill.itemRef("rotinas")} className={"auto-tab" + (tab === "rotinas" ? " is-active" : "")} onClick={() => setTab("rotinas")}>Rotinas</button>
       </div>
 
       {tab === "cadencias" && <CadenciasTab />}
@@ -205,6 +208,7 @@ function CadenciasTab() {
 
 function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClose: () => void; onDone: (msg: string) => void }) {
   const [modo, setModo] = useState<"lista" | "pesquisa">("lista");
+  const modoPill = useGlassPill<HTMLButtonElement>(modo);
   const [leadIdsRaw, setLeadIdsRaw] = useState("");
   const [savedSearchId, setSavedSearchId] = useState("");
   const [searches, setSearches] = useState<SavedSearch[]>([]);
@@ -250,9 +254,10 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
           <button className="btn-ghost btn-xs" onClick={onClose} disabled={busy}>Fechar</button>
         </h3>
         <div className="auto-form" style={{ marginTop: 14 }}>
-          <div className="auto-tabs">
-            <button className={"auto-tab" + (modo === "lista" ? " is-active" : "")} onClick={() => setModo("lista")}>Lista de leads</button>
-            <button className={"auto-tab" + (modo === "pesquisa" ? " is-active" : "")} onClick={() => setModo("pesquisa")}>Pesquisa salva</button>
+          <div className="auto-tabs glass-pill-track">
+            <GlassPill {...modoPill} />
+            <button ref={modoPill.itemRef("lista")} className={"auto-tab" + (modo === "lista" ? " is-active" : "")} onClick={() => setModo("lista")}>Lista de leads</button>
+            <button ref={modoPill.itemRef("pesquisa")} className={"auto-tab" + (modo === "pesquisa" ? " is-active" : "")} onClick={() => setModo("pesquisa")}>Pesquisa salva</button>
           </div>
 
           {modo === "lista" ? (

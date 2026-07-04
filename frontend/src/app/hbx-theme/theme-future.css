@@ -237,10 +237,12 @@ pele-allow-end */
   background: color-mix(in srgb, var(--hbx-brand) 10%, transparent);
   transform: translateX(2px);
 }
-[data-theme="future"] .nav-item.active {
-  background: color-mix(in srgb, var(--hbx-brand) 18%, transparent);
+[data-theme="future"] .nav-item.active { color: var(--hbx-brand-contrast); }
+[data-theme="future"] .nav-pill__glass {
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 22%, transparent), transparent 55%),
+    color-mix(in srgb, var(--hbx-brand) 18%, transparent);
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 50%, transparent);
-  color: var(--hbx-brand-contrast);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 22%, transparent),
     0 0 22px -6px color-mix(in srgb, var(--hbx-brand) 70%, transparent);

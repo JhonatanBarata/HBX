@@ -21,16 +21,83 @@ html, body { margin: 0; }
 .app { display: grid; grid-template-columns: 218px 1fr; height: 100dvh; overflow: hidden; }
 
 /* ---------- Sidebar ---------- */
-.side { display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow-y: auto; }
+.side { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow-y: auto; }
 /* marca persistente entre rotas (View Transitions): a logo MORFA de
    posição em vez de piscar — site → login → sistema parece a mesma página. */
 .logo { display: flex; align-items: center; gap: 8px; padding: 2px 10px 18px; view-transition-name: hbx-brand; }
 .logo strong { font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); }
-.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.86rem; font-weight: 600; cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast); }
-.nav-item:hover { background: var(--hbx-surface-raised); color: var(--text-strong); }
-.nav-item.active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.86rem; font-weight: 600; cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
+/* hover = mesma linguagem de vidro (não mais um retângulo chapado): brilho no
+   topo + leve elevação, some macio quando o mouse sai. No item já ATIVO o
+   próprio vidro deslizante (.nav-pill) já cobre o recado — hover não soma em cima. */
+.nav-item:hover {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 26%, transparent), transparent 65%),
+    var(--hbx-surface-raised);
+  color: var(--text-strong);
+  transform: translateY(-1px);
+}
+.nav-item.active:hover { background: transparent; transform: none; }
+/* fundo do item ativo virou o .nav-pill abaixo (elemento único que DESLIZA
+   entre itens em vez de o destaque "pular" — Sidebar mede a posição do item
+   ativo e anima top/height); aqui só a cor do texto/ícone troca. */
+.nav-item.active { color: var(--hbx-brand-strong); }
 .nav-item svg { flex: 0 0 auto; opacity: 0.85; }
 .nav-item .chev { margin-left: auto; opacity: 0.5; }
+
+/* ============================================================
+   GLASS PILL — pílula de seleção que DESLIZA (vidro líquido).
+   Lei nº2 do Design System (docs/Rules/FRONTEND.md): QUALQUER grupo de
+   botões/links com um "ativo" por vez (menu lateral, sub-menu, chip de
+   filtro, aba, período) usa ESTE par de classes — nunca um background
+   próprio que troca na hora. Hook + componente: components/hbx/glass-pill.tsx
+   (useGlassPill mede o retângulo do item ativo; <GlassPill> desenha).
+   O container que recebe os itens precisa de position:relative (ou a classe
+   utilitária .glass-pill-track); cada item precisa de position:relative +
+   z-index:1 pra ficar por cima do vidro (o próprio kit já dá isso a
+   .nav-item — grupos novos usam .glass-pill-item pronto, ver abaixo).
+   Forma: por padrão --radius-sm (menus/sub-menus); grupos de chip/aba
+   pill-shaped setam --glass-pill-radius: var(--radius-pill) no track.
+   ============================================================ */
+.glass-pill-track { position: relative; }
+.glass-pill-item { position: relative; z-index: 1; }
+.glass-pill {
+  position: absolute;
+  top: 0; left: 0; z-index: 0;
+  transition: transform var(--motion-slow) cubic-bezier(0.34, 1.56, 0.64, 1),
+              width var(--motion-slow) cubic-bezier(0.34, 1.56, 0.64, 1),
+              height var(--motion-slow) cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+.glass-pill__glass {
+  position: absolute; inset: 0;
+  border-radius: var(--glass-pill-radius, var(--radius-sm));
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 45%, transparent), transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, #fff 22%, transparent), transparent 60%),
+    var(--hbx-brand-soft);
+  backdrop-filter: blur(7px) saturate(165%);
+  -webkit-backdrop-filter: blur(7px) saturate(165%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 60%, transparent),
+    inset 0 -8px 12px -10px color-mix(in srgb, var(--hbx-brand) 45%, transparent),
+    0 10px 20px -14px var(--soft-ring, transparent);
+  overflow: hidden;
+  transform-origin: 50% 50%;
+}
+/* chacoalhada de pouso: gota assentando quando termina de deslizar. */
+.glass-pill__glass.is-landing { animation: glass-pill-land 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes glass-pill-land {
+  0%   { transform: scaleY(1) scaleX(1); }
+  32%  { transform: scaleY(0.8) scaleX(1.1); }
+  62%  { transform: scaleY(1.08) scaleX(0.95); }
+  100% { transform: scaleY(1) scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glass-pill { transition: none; }
+  .glass-pill__glass.is-landing { animation: none; }
+  .nav-item:hover { transform: none; }
+}
 .side-bottom { margin-top: auto; display: grid; gap: 10px; }
 .plan-card { padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); display: grid; gap: 8px; }
 .plan-card strong { font-size: 0.8rem; }
@@ -316,10 +383,12 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 /* ─── WORM-11: conversa embutida no card (WhatsApp/E-mail) + toggle IA ─────── */
 /* Painel central: abas + thread + composer, reusa .msgs/.msg/.bubble/.composer  */
 .dn-convo { display: grid; gap: 8px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); overflow: hidden; }
-.dn-convo__tabs { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-surface); }
-.dn-convo__tab { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); cursor: pointer; padding: 6px 11px; border-radius: var(--radius-xs); transition: background var(--motion-fast), color var(--motion-fast); }
+/* Abas WhatsApp/E-mail — Glass Pill (Lei nº2, FRONTEND.md), forma quadrada
+   (radius-xs) que já usava. */
+.dn-convo__tabs { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-surface); position: relative; --glass-pill-radius: var(--radius-xs); }
+.dn-convo__tab { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); cursor: pointer; padding: 6px 11px; border-radius: var(--radius-xs); transition: background var(--motion-fast), color var(--motion-fast); }
 .dn-convo__tab:hover { color: var(--text-body); }
-.dn-convo__tab.is-active { color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
+.dn-convo__tab.is-active { color: var(--hbx-brand-strong); }
 .dn-convo__tab:disabled { opacity: 0.5; cursor: not-allowed; }
 .dn-convo__ai { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; }
 .dn-convo__ai-label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }

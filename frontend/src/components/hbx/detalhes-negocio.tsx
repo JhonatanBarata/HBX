@@ -26,6 +26,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, PhotoLightbox, WhatsAppMark, useEntitlements } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
 import { apiFetch, type ApiError } from "@/lib/api";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
@@ -781,6 +782,7 @@ function ConversationPanel({
   name?: string | null;
 }) {
   const [tab, setTab] = useState<"whatsapp" | "email">("whatsapp");
+  const tabPill = useGlassPill<HTMLButtonElement>(tab);
   const [opened, setOpened] = useState(false); // só bate no motor após clique explícito
   const [convoId, setConvoId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ConvoMessage[]>([]);
@@ -905,9 +907,11 @@ function ConversationPanel({
 
   return (
     <div className="dn-convo">
-      <div className="dn-convo__tabs">
+      <div className="dn-convo__tabs glass-pill-track">
+        <GlassPill {...tabPill} />
         <button
           type="button"
+          ref={tabPill.itemRef("whatsapp")}
           className={"dn-convo__tab" + (tab === "whatsapp" ? " is-active" : "")}
           onClick={() => setTab("whatsapp")}
         >
@@ -915,6 +919,7 @@ function ConversationPanel({
         </button>
         <button
           type="button"
+          ref={tabPill.itemRef("email")}
           className={"dn-convo__tab" + (tab === "email" ? " is-active" : "")}
           onClick={() => setTab("email")}
         >

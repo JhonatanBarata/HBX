@@ -1546,8 +1546,9 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-funhead > * { pointer-events: auto; }
 
 /* Toggle wrapper: sem visual próprio — distribui 2 filhos. Glass Pill (Lei
-   nº2) — mesma forma quadrada (12px) que já usava, vidro mais forte porque o
-   ativo era preenchido/invertido (não o brand-soft padrão). */
+   nº2) — mesma forma quadrada (12px) que já usava; o preenchimento sólido/
+   invertido de antes virou o vidro genérico (a cor do texto ativo já entrega
+   o contraste). */
 .vnd-segbtns { flex: 2; display: flex; align-items: stretch; gap: 8px;
   background: none; border: none; box-shadow: none; padding: 0; border-radius: 0;
   position: relative; --glass-pill-radius: 12px; }

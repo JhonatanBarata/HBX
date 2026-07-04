@@ -31,6 +31,7 @@ import { MetaLeadAdsSection } from "@/components/hbx/meta-lead-ads-section";
 import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { PlanCard } from "@/components/hbx/plan-card";
 import { Av, ConfirmDialog, I, ICONS, useMyModules } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -122,6 +123,7 @@ function roleLabel(role?: string | null) {
 export function ConfiguracoesClient() {
   const router = useRouter();
   const [sec, setSec] = useTabParam<string>("sec", "Perfil & Empresa", SECTIONS);
+  const secGlassPill = useGlassPill<HTMLButtonElement>(sec);
   const mods = useMyModules();
 
   // aviso do sino → abre direto na seção (mesmo padrão do "+" → Novo lead).
@@ -353,9 +355,10 @@ export function ConfiguracoesClient() {
   return (
     <React.Fragment>
         <div className="work cfg-page" style={{ flex: 1, gridTemplateColumns: "210px 1fr", display: "grid", alignItems: "start" }}>
-          <nav className="set-nav panel" style={{ padding: 10 }}>
+          <nav className="set-nav panel glass-pill-track" style={{ padding: 10 }}>
+            <GlassPill {...secGlassPill} />
             {sections.map(s => (
-              <button key={s} className={"set-link" + (sec === s ? " on" : "")} onClick={() => setSec(s)}>
+              <button key={s} ref={secGlassPill.itemRef(s)} className={"set-link" + (sec === s ? " on" : "")} onClick={() => setSec(s)}>
                 <I d={ICONS[SEC_IC[s]] || ICONS.config} size={15} />{s}
               </button>
             ))}

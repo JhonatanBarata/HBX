@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
@@ -716,6 +717,11 @@ export function Sidebar({ active }: { active: string }) {
   const mods = useMyModules();
   const router = useRouter();
   const plan = usePlanSummary();
+  // Destaque do menu = GLASS PILL (Lei nº2, docs/Rules/FRONTEND.md): mede a
+  // posição do item ATIVO e desliza até ele em vez de pular de item pra item.
+  const visible = NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods));
+  const visibleKey = visible.map(n => n.id).join(",");
+  const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey);
   // Cota do PLANO da empresa (Leads do mês) — todo mundo menos o vendedor comum.
   const cardUsage = useCardUsage(Boolean(user) && !isCompanySeller(user));
   const radarNavState = useRadarNavState();
@@ -738,7 +744,8 @@ export function Sidebar({ active }: { active: string }) {
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
         <strong>HBX</strong>
       </div>
-      {NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods)).map(n => {
+      <GlassPill {...gp} />
+      {visible.map(n => {
         let cls = "nav-item" + (n.id === active ? " active" : "");
         // Tinge "Vendas" com a cor do estado do radar — o Radar é a boca do funil,
         // então o funil "acende" quando está sendo abastecido (27/06; era no "leads",
@@ -746,7 +753,7 @@ export function Sidebar({ active }: { active: string }) {
         if (n.id === "vendas" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
         if (n.id === "vendas" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
         return (
-          <Link key={n.id} className={cls} href={n.href} data-tut={"nav-" + n.id}>
+          <Link key={n.id} ref={gp.itemRef(n.id)} className={cls} href={n.href} data-tut={"nav-" + n.id}>
             <I d={ICONS[n.id]} />
             {n.label}
           </Link>

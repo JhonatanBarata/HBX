@@ -15,6 +15,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS, KpiRow, useCurrentUser, useEntitlements } from "@/components/hbx/shell";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { isCompanySeller } from "@/lib/roles";
@@ -155,6 +156,7 @@ export function RelatoriosClient() {
   // master bypass: sempre pode exportar (backend bypassa entitlements para isSystemMaster)
   const podeExportarPdf = isMaster || canExportPdf(ent.planKey, ent.loaded);
   const [per, setPer] = useState("7d");
+  const perPill = useGlassPill<HTMLButtonElement>(per);
   const [report, setReport] = useState<ReportResponse>(null);
   const [audit, setAudit] = useState<SellerAuditResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -337,10 +339,10 @@ export function RelatoriosClient() {
 
   return (
     <div className="work" style={{ flex: 1 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="rel-tabs glass-pill-track">
+            <GlassPill {...perPill} />
             {PERIODOS.map(p => (
-              <button key={p.value} className="btn-ghost" onClick={() => setPer(p.value)}
-                style={p.value === per ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}}>
+              <button key={p.value} ref={perPill.itemRef(p.value)} className={"btn-ghost glass-pill-item rel-tab" + (p.value === per ? " is-on" : "")} onClick={() => setPer(p.value)}>
                 {p.label}
               </button>
             ))}

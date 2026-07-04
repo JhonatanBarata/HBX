@@ -24,6 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch, type ApiError } from "@/lib/api";
 import { BRAZIL_UF_OPTIONS } from "@/lib/brazil-cities";
@@ -228,11 +229,14 @@ function ChipMultiSelect({
 }
 
 function TriState({ value, onChange, labelOn = "Sim", labelOff = "Não" }: { value: boolean | null; onChange: (v: boolean | null) => void; labelOn?: string; labelOff?: string }) {
+  const key = value == null ? "qualquer" : value ? "sim" : "nao";
+  const pill = useGlassPill<HTMLButtonElement>(key);
   return (
     <div className="be-tristate" role="group">
-      <button type="button" className={"be-tristate__opt" + (value == null ? " is-on" : "")} aria-pressed={value == null} onClick={() => onChange(null)}>Qualquer</button>
-      <button type="button" className={"be-tristate__opt" + (value === true ? " is-on" : "")} aria-pressed={value === true} onClick={() => onChange(true)}>{labelOn}</button>
-      <button type="button" className={"be-tristate__opt" + (value === false ? " is-on" : "")} aria-pressed={value === false} onClick={() => onChange(false)}>{labelOff}</button>
+      <GlassPill {...pill} />
+      <button ref={pill.itemRef("qualquer")} type="button" className={"be-tristate__opt" + (value == null ? " is-on" : "")} aria-pressed={value == null} onClick={() => onChange(null)}>Qualquer</button>
+      <button ref={pill.itemRef("sim")} type="button" className={"be-tristate__opt" + (value === true ? " is-on" : "")} aria-pressed={value === true} onClick={() => onChange(true)}>{labelOn}</button>
+      <button ref={pill.itemRef("nao")} type="button" className={"be-tristate__opt" + (value === false ? " is-on" : "")} aria-pressed={value === false} onClick={() => onChange(false)}>{labelOff}</button>
     </div>
   );
 }

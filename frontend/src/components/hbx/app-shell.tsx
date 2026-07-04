@@ -38,8 +38,16 @@ const META: Record<string, Meta> = {
   // WORM-13: automações (cadência com persona + gatilhos + rotinas).
   "/automacoes": { active: "automacao", title: "Automações", crumbs: crumb("Automações", "Vendas") },
   "/atendimento": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
+  // NÚCLEO-CRM N3-N6: faltavam aqui → caíam no fallback active:"" e o item
+  // correspondente nunca acendia na sidebar (nenhum highlight, sem transição).
+  "/empresas": { active: "empresas", title: "Empresas", crumbs: crumb("Empresas") },
+  "/contatos": { active: "contatos", title: "Contatos", crumbs: crumb("Contatos") },
+  "/produtos": { active: "produtos", title: "Produtos", crumbs: crumb("Produtos") },
+  "/logistica": { active: "logistica", title: "Logística", crumbs: crumb("Logística") },
   "/bot": { active: "bot", title: "Bot", crumbs: crumb("Construtor", "Bot") },
+  "/assistente": { active: "assistente", title: "Assistente IA", crumbs: crumb("Assistente IA") },
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
+  "/dashboard/website": { active: "website", title: "Website", crumbs: crumb("Website") },
   "/configuracoes": { active: "config", title: "Configurações", crumbs: crumb("Configurações") },
   "/gerencial": { active: "gerencial", title: "Gerencial", crumbs: crumb("Gerencial") },
   "/tutorial": { active: "dash", title: "Tutorial", crumbs: crumb("Tutorial") },

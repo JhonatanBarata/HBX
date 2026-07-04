@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { VendasModoFoco } from "@/components/hbx/vendas-modo-foco";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
@@ -381,6 +382,7 @@ export function VendasClient() {
   // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
+  const segPill = useGlassPill<HTMLButtonElement>(modo);
   const [buscarMounted, setBuscarMounted] = useState(false);
   // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
   // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
@@ -1005,14 +1007,15 @@ export function VendasClient() {
   // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
   // Ativo destacado (preenchido).
   const segToggle = (
-    <div className="vnd-segbtns" role="tablist" aria-label="Modo da tela">
-      <button type="button" role="tab" aria-selected={modo === "funil"}
-        className={"vnd-segbtn" + (modo === "funil" ? " is-on" : "")} onClick={irFunil}>
+    <div className="vnd-segbtns glass-pill-track" role="tablist" aria-label="Modo da tela">
+      <GlassPill {...segPill} />
+      <button ref={segPill.itemRef("funil")} type="button" role="tab" aria-selected={modo === "funil"}
+        className={"vnd-segbtn glass-pill-item" + (modo === "funil" ? " is-on" : "")} onClick={irFunil}>
         <I d={ICONS.vendas} size={16} /> <span>Meu funil</span>
       </button>
       {podeBuscarLeads && (
-        <button type="button" role="tab" aria-selected={modo === "buscar"} data-tut="vendas-buscar"
-          className={"vnd-segbtn" + (modo === "buscar" ? " is-on" : "")} onClick={irBuscar}>
+        <button ref={segPill.itemRef("buscar")} type="button" role="tab" aria-selected={modo === "buscar"} data-tut="vendas-buscar"
+          className={"vnd-segbtn glass-pill-item" + (modo === "buscar" ? " is-on" : "")} onClick={irBuscar}>
           <I d={ICONS.scrape} size={16} /> <span>Buscar empresas</span>
         </button>
       )}
