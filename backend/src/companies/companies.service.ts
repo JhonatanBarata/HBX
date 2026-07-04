@@ -9,6 +9,7 @@ import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential, resolve
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { computeRemainingRatio, remainingDays as prorationRemainingDays } from '../commercial-plans/plan-proration.util';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
+import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { WhatsAppModalService } from './whatsapp-modal.service';
 import { MailService } from '../mail/mail.service';
