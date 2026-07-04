@@ -51,6 +51,8 @@ type WebsitePortalPayload = {
 export class WebsiteService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebsiteService.name);
   private entryTokenSweepHandle: ReturnType<typeof setInterval> | null = null;
+  // true = secrets dedicados ausentes em produção → ponte Website desligada (boot NÃO cai).
+  private websiteBridgeDisabled = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -72,12 +74,24 @@ export class WebsiteService implements OnModuleInit, OnModuleDestroy {
       if (!String(process.env.WEBSITE_ADMIN_SESSION_SECRET || '').trim()) missing.push('WEBSITE_ADMIN_SESSION_SECRET');
 
       if (missing.length) {
-        throw new Error(
-          `[website] Boot abortado em producao: variavel(is) obrigatoria(s) ausente(s): ${missing.join(', ')}. ` +
-            'Gere segredos dedicados (nao reaproveitar JWT_SECRET) e configure no .env da VPS antes do deploy.',
+        // NUNCA derrubar o backend inteiro por uma feature NÃO-LANÇADA: a ponte
+        // Website é opt-in (websiteEnabled por empresa, default false) e ainda
+        // não tem os secrets dedicados no .env da VPS. Em vez de fail-hard no
+        // boot (que crash-loopava o app todo, 04/07), DESLIGA só a ponte e avisa
+        // alto. Os getters de secret (websiteEntrySecret/websiteSessionSecret)
+        // seguem recusando fallback inseguro pro JWT_SECRET em produção — então
+        // nenhum endpoint Website opera até configurar os segredos dedicados.
+        this.websiteBridgeDisabled = true;
+        this.logger.error(
+          `[website] Ponte Website DESLIGADA em producao: secret(s) dedicado(s) ausente(s): ${missing.join(', ')}. ` +
+            'Backend sobe normal; endpoints de Website ficam indisponiveis ate gerar os segredos ' +
+            '(nao reaproveitar JWT_SECRET) e configurar no .env da VPS. Feature e opt-in e segue OFF.',
         );
       }
     }
+
+    // Ponte desligada (secrets ausentes em prod) → não agenda trabalho de fundo do Website.
+    if (this.websiteBridgeDisabled) return;
 
     this.entryTokenSweepHandle = setInterval(() => {
       void this.sweepExpiredEntryTokens('interval');
@@ -110,6 +124,13 @@ export class WebsiteService implements OnModuleInit, OnModuleDestroy {
   private requireWebsiteSecret(primary: unknown, fallback: unknown, primaryName: string, fallbackName: string) {
     const primarySecret = String(primary || '').trim();
     if (primarySecret) return primarySecret;
+
+    // Em produção NUNCA cair no JWT_SECRET (Sprint 2 / T2): a ponte Website exige
+    // secret dedicado. Sem ele, o endpoint recusa (a ponte está desligada) — mas o
+    // backend segue de pé (o guard do onModuleInit não derruba mais o boot).
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`${primaryName} ausente: ponte Website desligada ate configurar o segredo dedicado (sem fallback pro ${fallbackName} em producao).`);
+    }
 
     const fallbackSecret = String(fallback || '').trim();
     if (fallbackSecret) return fallbackSecret;
