@@ -409,9 +409,7 @@ export function VendasClient() {
   // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
   const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
-  // Automático — standing order compartilhado com /leads
-  const [autoAtivo, setAutoAtivo] = useState(false);
-  const [autoBusy, setAutoBusy] = useState(false);
+  // (item 5) standing-order/"Automático" removido — sem estado de auto-feed aqui.
   // Status do bot para a empresa (F5): bot-módulo habilitado + chave-mestra armada.
   // Carregado uma vez na montagem; null = ainda consultando.
   const [botStatus, setBotStatus] = useState<BotStatus>(null);
@@ -507,9 +505,6 @@ export function VendasClient() {
     apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
       .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
       .catch(() => setPoolDisponivel(null));
-    apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order")
-      .then(res => { if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active); })
-      .catch(() => null);
     apiFetch<BotStatus>("/vendas/bot-status")
       .then(res => setBotStatus(res))
       .catch(() => setBotStatus({ botModuleEnabled: false, botArmed: false }));
@@ -1156,24 +1151,9 @@ export function VendasClient() {
                           : "O pool está sendo reabastecido — volte em instantes."}
                     </span>
                     <div className="funil-cta-acts">
+                      {/* Item 5: botão "@ Automático" (standing-order auto-feed) REMOVIDO
+                          — só puxar manual. */}
                       <button className="btn-teal" onClick={() => router.push("/leads")}>Puxar leads →</button>
-                      <button
-                        className={"btn-teal radar2-auto" + (autoAtivo ? " radar2-auto--on" : "")}
-                        disabled={autoBusy}
-                        aria-pressed={autoAtivo}
-                        onClick={async () => {
-                          setAutoBusy(true);
-                          try {
-                            const res = await apiFetch<{ standingOrder?: { active?: boolean } }>("/webscraping/radar/standing-order", {
-                              method: "PUT",
-                              body: JSON.stringify({ active: !autoAtivo }),
-                            });
-                            if (typeof res?.standingOrder?.active === "boolean") setAutoAtivo(res.standingOrder.active);
-                          } catch { /**/ } finally { setAutoBusy(false); }
-                        }}
-                      >
-                        {autoAtivo ? "◉ Automático" : "◎ Automático"}
-                      </button>
                       <button className="btn-ghost" onClick={() => router.push("/leads")}>Ver o Radar</button>
                     </div>
                   </div>

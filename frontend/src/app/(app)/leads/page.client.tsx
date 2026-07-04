@@ -18,6 +18,11 @@ import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { LimiteAtingidoModal } from "@/components/hbx/limite-atingido-modal";
+import {
+  FILTRO_AVANCADO_VAZIO,
+  FiltroAvancadoModal,
+  type FiltroAvancadoState,
+} from "@/components/hbx/filtro-avancado-modal";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
@@ -293,13 +298,14 @@ function getOpState(run: RunResponse): "funcionando" | "pausado" | "parado" | nu
   return null;
 }
 
-// Componente: disco de radar animado (reutilizável: tamanho controlado pelo wrapper)
-function RadarDisc({ opState }: { opState: "funcionando" | "pausado" | "parado" | null }) {
-  const state = opState ?? "parado";
-  const modClass = state === "funcionando" ? "radar-disc-wrap--funcionando"
-    : state === "pausado" ? "radar-disc-wrap--pausado"
-    : "radar-disc-wrap--parado";
-
+// Componente: disco de radar — PURO ENFEITE (VENDAS-REFAB item 2/8, 04/07).
+// Antes reagia a operationalState (funcionando/pausado/parado) com textos tipo
+// "Em pausa — volta sozinho"/"Pronto pra buscar". Isso foi removido: zero prop,
+// zero lógica, zero estado por trás — é decoração fixa, sempre no visual mais
+// "vivo" (a paleta que era "funcionando" virou só a cor padrão do sonar). O
+// Play/Buscar real continua funcionando por baixo (runActive/runBusy), só não
+// empresta mais o disco pra "atuar" o estado da busca.
+function RadarDisc({ mini = false }: { mini?: boolean } = {}) {
   // posições dos blips (estáticas — efeito visual)
   const blips: Array<{ top: string; left: string }> = [
     { top: "28%", left: "62%" },
@@ -309,7 +315,7 @@ function RadarDisc({ opState }: { opState: "funcionando" | "pausado" | "parado" 
   ];
 
   return (
-    <div className={`radar-disc-wrap ${modClass}`}>
+    <div className={"radar-disc-wrap radar-disc-wrap--funcionando" + (mini ? " radar-disc-wrap--mini" : "")}>
       {/* Disco interno */}
       <div className="radarMotionDisc">
         {/* Eixos */}
@@ -382,6 +388,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const isMobile = useIsMobile();
   const [filterOpen, setFilterOpen] = useState(false);
 
+  // Filtro avançado (item 3b — popup ressuscitado do commit revertido): consulta
+  // a base Receita (28M) via cnpj-base/query só como PRÉVIA; "Aplicar" traduz o
+  // subconjunto compatível (UF/cidade/CNAE-ou-palavra/WhatsApp) pros filtros que
+  // o Pipeline de pesquisa já usa (uf/city/segment/zapFiltro), sem trocar a lista.
+  const [advOpen, setAdvOpen] = useState(false);
+  const [advDraft, setAdvDraft] = useState<FiltroAvancadoState>(FILTRO_AVANCADO_VAZIO);
+
   // filtros (lago → prateleira) — persiste em localStorage
   const [uf, setUf] = useState(() => getStoredFilters().uf);
   const [city, setCity] = useState(() => getStoredFilters().city);
@@ -429,9 +442,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const tabCarteiraRef = useRef<HTMLButtonElement | null>(null);
   const flyIdRef = useRef(0);
 
-  // Automático (standing order)
+  // standingOrder: só lido (fly-effect no polling) — item 5/6 removeu o toggle/botão
+  // "@ Automático" da UI (não existe mais gatilho manual pra ligar/desligar).
   const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
-  const [autoBusy, setAutoBusy] = useState(false);
 
   // WORM-15 — pesquisas salvas (recorte de filtros nomeado)
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -691,30 +704,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     });
   }
 
-  // B5: Automático — repõe a lista do Vendas sozinho
-  async function toggleAutomatico() {
-    if (autoBusy) return;
-    setAutoBusy(true);
-    const nextActive = !(standingOrder?.active ?? false);
-    try {
-      const res = await apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order", {
-        method: "PUT",
-        body: JSON.stringify({
-          active: nextActive,
-          city: city || standingOrder?.city || "",
-          state: uf || standingOrder?.state || "",
-          segment: segment || standingOrder?.segment || "",
-          alcance: alcance || standingOrder?.alcance || "",
-          quantos,
-        }),
-      });
-      if (res?.standingOrder) setStandingOrder(res.standingOrder);
-    } catch {
-      // silencia
-    } finally {
-      setAutoBusy(false);
-    }
-  }
 
   function limparFiltros() {
     setUf("");
@@ -733,6 +722,24 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setTab("shelf");
     try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
     loadList("shelf", { page: 1, quantosOverride: 5 });
+  }
+
+  // Item 3b: "Aplicar filtro" do popup avançado — traduz o subconjunto compatível
+  // (UF/cidade/CNAE-ou-palavra-chave/WhatsApp) pros filtros que o Pipeline de
+  // pesquisa já entende. Campos só-RFB (capital, idade, sócio…) não têm onde
+  // aterrissar no Pipeline hoje (RadarLeadPool não guarda essas colunas) — o
+  // popup já avisa isso na prévia, então aqui só aplicamos o que é real.
+  function aplicarFiltroAvancado(f: FiltroAvancadoState) {
+    setAdvOpen(false);
+    if (f.states[0]) setUf(f.states[0]);
+    if (f.cities[0]) setCity(f.cities[0]);
+    const seg = f.cnaes[0] || f.keyword.trim();
+    if (seg) setSegment(seg);
+    if (f.comCelular === true) setZapFiltro("com");
+    setPage(1);
+    setSelected(new Set());
+    setTab("shelf");
+    loadList("shelf", { page: 1 });
   }
 
   // ── WORM-15: pesquisas salvas ────────────────────────────────────────────
@@ -808,20 +815,15 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // operationalState atual (do run mais recente)
   const opState = getOpState(run);
 
-  // B0: runActive agora usa operationalState + TERMINAL_RUN corrigido
-  // "pausado" (descansando) NÃO desabilita o Play — retoma sozinho
+  // runActive = há uma busca acontecendo AGORA (só isso importa: dita o botão
+  // Buscar↔Parar e a linha de progresso "Varrendo…"). Item 8: sem estado de
+  // pausa/expansão no front — o painel não narra mais "em pausa"/"volta sozinho".
   const runActive = Boolean(
     (run?.id || run?.runId) &&
     !TERMINAL_RUN.has(String(run?.status || "")) &&
     opState === "funcionando"
   );
-  const runPaused = opState === "pausado"; // descansando — não bloqueia Play
   const runProgress = run?.meta?.progress;
-  // "Achou 12, tchau brigado" → o backend manda a sugestão quando a oferta esgota (não cota).
-  // Só aparece em "parado" e quando há alguma expansão possível.
-  const runExpansion = (!runActive && opState === "parado")
-    ? (run?.meta?.expansionSuggestion ?? null)
-    : null;
 
   // P5/EFEITO: anima chips saindo do disco do radar e voando pra aba Minha carteira
   function triggerFlyEffect(importedCount: number, _run: RunResponse) {
@@ -931,21 +933,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     } finally {
       setRunBusy(false);
     }
-  }
-
-  // Botões da sugestão de expansão (1 toque): re-dispara a busca já ampliada.
-  function ampliarAlcance(sug: ExpansionSuggestion) {
-    if (!sug.nextRadiusKm) return;
-    void executarBusca({ radiusKm: sug.nextRadiusKm });
-  }
-  function incluirSegmentosVizinhos(sug: ExpansionSuggestion) {
-    if (!sug.neighborSegments.length) return;
-    // junta o pedido original + vizinhos numa string com vírgula (o motor já separa por vírgula).
-    const combined = [sug.segment, ...sug.neighborSegments]
-      .map((s) => String(s || "").trim())
-      .filter(Boolean)
-      .join(", ");
-    void executarBusca({ segment: combined });
   }
 
   async function pararBusca() {
@@ -1283,31 +1270,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   // ── Radar console: o disco + controles quando nenhum lead está selecionado ──
   function renderRadarConsole(mini: boolean) {
-    const stateLabel = runActive
-      ? "Varrendo agora"
-      : runPaused
-        ? "Em pausa — volta sozinho"
-        : "Pronto pra buscar";
-    const stateClass = runActive ? "radar-state-label--funcionando"
-      : runPaused ? "radar-state-label--pausado"
-      : "radar-state-label--parado";
-    const opMsg = run?.meta?.operationalMessage || null;
-
-    // P5 avisos de parada clicáveis
-    const runStatus = String(run?.status || "");
-    const isPausadoCarteira = runPaused && !runActive;
-    const isParadoFiltro = !runActive && !runPaused && (runStatus === "completed_insufficient_results" || runStatus === "failed");
-    const foundCount = run?.foundCount ?? 0;
-
+    // Item 8: sem cálculo de estado de pausa/parada aqui — o painel não renderiza
+    // mais UI de estado. Só existe "buscando agora" (runActive) pro botão Parar.
     if (mini) {
       return (
         <div className="radar-mini-bar">
           <div style={{ flexShrink: 0, width: 56, height: 56 }}>
-            <RadarDisc opState={opState} />
+            <RadarDisc mini />
           </div>
           <div style={{ minWidth: 0 }}>
-            <div className={`radar-state-label ${stateClass}`} style={{ textAlign: "left", margin: 0 }}>{stateLabel}</div>
-            {opMsg && <div className="radar-state-msg" style={{ textAlign: "left", margin: "2px 0 0" }}>{opMsg}</div>}
+            <div className="radar-mini-bar__title">Buscando empresas</div>
+            <div className="radar-mini-bar__sub">{[city, uf].filter(Boolean).join("/") || "Todo o Brasil"}{segment ? ` · ${segment}` : ""}</div>
           </div>
           <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
             ← Voltar
@@ -1318,14 +1291,154 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
     return (
       <div className="radar-console">
-        {/* P5/EFEITO: ref no wrapper do disco para pegar posição */}
-        <div ref={discRef}>
-          <RadarDisc opState={opState} />
+        {/* Hero decorativo (item 2/8/3): disco-sonar PROTAGONISTA no topo — grande,
+            centralizado, puro enfeite. Sem estado, sem texto de pausa/"volta sozinho". */}
+        <div className="radar-hero" data-tut="leads-filtros">
+          <div className="radar-hero__disc" ref={discRef}>
+            <RadarDisc />
+          </div>
+          <div className="radar-hero__copy">
+            <span className="radar-hero__eyebrow">Radar HBX</span>
+            <h2 className="radar-hero__title">Buscar empresas</h2>
+          </div>
         </div>
 
-        <div className={`radar-state-label ${stateClass}`}>{stateLabel}</div>
+        {/* Item 3: caixa de busca criativa — vira o segmento/palavra-chave real
+            da busca (mesmo campo que o motor recebe), estilo site famoso. */}
+        <div className="be-search" data-tut="leads-busca-criativa">
+          <I d={ICONS.search} size={16} />
+          <input
+            className="be-search__input"
+            placeholder="O que você procura? Ex.: restaurantes em São Paulo com WhatsApp"
+            value={segment}
+            onChange={e => setSegment(e.target.value)}
+            list="rc-seg-options"
+          />
+          <datalist id="rc-seg-options">
+            {segOptions.map(o => <option key={o.value} value={o.label} />)}
+          </datalist>
+        </div>
 
-        {/* WORM-15: Minhas pesquisas salvas — accordion ACIMA dos filtros */}
+        {/* Essenciais (item 3): Estado / Cidade / Alcance */}
+        <div className="radar-panel">
+          <div className="radar-panel__grid3">
+            <div className="f">
+              <label htmlFor="rc-uf">Estado</label>
+              <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
+                <option value="">Todos</option>
+                {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="f">
+              <label htmlFor="rc-city">Cidade</label>
+              <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
+                <option value="">Cidade</option>
+                {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="f">
+              <label htmlFor="rc-alcance">Alcance</label>
+              <select id="rc-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
+                <option value="">Só a cidade</option>
+                <option value="25">+ 25 km</option>
+                <option value="50">+ 50 km</option>
+                <option value="100">+ 100 km</option>
+              </select>
+            </div>
+          </div>
+          <div className="radar-panel__grid2">
+            <div className="f">
+              <label htmlFor="rc-quantos">Quantos puxar</label>
+              <select id="rc-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
+                {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div className="f">
+              <label>Tem WhatsApp</label>
+              <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
+                {([
+                  { key: "qualquer", label: "Qualquer" },
+                  { key: "com", label: "Com WhatsApp" },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                    onClick={() => setZapFiltro(opt.key)}
+                    aria-pressed={zapFiltro === opt.key}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="f">
+            <label>Tem site</label>
+            <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
+              {([
+                { key: "qualquer", label: "Qualquer" },
+                { key: "com", label: "Com site" },
+                { key: "sem", label: "Sem site" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                  onClick={() => setSiteFiltro(opt.key)}
+                  aria-pressed={siteFiltro === opt.key}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-ghost be-adv-open"
+            data-tut="leads-filtro-avancado"
+            onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); setAdvOpen(true); }}
+          >
+            <I d={ICONS.filter} size={14} /> Filtro avançado
+          </button>
+        </div>
+
+        {/* Ações: UM botão só — Buscar (ou Parar enquanto busca). Sem "Retomar",
+            sem estado de pausa (item 8: zero UI de estado/auto-feed no painel). */}
+        <div className="radar-actions">
+          {runActive ? (
+            <button className="btn-ghost" onClick={pararBusca}>
+              ◼ Parar
+            </button>
+          ) : (
+            <button className="btn-teal" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>
+              {runBusy ? "Iniciando…" : "▶ Buscar"}
+            </button>
+          )}
+          <button
+            className="btn-ghost"
+            onClick={limparFiltros}
+            title="Limpar todos os filtros e pesquisas"
+          >
+            Limpar
+          </button>
+          {/* WORM-15: salvar o recorte atual como pesquisa nomeada */}
+          <button
+            className="btn-ghost radar-actions__save"
+            onClick={openSaveModal}
+            disabled={!segment.trim() && !city.trim() && !uf.trim()}
+            title="Salvar este filtro como pesquisa"
+          >
+            Salvar filtro
+          </button>
+        </div>
+        {savedMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{savedMsg}</p>}
+
+        {/* Item 8: NÃO renderiza mais nenhum aviso de pausa/estado/"carteira cheia"/
+            auto-expandir raio — seja qual for a resposta do backend. */}
+        {searchMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{searchMsg}</p>}
+
+        {/* WORM-15: Minhas pesquisas salvas — accordion ABAIXO dos filtros */}
         <div className="radar-saved">
           <button
             type="button"
@@ -1392,160 +1505,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             </button>
           </div>
         )}
-
-        {/* BLOCO B1: Onde buscar */}
-        <div className="radar-box" data-tut="leads-filtros">
-          <div className="radar-box__grid2">
-            <div className="f">
-              <label htmlFor="rc-uf">
-                Estado{!uf && <span className="radar-field-arrow" aria-hidden>›</span>}
-              </label>
-              <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
-                <option value="">Todos</option>
-                {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div className="f">
-              <label htmlFor="rc-city">
-                Cidade{!city.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
-              </label>
-              <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
-                <option value="">Cidade</option>
-                {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="f">
-            <label htmlFor="rc-alcance">Alcance</label>
-            <select id="rc-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
-              <option value="">Só a cidade</option>
-              <option value="25">+ 25 km</option>
-              <option value="50">+ 50 km</option>
-              <option value="100">+ 100 km</option>
-            </select>
-          </div>
-        </div>
-
-        {/* BLOCO B2: O que buscar */}
-        <div className="radar-box">
-          <div className="f">
-            <label htmlFor="rc-seg">
-              Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}
-            </label>
-            <select
-              id="rc-seg"
-              className="select-dark"
-              value={segment}
-              onChange={e => setSegment(e.target.value)}
-            >
-              <option value="">Escolha um segmento</option>
-              {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-              {segment && !segOptions.some(o => o.label === segment) && (
-                <option value={segment}>{segment}</option>
-              )}
-            </select>
-          </div>
-          <div className="f">
-            <label htmlFor="rc-quantos">Quantos puxar</label>
-            <select id="rc-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
-              {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* BLOCO B3: filtro estilo CNPJ Biz sobre a base — tem-site / tem-WhatsApp.
-            Substituiu "Canais exigidos" (removido — não existe na nova regra
-            lista+web, VENDAS-REFAB S4 04/07). Mesmas classes centrais (Lei 2). */}
-        <div className="radar-box">
-          <div className="radar-canais">
-            <div className="radar-canais__head">
-              <span className="radar-canais__lbl">Tem site</span>
-              <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
-                {([
-                  { key: "qualquer", label: "Qualquer" },
-                  { key: "com", label: "Com site" },
-                  { key: "sem", label: "Sem site" },
-                ] as const).map(opt => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                    onClick={() => setSiteFiltro(opt.key)}
-                    aria-pressed={siteFiltro === opt.key}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="radar-canais__head">
-              <span className="radar-canais__lbl">Tem WhatsApp provável</span>
-              <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
-                {([
-                  { key: "qualquer", label: "Qualquer" },
-                  { key: "com", label: "Com WhatsApp" },
-                ] as const).map(opt => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                    onClick={() => setZapFiltro(opt.key)}
-                    aria-pressed={zapFiltro === opt.key}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Ações: Play/STOP + Limpar */}
-        <div className="radar-actions">
-          {runActive ? (
-            <button className="btn-ghost" onClick={pararBusca}>
-              ◼ STOP
-            </button>
-          ) : (
-            <button className="btn-teal" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy || runActive}>
-              {runBusy ? "Iniciando…" : runPaused ? "▶ Retomar" : "▶ Buscar"}
-            </button>
-          )}
-          <button
-            className="btn-ghost"
-            onClick={limparFiltros}
-            title="Limpar todos os filtros e pesquisas"
-          >
-            Limpar
-          </button>
-          {/* WORM-15: salvar o recorte atual como pesquisa nomeada */}
-          <button
-            className="btn-ghost radar-actions__save"
-            onClick={openSaveModal}
-            disabled={!segment.trim() && !city.trim() && !uf.trim()}
-            title="Salvar este filtro como pesquisa"
-          >
-            Salvar filtro
-          </button>
-        </div>
-        {savedMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{savedMsg}</p>}
-
-        {/* P5: avisos de parada com atalhos clicáveis */}
-        {isPausadoCarteira && (
-          <div className="radar-stop-warn radar-stop-warn--pausado">
-            <span>Sua carteira está cheia ({foundCount} encontrado{foundCount !== 1 ? "s" : ""}). O Radar volta a buscar sozinho quando abrir espaço.</span>
-            <button className="btn-ghost btn-xs" onClick={() => setAlcance("50")}>+50 km</button>
-          </div>
-        )}
-        {isParadoFiltro && foundCount === 0 && (
-          <div className="radar-stop-warn radar-stop-warn--parado">
-            <span>Varri tudo aqui e não achei nada — mude o filtro.</span>
-            <button className="btn-ghost btn-xs" onClick={() => setAlcance("50")}>+50 km</button>
-            <button className="btn-ghost btn-xs" onClick={() => setSegment("")}>Trocar segmento</button>
-          </div>
-        )}
-
-        {searchMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{searchMsg}</p>}
       </div>
     );
   }
@@ -1896,53 +1855,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 )}
               </div>
 
+              {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
+                  narrando estado — é feedback de uma operação assíncrona de verdade).
+                  O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
               {runActive && (
                 <div className="radar2-live radar2-live--funcionando">
                   <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
                 </div>
               )}
-              {runPaused && (
-                <div className="radar2-live radar2-live--pausado">
-                  <span className="dot" /> Em pausa — volta sozinho
-                </div>
-              )}
 
-              {/* Oferta esgotou (não cota): sugere expandir em 1 toque */}
-              {runExpansion && (runExpansion.nextRadiusKm || runExpansion.neighborSegments.length > 0) && (
-                <div className="radar-expand" role="status">
-                  <div className="radar-expand__head">
-                    <span className="radar-expand__icon" aria-hidden>🔎</span>
-                    <p className="radar-expand__headline">{runExpansion.headline}</p>
-                  </div>
-                  <div className="radar-expand__actions">
-                    {runExpansion.nextRadiusKm && runExpansion.widenReachLabel && (
-                      <button
-                        type="button"
-                        className="btn-teal radar-expand__btn"
-                        onClick={() => ampliarAlcance(runExpansion)}
-                        disabled={runBusy || runActive}
-                      >
-                        {runExpansion.widenReachLabel}
-                      </button>
-                    )}
-                    {runExpansion.neighborSegments.length > 0 && runExpansion.widenSegmentLabel && (
-                      <button
-                        type="button"
-                        className="btn-ghost radar-expand__btn"
-                        onClick={() => incluirSegmentosVizinhos(runExpansion)}
-                        disabled={runBusy || runActive}
-                      >
-                        {runExpansion.widenSegmentLabel}
-                      </button>
-                    )}
-                  </div>
-                  {runExpansion.neighborSegments.length > 0 && (
-                    <p className="radar-expand__hint">
-                      Parecidos: {runExpansion.neighborSegments.join(" · ")}
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* Item 8: banner "oferta esgotou → amplie o raio / inclua segmentos
+                  vizinhos" REMOVIDO — era auto-expandir de estado. O usuário muda o
+                  filtro na mão pelo painel. */}
 
               {tab === "shelf" && data?.meta?.gemeosInsight && (() => {
                 const g = data.meta.gemeosInsight!;
@@ -2126,6 +2050,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
           {renderCardOverlay()}
         </>
+      )}
+
+      {/* Item 3b: popup "Filtro avançado" ressuscitado — todas as colunas reais
+          do RFB (CONTRATO-FILTRO.md), prévia ao vivo contra a base 28M. */}
+      {advOpen && (
+        <FiltroAvancadoModal
+          draft={advDraft}
+          onChange={setAdvDraft}
+          onClose={() => setAdvOpen(false)}
+          onApply={aplicarFiltroAvancado}
+        />
       )}
 
       {/* P4: Modal de campo faltando — usa .hbx-veil + .hbx-modal (centralizados pela classe) */}
