@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { classifyProspectingAutoReply, classifyProspectingIntent } from './prospecting-safety';
+import { classifyProspectingAutoReply, classifyProspectingIntent } from '../../vendas/prospecting-safety';
 import type {
   ProspectingAutoReplyClassification,
   ProspectingIntentClassification,
   ProspectingIntentKind,
-} from './prospecting-safety';
+} from '../../vendas/prospecting-safety';
 
 /**
  * Classificador de intenção por IA (LLM local via Ollama / endpoint compatível).

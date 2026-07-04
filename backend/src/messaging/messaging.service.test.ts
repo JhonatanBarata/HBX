@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MessagingService } from './messaging.service';
-import { AiIntentClassifierService } from '../vendas/ai-intent-classifier.service';
+import { AiIntentClassifierService } from '../bot/intent/ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
+import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 
 const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
   ...DEFAULT_ATENDIMENTO_BOT_CONFIG,
@@ -68,8 +70,21 @@ function createService(overrides?: Partial<Record<string, any>>) {
     hbxRecoveryFlowStage: {
       findFirst: async () => null,
     },
+    // BotConfig vazio por padrão nos testes: o BotConfigStoreService cai no fallback
+    // legado (hbxRecoveryFlowStage acima) — mesmo comportamento de antes da migração,
+    // simulando uma empresa ainda não migrada (dual-read).
+    botConfig: {
+      findFirst: async () => null,
+      findMany: async () => [],
+      create: async ({ data }: any) => ({ id: 'bot-config-test', ...data }),
+    },
     ...(overrides?.prisma || {}),
   } as any;
+
+  // INTENTENGINE S3: instancia o store REAL sobre o prisma mockado — os testes que
+  // mockam hbxRecoveryFlowStage continuam valendo via fallback legado do dual-read,
+  // sem duplicar a lógica de leitura aqui.
+  const botConfigStore = overrides?.botConfigStore ?? new BotConfigStoreService(prisma);
 
   const conversations = {
     queueOutboundForCompany: async (companyId: number, payload: Record<string, unknown>) => {
@@ -108,11 +123,12 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
     inboxRealtime,
-    new AiIntentClassifierService() as any,
+    (overrides?.intentEngine || new IntentEngineService(prisma, new AiIntentClassifierService())) as any,
     // GATEWAY-WA S3: freio de envio. Default nos testes = passa tudo (flag OFF na prática) —
     // não muda o comportamento coberto pelos casos existentes.
     ({ evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}), ...(overrides?.waSendThrottle || {}) } as any),
     (overrides?.hbxPresentationEmails || undefined) as any,
+    botConfigStore as any,
   );
 
   return {
@@ -509,6 +525,113 @@ test('handleVendasAutomationInbound marks explicit negative on lead without movi
   assert.equal(nextState.metadata.optOut, true);
   assert.equal(nextState.metadata.blacklisted, true);
   assert.equal(nextState.metadata.vendasProspeccao.stage, 'negative_reply');
+});
+
+// INTENTENGINE S1: migrado de vendas-automation.service.test.ts (cópia morta
+// classifyProspectingInbound deletada). O caminho VIVO é handleVendasAutomationInbound.
+test('handleVendasAutomationInbound treats bot menu as auto-reply, not negative', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const jobUpdates: Array<Record<string, any>> = [];
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+  const { service, conversationStateCalls } = createService({
+    prisma: {
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+        update: async (input: Record<string, any>) => {
+          jobUpdates.push(input);
+          return input;
+        },
+        updateMany: async (input: Record<string, any>) => {
+          jobUpdates.push(input);
+          return { count: 0 };
+        },
+      },
+      vendasLead: {
+        update: async (input: Record<string, any>) => input,
+      },
+      companyConversation: {
+        findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }),
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 1,
+    from: '+5519998877766',
+    text: 'Olá, eu sou a Ivet. Digite o número correspondente para selecionar uma das opções.',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'bot_menu_detected');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_auto_reply');
+  assert.ok(jobUpdates.some((call) => call.data?.classification === 'bot_menu_detected'));
+  assert.equal(jobUpdates.some((call) => call.data?.status === 'replied_negative'), false);
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'prospection_auto_reply');
+});
+
+test('handleVendasAutomationInbound turns explicit no-interest into opt-out block', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const jobUpdates: Array<Record<string, any>> = [];
+  const inboundMetaCalls: Array<Record<string, unknown>> = [];
+  const tx = {
+    vendasAutomationJob: {
+      update: async (input: Record<string, any>) => {
+        jobUpdates.push(input);
+        return input;
+      },
+      updateMany: async (input: Record<string, any>) => {
+        jobUpdates.push(input);
+        return { count: 0 };
+      },
+    },
+    vendasLead: { update: async (input: Record<string, any>) => input },
+    vendasLeadTimelineEvent: { create: async (input: Record<string, any>) => input },
+  };
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+      },
+      companyConversation: {
+        findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }),
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 1,
+    from: '+5519998877766',
+    text: 'Não tenho interesse, por favor remover.',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async (sourceModule: string, isComplaint: boolean) => {
+      inboundMetaCalls.push({ sourceModule, isComplaint });
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'opt_out');
+  assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_opt_out');
+  assert.ok(
+    jobUpdates.some((call) => call.data?.status === 'replied_negative' && call.data?.classification === 'opt_out'),
+  );
 });
 
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
@@ -1044,6 +1167,296 @@ test('handleAtendimentoInbound handles Recovery menu actions inside Atendimento'
   assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
 });
 
+// ---------------------------------------------------------------------------
+// INTENTENGINE Sprint 2 — NLU do Atendimento (catálogo fechado + trava de confiança).
+// ---------------------------------------------------------------------------
+
+function createAtendimentoNluTestBase(overrides?: Record<string, any>) {
+  const { prisma: prismaOverrides, ...restOverrides } = overrides || {};
+  return createService({
+    ...restOverrides,
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          name: 'HBX Solutions',
+          timezone: 'America/Sao_Paulo',
+          whatsappConnectionMode: 'TEMPORARY',
+          trialModuleSelection: null,
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          onboardingStatus: 'active_paid',
+          trialEndsAt: null,
+          botArmedAt: new Date(),
+          commercialEntitlements: [{ key: 'vendas', status: 'active', currentPeriodEnd: null }],
+        }),
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify({ cliente: 'Carlos' }),
+          currentFlow: 'atendimento_whatsapp_hibrido',
+          currentStep: 'menu_principal',
+          flowResult: null,
+          botActive: true,
+          humanAssigned: false,
+        }),
+        update: async () => ({}),
+      },
+      atendimentoCustomer: {
+        findUnique: async () => ({
+          name: 'Carlos',
+          registrationStatus: 'confirmed',
+          customerProfile: { name: 'Carlos' },
+        }),
+      },
+      companyMessage: {
+        count: async () => 2,
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: 501, ...data }),
+        update: async () => ({}),
+      },
+      hbxRecoveryFlowStage: {
+        findFirst: async ({ where }: any) =>
+          where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+            ? { template: JSON.stringify(COMPLETED_ATENDIMENTO_BOT_CONFIG) }
+            : null,
+      },
+      ...(prismaOverrides || {}),
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async () => ({ id: 'registry-1' }),
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+      upsertProfile: async () => ({ id: 'profile-1', name: 'Carlos', status: 'active' }),
+    },
+  });
+}
+
+function buildAtendimentoInboundInput(text: string) {
+  return {
+    companyId: 7,
+    from: '+55 19 99887-7766',
+    text,
+    conversationId: 42,
+    inboundMessageId: 91,
+    timestamp: new Date('2026-04-15T10:07:00.000Z'),
+    company: { id: 7, name: 'HBX Solutions', timezone: 'America/Sao_Paulo' },
+    recoveryCustomer: null,
+    rawPayload: {},
+  };
+}
+
+test('NLU atendimento: frase natural resolve para a ação e executa (mesmo caminho de um clique de botão)', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    let receivedActions: any[] = [];
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async (input: any) => {
+        receivedActions = input.actions;
+        return { actionId: 'talk_human', confidence: 0.9 };
+      },
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('meu ar tá vazando, preciso falar com alguém'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.equal((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+    assert.ok(
+      receivedActions.some((action) => action.actionId === 'talk_human'),
+      'catálogo enviado ao LLM deve incluir a ação habilitada talk_human',
+    );
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: confiança abaixo do limiar cai no menu (comportamento atual intacto)', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => ({ actionId: 'talk_human', confidence: 0.4 }),
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('sei la, talvez'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: timeout/erro do classificador cai no menu', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => {
+        throw new Error('timeout simulado');
+      },
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('frase qualquer que não bate em nada'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: classificador retorna null (JSON inválido/rótulo fora do catálogo) cai no menu', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => null,
+    };
+
+    const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+    const result = await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('blablabla sem sentido nenhum'),
+    );
+
+    assert.equal(result.handled, true);
+    assert.equal(queueCalls.length, 1);
+    assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: flag OFF nunca chama o classificador e cai no menu', async () => {
+  delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  let called = false;
+  const intentEngine = {
+    isAtendimentoNluEnabled: () => false,
+    classifyAtendimentoAction: async () => {
+      called = true;
+      return { actionId: 'talk_human', confidence: 0.99 };
+    },
+  };
+
+  const { service, queueCalls } = createAtendimentoNluTestBase({ intentEngine });
+
+  const result = await (service as any).handleAtendimentoInbound(
+    buildAtendimentoInboundInput('quero falar com alguém urgente'),
+  );
+
+  assert.equal(result.handled, true);
+  assert.equal(called, false, 'com a flag off o NLU nunca deve ser chamado');
+  assert.equal(queueCalls.length, 1);
+  assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
+});
+
+test('NLU atendimento: sem entitlement comercial (botArmedAt vazio) nunca chama o classificador', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    let called = false;
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async () => {
+        called = true;
+        return { actionId: 'talk_human', confidence: 0.99 };
+      },
+    };
+
+    const { service } = createAtendimentoNluTestBase({
+      intentEngine,
+      prisma: {
+        company: {
+          findUnique: async () => ({
+            id: 7,
+            name: 'HBX Solutions',
+            timezone: 'America/Sao_Paulo',
+            whatsappConnectionMode: 'TEMPORARY',
+            trialModuleSelection: null,
+            paymentStatus: 'PAID',
+            subscriptionStatus: 'active',
+            onboardingStatus: 'active_paid',
+            trialEndsAt: null,
+            botArmedAt: null,
+            commercialEntitlements: [{ key: 'vendas', status: 'active', currentPeriodEnd: null }],
+          }),
+        },
+      },
+    });
+
+    await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('quero falar com alguém urgente'),
+    );
+
+    assert.equal(called, false, 'sem botArmedAt (gate comercial) o NLU nunca deve ser chamado');
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
+test('NLU atendimento: ação DESABILITADA no catálogo do tenant não é oferecida ao LLM', async () => {
+  process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
+  try {
+    let receivedActions: any[] = [];
+    const intentEngine = {
+      isAtendimentoNluEnabled: () => true,
+      classifyAtendimentoAction: async (input: any) => {
+        receivedActions = input.actions;
+        return null;
+      },
+    };
+
+    const disabledCatalogConfig = {
+      ...COMPLETED_ATENDIMENTO_BOT_CONFIG,
+      actionCatalog: COMPLETED_ATENDIMENTO_BOT_CONFIG.actionCatalog.map((action: any) =>
+        action.actionId === 'talk_human' ? { ...action, enabled: false } : action,
+      ),
+    };
+
+    const { service } = createAtendimentoNluTestBase({
+      intentEngine,
+      prisma: {
+        hbxRecoveryFlowStage: {
+          findFirst: async ({ where }: any) =>
+            where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+              ? { template: JSON.stringify(disabledCatalogConfig) }
+              : null,
+        },
+      },
+    });
+
+    await (service as any).handleAtendimentoInbound(
+      buildAtendimentoInboundInput('quero falar com alguém urgente'),
+    );
+
+    assert.ok(receivedActions.length > 0, 'outras ações habilitadas continuam sendo oferecidas');
+    assert.ok(
+      !receivedActions.some((action) => action.actionId === 'talk_human'),
+      'talk_human está desabilitada e não deve chegar ao catálogo oferecido ao LLM',
+    );
+  } finally {
+    delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
+  }
+});
+
 test('Recepcionista IA dynamic menu hides unavailable agenda, recovery and appointment actions', async () => {
   const { service } = createService();
 
@@ -1206,9 +1619,10 @@ function createServiceForStatusTest() {
     {} as any,
     { sendText: async () => undefined } as any,
     inboxRealtime,
-    new AiIntentClassifierService() as any,
+    new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
     // GATEWAY-WA S3: freio de envio (não é exercido no caminho de status deste teste).
     { evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}) } as any,
+    undefined as any,
     undefined as any,
   );
 
@@ -1275,4 +1689,157 @@ test('webwhats messages.update with keyId sets OUTBOUND to DELIVERED', async () 
   assert.ok(messageUpdateCalls.length >= 1, 'companyMessage.updateMany should have been called');
   const msgCall = messageUpdateCalls[0] as any;
   assert.equal(msgCall.data?.status, 'DELIVERED', 'Message status should be DELIVERED');
+});
+
+// ---------------------------------------------------------------------------
+// INTENTENGINE S4 — reaper de SENDING órfão (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint4.md)
+// ---------------------------------------------------------------------------
+
+function createServiceForReaperTest(stuckMessages: Array<Record<string, any>>) {
+  const outboundMessageUpdateCalls: Array<Record<string, unknown>> = [];
+  const outboundAttemptUpdateCalls: Array<Record<string, unknown>> = [];
+  const companyMessageUpdateManyCalls: Array<Record<string, unknown>> = [];
+
+  const prisma = {
+    hasTable: async () => false,
+    hasColumn: async () => false,
+    outboundMessage: {
+      findMany: async ({ where }: any) => {
+        if (where?.status !== 'SENDING') return [];
+        return stuckMessages;
+      },
+      update: async ({ where, data }: any) => {
+        outboundMessageUpdateCalls.push({ where, data });
+        return { id: where.id, ...data };
+      },
+    },
+    outboundAttempt: {
+      update: async ({ where, data }: any) => {
+        outboundAttemptUpdateCalls.push({ where, data });
+        return { id: where.id, ...data };
+      },
+    },
+    companyMessage: {
+      updateMany: async (input: Record<string, unknown>) => {
+        companyMessageUpdateManyCalls.push(input);
+        return { count: 1 };
+      },
+    },
+  } as any;
+
+  const conversations = { queueOutboundForCompany: async () => ({ outboundMessageId: 999, conversationId: 42 }) } as any;
+  const audit = { log: async () => undefined } as any;
+  const inboxRealtime = { publish: () => undefined, subscribe: () => () => undefined } as any;
+
+  const service = new MessagingService(
+    prisma,
+    {} as any,
+    {} as any,
+    {} as any,
+    conversations,
+    audit,
+    {} as any,
+    {} as any,
+    {} as any,
+    { sendText: async () => undefined } as any,
+    inboxRealtime,
+    new IntentEngineService(prisma, new AiIntentClassifierService()) as any,
+    { evaluate: async () => ({ allow: true, reason: 'disabled' }), getStats: () => ({}) } as any,
+    undefined as any,
+    undefined as any,
+  );
+
+  return { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls };
+}
+
+test('reaper: SENDING travada SEM attempt registrado volta para PENDING (re-enfileira)', async () => {
+  const oldEnough = new Date(Date.now() - 20 * 60 * 1000); // 20min > default 10min
+  const { service, outboundMessageUpdateCalls, companyMessageUpdateManyCalls } = createServiceForReaperTest([
+    { id: 101, attemptCount: 0, createdAt: oldEnough, attempts: [] },
+  ]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(outboundMessageUpdateCalls.length, 1);
+  const call = outboundMessageUpdateCalls[0] as any;
+  assert.equal(call.where.id, 101);
+  assert.equal(call.data.status, 'PENDING');
+  assert.ok(call.data.nextAttemptAt instanceof Date);
+  assert.ok(call.data.nextAttemptAt.getTime() > Date.now(), 'nextAttemptAt deve ser no futuro (backoff)');
+
+  assert.equal(companyMessageUpdateManyCalls.length, 1);
+  assert.equal((companyMessageUpdateManyCalls[0] as any).data.status, 'QUEUED');
+});
+
+test('reaper: SENDING travada COM attempt registrado sem resultado vira FAILED (stuck_unknown_outcome)', async () => {
+  const oldEnough = new Date(Date.now() - 20 * 60 * 1000);
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+    createServiceForReaperTest([
+      {
+        id: 202,
+        attemptCount: 1,
+        createdAt: oldEnough,
+        attempts: [{ id: 555, startedAt: oldEnough, finishedAt: null, httpStatus: null, responseBody: null }],
+      },
+    ]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 0);
+  assert.equal(result.failed, 1);
+
+  assert.equal(outboundAttemptUpdateCalls.length, 1);
+  const attemptCall = outboundAttemptUpdateCalls[0] as any;
+  assert.equal(attemptCall.where.id, 555);
+  assert.equal(attemptCall.data.success, false);
+  assert.equal(attemptCall.data.error, 'stuck_unknown_outcome');
+  assert.ok(attemptCall.data.finishedAt instanceof Date);
+
+  assert.equal(outboundMessageUpdateCalls.length, 1);
+  const msgCall = outboundMessageUpdateCalls[0] as any;
+  assert.equal(msgCall.where.id, 202);
+  assert.equal(msgCall.data.status, 'FAILED');
+  assert.equal(msgCall.data.lastError, 'stuck_unknown_outcome');
+  assert.ok(msgCall.data.failedAt instanceof Date);
+
+  assert.equal(companyMessageUpdateManyCalls.length, 1);
+  assert.equal((companyMessageUpdateManyCalls[0] as any).data.status, 'FAILED');
+});
+
+test('reaper: SENDING recente (dentro da janela) não é tocada', async () => {
+  const recentlyStarted = new Date(Date.now() - 2 * 60 * 1000); // 2min < default 10min
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+    createServiceForReaperTest([
+      {
+        id: 303,
+        attemptCount: 1,
+        createdAt: recentlyStarted,
+        attempts: [{ id: 777, startedAt: recentlyStarted, finishedAt: null, httpStatus: null, responseBody: null }],
+      },
+    ]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(outboundMessageUpdateCalls.length, 0);
+  assert.equal(outboundAttemptUpdateCalls.length, 0);
+  assert.equal(companyMessageUpdateManyCalls.length, 0);
+});
+
+test('reaper: mensagem PENDING normal não entra na varredura (findMany já filtra por status=SENDING)', async () => {
+  // O reaper só consulta outboundMessage.findMany com where.status === 'SENDING' — o mock
+  // de createServiceForReaperTest devolve [] para qualquer outro status, simulando isso.
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+    createServiceForReaperTest([]);
+
+  const result = await service.reapStuckSendingMessages();
+
+  assert.equal(result.requeued, 0);
+  assert.equal(result.failed, 0);
+  assert.equal(outboundMessageUpdateCalls.length, 0);
+  assert.equal(outboundAttemptUpdateCalls.length, 0);
+  assert.equal(companyMessageUpdateManyCalls.length, 0);
 });

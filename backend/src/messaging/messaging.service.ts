@@ -12,8 +12,6 @@ import { WhatsAppAuditService } from './whatsapp-audit.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import {
   DEFAULT_RECOVERY_BOT_CONFIG,
-  RECOVERY_BOT_CONFIG_CHANNEL,
-  RECOVERY_BOT_CONFIG_TITLE,
   RECOVERY_BOT_ACTION_IDS,
   type RecoveryBotButton,
   type RecoveryBotButtonActionId,
@@ -21,10 +19,6 @@ import {
   normalizeRecoveryBotConfig,
 } from '../hbx-recovery/recovery-bot-config';
 import {
-  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
-  ATENDIMENTO_AGENDA_CONFIG_TITLE,
-  ATENDIMENTO_BOT_CONFIG_CHANNEL,
-  ATENDIMENTO_BOT_CONFIG_TITLE,
   ATENDIMENTO_BUTTON_ID_PREFIX,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
@@ -51,7 +45,9 @@ import {
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from '../vendas/prospecting-safety';
-import { AiIntentClassifierService } from '../vendas/ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
+import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
+import { LegacyRulesInboundHandler } from '../bot/pipeline/legacy-rules.handler';
 import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
@@ -95,12 +91,14 @@ function exponentialBackoffMs(attemptNo: number, opts?: { baseMs?: number; capMs
   return clamp(baseMs * exp, baseMs, capMs);
 }
 
-function normalizeText(text: string, caseInsensitive: boolean): string {
+// INTENTENGINE Sprint 5 (PR-1): exportados para o LegacyRulesInboundHandler consumir os
+// MESMOS helpers do trecho legado (extração 1:1 — sem cópia que possa divergir).
+export function normalizeText(text: string, caseInsensitive: boolean): string {
   const trimmed = (text ?? '').trim();
   return caseInsensitive ? trimmed.toLowerCase() : trimmed;
 }
 
-function computeGreeting(timezone: string | null | undefined): string {
+export function computeGreeting(timezone: string | null | undefined): string {
   const tz = timezone || 'America/Sao_Paulo';
   const parts = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: tz }).formatToParts(new Date());
   const hourPart = parts.find((p) => p.type === 'hour')?.value;
@@ -154,7 +152,7 @@ function computeAtendimentoGreeting(config?: Partial<AtendimentoBotConfig> | nul
   return greeting.morning;
 }
 
-function renderTemplate(
+export function renderTemplate(
   template: string,
   vars: Record<string, string>,
   config?: Partial<AtendimentoBotConfig> | null,
@@ -249,6 +247,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private pollHandle: NodeJS.Timeout | null = null;
   private readonly startedAtMs = Date.now();
+  // INTENTENGINE S4: reaper roda no boot e depois a cada N ciclos do poll de 5s existente
+  // (nenhum timer novo). 24 ciclos ~= 2min — barato o bastante pra não competir com o
+  // processamento normal da fila, frequente o bastante pra não deixar SENDING travado por muito tempo.
+  private pollCycleCount = 0;
+  private readonly reaperEveryNCycles = 24;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -262,18 +265,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
-    private readonly aiIntentClassifier: AiIntentClassifierService,
+    private readonly intentEngine: IntentEngineService,
     private readonly waSendThrottle: WaSendThrottleService,
     @Optional() private readonly hbxPresentationEmails?: HbxPresentationEmailService,
+    @Optional() private readonly botConfigStore?: BotConfigStoreService,
+    // INTENTENGINE Sprint 5 (PR-1): handler do trecho legado (session orchestrator +
+    // AutoReplyRule). @Optional() para não quebrar quem instancia o serviço direto nos
+    // testes — quando ausente, `processPersistedInbound` monta um a partir das deps locais.
+    @Optional() private readonly legacyRulesHandler?: LegacyRulesInboundHandler,
   ) {}
 
   onModuleInit() {
     this.webwhatsBridge.setInboundRelay(async (input) => {
       await this.handleWebwhatsSyncedInbound(input);
     });
+    // INTENTENGINE S4: reaper de SENDING órfão roda 1x no boot (cobre o caso mais comum —
+    // processo reiniciado com mensagens travadas de antes) antes do primeiro poll.
+    this.reapStuckSendingMessages().catch((e) => this.logger.error(e?.message || e));
     // lightweight worker; avoids extra infra
     this.pollHandle = setInterval(() => {
       this.processDueMessages().catch((e) => this.logger.error(e?.message || e));
+      this.pollCycleCount += 1;
+      if (this.pollCycleCount % this.reaperEveryNCycles === 0) {
+        this.reapStuckSendingMessages().catch((e) => this.logger.error(e?.message || e));
+      }
     }, 5000);
   }
 
@@ -600,21 +615,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return `http://localhost:${Number(process.env.APP_PORT || 3000)}`;
   }
 
+  // INTENTENGINE S3: idem — sai da tabela emprestada, entra pelo BotConfigStoreService.
   private async getRecoveryBotConfig(companyId: number): Promise<RecoveryBotConfig> {
-    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: {
-        companyId,
-        channel: RECOVERY_BOT_CONFIG_CHANNEL,
-        title: RECOVERY_BOT_CONFIG_TITLE,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (!row?.template) return DEFAULT_RECOVERY_BOT_CONFIG;
-    try {
-      return normalizeRecoveryBotConfig(JSON.parse(row.template));
-    } catch {
-      return DEFAULT_RECOVERY_BOT_CONFIG;
-    }
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'recovery_bot')
+      : null;
+    if (!payload) return DEFAULT_RECOVERY_BOT_CONFIG;
+    return normalizeRecoveryBotConfig(payload as any);
   }
 
   private async resolveRecoveryDebtCaseId(companyId: number, customer: any) {
@@ -3028,15 +3035,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'me chama',
       'pode ligar',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const { intent, autoReply: autoReplyClassification } = await this.aiIntentClassifier.classifyIntentWithFallback({
-      text: input.text,
-      positiveKeywords,
-      negativeKeywords,
-      whatIsItKeywords,
-      neutralKeywords,
-      callbackKeywords,
-      humanHandoffKeywords,
-    });
+    const { intent, autoReply: autoReplyClassification } = await this.intentEngine.classifyIntentWithFallback(
+      {
+        text: input.text,
+        positiveKeywords,
+        negativeKeywords,
+        whatIsItKeywords,
+        neutralKeywords,
+        callbackKeywords,
+        humanHandoffKeywords,
+      },
+      // Caminho VIVO de produção (inbound real da prospecção) → grava a decisão.
+      { companyId: input.companyId, conversationId: input.conversationId, flow: 'prospeccao' },
+    );
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
     const alreadyClosed =
       terminalStatus.has(automationStatus) ||
@@ -4080,47 +4091,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // INTENTENGINE S3: leitura sai da tabela emprestada (HbxRecoveryFlowStage com canal
+  // mágico) e passa pelo BotConfigStoreService (BotConfig versionada, dual-read com
+  // fallback pro canal legado). Ver docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint3.md.
+
   private async getAtendimentoBotConfig(
     companyId: number,
     tenantContext?: { providerCapabilities: ProviderCapabilities; recoveryEnabled: boolean },
   ): Promise<AtendimentoBotConfig> {
     const context = tenantContext || (await this.resolveAtendimentoBotSanitizationContext(companyId));
-    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: {
-        companyId,
-        channel: ATENDIMENTO_BOT_CONFIG_CHANNEL,
-        title: ATENDIMENTO_BOT_CONFIG_TITLE,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (!row?.template) {
-      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, context);
-    }
-    try {
-      return sanitizeAtendimentoBotConfigForTenant(
-        normalizeAtendimentoBotConfig(JSON.parse(row.template)),
-        context,
-      );
-    } catch {
-      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, context);
-    }
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'atendimento_bot')
+      : null;
+    return sanitizeAtendimentoBotConfigForTenant(
+      normalizeAtendimentoBotConfig((payload as any) ?? null),
+      context,
+    );
   }
 
   private async getAtendimentoAgendaConfig(companyId: number): Promise<AtendimentoAgendaConfig> {
-    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: {
-        companyId,
-        channel: ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
-        title: ATENDIMENTO_AGENDA_CONFIG_TITLE,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (!row?.template) return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
-    try {
-      return normalizeAtendimentoAgendaConfig(JSON.parse(row.template));
-    } catch {
-      return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
-    }
+    const payload = this.botConfigStore
+      ? await this.botConfigStore.get(companyId, 'atendimento_agenda')
+      : null;
+    if (!payload) return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
+    return normalizeAtendimentoAgendaConfig(payload as any);
   }
 
   private async updateAtendimentoConversationState(
@@ -4292,6 +4286,53 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return aliasMap[this.normalizeActionLabel(normalizedText)];
     }
     return '';
+  }
+
+  /**
+   * INTENTENGINE — Sprint 2: nível SEMÂNTICO de resolução, chamado só depois
+   * que `normalizeAtendimentoActionId` (nível léxico: botão/número/aliasMap)
+   * já devolveu vazio. Oferece ao LLM SÓ o catálogo já sanitizado do tenant
+   * (`config.actionCatalog` — nunca a lista bruta) e usa o `actionId` retornado
+   * SOMENTE quando a confiança bate o limiar (`classifyAtendimentoAction` já
+   * aplica o corte). Qualquer falha (flag off, timeout, JSON inválido, baixa
+   * confiança) devolve string vazia — o caller cai no menu, comportamento atual
+   * intacto.
+   */
+  private async resolveAtendimentoActionIdFromNlu(input: {
+    companyId: number;
+    conversationId: number;
+    text: string;
+    config: AtendimentoBotConfig;
+  }): Promise<string> {
+    const { companyId, conversationId, text, config } = input;
+    const actions = (config.actionCatalog || [])
+      .filter((action) => action?.actionId && action.enabled !== false)
+      .map((action) => ({
+        actionId: String(action.actionId || '').trim().toLowerCase(),
+        title: String(action.title || ''),
+        description: String(action.description || ''),
+      }));
+    if (!actions.length) return '';
+
+    try {
+      const classification = await this.intentEngine.classifyAtendimentoAction({
+        text,
+        actions,
+        context: { companyId, conversationId: conversationId || null },
+      });
+      if (!classification) return '';
+      // Trava de confiança aplicada de novo aqui (defesa em profundidade): mesmo
+      // que o motor de intenção não aplique o corte, o caller do Atendimento
+      // NUNCA executa uma ação com confiança abaixo do limiar configurado.
+      const minConfidence = Number.parseFloat(String(process.env.HBX_ATENDIMENTO_NLU_MIN_CONF || ''));
+      const threshold = Number.isFinite(minConfidence) ? minConfidence : 0.75;
+      if (classification.confidence < threshold) return '';
+      return classification.actionId || '';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`NLU atendimento falhou ao resolver acao (best-effort, caindo no menu): ${message}`);
+      return '';
+    }
   }
 
   private getAtendimentoButtonsInteractive(
@@ -6773,6 +6814,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         conversation?.currentStep,
       );
     }
+    if (!actionId && normalizedText && botAiEnabled && this.intentEngine.isAtendimentoNluEnabled()) {
+      actionId = await this.resolveAtendimentoActionIdFromNlu({
+        companyId,
+        conversationId: safeConversationId,
+        text,
+        config,
+      });
+    }
     const actionGuide = this.getAtendimentoActionGuide(config, actionId);
     const messageCount = safeConversationId
       ? await this.prisma.companyMessage.count({
@@ -7884,6 +7933,103 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     for (const msg of due) {
       await this.sendOne(msg.id);
     }
+  }
+
+  // INTENTENGINE S4 (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint4.md): FURO 1 —
+  // se o processo morre entre o lock (PENDING→SENDING em sendOne) e o resultado (deploy/
+  // restart do `npm run publish` reinicia o backend), a linha ficava SENDING pra sempre.
+  // Reaper roda no boot + a cada N ciclos do poll existente (nenhum timer novo). `OutboundMessage`
+  // não tem `updatedAt` — o proxy de "há quanto tempo está SENDING" é o `startedAt` do
+  // OutboundAttempt mais recente (criado por sendOne logo após o lock, antes de qualquer
+  // chamada ao provider).
+  //
+  // Decisão conservadora (anti-duplicata pro cliente = anti-ban, regra do WHATSAPP.md):
+  // - SEM outboundAttempt algum pra essa mensagem → nenhuma tentativa chegou a ser
+  //   registrada (o lock não seguiu até criar o attempt) — seguro re-enfileirar:
+  //   status=PENDING, nextAttemptAt=now+backoff.
+  // - COM outboundAttempt mais recente aberto (finishedAt null) → sendOne SEMPRE cria o
+  //   attempt antes de chamar o provider, então "aberto" aqui significa que o processo
+  //   morreu em algum ponto entre o disparo e a gravação do resultado — pode TER sido
+  //   entregue. Reenviar arriscaria 2ª mensagem pro cliente: marca FAILED com
+  //   lastError='stuck_unknown_outcome' e deixa visível pro humano decidir (melhor 1
+  //   mensagem perdida visível que 2 enviadas invisíveis).
+  private get outboxStuckMinutes(): number {
+    const raw = Number(process.env.HBX_OUTBOX_STUCK_MINUTES);
+    return Number.isFinite(raw) && raw > 0 ? raw : 10;
+  }
+
+  async reapStuckSendingMessages(): Promise<{ requeued: number; failed: number }> {
+    const cutoff = new Date(Date.now() - this.outboxStuckMinutes * 60 * 1000);
+    const stuck = await this.prisma.outboundMessage.findMany({
+      where: { status: 'SENDING' },
+      select: {
+        id: true,
+        createdAt: true,
+        attemptCount: true,
+        attempts: { orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    let requeued = 0;
+    let failed = 0;
+
+    for (const msg of stuck) {
+      const lastAttempt = msg.attempts[0];
+      // Referência de idade: startedAt do attempt em aberto ou, na ausência de qualquer
+      // attempt, o createdAt da própria mensagem (fallback defensivo — não deveria ocorrer
+      // no fluxo normal, já que sendOne cria o attempt logo após o lock).
+      const referenceAt = lastAttempt?.startedAt ?? msg.createdAt;
+      if (referenceAt.getTime() > cutoff.getTime()) {
+        continue; // SENDING recente, dentro da janela — pode estar em andamento, não mexe.
+      }
+
+      if (lastAttempt && lastAttempt.finishedAt) {
+        // Não deveria acontecer (SENDING com o último attempt já finalizado) — outro
+        // caminho do código já teria movido o status pra frente. Por segurança, não mexe.
+        continue;
+      }
+
+      if (!lastAttempt) {
+        // Nenhuma tentativa chegou a ser registrada: nada foi de fato disparado ao provider.
+        const delayMs = exponentialBackoffMs(msg.attemptCount + 1) + jitterMs(750);
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'PENDING', nextAttemptAt: new Date(Date.now() + delayMs) },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { status: 'QUEUED' },
+        });
+        this.logger.warn(
+          `Outbox reaper: messageId=${msg.id} SENDING travada sem nenhum attempt registrado — reenfileirada (PENDING)`,
+        );
+        requeued += 1;
+        continue;
+      }
+
+      // Attempt registrado sem finishedAt: desfecho desconhecido (pode ter sido enviada).
+      await this.prisma.outboundAttempt.update({
+        where: { id: lastAttempt.id },
+        data: { finishedAt: new Date(), success: false, error: 'stuck_unknown_outcome' },
+      });
+      await this.prisma.outboundMessage.update({
+        where: { id: msg.id },
+        data: { status: 'FAILED', failedAt: new Date(), lastError: 'stuck_unknown_outcome', deliveryStatus: 'failed' },
+      });
+      await this.prisma.companyMessage.updateMany({
+        where: { outboundMessageId: msg.id },
+        data: { status: 'FAILED', error: 'stuck_unknown_outcome' },
+      });
+      this.logger.warn(
+        `Outbox reaper: messageId=${msg.id} SENDING travada com desfecho desconhecido — marcada FAILED (stuck_unknown_outcome) para revisão humana`,
+      );
+      failed += 1;
+    }
+
+    if (requeued > 0 || failed > 0) {
+      this.logger.warn(`Outbox reaper: requeued=${requeued} failed=${failed}`);
+    }
+    return { requeued, failed };
   }
 
   private parseJsonPayload<T>(raw: string | null | undefined, fallback: T): T {
@@ -9312,65 +9458,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { matched: true, source: 'hbx_recovery', customerId: recoveryCustomer.id };
     }
 
-    const session = await this.sessions.getOrCreateActiveSession({ companyId, channel: 'whatsapp', from });
-    const decision = this.orchestrator.decide({ state: session.state, text });
-    const nextState = decision.nextState ?? session.state;
-
-    if (nextState !== session.state) {
-      await this.sessions.updateSession(session.id, { state: nextState });
-    }
-
-    if (decision.draftItems) {
-      await this.drafts.upsertForSession({ companyId, sessionId: session.id, items: decision.draftItems });
-    }
-
-    await this.prisma.inboundMessage.create({ data: { companyId, from, body: text } });
-
-    if (decision.reply) {
-      await this.conversations.queueOutboundForCompany(companyId, {
-        to: from,
-        body: decision.reply,
-        sourceModule: 'atendimento',
-        messageType: 'text',
-      });
-      return { matched: true, sessionId: session.id, state: nextState, enqueued: 1 };
-    }
-
-    const rules = await this.prisma.autoReplyRule.findMany({
-      where: { companyId, enabled: true },
-      include: { responses: true },
-      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    // INTENTENGINE Sprint 5 (PR-1): o trecho legado final (session orchestrator +
+    // AutoReplyRule) foi extraído 1:1 para o LegacyRulesInboundHandler. Delegamos aqui e
+    // devolvemos o MESMO shape de antes. `legacyRulesHandler` é @Optional() no construtor;
+    // quando ausente (testes que instanciam o serviço direto), montamos um a partir das
+    // dependências que este próprio serviço já possui — comportamento idêntico.
+    const legacyHandler =
+      this.legacyRulesHandler ??
+      new LegacyRulesInboundHandler(this.prisma, this.sessions, this.orchestrator, this.drafts, this.conversations);
+    const legacyResult = await legacyHandler.handle({
+      company: input.company,
+      companyId,
+      from,
+      text,
+      inboundType: input.inboundType,
+      conversationId: inboundConversationId,
+      inboundRow: input.inboundRow,
+      timestamp: input.timestamp,
+      scope: input.scope,
+      provider: input.provider,
+      sourceModule: input.sourceModule,
+      rawPayload: input.rawPayload,
+      externalMessageId: input.externalMessageId ?? null,
     });
-
-    const incoming = text ?? '';
-    const matched = rules.find((r) => {
-      const pattern = normalizeText(r.pattern, r.caseInsensitive);
-      const msg = normalizeText(incoming, r.caseInsensitive);
-      if (r.matchType === 'EXACT') return msg === pattern;
-      if (r.matchType === 'CONTAINS') return msg.includes(pattern);
-      return false;
-    });
-
-    if (!matched) return { matched: false, sessionId: session.id, state: nextState };
-
-    const greeting = computeGreeting(input.company.timezone);
-    const vars = { greeting, companyName: input.company.name, from };
-    const responses = [...matched.responses].sort((a, b) => a.order - b.order);
-
-    for (const r of responses) {
-      const body = renderTemplate(r.template, vars);
-      const when = new Date(Date.now() + (r.delaySeconds ?? 0) * 1000);
-      const queued = await this.conversations.queueOutboundForCompany(companyId, {
-        to: from,
-        body,
-        at: when,
-        sourceModule: 'atendimento',
-        messageType: 'text',
-      });
-      await this.prisma.outboundMessage.update({ where: { id: queued.outboundMessageId }, data: { nextAttemptAt: when } });
-    }
-
-    return { matched: true, ruleId: matched.id, sessionId: session.id, state: nextState, enqueued: responses.length };
+    return legacyResult.result;
   }
 
   private async handleWebwhatsSyncedInbound(input: {

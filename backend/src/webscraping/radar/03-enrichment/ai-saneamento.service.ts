@@ -10,7 +10,7 @@ import * as dns from 'node:dns';
  * frente, já existe em `webscraping.service.ts`) e NÃO é a "nota ICP" (score — decisão de negócio
  * adiada). Aditivo, reversível, default OFF.
  *
- * Reuso do MESMO padrão de chamada ao Ollama de `vendas/ai-intent-classifier.service.ts`:
+ * Reuso do MESMO padrão de chamada ao Ollama de `bot/intent/ai-intent-classifier.service.ts`:
  * endpoint via `HBX_LLM_CLASSIFIER_URL` (não hardcoda outra URL), `think:false` + `format:"json"`,
  * timeout + degrade gracioso (nunca joga exceção pra cima).
  */
@@ -26,7 +26,7 @@ function envInt(name: string, fallback: number) {
 }
 
 function ollamaBaseUrl() {
-  // Mesma env do classificador de intenção (vendas/ai-intent-classifier.service.ts) —
+  // Mesma env do classificador de intenção (bot/intent/ai-intent-classifier.service.ts) —
   // NÃO hardcodar outra URL/endpoint do Ollama.
   return envStr('HBX_LLM_CLASSIFIER_URL', 'http://host.docker.internal:11434').replace(/\/+$/, '');
 }

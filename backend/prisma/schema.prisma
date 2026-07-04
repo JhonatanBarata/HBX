@@ -3371,6 +3371,50 @@ model WhatsAppAuditLog {
   @@index([companyId, scope, event])
 }
 
+// INTENTENGINE S1 (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint1.md).
+// Log estruturado de CADA decisão do motor de intenção único (IntentEngineService).
+// Cria o dataset real (texto → rótulo → fonte ia/keyword) que decide upgrade de
+// modelo/GPU com dados em vez de achismo. Gravado BEST-EFFORT: falha no insert nunca
+// quebra a classificação. `flow` = prospeccao | atendimento | simulador; `source` =
+// ai | keyword; `label` = kind do ProspectingIntentClassification. Aditiva.
+model IntentDecision {
+  id             Int      @id @default(autoincrement())
+  companyId      Int
+  conversationId Int?
+  flow           String
+  textPreview    String
+  source         String
+  label          String
+  confidence     Float
+  latencyMs      Int?
+  model          String?
+  createdAt      DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+// INTENTENGINE S3 (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint3.md).
+// Config do bot versionada e auditada — sai da tabela emprestada (HbxRecoveryFlowStage
+// reaproveitada como chave-valor JSON, sem histórico/autor/rollback). domain identifica
+// qual config: atendimento_bot | atendimento_agenda | bot_master_switch | recovery_bot.
+// Leitura = MAIOR version por (companyId, domain); escrita = SEMPRE INSERT de nova version
+// (nunca update) → histórico de graça. Rollback = regravar a versão anterior como nova
+// versão (nunca apaga linha). Lido/gravado só pelo BotConfigStoreService
+// (backend/src/bot/config/bot-config-store.service.ts), que faz dual-read: BotConfig
+// primeiro, fallback pro canal mágico legado se não houver linha (migração lazy).
+model BotConfig {
+  id              String   @id @default(cuid())
+  companyId       Int
+  domain          String
+  version         Int
+  payload         String
+  updatedByUserId Int?
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, domain, version])
+  @@index([companyId, domain, createdAt])
+}
+
 // GATEWAY-WA S2 (docs/PLANEJAMENTOS/GATEWAY-WA/GATEWAY-WA-sprint-2-outbox.md).
 // Cursor persistido do consumer da outbox durável do motor Webwhats. Linha ÚNICA (chave por
 // `name` constante = "webwhats_outbox"): guarda o último `cursor` (id serial do EventOutbox do

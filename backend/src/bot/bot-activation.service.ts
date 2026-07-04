@@ -10,11 +10,21 @@ import {
 import {
   isAtendimentoBotSetupComplete,
   normalizeAtendimentoBotConfig,
-  ATENDIMENTO_BOT_CONFIG_CHANNEL,
-  ATENDIMENTO_BOT_CONFIG_TITLE,
 } from '../inbox/atendimento-config';
 import { normalizeRecoveryBotConfig } from '../hbx-recovery/recovery-bot-config';
 import type { BotTypeKey } from './dto/bot-activation.dto';
+import {
+  BotConfigStoreService,
+  type BotConfigDomain,
+  type BotConfigVersionInfo,
+} from './config/bot-config-store.service';
+
+const BOT_CONFIG_DOMAINS: BotConfigDomain[] = [
+  'atendimento_bot',
+  'atendimento_agenda',
+  'bot_master_switch',
+  'recovery_bot',
+];
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -38,59 +48,22 @@ function isAdminOrMaster(user: any): boolean {
   return role === 'ADMIN' || role === 'USERMASTER';
 }
 
-// ── config helpers (reusar padrão do inbox.service) ────────────────────────
-
-type ConfigRow = { id: string; template: string | null } | null;
+// ── config helpers ──────────────────────────────────────────────────────────
+// INTENTENGINE S3: `getConfigRow`/`saveConfigRow` (JSON cru em HbxRecoveryFlowStage)
+// saem daqui — a fonte agora é o BotConfigStoreService (tabela BotConfig, versionada,
+// dual-read com fallback pro canal legado). Ver docs/PLANEJAMENTOS/INTENTENGINE/
+// INTENTENGINE-sprint3.md.
 
 @Injectable()
 export class BotActivationService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  // ── leitura de config JSON (mesmo padrão do InboxService) ────────────────
-
-  private async getConfigRow(companyId: number, channel: string, title: string): Promise<ConfigRow> {
-    return this.prisma.hbxRecoveryFlowStage.findFirst({
-      where: { companyId, channel, title },
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, template: true },
-    });
-  }
-
-  private async saveConfigRow(
-    companyId: number,
-    channel: string,
-    title: string,
-    payload: unknown,
-  ): Promise<void> {
-    const row = await this.getConfigRow(companyId, channel, title);
-    const data = {
-      companyId,
-      title,
-      channel,
-      template: JSON.stringify(payload || {}),
-      daysAfter: 0,
-      enabled: false,
-      sortOrder: 0,
-    };
-    if (row?.id) {
-      await this.prisma.hbxRecoveryFlowStage.update({ where: { id: row.id }, data });
-      return;
-    }
-    await this.prisma.hbxRecoveryFlowStage.create({ data });
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly botConfigStore: BotConfigStoreService,
+  ) {}
 
   private async getAtendimentoConfig(companyId: number) {
-    const row = await this.getConfigRow(
-      companyId,
-      ATENDIMENTO_BOT_CONFIG_CHANNEL,
-      ATENDIMENTO_BOT_CONFIG_TITLE,
-    );
-    if (!row?.template) return normalizeAtendimentoBotConfig(null);
-    try {
-      return normalizeAtendimentoBotConfig(JSON.parse(row.template));
-    } catch {
-      return normalizeAtendimentoBotConfig(null);
-    }
+    const payload = await this.botConfigStore.get(companyId, 'atendimento_bot');
+    return normalizeAtendimentoBotConfig(payload as any);
   }
 
   // ── pré-voo: chip conectado ───────────────────────────────────────────────
@@ -114,18 +87,13 @@ export class BotActivationService {
   }
 
   // ── chave geral (master switch) por empresa — INDEPENDE de config/chip ───────
-  // Guardada no padrão de config-row (sem migration). off=true → o dono DESLIGOU o
+  // Guardada na BotConfig, domain 'bot_master_switch'. off=true → o dono DESLIGOU o
   // bot inteiro; o ícone do topo fica CINZA mesmo com tudo configurado.
-  private readonly BOT_MASTER_SWITCH_CHANNEL = '__BOT_MASTER_SWITCH__';
 
   private async resolveMasterOff(companyId: number): Promise<boolean> {
-    const row = await this.getConfigRow(companyId, this.BOT_MASTER_SWITCH_CHANNEL, 'v1');
-    if (!row?.template) return false; // sem registro = chave LIGADA (default)
-    try {
-      return Boolean(JSON.parse(row.template)?.off);
-    } catch {
-      return false;
-    }
+    const payload = await this.botConfigStore.get(companyId, 'bot_master_switch');
+    if (!payload) return false; // sem registro = chave LIGADA (default)
+    return Boolean((payload as any)?.off);
   }
 
   // ── pré-voo: configCompleta por tipo ─────────────────────────────────────
@@ -142,20 +110,12 @@ export class BotActivationService {
 
     if (type === 'recovery') {
       // Recovery: tem start template ativo + mainMenuButtons não vazios.
-      const row = await this.getConfigRow(
-        companyId,
-        '__HBX_RECOVERY_BOT_CONFIG__',
-        'config_v1',
-      );
-      if (!row?.template) return false;
-      try {
-        const config = normalizeRecoveryBotConfig(JSON.parse(row.template));
-        const hasActiveTemplate = config.startTemplates.some((t) => t.active && t.name.trim());
-        const hasMainMenu = config.mainMenuButtons.length > 0;
-        return hasActiveTemplate && hasMainMenu;
-      } catch {
-        return false;
-      }
+      const payload = await this.botConfigStore.get(companyId, 'recovery_bot');
+      if (!payload) return false;
+      const config = normalizeRecoveryBotConfig(payload as any);
+      const hasActiveTemplate = config.startTemplates.some((t) => t.active && t.name.trim());
+      const hasMainMenu = config.mainMenuButtons.length > 0;
+      return hasActiveTemplate && hasMainMenu;
     }
 
     if (type === 'prospeccao') {
@@ -351,7 +311,7 @@ export class BotActivationService {
 
     // Escrever fonte canônica por tipo
     if (type === 'atendimento') {
-      await this.toggleAtendimentoLive(companyId, live);
+      await this.toggleAtendimentoLive(companyId, live, userId);
     } else if (type === 'recovery') {
       await this.prisma.company.update({
         where: { id: companyId },
@@ -386,15 +346,16 @@ export class BotActivationService {
     }
 
     // grava a INTENÇÃO (independe de config/chip — é a chave geral)
-    await this.saveConfigRow(companyId, this.BOT_MASTER_SWITCH_CHANNEL, 'v1', {
-      off: !on,
-      at: new Date().toISOString(),
-      byUserId: userId,
-    });
+    await this.botConfigStore.save(
+      companyId,
+      'bot_master_switch',
+      { off: !on, at: new Date().toISOString(), byUserId: userId },
+      userId,
+    );
 
     if (!on) {
       // DESLIGAR DE VERDADE: derruba os 3 tipos (live=false não exige pré-voo).
-      await this.toggleAtendimentoLive(companyId, false).catch(() => undefined);
+      await this.toggleAtendimentoLive(companyId, false, userId).catch(() => undefined);
       await this.prisma.company.update({
         where: { id: companyId },
         data: {
@@ -421,7 +382,7 @@ export class BotActivationService {
       const preflight = await this.resolvePreflight(companyId, type, chipConectado, atendCfg);
       if (this.resolveBlocked(type, armed, preflight)) continue; // bloqueado → não liga
       if (type === 'atendimento') {
-        await this.toggleAtendimentoLive(companyId, true).catch(() => undefined);
+        await this.toggleAtendimentoLive(companyId, true, userId).catch(() => undefined);
       } else if (type === 'recovery') {
         await this.prisma.company.update({
           where: { id: companyId },
@@ -439,7 +400,7 @@ export class BotActivationService {
 
   // ── toggle atendimento via config JSON (reutilizar fonte canônica) ─────────
 
-  private async toggleAtendimentoLive(companyId: number, live: boolean): Promise<void> {
+  private async toggleAtendimentoLive(companyId: number, live: boolean, userId?: number): Promise<void> {
     const config = await this.getAtendimentoConfig(companyId);
 
     if (live && !isAtendimentoBotSetupComplete(config)) {
@@ -456,11 +417,39 @@ export class BotActivationService {
         globalBotEnabled: live,
       },
     };
-    await this.saveConfigRow(
-      companyId,
-      ATENDIMENTO_BOT_CONFIG_CHANNEL,
-      ATENDIMENTO_BOT_CONFIG_TITLE,
-      updated,
-    );
+    await this.botConfigStore.save(companyId, 'atendimento_bot', updated, userId ?? null);
+  }
+
+  // ── INTENTENGINE S3: histórico + rollback de config (admin/master) ──────────
+  // Endpoint mínimo pedido no sprint (sem UI elaborada — o painel fica de follow-up).
+  // Reusa o mesmo guard/checagem admin já usado em putActivation/setMasterSwitch.
+
+  private requireBotConfigDomain(domain: string): BotConfigDomain {
+    if (!BOT_CONFIG_DOMAINS.includes(domain as BotConfigDomain)) {
+      throw new BadRequestException(
+        `Domain inválido: ${domain}. Use ${BOT_CONFIG_DOMAINS.join(' | ')}.`,
+      );
+    }
+    return domain as BotConfigDomain;
+  }
+
+  async listConfigVersions(user: any, domainRaw: string): Promise<BotConfigVersionInfo[]> {
+    const companyId = requireCompanyId(user);
+    if (!isAdminOrMaster(user)) {
+      throw new BadRequestException('Apenas administradores podem ver o histórico de config do bot.');
+    }
+    const domain = this.requireBotConfigDomain(domainRaw);
+    return this.botConfigStore.listVersions(companyId, domain);
+  }
+
+  async rollbackConfig(user: any, domainRaw: string) {
+    const companyId = requireCompanyId(user);
+    const userId = requireUserId(user);
+    if (!isAdminOrMaster(user)) {
+      throw new BadRequestException('Apenas administradores podem reverter config do bot.');
+    }
+    const domain = this.requireBotConfigDomain(domainRaw);
+    const payload = await this.botConfigStore.rollback(companyId, domain, userId);
+    return { ok: true, domain, payload };
   }
 }

@@ -25,7 +25,7 @@ import {
   type ProspectingAutoReplyClassification,
 } from './prospecting-safety';
 import { VendasService } from './vendas.service';
-import { AiIntentClassifierService } from './ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 
 type LiveAutomationStatus =
   | 'parado'
@@ -526,7 +526,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly conversations: ConversationsService,
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
-    private readonly aiIntentClassifier: AiIntentClassifierService,
+    private readonly intentEngine: IntentEngineService,
   ) {}
 
   onModuleInit() {
@@ -1939,15 +1939,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const callbackKeywords = keywordList('callbackIntentKeywords', DEFAULT_CALLBACK_KEYWORDS);
     const humanHandoffKeywords = keywordList('humanHandoffIntentKeywords', DEFAULT_HUMAN_HANDOFF_KEYWORDS);
 
-    const { intent, autoReply } = await this.aiIntentClassifier.classifyIntentWithFallback({
-      text,
-      positiveKeywords: positives,
-      negativeKeywords: negatives,
-      whatIsItKeywords,
-      neutralKeywords,
-      callbackKeywords,
-      humanHandoffKeywords,
-    });
+    const { intent, autoReply } = await this.intentEngine.classifyIntentWithFallback(
+      {
+        text,
+        positiveKeywords: positives,
+        negativeKeywords: negatives,
+        whatIsItKeywords,
+        neutralKeywords,
+        callbackKeywords,
+        humanHandoffKeywords,
+      },
+      // Simulador do painel (/bot): sandbox sem conversa real, mas registra a
+      // decisão para alimentar o dataset (flow='simulador').
+      { companyId: context.companyId, conversationId: null, flow: 'simulador' },
+    );
     const optOutReplyEnabled =
       typeof cfg.optOutReplyEnabled === 'boolean' ? cfg.optOutReplyEnabled : (filters as any).optOutReplyEnabled === true;
 

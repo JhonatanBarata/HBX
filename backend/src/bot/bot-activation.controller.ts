@@ -3,6 +3,7 @@ import {
   Get,
   Put,
   Body,
+  Param,
   Req,
   UseGuards,
   BadRequestException,
@@ -51,4 +52,18 @@ export class BotActivationController {
     return this.botActivationService.setMasterSwitch(req.user, body.on);
   }
 
+  // ── INTENTENGINE S3: histórico + rollback de config (admin/master) ──────────
+  // Sem UI elaborada neste sprint (front fica de follow-up) — lista versões
+  // (data + updatedByUserId) e permite voltar 1 versão. domain = atendimento_bot |
+  // atendimento_agenda | bot_master_switch | recovery_bot.
+
+  @Get('config/:domain/versions')
+  listConfigVersions(@Req() req: any, @Param('domain') domain: string) {
+    return this.botActivationService.listConfigVersions(req.user, domain);
+  }
+
+  @Put('config/:domain/rollback')
+  rollbackConfig(@Req() req: any, @Param('domain') domain: string) {
+    return this.botActivationService.rollbackConfig(req.user, domain);
+  }
 }

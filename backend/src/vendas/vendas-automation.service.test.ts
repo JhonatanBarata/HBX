@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { VendasAutomationService } from './vendas-automation.service';
-import { AiIntentClassifierService } from './ai-intent-classifier.service';
+import { AiIntentClassifierService } from '../bot/intent/ai-intent-classifier.service';
+import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { SAFE_FIRST_CONTACT_TEMPLATE } from './prospecting-safety';
 
 function computeTestBrasiliaGreeting() {
@@ -316,7 +317,7 @@ function createService(overrides?: {
     conversations as any,
     inboxRealtime as any,
     commercialPlansService as any,
-    new AiIntentClassifierService() as any,
+    new IntentEngineService(prisma as any, new AiIntentClassifierService()) as any,
   ) as any;
   service.isInsideWorkingHours = () => true;
   const originalScheduleJobsForCampaign = service.scheduleJobsForCampaign.bind(service);

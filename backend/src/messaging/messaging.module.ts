@@ -19,16 +19,19 @@ import { InboxRealtimeService } from './inbox-realtime.service';
 import { MailModule } from '../mail/mail.module';
 import { MasterPaymentNotificationsController } from './master-payment-notifications.controller';
 import { WhatsappConsentLedgerService } from './whatsapp-consent-ledger.service';
-import { AiIntentClassifierModule } from '../vendas/ai-intent-classifier.module';
+import { IntentEngineModule } from '../bot/intent/intent-engine.module';
+import { BotConfigStoreModule } from '../bot/config/bot-config-store.module';
 // GATEWAY-WA (S1 frota, S2 outbox, S3 freio de envio).
 import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WebwhatsOutboxConsumerService } from './webwhats-outbox-consumer.service';
 import { WebwhatsFleetHealthService } from './webwhats-fleet-health.service';
 import { WebwhatsFleetHealthController } from './webwhats-fleet-health.controller';
+// INTENTENGINE Sprint 5 (PR-1): handler do trecho legado do pipeline de inbound.
+import { LegacyRulesInboundHandler } from '../bot/pipeline/legacy-rules.handler';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, AiIntentClassifierModule],
-  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, IntentEngineModule, BotConfigStoreModule],
+  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService, LegacyRulesInboundHandler],
   controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController, WebwhatsFleetHealthController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService],
 })
