@@ -24,11 +24,6 @@ segue a regra financeira (pago na hora | pendura | fecha no mês) → vencida e 
 3. **Swipe é a navegação primária** (parada anterior/próxima) com dots de posição.
 4. **Feedback físico:** `navigator.vibrate` na chegada e na confirmação.
 5. **Sempre visível:** progresso (X/N) + previsão de término. O entregador vive por isso.
-<<<<<<< Updated upstream
-6. Bonito = tokens do hbx-theme (5 Leis). Classes novas `.rota-*` centrais; zero hex/inline.
-7. Mockup de referência: conversa de 04/07 (3 telas: Hoje / Rota c/ swipe+ETA / Chegada c/ stepper).
-
-=======
 6. Bonito = Design System **Entrega** (seção 2b). Zero hex/inline em TSX; `check-pele` verde.
 7. Mockup de referência: conversa de 04/07 (3 telas: Hoje / Rota c/ swipe+ETA / Chegada c/ stepper).
 
@@ -46,7 +41,6 @@ CENTRALIZAÇÃO, não a cara antiga:
 - **Componentes nomeados:** `ent-stop-card`, `ent-stepper`, `ent-chips`, `ent-progress`, `ent-sheet`.
 - Critério de aceite visual: o mockup de 04/07 (não "parecido com o dashboard").
 
->>>>>>> Stashed changes
 ## 3. Decisões de arquitetura (trade-off na cara)
 | Decisão | Escolha | Por quê / custo |
 |---|---|---|
@@ -85,13 +79,6 @@ CENTRALIZAÇÃO, não a cara antiga:
 
 ## 6. Sprints
 
-<<<<<<< Updated upstream
-### M1 — PWA shell (o "vira app")
-Manifest (nome "HBX Entregas", ícones maskable, `display: standalone`, theme), service worker de
-shell, botão "Instalar" (`beforeinstallprompt`) + QR de instalação no painel do admin, viewport/
-safe-area, Screen Wake Lock ativo durante a rota. Sem flag (só casca).
-**Check:** Lighthouse "instalável" ✅; zero regressão nas rotas atuais.
-=======
 ### M1 — Shell independente + Design System Entrega (o "vira app")
 - **Rota FORA do `(app)`**: `frontend/src/app/entrega/` com `layout` próprio — SEM AppShell/Sidebar/
   MobileTabBar/chrome do dashboard. Wrapper com `data-skin="entrega"`.
@@ -104,7 +91,6 @@ safe-area, Screen Wake Lock ativo durante a rota. Sem flag (só casca).
 - Nota de perf: o `globals.css` do root ainda carrega o CSS do dashboard nesta rota (cascata do layout
   raiz) — aceitável na V1; se o Lighthouse do M9 reclamar, mover os imports pro layout do `(app)`.
 **Check:** Lighthouse "instalável" ✅ em `/entrega`; zero regressão nas rotas atuais; `check-pele` verde.
->>>>>>> Stashed changes
 
 ### M2 — Amarração produto×cliente + recorrência (schema/backend)
 `ClienteProduto` + `EntregaItem` + `LogisticaConfig` + colunas novas da `Entrega` (seção 5).
@@ -128,12 +114,8 @@ Re-ETA a cada confirmar/cancelar/pular.
 - **Folha de chegada:** stepper por item (pré-preenchido `qtdPadrao`), **"Entregue" em 1 toque**;
   "Não entregue" → chips de motivo (ausente | recusou | reagendar). Se `moduloFinanceiroAtivo`:
   chips de recebimento (pix | dinheiro | pendura) — 1 toque.
-<<<<<<< Updated upstream
-- ZERO texto explicativo (seção 2). Classes `.rota-*` centrais; transições curtas; vibrate.
-=======
 - ZERO texto explicativo (seção 2). Componentes do Design System Entrega (`ent-*`, seção 2b);
   transições com spring; vibrate. Telas vivem em `/entrega` (shell do M1), não no `(app)`.
->>>>>>> Stashed changes
 **Check:** Playwright mobile viewport com GPS mockado — fluxo Hoje→Rota→Chegada→Entregue completo.
 Dep: M2 (M3 pra ordem/ETA; se M3 atrasar, stub com ordem manual — não bloquear).
 
