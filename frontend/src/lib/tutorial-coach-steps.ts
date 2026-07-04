@@ -180,17 +180,11 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
 // ALVO ausente (cargo/plano não tem, ou mobile que não renderiza aquele bloco)
 // NÃO trava: o coach espera ~4s e pula sozinho. Foco do POC = desktop.
 
-// Radar (slide "Buscar empresas" DENTRO de /vendas). Redesenho VENDAS-REFAB 04/07:
-// o LeadsClient antigo (com KPIs/filtros/abas/cota próprios) foi DELETADO e trocado
-// pelo componente BuscarEmpresas (painel ÚNICO ancorado à direita + prateleira
-// "Disponíveis" à esquerda). Por isso os passos vivem na rota "/vendas" e o tour é
-// disparado pelo "Como usar" quando a camada Buscar está ativa (o shell detecta
-// .vnd-layer--buscar.is-on e dispara ESTE tour "leads" em vez do de Vendas).
-// Os alvos apontam pros data-tut REAIS de buscar-empresas.tsx. Saíram 2 passos do
-// layout antigo que não têm mais elemento: "leads-kpis" (o número "Brasil inteiro"
-// virou só a contagem filtrada no topo da prateleira) e "leads-cota" (a cota do
-// standing-order foi removida no VENDAS-REFAB — puxar virou 100% manual).
-// Fluxo novo: intro → busca básica → filtro avançado → prateleira → puxar.
+// Radar (slide "Buscar empresas" DENTRO de /vendas — 27/06 o Radar deixou de ser
+// tela própria; /leads redireciona pra /vendas e o LeadsClient roda embutido).
+// Por isso os passos vivem na rota "/vendas" e o tour é disparado pelo "Como usar"
+// quando a slide está aberta (shell detecta .vnd-slidetrack.is-buscar). Fluxo:
+// tamanho do lago → mirar filtro → ligar o motor → prateleira/carteira → puxar → cota.
 function leadsModuleSteps(): CoachStep[] {
   return [
     {
@@ -202,35 +196,51 @@ function leadsModuleSteps(): CoachStep[] {
       cta: "Bora",
     },
     {
-      id: "leads-busca",
+      id: "leads-kpis",
       route: "/vendas",
-      target: '[data-tut="buscar-busca"]',
-      title: "Diga o que procura",
-      body: "Descreva aqui o que você quer — ex.: restaurante em Fortaleza. Logo abaixo dá pra travar estado, cidade, segmento e só quem tem WhatsApp. O Radar filtra a base na hora.",
+      target: '[data-tut="leads-kpis"]',
+      title: "O tamanho do lago",
+      body: "Esse número é o Brasil inteiro: o total de empresas que o Radar já tem catalogadas pra você garimpar.",
       gate: "next",
     },
     {
-      id: "leads-avancado",
+      id: "leads-filtros",
       route: "/vendas",
-      target: '[data-tut="buscar-avancado"]',
-      title: "Mire fino",
-      body: "Quer afinar a mira? Abra o Filtro avançado: CNAE, porte, capital, idade da empresa, sócio e até esconder e-mail de contador.",
+      target: '[data-tut="leads-filtros"]',
+      title: "Aqui você mira",
+      body: "Escolha estado, cidade e alcance — e logo abaixo o segmento que você atende. É o que diz pro Radar o tipo de empresa que você procura.",
+      gate: "next",
+    },
+    {
+      id: "leads-buscar",
+      route: "/vendas",
+      target: '[data-tut="leads-buscar"]',
+      title: "Liga o motor",
+      body: "Isso manda o Radar varrer a internet com a sua cidade e segmento e trazer empresas novinhas pra prateleira.",
       gate: "next",
     },
     {
       id: "leads-abas",
       route: "/vendas",
-      target: '[data-tut="buscar-resultados"]',
-      title: "A prateleira",
-      body: "Estas são as empresas “Disponíveis” pro seu filtro. O contato fica escondido aqui — ele libera quando você puxa a empresa pra você.",
+      target: '[data-tut="leads-abas"]',
+      title: "Prateleira e carteira",
+      body: "“Disponíveis” é a prateleira, com o contato ainda escondido. Quando você puxa, a empresa vira sua e o contato libera.",
       gate: "next",
     },
     {
       id: "leads-puxar",
       route: "/vendas",
-      target: '[data-tut="buscar-puxar"]',
+      target: '[data-tut="leads-puxar"]',
       title: "Puxar pra você",
-      body: "Clique em Puxar (ou marque várias e use “Puxar selecionados”): o contato aparece e a empresa entra no seu funil, pronta pra abordar.",
+      body: "Marque as empresas e clique aqui: o contato aparece e elas entram na sua carteira, prontas pra abordar.",
+      gate: "next",
+    },
+    {
+      id: "leads-cota",
+      route: "/vendas",
+      target: '[data-tut="leads-cota"]',
+      title: "Seu limite",
+      body: "Mostra quantas empresas você pode ter em mãos. Encheu? Feche uma venda ou agende um retorno pra abrir vaga.",
       gate: "next",
     },
   ];
