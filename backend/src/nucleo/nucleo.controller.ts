@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   NotFoundException,
@@ -11,11 +12,15 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
 import { NucleoCadastroService } from './nucleo-cadastro.service';
 import {
   CreateContaDto,
   CreateContatoDto,
+  MergeContaDto,
+  SoftDeleteDto,
   UpdateContaDto,
   UpdateContatoDto,
 } from './dto/nucleo.dto';
@@ -145,6 +150,51 @@ export class NucleoController {
   async updateContato(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateContatoDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.updateContato(companyId, id, dto);
+    if (!res) throw new NotFoundException('Contato não encontrado');
+    return res;
+  }
+
+  // ── NÚCLEO-CRM R3 — integridade: merge de contas + soft-delete ─────────────
+
+  /**
+   * Funde a conta `:id` na `into` (mesma empresa). ADMIN-only (RolesGuard + @Admin):
+   * fundir contas é destrutivo pra base. O vencedor (base) é quem tem mais dado; refs
+   * migram; a perdedora vira DeletionRecord. Idempotente (fundir consigo mesma = no-op).
+   */
+  @Post('contas/:id/merge')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async mergeConta(@Req() req: any, @Param('id') id: string, @Body() dto: MergeContaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.mergeContas(companyId, id, dto.into, {
+      deletedByUserId: Number(req.user?.id) || null,
+      motivo: dto.motivo ?? null,
+    });
+    // conta (source OU into) inexistente / de outro tenant → 404 (isolamento).
+    if (!res) throw new NotFoundException('Conta não encontrada');
+    return res;
+  }
+
+  /** Soft-delete de uma CONTA (snapshot em DeletionRecord + esconde). Company-scoped. */
+  @Delete('contas/:id')
+  async deleteConta(@Req() req: any, @Param('id') id: string, @Body() dto?: SoftDeleteDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.softDeleteConta(companyId, id, {
+      deletedByUserId: Number(req.user?.id) || null,
+      motivo: dto?.motivo ?? null,
+    });
+    if (!res) throw new NotFoundException('Conta não encontrada');
+    return res;
+  }
+
+  /** Soft-delete de um CONTATO (snapshot + remove). Company-scoped. */
+  @Delete('contatos/:id')
+  async deleteContato(@Req() req: any, @Param('id') id: string, @Body() dto?: SoftDeleteDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.softDeleteContato(companyId, id, {
+      deletedByUserId: Number(req.user?.id) || null,
+      motivo: dto?.motivo ?? null,
+    });
     if (!res) throw new NotFoundException('Contato não encontrado');
     return res;
   }

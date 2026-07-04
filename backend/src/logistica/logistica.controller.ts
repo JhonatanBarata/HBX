@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   NotFoundException,
@@ -95,6 +96,21 @@ export class LogisticaController {
   async cancelar(@Req() req: any, @Param('id') id: string, @Body() dto: CancelarEntregaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo);
+    if (!res) throw new NotFoundException('Entrega não encontrada');
+    return res;
+  }
+
+  /**
+   * R3 — soft-delete de uma entrega: snapshot em DeletionRecord + esconde (marca
+   * 'cancelada'). Company-scoped. Idempotente. NÃO dispara nada externo.
+   */
+  @Delete('entregas/:id')
+  async deleteEntrega(@Req() req: any, @Param('id') id: string, @Body() dto?: CancelarEntregaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.softDeleteEntrega(companyId, id, {
+      deletedByUserId: Number(req.user?.id) || null,
+      motivo: dto?.motivo ?? null,
+    });
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
   }

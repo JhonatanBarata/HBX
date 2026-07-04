@@ -31,37 +31,42 @@ function buildEntrega(overrides: Record<string, any> = {}) {
 function buildPrismaMock(entrega: any, conta: any) {
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
-  return {
-    chargesCreated,
-    entregaUpdates,
-    prisma: {
-      entrega: {
-        findFirst: async () => entrega,
-        update: async (args: any) => {
-          entregaUpdates.push(args.data);
-          if (args.data?.cobrancaStatus) entrega.cobrancaStatus = args.data.cobrancaStatus;
-          return { id: entrega.id, ...args.data };
-        },
+  const prisma: any = {
+    entrega: {
+      findFirst: async () => entrega,
+      update: async (args: any) => {
+        entregaUpdates.push(args.data);
+        if (args.data?.cobrancaStatus) entrega.cobrancaStatus = args.data.cobrancaStatus;
+        if (args.data?.status) entrega.status = args.data.status;
+        return { id: entrega.id, ...args.data };
       },
-      customerProfile: {
-        findFirst: async () => conta,
+    },
+    // M4/R3 — quantidades por item (dentro da tx do confirmar). No-op observável.
+    entregaItem: {
+      updateMany: async () => ({ count: 1 }),
+    },
+    customerProfile: {
+      findFirst: async () => conta,
+    },
+    contato: {
+      findFirst: async () => null,
+    },
+    financeiroCharge: {
+      // idempotência dura: já existe charge desta entrega?
+      findFirst: async (args: any) => {
+        const entregaId = args?.where?.entregaId;
+        return chargesCreated.find((c) => c.entregaId === entregaId) || null;
       },
-      contato: {
-        findFirst: async () => null,
+      create: async (args: any) => {
+        chargesCreated.push(args.data);
+        return { id: `charge-${chargesCreated.length}`, ...args.data };
       },
-      financeiroCharge: {
-        // idempotência dura: já existe charge desta entrega?
-        findFirst: async (args: any) => {
-          const entregaId = args?.where?.entregaId;
-          return chargesCreated.find((c) => c.entregaId === entregaId) || null;
-        },
-        create: async (args: any) => {
-          chargesCreated.push(args.data);
-          return { id: `charge-${chargesCreated.length}`, ...args.data };
-        },
-      },
-    } as any,
+    },
+    // R3 — transação interativa do confirmar: roda o callback com o MESMO prisma (o
+    // mock não isola de verdade, mas prova que o serviço passa por $transaction).
+    $transaction: async (fn: any) => fn(prisma),
   };
+  return { chargesCreated, entregaUpdates, prisma };
 }
 
 // LogisticaRotaService stub: o re-ETA pós-ação (M3) é aditivo/best-effort e não

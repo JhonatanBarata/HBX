@@ -655,6 +655,11 @@ model FinanceiroCharge {
   @@index([companyId, status, createdAt])
   @@index([companyId, customerProfileId])
   @@index([companyId, dueDate, status])
+  // NÚCLEO-CRM R3 (05/07) — 1 cobrança POR entrega (mata a corrida do R2). O UNIQUE
+  // é PARCIAL (WHERE entregaId IS NOT NULL), o que o Prisma 5.x NÃO expressa no DSL,
+  // então vive em raw SQL na migration 20260705070000_integridade_espinha (mesmo
+  // padrão do IntegrationSyncRun_connectionId_running_key). Aqui fica só o @@index
+  // de consulta; o índice único parcial ("FinanceiroCharge_entregaId_key") está no SQL.
   @@index([companyId, entregaId])
 }
 
@@ -942,6 +947,12 @@ model CustomerProfile {
   @@index([companyId, status])
   @@index([companyId, isCliente])
   @@index([companyId, tipo])
+  // NÚCLEO-CRM R3 (05/07) — 1 conta PJ por CNPJ dentro da empresa (mata a corrida de
+  // conta duplicada no pull do Radar). O UNIQUE é PARCIAL (WHERE cnpj IS NOT NULL) — PF
+  // sem CNPJ nunca colide —, algo que o Prisma 5.x NÃO expressa no DSL; por isso vive em
+  // raw SQL na migration 20260705070000_integridade_espinha (com dedupe ANTES do índice),
+  // no mesmo padrão do IntegrationSyncRun. Aqui fica só o @@index de consulta; o índice
+  // único parcial ("CustomerProfile_companyId_cnpj_key") está no SQL da migration.
   @@index([companyId, cnpj])
 }
 

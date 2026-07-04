@@ -701,6 +701,234 @@ export class NucleoCadastroService {
     });
     return { id: updated.id };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // NÚCLEO-CRM R3 (05/07) — INTEGRIDADE da espinha (PLANO-ROBUSTEZ).
+  //
+  // (b) MERGE de contas duplicadas (radar×manual): funde a conta `sourceId` na
+  //     `intoId` (MESMA empresa). Regra: QUEM TEM MAIS DADO VENCE como base — o
+  //     vencedor sobrevive, as refs (Entrega/Contato/ClienteProduto/FinanceiroCharge/
+  //     VendasLead) da PERDEDORA migram para o vencedor, a perdedora vira DeletionRecord
+  //     (snapshot) e é removida. ATÔMICO ($transaction). Idempotente/seguro: não funde
+  //     consigo mesma, valida que AS DUAS contas são do tenant.
+  //
+  // (d) SOFT-DELETE de Conta/Contato/Entrega: grava DeletionRecord (snapshot) e ESCONDE
+  //     o registro, seguindo o padrão do repo. Company-scoped (isolamento duro).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Funde `sourceId` em `intoId` (mesma empresa). O VENCEDOR (base) é quem tem mais
+   * dado preenchido — não necessariamente o `intoId`. Migra as referências da
+   * perdedora → vencedora, snapshota a perdedora em DeletionRecord e a remove.
+   * Retorna { winnerId, loserId, moved } ou null (conta inexistente / tenant errado).
+   */
+  async mergeContas(
+    companyId: number,
+    sourceId: string,
+    intoId: string,
+    opts: { deletedByUserId?: number | null; motivo?: string | null } = {},
+  ): Promise<MergeResult | null> {
+    if (!companyId) throw new Error('mergeContas: companyId é obrigatório');
+    const a = String(sourceId || '').trim();
+    const b = String(intoId || '').trim();
+    if (!a || !b) return null;
+    // Fundir consigo mesma é no-op seguro (idempotente).
+    if (a === b) {
+      const self = await this.prisma.customerProfile.findFirst({
+        where: { id: a, companyId },
+        select: { id: true },
+      });
+      if (!self) return null;
+      return { winnerId: a, loserId: a, moved: {}, noop: true };
+    }
+
+    // AS DUAS contas TÊM de ser desta empresa (isolamento duro — nunca funde cross-tenant).
+    const [ca, cb] = await Promise.all([
+      this.prisma.customerProfile.findFirst({ where: { id: a, companyId }, select: MERGE_ACCOUNT_SELECT }),
+      this.prisma.customerProfile.findFirst({ where: { id: b, companyId }, select: MERGE_ACCOUNT_SELECT }),
+    ]);
+    if (!ca || !cb) return null;
+
+    // Quem tem MAIS DADO vence (empate → o mais ANTIGO; empate final → menor id).
+    const winner = pickRicherAccount(ca, cb);
+    const loser = winner.id === ca.id ? cb : ca;
+
+    // Atômico: migra refs + preenche buracos do vencedor + snapshot + remove a perdedora.
+    const moved = await this.prisma.$transaction(async (tx) => {
+      const scope = (customerProfileId: string) => ({ companyId, customerProfileId });
+      const [entregas, contatos, clienteProdutos, charges, leads] = await Promise.all([
+        tx.entrega.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+        tx.contato.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+        tx.clienteProduto.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+        tx.financeiroCharge.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+        tx.vendasLead.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+      ]);
+
+      // Papéis são acumulativos (só LIGAM) + preenche campos VAZIOS do vencedor com os
+      // da perdedora (não sobrescreve o que o vencedor já tem — ele é a base).
+      const fill = buildWinnerFill(winner, loser);
+      await tx.customerProfile.update({ where: { id: winner.id }, data: fill });
+
+      // Snapshot da perdedora ANTES de apagar (padrão DeletionRecord do repo).
+      await tx.deletionRecord.create({
+        data: {
+          moduleKey: 'nucleo',
+          entityType: 'CustomerProfile',
+          entityId: loser.id,
+          companyId,
+          motivo: opts.motivo ?? `merge → ${winner.id}`,
+          snapshot: JSON.stringify({ ...loser, mergedInto: winner.id }),
+          deletedByUserId: opts.deletedByUserId ?? null,
+        },
+      });
+
+      // Remove a perdedora (as refs da espinha já apontam pro vencedor; as demais
+      // filhas com FK Cascade/SetNull resolvem sozinhas).
+      await tx.customerProfile.delete({ where: { id: loser.id } });
+
+      return {
+        entregas: entregas.count,
+        contatos: contatos.count,
+        clienteProdutos: clienteProdutos.count,
+        financeiroCharges: charges.count,
+        vendasLeads: leads.count,
+      };
+    });
+
+    this.logger.log(`[nucleo] merge conta loser=${loser.id} → winner=${winner.id} company=${companyId} moved=${JSON.stringify(moved)}`);
+    return { winnerId: winner.id, loserId: loser.id, moved };
+  }
+
+  /**
+   * SOFT-DELETE de uma CONTA (CustomerProfile): snapshot em DeletionRecord + esconde
+   * (status='deleted', isCliente/isLead/isFornecedor off pra sumir das janelas).
+   * Company-scoped. Retorna { id } ou null (inexistente / tenant errado).
+   */
+  async softDeleteConta(
+    companyId: number,
+    id: string,
+    opts: { deletedByUserId?: number | null; motivo?: string | null } = {},
+  ): Promise<{ id: string } | null> {
+    if (!companyId || !id) return null;
+    const row = await this.prisma.customerProfile.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: MERGE_ACCOUNT_SELECT,
+    });
+    if (!row) return null;
+    if (row.status === 'deleted') return { id: row.id }; // idempotente
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.deletionRecord.create({
+        data: {
+          moduleKey: 'nucleo',
+          entityType: 'CustomerProfile',
+          entityId: row.id,
+          companyId,
+          motivo: opts.motivo ?? null,
+          snapshot: JSON.stringify(row),
+          deletedByUserId: opts.deletedByUserId ?? null,
+        },
+      });
+      await tx.customerProfile.update({
+        where: { id: row.id },
+        data: { status: 'deleted', isCliente: false, isLead: false, isFornecedor: false },
+      });
+    });
+    return { id: row.id };
+  }
+
+  /**
+   * SOFT-DELETE de um CONTATO: snapshot + remove a linha (Contato não tem coluna de
+   * status; o padrão do repo é snapshot-e-apaga quando não há flag de ocultação). O
+   * histórico fica no DeletionRecord. Company-scoped.
+   */
+  async softDeleteContato(
+    companyId: number,
+    id: string,
+    opts: { deletedByUserId?: number | null; motivo?: string | null } = {},
+  ): Promise<{ id: string } | null> {
+    if (!companyId || !id) return null;
+    const row = await this.prisma.contato.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: {
+        id: true, companyId: true, customerProfileId: true, nome: true, cargo: true,
+        whatsapp: true, phone: true, email: true, isPrincipal: true, source: true,
+      },
+    });
+    if (!row) return null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.deletionRecord.create({
+        data: {
+          moduleKey: 'nucleo',
+          entityType: 'Contato',
+          entityId: row.id,
+          companyId,
+          motivo: opts.motivo ?? null,
+          snapshot: JSON.stringify(row),
+          deletedByUserId: opts.deletedByUserId ?? null,
+        },
+      });
+      await tx.contato.delete({ where: { id: row.id } });
+    });
+    return { id: row.id };
+  }
+
+}
+
+// ── R3 — helpers de merge/integridade ─────────────────────────────────────────
+
+// Campos lidos das duas contas p/ decidir o vencedor + snapshot da perdedora.
+const MERGE_ACCOUNT_SELECT = {
+  id: true, companyId: true, tipo: true, name: true, cnpj: true, document: true,
+  phone: true, phoneNormalized: true, email: true, endereco: true, cidade: true,
+  uf: true, cep: true, lat: true, lng: true, status: true,
+  isLead: true, isCliente: true, isFornecedor: true, origin: true, createdAt: true,
+} as const;
+
+type MergeAccount = {
+  id: string; companyId: number; tipo: string | null; name: string | null;
+  cnpj: string | null; document: string | null; phone: string | null;
+  phoneNormalized: string | null; email: string | null; endereco: string | null;
+  cidade: string | null; uf: string | null; cep: string | null;
+  lat: number | null; lng: number | null; status: string | null;
+  isLead: boolean; isCliente: boolean; isFornecedor: boolean; origin: string | null;
+  createdAt: Date | null;
+};
+
+// "Riqueza" = quantos campos de contato/endereço a conta tem preenchidos.
+function accountRichness(a: MergeAccount): number {
+  const has = (v: unknown) => (typeof v === 'string' ? v.trim().length > 0 : v != null);
+  const fields: unknown[] = [a.name, a.cnpj, a.document, a.phone, a.email, a.endereco, a.cidade, a.uf, a.cep, a.lat, a.lng];
+  return fields.reduce<number>((n, v) => n + (has(v) ? 1 : 0), 0);
+}
+
+// Quem vence: mais dado; empate → o mais ANTIGO (createdAt asc); empate final → menor id.
+export function pickRicherAccount(a: MergeAccount, b: MergeAccount): MergeAccount {
+  const ra = accountRichness(a);
+  const rb = accountRichness(b);
+  if (ra !== rb) return ra > rb ? a : b;
+  const ta = a.createdAt ? a.createdAt.getTime() : Number.MAX_SAFE_INTEGER;
+  const tb = b.createdAt ? b.createdAt.getTime() : Number.MAX_SAFE_INTEGER;
+  if (ta !== tb) return ta < tb ? a : b;
+  return a.id < b.id ? a : b;
+}
+
+// Preenche SÓ os buracos do vencedor com os dados da perdedora (não sobrescreve o que
+// o vencedor já tem — ele é a base) + acumula papéis (só LIGA).
+function buildWinnerFill(winner: MergeAccount, loser: MergeAccount): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  const empty = (v: unknown) => (typeof v === 'string' ? v.trim().length === 0 : v == null);
+  const carry = <K extends keyof MergeAccount>(key: K, col = key as string) => {
+    if (empty(winner[key]) && !empty(loser[key])) data[col] = loser[key];
+  };
+  carry('name'); carry('cnpj'); carry('document'); carry('phone'); carry('phoneNormalized');
+  carry('email'); carry('endereco'); carry('cidade'); carry('uf'); carry('cep');
+  carry('lat'); carry('lng');
+  if (loser.isLead) data.isLead = true;
+  if (loser.isCliente) data.isCliente = true;
+  if (loser.isFornecedor) data.isFornecedor = true;
+  return data;
 }
 
 function normalizeDigits(value: string | null | undefined): string {
@@ -888,4 +1116,18 @@ export interface UpdateContatoInput {
   phone?: string | null;
   email?: string | null;
   isPrincipal?: boolean;
+}
+
+// ── R3 — merge de contas ──────────────────────────────────────────────────────
+export interface MergeResult {
+  winnerId: string;
+  loserId: string;
+  moved: {
+    entregas?: number;
+    contatos?: number;
+    clienteProdutos?: number;
+    financeiroCharges?: number;
+    vendasLeads?: number;
+  };
+  noop?: boolean;
 }

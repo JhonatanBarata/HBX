@@ -291,38 +291,41 @@ export class LogisticaService {
     const receiptMethod = normalizeReceipt(gps.receiptMethod);
     const recebidoNaHora = receiptMethod === 'pix' || receiptMethod === 'dinheiro' ? true : undefined;
 
-    // Passo 1 (SEMPRE): grava status/GPS. Idempotente — reconfirmar não duplica efeito.
+    // Passo 1 (SEMPRE): grava status/GPS + as quantidades por item numa MESMA TRANSAÇÃO.
+    // R3 — atomicidade do NÚCLEO do confirmar: ou o status 'entregue'/GPS E as qtd dos
+    // itens caem juntos, ou nada cai (rollback). Assim o desfecho fica CONSISTENTE — não
+    // existe "entregue com itens pela metade". A transação envolve APENAS escrita local
+    // (Entrega + EntregaItem desta entrega); os efeitos externos (WhatsApp blindado +
+    // cobrança) ficam FORA da tx, como antes — nada de I/O externo dentro de transação.
+    // Idempotente: reconfirmar não duplica efeito (jaEntregue barra o Passo 2).
     const jaEntregue = entrega.status === 'entregue';
-    await this.prisma.entrega.update({
-      where: { id: entrega.id },
-      data: {
-        status: 'entregue',
-        deliveredAt: new Date(),
-        deliveredLat: lat,
-        deliveredLng: lng,
-        startedAt: undefined,
-        receiptMethod: receiptMethod ?? undefined,
-        recebidoNaHora,
-      },
-    });
-
-    // M4 — grava as quantidades do stepper por item (best-effort, aditivo). Só toca
-    // EntregaItem DESTA entrega (isolado por entregaId). Erro aqui não afeta o desfecho.
-    if (Array.isArray(gps.itens) && gps.itens.length > 0) {
-      for (const it of gps.itens) {
-        const itemId = String(it?.id || '').trim();
-        const qtd = Number(it?.qtdEntregue);
-        if (!itemId || !Number.isFinite(qtd)) continue;
-        try {
-          await this.prisma.entregaItem.updateMany({
-            where: { id: itemId, entregaId: entrega.id },
-            data: { qtdEntregue: Math.max(0, Math.trunc(qtd)) },
-          });
-        } catch (e: any) {
-          this.logger.warn(`[logistica] gravar qtdEntregue item=${itemId} falhou: ${String(e?.message || e)}`);
-        }
+    const itensValidos = Array.isArray(gps.itens)
+      ? gps.itens
+          .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue) }))
+          .filter((it) => it.id && Number.isFinite(it.qtd))
+      : [];
+    await this.prisma.$transaction(async (tx) => {
+      await tx.entrega.update({
+        where: { id: entrega.id },
+        data: {
+          status: 'entregue',
+          deliveredAt: new Date(),
+          deliveredLat: lat,
+          deliveredLng: lng,
+          startedAt: undefined,
+          receiptMethod: receiptMethod ?? undefined,
+          recebidoNaHora,
+        },
+      });
+      // M4 — quantidades do stepper por item. Só toca EntregaItem DESTA entrega (isolado
+      // por entregaId). Dentro da tx: se algo aqui falhar, o status também não muda.
+      for (const it of itensValidos) {
+        await tx.entregaItem.updateMany({
+          where: { id: it.id, entregaId: entrega.id },
+          data: { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) },
+        });
       }
-    }
+    });
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.
@@ -366,6 +369,53 @@ export class LogisticaService {
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
     await this.recalcularEtaSilencioso(companyId);
     return { id: entrega.id };
+  }
+
+  // ── SOFT-DELETE (R3 — padrão DeletionRecord do repo) ────────────────────────
+  /**
+   * R3 (05/07) — soft-delete de uma ENTREGA: snapshot em DeletionRecord + esconde
+   * marcando 'cancelada' (a Entrega tem coluna de status; não some do banco, sai da
+   * rota). ATÔMICO ($transaction: snapshot + esconde caem juntos). Company-scoped
+   * (isolamento duro). Idempotente (já cancelada = no-op). NÃO dispara nada externo.
+   */
+  async softDeleteEntrega(
+    companyId: number,
+    id: string,
+    opts: { deletedByUserId?: number | null; motivo?: string | null } = {},
+  ): Promise<{ id: string } | null> {
+    if (!companyId || !id) return null;
+    const row = await this.prisma.entrega.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: {
+        id: true, companyId: true, customerProfileId: true, contatoId: true, productId: true,
+        quantidade: true, valor: true, status: true, scheduledAt: true, deliveredAt: true,
+        cobrancaStatus: true, notes: true,
+      },
+    });
+    if (!row) return null;
+    if (row.status === 'cancelada') return { id: row.id }; // idempotente
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.deletionRecord.create({
+        data: {
+          moduleKey: 'logistica',
+          entityType: 'Entrega',
+          entityId: row.id,
+          companyId,
+          motivo: opts.motivo ?? null,
+          snapshot: JSON.stringify(row),
+          deletedByUserId: opts.deletedByUserId ?? null,
+        },
+      });
+      await tx.entrega.update({
+        where: { id: row.id },
+        data: {
+          status: 'cancelada',
+          notes: `${row.notes ? row.notes + ' | ' : ''}Excluída (soft-delete)`.slice(0, 500),
+        },
+      });
+    });
+    return { id: row.id };
   }
 
   // ── EFEITO 1: WhatsApp "entregue" (caminho blindado, sem loop/socket/API-crua) ─
@@ -565,25 +615,39 @@ export class LogisticaService {
     const dueDate = forma === 'pendura' ? proximoDiaFechamento(conta?.diaFechamento) : new Date();
 
     const nome = String(conta?.name || 'cliente').trim();
-    await this.prisma.financeiroCharge.create({
-      data: {
-        companyId,
-        amount,
-        currency: 'BRL',
-        description: `Entrega — ${nome}`.slice(0, 180),
-        // billingCycle: cobrança da entrega é PONTUAL (não recorrente) → ONCE.
-        billingCycle: 'ONCE',
-        paymentMethod: 'MANUAL',
-        status: 'pending',
-        lifecycle: 'in_progress',
-        // R2 — LINK: cliente + entrega + origem + vencimento (mata dívidas 2/3/4).
-        customerProfileId: entrega.customerProfileId,
-        entregaId: entrega.id,
-        sourceModule: 'logistica_entrega',
-        dueDate,
-        providerPayload: JSON.stringify({ source: 'logistica_entrega', entregaId: entrega.id, forma }),
-      },
-    });
+    // R3 — a criação do charge por entrega é ATÔMICA no banco: o índice UNIQUE PARCIAL
+    // "FinanceiroCharge_entregaId_key" (WHERE entregaId IS NOT NULL) garante 1 charge
+    // por entrega mesmo sob 2 confirmarEntrega simultâneos. Se o INSERT bater no unique
+    // (P2002), a corrida foi perdida: OUTRA chamada já criou o charge desta entrega →
+    // trata como "já existe" (idempotente), marca 'lancada' e NÃO propaga o erro.
+    try {
+      await this.prisma.financeiroCharge.create({
+        data: {
+          companyId,
+          amount,
+          currency: 'BRL',
+          description: `Entrega — ${nome}`.slice(0, 180),
+          // billingCycle: cobrança da entrega é PONTUAL (não recorrente) → ONCE.
+          billingCycle: 'ONCE',
+          paymentMethod: 'MANUAL',
+          status: 'pending',
+          lifecycle: 'in_progress',
+          // R2 — LINK: cliente + entrega + origem + vencimento (mata dívidas 2/3/4).
+          customerProfileId: entrega.customerProfileId,
+          entregaId: entrega.id,
+          sourceModule: 'logistica_entrega',
+          dueDate,
+          providerPayload: JSON.stringify({ source: 'logistica_entrega', entregaId: entrega.id, forma }),
+        },
+      });
+    } catch (e: any) {
+      if (isUniqueViolation(e)) {
+        // Corrida perdida: o charge desta entrega já foi criado por outra chamada.
+        await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
+        return false;
+      }
+      throw e;
+    }
     await this.prisma.entrega.update({ where: { id: entrega.id }, data: { cobrancaStatus: 'lancada' } });
     return true;
   }
@@ -758,6 +822,14 @@ function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'f
 // R2 — dinheiro é sempre 2 casas (evita 19.999999 virar cobrança).
 function round2(v: number): number {
   return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+// R3 — violação de unique (Prisma P2002 OU o code 23505 do Postgres cru). Usado pra
+// tratar a corrida do charge-por-entrega como "já existe" (idempotente), sem depender
+// de importar o namespace do Prisma (o mock de teste também bate aqui por code).
+function isUniqueViolation(e: any): boolean {
+  const code = e?.code;
+  return code === 'P2002' || code === '23505';
 }
 
 // R2 — status de cobrança já-RESOLVIDO (não relança). 'lancada'/'faturada' já viraram

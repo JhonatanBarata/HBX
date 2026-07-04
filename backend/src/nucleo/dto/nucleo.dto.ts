@@ -203,6 +203,29 @@ export class CreateContatoDto {
   isPrincipal?: boolean;
 }
 
+// ── R3 — MERGE de contas duplicadas (funde a conta da rota `:id` na `into`) ──────
+export class MergeContaDto {
+  // A conta destino (a "into"). O vencedor real é decidido por riqueza de dado no
+  // serviço; este é o par a fundir. companyId NUNCA vem do body (sai do JWT).
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  into!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  motivo?: string;
+}
+
+// ── R3 — SOFT-DELETE (motivo opcional; company/usuário saem do JWT) ──────────────
+export class SoftDeleteDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  motivo?: string;
+}
+
 // ── Editar CONTATO ───────────────────────────────────────────────────────────
 export class UpdateContatoDto {
   @IsOptional()
