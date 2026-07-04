@@ -111,11 +111,11 @@ function paintChk(sel, on, pending) {
 }
 
 /* ---------- Banco de leads (local + VPS) ---------- */
-async function renderLocalBank() {
+async function renderLocalBank(preBank) {
   const set = (sel, txt, cls) => { const e = $(sel); if (e) { e.textContent = txt; if (cls != null) e.className = cls; } };
   try {
-    const b = await api("GET", "/owner/leads-bank");
-    if (b.ok && b.total != null) {
+    const b = preBank !== undefined ? preBank : await api("GET", "/owner/leads-bank");
+    if (b && b.ok && b.total != null) {
       const total = Number(b.total);
       const delta = Number(b.deltaToday || 0);
       set("#sys-bank-local", total.toLocaleString("pt-BR"));
@@ -123,8 +123,8 @@ async function renderLocalBank() {
       set("#sys-leads-falling", delta > 0 ? `▲ +${delta} caindo hoje` : "parado hoje");
       return { total, delta };
     }
-    set("#sys-bank-local", b.configured ? "indisponível" : "config token");
-    set("#sys-bank-local-delta", b.reason || "");
+    set("#sys-bank-local", b && b.configured ? "indisponível" : "config token");
+    set("#sys-bank-local-delta", (b && b.reason) || "");
     return { total: null, delta: 0 };
   } catch {
     set("#sys-bank-local", "—");
@@ -134,17 +134,20 @@ async function renderLocalBank() {
 
 let vpsBankLoading = false;
 let vpsBankAt = 0;
-async function refreshVpsBank(force) {
-  if (vpsBankLoading) return;
-  if (!force && vpsBankAt && Date.now() - vpsBankAt < 60000) return;
-  vpsBankLoading = true;
+async function refreshVpsBank(force, preLeads) {
+  // Sprint 4: com preLeads (snapshot SSE) pinta direto, sem re-fetch nem cache-gate nem lock.
+  if (preLeads === undefined) {
+    if (vpsBankLoading) return;
+    if (!force && vpsBankAt && Date.now() - vpsBankAt < 60000) return;
+    vpsBankLoading = true;
+  }
   // mesma contagem do VPS aparece no header do Cockpit (#sys-bank-vps) e no card Banco de leads (#sys-bank-vps-mini)
   const setVpsCount = (txt) => { document.querySelectorAll("#sys-bank-vps, #sys-bank-vps-mini").forEach((e) => { e.textContent = txt; }); };
   const delta = $("#sys-bank-vps-delta");
-  if (delta && (!vpsBankAt || force)) delta.textContent = "lendo a VPS…";
+  if (preLeads === undefined && delta && (!vpsBankAt || force)) delta.textContent = "lendo a VPS…";
   try {
-    const d = await api("GET", "/owner/vps/leads");
-    if (d.ok && d.total != null) {
+    const d = preLeads !== undefined ? preLeads : await api("GET", "/owner/vps/leads");
+    if (d && d.ok && d.total != null) {
       setVpsCount(Number(d.total).toLocaleString("pt-BR"));
       if (delta) {
         delta.textContent = d.today > 0 ? `+${d.today} em 24h` : "sem novos 24h";
@@ -152,8 +155,8 @@ async function refreshVpsBank(force) {
       }
       vpsBankAt = Date.now();
     } else {
-      setVpsCount(d.configured === false ? "config Ops" : "—");
-      if (delta) delta.textContent = d.reason || "VPS indisponível";
+      setVpsCount(d && d.configured === false ? "config Ops" : "—");
+      if (delta) delta.textContent = (d && d.reason) || "VPS indisponível";
     }
   } catch {
     if (delta) delta.textContent = "erro lendo VPS";
@@ -166,10 +169,12 @@ async function refreshVpsBank(force) {
    O VPS não tem fábrica (IP de datacenter barrado pela fonte). Aqui só mostramos, em
    leitura, quantos motores estão de pé pra atender as buscas de cliente — SEM botões de
    fábrica, sem chips, sem barra. Fonte: /owner/vps/engines-status (read-only). */
-async function renderVpsEngines() {
-  let c;
-  try { c = await api("GET", "/owner/vps/engines-status"); }
-  catch (err) { c = { ok: false, reason: err.message }; }
+async function renderVpsEngines(preEngines) {
+  let c = preEngines;
+  if (c === undefined) {
+    try { c = await api("GET", "/owner/vps/engines-status"); }
+    catch (err) { c = { ok: false, reason: err.message }; }
+  }
 
   const big = $("#vps-engines-big");
   const line = $("#vps-engines-line");
@@ -259,15 +264,24 @@ function markToggleUnknown(key) {
 }
 function paintLabToggle(on) { setToggleReal("lab", on); }
 
-async function renderSistema() {
-  const bankPromise = renderLocalBank();
-  refreshVpsBank();
+async function renderSistema(preSystem, preBank) {
+  // Sprint 4: se veio do snapshot SSE (preSystem/preBank), pinta desses dados — sem re-fetch.
+  // Sem pré (timer/fallback), busca como antes. Contrato idêntico pro caminho de polling.
+  const bankPromise = preBank !== undefined ? renderLocalBank(preBank) : renderLocalBank();
+  if (preSystem === undefined) refreshVpsBank();
 
-  let s;
-  try {
-    s = await api("GET", "/owner/system");
-  } catch (err) {
-    $("#sys-engines-counts").textContent = `erro: ${err.message}`;
+  let s = preSystem;
+  if (s === undefined) {
+    try {
+      s = await api("GET", "/owner/system");
+    } catch (err) {
+      $("#sys-engines-counts").textContent = `erro: ${err.message}`;
+      return;
+    }
+  }
+  if (!s || s.ok === false) {
+    $("#sys-engines-counts").textContent = s && s.reason ? `sistema: ${s.reason}` : "sistema indisponível";
+    await bankPromise.catch(() => ({ total: null }));
     return;
   }
 
@@ -309,17 +323,25 @@ async function renderSistema() {
 }
 
 /* ---------- VPS (pressão + motores + veredito), via Ops Control ---------- */
-async function renderVps() {
+async function renderVps(preVps, preLeads, preEngines) {
+  // Sprint 4: com pré (snapshot SSE) pinta sem re-fetch; sem pré (timer/fallback) busca como antes.
   const status = $("#vps-status");
-  status.textContent = "lendo a VPS…";
-  status.className = "resumo";
-  refreshVpsBank();
-  renderVpsEngines();   // VPS = receptor: só lê quantos motores atendem cliente (read-only)
-  let v;
-  try {
-    v = await api("GET", "/owner/vps/system");
-  } catch (err) {
-    status.textContent = `erro: ${err.message}`;
+  if (preVps === undefined) { status.textContent = "lendo a VPS…"; status.className = "resumo"; }
+  refreshVpsBank(false, preLeads);
+  renderVpsEngines(preEngines);   // VPS = receptor: só lê quantos motores atendem cliente (read-only)
+  let v = preVps;
+  if (v === undefined) {
+    try {
+      v = await api("GET", "/owner/vps/system");
+    } catch (err) {
+      status.textContent = `erro: ${err.message}`;
+      status.className = "resumo bad";
+      paintPill("#st-vps", "vps off", "bad");
+      return;
+    }
+  }
+  if (!v) {
+    status.textContent = "VPS indisponível";
     status.className = "resumo bad";
     paintPill("#st-vps", "vps off", "bad");
     return;
@@ -2344,13 +2366,124 @@ aiLocalRender();
 treeCardsRender();
 xrayJobsRender();
 xrayUpdateLineCount();
-setInterval(renderSistema, 5000);
+// ─────────────────────────── TIMERS DE POLLING (FALLBACK À PROVA DE BALA) ───────────────────────────
+// Sprint 4: os que o SSE consegue empurrar (system + banco + motores VPS) viram timers GERENCIÁVEIS.
+// Enquanto o SSE está SAUDÁVEL eles rodam DEVAGAR (mantidos vivos só como rede de segurança);
+// se o SSE cair 2× ou não existir (EventSource ausente), voltam ao ritmo ORIGINAL e o painel funciona
+// IDÊNTICO a hoje. Os demais (motor-strip/lab/ping/fábrica/IA/tree/xray) seguem no timer normal — o
+// SSE não os cobre, então nunca são desacelerados.
+const POLL_FAST = { sistema: 5000, vpsEngines: 15000 }; // ritmo original (fallback e boot)
+const POLL_SLOW = { sistema: 45000, vpsEngines: 60000 }; // com SSE vivo: só rede de segurança
+const managedTimers = {};
+let pollIsFast = true; // true = ritmo original (fallback); false = desacelerado (SSE vivo)
+function setManagedTimer(key, fn, ms) {
+  if (managedTimers[key]) clearInterval(managedTimers[key]);
+  managedTimers[key] = setInterval(fn, ms);
+}
+function applyPollRate(fast) {
+  pollIsFast = fast;
+  const rate = fast ? POLL_FAST : POLL_SLOW;
+  setManagedTimer("sistema", () => renderSistema(), rate.sistema);
+  setManagedTimer("vpsEngines", () => renderVpsEngines(), rate.vpsEngines);
+}
+applyPollRate(true); // começa no ritmo de fallback; o SSE, se conectar, desacelera
+
 setInterval(renderMotorStrip, 12000);
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);
-setInterval(renderVpsEngines, 15000);  // releitura read-only dos motores que atendem cliente no VPS
 setInterval(pingStatus, 20000);
 setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
 setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tree-status, cache 10s no backend)
+
+// ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────
+// EventSource escuta /owner/events?token=<TOKEN> (o header Authorization não passa por EventSource;
+// o agent valida o ?token= só nessa rota). Eventos: `snapshot` (árvore composta), `transfer`, `enricher`.
+//
+// FALLBACK À PROVA DE BALA (requisito nº1): o polling NUNCA é removido.
+//  • Sem EventSource no browser → connectSSE() nem tenta; os timers rodam no ritmo ORIGINAL.
+//  • SSE conectou → desacelera os timers gerenciáveis (rede de segurança) e pinta pelos eventos.
+//  • 2 erros/fechos seguidos → volta os timers ao ritmo original e mantém o EventSource tentando
+//    reconectar (retry nativo). Se voltar, `open` reacelera. O painel jamais fica sem atualização.
+const sseState = { es: null, errorStreak: 0, healthy: false };
+
+function sseFallbackToPolling(reason) {
+  if (!sseState.healthy && pollIsFast) return; // já em fallback, nada a fazer
+  sseState.healthy = false;
+  applyPollRate(true);          // ritmo original — o painel volta a se atualizar por polling
+  // dispara uma leitura imediata pra não esperar o 1º tick do timer religado
+  renderSistema(); renderVpsEngines();
+  if (reason) console.warn("[sse] fallback pra polling:", reason);
+}
+
+function paintSnapshot(snap) {
+  try {
+    if (!snap || snap.ok === false) return;
+    const local = snap.local || {};
+    const vps = snap.vps || {};
+    // Sistema (sua máquina) + banco local, sem re-fetch.
+    renderSistema(local.system, local.bank);
+    // VPS: pressão/veredito + banco VPS + motores, tudo com o MESMO generatedAt do snapshot.
+    renderVps(vps.system, vps.leads, vps.engines);
+    // Enricher (métricas). labUp não vem no snapshot → mantém o do último poll (não apaga).
+    if (snap.enricher) enrPaint(snap.enricher);
+    // Transferência (se houver estado).
+    if (snap.transfer) paintTransferFromEvent(snap.transfer);
+  } catch (err) {
+    console.warn("[sse] paintSnapshot falhou:", err && err.message);
+  }
+}
+
+// Reusa a lógica de done do polling (feed + recarrega bancos) quando o evento diz done.
+function paintTransferFromEvent(st) {
+  if (!st) return;
+  paintTransfer(st);
+  if (st.done || !st.running) {
+    setBankButtonsDisabled(false);
+    // Ao concluir, refresca os bancos (o snapshot seguinte também traz, mas isto é imediato).
+    renderLocalBank();
+    refreshVpsBank(true);
+  }
+}
+
+function connectSSE() {
+  if (typeof window.EventSource !== "function") {
+    console.warn("[sse] EventSource indisponível — seguindo 100% por polling (fallback).");
+    return; // timers já rodam no ritmo original
+  }
+  let es;
+  try {
+    es = new EventSource(`/owner/events?token=${encodeURIComponent(TOKEN)}`);
+  } catch (err) {
+    console.warn("[sse] falha ao abrir EventSource:", err && err.message);
+    sseFallbackToPolling("open_throw");
+    return;
+  }
+  sseState.es = es;
+
+  es.addEventListener("open", () => {
+    sseState.errorStreak = 0;
+    sseState.healthy = true;
+    applyPollRate(false); // SSE vivo → timers viram rede de segurança (economiza SSH/CPU)
+  });
+  es.addEventListener("snapshot", (ev) => {
+    sseState.errorStreak = 0; sseState.healthy = true;
+    try { paintSnapshot(JSON.parse(ev.data)); } catch {}
+  });
+  es.addEventListener("transfer", (ev) => {
+    sseState.errorStreak = 0; sseState.healthy = true;
+    try { paintTransferFromEvent(JSON.parse(ev.data)); } catch {}
+  });
+  es.addEventListener("enricher", (ev) => {
+    sseState.errorStreak = 0; sseState.healthy = true;
+    try { enrPaint(JSON.parse(ev.data)); } catch {}
+  });
+  es.addEventListener("error", () => {
+    // EventSource re-tenta sozinho (retry nativo). Após 2 erros seguidos, garante o fallback de polling
+    // enquanto ele não reconecta — o painel jamais fica parado.
+    sseState.errorStreak += 1;
+    if (sseState.errorStreak >= 2) sseFallbackToPolling(`errorStreak=${sseState.errorStreak}`);
+  });
+}
+connectSSE();
 setInterval(xrayJobsRender, 8000);       // histórico de jobs do Raio-X de CNPJ (HOT-04)

@@ -17,6 +17,8 @@ import {
   safeInteger,
   normalizePhoneDigits,
   parseJsonArray,
+  looksLikeNonBusinessName,
+  isRealisticBrPhone,
   RadarFiltersInput,
 } from '../shared/radar-core-shared';
 
@@ -648,6 +650,83 @@ export class RadarCoreMasterDatabaseMixin {
       enrichments,
       recoveryItems,
     };
+  }
+
+  // Decisão de "lixo" ESPELHANDO fielmente a régua única do backend (radar-core-shared):
+  // lixo = nome não parece empresa (looksLikeNonBusinessName) OU sem contato ÚTIL, ou seja,
+  // sem telefone BR realista (isRealisticBrPhone) E sem e-mail válido (emailStatus
+  // 'missing'/'invalid' NÃO conta como válido). Site/social sozinho NÃO segura o lead.
+  // Era uma cópia à mão no agent (hbx-owner/local-agent/server.js isJunkLead) — agora usa as
+  // PRIMITIVAS testadas do backend, sem duplicar a régua (Sprint 3 HBX-OWNER).
+  isJunkRadarLead(row: any) {
+    if (looksLikeNonBusinessName(row && row.name)) return true;
+    if (isRealisticBrPhone(row && (row.phone || row.phoneDigits))) return false;
+    const email = String((row && row.email) || '').trim();
+    const emailStatus = String((row && row.emailStatus) || '').toLowerCase();
+    if (email && !['missing', 'invalid'].includes(emailStatus)) return false;
+    return true; // sem telefone real E sem e-mail válido = lixo
+  }
+
+  // Limpa "lixo" do pool de leads do dono pela REGRA ÚNICA do backend. Varre o pool com a MESMA
+  // paginação interna do listMasterDatabaseCards (caminho sem-filtro: buildRadarWhere + orderBy +
+  // skip/take) e classifica cada card com isJunkRadarLead. Sem `confirm`: preview
+  // { preview:true, scanned, junk, sample[8] }. Com `confirm:true`: apaga pelo MESMO caminho do
+  // permanentDeleteMasterDatabaseCards (em lotes de 2000) e devolve { scanned, junk, cleared }.
+  // NÃO roda sozinho na VPS — é sob demanda (chamado pela rota owner clean-junk).
+  async cleanJunkMasterDatabaseCards(user: any, input: { confirm?: boolean } = {}) {
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+
+    const where = this.buildRadarWhere(this.normalizeRadarFilters({}), null, { includeHidden: true });
+    const pageSize = 1000;
+    const maxScan = 200_000; // guarda alta: banco inteiro sem loop infinito (200 páginas de 1000).
+    let scanned = 0;
+    const junkIds: string[] = [];
+    const sample: string[] = [];
+
+    for (let offset = 0; offset < maxScan; offset += pageSize) {
+      const rows = await (this.prisma as any).radarLeadPool.findMany({
+        where,
+        orderBy: [
+          { createdAt: 'desc' },
+          { opportunityScore: 'desc' },
+          { lastSeenAt: 'desc' },
+        ],
+        skip: offset,
+        take: pageSize,
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          phoneDigits: true,
+          email: true,
+          emailStatus: true,
+        },
+      }).catch(() => []);
+      if (!rows || !rows.length) break;
+      for (const row of rows) {
+        scanned += 1;
+        const id = String(row?.id || '').trim();
+        if (id && this.isJunkRadarLead(row)) {
+          junkIds.push(id);
+          if (sample.length < 8) sample.push(String(row?.name || '').trim() || '(sem nome)');
+        }
+      }
+      if (rows.length < pageSize) break;
+    }
+
+    if (input?.confirm !== true) {
+      return { ok: true, preview: true, scanned, junk: junkIds.length, sample };
+    }
+
+    let cleared = 0;
+    for (let i = 0; i < junkIds.length; i += 2000) {
+      const chunk = junkIds.slice(i, i + 2000);
+      const result = await this.permanentDeleteMasterDatabaseCards(user, { leadIds: chunk });
+      cleared += Number(result?.affected || 0);
+    }
+    return { ok: true, scanned, junk: junkIds.length, cleared };
   }
 
   buildRadarClientErrorResponse(user: any, route: string, error: unknown) {

@@ -1,10 +1,26 @@
-const crypto = require("crypto");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const http = require("http");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
+// Journal em disco (estado durável do enricher/transfer). Escrita atômica, zero-dep. Ver lib/state.js.
+const stateStore = require("./lib/state");
+// Utilitários puros (Sprint 5) — sem estado de módulo. Ver lib/util.js e lib/engine-capacity.js.
+const {
+  nowIso,
+  safeText,
+  clampInt,
+  cardDomain,
+  chunkLeadsBySize,
+  resolveExecutable,
+  assertSafeCommand,
+  readDotenvValue,
+  parsePercentString,
+  parseSizeToGb,
+  parseLoadTriplet,
+} = require("./lib/util");
+const { parseEngineCapacity } = require("./lib/engine-capacity");
 
 // Limiares de aviso (alinhados aos soft limits da Night Factory).
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
@@ -48,6 +64,48 @@ function freshTransferJob(direction) {
   };
 }
 
+// Journal em disco da transferência "mandar/trazer tudo". Gravado a cada página OK. Se o agent
+// cair no meio, o boot detecta o journal não-finalizado e expõe resumable:true no /owner/transfer/
+// status → a UI mostra "retomar" (reclica a rota de start; o import é idempotente por externalId).
+// No fim OK o journal é apagado. `transferResume` é o que o boot achou (só p/ exibir até religar).
+let transferResume = null;
+function saveTransferJournal(sentIds) {
+  stateStore.save("transfer", {
+    running: true,
+    direction: transferJob.direction,
+    page: transferJob.page,
+    sentIds: Array.isArray(sentIds) ? sentIds.slice(-100000) : [],
+    pulled: transferJob.pulled,
+    sent: transferJob.sent,
+    imported: transferJob.imported,
+    startedAt: transferJob.startedAt,
+    savedAt: Date.now(),
+  });
+}
+function clearTransferJournal() {
+  transferResume = null;
+  stateStore.clear("transfer");
+}
+// No boot: se sobrou um journal (agent morreu no meio de uma transferência), guarda pra expor
+// resumable no status. NÃO retoma sozinho — o dono reclica (evita transferência-fantasma no boot).
+function loadTransferResumeOnBoot() {
+  const j = stateStore.load("transfer");
+  if (j && j.running === true) {
+    transferResume = {
+      direction: j.direction || null,
+      page: Number(j.page) || 0,
+      pulled: Number(j.pulled) || 0,
+      sent: Number(j.sent) || 0,
+      imported: Number(j.imported) || 0,
+      startedAt: Number(j.startedAt) || 0,
+    };
+  } else {
+    transferResume = null;
+    if (j) stateStore.clear("transfer"); // journal já finalizado que ficou pra trás → limpa
+  }
+  return transferResume;
+}
+
 // Total de cards transferíveis de cada lado (mesma régua nos dois → dá pra reconciliar/igualar).
 async function readVpsCardTotal() {
   const r = await opsRequest("GET", "/api/radar/vps/database-cards?limit=1&page=1", null, 30000);
@@ -72,31 +130,11 @@ async function withRetry(fn, isOk, tries = 2, gapMs = 800) {
   return last;
 }
 
-// O import `/webscraping/lead-harvest/import` é PROXIADO pro motor legado, cujo body-parser corta
-// bem cedo: sondei ao vivo (25/06) → ~22KB(50 leads)=200, ~36KB(80 leads)=413. Tetо real ~25KB.
-// Aqui quebra a lista em sub-lotes ≤15KB (folga sob o teto, aguenta lead gordo) — nunca toma 413.
-function chunkLeadsBySize(leads, maxBytes = 15000, maxCount = 30) {
-  const chunks = [];
-  let cur = [];
-  let curBytes = 2; // "[]"
-  for (const lead of leads) {
-    const bytes = Buffer.byteLength(JSON.stringify(lead), "utf8") + 1;
-    if (cur.length && (curBytes + bytes > maxBytes || cur.length >= maxCount)) {
-      chunks.push(cur);
-      cur = [];
-      curBytes = 2;
-    }
-    cur.push(lead);
-    curBytes += bytes;
-  }
-  if (cur.length) chunks.push(cur);
-  return chunks;
-}
+// chunkLeadsBySize → lib/util.js (Sprint 5).
 // Ops Control = ponte JÁ pronta pra VPS (SSH + controles). Reaproveitamos por proxy:
 // a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
 const opsToken = String(process.env.HBX_OWNER_OPS_TOKEN || "").trim();
-const runs = new Map();
 
 // ---------- Frota de motores LOCAIS (autoridade = este agent, docker nativo) ----------
 // O governor do backend NÃO consegue subir motor local: o container do backend não tem docker
@@ -118,7 +156,7 @@ function engineContainerNames(n = ENGINE_FLEET_SIZE) {
 }
 
 function runningEngineSet() {
-  const r = execRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
+  const r = dockerRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
   const set = new Set();
   if (r.ok) {
     for (const line of String(r.stdout || "").split(/\r?\n/)) {
@@ -143,6 +181,7 @@ function ensureEnginesUp(n = ENGINE_FLEET_SIZE) {
     if (r.ok) started.push(name);
     else failed.push({ name, error: (r.stderr || "").trim().slice(0, 160) });
   }
+  if (started.length) invalidateDockerReadCache(); // mudou a frota → próxima leitura tem que ser fresca
   const alreadyUp = engineContainerNames(n).filter((x) => running.has(x)).length;
   return { started, failed, alreadyUp };
 }
@@ -157,6 +196,7 @@ function stopEngineContainers(n = ENGINE_FLEET_SIZE) {
     if (r.ok) stopped.push(name);
     else failed.push({ name, error: (r.stderr || "").trim().slice(0, 160) });
   }
+  if (stopped.length) invalidateDockerReadCache(); // mudou a frota → próxima leitura tem que ser fresca
   return { stopped, failed };
 }
 
@@ -192,112 +232,10 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function safeText(value, max = 200) {
-  return String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function clampInt(value, fallback, min, max) {
-  const parsed = Math.trunc(Number(value));
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-}
-
-function readDotenvValue(filePath, key) {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // [ \t] (whitespace horizontal) em vez de \s* — \s atravessava a quebra de linha e, numa
-    // chave VAZIA (KEY=), capturava a LINHA SEGUINTE como se fosse o valor (bug: chave vazia virava "ativa").
-    const match = raw.match(new RegExp(`^[ \\t]*${escaped}[ \\t]*=[ \\t]*(.*)$`, "m"));
-    if (!match) return "";
-    let value = String(match[1] || "").trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    return value.trim();
-  } catch {
-    return "";
-  }
-}
-
-function resolveExecutable(binary) {
-  if (process.platform === "win32" && binary === "npm") return "npm.cmd";
-  if (process.platform === "win32" && binary === "npx") return "npx.cmd";
-  return binary;
-}
-
-function assertSafeCommand(command) {
-  if (!Array.isArray(command) || command.length === 0) {
-    throw new Error("Comando precisa ser array [binario, ...args].");
-  }
-  for (const part of command) {
-    if (typeof part !== "string" || !part.trim()) throw new Error("Comando contem parte invalida.");
-    if (/[;&|><]/.test(part)) throw new Error("Comando contem operador de shell bloqueado.");
-  }
-}
+// nowIso, safeText, clampInt, readDotenvValue, resolveExecutable, assertSafeCommand → lib/util.js (Sprint 5).
 
 function relativeLogPath(logPath) {
   return path.relative(rootDir, logPath).replace(/\\/g, "/");
-}
-
-function createRun(commandId, label, commands) {
-  fs.mkdirSync(logsDir, { recursive: true });
-  const id = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const logPath = path.join(logsDir, `${id}.log`);
-  const run = {
-    id,
-    commandId,
-    label,
-    status: "running",
-    startedAt: nowIso(),
-    finishedAt: null,
-    exitCode: null,
-    logPath: relativeLogPath(logPath),
-    commands: commands.map((command) => command.join(" ")),
-  };
-  runs.set(id, run);
-  fs.writeFileSync(logPath, `[${run.startedAt}] ${label}\n`, "utf8");
-  return { run, logPath };
-}
-
-function appendLog(logPath, chunk) {
-  fs.appendFileSync(logPath, chunk, "utf8");
-}
-
-function finishRun(run, status, exitCode) {
-  run.status = status;
-  run.exitCode = exitCode;
-  run.finishedAt = nowIso();
-}
-
-function runCommandArray(commandId, label, command, onDone) {
-  assertSafeCommand(command);
-  const { run, logPath } = createRun(commandId, label, [command]);
-  const [binary, ...args] = command;
-  const child = spawn(resolveExecutable(binary), args, {
-    cwd: rootDir,
-    shell: false,
-    env: process.env,
-  });
-
-  child.stdout.on("data", (chunk) => appendLog(logPath, chunk));
-  child.stderr.on("data", (chunk) => appendLog(logPath, chunk));
-  child.on("error", (error) => {
-    appendLog(logPath, `\n[erro] ${error.message}\n`);
-    finishRun(run, "failed", 1);
-    if (onDone) onDone(run);
-  });
-  child.on("close", (code) => {
-    appendLog(logPath, `\n[fim] exitCode=${code}\n`);
-    finishRun(run, code === 0 ? "passed" : "failed", code);
-    if (onDone) onDone(run);
-  });
-
-  return run;
 }
 
 function execRead(command) {
@@ -316,6 +254,23 @@ function execRead(command) {
     ok: result.status === 0,
   };
 }
+
+// `docker ps`/`docker stats` bloqueiam o event loop 1–2s (spawnSync). No polling do painel
+// (frota + containers a cada poucos segundos) isso congelava o agent. Cache de 5s por comando:
+// leituras repetidas dentro da janela reusam o resultado e não disparam docker de novo. É read-only
+// e cai rápido (5s) — nunca esconde uma mudança por muito tempo. Só as LEITURAS usam cache; os
+// `docker start/stop` continuam via execRead direto (mutação nunca é cacheada).
+const dockerReadCache = new Map(); // cmdKey -> { at, result }
+const DOCKER_READ_TTL_MS = 5000;
+function dockerRead(command) {
+  const key = command.join(" ");
+  const hit = dockerReadCache.get(key);
+  if (hit && Date.now() - hit.at < DOCKER_READ_TTL_MS) return hit.result;
+  const result = execRead(command);
+  dockerReadCache.set(key, { at: Date.now(), result });
+  return result;
+}
+function invalidateDockerReadCache() { dockerReadCache.clear(); }
 
 function requestLocalLabHealth(timeoutMs = 1200) {
   return new Promise((resolve) => {
@@ -599,17 +554,7 @@ async function ensureLocalLabUp(maxWaitMs = 6000) {
   return false;
 }
 
-// Domínio "limpo" pra casar lead-do-crawl ↔ card-de-origem (mesma régua dos dois lados).
-function cardDomain(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return "";
-  try {
-    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-    return u.hostname.replace(/^www\./, "");
-  } catch {
-    return raw.replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0];
-  }
-}
+// cardDomain → lib/util.js (Sprint 5).
 
 // Domínios que NÃO são site oficial (rede social/diretório) → não viram alvo de crawl de e-mail.
 const NON_SITE_DOMAINS = new Set([
@@ -773,30 +718,69 @@ async function runEnricherCrawl(seeds, map) {
   else enricherJob.lastError = "apply VPS: " + (apply.reason || `http_${apply.statusCode || "?"}`);
 }
 
+// Journal em disco do enriquecedor: cursor de varredura + config + métricas. Gravado ao fim de
+// cada ciclo (atômico). Crash/restart do agent → retoma da mesma página em vez de re-crawlar a base
+// do zero (poupa throughput e desgaste do IP local). Só o essencial pra retomar.
+function saveEnricherJournal() {
+  stateStore.save("enricher", {
+    cursorPage: enricherJob.cursorPage,
+    types: enricherJob.types,
+    aggressive: enricherJob.aggressive,
+    metrics: {
+      cardsScanned: enricherJob.cardsScanned,
+      sitesCrawled: enricherJob.sitesCrawled,
+      emailsFound: enricherJob.emailsFound,
+      phonesFound: enricherJob.phonesFound,
+      cnpjsFound: enricherJob.cnpjsFound,
+      applied: enricherJob.applied,
+      tipo1Runs: enricherJob.tipo1Runs,
+    },
+    savedAt: Date.now(),
+  });
+}
+
 async function enricherLoop() {
   while (enricherJob.running) {
     try { await enricherCycle(); } catch (e) { enricherJob.lastError = String((e && e.message) || e); }
+    saveEnricherJournal(); // persiste o cursor/métricas a cada ciclo → religa continua de onde parou
+    broadcastEnricher();   // empurra as métricas do ciclo pro SSE (front atualiza sem esperar o poll)
     if (!enricherJob.running) break;
     await enricherSleep(3000);
   }
   enricherJob.phase = "parado";
   enricherJob.stoppedAt = Date.now();
+  saveEnricherJournal(); // grava o cursor final ao desligar (o botão religa retoma daqui)
+  broadcastEnricher();   // estado "parado" final pro SSE
 }
 
 function startEnricher(opts = {}) {
   if (enricherJob.running) return false;
+  // Retomada: se há journal e o dono NÃO pediu início limpo (opts.fresh), continua do cursor salvo.
+  // Botão "religar" = retoma; começar do zero só com fresh:true. Métricas também voltam (acumulam).
+  const journal = opts.fresh === true ? null : stateStore.load("enricher");
+  const m = (journal && journal.metrics) || {};
   enricherJob = {
     running: true, startedAt: Date.now(), stoppedAt: 0, phase: "iniciando",
     types: { identity: opts.identity !== false, scraper: opts.scraper !== false },
     aggressive: opts.aggressive === true,
-    cursorPage: 1, cycle: 0, vpsTotal: null,
-    cardsScanned: 0, sitesCrawled: 0, emailsFound: 0, phonesFound: 0, cnpjsFound: 0, applied: 0,
-    tipo1: null, tipo1Runs: 0, localLabJobId: null, lastError: null, lastCycleAt: 0,
+    cursorPage: (journal && Number.isFinite(Number(journal.cursorPage)) && Number(journal.cursorPage) >= 1)
+      ? Math.trunc(Number(journal.cursorPage)) : 1,
+    cycle: 0, vpsTotal: null,
+    cardsScanned: Number(m.cardsScanned) || 0,
+    sitesCrawled: Number(m.sitesCrawled) || 0,
+    emailsFound: Number(m.emailsFound) || 0,
+    phonesFound: Number(m.phonesFound) || 0,
+    cnpjsFound: Number(m.cnpjsFound) || 0,
+    applied: Number(m.applied) || 0,
+    tipo1: null,
+    tipo1Runs: Number(m.tipo1Runs) || 0,
+    localLabJobId: null, lastError: null, lastCycleAt: 0,
   };
   setImmediate(() => void enricherLoop());
+  broadcastEnricher(); // "iniciando" pro SSE já na largada
   return true;
 }
-function stopEnricher() { enricherJob.running = false; return true; }
+function stopEnricher() { enricherJob.running = false; broadcastEnricher(); return true; }
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
 function backendRequestOnce(method, route, payload, token, options = {}) {
@@ -1029,9 +1013,9 @@ async function readDiskUsage() {
 }
 
 function readContainers() {
-  const result = execRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
+  const result = dockerRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
   if (!result.ok) return { ok: false, items: [], error: (result.stderr || "docker indisponivel").trim() };
-  const stats = execRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]);
+  const stats = dockerRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]);
   const statMap = new Map();
   for (const line of String(stats.stdout || "").split(/\r?\n/)) {
     const [name, cpu, mem] = line.split("\t");
@@ -1078,43 +1062,7 @@ async function readVpsEngineCapacity() {
   return { ok: true, configured: true, ...parseEngineCapacity(body.data) };
 }
 
-// Parser puro do payload /engines/status (sem rede). Recebe o JSON do dashboard de motores e
-// devolve o estado normalizado — reaproveitado pelo LOCAL e pelo VPS pra pintar igual.
-function parseEngineCapacity(data) {
-  const engines = Array.isArray(data.engines) ? data.engines : [];
-  const config = data.capacityConfig || {};
-  const aliveStates = new Set(["online", "standby", "busy", "running", "active"]);
-  const aliveFromEngines = engines.filter((e) => aliveStates.has(String(e.status || "").toLowerCase())).length;
-  const alive = aliveFromEngines || Math.trunc(Number(data.capacity?.runningCount || data.capacity?.activeEngineCount || 0));
-  // Teto REAL = quanto o Governor pode subir (maxCount), não os motores registrados agora.
-  // Nunca menor que os vivos (evita "teto 1 com 2 vivos" em config local inconsistente).
-  const ceiling = Math.max(1, Math.trunc(Number(config.maxCount || engines.length || 1)), alive);
-  const warm = Math.max(0, Math.trunc(Number(config.warmMin || 0)));
-  const governorOn = Boolean(config.governorEnabled);
-  const queue = Math.trunc(Number(data.capacity?.queuedCount || 0));
-  const operationalStatus = String(data.capacity?.operationalStatus || "unknown");
-  const factoryStopped = Boolean(config.factoryStopped);
-  // Elástico de verdade = governor ligado E teto acima do warm (dá pra crescer).
-  const elastic = governorOn && ceiling > Math.max(warm, alive);
-  let reason;
-  if (factoryStopped) reason = "Fábrica PARADA (freio do dono) — não sobe motor até religar.";
-  else if (!governorOn) reason = "Governor desligado — capacidade fixa, não cresce sozinho.";
-  else if (ceiling <= warm) reason = `Teto igual ao warm (${ceiling}) — sem folga pra crescer.`;
-  else if (queue > 0 && alive >= ceiling) reason = "Fila cheia e no teto — pode precisar de mais capacidade.";
-  else if (queue > 0) reason = "Fila com trabalho — o Governor está subindo motores até o teto.";
-  else reason = `Fila vazia — fica no warm (${warm || alive}). Sobe sozinho até ${ceiling} quando encher.`;
-  // Turbo (modo agressivo) vem no MESMO payload do dashboard de motores — só surfaçar.
-  const turboEnabled = Boolean(data.isTurboEnabled);
-  const turboActive = Boolean(data.isTurboWindowActive || data.isTurboForcedNow);
-  // Campos novos do contrato Elástica Pura (25/06): elasticEnabled, running, physicalMax,
-  // memoryPressurePercent, memoryHeadroomEngines.
-  const elasticEnabled = data.elasticEnabled != null ? Boolean(data.elasticEnabled) : governorOn;
-  const running = data.running != null ? Math.trunc(Number(data.running)) : alive;
-  const physicalMax = data.physicalMax != null ? Math.trunc(Number(data.physicalMax)) : ceiling;
-  const memoryPressurePercent = data.memoryPressurePercent != null ? Math.round(Number(data.memoryPressurePercent)) : null;
-  const memoryHeadroomEngines = data.memoryHeadroomEngines != null ? Math.trunc(Number(data.memoryHeadroomEngines)) : null;
-  return { ok: true, alive, warm, ceiling, queue, operationalStatus, elastic, governorOn, factoryStopped, turboEnabled, turboActive, reason, elasticEnabled, running, physicalMax, memoryPressurePercent, memoryHeadroomEngines };
-}
+// parseEngineCapacity → lib/engine-capacity.js (Sprint 5).
 
 function buildCapacityVerdict(pressure, capacity) {
   const ram = Number(pressure.ram?.usedPct || 0);
@@ -1219,20 +1167,7 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
   });
 }
 
-function parsePercentString(value) {
-  const match = String(value || "").match(/(\d+(?:\.\d+)?)/);
-  return match ? Math.round(Number(match[1])) : null;
-}
-
-function parseSizeToGb(value) {
-  const match = String(value || "").trim().match(/^([\d.]+)\s*([KMGTP])?i?B?$/i);
-  if (!match) return null;
-  const num = Number(match[1]);
-  if (!Number.isFinite(num)) return null;
-  const unit = (match[2] || "G").toUpperCase();
-  const factor = { K: 1 / 1e6, M: 1 / 1e3, G: 1, T: 1e3, P: 1e6 }[unit] ?? 1;
-  return Math.round(num * factor);
-}
+// parsePercentString, parseSizeToGb → lib/util.js (Sprint 5).
 
 // Usa CPU% (load÷núcleos) quando há núcleos; sem isso, cai pra load vs núcleos.
 function buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores) {
@@ -1255,12 +1190,7 @@ function buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores) {
   return { level: "ok", title: "Ainda não", detail: "VPS com folga de recurso. Eu aviso quando começar a bater no teto." };
 }
 
-function parseLoadTriplet(loadStr) {
-  const parts = String(loadStr || "").trim().split(/\s+/);
-  // Number("") === 0 (não NaN), então só converte se a parte existir de verdade.
-  const num = (i) => (parts[i] ? Number(parts[i]) : NaN);
-  return { load1: num(0), load5: num(1), load15: num(2) };
-}
+// parseLoadTriplet → lib/util.js (Sprint 5).
 
 function vpsContainersFrom(list) {
   const isEngine = (name) => /^hbx-engine-\d+$/.test(name || "");
@@ -1358,20 +1288,29 @@ function mapOverview(data) {
   });
 }
 
-async function readVpsSystem() {
+// Cache de 30s do snapshot da VPS: cada poll do painel/árvore antes disparava um SSH real (via Ops
+// Control) → martelava a VPS. Mesmo padrão de vpsLeadsCache/radarCockpitCache. O botão ⟳ manda
+// `force=1` e fura o cache. Só cacheia resposta OK (erro não vira cache → próxima tentativa é fresca).
+let vpsSystemCache = { at: 0, data: null };
+async function readVpsSystem(force) {
   if (!opsToken) {
     return { ok: false, configured: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (token do Ops Control)." };
   }
+  if (!force && vpsSystemCache.data && Date.now() - vpsSystemCache.at < 30_000) return vpsSystemCache.data;
   // 1) Snapshot leve (preferido). 2) Fallback overview se o Ops Control for o antigo.
   const snap = await opsRequest("GET", "/api/host-snapshot/vps", null, 38000);
   if (snap.ok && snap.data && snap.data.available !== false && snap.data.memory) {
-    return mapSnapshot(snap.data);
+    const out = mapSnapshot(snap.data);
+    if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
+    return out;
   }
   const ov = await opsRequest("GET", "/api/overview", null, 45000);
   if (!ov.ok || !ov.data) {
     return { ok: false, configured: true, reason: ov.reason || snap.reason || `http_${ov.statusCode || snap.statusCode || "?"}`, message: "Ops Control não respondeu (VPS pode estar sob carga)." };
   }
-  return mapOverview(ov.data);
+  const out = mapOverview(ov.data);
+  if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
+  return out;
 }
 
 // Total/leads/fábrica da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
@@ -1424,43 +1363,10 @@ async function readRadarCockpit(force) {
 // F0 (02/07): cache do factory-status (factoryStatusCache/invalidateFactoryStatusCache) removido
 // junto com as rotas de proxy da fábrica de descoberta demolida.
 
-// Espelha o looksLikeNonBusinessName do backend (radar-core-shared) pra limpar o banco local
-// pelo MESMO critério do filtro: script estrangeiro, título de página, frase em inglês, nome comprido.
-const NON_BIZ_EN_STOPWORDS = new Set(["the", "of", "to", "for", "and", "that", "this", "with", "your", "you", "in", "on", "at", "by", "from", "into", "about", "their", "they", "what", "how", "why", "when", "where", "which", "are", "was", "were", "will", "would", "can", "could", "should", "has", "have", "had", "does", "did", "its"]);
-function looksLikeNonBusinessName(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return false;
-  if (/[Ͱ-ϿЀ-ӿ֐-׿؀-ۿ฀-๿　-ヿ㐀-鿿가-힯]/.test(raw)) return true;
-  if (raw.includes("|") || /\s[–—]\s/.test(raw)) return true;
-  if (raw.includes("?")) return true;
-  const words = raw.toLowerCase().split(/[^a-zà-ÿ0-9+]+/i).filter(Boolean);
-  if (words.length > 9) return true;
-  const hits = new Set(words.filter((w) => NON_BIZ_EN_STOPWORDS.has(w)));
-  return hits.size >= 2;
-}
-
-// Espelha isRealisticBrPhone do backend: DDD real + celular(9)/fixo(2-5) + sem repetição.
-const VALID_BR_DDDS = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69, 71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99]);
-function isRealisticBrPhone(raw) {
-  let d = String(raw || "").replace(/\D/g, "");
-  if (d.startsWith("55") && d.length > 11) d = d.slice(2);
-  if (d.length !== 10 && d.length !== 11) return false;
-  if (!VALID_BR_DDDS.has(Number(d.slice(0, 2)))) return false;
-  const sub = d.slice(2);
-  if (/^(\d)\1+$/.test(sub)) return false;
-  if (d.length === 11) return sub.length === 9 && sub[0] === "9";
-  return sub.length === 8 && "2345".includes(sub[0]);
-}
-// "limpa tudo": lixo = nome não parece empresa OU não tem contato ÚTIL (telefone real
-// OU e-mail válido). Site/social sozinho NÃO segura (o lixo global tem site/sourceUrl).
-function isJunkLead(row) {
-  if (looksLikeNonBusinessName(row && row.name)) return true;
-  if (isRealisticBrPhone(row && (row.phone || row.phoneDigits))) return false;
-  const email = String((row && row.email) || "").trim();
-  const emailStatus = String((row && row.emailStatus) || "").toLowerCase();
-  if (email && !["missing", "invalid"].includes(emailStatus)) return false;
-  return true; // sem telefone real E sem e-mail válido = lixo
-}
+// A régua de "lixo" (looksLikeNonBusinessName + isRealisticBrPhone + composição isJunkLead) vivia
+// COPIADA aqui — agora é fonte ÚNICA no backend (radar-core-shared, com teste) exposta em
+// POST /modules/owner/radar/clean-junk (preview/confirm). O /owner/clean-junk-leads abaixo só proxia.
+// Sprint 3 HBX-OWNER: 1 régua, 1 lugar — sem divergência silenciosa com o filtro de entrada.
 
 // ----- Exportar TODOS os leads locais -> VPS + limpar o local (#2). Reusa endpoints existentes:
 // lê via master/database-cards, manda inline pelo Ops Control, limpa por leadIds. SÓ leads (e-mails ficam).
@@ -1536,12 +1442,14 @@ function mapCardToHarvestLead(row, opts = {}) {
 
 // Roda em segundo plano: traz TUDO do VPS pro local em PÁGINAS (stream), gravando cada
 // página assim que chega. % honesta = pulled ÷ total real do banco da VPS.
-// IMPORTANTE: o backend DEPLOYADO na VPS trava database-cards em 20/página (sondei 25/06:
-// limit=20/50/100/500 → sempre 20 itens). Pedir mais NÃO cresce a página e o offset
-// passaria a pular de 500 em 500 → BURACOS. Por isso o pageSize do pull é 20 (casado com o
-// cap real). É mais lento (~total/20 páginas), mas íntegro. Local honra 500 (push usa 500).
+// PÁGINA ADAPTATIVA (Sprint 2 HBX-OWNER): pede 500/página (o backend do master honra limit até
+// 2000). Se a 1ª página vier ≤20 e houver mais no banco, o backend DEPLOYADO ainda capa em 20 →
+// DEGRADA sozinho pra 20/página o resto da varredura (sem buraco: a página 1 tem offset 0 seja
+// qual for o limit, então trocar 500→20 da página 2 em diante é contíguo). Assim: VPS novo = ~total/500
+// chamadas (~25× menos); VPS velho = idêntico a antes. Zero regressão, sem depender de sonda ao vivo.
 async function runTransferPull() {
-  const pageSize = 20;
+  let pageSize = 500;
+  let sizeProbed = false;
   const maxPages = 20000;
   let chunkSeq = 0;
   let consecutiveFails = 0;
@@ -1564,6 +1472,15 @@ async function runTransferPull() {
       const items = Array.isArray(data && data.items) ? data.items : [];
       if (data && typeof data.total === "number") transferJob.total = data.total;
       if (!items.length) break;
+      // Sonda na 1ª página real: se pedimos 500 e veio ≤20 com mais no banco, o VPS ainda capa
+      // em 20 → degrada o resto da varredura (a página 1 já foi lida com offset 0; da 2 em diante
+      // limit=20 é contíguo, sem buraco). Se veio >20, o VPS honra páginas grandes → mantém 500.
+      if (!sizeProbed) {
+        sizeProbed = true;
+        if (pageSize === 500 && items.length <= 20 && items.length < (transferJob.total ?? Infinity)) {
+          pageSize = 20;
+        }
+      }
       transferJob.pulled += items.length;
       transferJob.processed = transferJob.pulled;
       const leads = items
@@ -1609,6 +1526,8 @@ async function runTransferPull() {
           }
         }
       }
+      saveTransferJournal([]); // pull não tem sentIds; grava progresso a cada página OK
+      broadcastTransfer();     // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.pulled >= transferJob.total) break;
       if (items.length < pageSize) break;
@@ -1625,6 +1544,9 @@ async function runTransferPull() {
     transferJob.done = true;
     transferJob.running = false;
     transferJob.finishedAt = Date.now();
+    if (transferJob.ok) clearTransferJournal(); // fim OK → sem retomada pendente
+    else saveTransferJournal([]);               // parou com erro → deixa retomável no boot
+    broadcastTransfer();                        // estado final (done) pro SSE
   }
 }
 
@@ -1697,6 +1619,8 @@ async function runTransferPush() {
           }
         }
       }
+      saveTransferJournal(sentIds); // grava progresso + ids já aceitos a cada página OK
+      broadcastTransfer();          // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
       if (transferJob.error) break;
       if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
       if (items.length < pageSize) break;
@@ -1725,6 +1649,9 @@ async function runTransferPush() {
     transferJob.done = true;
     transferJob.running = false;
     transferJob.finishedAt = Date.now();
+    if (transferJob.ok) clearTransferJournal(); // fim OK (enviou + limpou) → sem retomada pendente
+    else saveTransferJournal(sentIds);          // parou com erro → deixa retomável no boot
+    broadcastTransfer();                        // estado final (done) pro SSE
   }
 }
 
@@ -1762,10 +1689,9 @@ function sendStatic(res, pathname) {
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
+  // Sem CORS: o agent dá bind em 127.0.0.1 e exige Bearer token local; o painel é same-origin
+  // (servido pelo próprio agent). Liberar CORS cross-origin (`*`) só ampliaria a superfície.
   res.writeHead(statusCode, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Content-Type": "application/json; charset=utf-8",
   });
   res.end(body);
@@ -1778,6 +1704,195 @@ function sendError(res, statusCode, message) {
 function isAuthorized(req) {
   return req.headers.authorization === `Bearer ${TOKEN}`;
 }
+
+// ===== SSE (Server-Sent Events) — o agent EMPURRA o estado em vez de o front martelar ========
+// Sprint 4 HBX-OWNER. Zero-dep: text/event-stream via res.write("event: X\ndata: {json}\n\n").
+// Clientes vivos ficam num Set; cada broadcast escreve pra todos e descarta os já fechados.
+// Auth: EventSource não manda header Authorization → GET /owner/events aceita ?token= validado
+// contra o TOKEN local SÓ nesta rota (todo o resto segue exigindo Bearer). É bind 127.0.0.1.
+const sseClients = new Set();
+
+// Escreve UM evento SSE num cliente. Se o socket já morreu, devolve false (o caller remove).
+function sseWrite(res, event, dataObj) {
+  try {
+    if (res.writableEnded || res.destroyed) return false;
+    const payload = typeof dataObj === "string" ? dataObj : JSON.stringify(dataObj);
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${payload}\n\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Broadcast pra todos os clientes vivos; poda os que já fecharam. NÃO bloqueia (write é async no
+// kernel) e NÃO lança — um cliente morto nunca derruba o evento pros outros nem o event loop.
+function sseBroadcast(event, dataObj) {
+  if (!sseClients.size) return;
+  const payload = typeof dataObj === "string" ? dataObj : JSON.stringify(dataObj);
+  for (const res of sseClients) {
+    if (!sseWrite(res, event, payload)) {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    }
+  }
+}
+
+// Empurra o estado da transferência assim que ele muda (barra atualiza em <300ms, sem esperar o
+// tick de 1.2s). Mesmo payload do GET /owner/transfer/status (o front reusa paintTransfer).
+function broadcastTransfer() {
+  if (!sseClients.size) return;
+  const payload = { ok: true, ...transferJob };
+  if (!transferJob.running && transferResume) { payload.resumable = true; payload.resume = transferResume; }
+  sseBroadcast("transfer", payload);
+}
+
+// Empurra as métricas do enricher a cada ciclo/mudança. Shape idêntico ao GET /owner/enricher/status
+// EXCETO labUp (que exige uma leitura async do Local Lab) — o front mantém o labUp do último poll,
+// então o SSE nunca "apaga" o estado do Lab; só atualiza os números.
+function broadcastEnricher() {
+  if (!sseClients.size) return;
+  sseBroadcast("enricher", {
+    ok: true,
+    running: enricherJob.running,
+    phase: enricherJob.phase,
+    types: enricherJob.types,
+    aggressive: enricherJob.aggressive,
+    cycle: enricherJob.cycle,
+    cursorPage: enricherJob.cursorPage,
+    vpsTotal: enricherJob.vpsTotal,
+    metrics: {
+      cardsScanned: enricherJob.cardsScanned,
+      sitesCrawled: enricherJob.sitesCrawled,
+      emailsFound: enricherJob.emailsFound,
+      phonesFound: enricherJob.phonesFound,
+      cnpjsFound: enricherJob.cnpjsFound,
+      applied: enricherJob.applied,
+      tipo1Runs: enricherJob.tipo1Runs,
+    },
+    tipo1: enricherJob.tipo1,
+    startedAt: enricherJob.startedAt,
+    lastCycleAt: enricherJob.lastCycleAt,
+    error: enricherJob.lastError,
+  });
+}
+
+// ---------- Snapshot COMPOSTO da Árvore (Sprint 4) ----------
+// Monta o estado INTEIRO (local + VPS) reusando os readers/caches que JÁ existem, num único JSON
+// com UM generatedAt. Nenhum SSH novo: readSystemSnapshot é nativo; readVpsSystem/readRadarCockpit/
+// readVpsLeads/readVpsEngineCapacity/integrações-VPS passam pelos MESMOS caches (30/60/90s) que o
+// polling atual já usava. force=1 fura os caches onde há suporte (system/cockpit). Cada reader
+// degrada sozinho (ok:false) — o snapshot nunca lança nem trava por um lado offline.
+let treeSnapshotCache = { at: 0, data: null };
+async function buildTreeSnapshot(force = false) {
+  const [
+    localSystem, localBank, localEnginesStatus,
+    vpsSystem, vpsLeads, vpsEngines, radarCockpit,
+    integrationsVps,
+  ] = await Promise.all([
+    readSystemSnapshot().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readLeadsBank().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readEngineCapacity().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsSystem(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsLeads().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsEngineCapacity().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readRadarCockpit(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+    readVpsIntegrationsPresence().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
+  ]);
+  const integrationsLocal = INTEGRATION_CATALOG.map((i) => ({ ...i, ...readIntegrationPresence(i.key) }));
+  const snapshot = {
+    ok: true,
+    generatedAt: nowIso(),
+    local: {
+      system: localSystem,
+      bank: localBank,
+      engines: localEnginesStatus,
+      integrations: { ok: true, scope: "local", items: integrationsLocal },
+    },
+    vps: {
+      system: vpsSystem,
+      leads: vpsLeads,
+      engines: vpsEngines,
+      integrations: integrationsVps,
+    },
+    radarCockpit,
+    enricher: {
+      ok: true,
+      running: enricherJob.running,
+      phase: enricherJob.phase,
+      types: enricherJob.types,
+      aggressive: enricherJob.aggressive,
+      cycle: enricherJob.cycle,
+      cursorPage: enricherJob.cursorPage,
+      vpsTotal: enricherJob.vpsTotal,
+      metrics: {
+        cardsScanned: enricherJob.cardsScanned,
+        sitesCrawled: enricherJob.sitesCrawled,
+        emailsFound: enricherJob.emailsFound,
+        phonesFound: enricherJob.phonesFound,
+        cnpjsFound: enricherJob.cnpjsFound,
+        applied: enricherJob.applied,
+        tipo1Runs: enricherJob.tipo1Runs,
+      },
+      tipo1: enricherJob.tipo1,
+      startedAt: enricherJob.startedAt,
+      lastCycleAt: enricherJob.lastCycleAt,
+      error: enricherJob.lastError,
+    },
+    transfer: (() => {
+      const t = { ok: true, ...transferJob };
+      if (!transferJob.running && transferResume) { t.resumable = true; t.resume = transferResume; }
+      return t;
+    })(),
+  };
+  treeSnapshotCache = { at: Date.now(), data: snapshot };
+  return snapshot;
+}
+
+// Presença das chaves na VPS (mesma leitura do GET /owner/integrations/vps) — extraída pra ser
+// reusada pelo snapshot sem duplicar a chamada ao Ops Control.
+async function readVpsIntegrationsPresence() {
+  const keys = INTEGRATION_CATALOG.map((i) => i.key).join(",");
+  const r = await opsRequest("GET", `/api/opscontrol/env-presence?keys=${encodeURIComponent(keys)}`, null, 25000);
+  if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  const body = r.data || {};
+  if (r.ok && body.ok) return { ok: true, scope: "vps", items: body.items || {} };
+  return { ok: false, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` };
+}
+
+// Timer interno: recomputa o snapshot e faz broadcast do evento `snapshot` a cada 30s. .unref() pra
+// não segurar o processo. Só recomputa quando há cliente SSE vivo (economiza SSH quando o painel
+// está fechado); o GET /owner/tree sempre serve o último snapshot (ou computa on-demand). Reentrância
+// travada por snapshotTimerBusy — leitor pesado nunca empilha em cima de si mesmo.
+let snapshotTimerBusy = false;
+async function snapshotTick() {
+  if (snapshotTimerBusy) return;
+  if (!sseClients.size) return; // ninguém ouvindo → não gasta SSH; o GET on-demand cobre o resto
+  snapshotTimerBusy = true;
+  try {
+    const snap = await buildTreeSnapshot(false);
+    sseBroadcast("snapshot", snap);
+  } catch { /* um tick falho não derruba o timer; tenta de novo no próximo */ }
+  finally { snapshotTimerBusy = false; }
+}
+const snapshotTimer = setInterval(() => { void snapshotTick(); }, 30000);
+if (snapshotTimer.unref) snapshotTimer.unref();
+
+// Heartbeat SSE: comentário `: ping` a cada 25s mantém a conexão viva atravessando proxies/idle
+// e detecta clientes mortos (write falha → poda). .unref() pra não segurar o processo.
+const sseHeartbeat = setInterval(() => {
+  if (!sseClients.size) return;
+  for (const res of sseClients) {
+    try {
+      if (res.writableEnded || res.destroyed) { sseClients.delete(res); continue; }
+      res.write(": ping\n\n");
+    } catch {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    }
+  }
+}, 25000);
+if (sseHeartbeat.unref) sseHeartbeat.unref();
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -1870,8 +1985,59 @@ async function route(req, res) {
     return;
   }
 
+  // SSE — canal de eventos (transfer/enricher/snapshot). Auth por ?token= (EventSource não manda
+  // header Authorization) validado contra o TOKEN local SÓ nesta rota. Aceita Bearer também (curl).
+  // Registra o response no Set de clientes vivos e remove no close. Manda um snapshot inicial na hora
+  // (o último em cache; computa on-demand se ainda não houver) pra a árvore pintar sem esperar 30s.
+  if (req.method === "GET" && url.pathname === "/owner/events") {
+    const queryToken = url.searchParams.get("token");
+    const authed = isAuthorized(req) || (queryToken != null && queryToken === TOKEN);
+    if (!authed) { sendError(res, 401, "Token local invalido ou ausente."); return; }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-store",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    // Sugere ao EventSource re-tentar em 3s se a conexão cair (reconexão nativa do browser).
+    res.write("retry: 3000\n\n");
+    sseClients.add(res);
+    const cleanup = () => {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    };
+    req.on("close", cleanup);
+    req.on("error", cleanup);
+    res.on("error", cleanup);
+    // Estado inicial imediato: transfer + enricher + a árvore composta.
+    sseWrite(res, "hello", { ok: true, at: nowIso() });
+    broadcastTransfer();
+    broadcastEnricher();
+    try {
+      const snap = (treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000)
+        ? treeSnapshotCache.data
+        : await buildTreeSnapshot(false);
+      sseWrite(res, "snapshot", snap);
+    } catch { /* snapshot inicial falhou (tudo offline) — o front cai no fallback de polling */ }
+    return;
+  }
+
   if (!isAuthorized(req)) {
     sendError(res, 401, "Token local invalido ou ausente.");
+    return;
+  }
+
+  // Snapshot COMPOSTO da Árvore (Sprint 4): 1 GET devolve local+VPS com UM generatedAt, reusando os
+  // caches. ?force=1 recomputa furando os caches subjacentes onde há suporte. É o fallback do SSE.
+  if (req.method === "GET" && url.pathname === "/owner/tree") {
+    const force = url.searchParams.get("force") === "1";
+    if (!force && treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000) {
+      sendJson(res, 200, treeSnapshotCache.data);
+      return;
+    }
+    const snap = await buildTreeSnapshot(force);
+    if (sseClients.size) sseBroadcast("snapshot", snap); // recomputou → empurra pros ouvintes também
+    sendJson(res, 200, snap);
     return;
   }
 
@@ -2114,7 +2280,7 @@ async function route(req, res) {
 
   // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
   if (req.method === "GET" && url.pathname === "/owner/vps/system") {
-    sendJson(res, 200, await readVpsSystem());
+    sendJson(res, 200, await readVpsSystem(url.searchParams.get("force") === "1"));
     return;
   }
 
@@ -2176,45 +2342,36 @@ async function route(req, res) {
   }
 
   // Limpar o LIXO do banco local (#3): cards com nome que não é empresa. Preview por padrão; confirm:true apaga.
+  // Limpar o LIXO do banco local (#3). Agora PROXIA a régua ÚNICA do backend
+  // (POST /modules/owner/radar/clean-junk, preview/confirm) em vez de reimplementar o critério —
+  // o backend varre o pool inteiro (não só 40 páginas) pela mesma régua do filtro de entrada.
+  // Mantém o MESMO contrato pro front: preview → { preview, scanned, junk, sample }; confirm →
+  // { scanned, junk, cleared, errors }; vazio → { junk:0, message }.
   if (req.method === "POST" && url.pathname === "/owner/clean-junk-leads") {
     const body = await readBody(req);
-    const junkIds = [];
-    const sample = [];
-    let scanned = 0;
-    const limit = 500;
-    for (let page = 1; page <= 40 && junkIds.length < 20000; page += 1) {
-      const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
-      if (!r.ok || !r.data) break;
-      const items = Array.isArray(r.data.items) ? r.data.items : [];
-      if (!items.length) break;
-      for (const row of items) {
-        scanned += 1;
-        const id = String(row.id || "").trim();
-        const name = String(row.name || "");
-        if (id && isJunkLead(row)) {
-          junkIds.push(id);
-          if (sample.length < 8) sample.push(name || "(sem nome)");
-        }
-      }
-      if (items.length < limit) break;
+    if (!backendToken) await refreshBackendToken().catch(() => null);
+    if (!backendToken) {
+      sendJson(res, 200, { ok: false, reason: "backend_token_ausente", message: "Configure SYSTEM_MASTER_USERNAME/PASSWORD no backend/.env." });
+      return;
     }
-    if (!junkIds.length) {
+    const confirm = body.confirm === true;
+    const r = await backendRequest("POST", "/modules/owner/radar/clean-junk", { confirm }, { timeoutMs: 180000 });
+    const d = (r && r.data) || {};
+    if (!r.ok) {
+      sendJson(res, 502, { ok: false, reason: r.error || d.message || `http_${r.statusCode || "?"}` });
+      return;
+    }
+    const scanned = Number(d.scanned) || 0;
+    const junk = Number(d.junk) || 0;
+    if (!junk) {
       sendJson(res, 200, { ok: true, scanned, junk: 0, message: "Nenhum lixo de nome encontrado no banco local." });
       return;
     }
-    if (body.confirm !== true) {
-      sendJson(res, 200, { ok: true, preview: true, scanned, junk: junkIds.length, sample });
+    if (!confirm) {
+      sendJson(res, 200, { ok: true, preview: true, scanned, junk, sample: Array.isArray(d.sample) ? d.sample : [] });
       return;
     }
-    let cleared = 0;
-    const errors = [];
-    for (let i = 0; i < junkIds.length; i += 2000) {
-      const chunk = junkIds.slice(i, i + 2000);
-      const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
-      if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
-      else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
-    }
-    sendJson(res, 200, { ok: true, scanned, junk: junkIds.length, cleared, errors });
+    sendJson(res, 200, { ok: true, scanned, junk, cleared: Number(d.cleared) || 0, errors: [] });
     return;
   }
 
@@ -2289,19 +2446,31 @@ async function route(req, res) {
       sendJson(res, 200, { ok: false, running: true, reason: "Já tem uma transferência rodando — espera terminar." });
       return;
     }
+    transferResume = null; // recomeçou de fato → some com o aviso de retomada do boot
     transferJob = freshTransferJob(isPull ? "pull" : "push");
+    broadcastTransfer();   // "iniciando" pro SSE já na largada
     (isPull ? runTransferPull() : runTransferPush()).catch((err) => {
       transferJob.error = err?.message || "falha";
       transferJob.ok = false; transferJob.done = true;
       transferJob.running = false; transferJob.finishedAt = Date.now();
+      saveTransferJournal([]); // falha dura → deixa retomável
+      broadcastTransfer();
     });
     sendJson(res, 200, { ok: true, started: true, direction: transferJob.direction });
     return;
   }
 
   // Progresso da transferência (a UI faz polling disto a cada ~1.2s).
+  // ADITIVO (não muda contrato): se o agent caiu no meio de uma transferência e nada roda agora,
+  // expõe resumable:true + o snapshot do journal → a UI oferece "retomar" (reclica o start; o
+  // import é idempotente por externalId, então retomar não duplica). Some quando algo volta a rodar.
   if (req.method === "GET" && url.pathname === "/owner/transfer/status") {
-    sendJson(res, 200, { ok: true, ...transferJob });
+    const payload = { ok: true, ...transferJob };
+    if (!transferJob.running && transferResume) {
+      payload.resumable = true;
+      payload.resume = transferResume;
+    }
+    sendJson(res, 200, payload);
     return;
   }
 
@@ -2539,7 +2708,6 @@ async function route(req, res) {
       host: HOST,
       port: PORT,
       cwd: rootDir,
-      runs: runs.size,
       backendConfigured: Boolean(backendToken),
       opsConfigured: Boolean(opsToken),
       opsUrl,
@@ -2958,5 +3126,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
+  // Estado durável: garante o dir e detecta transferência não-finalizada (agent morreu no meio) →
+  // vira resumable:true no /owner/transfer/status. O enricher retoma sozinho pelo journal no start.
+  stateStore.ensureDir();
+  const resume = loadTransferResumeOnBoot();
+  if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
   console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
 });
