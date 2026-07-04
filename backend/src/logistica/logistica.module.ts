@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MessagingModule } from '../messaging/messaging.module';
+import { HbxRecoveryModule } from '../hbx-recovery/hbx-recovery.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
+import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaController } from './logistica.controller';
 
 /**
@@ -14,11 +16,28 @@ import { LogisticaController } from './logistica.controller';
  * WhatsApp "entregue" reusar o caminho BLINDADO da cadência (disjuntor, outbox,
  * 1-número=1-conexão). O disparo (e a cobrança) só rodam com HBX_LOGISTICA_ENABLED
  * ON — default OFF, tudo inerte.
+ *
+ * LOGÍSTICA-MOBILE M7 (05/07): importa HbxRecoveryModule (exporta HbxRecoveryService)
+ * para a cobrança vencida da logística entrar no funil hbx-recovery EXISTENTE via
+ * createCustomer (opt-in por LogisticaConfig.moduloRecoveryAtivo, default OFF). Sem
+ * ciclo: hbx-recovery NÃO importa logistica.
  */
 @Module({
-  imports: [PrismaModule, MessagingModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule],
   controllers: [LogisticaController],
-  providers: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService, LogisticaConfigService],
-  exports: [LogisticaService, LogisticaRecorrenciaService, LogisticaRotaService, LogisticaConfigService],
+  providers: [
+    LogisticaService,
+    LogisticaRecorrenciaService,
+    LogisticaRotaService,
+    LogisticaConfigService,
+    LogisticaRecoveryService,
+  ],
+  exports: [
+    LogisticaService,
+    LogisticaRecorrenciaService,
+    LogisticaRotaService,
+    LogisticaConfigService,
+    LogisticaRecoveryService,
+  ],
 })
 export class LogisticaModule {}

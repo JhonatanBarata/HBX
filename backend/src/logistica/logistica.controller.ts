@@ -19,6 +19,7 @@ import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
+import { LogisticaRecoveryService } from './logistica-recovery.service';
 import {
   CancelarEntregaDto,
   ConfirmarEntregaDto,
@@ -31,6 +32,7 @@ import {
   SetAvisarClienteDto,
   UpdateClienteProdutoDto,
   UpdateLogisticaConfigDto,
+  VarrerRecoveryDto,
 } from './dto/logistica.dto';
 
 /**
@@ -52,6 +54,7 @@ export class LogisticaController {
     private readonly recorrencia: LogisticaRecorrenciaService,
     private readonly rota: LogisticaRotaService,
     private readonly config: LogisticaConfigService,
+    private readonly recovery: LogisticaRecoveryService,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -264,5 +267,24 @@ export class LogisticaController {
     const res = await this.config.setAvisarEntregaCliente(companyId, id, dto?.avisar);
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
+  }
+
+  // ── LOGÍSTICA-MOBILE M7 — recovery opt-in ────────────────────────────────────
+
+  /**
+   * Varre as cobranças VENCIDAS (pending, dueDate < corte, sourceModule=logistica_*)
+   * da empresa e injeta cada CLIENTE com dívida no funil hbx-recovery EXISTENTE
+   * (cria HbxRecoveryCustomer + DebtCase; a cadência/envio é do próprio Recovery).
+   *
+   * OPT-IN DURO: só faz algo se LogisticaConfig.moduloRecoveryAtivo=true (default
+   * OFF) → empresa que não ligou recebe no-op. IDEMPOTENTE: 1 caso por cliente
+   * (2ª varredura não duplica). ADMIN-only. NÃO cria caminho de envio novo, NÃO toca MP.
+   */
+  @Post('recovery/varrer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  varrerRecovery(@Req() req: any, @Body() dto: VarrerRecoveryDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recovery.varrer(companyId, dto?.date);
   }
 }

@@ -319,3 +319,12 @@ export class FecharMesDto {
   @MaxLength(7)
   mesRef?: string; // "YYYY-MM"
 }
+
+// ── LOGÍSTICA-MOBILE M7 — recovery opt-in (varrer cobranças vencidas) ─────────
+export class VarrerRecoveryDto {
+  // Data de corte (ISO YYYY-MM-DD); charges com dueDate < esse dia entram. Omitido = hoje.
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+}
