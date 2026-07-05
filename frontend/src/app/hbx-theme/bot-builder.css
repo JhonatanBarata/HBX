@@ -160,7 +160,7 @@
   height: 22px;
   border: none;
   border-radius: 50%;
-  background: rgba(0,0,0,0.35);
+  background: var(--wa-scrim);
   color: var(--wa-header-ink);
   display: grid;
   place-items: center;

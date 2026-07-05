@@ -919,11 +919,22 @@ export class CompanyOperationalStatusService {
       masterConfig,
       Boolean(opts?.validatePayments),
     );
+    // Timeout curto (mesma régua do buildPaymentValidationCache, 2-5s) — sem
+    // isso, um provider WhatsApp lento/indisponível prendia a listagem inteira
+    // até o timeout cru do cliente HTTP (WHATSAPP_MODAL_TIMEOUT_MS, ate 30s).
+    const liveHealthTimeoutMs = this.resolveRefreshTimeoutMs();
     const liveHealthEntries = await Promise.all(
       companies.map(async (company) => {
         const companyId = Number(company?.id || 0);
         try {
-          return [companyId, await this.whatsappModalService.getCompanyLiveHealth(companyId)] as const;
+          const operation = this.whatsappModalService.getCompanyLiveHealth(companyId);
+          const result = await this.waitForTimedOperation(
+            `Live health WhatsApp company=${companyId}`,
+            operation,
+            liveHealthTimeoutMs,
+          );
+          if (!result.ok) return [companyId, null] as const;
+          return [companyId, await operation] as const;
         } catch {
           return [companyId, null] as const;
         }

@@ -64,7 +64,12 @@ function createService(overrides?: Partial<Record<string, any>>) {
       ...(overrides?.user || {}),
     },
     company: {
-      findUnique: async () => ({ selectedPlanKey: 'hbx_padrao' }),
+      // Consulta por `slug` = resolução da empresa-motor de WhatsApp
+      // (getOrCreateMasterWhatsappEngineCompanyId); devolver um id evita que a
+      // etapa de disponibilidade aborte antes de chamar checkWhatsappNumbers.
+      // Demais consultas (por id) seguem entregando o plano da empresa.
+      findUnique: async ({ where }: any = {}) =>
+        where?.slug ? { id: 424242 } : { selectedPlanKey: 'hbx_padrao' },
       ...(overrides?.company || {}),
     },
     product: {
@@ -126,6 +131,19 @@ function createService(overrides?: Partial<Record<string, any>>) {
 
   const commercialUsageLimits = {
     getUsageSnapshot: async () => ({ cards: { remaining: 999, dailyRemaining: 999 } }),
+    // Snapshot neutro (não-vendedor, sem teto) para o medidor de carteira do
+    // board — espelha o ramo "não vendedor" de getSellerCardCapacitySnapshot.
+    getSellerCardCapacitySnapshot: async () => ({
+      isSeller: false,
+      unlimited: true,
+      activeCards: null,
+      capacity: 999999,
+      availableSlots: null,
+      paused: false,
+      full: false,
+      code: null,
+      companyTarget: null,
+    }),
     assertCanImportCard: async () => true,
     assertSellerActiveCardSlots: async () => true,
     recordCardImport: async () => true,

@@ -14,11 +14,7 @@
   border-radius: 46px;
   background: var(--wa-frame);
   padding: 14px 11px 18px;
-  box-shadow:
-    inset 0 1px 0 var(--wa-frame-edge),
-    inset 0 -1px 0 rgba(0,0,0,0.5),
-    0 32px 72px -18px rgba(0,0,0,0.65),
-    0 8px 28px -8px rgba(0,0,0,0.45);
+  box-shadow: var(--wa-phone-shadow);
 }
 
 /* Botões de volume (lado esquerdo — decorativo) */
@@ -69,7 +65,7 @@
   border-radius: 20px;
   background: var(--wa-island);
   z-index: 10;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.6);
+  box-shadow: var(--wa-island-shadow);
   pointer-events: none;
 }
 
@@ -83,8 +79,8 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #1C1C1E;
-  box-shadow: 0 0 0 1.5px rgba(255,255,255,0.06), inset 0 0 4px rgba(100,180,255,0.15);
+  background: var(--wa-cam);
+  box-shadow: var(--wa-cam-shadow);
 }
 
 /* ── Barra de status (clock + battery) ── */
@@ -147,7 +143,7 @@
   font-size: 0.73rem;
   font-weight: 700;
   overflow: hidden;
-  border: 1.5px solid rgba(255,255,255,0.15);
+  border: 1.5px solid var(--wa-avatar-ring);
 }
 .wa-head__avatar img { width: 100%; height: 100%; object-fit: cover; }
 .wa-head__id {
@@ -245,7 +241,7 @@
   line-height: 1.45;
   color: var(--wa-text);
   background: var(--wa-bubble-in);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  box-shadow: var(--wa-bubble-shadow);
 }
 .wa-msg--out .wa-bubble { background: var(--wa-bubble-out); }
 .wa-bubble__text { white-space: pre-line; word-break: break-word; }
@@ -293,7 +289,7 @@
   padding: 9px 12px;
   border-radius: 8px 8px 8px 0;
   background: var(--wa-bubble-in);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  box-shadow: var(--wa-bubble-shadow);
 }
 .wa-typing i {
   width: 6px; height: 6px;
@@ -325,7 +321,7 @@
   font-weight: 600;
   text-align: center;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  box-shadow: var(--wa-bubble-shadow);
 }
 .wa-quick__btn:hover { filter: brightness(1.15); }
 
