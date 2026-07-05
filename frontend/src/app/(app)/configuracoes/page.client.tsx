@@ -7,18 +7,20 @@
 //   - Equipe → GET /users/company (Admin; sem permissão mostra aviso);
 //     Novo acesso → cadastro COMPLETO (components/hbx/novo-acesso-modal,
 //     PR12062026005): POST /users/company/create + onboarding de documentos/
-//     contrato do gerencial; aviso de assento via GET /users/company/seat-billing.
+//     contrato do gerencial. Assento é GRÁTIS (CRÉDITOS FASE 2/R4) — sem aviso
+//     de custo no convite.
 //     Gerenciar → PATCH /users/:id/role e PATCH /users/:id/active
 //   - E-mail (Admin) → módulo de e-mail POR EMPRESA (PR12062026005,
 //     components/hbx/company-email-section): SMTP próprio, templates com "+",
 //     disparos manuais do cadastro. HBX admin compartilha só o transporte do
 //     Master (decidido no backend — nenhum endpoint master no front).
-//   - Plano e cobrança → GET /commercial-plans/me (ordem explícita do dono,
-//     11/06/2026): plano vigente, estado de acesso, trial, entitlements e
-//     catálogo real. PAGAMENTOS.md: vendedor NUNCA vê a seção (ocultada por
-//     userKind); preço nunca é hardcoded — tudo vem do catálogo da API.
-//     Troca de plano/checkout NÃO foi ligada (fluxo de pagamento ainda não
-//     existe no front novo — "Gerenciar plano" segue visual, registrado).
+//   - Créditos (CRÉDITOS FASE 2 — REMOÇÃO) → GET /commercial-plans/me (estado
+//     de acesso/módulos liberados) + GET /credits/me (carteira, via
+//     CreditsWalletSection). O modelo de plano/tier/checkout de assinatura
+//     mensal SAIU daqui: HBX agora é carteira de créditos pré-paga (1 crédito
+//     = 1 lead); não há mais vitrine de planos, upgrade/downgrade com cobrança
+//     proporcional nem assento pago (assento é grátis). PAGAMENTOS.md:
+//     vendedor NUNCA vê a seção (ocultada por canViewBilling).
 // Notificações seguem visuais (sem contrato). Campos sem dado no contrato
 // (CNPJ, segmento, cidade, telefone do perfil) mostram vazio/“—”.
 
@@ -27,25 +29,18 @@ import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { CreditsWalletSection } from "@/components/hbx/credits-wallet-section";
-import { ImplantacaoContato } from "@/components/hbx/implantacao-contato";
 import { MetaLeadAdsSection } from "@/components/hbx/meta-lead-ads-section";
-import { TrocarPlanoModal, type TrocarPlanoDirection } from "@/components/hbx/trocar-plano-modal";
-import { CheckoutPanel } from "@/components/hbx/checkout-panel";
-import { ExtraSeatsCard } from "@/components/hbx/extra-seats-card";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { PlanCard } from "@/components/hbx/plan-card";
-import { Av, ConfirmDialog, I, ICONS, useMyModules } from "@/components/hbx/shell";
+import { Av, I, ICONS, useMyModules } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
-import { PLAN_ORDER, FALLBACK_PLANS, fetchPublicPlans, type PublicPlan } from "@/lib/plans";
-import { classifyPlanChange } from "@/lib/plan-rank";
 import { useTabParam } from "@/lib/use-tab-param";
 
 // Equipe saiu de Configurações → vive agora em Gerencial → aba Equipe.
 // "Integrações" (ARQ11 S2 item 3) — hoje só Meta Ads (Leads); admin da empresa configura
 // pageId/token/webhook direto na tela em vez de curl na API.
-const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Notificações", "Plano e cobrança", "Créditos"];
-const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Notificações": "bell", "Plano e cobrança": "money", "Créditos": "money" };
+const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Notificações", "Créditos"];
+const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Notificações": "bell", "Créditos": "money" };
 
 type CurrentUser = {
   name?: string | null;
@@ -58,42 +53,20 @@ type CurrentUser = {
   company?: { name?: string | null; contactPhone?: string | null; prospectingSegments?: string[] | null } | null;
 } | null;
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
-
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: "Administrador",
   USER: "Vendas",
   MASTER: "Master",
 };
 
-type CatalogPlan = {
-  key: string;
-  title: string;
-  monthlyPrice: number | null;
-  includedUsers?: number | null;
-  headline?: string | null;
-  badge?: string | null;
-  recommended?: boolean;
-  // Full: implantação assistida, sem self-checkout — o cliente PEDE e a HBX contata.
-  requiresAssistedSetup?: boolean;
-  contactOnly?: boolean;
-  features?: string[];
-};
-
+// CRÉDITOS FASE 2: sobrou só o que ainda é lido (estado de acesso + módulos
+// liberados) — catálogo de planos/preço/trial/cartão saiu (não há mais
+// vitrine de plano nem checkout de assinatura nesta tela).
 type CommercialPlansMe = {
   current?: {
-    planKey?: string | null;
     entitlements?: Record<string, boolean>;
-    accessState?: string | null;
     accessStateLabel?: string | null;
-    trialEndsAt?: string | null;
-    trialRemainingDays?: number | null;
-    isTrial?: boolean;
-    savedCard?: { brand: string | null; last4: string | null } | null;
-    assistedSetup?: { required?: boolean; status?: string | null; message?: string | null };
   };
-  plans?: CatalogPlan[];
-  permissions?: { canSelectPlan?: boolean };
 } | null;
 
 const ENTITLEMENT_LABEL: Record<string, string> = {
@@ -106,11 +79,6 @@ const ENTITLEMENT_LABEL: Record<string, string> = {
 
 function entitlementLabel(key: string) {
   return ENTITLEMENT_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-}
-
-function fmtPreco(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null;
-  return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}/mês`;
 }
 
 function Toggle({ on, set }: { on: boolean; set: (v: boolean) => void }) {
@@ -167,28 +135,7 @@ export function ConfiguracoesClient() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
-  // team só é usado em Plano e cobrança (contagem de usuários) — mantido, mas
-  // Equipe como seção foi movida para Gerencial.
-  const [team, setTeam] = useState<CompanyUser[]>([]);
   const [plansMe, setPlansMe] = useState<CommercialPlansMe>(null);
-  // Números (preço/trial/volume) da MESMA fonte da casca (/commercial-plans/public-catalog).
-  // Copy/ícone vêm de lib/plans (PLAN_STATIC) via <PlanCard> — nada duplicado em tela.
-  const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
-  // Troca de plano (PAGAMENTOS.md): só ADMIN (canSelectPlan vem do backend).
-  // O backend é a fonte da regra — selecionar plano diferente cai em
-  // pending_checkout/desativa; o front só dispara e mostra o veredito.
-  const [planoBusy, setPlanoBusy] = useState(false);
-  const [planoMsg, setPlanoMsg] = useState<string | null>(null);
-  const [subscribePlan, setSubscribePlan] = useState<{ key: string; title: string; monthlyPrice: number | null } | null>(null);
-  // Upgrade de quem JÁ paga: cobra a diferença proporcional no cartão (change-plan),
-  // não cria assinatura nova. chargeNow = valor da diferença (do preview do modal).
-  const [upgradePay, setUpgradePay] = useState<{ key: string; chargeNow: number | null } | null>(null);
-  // Fim de trial (live): troca de plano encerra o teste e cobra o plano novo. O cartão
-  // tokeniza 2x (avulso + nova recorrência) e dispara o change-plan com os dois tokens.
-  const [trialEndPay, setTrialEndPay] = useState<{ key: string; title: string; monthlyPrice: number | null } | null>(null);
-  const [confirmCancelar, setConfirmCancelar] = useState(false);
-  const [implantacaoOpen, setImplantacaoOpen] = useState(false);
-  const [trocarPlano, setTrocarPlano] = useState<PublicPlan | null>(null);
 
   // Equipe saiu desta tela — sem novoAcesso/gerirMembro/excluirMembro aqui.
   // Gestão de membros vive em Gerencial → aba Equipe.
@@ -203,15 +150,9 @@ export function ConfiguracoesClient() {
         setNichoInput((res.company?.prospectingSegments || []).join(", "));
       })
       .catch(() => { /* sem sessão — AuthGate cuida */ });
-    apiFetch<CompanyUser[]>("/users/company")
-      .then(res => { if (alive) setTeam(Array.isArray(res) ? res : []); })
-      .catch(() => { /* equipe indisponível — só afeta contagem de usuários em Plano */ });
     apiFetch<CommercialPlansMe>("/commercial-plans/me")
       .then(res => { if (alive) setPlansMe(res); })
       .catch(() => { /* sem acesso comercial — seção fica oculta/limitada */ });
-    fetchPublicPlans()
-      .then(res => { if (alive && Array.isArray(res) && res.length) setLivePlans(res); })
-      .catch(() => { /* mantém FALLBACK_PLANS */ });
     apiFetch<{ prefs: { novoLead: boolean; semResposta: boolean; resumoDiario: boolean; tarefasAtrasadas: boolean } }>("/profile/notification-prefs")
       .then(res => {
         if (!alive || !res?.prefs) return;
@@ -299,31 +240,6 @@ export function ConfiguracoesClient() {
   }
 
 
-  // Assinatura recorrente (cartão) — abre o modal de cartão (Card Brick do Mercado
-  // Pago), que consome o motor existente /financeiro/subscription/create. A
-  // liberação acontece na autorização do cartão (sem esperar o valor liquidar).
-  async function recarregarPlano() {
-    const me = await apiFetch<CommercialPlansMe>("/commercial-plans/me").catch(() => null);
-    if (me) setPlansMe(me);
-  }
-
-  async function cancelarAssinatura() {
-    if (planoBusy) return;
-    setPlanoBusy(true);
-    setPlanoMsg(null);
-    try {
-      const res = await apiFetch<{ message?: string }>("/financeiro/subscription/cancel", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setPlanoMsg(`✓ ${res?.message || "Assinatura cancelada. O acesso continua até o fim do período já pago."}`);
-      await recarregarPlano();
-    } catch (err) {
-      setPlanoMsg(err instanceof Error ? err.message : "Não foi possível cancelar agora.");
-    } finally {
-      setPlanoBusy(false);
-    }
-  }
 
   const displayName = user?.name || user?.username || "—";
   // PAGAMENTOS.md: vendedor (role USER) nunca vê tela/valores de cobrança.
@@ -348,16 +264,11 @@ export function ConfiguracoesClient() {
   // seção fica só na audiência de cobrança nesta tela (o vendedor enxerga seu
   // "leads disponíveis" em outro lugar do produto, não aqui).
   const sections = SECTIONS
-    .filter(s => s !== "Plano e cobrança" || canSeeBilling)
     .filter(s => s !== "Créditos" || canSeeBilling)
     .filter(s => s !== "E-mail" || canSeeEmail)
     .filter(s => s !== "Integrações" || canSeeIntegracoes);
   const current = plansMe?.current;
-  // Catálogo visível = cards lindos (PLAN_ORDER) com número da API pública.
-  // Estado do contratante (plano atual, acesso, permissão) vem do /me.
-  const planoAtual = livePlans.find(p => p.key === current?.planKey) || null;
   const entitlementsAtivos = Object.entries(current?.entitlements || {}).filter(([, on]) => on).map(([k]) => k);
-  const canSelectPlan = Boolean(plansMe?.permissions?.canSelectPlan);
 
   return (
     <React.Fragment>
@@ -492,251 +403,36 @@ export function ConfiguracoesClient() {
               </section>
             )}
 
-            {sec === "Plano e cobrança" && canSeeBilling && (
+            {sec === "Créditos" && canSeeBilling && (
               <React.Fragment>
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Plano e cobrança</h2>
-                    {(planoMsg || current?.accessStateLabel) && (
-                      <div className="meta">
-                        {planoMsg && <span className={"tag " + (planoMsg.startsWith("✓") ? "teal" : "red")}>{planoMsg}</span>}
-                        {current?.accessStateLabel && <span className="tag teal">{current.accessStateLabel}</span>}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ padding: 18 }}>
-                    {/* Dividido no meio: esquerda = plano/estado/módulos; direita = assentos extras (só quando o card aparece). */}
-                    {(() => {
-                    const showSeats = canSelectPlan && current?.accessState === "paying" && current?.planKey !== "hbx_lite";
-                    return (
-                    <div className={showSeats ? "plan-billing-split" : undefined}>
-                    <div className="pbs-main">
-                    <div style={{ display: "flex", gap: 14, alignItems: "center", padding: 16, borderRadius: "var(--radius-md)", border: "1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent)", background: "var(--hbx-brand-soft)" }}>
-                      <div style={{ flex: 1 }}>
-                        <strong style={{ fontSize: "0.94rem" }}>{planoAtual?.title || (current?.planKey ? current.planKey : "Sem plano ativo")}</strong>
-                        <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 3 }}>
-                          {current?.isTrial && current?.trialEndsAt
-                            ? `Trial até ${new Date(current.trialEndsAt).toLocaleDateString("pt-BR")}${current?.trialRemainingDays != null ? ` · ${current.trialRemainingDays} dia(s) restantes` : ""}`
-                            : planoAtual?.headline || "Escolha um plano no catálogo abaixo."}
+                {/* CRÉDITOS FASE 2: HBX não vende mais plano/tier — o acesso é
+                    módulo (kill-switch do master) + RBAC + saldo de crédito.
+                    Esta seção resume o estado da conta; a carteira em si vem
+                    logo abaixo (CreditsWalletSection). */}
+                {(current?.accessStateLabel || entitlementsAtivos.length > 0) && (
+                  <section className="panel cfg-section">
+                    <div className="panel-head"><h2>Acesso da conta</h2></div>
+                    <div style={{ padding: 18, display: "grid", gap: 12 }}>
+                      {current?.accessStateLabel && (
+                        <div className="kv">
+                          <div className="row"><span className="k">Estado do acesso</span><span className="v">{current.accessStateLabel}</span></div>
                         </div>
-                      </div>
-                      {fmtPreco(planoAtual?.monthlyPrice) && (
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: "1.1rem", fontWeight: 700 }}>{fmtPreco(planoAtual?.monthlyPrice)}</span>
                       )}
-                      {/* Trial/checkout pendente no plano atual (pago): "Assinar agora" abre o
-                          cartão direto pro plano vigente — a conversão mais comum (Lead→pago). */}
-                      {canSelectPlan && planoAtual && !planoAtual.contactOnly && current?.accessState !== "paying" && (
-                        <button className="btn-teal" disabled={planoBusy} onClick={() => { setSubscribePlan(planoAtual); setPlanoMsg(null); }}>Assinar agora</button>
+                      {entitlementsAtivos.length > 0 && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Módulos liberados:</span>
+                          {entitlementsAtivos.map(k => <span key={k} className="tag teal">{entitlementLabel(k)}</span>)}
+                        </div>
                       )}
-                      {canSelectPlan && livePlans.length > 0 && (
-                        <button className="btn-ghost" onClick={() => document.getElementById("hbx-catalogo-planos")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Gerenciar plano</button>
-                      )}
-                      {canSelectPlan && current?.accessState === "paying" && (
-                        <>
-                          <button className="btn-ghost" disabled={planoBusy} onClick={() => { setConfirmCancelar(true); setPlanoMsg(null); }}>Cancelar assinatura</button>
-                          <small><a href="https://wa.me/5519997024884" target="_blank" rel="noopener noreferrer">Reclamação ou reembolso? Fale com a gente</a></small>
-                        </>
-                      )}
-                    </div>
-                    <div className="kv">
-                      <div className="row"><span className="k">Estado do acesso</span><span className="v">{current?.accessStateLabel || "—"}</span></div>
-                      <div className="row"><span className="k">Usuários</span><span className="v">{team.length > 0 ? `${team.length}${planoAtual?.includedUsers ? ` de ${planoAtual.includedUsers} inclusos` : ""}` : "—"}</span></div>
-                      {current?.assistedSetup?.required && (
-                        <div className="row"><span className="k">Implantação assistida</span><span className="v">{current.assistedSetup.status === "completed" ? "Concluída" : "Pendente"}</span></div>
-                      )}
-                    </div>
-                    {entitlementsAtivos.length > 0 && (
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Módulos liberados:</span>
-                        {entitlementsAtivos.map(k => <span key={k} className="tag teal">{entitlementLabel(k)}</span>)}
-                      </div>
-                    )}
-                    {current?.assistedSetup?.message && (
-                      <p style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5, color: "var(--hbx-warning)" }}>{current.assistedSetup.message}</p>
-                    )}
-                    </div>
-                    {/* F6 — assento extra: só admin pagante, e plano que trabalha com extra (List não). Coluna direita. */}
-                    {showSeats && (
-                      <div className="pbs-seats">
-                        <ExtraSeatsCard onDone={recarregarPlano} />
-                      </div>
-                    )}
-                    </div>
-                    );
-                    })()}
-                  </div>
-                </section>
-
-                {livePlans.length > 0 && (
-                  <section className="panel" id="hbx-catalogo-planos">
-                    <div className="panel-head">
-                      <h2>Catálogo de planos HBX</h2>
-                      <div className="meta"><span className="tag">Upgrade na hora · Downgrade sem perder o pago</span></div>
-                    </div>
-                    <div className="plan-grid">
-                      {PLAN_ORDER.map((key) => {
-                        const live = livePlans.find(p => p.key === key);
-                        if (!live) return null;
-                        const isCurrent = key === current?.planKey;
-                        // Direção pela MESMA régua do backend (rank), não por preço.
-                        const dir = classifyPlanChange(current?.planKey, key);
-                        let cta: React.ReactNode;
-                        if (isCurrent) {
-                          cta = <div className="site-plan2__cta is-muted">Plano atual</div>;
-                        } else if (!canSelectPlan) {
-                          cta = <div className="site-plan2__cta is-muted">Falar com o ADMIN</div>;
-                        } else if (dir === "contact" || live.contactOnly) {
-                          cta = <button type="button" className="site-plan2__cta" onClick={() => { setImplantacaoOpen(true); setPlanoMsg(null); }}>Quero implantação</button>;
-                        } else if (dir === "downgrade") {
-                          cta = <button type="button" className="site-plan2__cta" disabled={planoBusy} onClick={() => { setTrocarPlano(live); setPlanoMsg(null); }}>Reduzir plano</button>;
-                        } else {
-                          cta = <button type="button" className="site-plan2__cta is-primary" disabled={planoBusy} onClick={() => { setTrocarPlano(live); setPlanoMsg(null); }}>{dir === "upgrade" ? "Fazer upgrade" : "Assinar"}</button>;
-                        }
-                        return (
-                          <PlanCard
-                            key={key}
-                            planKey={key}
-                            live={live}
-                            className={[live.recommended ? "is-hot" : "", isCurrent ? "is-current" : ""].filter(Boolean).join(" ")}
-                            cta={cta}
-                          />
-                        );
-                      })}
                     </div>
                   </section>
                 )}
-
-                {!plansMe && (
-                  <section className="panel">
-                    <div style={{ padding: 18, fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                      Catálogo comercial indisponível no momento.
-                    </div>
-                  </section>
-                )}
+                <CreditsWalletSection userEmail={user?.email || ""} userName={user?.name || user?.company?.name || ""} />
               </React.Fragment>
             )}
-
-            {sec === "Créditos" && canSeeBilling && (
-              <CreditsWalletSection userEmail={user?.email || ""} userName={user?.name || user?.company?.name || ""} />
-            )}
           </div>
         </div>
 
-      {subscribePlan && (
-        <div className="bv-veil" role="dialog" aria-modal="true">
-          <div className="reg-form">
-            <CheckoutPanel
-              planKey={subscribePlan.key}
-              phone={user?.company?.contactPhone || ""}
-              email={user?.email || ""}
-              name={nome || user?.name || user?.company?.name || ""}
-              reactivation
-              onSuccess={async () => { setSubscribePlan(null); setPlanoMsg("✓ Assinatura ativa! Acesso liberado."); await recarregarPlano(); }}
-            />
-            <button type="button" className="bv-link" onClick={() => setSubscribePlan(null)}>← Voltar</button>
-          </div>
-        </div>
-      )}
-
-      {upgradePay && (
-        <div className="bv-veil" role="dialog" aria-modal="true">
-          <div className="reg-form">
-            <CheckoutPanel
-              planKey={upgradePay.key}
-              phone={user?.company?.contactPhone || ""}
-              email={user?.email || ""}
-              name={nome || user?.name || user?.company?.name || ""}
-              title={`Subir para ${livePlans.find(p => p.key === upgradePay.key)?.title || "novo plano"}`}
-              amountOverride={upgradePay.chargeNow ?? undefined}
-              hideCycle
-              reactivation
-              submitOverride={async ({ cardTokenId, paymentMethodId, taxDocument }) => {
-                const res = await apiFetch<{ ok?: boolean; message?: string }>("/financeiro/subscription/change-plan", {
-                  method: "POST",
-                  body: JSON.stringify({ planKey: upgradePay.key, cardTokenId, paymentMethodId, taxDocument }),
-                });
-                if (!res?.ok) throw new Error(res?.message || "Não foi possível concluir o upgrade.");
-              }}
-              onSuccess={async () => { setUpgradePay(null); setPlanoMsg("✓ Upgrade aplicado! Acesso liberado."); await recarregarPlano(); }}
-            />
-            <button type="button" className="bv-link" onClick={() => setUpgradePay(null)}>← Voltar</button>
-          </div>
-        </div>
-      )}
-
-      {trialEndPay && (
-        <div className="bv-veil" role="dialog" aria-modal="true">
-          <div className="reg-form">
-            <CheckoutPanel
-              planKey={trialEndPay.key}
-              phone={user?.company?.contactPhone || ""}
-              email={user?.email || ""}
-              name={nome || user?.name || user?.company?.name || ""}
-              title={`Assinar ${trialEndPay.title}`}
-              ctaLabel="Encerrar teste e assinar"
-              amountOverride={trialEndPay.monthlyPrice ?? undefined}
-              hideCycle
-              reactivation
-              dualToken
-              submitOverride={async ({ cardTokenId, recurringCardTokenId, paymentMethodId, taxDocument }) => {
-                const res = await apiFetch<{ ok?: boolean; message?: string }>("/financeiro/subscription/change-plan", {
-                  method: "POST",
-                  body: JSON.stringify({ planKey: trialEndPay.key, cardTokenId, recurringCardTokenId, paymentMethodId, taxDocument }),
-                });
-                if (!res?.ok) throw new Error(res?.message || "Não foi possível concluir a troca.");
-              }}
-              onSuccess={async () => { setTrialEndPay(null); setPlanoMsg("✓ Teste encerrado — assinatura ativa!"); await recarregarPlano(); }}
-            />
-            <button type="button" className="bv-link" onClick={() => setTrialEndPay(null)}>← Voltar</button>
-          </div>
-        </div>
-      )}
-
-      <ConfirmDialog
-        open={confirmCancelar}
-        title="Cancelar assinatura"
-        message={<>Cancelar a assinatura recorrente? A cobrança automática para, e o acesso continua até o fim do período já pago.<br /><br /><small>Precisa de reembolso ou tem uma reclamação? <a href="https://wa.me/5519997024884" target="_blank" rel="noopener noreferrer">Fale conosco pelo WhatsApp</a>.</small></>}
-        confirmLabel="Cancelar assinatura"
-        danger
-        busy={planoBusy}
-        onConfirm={async () => { setConfirmCancelar(false); await cancelarAssinatura(); }}
-        onCancel={() => setConfirmCancelar(false)}
-      />
-
-      {trocarPlano && (() => {
-        // Direção pela régua de rank (espelha o backend) — não por preço (anual/trial enganam).
-        const raw = classifyPlanChange(current?.planKey, trocarPlano.key);
-        const dir: TrocarPlanoDirection = raw === "contact" ? "upgrade" : raw;
-        return (
-          <TrocarPlanoModal
-            fromPlan={planoAtual}
-            toPlan={trocarPlano}
-            direction={dir}
-            accessState={current?.accessState}
-            trialRemainingDays={current?.trialRemainingDays}
-            savedCard={current?.savedCard ?? null}
-            onClose={() => setTrocarPlano(null)}
-            onConfirmUpgrade={(plan, chargeNow) => {
-              setTrocarPlano(null);
-              // Já pagante → cobra a diferença proporcional (change-plan com cartão).
-              // Sem assinatura ativa → assina do zero (subscription/create).
-              if (current?.accessState === "paying") {
-                setUpgradePay({ key: plan.key, chargeNow: chargeNow ?? null });
-              } else {
-                setSubscribePlan({ ...plan, monthlyPrice: plan.monthlyPrice ?? null });
-              }
-            }}
-            onConfirmTrialEnd={plan => {
-              setTrocarPlano(null);
-              // Fim de trial: painel de cartão com 2 tokens → change-plan encerra o teste.
-              setTrialEndPay({ key: plan.key, title: plan.title, monthlyPrice: plan.monthlyPrice ?? null });
-            }}
-            onApplied={msg => { setTrocarPlano(null); setPlanoMsg(msg); recarregarPlano(); }}
-          />
-        );
-      })()}
-
-      {implantacaoOpen && <ImplantacaoContato onClose={() => setImplantacaoOpen(false)} asModal />}
     </React.Fragment>
   );
 }

@@ -101,7 +101,6 @@ export class EnrichmentCostService {
 
   evaluatePaidFallback(input: PaidFallbackContext): EnrichmentCostDecision {
     const planKey = normalizeCommercialPlanKey(input.planKey);
-    const planTier = getCommercialPlanTier(planKey);
     const provider = input.provider;
     const sku = String(input.sku || '').trim() || 'unknown';
     const triggeredBy = this.normalizeTrigger(input.triggeredBy);
@@ -197,7 +196,12 @@ export class EnrichmentCostService {
       });
     }
 
-    if (planTier === 'list' && triggeredBy === 'auto') {
+    // NOTA (FASE 2 — REMOÇÃO, R3): este check é governador de CUSTO (COGS real,
+    // fora do crédito por D1 do PLANO.md), não capacidade de produto — por
+    // isso usa planKey diretamente e NÃO getCommercialPlanTier (que R3
+    // aposentou como driver de acesso: agora sempre 'full'). List continua
+    // sem fallback pago automático porque é o plano de orçamento zero.
+    if (planKey === COMMERCIAL_PLAN_KEYS.LITE && triggeredBy === 'auto') {
       return this.block(input, 'plan_disallows_paid_auto', 'locked', 'HBX List nao usa fallback pago automatico.', {
         budget,
         budgetUsageRatio,
@@ -220,7 +224,7 @@ export class EnrichmentCostService {
       });
     }
 
-    const qualityBlock = this.checkQualityGate(provider, input, planTier);
+    const qualityBlock = this.checkQualityGate(provider, input, planKey);
     if (qualityBlock) {
       return this.block(input, qualityBlock.code, 'locked', qualityBlock.message, {
         budget,
@@ -490,7 +494,11 @@ export class EnrichmentCostService {
     return null;
   }
 
-  private checkQualityGate(provider: EnrichmentCostProvider, input: PaidFallbackContext, planTier: 'list' | 'lead' | 'full') {
+  // NOTA (FASE 2 — REMOÇÃO, R3): governador de CUSTO (COGS, fora do crédito
+  // por D1) — usa planKey diretamente, não getCommercialPlanTier (aposentado
+  // como driver de acesso por R3, sempre 'full' agora). Pro/Implantação
+  // mantêm a barra mais baixa (55) que List/Lead Plus (70), como sempre foi.
+  private checkQualityGate(provider: EnrichmentCostProvider, input: PaidFallbackContext, planKey: ActiveCommercialPlanKey) {
     if (!input.hasCriticalMissingData) {
       return {
         code: 'no_critical_missing_data',
@@ -498,9 +506,10 @@ export class EnrichmentCostService {
       };
     }
 
+    const isFullTierPlan = planKey === COMMERCIAL_PLAN_KEYS.PRO || planKey === COMMERCIAL_PLAN_KEYS.MELHOR;
     const score = Number(input.leadScore);
     const normalizedScore = Number.isFinite(score) ? score : 0;
-    const minimumScore = planTier === 'full' ? 55 : 70;
+    const minimumScore = isFullTierPlan ? 55 : 70;
     if (normalizedScore < minimumScore) {
       return {
         code: 'lead_score_too_low',

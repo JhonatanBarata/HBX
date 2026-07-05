@@ -26,7 +26,6 @@ import {
   classifyPlanChange,
   computeCommercialPlanCycleAmount,
   getCommercialAnnualDiscountPercent,
-  getCommercialPlanExtraUserMonthlyPrice,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   getCommercialPlanTrialDays,
@@ -39,11 +38,10 @@ import {
   computePlanProration,
   remainingDays as prorationRemainingDays,
 } from '../commercial-plans/plan-proration.util';
-import {
-  canBillExtraSeatsForPlan,
-  computeCompanySeatBillingSnapshot,
-  computeImmediateExtraSeatCharge,
-} from '../commercial-plans/seat-billing.util';
+// R4 (FASE 2 — REMOÇÃO): seat-billing.util não é mais consumido aqui — assento
+// é grátis (buildSeatBillingSnapshot devolve snapshot zerado sem chamar o
+// util). Arquivo mantido em disco (seat-billing.util.ts) só por retrocompat de
+// import externo; nenhum caminho de cobrança passa mais por ele.
 import { reserveTrialUsageTx } from '../commercial-plans/trial-usage';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MailService } from '../mail/mail.service';
@@ -657,15 +655,32 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async buildSeatBillingSnapshot(company: any, billingCycle: string, _pricingPolicy?: any) {
-    const planKey = normalizeCatalogCommercialPlanKey(company?.selectedPlanKey);
-    return computeCompanySeatBillingSnapshot(this.prisma, {
-      companyId: Number(company?.id || 0),
-      planKey,
-      // Fonte ÚNICA do valor do assento extra: o catálogo por-plano (overlay do
-      // Self-Checkout), não mais a policy global.
-      extraSeatMonthlyAmount: getCommercialPlanExtraUserMonthlyPrice(planKey),
-    });
+  // R4 (FASE 2 — REMOÇÃO, definitivo): assento GRÁTIS — cobrança por assento
+  // aposentada (D5). O recorrente NUNCA mais soma extraSeatCycleAmount; devolve
+  // o snapshot zerado direto (mesmo shape que buildSeatBillingFromIntervals com
+  // canBillExtraSeats:false), sem contar usuário nenhum. activeUsers segue
+  // informativo pra UI que ainda lê (ex.: "X usuários ativos"), sem custo.
+  private async buildSeatBillingSnapshot(company: any, _billingCycle: string, _pricingPolicy?: any) {
+    const companyId = Number(company?.id || 0);
+    const activeUsers = companyId
+      ? await this.prisma.user.count({
+          where: { companyId, isActive: true, deactivatedAt: null, isSystemMaster: false, role: { in: ['USER', 'ADMIN'] } },
+        }).catch(() => 0)
+      : 0;
+    return {
+      activeUsers,
+      includedActiveUsers: activeUsers,
+      extraActiveUsers: 0,
+      extraSeatMonthlyAmount: 0,
+      extraSeatCycleAmount: 0,
+      extraSeatFullMonthAmount: 0,
+      extraSeatBillableDays: 0,
+      extraSeatAverageUsers: 0,
+      billingPeriodStart: new Date().toISOString(),
+      billingPeriodEnd: new Date().toISOString(),
+      billingMode: 'month_end_prorated' as const,
+      billedImmediately: false as const,
+    };
   }
 
   private resolveUserContext(user: any) {
@@ -3681,17 +3696,43 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // Troca de plano de uma assinatura ATIVA (B6 — PR17062026043). Upgrade cobra a
-  // diferença proporcional aos dias restantes e libera na hora; downgrade NÃO cobra,
-  // mantém o acesso até o fim do período já pago e gera crédito proporcional. A regra
-  // de direção é o RANK do catálogo (igual ao front), nunca o preço. Cálculo puro em
-  // commercial-plans/plan-proration.util (testado). dryRun=true só devolve o preview.
-  //
-  // LIVE Mercado Pago: o ajuste do valor recorrente (updatePreapproval) e a cobrança
-  // avulsa da diferença (createPayment) ficam ligados mas precisam de validação com
-  // credenciais de teste na VPS — não dá pra provar live aqui. O consumo do crédito na
-  // próxima fatura é ato do master (MP não abate parcial de cobrança recorrente fixa).
+  // R5 (FASE 2 — REMOÇÃO, definitivo): fluxo de upgrade/downgrade "cobra a
+  // diferença proporcional" (B6 — PR17062026043) APOSENTADO. Sem tier a
+  // decidir acesso/capacidade (R3) e sem cobrança por assento (R4), trocar de
+  // "plano" não move dinheiro nem liga/desliga nada — quem limita consumo
+  // agora é o saldo de crédito (CreditWalletService), não o plano. Endpoint
+  // mantido (evita 404 em quem ainda chama) como NO-OP informativo; os
+  // helpers privados de proração/upgrade/downgrade abaixo (applyUpgradePlanChange
+  // / applyDowngradePlanChange / applyTrialEndingPlanChange / recordProrationCharge)
+  // ficam mortos em código — não deletados nesta rodada para não arriscar o
+  // boot por injeção/import cruzado; nenhum deles é mais alcançável a partir daqui.
   async changePlanForUser(
+    user: any,
+    _dto: {
+      planKey?: string;
+      billingCycle?: string;
+      cardTokenId?: string;
+      recurringCardTokenId?: string;
+      paymentMethodId?: string;
+      taxDocument?: string;
+      dryRun?: boolean;
+    },
+  ) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+
+    return {
+      ok: true,
+      noop: true,
+      direction: 'same' as const,
+      code: 'CREDITS_MODEL_NO_PLAN_CHANGE',
+      message: 'HBX agora funciona por carteira de créditos — não há mais troca de plano com cobrança proporcional. Recarregue créditos em Configurações.',
+      overview: await this.getOverviewForUser(user),
+    };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private async _legacyChangePlanForUser(
     user: any,
     dto: {
       planKey?: string;
@@ -4316,105 +4357,41 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // F6 — compra de bloco de assentos extras pelo ADMIN. paga-primeiro: a capacidade
-  // (seatCap) só sobe com a cobrança proporcional CONFIRMADA. O valor cheio entra no
-  // recorrente do próximo mês sozinho (o seat snapshot conta o usuário ativo no novo
-  // ciclo). Mesmo gate do upgrade: live com cobrança > 0 depende de validação na VPS;
-  // mock roda ponta a ponta. Gerente (ADMIN sem billing) é barrado por
-  // assertCanManageBilling — cobrança nunca cruza com quem só preenche cadastro.
+  // R4 (FASE 2 — REMOÇÃO, definitivo): assento GRÁTIS — cobrança por assento
+  // aposentada (D5/[FECHADO 04/07]). Rota mantida (evita 404 pra quem ainda
+  // chama) mas virou SÓ um "aumente o teto operacional": sobe seatCap sem
+  // cobrar nada, sem proration, sem gate de assinatura. Só crédito custa
+  // (CreditWalletService); assento nunca mais entra em fatura/recorrente.
   async purchaseExtraSeats(
     user: any,
     dto: { seats?: number; cardTokenId?: string; dryRun?: boolean },
   ) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
-    await ensureMasterBillingRuntimeSchema(this.prisma);
 
     const seats = Math.max(0, Math.trunc(Number(dto?.seats || 0) || 0));
-    if (seats <= 0) throw new BadRequestException('Informe quantos assentos extras comprar.');
-    if (seats > 50) throw new BadRequestException('Máximo de 50 assentos por compra.');
+    if (seats <= 0) throw new BadRequestException('Informe quantos acessos extras liberar.');
+    if (seats > 50) throw new BadRequestException('Máximo de 50 acessos por vez.');
 
     const company = await this.prisma.company.findUnique({ where: { id: context.companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
-    const planKey = normalizeCatalogCommercialPlanKey(company.selectedPlanKey);
-    if (!canBillExtraSeatsForPlan(planKey)) {
-      throw new BadRequestException({
-        code: 'PLAN_NO_EXTRA_SEATS',
-        message: 'Seu plano não trabalha com assentos extras. Faça upgrade para liberar mais acessos.',
-      });
-    }
-
-    const now = new Date();
-    // Valor do assento extra vem do catálogo — reflete o que o master editou no
-    // Self-Checkout (F2) para este plano.
-    const extraSeatMonthly = this.normalizeCurrencyAmount(getCommercialPlanExtraUserMonthlyPrice(planKey));
-    const immediate = computeImmediateExtraSeatCharge({ seats, extraSeatMonthly, now });
     const currentSeatCap = Math.max(0, Number(company.seatCap || 0) || 0);
     const newSeatCap = currentSeatCap + seats;
-    const nextCycleFullAmount = this.normalizeCurrencyAmount(extraSeatMonthly * seats);
-    const access = resolveCompanyAccessState(company);
-    const isPaying = access.state === 'paying';
 
     const preview = {
       seats,
-      extraSeatMonthly,
-      remainingDays: immediate.remainingDays,
-      daysInMonth: immediate.daysInMonth,
-      chargeNow: immediate.chargeNow,
-      nextCycleFullAmount,
+      extraSeatMonthly: 0,
+      chargeNow: 0,
+      nextCycleFullAmount: 0,
       currentSeatCap,
       newSeatCap,
-      isPaying,
+      isPaying: true,
+      free: true,
     };
 
     if (dto?.dryRun) return { ok: true, dryRun: true, preview };
 
-    // paga-primeiro: sem assinatura ativa não há cartão recorrente — assina antes.
-    if (!isPaying) {
-      return {
-        ok: false,
-        code: 'NEEDS_CHECKOUT',
-        preview,
-        message: 'Ative sua assinatura antes de comprar assentos extras.',
-      };
-    }
-
-    const subscription = await this.findCurrentCompanySubscription(context.companyId);
-    const mockMode = this.isMockPaymentsProvider();
-
-    // LIVE: a cobrança avulsa no cartão real (Mercado Pago) ainda precisa ser validada
-    // na VPS — mesmo gate do upgrade. Regra de Ouro / paga-primeiro: NÃO sobe a
-    // capacidade sem pagamento confirmado. Devolve código sinalizado, sem mexer em nada.
-    if (!mockMode && immediate.chargeNow > 0) {
-      return {
-        ok: false,
-        code: 'LIVE_SEAT_CHARGE_TODO',
-        preview,
-        message: 'A cobrança proporcional no cartão (Mercado Pago real) ainda precisa ser validada na VPS com credenciais de teste.',
-      };
-    }
-
-    // 1) Cobra a proporcional AGORA (mock — só libera com pagamento ok).
-    if (mockMode && immediate.chargeNow > 0) {
-      await this.recordProrationCharge({
-        context,
-        billingCycle: this.normalizeBillingCycle(company.billingCycle),
-        amount: immediate.chargeNow,
-        planTitle: getCommercialPlanTitle(planKey),
-        entryType: 'EXTRA_SEAT_PRORATION_MOCK',
-        observation: `Cobrança proporcional de ${seats} assento(s) extra (mock) — ${immediate.remainingDays} dia(s) restantes do mês.`,
-        metadata: { seats, extraSeatMonthly, chargeNow: immediate.chargeNow, newSeatCap, source: 'extra_seat_purchase' },
-      });
-    }
-
-    // 2) LIVE best-effort: registra a intenção de subir o recorrente no próximo ciclo.
-    //    (O valor full por assento já é recomputado pelo seat snapshot na renovação.)
-    if (!mockMode && subscription?.providerPreapprovalId) {
-      this.logger.log(`extra_seat_purchase company=${context.companyId} seats=${seats} newSeatCap=${newSeatCap} (recorrente full no próximo ciclo via seat snapshot)`);
-    }
-
-    // 3) Sobe a capacidade paga (seatCap). Admin distribui o acesso depois.
     await this.prisma.company.update({
       where: { id: context.companyId },
       data: { seatCap: newSeatCap },
@@ -4422,7 +4399,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     return {
       ok: true,
-      charged: this.normalizeCurrencyAmount(immediate.chargeNow),
+      charged: 0,
       newSeatCap,
       preview,
       overview: await this.getOverviewForUser(user),

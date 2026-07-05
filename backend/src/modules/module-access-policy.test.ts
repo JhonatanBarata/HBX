@@ -289,19 +289,12 @@ test('seller access governance blocks platform_infra and keeps tenant admin boun
   }));
 });
 
-// R2 (CREDITOS — kill-switch puro do master, docs/PLANEJAMENTOS/CREDITOS/R2-SPEC-KILLSWITCH.md).
-// HBX_MODULES_KILLSWITCH_ONLY default OFF: flag manipulada só dentro destes testes,
-// sempre restaurada no finally para não vazar estado entre suítes.
-function withKillSwitchFlag<T>(value: string | undefined, fn: () => T): T {
-  const previous = process.env.HBX_MODULES_KILLSWITCH_ONLY;
-  if (value === undefined) delete process.env.HBX_MODULES_KILLSWITCH_ONLY;
-  else process.env.HBX_MODULES_KILLSWITCH_ONLY = value;
-  try {
-    return fn();
-  } finally {
-    if (previous === undefined) delete process.env.HBX_MODULES_KILLSWITCH_ONLY;
-    else process.env.HBX_MODULES_KILLSWITCH_ONLY = previous;
-  }
+// R2 (CREDITOS — FASE 2/REMOÇÃO: kill-switch puro do master é definitivo, não
+// gateado mais por HBX_MODULES_KILLSWITCH_ONLY). withKillSwitchFlag foi mantido
+// só para não reescrever a assinatura de todo teste abaixo — a env em si não
+// tem mais nenhum efeito de leitura em resolveCompanyModuleAccessPolicy.
+function withKillSwitchFlag<T>(_value: string | undefined, fn: () => T): T {
+  return fn();
 }
 
 function buildSnapshot(
@@ -317,33 +310,43 @@ function buildSnapshot(
   };
 }
 
-test('R2 flag OFF: moduleKeys idêntico ao snapshot atual mesmo se um snapshot for passado (regressão zero)', () => {
-  withKillSwitchFlag(undefined, () => {
-    assert.equal(isModulesKillSwitchOnlyEnabled(), false);
-
-    const snapshot = buildSnapshot([
-      { key: 'atendimento', defaultEnabled: true },
-      { key: 'vendas', defaultEnabled: true },
-      { key: 'webscraping', defaultEnabled: true },
-      { key: 'cadastro', defaultEnabled: true },
-      { key: 'bot', defaultEnabled: false },
-    ]);
-
-    const withSnapshot = resolveCompanyModuleAccessPolicy(
-      { status: 'active', selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE },
-      Date.now(),
-      snapshot,
-    );
-    const withoutSnapshot = resolveCompanyModuleAccessPolicy({
-      status: 'active',
-      selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
-    });
-
-    // Com a flag OFF, o snapshot é ignorado — mesmo resultado de sempre (plano LITE = vendas+webscraping).
-    assert.deepEqual([...withSnapshot.moduleKeys].sort(), [...withoutSnapshot.moduleKeys].sort());
-    assert.equal(withSnapshot.moduleKeys.has('atendimento'), false);
-    assert.equal(withSnapshot.moduleKeys.has('cadastro'), false);
+test('sem snapshot: fallback defensivo deriva do plano (só quando o chamador não migrou)', () => {
+  const withoutSnapshot = resolveCompanyModuleAccessPolicy({
+    status: 'active',
+    selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
   });
+
+  // Sem snapshot (chamador não construiu o kill-switch), a rede de segurança
+  // deriva do plano — mas isso NÃO é mais o caminho normal (modules.service.ts
+  // sempre monta o snapshot via buildKillSwitchModuleSnapshot).
+  assert.equal(withoutSnapshot.moduleKeys.has('vendas'), true);
+  assert.equal(withoutSnapshot.moduleKeys.has('webscraping'), true);
+  assert.equal(withoutSnapshot.moduleKeys.has('atendimento'), false);
+});
+
+test('com snapshot: kill-switch do master manda SEMPRE, independente do plano selecionado', () => {
+  const snapshot = buildSnapshot([
+    { key: 'atendimento', defaultEnabled: true },
+    { key: 'vendas', defaultEnabled: true },
+    { key: 'webscraping', defaultEnabled: true },
+    { key: 'cadastro', defaultEnabled: true },
+    { key: 'bot', defaultEnabled: false },
+  ]);
+
+  const withSnapshot = resolveCompanyModuleAccessPolicy(
+    { status: 'active', selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE },
+    Date.now(),
+    snapshot,
+  );
+
+  // Plano LITE não libera atendimento/cadastro no catálogo antigo — mas o
+  // kill-switch (R2 definitivo) não olha mais pra plano nenhum: manda o
+  // snapshot inteiro (defaultEnabled=true libera, independente do planKey).
+  assert.equal(withSnapshot.moduleKeys.has('atendimento'), true);
+  assert.equal(withSnapshot.moduleKeys.has('vendas'), true);
+  assert.equal(withSnapshot.moduleKeys.has('webscraping'), true);
+  assert.equal(withSnapshot.moduleKeys.has('cadastro'), true);
+  assert.equal(withSnapshot.moduleKeys.has('bot'), false);
 });
 
 test('R2 flag ON: empresa active sem plano nenhum enxerga módulos default-ON (kill-switch do master)', () => {

@@ -17,7 +17,6 @@ import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
-import { LimiteAtingidoModal } from "@/components/hbx/limite-atingido-modal";
 import {
   FILTRO_AVANCADO_VAZIO,
   FiltroAvancadoModal,
@@ -420,8 +419,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [pullBusyId, setPullBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [pullMsg, setPullMsg] = useState<string | null>(null);
-  // WORM-17: paywall de cota MENSAL do plano (empresa/admin) atingida.
-  const [limiteOpen, setLimiteOpen] = useState(false);
 
   // busca ao vivo (search-on-miss)
   const [run, setRun] = useState<RunResponse>(null);
@@ -952,9 +949,15 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const pageTotal = data?.total || 0;
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
 
+  // CRÉDITOS FASE 2 (R5): a cota MENSAL de cards por plano (usage.cards) deixou
+  // de bloquear no backend (CommercialUsageLimitsService — telemetria, não gate).
+  // O teto real agora é o saldo de crédito (débito no puxar, backend fail-closed
+  // sem saldo) — o front não replica mais o bloqueio por contagem de plano aqui.
+  // O teto de vendedor (saq/RBAC — "carteira cheia") continua bloqueando: isso
+  // não é paywall de tier, é limite operacional por cargo.
   const saq = usage?.sellerActiveQuota;
   const isSeller = Boolean(saq?.seller);
-  const meterLabel = isSeller ? "Em mãos" : "Cota da empresa (mês)";
+  const meterLabel = isSeller ? "Em mãos" : "Cards puxados (mês)";
   const meterValue = isSeller
     ? `${fmtInt(saq?.activeCount)} / ${fmtInt(saq?.effectiveLimit)}`
     : usage?.cards
@@ -962,7 +965,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       : "—";
   const meterBlocked = isSeller
     ? Boolean(saq?.paused) || Number(saq?.availableSlots ?? 1) <= 0
-    : Boolean(usage?.cards) && Number(usage?.cards?.remaining ?? 1) <= 0;
+    : false;
 
   const emptyMsg = loadError
     ? loadError
@@ -1524,32 +1527,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  // Paywall "momento de desejo" (WORM-17): cota MENSAL de cards do plano estourada.
-  // Só empresa/admin — vendedor de carteira cheia NÃO é paywall (não compra plano).
-  // Reusa .radar-expand (mesmo card do banner de oferta esgotada) — zero CSS novo.
-  function renderQuotaPaywall() {
-    if (!meterBlocked || isSeller) return null;
-    const waiting = pageTotal || counts.shelf || 0;
-    const limitTxt = fmtInt(usage?.cards?.limit);
-    return (
-      <div className="radar-expand" role="status">
-        <div className="radar-expand__head">
-          <span className="radar-expand__icon" aria-hidden>🔒</span>
-          <p className="radar-expand__headline">
-            {waiting > 0
-              ? <>Mais <strong>{fmtInt(waiting)}</strong> leads esperando — você usou os {limitTxt} cards do seu plano este mês.</>
-              : <>Você usou os {limitTxt} cards do seu plano este mês.</>}
-          </p>
-        </div>
-        <div className="radar-expand__actions">
-          <button type="button" className="btn-teal radar-expand__btn" onClick={() => setLimiteOpen(true)}>
-            Aumentar meu plano
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   function renderListMobile() {
     return (
       <>
@@ -1608,7 +1585,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         )}
 
-        {renderQuotaPaywall()}
         {pullMsg && <p className="radar2-pull-msg" style={{ padding: "0 14px" }}>{pullMsg}</p>}
       </>
     );
@@ -1957,7 +1933,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       Carteira cheia — feche ou agende um retorno pra liberar vaga.
                     </p>
                   )}
-                  {renderQuotaPaywall()}
                   {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
 
                   <div className="pager">
@@ -2087,17 +2062,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         <div className="radar-fly-toast" aria-live="polite">
           ✓ {flyToast}
         </div>
-      )}
-
-      {limiteOpen && (
-        <LimiteAtingidoModal
-          title="Cota de leads do plano atingida"
-          scope="do plano"
-          renewsLabel="no início do próximo mês"
-          reason={<>Você usou os <strong>{fmtInt(usage?.cards?.limit)}</strong> cards do seu plano neste mês.{pageTotal > 0 ? <> Há <strong>{fmtInt(pageTotal)}</strong> leads no Radar prontos assim que você aumentar o plano.</> : null}</>}
-          waMessage="Olá! Bati a cota de leads do meu plano no HBX e quero aumentar."
-          onClose={() => setLimiteOpen(false)}
-        />
       )}
     </div>
   );

@@ -347,32 +347,20 @@ export function getCommercialPlanTitle(planKey: unknown) {
   return 'HBX Lead Plus';
 }
 
-export function getCommercialPlanTier(planKey: unknown): CommercialPlanTier {
-  const normalized = normalizeCommercialPlanKey(planKey);
-  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'list';
-  if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 'full';
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'full';
-  return 'lead';
+// R3 (FASE 2 — REMOÇÃO, definitivo): tier deixou de decidir capacidade. Toda
+// empresa comercial (não-platform_infra) projeta 'full' — a distinção
+// list/lead/full nascida do catálogo de planos morreu como driver de acesso.
+// Assinatura mantida (planKey ainda aceito) só por compatibilidade dos call
+// sites; nenhum deles deve mais esperar 'list'/'lead' de volta. Camada que
+// decide "quem pode o quê" agora é RBAC (UserTeamPolicy), não plano.
+export function getCommercialPlanTier(_planKey: unknown): CommercialPlanTier {
+  return 'full';
 }
 
-export function getCommercialPlanCapabilities(planKey: unknown): CommercialPlanCapabilities {
-  const tier = getCommercialPlanTier(planKey);
-  if (tier === 'list') {
-    return {
-      canSeeLeadIntelligence: false,
-      canSeeOpportunityReason: false,
-      canSeeSocialLinks: true,
-      canSeeMessageTemplates: false,
-      canAutoEnrichLeads: false,
-      canUseAdvancedFilters: false,
-      canUseVerifiedWhatsapp: 'limited',
-      canUseFilteredQuota: false,
-      canUseSalesProfileAdvanced: false,
-      canSeeConversionReport: true,
-      canExportConversionPdf: false,
-      canUseWeeklyProfileSuggestions: false,
-    };
-  }
+// R3: capacidades booleanas nascem TODAS ligadas por default (não dependem
+// mais de planKey/tier). RBAC (camada 2, UserTeamPolicy) é quem corta agora,
+// não o plano comercial. Parâmetro mantido só por compatibilidade de chamada.
+export function getCommercialPlanCapabilities(_planKey: unknown): CommercialPlanCapabilities {
   return {
     canSeeLeadIntelligence: true,
     canSeeOpportunityReason: true,

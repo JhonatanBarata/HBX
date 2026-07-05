@@ -14,7 +14,8 @@
 //         documentação" = requiresSellerOnboarding → nasce inativa)
 //   PATCH /users/:id/profile           → salva dados do vendedor existente
 //   PATCH /users/:id/active            → liberar/ativar (boas-vindas) ou desativar
-//   GET   /users/company/seat-billing  → aviso de custo do assento (só ao criar)
+//   GET   /users/company/seat-billing  → assento é GRÁTIS (CRÉDITOS FASE 2/R4);
+//         só resta o teto operacional do master (seatCap), quando configurado
 //   GET   /company-email               → gate do disparo de e-mail manual
 //   GET   /gerencial/hbx-partners/:id/onboarding             → estado + anexos
 //   POST  /gerencial/hbx-partners/:id/onboarding/attachments (file+kind) → upload
@@ -31,7 +32,10 @@ import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
 type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null; phone?: string | null; commissionPercent?: number | null; referredByUserId?: number | null; sellerDistributionDailyLimitOverride?: number | null; deactivatedAt?: string | null };
 
-type SeatBilling = { planTitle?: string; activeUsers?: number; includedUsers?: number; extraUserMonthlyPrice?: number; nextUserIsExtra?: boolean; seatCap?: number | null; capReached?: boolean } | null;
+// CRÉDITOS FASE 2 (R4): assento é grátis — só o teto operacional (seatCap)
+// sobrevive nesta tela; planTitle/extraUserMonthlyPrice/nextUserIsExtra
+// saíram (o backend ainda devolve por compat, mas não há mais custo a exibir).
+type SeatBilling = { activeUsers?: number; seatCap?: number | null; capReached?: boolean } | null;
 
 type OnboardingAttachment = { id: string; kind: string; status?: string | null; originalFilename?: string | null };
 
@@ -580,18 +584,14 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={fechar}>✕</span>
         </h3>
 
-        {seatInfo && !painelAtivo && (
+        {/* CRÉDITOS FASE 2 (R4): assento é GRÁTIS — sem aviso de custo/assento
+            extra. Só resta o teto operacional (seatCap), quando o master
+            configurou um. */}
+        {seatInfo && !painelAtivo && seatInfo.seatCap != null && (
           <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.68rem", lineHeight: 1.5 }}>
-            {seatInfo.planTitle ? <b>{seatInfo.planTitle}: </b> : null}
-            {seatInfo.activeUsers ?? "—"} de {seatInfo.includedUsers ?? "—"} assentos do plano em uso.
-            {seatInfo.nextUserIsExtra && seatInfo.extraUserMonthlyPrice
-              ? ` Este acesso adiciona assento EXTRA de R$ ${Number(seatInfo.extraUserMonthlyPrice).toLocaleString("pt-BR")}/mês.`
-              : ""}
-            {seatInfo.seatCap != null
-              ? (seatInfo.capReached
-                ? ` Teto de ${seatInfo.seatCap} assento(s) atingido — peça ao master para aumentar.`
-                : ` Teto rígido: ${seatInfo.seatCap} assento(s).`)
-              : ""}
+            {seatInfo.capReached
+              ? `Teto de ${seatInfo.seatCap} acesso(s) atingido — peça ao master para aumentar.`
+              : `${seatInfo.activeUsers ?? "—"} de ${seatInfo.seatCap} acesso(s) em uso.`}
           </div>
         )}
         {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{msg}</div>}

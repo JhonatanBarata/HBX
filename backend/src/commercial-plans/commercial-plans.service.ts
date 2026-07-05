@@ -32,10 +32,8 @@ import {
   getCommercialPlanTier,
   type CommercialPlanTier,
 } from './commercial-plan-catalog';
-import {
-  computeCompanySeatBillingSnapshot,
-  resolveExtraSeatMonthlyAmount,
-} from './seat-billing.util';
+// R4 (FASE 2 — REMOÇÃO): seat-billing.util não é mais consumido aqui — assento
+// grátis, computeCompanyCommercialAmount não soma mais custo por cabeça.
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MasterAlertService } from '../master-alert/master-alert.service';
 import { MailService } from '../mail/mail.service';
@@ -149,6 +147,9 @@ export class CommercialPlansService {
     });
   }
 
+  // R4 (FASE 2 — REMOÇÃO, definitivo): assento GRÁTIS — extraUsers/extraSeat*
+  // sempre zerados (D5). Mantido o shape do retorno (billingBreakdown ainda é
+  // lido pela tela antiga de "Plano e cobrança"), só sem custo por cabeça.
   async computeCompanyCommercialAmount(
     companyId: number,
     planKeyRaw: unknown,
@@ -157,41 +158,29 @@ export class CommercialPlansService {
     const planKey = normalizeCommercialPlanKey(planKeyRaw);
     const catalogPlan = buildCommercialPlansCatalog({ includeHidden: true }).find((plan) => plan.key === planKey);
     const baseMonthly = toCommercialCurrency(catalogPlan?.monthlyPrice ?? 0);
-    const canBillExtraUsers = planKey !== COMMERCIAL_PLAN_KEYS.LITE;
     const billingCycle = String(billingCycleRaw || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
-    const seats = await computeCompanySeatBillingSnapshot(this.prisma, {
-      companyId,
-      planKey,
-      extraSeatMonthlyAmount: canBillExtraUsers
-        ? resolveExtraSeatMonthlyAmount(catalogPlan?.extraUserMonthlyPrice)
-        : 0,
-    });
-    const billableUsers = seats.activeUsers;
-    const includedUsers = seats.includedActiveUsers;
-    const extraUserMonthlyPrice = canBillExtraUsers ? seats.extraSeatMonthlyAmount : 0;
-    const extraUsers = canBillExtraUsers ? seats.extraActiveUsers : 0;
-    const extraUsersMonthlyAmount = canBillExtraUsers ? seats.extraSeatCycleAmount : 0;
-    const monthlyTotal = toCommercialCurrency(baseMonthly + extraUsersMonthlyAmount);
+    const billableUsers = await this.prisma.user.count({
+      where: { companyId: Number(companyId), isActive: true, deactivatedAt: null, isSystemMaster: false, role: { in: ['USER', 'ADMIN'] } },
+    }).catch(() => 0);
     const baseCycleAmount = billingCycle === 'ANNUAL'
       ? toCommercialCurrency(baseMonthly * 12 * (1 - getCommercialAnnualDiscountPercent() / 100))
       : baseMonthly;
-    const cycleAmount = toCommercialCurrency(baseCycleAmount + extraUsersMonthlyAmount);
 
     return {
       baseMonthly,
-      includedUsers,
+      includedUsers: billableUsers,
       billableUsers,
-      extraUsers,
-      extraUserMonthlyPrice,
-      extraUsersMonthlyAmount,
-      extraUsersProratedAmount: seats.extraSeatCycleAmount,
-      extraUsersBillableDays: seats.extraSeatBillableDays,
-      billedImmediately: seats.billedImmediately,
-      billingMode: seats.billingMode,
-      billingPeriodStart: seats.billingPeriodStart,
-      billingPeriodEnd: seats.billingPeriodEnd,
-      monthlyTotal,
-      cycleAmount,
+      extraUsers: 0,
+      extraUserMonthlyPrice: 0,
+      extraUsersMonthlyAmount: 0,
+      extraUsersProratedAmount: 0,
+      extraUsersBillableDays: 0,
+      billedImmediately: false,
+      billingMode: 'month_end_prorated',
+      billingPeriodStart: new Date().toISOString(),
+      billingPeriodEnd: new Date().toISOString(),
+      monthlyTotal: baseMonthly,
+      cycleAmount: baseCycleAmount,
     };
   }
 

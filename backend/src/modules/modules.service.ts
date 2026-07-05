@@ -39,8 +39,6 @@ import {
   applyCommercialCatalogOverrides,
   buildCommercialPlansCatalog,
   getCommercialAnnualDiscountPercent,
-  getCommercialPlanExtraUserMonthlyPrice,
-  getCommercialPlanIncludedUsers,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   normalizeCommercialPlanKey,
@@ -58,7 +56,6 @@ import { resolveActorKind, isAdminTierActor } from '../access/actor-kind';
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
-  isModulesKillSwitchOnlyEnabled,
   presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
   type KillSwitchModuleSnapshot,
@@ -381,30 +378,24 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return 0;
   }
 
-  private buildSeatBillingSnapshot(company: any, billingCycle: string, _pricingPolicy?: any) {
+  // R4 (FASE 2 — REMOÇÃO, definitivo): assento GRÁTIS — o resumo do master
+  // (buildMasterCompanySummary) não projeta mais custo de assento extra (D5).
+  // activeUsers segue informativo (headcount), includedActiveUsers = activeUsers
+  // (nunca "extra"), custo sempre zero.
+  private buildSeatBillingSnapshot(company: any, _billingCycle: string, _pricingPolicy?: any) {
     const activeUsers = Array.isArray(company?.users)
       ? company.users.filter((user: any) => {
           const role = String(user?.role || '').trim().toUpperCase();
           return Boolean(user?.isActive) && !user?.deactivatedAt && !Boolean(user?.isSystemMaster) && (role === 'USER' || role === 'ADMIN');
         }).length
       : 0;
-    // Assentos inclusos e valor do extra vêm do CATÁLOGO por-plano (fonte única,
-    // overlay do Self-Checkout). Antes: incluído fixo em 2 e extra da policy global.
-    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
-    const includedActiveUsers = getCommercialPlanIncludedUsers(planKey);
-    const extraActiveUsers = Math.max(0, activeUsers - includedActiveUsers);
-    const extraSeatMonthlyAmount = this.normalizeCurrencyAmount(getCommercialPlanExtraUserMonthlyPrice(planKey));
-    const cycleMultiplier = billingCycle === 'ANNUAL' ? 12 : 1;
-    const extraSeatCycleAmount = this.normalizeCurrencyAmount(
-      extraActiveUsers * extraSeatMonthlyAmount * cycleMultiplier,
-    );
 
     return {
       activeUsers,
-      includedActiveUsers,
-      extraActiveUsers,
-      extraSeatMonthlyAmount,
-      extraSeatCycleAmount,
+      includedActiveUsers: activeUsers,
+      extraActiveUsers: 0,
+      extraSeatMonthlyAmount: 0,
+      extraSeatCycleAmount: 0,
     };
   }
 
@@ -1995,15 +1986,16 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // R2: wrapper único — decide se busca o snapshot do kill-switch (flag ON) e
-  // chama o helper puro. Com a flag OFF, comportamento idêntico ao anterior
-  // (nenhuma leitura extra ao banco, resolveCompanyModuleAccessPolicy roda sem
-  // o 3º parâmetro exatamente como antes do R2).
+  // R2 (FASE 2 — definitivo): wrapper único — sempre busca o snapshot do
+  // kill-switch (SystemModule/CompanyModule) e chama o helper puro. Sem
+  // companyId (contexto sem tenant resolvido) cai no fallback defensivo do
+  // próprio resolveCompanyModuleAccessPolicy (deriva do plano só como rede de
+  // segurança, nunca é o caminho normal).
   private async resolveCompanyModulePolicyWithKillSwitch(
     company: any,
     companyId: number | null | undefined,
   ) {
-    if (!isModulesKillSwitchOnlyEnabled() || !companyId) {
+    if (!companyId) {
       return resolveCompanyModuleAccessPolicy(company);
     }
     const snapshot = await this.buildKillSwitchModuleSnapshot(companyId);

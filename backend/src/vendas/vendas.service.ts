@@ -8162,19 +8162,15 @@ export class VendasService {
             perUserLimit != null
               ? Number((usageSnapshot as any)?.cards?.userLimit || 0) - Number((usageSnapshot as any)?.cards?.userUsed || 0)
               : companyRemaining;
-          const effectiveRemaining = Math.min(
+          // R5 (FASE 2 — REMOÇÃO, definitivo): cota count-based (mensal/diária por
+          // plano) deixou de bloquear a reserva em lote — o teto real agora é o
+          // saldo de crédito, checado no débito por-lead (enforceLeadDeliveryDebit,
+          // dentro de commercialUsageLimits.recordCardImport mais abaixo no fluxo).
+          // effectiveRemaining/pendingQuotaReservations seguem calculados só para
+          // eventual telemetria futura; nunca mais lançam ConflictException aqui.
+          void Math.min(
             ...[companyRemaining, dailyRemaining, userRemaining].filter((value) => Number.isFinite(value)),
           );
-          if (Number.isFinite(effectiveRemaining) && pendingQuotaReservations >= effectiveRemaining) {
-            const monthlyBlocked = Number.isFinite(companyRemaining) && pendingQuotaReservations >= companyRemaining;
-            throw new ConflictException({
-              code: monthlyBlocked ? 'MONTHLY_CARD_LIMIT_REACHED' : 'DAILY_CARD_SAFETY_LIMIT_REACHED',
-              message: monthlyBlocked
-                ? 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.'
-                : 'Trava diária de segurança atingida. O limite mensal continua o mesmo; tente novamente após 00:00.',
-              usage: usageSnapshot,
-            });
-          }
         }
         result = await this.createOrUpdateLead({
           companyId: context.companyId,
