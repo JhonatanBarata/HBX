@@ -64,6 +64,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const req = ctx.getRequest<Request>();
     const traceId = randomUUID().slice(0, 8).toUpperCase();
 
+    // Payload de negócio estruturado (4xx com `code` próprio: SESSION_ALREADY_ACTIVE
+    // + forceAvailable, EMAIL_CONFIRMATION_REQUIRED, ...). O front decide o FLUXO por
+    // esses campos (renderiza "forçar entrada", retoma cadastro), então o envelope
+    // genérico NÃO pode achatá-los. Repassa o objeto como veio + traceId/compat.
+    const passthrough = this.structuredBusinessBody(exception);
+    if (passthrough) {
+      this.logger.debug(
+        `[${traceId}] ${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} -> ${passthrough.statusCode} ${String(passthrough.code)} :: business-passthrough`,
+      );
+      if (!res.headersSent) {
+        res.status(passthrough.statusCode as number).json({ ...passthrough, traceId });
+      }
+      return;
+    }
+
     const r = this.resolve(exception);
 
     const line = `[${traceId}] ${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} -> ${r.status} ${r.code} :: ${r.technical}`;
@@ -87,6 +102,37 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (!IS_PROD) body.detail = r.technical; // detalhe técnico só fora de produção
 
     res.status(r.status).json(body);
+  }
+
+  /**
+   * 4xx lançado pelo backend com um `code` de negócio próprio (objeto no corpo da
+   * HttpException). Carregam campos que o front USA pra decidir o fluxo
+   * (forceAvailable, activeSession, next, resume, email...) — o envelope genérico
+   * os apagaria. Repassa o objeto como veio, garantindo statusCode/error/userMessage
+   * de compat. Retorna null p/ qualquer outra coisa (segue o caminho normalizado):
+   * AppException (catálogo), validação do Nest (`{message:[]}` sem `code`), 5xx.
+   */
+  private structuredBusinessBody(
+    exception: unknown,
+  ): Record<string, unknown> | null {
+    if (exception instanceof AppException) return null; // catálogo trata (case 1)
+    if (!(exception instanceof HttpException)) return null;
+    const status = exception.getStatus();
+    if (status >= 500) return null;
+    const raw = exception.getResponse();
+    if (!raw || typeof raw !== 'object') return null;
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.code !== 'string') return null; // só payloads que declaram code de negócio
+    const message = typeof obj.message === 'string' ? obj.message : '';
+    if (message && looksTechnical(message)) return null; // nunca repassa mensagem técnica crua
+    const { statusCode: _drop, ...rest } = obj;
+    void _drop;
+    return {
+      ...rest, // code, message, forceAvailable, activeSession, next, resume, ...
+      statusCode: status,
+      error: obj.code,
+      userMessage: message || String(obj.code),
+    };
   }
 
   private resolve(exception: unknown): Resolved {
