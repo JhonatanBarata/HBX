@@ -911,6 +911,149 @@ test('sendMessage queues outbound on the real conversation with human flow state
   assert.equal(conversationStateCalls.length, 0);
 });
 
+// 02-QUOTED-BRIDGE: sendMessage precisa resolver quotedMessageId -> { key, message } do motor
+// nos 3 formatos que o front manda (quotedPayload() em atendimento/page.client.tsx): keyId cru
+// (providerKeyId), providerMessageId completo (webwhats:tenantKey:keyId) e id numerico da Message
+// — e cair num fallback textual quando a original nao for localizavel.
+
+test('sendMessage resolves quoted from the original message by raw keyId', async () => {
+  const rawPayload = JSON.stringify({
+    key: { remoteJid: '5519998877766@s.whatsapp.net', fromMe: false, id: 'RAWKEY123' },
+    message: { conversation: 'Mensagem original do cliente' },
+  });
+  const { service, queueCalls } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async ({ where }: any) => {
+          const orClauses: any[] = where?.OR || [];
+          const matches = orClauses.some((clause) => clause?.providerMessageId === 'RAWKEY123');
+          if (!matches) return null;
+          return {
+            id: 555,
+            direction: 'INBOUND',
+            providerMessageId: 'webwhats:company-7:RAWKEY123',
+            rawPayload,
+          };
+        },
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7 }, 42, 'Pode confirmar o pedido?', {
+    quotedMessageId: 'RAWKEY123',
+    quotedContent: 'Mensagem original do cliente',
+  });
+
+  assert.equal(queueCalls.length, 1);
+  const variables = (queueCalls[0].payload as any).variables;
+  assert.equal(variables.quotedMessageId, 'RAWKEY123');
+  assert.deepEqual(variables.quoted, {
+    key: { remoteJid: '5519998877766@s.whatsapp.net', fromMe: false, id: 'RAWKEY123' },
+    message: { conversation: 'Mensagem original do cliente' },
+  });
+});
+
+test('sendMessage resolves quoted from the original message by full providerMessageId', async () => {
+  const rawPayload = JSON.stringify({
+    key: { remoteJid: '5519998877766@s.whatsapp.net', fromMe: true, id: 'RAWKEY456' },
+    message: { extendedTextMessage: { text: 'Resposta anterior do atendente' } },
+  });
+  const { service, queueCalls } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async ({ where }: any) => {
+          const orClauses: any[] = where?.OR || [];
+          const matches = orClauses.some(
+            (clause) => clause?.providerMessageId === 'webwhats:company-7:RAWKEY456',
+          );
+          if (!matches) return null;
+          return {
+            id: 556,
+            direction: 'OUTBOUND',
+            providerMessageId: 'webwhats:company-7:RAWKEY456',
+            rawPayload,
+          };
+        },
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7 }, 42, 'Combinado, obrigado!', {
+    quotedMessageId: 'webwhats:company-7:RAWKEY456',
+    quotedContent: 'Resposta anterior do atendente',
+  });
+
+  assert.equal(queueCalls.length, 1);
+  const variables = (queueCalls[0].payload as any).variables;
+  assert.deepEqual(variables.quoted, {
+    key: { remoteJid: '5519998877766@s.whatsapp.net', fromMe: true, id: 'RAWKEY456' },
+    message: { extendedTextMessage: { text: 'Resposta anterior do atendente' } },
+  });
+});
+
+test('sendMessage falls back to a textual quoted when the original message cannot be found', async () => {
+  const { service, queueCalls } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7 }, 42, 'Segue a resposta', {
+    quotedMessageId: 'id-perdido-999',
+    quotedContent: 'Preview do que foi citado',
+  });
+
+  assert.equal(queueCalls.length, 1);
+  const variables = (queueCalls[0].payload as any).variables;
+  assert.equal(variables.quotedMessageId, 'id-perdido-999');
+  assert.deepEqual(variables.quoted, {
+    key: { remoteJid: undefined, fromMe: false, id: 'id-perdido-999' },
+    message: { conversation: 'Preview do que foi citado' },
+  });
+});
+
+test('sendMessage resolves quoted by the numeric Message id when the front sends replyTo.id', async () => {
+  const rawPayload = JSON.stringify({
+    key: { remoteJid: '5519998877766@s.whatsapp.net', fromMe: false, id: 'RAWKEY789' },
+    message: { conversation: 'Mensagem antiga sem providerMessageId no front' },
+  });
+  const { service, queueCalls } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async ({ where }: any) => {
+          const orClauses: any[] = where?.OR || [];
+          const matches = orClauses.some((clause) => clause?.id === 901);
+          if (!matches) return null;
+          return {
+            id: 901,
+            direction: 'INBOUND',
+            providerMessageId: 'webwhats:company-7:RAWKEY789',
+            rawPayload,
+          };
+        },
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7 }, 42, 'Ja resolvi por aqui', {
+    quotedMessageId: '901',
+    quotedContent: 'Mensagem antiga sem providerMessageId no front',
+  });
+
+  assert.equal(queueCalls.length, 1);
+  const variables = (queueCalls[0].payload as any).variables;
+  assert.deepEqual(variables.quoted, {
+    key: { remoteJid: '5519998877766@s.whatsapp.net', fromMe: false, id: 'RAWKEY789' },
+    message: { conversation: 'Mensagem antiga sem providerMessageId no front' },
+  });
+});
+
 test('retryConversationMessage reopens failed outbound in the dispatch queue', async () => {
   const outboundUpdates: Array<Record<string, any>> = [];
   const messageUpdates: Array<Record<string, any>> = [];

@@ -59,7 +59,7 @@ import {
 } from './whatsapp-channel';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
-import { WebwhatsBridgeService, type WebwhatsFetchedMessage } from './webwhats-bridge.service';
+import { WebwhatsBridgeService, type WebwhatsFetchedMessage, type WebwhatsQuotedInput } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
@@ -8112,6 +8112,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // BRIDGE DO "RESPONDER CITANDO" (02-QUOTED-BRIDGE): o inbox.service ja resolveu { key, message }
+  // e gravou em variables.quoted (mesmo lugar de onde extractWebwhatsAttachment le o anexo) — aqui
+  // so valida o formato minimo exigido pelo motor (key.id obrigatorio, message objeto) antes de
+  // repassar pro sendText/sendMedia da bridge.
+  private extractWebwhatsQuoted(variables: Record<string, any>): WebwhatsQuotedInput | null {
+    const quoted = variables?.quoted;
+    if (!quoted || typeof quoted !== 'object' || Array.isArray(quoted)) return null;
+    const key = (quoted as any).key;
+    const message = (quoted as any).message;
+    const keyId = String(key?.id || '').trim();
+    if (!keyId || !message || typeof message !== 'object' || Array.isArray(message)) return null;
+    return {
+      key: {
+        id: keyId,
+        ...(key?.remoteJid ? { remoteJid: String(key.remoteJid) } : {}),
+        ...(key?.fromMe !== undefined && key?.fromMe !== null ? { fromMe: Boolean(key.fromMe) } : {}),
+        ...(key?.participant ? { participant: String(key.participant) } : {}),
+      },
+      message,
+    };
+  }
+
   private stripAttachmentReferenceFromBody(
     bodyRaw: string | null | undefined,
     attachment: { url: string; previewUrl?: string | null },
@@ -8299,6 +8321,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
 
       const attachment = this.extractWebwhatsAttachment(dispatchVariables);
+      const quoted = this.extractWebwhatsQuoted(dispatchVariables);
       const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
       // POR USUÁRIO: webwhats está disponível se o status da empresa diz CONNECTED (legado/admin)
       // OU se há sessão viva p/ ESTE selector (per-user — connect per-user não seta o status
@@ -8397,6 +8420,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
                 caption,
                 fileName: attachment.fileName,
                 mimeType: attachment.mimeType,
+                quoted,
               }, webwhatsSelector);
           await markWebwhatsSent({
             requestBody: {
@@ -8428,6 +8452,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             to: msg.to,
             text: dispatchBody,
             conversationId,
+            quoted,
           }, webwhatsSelector);
           await markWebwhatsSent({
             requestBody: { number: webwhatsResult.target, text: dispatchBody },

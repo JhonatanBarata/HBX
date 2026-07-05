@@ -11,6 +11,20 @@ import { ZapCheckGuardService } from './zap-check-guard.service';
 
 type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio' | 'sticker';
 
+// BRIDGE DO "RESPONDER CITANDO" (02-QUOTED-BRIDGE): formato que o motor (fork Evolution) espera
+// no `quoted` de sendText/sendMedia — key.id e obrigatorio no schema
+// (Webwhats/src/validate/message.schema.ts), remoteJid/fromMe/participant opcionais; message e
+// o WAMessage.message original (ou um fallback textual quando a original nao for localizavel).
+export type WebwhatsQuotedInput = {
+  key: {
+    id: string;
+    remoteJid?: string;
+    fromMe?: boolean;
+    participant?: string;
+  };
+  message: Record<string, unknown>;
+};
+
 type WebwhatsConfig = {
   enabled: boolean;
   configured: boolean;
@@ -933,7 +947,7 @@ export class WebwhatsBridgeService {
 
   async sendText(
     companyId: number,
-    input: { to: string; text: string; conversationId?: number | null },
+    input: { to: string; text: string; conversationId?: number | null; quoted?: WebwhatsQuotedInput | null },
     selector?: WebwhatsSessionSelector,
   ) {
     const company = await this.requireConnectedCompany(companyId, selector);
@@ -947,6 +961,7 @@ export class WebwhatsBridgeService {
       data: {
         number: target,
         text: String(input.text || ''),
+        ...(input.quoted ? { quoted: input.quoted } : {}),
       },
     });
 
@@ -969,6 +984,7 @@ export class WebwhatsBridgeService {
       caption?: string | null;
       fileName?: string | null;
       mimeType?: string | null;
+      quoted?: WebwhatsQuotedInput | null;
     },
     selector?: WebwhatsSessionSelector,
   ) {
@@ -987,6 +1003,7 @@ export class WebwhatsBridgeService {
         ...(this.normalizeOptionalString(input.caption) ? { caption: this.normalizeOptionalString(input.caption) } : {}),
         ...(this.normalizeOptionalString(input.fileName) ? { fileName: this.normalizeOptionalString(input.fileName) } : {}),
         ...(this.normalizeOptionalString(input.mimeType) ? { mimetype: this.normalizeOptionalString(input.mimeType) } : {}),
+        ...(input.quoted ? { quoted: input.quoted } : {}),
       },
     });
 

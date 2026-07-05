@@ -8007,6 +8007,69 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
+  // BRIDGE DO "RESPONDER CITANDO" (02-QUOTED-BRIDGE): resolve a Message original a partir do
+  // quotedMessageId que o front manda (3 formatos possíveis — ver quotedPayload() no
+  // atendimento/page.client.tsx: meta.providerKeyId || meta.providerMessageId || id numerico da
+  // Message). Acha por keyId cru, por providerMessageId completo ou por id numerico; parseia o
+  // rawPayload (WAMessage) da original e monta { key, message } no formato que o motor espera
+  // (Webwhats/src/validate/message.schema.ts: quoted.key.id obrigatorio). Sem achar a original,
+  // cai no fallback textual (key.id = o proprio quotedMessageId, message.conversation = preview).
+  private async resolveQuotedForOutbound(
+    companyId: number,
+    conversationId: number,
+    quotedMessageId: string,
+    quotedContent?: string | null,
+  ): Promise<{ key: Record<string, unknown>; message: Record<string, unknown> } | null> {
+    const rawQuotedId = this.normalizeMessageMetadataText(quotedMessageId);
+    if (!rawQuotedId) return null;
+
+    const numericId = /^\d+$/.test(rawQuotedId) ? Number(rawQuotedId) : null;
+    const original = await this.prisma.companyMessage.findFirst({
+      where: {
+        companyId,
+        conversationId,
+        OR: [
+          ...(numericId ? [{ id: numericId }] : []),
+          { providerMessageId: rawQuotedId },
+          { providerMessageId: { endsWith: `:${rawQuotedId}` } },
+        ],
+      },
+      select: { id: true, direction: true, providerMessageId: true, rawPayload: true },
+      orderBy: { id: 'desc' },
+    });
+
+    if (original) {
+      const rawPayload = this.parseConversationMetadata(original.rawPayload);
+      const keyId =
+        this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
+        this.extractWebwhatsRawMessageIdFromProviderMessageId(original.providerMessageId);
+      if (keyId && rawPayload?.message && typeof rawPayload.message === 'object') {
+        return {
+          key: {
+            remoteJid: this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid) || undefined,
+            fromMe:
+              rawPayload?.key?.fromMe === undefined || rawPayload?.key?.fromMe === null
+                ? String(original.direction || '').trim().toUpperCase() === 'OUTBOUND'
+                : Boolean(rawPayload.key.fromMe),
+            id: keyId,
+            ...(this.normalizeMessageMetadataText(rawPayload?.key?.participant)
+              ? { participant: this.normalizeMessageMetadataText(rawPayload.key.participant) }
+              : {}),
+          },
+          message: rawPayload.message,
+        };
+      }
+    }
+
+    // Fallback: sem original localizavel (mensagem antiga, id perdido etc.) — ainda assim manda
+    // a citacao com o texto que a nossa UI ja guarda em quotedContent, respeitando o obrigatorio
+    // do schema do motor (key.id).
+    return {
+      key: { remoteJid: undefined, fromMe: false, id: rawQuotedId },
+      message: { conversation: (quotedContent && String(quotedContent).trim()) || ' ' },
+    };
+  }
+
   async sendMessage(
     user: any,
     conversationId: number,
@@ -8071,6 +8134,24 @@ export class InboxService {
     const variables: Record<string, unknown> = {};
     if (opts?.quotedMessageId) {
       variables.quotedMessageId = String(opts.quotedMessageId).trim();
+      // Resolve o { key, message } pro motor repassar a citacao de verdade no WhatsApp do
+      // cliente (antes disso o quoted so renderizava na nossa UI, via quotedMessageId/preview
+      // acima). Best-effort: falha na resolucao nao pode travar o envio da mensagem em si.
+      try {
+        const quoted = await this.resolveQuotedForOutbound(
+          companyId,
+          conversation.id,
+          String(opts.quotedMessageId).trim(),
+          opts?.quotedContent,
+        );
+        if (quoted) {
+          variables.quoted = quoted;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Falha ao resolver quoted para envio (conversationId=${conversation.id}): ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
     if (quotedPreview) {
       variables.quotedPreview = quotedPreview;
