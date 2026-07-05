@@ -32,23 +32,36 @@ function buildService(overrides?: {
   const grantedKeys = new Set<string>();
   let balance = 0;
 
+  const ledgerEntries: any[] = [];
+
+  const financeiroCharge = {
+    findFirst: async ({ where }: any) =>
+      charges.find((c) => c.externalReference === where.externalReference) || null,
+    create: async ({ data }: any) => {
+      if (charges.some((c) => c.externalReference === data.externalReference)) {
+        const err: any = new Error('unique');
+        err.code = 'P2002';
+        throw err;
+      }
+      const row = { id: `ch-${charges.length + 1}`, ...data };
+      charges.push(row);
+      return row;
+    },
+    update: async ({ where, data }: any) => {
+      const row = charges.find((c) => c.id === where.id);
+      if (row) Object.assign(row, data);
+      return row;
+    },
+  };
+
   const prisma: any = {
     company: {
       findUnique: async () => ({ id: 7, taxDocument: '11222333000181' }),
     },
-    financeiroCharge: {
-      findFirst: async ({ where }: any) =>
-        charges.find((c) => c.externalReference === where.externalReference) || null,
-      create: async ({ data }: any) => {
-        if (charges.some((c) => c.externalReference === data.externalReference)) {
-          const err: any = new Error('unique');
-          err.code = 'P2002';
-          throw err;
-        }
-        charges.push(data);
-        return data;
-      },
-    },
+    financeiroCharge,
+    // Transação interativa: repassa o mesmo store (a atomicidade real é do Postgres;
+    // aqui provamos a ORQUESTRAÇÃO charge→ledger→link e o P2002 no caminho de retry).
+    $transaction: async (fn: any) => fn({ financeiroCharge, $executeRaw: async () => 1 }),
   };
 
   const mpClient: any = {
@@ -77,11 +90,20 @@ function buildService(overrides?: {
     listAvailable: () => [PACK],
   };
 
-  const service = new CreditRechargeService(prisma, mpClient, wallet, packConfig);
+  // Fake do FinanceiroService: só o insertBillingLedgerEntry (S5 — receita no ledger
+  // master pro Livro Caixa). Registra a linha e devolve o id, como o real.
+  const financeiroService: any = {
+    insertBillingLedgerEntry: async (input: any, _db?: any) => {
+      ledgerEntries.push(input);
+      return `ledger-${ledgerEntries.length}`;
+    },
+  };
+
+  const service = new CreditRechargeService(prisma, mpClient, wallet, packConfig, financeiroService);
   // Token do MP resolvido de verdade só em runtime (o util real puxa runtime-schema do
   // master via raw SQL) — aqui a prova é a ORQUESTRAÇÃO, então patch direto.
   (service as any).resolveMpAccessToken = async () => 'TEST-ACCESS-TOKEN';
-  return { service, grants, charges, paymentCalls };
+  return { service, grants, charges, paymentCalls, ledgerEntries };
 }
 
 const BASE_INPUT = {
@@ -93,7 +115,7 @@ const BASE_INPUT = {
 };
 
 test('aprovado: credita lote recharge/paid com usageKey do pagamento + grava receita 1x', async () => {
-  const { service, grants, charges, paymentCalls } = buildService();
+  const { service, grants, charges, paymentCalls, ledgerEntries } = buildService();
   const res = await service.rechargeWithCard(DONO, BASE_INPUT);
 
   assert.equal(res.ok, true);
@@ -113,15 +135,22 @@ test('aprovado: credita lote recharge/paid com usageKey do pagamento + grava rec
   assert.equal(charges[0].amount, 79.9);
   // X-Idempotency-Key do MP deriva da intenção do front (retry não recobra).
   assert.equal(paymentCalls[0].idempotencyKey, 'credrech-intent-uuid-0001');
+  // S5 — receita VISÍVEL pro fiscal: linha revenue no ledger master + charge LINKADA.
+  assert.equal(ledgerEntries.length, 1);
+  assert.equal(ledgerEntries[0].entryGroup, 'revenue');
+  assert.equal(ledgerEntries[0].status, 'APPROVED');
+  assert.equal(ledgerEntries[0].amount, 79.9);
+  assert.equal(charges[0].ledgerEntryId, 'ledger-1');
 });
 
 test('recusado: NADA creditado, NADA de receita (Regra de Ouro)', async () => {
-  const { service, grants, charges } = buildService({ paymentStatus: 'rejected' });
+  const { service, grants, charges, ledgerEntries } = buildService({ paymentStatus: 'rejected' });
   const res = await service.rechargeWithCard(DONO, BASE_INPUT);
   assert.equal(res.ok, false);
   if (!res.ok) assert.equal(res.code, 'CHARGE_DECLINED');
   assert.equal(grants.length, 0);
   assert.equal(charges.length, 0);
+  assert.equal(ledgerEntries.length, 0);
 });
 
 test('gateway caiu: CHARGE_FAILED, nada creditado', async () => {
@@ -158,7 +187,7 @@ test('LEI DO VENDEDOR: gerente e vendedor levam Forbidden NEUTRO (sem preço na 
 });
 
 test('retry da MESMA intenção (MP devolve o mesmo payment): crédito e receita NÃO dobram', async () => {
-  const { service, grants, charges } = buildService();
+  const { service, grants, charges, ledgerEntries } = buildService();
   const first = await service.rechargeWithCard(DONO, BASE_INPUT);
   const second = await service.rechargeWithCard(DONO, BASE_INPUT);
 
@@ -171,6 +200,7 @@ test('retry da MESMA intenção (MP devolve o mesmo payment): crédito e receita
   }
   assert.equal(grants.length, 2); // chamado 2x, creditado 1x
   assert.equal(charges.length, 1); // receita 1x (externalReference único)
+  assert.equal(ledgerEntries.length, 1); // fiscal também 1x (charge+ledger na MESMA tx)
 });
 
 test('idempotencyKey ausente/curta: BadRequest antes de qualquer cobrança', async () => {

@@ -1186,7 +1186,11 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async insertBillingLedgerEntry(input: {
+  // Público desde o S5 dos CRÉDITOS (05/07): o CreditRechargeService (mesmo módulo)
+  // grava a receita da recarga AQUI — o Livro Caixa/DAS só enxerga receita que está no
+  // MasterBillingLedgerEntry (JOIN com FinanceiroCharge.ledgerEntryId). `db` opcional
+  // permite rodar DENTRO da transação do chamador (charge+ledger commitam juntos).
+  async insertBillingLedgerEntry(input: {
     companyId: number;
     createdByUserId?: number | null;
     entryType: string;
@@ -1201,11 +1205,11 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     referenceLabel?: string | null;
     observation?: string | null;
     metadata?: Record<string, unknown> | null;
-  }) {
+  }, db: { $executeRaw: (...args: any[]) => Promise<unknown> } = this.prisma) {
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const id = randomUUID();
     const now = new Date();
-    await this.prisma.$executeRaw(
+    await db.$executeRaw(
       Prisma.sql`
         INSERT INTO "MasterBillingLedgerEntry"
         ("id", "companyId", "entryType", "entryGroup", "status", "origin", "currency", "competence", "amount", "dueDate", "paidAt", "paymentMethod", "referenceLabel", "observation", "metadata", "createdByUserId", "createdAt", "updatedAt")

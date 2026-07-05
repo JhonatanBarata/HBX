@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FinanceiroService } from './financeiro.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
 import { CreditWalletService } from '../credits/credit-wallet.service';
@@ -67,6 +68,7 @@ export class CreditRechargeService {
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly wallet: CreditWalletService,
     private readonly packConfig: CreditPackConfigService,
+    private readonly financeiro: FinanceiroService,
   ) {}
 
   // Mesma régua do financeiro.service (isMockPaymentsProvider): mock SÓ em dev.
@@ -227,40 +229,68 @@ export class CreditRechargeService {
       metadata: { packKey: pack.key, price: amount, idempotencyKey },
     });
 
-    // 2) Receita NA COMPRA (regime de caixa) — FinanceiroCharge pago, dedupado por
-    //    externalReference (@unique no schema: corrida de retry cai no P2002 e relê).
+    // 2) Receita NA COMPRA (regime de caixa) — S5: o fiscal (Livro Caixa/DAS) SÓ enxerga
+    //    receita que está no MasterBillingLedgerEntry (entryGroup 'revenue') LIGADA à
+    //    FinanceiroCharge via ledgerEntryId (é esse link que faz estorno abater o líquido).
+    //    Charge + linha do ledger + link commitam JUNTOS (transação): sem janela de
+    //    "receita fantasma" (ledger sem charge) nem "receita invisível" (charge sem ledger).
+    //    Idempotência: externalReference @unique — retry cai no P2002, nada duplica.
     const existingCharge = await this.prisma.financeiroCharge.findFirst({
       where: { externalReference },
       select: { id: true },
     });
     if (!existingCharge) {
       const now = new Date();
+      const description = `Recarga de créditos — ${pack.title} (${pack.credits} créditos)`;
       try {
-        await this.prisma.financeiroCharge.create({
-          data: {
-            companyId,
-            amount,
-            description: `Recarga de créditos — ${pack.title} (${pack.credits} créditos)`,
-            billingCycle: 'MONTHLY',
-            paymentMethod: 'CARD',
-            status: 'approved',
-            lifecycle: 'paid',
-            competence: this.monthKey(now),
-            externalReference,
-            mpPaymentId: mock ? null : paymentId,
-            paidAt: now,
-            createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
-            providerPayload: JSON.stringify({
-              source: 'credit_recharge',
-              packKey: pack.key,
-              credits: pack.credits,
-              mock,
-            }),
-          },
+        await this.prisma.$transaction(async (tx) => {
+          const charge = await tx.financeiroCharge.create({
+            data: {
+              companyId,
+              amount,
+              description,
+              billingCycle: 'MONTHLY',
+              paymentMethod: 'CARD',
+              status: 'approved',
+              lifecycle: 'paid',
+              competence: this.monthKey(now),
+              externalReference,
+              mpPaymentId: mock ? null : paymentId,
+              paidAt: now,
+              createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
+              providerPayload: JSON.stringify({
+                source: 'credit_recharge',
+                packKey: pack.key,
+                credits: pack.credits,
+                mock,
+              }),
+            },
+          });
+          const ledgerEntryId = await this.financeiro.insertBillingLedgerEntry(
+            {
+              companyId,
+              createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
+              entryType: mock ? 'CREDIT_RECHARGE_MOCK' : 'CREDIT_RECHARGE',
+              entryGroup: 'revenue',
+              status: 'APPROVED',
+              origin: 'credit_recharge',
+              competence: this.monthKey(now),
+              amount,
+              paidAt: now,
+              paymentMethod: 'CARD',
+              referenceLabel: description,
+              metadata: { packKey: pack.key, credits: pack.credits, paymentId, mock },
+            },
+            tx,
+          );
+          await tx.financeiroCharge.update({
+            where: { id: charge.id },
+            data: { ledgerEntryId },
+          });
         });
       } catch (error: any) {
         if (error?.code !== 'P2002') throw error;
-        // Corrida de retry: outro processo já gravou a MESMA cobrança — ok, segue.
+        // Corrida de retry: outro processo já gravou a MESMA cobrança+ledger — ok, segue.
       }
     }
 

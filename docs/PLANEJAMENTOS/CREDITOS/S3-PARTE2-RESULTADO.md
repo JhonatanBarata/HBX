@@ -26,9 +26,13 @@
   (2) `usageKey = mp:<paymentId>` no grant (ledger dedupa o crédito);
   (3) receita dedupada por `externalReference` único (`hbx-credit-recharge-<companyId>-<key>`,
   P2002 tratado).
-- **Receita NA COMPRA (D3/S5-ponte):** `FinanceiroCharge` gravado `approved/paid` na hora com
-  competência do mês (regime de caixa) — o fiscal consome daí. Lote `grantType: 'paid'`,
-  validade = `defaultExpiryDays` do pacote (fallback: default global D6).
+- **Receita NA COMPRA (D3) + S5 FECHADO no mesmo choke:** descoberta na revisão — o Livro
+  Caixa/DAS só enxerga receita no JOIN `MasterBillingLedgerEntry × FinanceiroCharge.ledgerEntryId`;
+  charge solta = **dinheiro invisível pro contador-robô**. Corrigido: charge + linha `revenue`
+  no ledger master + link commitam na MESMA transação (`insertBillingLedgerEntry` do
+  financeiro.service virou público com `db` opcional pra rodar na tx do chamador). Estorno
+  futuro abate o líquido pelo mesmo mecanismo já existente (`refundAmount` via link). Lote
+  `grantType: 'paid'`, validade = `defaultExpiryDays` do pacote (fallback: default global D6).
 - **Cartão-only nesta fase (decisão explícita):** Pix/boleto exigem confirmação assíncrona →
   webhook 2-fases fail-closed; fica como onda própria, não meio-implementado.
 
