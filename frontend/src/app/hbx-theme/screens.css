@@ -1315,7 +1315,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar2-kpi .num { font-family: var(--font-display); font-size: 1.14rem; font-weight: 800; color: var(--text-strong); }
 .radar2-kpi .delta { font-size: 0.68rem; font-weight: 700; color: var(--hbx-brand-strong); }
 .radar2-kpi .sub2 { font-size: 0.62rem; color: var(--text-muted); }
-.radar2-quota-note { font-size: 0.6rem; color: var(--text-muted); margin-left: 4px; }
 @media (max-width: 760px) { .radar2-kpis { grid-template-columns: repeat(2, 1fr); } }
 .radar2-cap { font-size: 0.66rem; color: var(--text-muted); margin: 4px 2px 0; }
 .radar2-shell { display: grid; grid-template-columns: 210px 1fr; align-items: start; }
@@ -1343,16 +1342,14 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-expand__hint { margin: 0; font-size: 0.68rem; color: var(--text-muted); }
 .radar2-locked { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.68rem; }
 .radar2-empty { text-align: center; color: var(--text-muted); padding: 30px 12px; font-size: 0.8rem; }
-.radar2-sel-all { padding: 8px 16px 0; }
-.radar2-meter { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 14px 16px; padding: 14px 18px; border-radius: var(--radius-md); background: var(--hbx-surface-raised); }
-.radar2-meter-card { display: flex; flex-direction: column; gap: 1px; }
-.radar2-meter-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
-.radar2-meter-val { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; color: var(--text-strong); letter-spacing: -0.02em; line-height: 1.15; margin-top: 1px; }
+/* ── Barra de ação da prateleira (redesenho 05/07): faixa slim, cota fora
+   (vive no topo da casca do Vendas via onEmbedStats). Selecionar à esquerda,
+   Puxar à direita — sem painel gordo, devolve altura pra grade. ───────────── */
+.radar2-actionbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 16px; }
+.radar2-sel-all { display: inline-flex; }
+.radar2-pull-btn { margin-left: auto; min-height: 30px; padding: 0 12px; font-size: 0.72rem; }
 .radar2-bar { height: 3px; border-radius: 99px; background: var(--border-hairline); margin-top: 7px; width: 160px; overflow: hidden; }
 .radar2-bar-fill { height: 100%; border-radius: 99px; background: var(--hbx-primary); transition: width 0.6s ease; }
-.radar2-meter.blocked { background: var(--hbx-danger-soft, var(--hbx-surface-raised)); }
-.radar2-meter.blocked .radar2-meter-val { color: var(--hbx-danger); }
-.radar2-meter.blocked .radar2-bar-fill { background: var(--hbx-danger); }
 @media (max-width: 760px) { .radar2-shell { grid-template-columns: 1fr; } .radar2-rail { border-right: none; border-bottom: 1px solid var(--border-hairline); } }
 .radar2-auto { position: relative; overflow: hidden; }
 .radar2-auto--on { animation: radar2-auto-pulse 2s ease-in-out infinite; }
@@ -2260,21 +2257,21 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 
 /* ── Grade de cards dos resultados (redesenho Buscar 05/07) — substitui a tabela
    densa no desktop. auto-fill responsivo; 1 card = 1 empresa/oportunidade. ───── */
-.be-grid-wrap { padding: 12px 16px; }
+.be-grid-wrap { padding: 16px; }
 .be-grid {
-  display: grid; gap: 10px; align-content: start;
-  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+  display: grid; gap: 14px; align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
 }
 .be-grid__empty { grid-column: 1 / -1; }
 
 .be-card {
-  position: relative; display: flex; flex-direction: column; gap: 8px;
-  padding: 12px; border-radius: var(--radius-lg);
+  position: relative; display: flex; flex-direction: column; gap: 9px;
+  padding: 15px 16px; border-radius: var(--radius-lg);
   border: 1px solid var(--border-hairline); background: var(--hbx-surface);
   box-shadow: var(--shadow-xs); cursor: pointer;
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
 }
-.be-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.be-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); transform: translateY(-2px); }
 .be-card--sel { border-color: var(--hbx-brand-strong); box-shadow: 0 0 0 2px var(--ring-brand); }
 .be-card--checked { background: color-mix(in srgb, var(--hbx-brand) 5%, var(--hbx-surface)); }
 

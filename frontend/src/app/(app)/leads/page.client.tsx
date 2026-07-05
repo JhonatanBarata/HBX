@@ -1981,7 +1981,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   </div>
 
                   {tab === "shelf" && (
-                    <>
+                    <div className={"radar2-actionbar" + (meterBlocked ? " blocked" : "")}>
                       <div className="radar2-sel-all">
                         <button
                           className="btn-ghost btn-xs"
@@ -1996,22 +1996,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                           {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
                         </button>
                       </div>
-                      <div className={"radar2-meter" + (meterBlocked ? " blocked" : "")}>
-                        <div className="radar2-meter-card" data-tut="leads-cota">
-                          <span className="radar2-meter-lbl">
-                            <I d={ICONS.bolt} size={11} /> {meterLabel}
-                          </span>
-                          <span className="radar2-meter-val">{meterValue}</span>
-                          <div className="radar2-bar">
-                            <div className="radar2-bar-fill" style={{ width: `${meterPct}%` }} />
-                          </div>
-                          {isSeller && <span className="radar2-quota-note">os 20 são compartilhados com o Vendas</span>}
-                        </div>
-                        <button className="btn-teal" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
-                          <I d={ICONS.check} size={14} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
-                        </button>
-                      </div>
-                    </>
+                      <button className="btn-teal radar2-pull-btn" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                        <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                      </button>
+                    </div>
                   )}
                   {meterBlocked && isSeller && (
                     <p className="radar2-cap--danger">
