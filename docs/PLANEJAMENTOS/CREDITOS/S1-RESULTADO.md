@@ -5,6 +5,18 @@
 > carteira (schema + serviço + testes). Sem enforcement, sem tocar em vendas/commercial-usage-limits,
 > sem checkout MP — isso é S2/S3.
 
+> **FUSÃO 05/07 (merge `e6e3b97a`, ordem do dono "merge nas 2 ideias, vence o melhor"):** a branch
+> `credits/build` (S1-S6) foi mergeada no master 05/07. Existia um SEGUNDO S1 (Opus, 05/07, direto
+> no master) — comparados lado a lado, **este S1 venceu** (cinto `@@unique(usageKey,parentEntryId)`
+> no banco, padrão optimistic-lock do hbx-recovery já provado em prod, refund-de-expirado = decisão
+> do dono 04/07, 13 testes incl. corrida com MESMA usageKey). O S1 de 05/07 foi descartado; dele
+> sobreviveram: doc da flag no `.env.example`, script `test:credits`, e — por fora do S1 — o S8
+> (subset-delegation + trava canViewBilling) e as correções A1-A4 no PLANO.md. As migrations foram
+> renomeadas `20260704_*` → `20260705100000/110000_*` para ordenarem DEPOIS das já aplicadas na VPS.
+> Risco conhecido anotado: sob contenção extrema o laço otimista (teto 8) pode sair `partial` com
+> saldo ainda disponível — aceito por ser fail-closed (nunca negativa, nunca dobra); endurecer se o
+> shadow (S2) mostrar contenção real.
+
 ---
 
 ## ⭐ Rodada de hardening — Fix A + Fix B (revisão Opus, pós-1ª entrega)

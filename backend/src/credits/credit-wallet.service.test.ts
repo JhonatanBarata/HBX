@@ -217,12 +217,17 @@ test('debit: 10 débitos de 1 em paralelo sobre saldo 5 -> exatamente 5 sucessos
 
 // ─── 2. FIFO / expiração ────────────────────────────────────────────────────────────────────────
 
+// ⚠️ Datas RELATIVAS ao relógio real, nunca absolutas: debit()/refund() usam `new Date()`
+// interno. Data fixa aqui é bomba-relógio — a suíte de 04/07 apodreceu em 05/07 quando o
+// lote "soon" (2026-07-05T00:00Z hardcoded) venceu DE VERDADE e o serviço, correto, o ignorou.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 test('debit: consome o lote que expira antes primeiro; lote expirado não entra no saldo', async () => {
   const { service } = buildService();
-  const now = new Date('2026-07-04T12:00:00Z');
-  const past = new Date('2026-07-01T00:00:00Z'); // já expirado
-  const soon = new Date('2026-07-05T00:00:00Z'); // expira em breve
-  const later = new Date('2026-08-01T00:00:00Z'); // expira depois
+  const now = new Date();
+  const past = new Date(now.getTime() - 3 * DAY_MS); // já expirado
+  const soon = new Date(now.getTime() + 1 * DAY_MS); // expira em breve
+  const later = new Date(now.getTime() + 30 * DAY_MS); // expira depois
 
   await service.grant(1, 10, { expiresAt: past }); // expirado -> não conta
   await service.grant(1, 3, { expiresAt: later });
@@ -245,8 +250,8 @@ test('debit: consome o lote que expira antes primeiro; lote expirado não entra 
 
 test('debit: nulls (nunca expira) são consumidos por último', async () => {
   const { service, fake } = buildService();
-  const now = new Date('2026-07-04T12:00:00Z');
-  const soon = new Date('2026-07-05T00:00:00Z');
+  const now = new Date();
+  const soon = new Date(now.getTime() + 1 * DAY_MS);
 
   await service.grant(1, 2, { expiresAt: null }); // nunca expira -> por último
   await service.grant(1, 2, { expiresAt: soon });
@@ -311,8 +316,9 @@ test('debit: 5 chamadas PARALELAS com a MESMA usageKey sobre saldo cheio -> debi
 
 test('debit: mesma usageKey cruzando 2 lotes, 2 chamadas paralelas -> total debitado 1× (não 2×)', async () => {
   const { service } = buildService();
-  await service.grant(1, 2, { expiresAt: new Date('2026-07-05T00:00:00Z') });
-  await service.grant(1, 2, { expiresAt: new Date('2026-08-01T00:00:00Z') });
+  const now = new Date();
+  await service.grant(1, 2, { expiresAt: new Date(now.getTime() + 1 * DAY_MS) });
+  await service.grant(1, 2, { expiresAt: new Date(now.getTime() + 30 * DAY_MS) });
 
   // Débito de 3 cruza os 2 lotes (2 + 1). Duas chamadas concorrentes com a mesma usageKey.
   const [a, b] = await Promise.all([
@@ -323,7 +329,7 @@ test('debit: mesma usageKey cruzando 2 lotes, 2 chamadas paralelas -> total debi
   assert.equal(a.debited, 3);
   assert.equal(b.debited, 3);
   // Saldo caiu 3 (não 6): 4 - 3 = 1.
-  assert.equal(await service.getBalance(1, new Date('2026-07-04T12:00:00Z')), 1);
+  assert.equal(await service.getBalance(1), 1);
 });
 
 // ─── 4. Overdraft / parcial (D7) ────────────────────────────────────────────────────────────────
@@ -361,15 +367,15 @@ test('refund: débito depois refund devolve o saldo; refund 2x é idempotente', 
 
 test('refund: lote original já expirado vira lote novo COM validade nova (decisão do dono — não perde o crédito nem vira perpétuo)', async () => {
   const { service } = buildService();
-  const now = new Date('2026-07-04T12:00:00Z');
-  const soon = new Date('2026-07-05T00:00:00Z');
+  const now = new Date();
+  const soon = new Date(now.getTime() + 1 * DAY_MS); // vivo no debit (relógio real)
 
   await service.grant(1, 5, { expiresAt: soon });
   await service.debit(1, 3, { actionKey: 'lead_delivery', usageKey: 'refund-exp-1' });
 
-  // Expira o lote (job) antes do refund chegar.
-  const afterExpiry = new Date('2026-07-06T00:00:01Z');
-  await service.expireLots(new Date('2026-07-06T00:00:00Z'));
+  // Expira o lote (job) antes do refund chegar — o job aceita `now` explícito no futuro.
+  const afterExpiry = new Date(now.getTime() + 2 * DAY_MS);
+  await service.expireLots(afterExpiry);
   assert.equal(await service.getBalance(1, afterExpiry), 0);
 
   const result = await service.refund(1, { usageKey: 'refund-exp-1' }, afterExpiry);
