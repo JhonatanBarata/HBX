@@ -809,6 +809,216 @@
   padding-bottom: var(--ent-4);
 }
 
+/* ============================================================
+   A3 — CLIENTES (lista/busca/cards) + EDITOR (form 1 coluna app-like).
+   Reusa .ent-list/.ent-empty/.ent-actionbar/.ent-chips já existentes; só
+   adiciona os componentes de FORMULÁRIO e de CARD/lista de clientes. Toda
+   cor/forma vive AQUI (Lei); o TSX só usa estas classes .ent-*.
+   ============================================================ */
+
+/* ---------- BUSCA ---------- */
+[data-skin="entrega"] .ent-search {
+  padding: 0 var(--ent-4) var(--ent-4);
+}
+
+/* ---------- CAMPO DE TEXTO / SELECT (base de todos os inputs) ---------- */
+[data-skin="entrega"] .ent-input {
+  width: 100%;
+  min-height: var(--ent-tap);
+  padding: 0 var(--ent-4);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-line-strong);
+  background: var(--ent-surface);
+  color: var(--ent-ink);
+  font-family: var(--ent-font);
+  font-size: var(--ent-text);
+  font-weight: 600;
+  outline: none;
+  transition: border-color var(--ent-motion-fast), box-shadow var(--ent-motion-fast);
+  -webkit-appearance: none;
+  appearance: none;
+}
+[data-skin="entrega"] .ent-input::placeholder { color: var(--ent-ink-muted); font-weight: 500; }
+[data-skin="entrega"] .ent-input:focus {
+  border-color: var(--ent-brand);
+  box-shadow: 0 0 0 3px var(--ent-brand-soft);
+}
+/* textarea/select com altura de mais de uma linha usam padding vertical */
+[data-skin="entrega"] select.ent-input { padding-right: var(--ent-6); }
+
+/* ---------- CARD GRANDE DE CLIENTE (item da lista, botão inteiro) ---------- */
+[data-skin="entrega"] .ent-card {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-4);
+  width: 100%;
+  min-height: var(--ent-tap-lg);
+  padding: var(--ent-4) var(--ent-5);
+  background: var(--ent-surface);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-sm);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--ent-font);
+  transition: transform var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-card:active { transform: scale(0.99); }
+[data-skin="entrega"] .ent-card-main { flex: 1 1 auto; min-width: 0; }
+[data-skin="entrega"] .ent-card-name {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text);
+  font-weight: 800;
+  color: var(--ent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-card-sub {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-card-chevron {
+  flex: 0 0 auto;
+  font-size: var(--ent-title);
+  line-height: 1;
+  color: var(--ent-ink-muted);
+  font-weight: 700;
+}
+
+/* ---------- FORM (editor 1 coluna, rola entre header e action bar) ---------- */
+[data-skin="entrega"] .ent-form {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-4);
+  padding: 0 var(--ent-4) var(--ent-4);
+}
+[data-skin="entrega"] .ent-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-2);
+}
+[data-skin="entrega"] .ent-field-label {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink-soft);
+}
+/* rótulo de SEÇÃO (Forma de pagamento / Produtos) — separa blocos do form */
+[data-skin="entrega"] .ent-section {
+  margin-top: var(--ent-3);
+  font-size: var(--ent-text);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+/* linha com 2 campos (cidade/UF, qtd/frequência) */
+[data-skin="entrega"] .ent-field-row {
+  display: flex;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-field--grow { flex: 1 1 auto; min-width: 0; }
+[data-skin="entrega"] .ent-field--uf { flex: 0 0 84px; }
+
+/* ---------- TOGGLE (Entra na contabilidade) ---------- */
+[data-skin="entrega"] .ent-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ent-4);
+  width: 100%;
+  min-height: var(--ent-tap);
+  padding: var(--ent-3) var(--ent-4);
+  background: var(--ent-surface);
+  border: 1px solid var(--ent-hairline);
+  border-radius: var(--ent-radius);
+  cursor: pointer;
+  font-family: var(--ent-font);
+}
+[data-skin="entrega"] .ent-toggle-label {
+  font-size: var(--ent-text);
+  font-weight: 700;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-switch {
+  flex: 0 0 auto;
+  position: relative;
+  width: 52px;
+  height: 30px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-line-strong);
+  transition: background var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-surface);
+  box-shadow: var(--ent-shadow-sm);
+  transition: transform var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-switch.is-on { background: var(--ent-brand); }
+[data-skin="entrega"] .ent-switch.is-on::after { transform: translateX(22px); }
+
+/* ---------- DICA / ERRO curtos (sem parágrafo — 1 linha) ---------- */
+[data-skin="entrega"] .ent-hint {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+}
+[data-skin="entrega"] .ent-erro {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-danger);
+}
+
+/* ---------- PRODUTOS DO CLIENTE (lista + bloco de adicionar) ---------- */
+[data-skin="entrega"] .ent-prods {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-prod-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-3);
+  padding: var(--ent-3) var(--ent-4);
+  background: var(--ent-surface-soft);
+  border-radius: var(--ent-radius-sm);
+}
+[data-skin="entrega"] .ent-prod-row.is-off { opacity: 0.55; }
+[data-skin="entrega"] .ent-prod-main { flex: 1 1 auto; min-width: 0; }
+[data-skin="entrega"] .ent-prod-name {
+  font-size: var(--ent-text);
+  font-weight: 700;
+  color: var(--ent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-prod-sub {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+}
+[data-skin="entrega"] .ent-prod-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  padding: var(--ent-4);
+  background: var(--ent-surface-soft);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+}
+
 /* ---------- RESPEITA quem pediu menos movimento ---------- */
 @media (prefers-reduced-motion: reduce) {
   [data-skin="entrega"] * {

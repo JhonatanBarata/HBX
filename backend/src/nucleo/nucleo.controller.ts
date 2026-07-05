@@ -117,6 +117,20 @@ export class NucleoController {
   }
 
   /**
+   * A3 (LOGÍSTICA-MOBILE) — detalhe de UM cliente pra ficha do app de entrega.
+   * Lê PF ou PJ (o cadastro manual do app nasce PF) + endereço + coordenada +
+   * telefone do principal + os eixos do contrato financeiro (pra pré-preencher a
+   * edição). Read-only, company-scoped. id inexistente/de outro tenant → 404 (R5).
+   */
+  @Get('clientes/:id')
+  async getCliente(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const cliente = await this.service.getCliente(companyId, id);
+    if (!cliente) throw new NotFoundException('Cliente não encontrado');
+    return cliente;
+  }
+
+  /**
    * Cria uma CONTA manual + o contato principal (o vendedor cadastrando cliente).
    * GRÁTIS (não é lead da base 28M → não debita crédito). Idempotente por
    * documento/cnpj/telefone dentro da empresa.

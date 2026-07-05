@@ -473,6 +473,81 @@ export class NucleoCadastroService {
   }
 
   /**
+   * A3 (LOGÍSTICA-MOBILE) — detalhe de UM cliente para a ficha do app de entrega.
+   *
+   * Ao contrário de `getEmpresa` (que trava em tipo='pj'), este lê a conta seja PF
+   * ou PJ — o cadastro manual do app nasce PF ("Dona Maria"). Devolve endereço +
+   * coordenada + o contato PRINCIPAL (telefone/whatsapp) + os DOIS eixos do contrato
+   * financeiro (formaPagamento/metodoPadrao/contabilizar/diaFechamento), pra a ficha
+   * pré-preencher edição sem endpoint novo de escrita (reusa PATCH nucleo/logistica).
+   *
+   * READ-ONLY, company-scoped: id inexistente OU de outro tenant → null (o controller
+   * vira 404, nunca vaza a existência de conta alheia — R5).
+   */
+  async getCliente(companyId: number, id: string): Promise<ClienteDetail | null> {
+    if (!companyId || !id) return null;
+    const row = await this.prisma.customerProfile.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: {
+        id: true,
+        name: true,
+        tipo: true,
+        cnpj: true,
+        document: true,
+        endereco: true,
+        cidade: true,
+        uf: true,
+        cep: true,
+        lat: true,
+        lng: true,
+        phone: true,
+        email: true,
+        status: true,
+        isLead: true,
+        isCliente: true,
+        isFornecedor: true,
+        formaPagamento: true,
+        metodoPadrao: true,
+        contabilizar: true,
+        diaFechamento: true,
+        contatos: {
+          where: { isPrincipal: true },
+          take: 1,
+          select: { id: true, nome: true, whatsapp: true, phone: true },
+        },
+      },
+    });
+    if (!row) return null;
+    const principal = row.contatos?.[0] ?? null;
+
+    return {
+      id: row.id,
+      name: row.name ?? null,
+      tipo: row.tipo ?? 'pf',
+      cnpj: row.cnpj ?? null,
+      document: row.document ?? null,
+      endereco: row.endereco ?? null,
+      cidade: row.cidade ?? null,
+      uf: row.uf ?? null,
+      cep: row.cep ?? null,
+      lat: row.lat ?? null,
+      lng: row.lng ?? null,
+      // telefone da ficha = do contato principal (fonte do fluxo do app); cai pro
+      // phone da conta se o principal não tiver.
+      whatsapp: principal?.whatsapp ?? principal?.phone ?? row.phone ?? null,
+      email: row.email ?? null,
+      isLead: Boolean(row.isLead),
+      isCliente: Boolean(row.isCliente),
+      isFornecedor: Boolean(row.isFornecedor),
+      formaPagamento: row.formaPagamento ?? 'aberto',
+      metodoPadrao: row.metodoPadrao ?? null,
+      contabilizar: row.contabilizar !== false,
+      diaFechamento: row.diaFechamento ?? null,
+      contatoPrincipalId: principal?.id ?? null,
+    };
+  }
+
+  /**
    * Cria uma CONTA manual (`origin='manual'`) + o CONTATO principal (a pessoa) —
    * o fluxo do vendedor cadastrando "Dona Maria" + endereço. GRÁTIS (não debita
    * crédito: não é lead da base 28M).
@@ -1024,6 +1099,31 @@ export interface EmpresaDetail {
   origin: string | null;
   createdAt: string | null;
   contatos: EmpresaContato[];
+}
+
+// ── A3 — detalhe do cliente pra ficha do app de entrega (PF ou PJ) ─────────
+export interface ClienteDetail {
+  id: string;
+  name: string | null;
+  tipo: string;
+  cnpj: string | null;
+  document: string | null;
+  endereco: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  lat: number | null;
+  lng: number | null;
+  whatsapp: string | null;
+  email: string | null;
+  isLead: boolean;
+  isCliente: boolean;
+  isFornecedor: boolean;
+  formaPagamento: string;
+  metodoPadrao: string | null;
+  contabilizar: boolean;
+  diaFechamento: number | null;
+  contatoPrincipalId: string | null;
 }
 
 // ── N4 — tipos da janela "Contatos" (pessoas) e escrita manual ─────────────
