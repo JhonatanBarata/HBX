@@ -1019,6 +1019,119 @@
   border: 1px solid var(--ent-hairline);
 }
 
+/* ============================================================
+   A4 — GESTÃO DO DIA (topo da aba Rota) + PRODUTOS + AJUSTES.
+   O que no dashboard é card/página ERP vira, no app: ação grande + stats do
+   app (sem travessão) + editor de regras 1 coluna. Toda cor/forma vive AQUI
+   (Lei); o TSX só usa estas classes .ent-*.
+   ============================================================ */
+
+/* ---------- FAIXA DE GESTÃO DO DIA (Gerar + resumo em stats) ---------- */
+[data-skin="entrega"] .ent-gestao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  padding: 0 var(--ent-4) var(--ent-4);
+}
+[data-skin="entrega"] .ent-gestao-gerar { width: 100%; }
+[data-skin="entrega"] .ent-gestao-msg {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-brand-strong);
+  text-align: center;
+}
+/* 3 stats do dia (Entregues · Recebido · A receber) — 0 / R$ 0,00, sem travessão. */
+[data-skin="entrega"] .ent-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--ent-2);
+  padding: var(--ent-4);
+  background: var(--ent-surface);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-sm);
+}
+[data-skin="entrega"] .ent-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ent-1);
+  min-width: 0;
+  text-align: center;
+}
+[data-skin="entrega"] .ent-stat-num {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--ent-ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-skin="entrega"] .ent-stat-num.is-ok { color: var(--ent-success); }
+[data-skin="entrega"] .ent-stat-num.is-due { color: var(--ent-warning); }
+[data-skin="entrega"] .ent-stat-lbl {
+  font-size: var(--ent-text-sm);
+  font-weight: 600;
+  color: var(--ent-ink-muted);
+}
+
+/* ---------- TEXTAREA (mensagem do aviso) ---------- */
+[data-skin="entrega"] textarea.ent-textarea {
+  min-height: 96px;
+  padding: var(--ent-3) var(--ent-4);
+  line-height: 1.4;
+  resize: vertical;
+}
+
+/* ---------- PRÉVIA da mensagem ---------- */
+[data-skin="entrega"] .ent-preview {
+  padding: var(--ent-3) var(--ent-4);
+  background: var(--ent-brand-soft);
+  border-radius: var(--ent-radius-sm);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-preview-label {
+  display: block;
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-brand-strong);
+  margin-bottom: var(--ent-1);
+}
+[data-skin="entrega"] .ent-preview-body {
+  margin: 0;
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink);
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+/* ---------- INSTALAR APP (QR local + copiar) ---------- */
+[data-skin="entrega"] .ent-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-qr-code {
+  display: grid;
+  place-items: center;
+  padding: var(--ent-4);
+  background: var(--ent-surface);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-sm);
+}
+[data-skin="entrega"] .ent-qr-code canvas { display: block; border-radius: var(--ent-radius-sm); }
+
+/* ---------- SAIR ---------- */
+[data-skin="entrega"] .ent-sair {
+  margin-top: var(--ent-3);
+  color: var(--ent-danger);
+}
+
 /* ---------- RESPEITA quem pediu menos movimento ---------- */
 @media (prefers-reduced-motion: reduce) {
   [data-skin="entrega"] * {

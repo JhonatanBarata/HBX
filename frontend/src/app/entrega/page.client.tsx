@@ -7,6 +7,7 @@ import { getToken } from "@/lib/api";
 
 import { ArrivalSheet } from "./ArrivalSheet";
 import { EntregaTabBar } from "./EntregaTabBar";
+import { GestaoDia } from "./GestaoDia";
 import { Onboarding, jaViuOnboarding } from "./Onboarding";
 import {
   cancelarEntrega,
@@ -290,6 +291,7 @@ export function EntregaHome() {
           abertas={abertas}
           iniciando={iniciando}
           onIniciar={onIniciar}
+          onGerou={carregar}
         />
       ) : (
         <ViewRota
@@ -336,6 +338,7 @@ function ViewHoje({
   abertas,
   iniciando,
   onIniciar,
+  onGerou,
 }: {
   rota: RotaResult | null;
   feitas: number;
@@ -344,20 +347,27 @@ function ViewHoje({
   abertas: RotaItem[];
   iniciando: boolean;
   onIniciar: () => void;
+  onGerou: () => void;
 }) {
+  // A4 — faixa de gestão do dia (gerar entregas + resumo) SEMPRE no topo, mesmo
+  // sem entregas: é daqui que o dono do negócio materializa a rota do dia.
   if (!rota || total === 0) {
     return (
-      <div className="ent-empty">
-        <div className="ent-empty-icon" aria-hidden="true">
-          ✓
+      <>
+        <GestaoDia onGerou={onGerou} />
+        <div className="ent-empty">
+          <div className="ent-empty-icon" aria-hidden="true">
+            ✓
+          </div>
+          <div className="ent-empty-title">Sem entregas hoje</div>
         </div>
-        <div className="ent-empty-title">Sem entregas hoje</div>
-      </div>
+      </>
     );
   }
   const pct = total > 0 ? Math.round((feitas / total) * 100) : 0;
   return (
     <>
+      <GestaoDia onGerou={onGerou} />
       <section className="ent-progress" aria-label="Progresso do dia">
         <div className="ent-progress-row">
           <div className="ent-progress-count">
