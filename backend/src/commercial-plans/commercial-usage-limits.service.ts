@@ -1,6 +1,7 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Optional } from '@nestjs/common';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreditsService } from '../credits/credits.service';
 import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
 import { resolveRadarSearchAllowance, resolveSellerCardQuota } from './seller-card-quota.util';
 import {
@@ -76,7 +77,16 @@ type SellerActiveCardQuotaSnapshot = {
 
 @Injectable()
 export class CommercialUsageLimitsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // CRÉDITOS S2 — shadow-debit (MEDIÇÃO atrás de HBX_CREDITS_SHADOW, default OFF). Emitido
+    // do DONO da baixa (este service), no ponto único onde a cota mensal da empresa é de fato
+    // consumida — cobre TODOS os callers (vendas + radar) por construção. Direção de import
+    // única: CommercialPlansModule -> CreditsModule (CreditsModule só depende de PrismaModule,
+    // não fecha ciclo). Injetado como opcional-defensivo: se ausente, os logs de cota seguem
+    // normais (o shadow simplesmente não dispara).
+    @Optional() private readonly creditsService?: CreditsService,
+  ) {}
 
   private normalizeTimezone(value: unknown) {
     const timezone = String(value || '').trim() || FALLBACK_TIMEZONE;
@@ -926,11 +936,55 @@ export class CommercialUsageLimitsService {
   async recordCardImport(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
     const source = String(metadata.source || 'vendas');
     const eventType = metadata.eventType || (source === 'radar_claim' ? 'radar_card_claimed' : 'vendas_card_imported');
-    return this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
+    const result = await this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
+    // CRÉDITOS S2 — shadow-debit no ponto ÚNICO da baixa. recordCardImport loga
+    // vendas_card_imported/radar_card_claimed (2 dos 4 CARD_SUCCESS_EVENTS que contam a cota);
+    // hookear aqui cobre a entrega automática do Radar (radar_claim) + imports diretos por
+    // construção, sem caçar call-site.
+    this.emitLeadDeliveryShadowDebit(companyId, userId, metadata);
+    return result;
   }
 
   private normalizeUsageKey(value: unknown) {
     return String(value || '').trim().replace(/[^a-zA-Z0-9:_-]+/g, '-').slice(0, 160);
+  }
+
+  /**
+   * CRÉDITOS S2 — chave CANÔNICA de lead para o shadow-debit. Precisa ser IDÊNTICA quando
+   * recordCardImport e recordCardCommercialUseOnce falam do mesmo lead, senão a idempotência 1:1
+   * fura (2 shadows p/ 1 baixa). Os callers passam a mesma origem por caminhos diferentes:
+   *   - vendas: usageKey já vem `vendas:<id>` OU `radar:<id>`
+   *   - radar recordCardCommercialUseOnce: usageKey `radar:<id>`
+   *   - radar recordCardImport: SÓ `radarLeadId: <id>` cru (sem usageKey)
+   * Então: se veio usageKey explícita, usa; senão reconstrói `radar:<radarLeadId>` /
+   * `vendas:<vendasLeadId>` — o MESMO shape que os outros caminhos produzem. Assim
+   * `radar_claim` (import) e `radar_contact_click` (commercial-use) do mesmo lead colidem em 1.
+   */
+  private resolveLeadDeliveryKey(metadata: Record<string, any>): string {
+    const explicit = this.normalizeUsageKey(metadata?.usageKey || '');
+    if (explicit) return explicit;
+    const radarLeadId = String(metadata?.radarLeadId ?? '').trim();
+    if (radarLeadId) return this.normalizeUsageKey(`radar:${radarLeadId}`);
+    const vendasLeadId = String(metadata?.vendasLeadId ?? '').trim();
+    if (vendasLeadId) return this.normalizeUsageKey(`vendas:${vendasLeadId}`);
+    return '';
+  }
+
+  /**
+   * CRÉDITOS S2 — dispara o shadow-debit (MEDIÇÃO, sem enforcement) a partir do dono da baixa.
+   * Best-effort e fire-and-forget: NÃO await bloqueante, o try/catch mora dentro do próprio
+   * recordShadowDebit (que também é no-op com HBX_CREDITS_SHADOW OFF). A idempotência por
+   * usageKey lá dentro garante 1 shadow por lead mesmo que recordCardImport E
+   * recordCardCommercialUseOnce disparem pro MESMO lead (a cota real também só conta 1×, via o
+   * findFirst de CARD_SUCCESS_EVENTS).
+   */
+  private emitLeadDeliveryShadowDebit(companyId: number, userId: number | null, metadata: Record<string, any>) {
+    if (!this.creditsService) return;
+    const leadId = this.resolveLeadDeliveryKey(metadata);
+    if (!leadId) return;
+    void this.creditsService
+      .recordShadowDebit(companyId, userId, { leadId, actionKey: 'lead_delivery' })
+      .catch(() => undefined);
   }
 
   async recordCardCommercialUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
@@ -941,6 +995,8 @@ export class CommercialUsageLimitsService {
         status: 'success',
         ...metadata,
       });
+      // CRÉDITOS S2 — shadow-debit no ponto único da baixa (ver emitLeadDeliveryShadowDebit).
+      this.emitLeadDeliveryShadowDebit(companyId, userId, metadata);
       return { debited: true, alreadyDebited: false };
     }
     const existing = await this.prisma.companyCommercialUsageLog.findFirst({
@@ -958,6 +1014,9 @@ export class CommercialUsageLimitsService {
       ...metadata,
       usageKey,
     });
+    // CRÉDITOS S2 — shadow-debit no ponto único da baixa. Passa a usageKey já normalizada para o
+    // leadId bater EXATAMENTE com o de recordCardImport do mesmo lead (idempotência 1:1).
+    this.emitLeadDeliveryShadowDebit(companyId, userId, { ...metadata, usageKey });
     return { debited: true, alreadyDebited: false };
   }
 

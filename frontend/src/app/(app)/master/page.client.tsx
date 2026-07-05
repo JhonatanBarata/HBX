@@ -15,6 +15,7 @@ import { useTabParam } from "@/lib/use-tab-param";
 
 import { JanelaCockpit } from "./janela-cockpit";
 import { JanelaContabil } from "./janela-contabil";
+import { JanelaCreditos } from "./janela-creditos";
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaOnline } from "./janela-online";
@@ -105,6 +106,7 @@ const JANELAS = [
   { id: "empresas", label: "Empresas", icon: "users" },
   { id: "online", label: "Quem está online", icon: "clock" },
   { id: "self-checkout", label: "Self-Checkout", icon: "money" },
+  { id: "creditos", label: "Créditos", icon: "money" },
   { id: "integracoes", label: "Integrações", icon: "config" },
   { id: "emails", label: "E-mails", icon: "mail" },
   { id: "tickets", label: "Tickets", icon: "doc" },
@@ -352,6 +354,7 @@ export function MasterClient() {
           )}
           {janela === "online" && <JanelaOnline />}
           {janela === "self-checkout" && <JanelaSelfCheckout />}
+          {janela === "creditos" && <JanelaCreditos companies={companies} />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
           {janela === "emails" && <JanelaEmails />}
           {janela === "tickets" && <JanelaTickets />}
