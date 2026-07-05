@@ -101,8 +101,12 @@ framework — padrão da casa):
   `fail` com retryable.
 - Heartbeat no lease TTL 2min; **disjuntor**: X falhas seguidas → PARA, acende vermelho no :3107,
   não reprocessa sozinho. Warm-check antes do 1º lease do dia (30B frio → aquece primeiro).
-- Flag própria (`HBX_PONTE_WORKER_ENABLED`), configuração de janela (madrugada full-speed; dia =
-  conta-gotas ou off, decisão do dono §7).
+- Flag própria (`HBX_PONTE_WORKER_ENABLED`). **Janela = ELÁSTICA, não agenda (decisão do dono
+  05/07: "horário de aquecimento: elástico… tudo isso já existe, reaproveite")**: o worker é
+  dirigido pelo LAG da fila (reusar a elástica existente — `getQueueLagSnapshot` da engine-pool:
+  fila com trabalho → aquece o 30B e processa, qualquer hora) e FREIA por atividade de usuário
+  (gente logando/usando → elástico desliga o lote pesado; mapear o sinal existente em
+  auth/users `lastActivity` e reaproveitar — NÃO construir scheduler novo, NÃO cron fixo).
 - **Validação viva em 2 degraus:** (1º) tudo local — backend local + fila local ON + worker local,
   lead descartável de ponta a ponta; (2º) apontar pro VPS de verdade.
 Entrega: worker + testes + `RESULTADO-E1.md` com o fluxo provado nos 2 degraus.
@@ -111,8 +115,10 @@ Entrega: worker + testes + `RESULTADO-E1.md` com o fluxo provado nos 2 degraus.
 - Gauge real: residente/frio, fila (pendentes/rodando/mortas), throughput da última janela,
   últimos N jobs com resultado, erros/disjuntor.
 - Corrigir msg "12min"→"~3min" e a tag da allowlist (§3.3); remover 7b; botão **descarregar**.
-- **Agenda**: aquecer sozinho de manhã (hora configurável) + janela de madrugada do lote. O botão
-  de aquecer já existe — vira também automático.
+- **Aquecimento ELÁSTICO (decisão do dono 05/07 — sem hora fixa, sem cron):** fila com trabalho →
+  aquece sozinho e processa; usuários logando → elástico desliga o lote e o painel mostra POR QUÊ
+  ("cedendo a vez — N usuários ativos"). Reaproveitar elástica da engine-pool + turbo_noturno;
+  o botão manual de aquecer continua.
 - Interlock visível: "PC-off = fila espera no VPS" (estado, não erro).
 Entrega: painel funcionando local + `RESULTADO-E2.md` com prints.
 
@@ -146,9 +152,9 @@ Entrega: `RESULTADO-D1.md` = a promessa provada com horário e print.
 | # | Decisão | Quando |
 |---|---|---|
 | 1 | Xray: se o 30B não ranquear nem com prompt ajustado → fica 4b degradado ou OFF? | fim do T1 |
-| 2 | Agenda: hora do aquecimento da manhã + janela da madrugada + comportamento de DIA (conta-gotas × só madrugada) | E2 |
+| 2 | ~~Agenda de aquecimento/janela~~ **RESOLVIDA 05/07: ELÁSTICO** — sem hora fixa; fila com trabalho = roda, usuários logando = elástico desliga; reaproveitar elástica/turbo existentes | — |
 | 3 | Copy do cliente ("Na fila da IA", "IA enriquecendo", "Enriquecido por IA") — texto final | E3 |
-| 4 | Quantos leads/noite viram meta comercial (sai da conta do T2) | pós-T2 |
+| 4 | ~~Meta de leads/noite~~ **RESOLVIDA 05/07: SEM META** — roda até o elástico desligar (gente logando); a conta do T2 vira dimensionamento informativo, não meta | — |
 
 ## 8. Relação com o CHIP 6 (rodando agora)
 
