@@ -1,5 +1,14 @@
 # CRÉDITOS — carteira única substitui paywall por plano/tier
 
+> **STATUS 05/07 (noite): CÓDIGO COMPLETO até R2, tudo LOCAL no master, flags OFF, nada publicado.**
+> Feitos: S1 (fusão, Fix A+B) · S2 shadow · S3 completo (catálogo+concessão+recarga MP com fiscal
+> S5 no mesmo choke) · S4 teto por vendedor · S6 painéis · S8 hierarquia · A3 lote grátis ·
+> R1-código (gate 2 chaves) · R2 kill-switch (flag OFF) · L6 varredura · migrations reconciliadas.
+> RESULTADOs nesta pasta. **Nas mãos do dono:** publicar · validar recarga LIVE (cartão real) ·
+> ligar `HBX_CREDITS_ENABLED` → depois `HBX_CREDITS_SHADOW` (medir) → depois `HBX_CREDITS_ENFORCE`
+> + flag por-empresa (cutover S7, com decisão de preço dos pacotes-migração) → `HBX_MODULES_
+> KILLSWITCH_ONLY`. **R3/R4/R5 (via-única) só após 1 ciclo de billing limpo — guardrail mantido.**
+
 > Ordem do dono 04/07. Objetivo: trocar o modelo "plano/tier limita módulo" por um modelo de
 > **crédito (carteira recarregável)**. Master libera **módulos** (só como kill-switch de teste,
 > não como paywall). Master libera **créditos** ao admin. Admin controla, dos abaixo dele
