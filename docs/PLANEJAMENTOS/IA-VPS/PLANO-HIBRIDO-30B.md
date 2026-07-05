@@ -151,7 +151,7 @@ Entrega: `RESULTADO-D1.md` = a promessa provada com horário e print.
 
 | # | Decisão | Quando |
 |---|---|---|
-| 1 | Xray: se o 30B não ranquear nem com prompt ajustado → fica 4b degradado ou OFF? | fim do T1 |
+| 1 | ~~Xray se o 30B não ranquear~~ **RESOLVIDA pelo T1 (05/07): o 30B RANQUEIA** (85/75/85 · 65/75/65/40 · 30/55/40, sem saturar) → nota honesta migra pro 30B via missão (E1); o 4b-degradado injetado no CHIP 6 fica como INTERINO até a ponte entrar | — |
 | 2 | ~~Agenda de aquecimento/janela~~ **RESOLVIDA 05/07: ELÁSTICO** — sem hora fixa; fila com trabalho = roda, usuários logando = elástico desliga; reaproveitar elástica/turbo existentes | — |
 | 3 | Copy do cliente ("Na fila da IA", "IA enriquecendo", "Enriquecido por IA") — texto final | E3 |
 | 4 | ~~Meta de leads/noite~~ **RESOLVIDA 05/07: SEM META** — roda até o elástico desligar (gente logando); a conta do T2 vira dimensionamento informativo, não meta | — |
