@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { isTenantCompany } from '../common/company-kind';
-import { isGerenteActor } from '../access/actor-kind';
+import { isGerenteActor, resolveActorKind } from '../access/actor-kind';
 import { ModulesService } from '../modules/modules.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -10,6 +10,7 @@ import {
   buildTeamAccessMapFromModuleAccess,
   getTeamAccessCatalog,
   getTeamAccessGroups,
+  hasTeamAccess,
   listMissingBackendEnforcement,
   mergeTeamAccessMaps,
   normalizeTeamAccessMap,
@@ -283,6 +284,23 @@ export class TeamPolicyService {
     const storedModuleAccess = buildTeamAccessMapFromModuleAccess(this.storedModuleRowsFromPolicy(storedPolicy));
     const explicitAccess = this.storedAccessMapFromPolicy(storedPolicy);
     return mergeTeamAccessMaps(defaults, currentModuleAccess, storedModuleAccess, explicitAccess);
+  }
+
+  // S8/A2 — "so passa o que tem": mapa de acesso EFETIVO do CONCEDENTE (quem
+  // esta chamando updatePolicy), usado para interseccionar contra o que ele
+  // tenta conceder a outro usuario (subset-delegation). Reusa a mesma fonte
+  // de runtime que resolveTeamPolicyAccessAllowed usa em assertCanManage:
+  // policy persistida do requester + default do papel dele quando a chave
+  // nao tem override explicito. system_master/dono NAO chamam isto (sao raiz
+  // — ver updatePolicy).
+  private async resolveGranterAccessMap(requester: any): Promise<TeamAccessMap> {
+    const granterKind = this.getActorKind(requester, requester?.company);
+    const defaults = buildDefaultTeamAccessMapForRole(granterKind);
+    const requesterPolicy = await loadUserTeamPolicyRuntime(this.prisma, requester?.id).catch(() => null);
+    const explicitAccess = requesterPolicy
+      ? Object.fromEntries(requesterPolicy.accessMap.entries())
+      : {};
+    return mergeTeamAccessMaps(defaults, explicitAccess);
   }
 
   private buildStoredAccessUpdate(storedPolicy: any, patch: TeamPolicyPatch) {
@@ -1217,9 +1235,12 @@ export class TeamPolicyService {
     }
 
     if (this.isGerente(requester)) {
+      // S8/A2: acesso granular (patch.access/accessMap) SAIU do bloqueio bruto —
+      // gerente pode conceder chave de acesso, mas so dentro do proprio mapa
+      // (subset-delegation, verificado logo abaixo). Preset continua exclusivo
+      // do responsavel (atalho concede pacote inteiro, nao passa pela interseção
+      // chave-a-chave); cobranca/limites/rede/radar/visibilidade seguem exclusivos.
       const hasNonModulePatch =
-        patch?.access !== undefined ||
-        patch?.accessMap !== undefined ||
         patch?.accessPresetKey !== undefined ||
         patch?.presetKey !== undefined ||
         patch?.presetId !== undefined ||
@@ -1230,7 +1251,26 @@ export class TeamPolicyService {
         patch?.visibility !== undefined;
       if (hasNonModulePatch) {
         throw new ForbiddenException(
-          'Gerente pode conceder apenas módulos — cobrança, limites e acessos granulares são exclusivos do responsável.',
+          'Gerente pode conceder apenas módulos e acessos — cobrança, limites e presets são exclusivos do responsável.',
+        );
+      }
+    }
+
+    // S8/A2 — subset-delegation: quem concede so pode LIGAR (allowed=true) chave
+    // de acesso que ELE MESMO tem no mapa efetivo (grant ⊆ granter). Dono/master
+    // sao raiz da arvore (concedem tudo, sem interseção). DESLIGAR (false) e
+    // sempre livre — remover acesso nao exige que o concedente tenha a chave.
+    const requesterKind = resolveActorKind(requester);
+    const isRootGranter = Boolean(requester?.isSystemMaster) || requesterKind === 'dono';
+    const accessPatch = this.normalizeAccessPatch(patch?.access ?? patch?.accessMap);
+    if (accessPatch && !isRootGranter) {
+      const granterAccessMap = await this.resolveGranterAccessMap(requester);
+      const deniedKeys = Object.entries(accessPatch)
+        .filter(([key, allowed]) => allowed === true && !hasTeamAccess(granterAccessMap, key))
+        .map(([key]) => key);
+      if (deniedKeys.length) {
+        throw new ForbiddenException(
+          `Você não pode conceder acesso que não possui: ${deniedKeys.sort().join(', ')}.`,
         );
       }
     }

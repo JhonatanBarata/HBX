@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
 import { MasterGuard } from '../auth/guards/master.guard';
+import { resolveActorKind } from '../access/actor-kind';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
@@ -921,6 +922,16 @@ export class UsersController {
 			throw new ForbiddenException('Usuário USERMASTER não pode ter perfil alterado aqui');
 		}
 
+		// S8/T2 + régua já codificada em createCompanyUser (PR13062026007 P5,
+		// linha ~1325 abaixo): "o Dono só cunha GERENTE (ADMIN sem ver $); Admin
+		// COM cobrança (canViewBilling=true) só o Master cria, por outro fluxo."
+		// updateRole promove USER->ADMIN com o MESMO efeito de "cunhar um admin" —
+		// por consistência com essa régua, só MASTER escapa do freio aqui; o
+		// próprio Dono também é forçado a false (billing=true é sempre via Master).
+		// Sem isto, promover por esta rota herdava o default do schema (`true`) e
+		// virava "dono" (vê $) na hora — pior ainda quando quem promove é GERENTE.
+		const requesterKind = resolveActorKind(req?.user);
+		const canGrantBilling = requesterKind === 'master';
 		const updated = await this.usersService.updateById(id, {
 			role,
 			...(role === 'ADMIN'
@@ -929,6 +940,7 @@ export class UsersController {
 					sellerReferralCommissionPercent: 0,
 					referredByUserId: null,
 					referredByCommissionPercentSnapshot: 0,
+					...(canGrantBilling ? {} : { canViewBilling: false }),
 				}
 				: {}),
 		}, { actorUserId: Number(req?.user?.id || 0), action: 'role_update' });

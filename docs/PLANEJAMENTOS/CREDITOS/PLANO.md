@@ -172,6 +172,36 @@ pela flag; R3–R5 são via-única → por último.
 
 ---
 
+## Correções de arquitetura — linhagem do tenant (05/07, revisão + veredito)
+A linhagem do dono (master→módulos→admin→gerente→vendedor, só admin vê preço) está CERTA e é a
+precedência já fechada acima. 4 correções viram cânone das próximas ondas:
+
+- **A1 — Módulo NÃO desce a cadeia.** Módulo é assunto Master↔Empresa (kill-switch, default ON, sem
+  preço). Do admin pra baixo descem DUAS coisas distintas: **acesso** (chave RBAC do `UserTeamPolicy`)
+  e **teto de crédito** (opcional). Fundir isso num "pode/não pode" só foi a origem da bagunça (3
+  sistemas decidindo acesso ao mesmo tempo: módulo-por-plano + RBAC + quota-por-tier).
+- **A2 — "Só passa o que tem" NÃO existe no código → S8.** Hoje `team-policy.service.ts:1219` só faz
+  regra bruta (gerente só concede módulos), sem conferir se o concedente TEM o que concede. O
+  invariante certo é **1 ponto no `updatePolicy`: interseção** entre o mapa de acesso do concedente e
+  o que ele tenta conceder (`grant ⊆ granter`). **Trava dura junto:** `canViewBilling` só editável por
+  dono/master — como "gerente" É `ADMIN + canViewBilling=false` (`access/actor-kind.ts`), deixar gerente
+  flipar essa flag = auto-promoção pra ver dinheiro. S8 é RBAC puro (não-financeiro) → executável por worker.
+- **A3 — Plano grátis = LOTE-CORTESIA, não trial por tempo.** O "1 grátis pra conhecer" vira um lote
+  `grantType:promo` na criação da conta (ex.: 20–30 créditos, validade 30d, nunca vira receita — D3).
+  Mede valor por USO, não por tempo, e mata a máquina de trial inteira (`COMMERCIAL_PLAN_TRIAL_DAYS`,
+  estados trial). CNPJ.biz dá ~10 créditos; dar 2–3× é argumento de venda. Entra no R3 (aposentar tier).
+- **A4 — "Empresas" (Implantação) fica como está.** `contactOnly`, mensalidade "a partir de" negociada,
+  sem self-checkout. Crédito entra por concessão manual do master (S3a `grant`). É a ÚNICA que mantém
+  fatura recorrente → a única que ainda usa `overdue`. No self-service, `pending_checkout/overdue/grace`
+  praticamente somem (sem fatura mensal não há atraso; sem saldo o cara só não puxa lead): `Company.status`
+  encolhe pra `active | courtesy | suspended`.
+
+> **$$ — 2 travas de preço (não ignorar no S7):** (1) NÃO ancorar a recarga em R$0,045/lead (Lead Plus
+> R$99÷2.200). Isso fixa o lead 10× abaixo do mercado (CNPJ.biz R$0,53→0,015). Régua sugerida: R$0,15–0,40/
+> crédito com curva de volume; pacote-migração dos vivos = exceção grandfathered. (2) Crédito É taxímetro —
+> a bandeira "sem taxímetro" se resolve no QUE cobra: **1 crédito = 1 lead ENTREGUE e validado**
+> (débito on-success + refund atômico, já no S2); a BUSCA continua grátis (lane R$0). É o discurso de venda.
+
 ## Riscos / guardrails duros (não violar)
 - **Colisão com VENDAS-REFAB (rodando AGORA nos mesmos arquivos** — `vendas.service`,
   `commercial-usage-limits`, árvore de cota, `LeadContactWriteService`**).** Este plano É a evolução da

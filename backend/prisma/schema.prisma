@@ -245,6 +245,8 @@ model Company {
   entregas               Entrega[]
   clienteProdutos        ClienteProduto[]
   logisticaConfig        LogisticaConfig?
+  creditWallet           CreditWallet?
+  creditLedgerEntries    CreditLedgerEntry[]
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
@@ -3457,6 +3459,53 @@ model PlanModuleConfig {
   planInfoJson String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// CRÉDITOS S1 (05/07 — docs/PLANEJAMENTOS/CREDITOS/PLANO.md + S1-SPEC.md). Carteira
+// pré-paga que SUBSTITUI o paywall por tier: 1 crédito = 1 lead entregue (D1). A
+// wallet é 1:1 com a empresa e é a LINHA DE LOCK do débito atômico (SELECT ... FOR
+// UPDATE dentro da transação): dois "puxar lead" concorrentes NUNCA vendem o mesmo
+// crédito. Saldo NÃO é coluna — é derivado do ledger (Σ lotes abertos não-expirados).
+// Tudo atrás de HBX_CREDITS_ENABLED (default OFF); nasce inerte, ninguém debita ainda.
+model CreditWallet {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId Int      @unique
+  entries   CreditLedgerEntry[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Ledger append-only. Entradas de saldo (grant/recharge/promo) são LOTES com
+// `remaining` (cai ao consumir) e `expiresAt` (null = não expira). Movimentos
+// (debit/refund/expire/adjust) têm `remaining` 0. Saldo = Σ(lotes remaining>0 e não
+// expirados). Consumo FIFO por expiração (expiresAt ASC nulls-last, createdAt ASC).
+// Idempotência por `usageKey`: um débito que cruza 2 lotes gera 2 linhas `debit` com
+// a MESMA usageKey (idempotência é da AÇÃO, garantida sob o lock da wallet), por isso
+// usageKey é INDEXADO e NÃO unique. `parentEntryId`: débito→lote consumido; refund→débito revertido.
+model CreditLedgerEntry {
+  id              String    @id @default(cuid())
+  wallet          CreditWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId        String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  kind            String    // grant | recharge | promo (LOTES) · debit | refund | expire | adjust (movimentos)
+  amount          Int       // sempre positivo; o kind dá o sinal
+  remaining       Int       @default(0) // só lotes; movimentos = 0
+  expiresAt       DateTime? // só lotes; null = não expira
+  grantType       String?   // paid | courtesy_internal | promo (só lotes; alimenta o fiscal no S5)
+  actionKey       String?   // só débitos: o que consumiu (ex.: lead_delivery)
+  usageKey        String?   // chave de idempotência da AÇÃO (indexada, não unique)
+  sourceRef       String?   // id do pagamento MP / id da ação master
+  parentEntryId   String?   // débito→lote; refund→débito revertido
+  createdByUserId Int?
+  metadataJson    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([companyId, kind])
+  @@index([walletId, expiresAt])
+  @@index([walletId, usageKey])
+  @@index([usageKey])
 }
 
 model DeletionRecord {

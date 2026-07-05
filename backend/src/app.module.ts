@@ -46,6 +46,7 @@ import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-ca
 import { RelatoriosModule } from './relatorios/relatorios.module';
 import { NucleoModule } from './nucleo/nucleo.module';
 import { LogisticaModule } from './logistica/logistica.module';
+import { CreditsModule } from './credits/credits.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { LogisticaModule } from './logistica/logistica.module';
     RelatoriosModule,
     NucleoModule,
     LogisticaModule,
+    CreditsModule,
   ],
   controllers: [AppController],
   providers: [
