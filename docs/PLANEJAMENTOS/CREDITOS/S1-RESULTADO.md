@@ -11,8 +11,14 @@
 > no banco, padrão optimistic-lock do hbx-recovery já provado em prod, refund-de-expirado = decisão
 > do dono 04/07, 13 testes incl. corrida com MESMA usageKey). O S1 de 05/07 foi descartado; dele
 > sobreviveram: doc da flag no `.env.example`, script `test:credits`, e — por fora do S1 — o S8
-> (subset-delegation + trava canViewBilling) e as correções A1-A4 no PLANO.md. As migrations foram
-> renomeadas `20260704_*` → `20260705100000/110000_*` para ordenarem DEPOIS das já aplicadas na VPS.
+> (subset-delegation + trava canViewBilling) e as correções A1-A4 no PLANO.md.
+> **Migrations (⚠️ história real):** o publish `20260705_050617` (3a3d9d0d, orquestração noturna
+> paralela) JÁ tinha levado o S1 provisório pra prod com a migration `20260705090000_credits_wallet_ledger`
+> **APLICADA em hbx_prod** (tabelas inertes, flag OFF, zero linhas). Por isso: a 090000 foi RESTAURADA
+> no repo (migration aplicada nunca some), a da branch virou `20260705100000_credits_ledger_hardening`
+> (cria o UNIQUE do Fix B que faltava em prod + dropa índice/FK sobras do provisório), e a do catálogo
+> virou `20260705110000_credits_pack_catalog`. Sem isso o próximo deploy quebrava (CREATE TABLE em
+> tabela existente + migration aplicada ausente do dir).
 > Risco conhecido anotado: sob contenção extrema o laço otimista (teto 8) pode sair `partial` com
 > saldo ainda disponível — aceito por ser fail-closed (nunca negativa, nunca dobra); endurecer se o
 > shadow (S2) mostrar contenção real.
