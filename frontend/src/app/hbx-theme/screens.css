@@ -1377,10 +1377,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-origin-badge--rfb { color: var(--hbx-info); background: color-mix(in srgb, var(--hbx-info) 14%, transparent); }
 .radar-origin-badge--fusion { color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--login-accent) 12%, transparent); }
 .radar-origin-enriched { display: inline-flex; align-items: center; font-size: 0.55rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--text-muted) 10%, transparent); color: var(--text-muted); white-space: nowrap; }
-.radar-origin-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 16px 10px; padding: 6px 12px; border-radius: var(--radius-md); background: var(--hbx-surface-soft); border: 1px solid var(--border-hairline); font-size: 0.66rem; color: var(--text-muted); }
-.radar-origin-summary__item { display: inline-flex; align-items: baseline; gap: 4px; }
-.radar-origin-summary__item strong { font-weight: 800; color: var(--text-strong); }
-.radar-origin-summary__item--muted { opacity: 0.72; }
 .radar2-cap--danger { font-size: 0.66rem; color: var(--hbx-danger); margin: 0 16px 10px; }
 .cfg-nicho { margin-top: 18px; border-top: 1px solid var(--border-hairline); padding-top: 18px; }
 .cfg-nicho .ttl { font-size: 0.78rem; font-weight: 700; color: var(--text-strong); margin-bottom: 6px; }

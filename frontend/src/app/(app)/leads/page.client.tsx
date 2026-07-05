@@ -951,20 +951,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   const items = data?.items || [];
 
-  // Resumo de origem da vitrine (só usado na aba "Disponíveis"): quantos cards
-  // vieram de cada fonte de DESCOBERTA. Card antigo sem sourceChain cai em "Sem origem".
-  const originCounts = items.reduce(
-    (acc, row) => {
-      const key = String(row.sourceChain || "").trim().toLowerCase();
-      if (key === "web") acc.web += 1;
-      else if (key === "rfb") acc.rfb += 1;
-      else if (key === "rfb+web") acc.fusion += 1;
-      else acc.none += 1;
-      return acc;
-    },
-    { web: 0, rfb: 0, fusion: 0, none: 0 },
-  );
-
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
@@ -1869,21 +1855,24 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               {/* Barra de comando horizontal (desktop) — os filtros saíram do aside
                   paredão pra cá. Mobile mantém o radar2-rail via toggle. */}
               {!isMobile && renderCommandBar()}
-              <div className="tabs" data-tut="leads-abas">
-                <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
-                  Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
-                </button>
-                {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
-                    o que você puxa aparece no "Meu funil" do slide. 27/06. */}
-                {!embedded && (
+              {/* Barra de abas escondida no modo embutido (produção): sobrava só
+                  "Disponíveis" — rótulo redundante. No alias não-embutido as duas
+                  abas continuam. 05/07. */}
+              {!embedded && (
+                <div className="tabs" data-tut="leads-abas">
+                  <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                    Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                  </button>
+                  {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
+                      o que você puxa aparece no "Meu funil" do slide. 27/06. */}
                   <button
                     className={"tab" + (tab === "carteira" ? " active" : "")}
                     onClick={() => switchTab("carteira")}
                   >
                     Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
@@ -1906,16 +1895,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   </div>
                 );
               })()}
-
-              {/* Resumo de origem da vitrine — de onde vieram os cards desta lista */}
-              {tab === "shelf" && items.length > 0 && (
-                <div className="radar-origin-summary" role="status" aria-label="Origem dos leads">
-                  <span className="radar-origin-summary__item"><strong>{fmtInt(originCounts.web)}</strong> Web</span>
-                  <span className="radar-origin-summary__item"><strong>{fmtInt(originCounts.rfb)}</strong> Receita</span>
-                  <span className="radar-origin-summary__item"><strong>{fmtInt(originCounts.fusion)}</strong> Fusão</span>
-                  <span className="radar-origin-summary__item radar-origin-summary__item--muted"><strong>{fmtInt(originCounts.none)}</strong> Sem origem</span>
-                </div>
-              )}
 
               {/* Branch mobile/desktop */}
               {isMobile ? (
