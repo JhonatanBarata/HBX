@@ -25,17 +25,37 @@ const TABS = [
 
 // NÚCLEO-CRM N6 — aba "Rota" (Logística). Só entra na barra quando o módulo
 // 'logistica' está ativo pro tenant (mesmo gate isModuleVisible da Sidebar);
-// aditiva, não substitui nenhuma aba fixa acima.
-const LOGISTICA_TAB = { id: "logistica", label: "Rota", href: "/logistica", icon: "logistica" } as const;
+// aditiva, não substitui nenhuma aba fixa acima. APPIFICAÇÃO A1: a aba "Rota"
+// abre o APP de entrega (/entrega, skin entrega) — NÃO a tela ERP /logistica do
+// dashboard (essa segue existindo pro desktop, alcançável pela folha "Mais").
+const LOGISTICA_TAB = { id: "logistica", label: "Rota", href: "/entrega", icon: "logistica" } as const;
 
-// Mapeamento rota → id de aba (para calcular a aba ativa)
+// Folha "Mais" — módulos do NÚCLEO-CRM disponíveis no celular (cadastrar
+// cliente/produto direto no app). Cada item usa o MESMO gate isModuleVisible da
+// Sidebar + ícone das ICONS. "Logística" aqui = a gestão ERP (/logistica), já
+// que a aba "Rota" passou a abrir o app /entrega.
+const MORE_MODULES = [
+  { id: "empresas",  label: "Empresas",  href: "/empresas",  icon: "empresas" },
+  { id: "contatos",  label: "Contatos",  href: "/contatos",  icon: "contatos" },
+  { id: "produtos",  label: "Produtos",  href: "/produtos",  icon: "produtos" },
+  { id: "logistica", label: "Logística", href: "/logistica", icon: "logistica" },
+] as const;
+
+// Mapeamento rota → id de aba (para calcular a aba ativa). A aba "Rota" acende
+// em qualquer rota do app de entrega (/entrega e subrotas).
 const ROUTE_TO_TAB: Record<string, string> = {
   "/dashboard": "dash",
   "/leads": "leads",
   "/vendas": "vendas",
   "/atendimento": "atend",
-  "/logistica": "logistica",
+  "/entrega": "logistica",
 };
+
+// A aba "Rota" acende em /entrega e QUALQUER subrota (/entrega/clientes etc.).
+function resolveActiveTab(pathname: string): string {
+  if (pathname === "/entrega" || pathname.startsWith("/entrega/")) return "logistica";
+  return ROUTE_TO_TAB[pathname] ?? "";
+}
 
 export function MobileTabBar() {
   const isMobile = useIsMobile();
@@ -52,7 +72,7 @@ export function MobileTabBar() {
   // Não renderiza em /master (tem chrome próprio)
   if (pathname.startsWith("/master")) return null;
 
-  const activeTab = ROUTE_TO_TAB[pathname] ?? "";
+  const activeTab = resolveActiveTab(pathname);
 
   // Filtra abas pelo gate isModuleVisible (mesma lógica da Sidebar)
   const baseTabs = TABS.filter(t => isModuleVisible(t.id, ent, user, mods));
@@ -111,6 +131,25 @@ export function MobileTabBar() {
           <div className="hbx-drawer-bottom" role="dialog" aria-label="Mais opções" aria-modal="true">
             {/* Handle */}
             <div className="hbx-drawer-bottom__handle" aria-hidden />
+
+            {/* Módulos do NÚCLEO-CRM (Empresas/Contatos/Produtos/Logística) —
+                cadastrar cliente/produto pelo celular. Mesmo gate isModuleVisible
+                da Sidebar: some quem o usuário não acessa. */}
+            {MORE_MODULES
+              .filter(m => isModuleVisible(m.id, ent, user, mods))
+              .map(m => (
+                <Link
+                  key={m.id}
+                  href={m.href}
+                  className="more-sheet__item"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <span className="more-sheet__icon"><I d={ICONS[m.icon]} size={20} /></span>
+                  {m.label}
+                </Link>
+              ))}
+
+            <div className="more-sheet__sep" />
 
             {/* Relatórios */}
             <Link

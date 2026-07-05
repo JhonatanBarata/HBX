@@ -70,9 +70,15 @@
   .search { display: none; }
   /* Hambúrguer oculto no mobile: navegação principal é a barra de abas */
   .burger { display: none; }
-  .top-actions { gap: 4px; margin-left: auto; }
+  /* APPIFICAÇÃO B1 — a fileira de ícones NÃO pode estourar a largura (era o
+     "Lo…" no título + linha de bolinhas do bot vazando embaixo). No celular a
+     topbar colapsa pro ESSENCIAL: sino + atendimento + avatar. Os sinalizadores
+     de STATUS (WhatsApp/localização/bot/e-mail) e o "+" novo lead são chrome de
+     desktop — some no mobile (a navegação é a barra de abas + folha "Mais").
+     .page-id fica flexível e trunca; .top-actions não cresce. */
+  .top-actions { gap: 4px; margin-left: auto; flex: 0 0 auto; }
   .round-btn { width: 32px; height: 32px; }
-  .page-id { min-width: 0; }
+  .page-id { min-width: 0; flex: 1 1 auto; }
   .page-id h1 {
     font-size: 1.02rem;
     white-space: nowrap;
@@ -80,6 +86,14 @@
     text-overflow: ellipsis;
   }
   .crumbs { display: none; }
+
+  /* Sinalizadores de status + "novo lead": fora da topbar no mobile (colapso
+     pro essencial — mata o overflow e a "linha de bolinhas" do bot). O toggle
+     claro/escuro vive na folha "Mais" no celular, então também sai daqui. */
+  .top-actions .wa-action-btn,
+  .top-actions .bot-signal-wrap,
+  .top-actions .round-btn.add,
+  .top-actions .round-btn[aria-label="Alternar claro/escuro"] { display: none; }
 
   /* --- PeleSwitch: esconde no mobile (disponível na folha "Mais") --- */
   .topbar .btn-ghost[aria-label="Escolher pele"] { display: none; }

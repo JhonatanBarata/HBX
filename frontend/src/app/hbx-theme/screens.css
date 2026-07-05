@@ -3921,6 +3921,15 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .log-resumo__num { font-size: 1.15rem; font-weight: 800; color: var(--text-strong); }
 .log-resumo__num.is-ok { color: var(--hbx-ok, var(--hbx-brand-strong)); }
 .log-resumo__num.is-due { color: var(--hbx-danger, var(--text-body)); }
+/* Skeleton do stat enquanto o resumo carrega (B2: nunca "—" solto). Reusa o
+   shimmer central .dn-skel (kit.css). Altura casa a linha do número. */
+.log-resumo__skel {
+  display: inline-block;
+  width: 52px; height: 1.05rem; border-radius: 5px;
+  background: linear-gradient(90deg, var(--surface-recessed) 25%, var(--surface-raised) 50%, var(--surface-recessed) 75%);
+  background-size: 250% 100%;
+  animation: dn-shimmer 1.4s ease-in-out infinite;
+}
 .log-resumo__lbl { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
 .log-resumo__acts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 

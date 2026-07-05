@@ -185,14 +185,17 @@ function fmtMoneyLog(v: number): string {
 // botão "Fechar mês" (chama POST /logistica/fechar-mes com confirmação simples).
 function ResumoDiaCard({ onFecharMes }: { onFecharMes: () => void }) {
   const [resumo, setResumo] = useState<ResumoDia | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fechando, setFechando] = useState(false);
   const [fecharMsg, setFecharMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    setLoading(true);
     return apiFetch<ResumoDia>("/logistica/resumo-dia")
       .then((res) => { setResumo(res); setError(null); })
-      .catch((err: unknown) => { setError(err instanceof Error ? err.message : "Não foi possível carregar o resumo."); });
+      .catch((err: unknown) => { setError(err instanceof Error ? err.message : "Não foi possível carregar o resumo."); })
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -217,15 +220,21 @@ function ResumoDiaCard({ onFecharMes }: { onFecharMes: () => void }) {
     <div className="log-resumo">
       <div className="log-resumo__stats">
         <div className="log-resumo__stat">
-          <span className="log-resumo__num">{resumo?.entregues ?? "—"}</span>
+          {loading && !resumo
+            ? <span className="log-resumo__num log-resumo__skel" aria-hidden />
+            : <span className="log-resumo__num">{resumo?.entregues ?? 0}</span>}
           <span className="log-resumo__lbl">Entregues hoje</span>
         </div>
         <div className="log-resumo__stat">
-          <span className="log-resumo__num is-ok">{resumo ? fmtMoneyLog(resumo.recebidoHoje) : "—"}</span>
+          {loading && !resumo
+            ? <span className="log-resumo__num log-resumo__skel" aria-hidden />
+            : <span className="log-resumo__num is-ok">{fmtMoneyLog(resumo?.recebidoHoje ?? 0)}</span>}
           <span className="log-resumo__lbl">Recebido hoje</span>
         </div>
         <div className="log-resumo__stat">
-          <span className="log-resumo__num is-due">{resumo ? fmtMoneyLog(resumo.aReceber) : "—"}</span>
+          {loading && !resumo
+            ? <span className="log-resumo__num log-resumo__skel" aria-hidden />
+            : <span className="log-resumo__num is-due">{fmtMoneyLog(resumo?.aReceber ?? 0)}</span>}
           <span className="log-resumo__lbl">A receber</span>
         </div>
       </div>
