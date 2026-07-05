@@ -1119,7 +1119,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const detail = buildNegocioDetail(lead);
     const revealed = tab === "carteira" && Boolean(lead.phone);
     // "Enriquecendo agora" = pipeline em pending/partial e ainda não enriquecido.
-    // Sinal ainda não vem da API → fica false hoje (comportamento idêntico).
+    // FIX-ENRICHMENT-STATUS-SHELF (05/07): sinal agora vem do GET /webscraping/radar/leads
+    // (e do detalhe :id), já normalizado pending|completed|failed — queued/running da fila
+    // do banco (RadarLeadEnrichment.enrichmentStatus) viram "pending" na API.
     const enrichStatus = String(lead.enrichmentStatus || "").toLowerCase();
     const enriching = (enrichStatus === "pending" || enrichStatus === "partial") && !detail.enriched;
     return (
