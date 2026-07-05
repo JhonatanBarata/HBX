@@ -12,13 +12,17 @@
 // veio da API (se algum dia vier montado para um não-billing por engano, ainda
 // assim não há como aparecer R$/pacote — a ausência de `balance`/`lots`/`packs`
 // no payload impede o branch de cobrança).
-// Fora de escopo aqui (S3-PARTE2, ainda não existe): checkout MercadoPago real.
-// O CTA "Recarregar" é só um estado "em breve".
+// S3-PARTE2 (05/07): o CTA "Recarregar" virou fluxo REAL — CheckoutPanel (tokeniza o
+// cartão) + POST /financeiro/credits/recharge (one-off, Regra de Ouro no backend:
+// só credita com pagamento APROVADO). idempotencyKey = 1 UUID por intenção (gerado ao
+// abrir o pagamento) — retry de rede não cobra 2x (X-Idempotency-Key do MP) nem
+// credita 2x (usageKey do ledger).
 // Lei 5 (design system): visual só via classe central (.sc-*, .kv, .tag, .btn-*).
 
 import React, { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 
 type CreditLot = {
   id: string;
@@ -72,10 +76,13 @@ function brl(v: number) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export function CreditsWalletSection() {
+export function CreditsWalletSection({ userEmail = "", userName = "" }: { userEmail?: string; userName?: string } = {}) {
   const [data, setData] = useState<CreditsMeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recarregarMsg, setRecarregarMsg] = useState<string | null>(null);
+  // 1 intenção de recarga = 1 idempotencyKey (gerada AO ABRIR o pagamento e fixa até
+  // fechar) — é ela que impede cobrança/crédito duplo em retry no backend.
+  const [pagando, setPagando] = useState<{ pack: CreditPackPublic; idempotencyKey: string } | null>(null);
 
   const carregar = useCallback(() => {
     apiFetch<CreditsMeResponse>("/credits/me")
@@ -180,10 +187,15 @@ export function CreditsWalletSection() {
       <section className="panel cfg-section">
         <div className="panel-head">
           <h2>Recarregar créditos</h2>
+          {pagando && (
+            <button className="btn-ghost" onClick={() => setPagando(null)}>
+              Voltar aos pacotes
+            </button>
+          )}
         </div>
         <div style={{ padding: 18, display: "grid", gap: 14 }}>
-          {packs.length === 0 && <span className="sc-note">Nenhum pacote disponível no momento.</span>}
-          {packs.length > 0 && (
+          {!pagando && packs.length === 0 && <span className="sc-note">Nenhum pacote disponível no momento.</span>}
+          {!pagando && packs.length > 0 && (
             <div className="plan-grid">
               {packs.map(p => (
                 <div key={p.key} className="panel sc-field" style={{ padding: 14 }}>
@@ -198,13 +210,49 @@ export function CreditsWalletSection() {
                   </div>
                   <button
                     className="btn-teal"
-                    onClick={() => setRecarregarMsg("Recarga self-service em breve — fale com o time HBX para antecipar.")}
+                    onClick={() => {
+                      setRecarregarMsg(null);
+                      setPagando({ pack: p, idempotencyKey: crypto.randomUUID() });
+                    }}
                   >
                     Recarregar
                   </button>
                 </div>
               ))}
             </div>
+          )}
+          {pagando && (
+            <CheckoutPanel
+              planKey="hbx_padrao"
+              email={userEmail}
+              name={userName}
+              title={`Recarga — ${pagando.pack.title} (${pagando.pack.credits} créditos)`}
+              ctaLabel={`Pagar ${brl(pagando.pack.price)}`}
+              amountOverride={pagando.pack.price}
+              hideCycle
+              reactivation
+              submitOverride={async ({ cardTokenId, paymentMethodId, taxDocument }) => {
+                const res = await apiFetch<{ ok?: boolean; message?: string; credited?: number }>(
+                  "/financeiro/credits/recharge",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      packKey: pagando.pack.key,
+                      idempotencyKey: pagando.idempotencyKey,
+                      cardTokenId,
+                      paymentMethodId,
+                      taxDocument,
+                    }),
+                  },
+                );
+                if (!res?.ok) throw new Error(res?.message || "Não foi possível concluir a recarga.");
+              }}
+              onSuccess={() => {
+                setPagando(null);
+                setRecarregarMsg("Recarga concluída — créditos adicionados à carteira.");
+                carregar();
+              }}
+            />
           )}
         </div>
       </section>

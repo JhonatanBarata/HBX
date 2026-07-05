@@ -616,7 +616,9 @@ export function ConfiguracoesClient() {
               </React.Fragment>
             )}
 
-            {sec === "Créditos" && canSeeBilling && <CreditsWalletSection />}
+            {sec === "Créditos" && canSeeBilling && (
+              <CreditsWalletSection userEmail={user?.email || ""} userName={user?.name || user?.company?.name || ""} />
+            )}
           </div>
         </div>
 
