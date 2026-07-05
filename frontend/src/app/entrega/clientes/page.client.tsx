@@ -30,7 +30,7 @@ import {
   editarCliente,
   editarContatoPrincipal,
   enderecoCurtoCliente,
-  frequenciaLabel,
+  recorrenciaLabel,
   getCliente,
   listClienteProdutos,
   listClientes,
@@ -46,6 +46,18 @@ const FORMAS: Array<{ v: FormaPagamento; label: string }> = [
   { v: "na_hora", label: "Na hora" },
   { v: "mensal", label: "Mensal" },
   { v: "pendura", label: "Fiado" },
+];
+
+// Dias da semana na convenção ISO do backend (1=seg … 7=dom). Ordem de exibição
+// começa na segunda; o domingo (7) vai pro fim, como no calendário do dia a dia.
+const DIAS_SEMANA: Array<{ n: number; label: string }> = [
+  { n: 1, label: "Seg" },
+  { n: 2, label: "Ter" },
+  { n: 3, label: "Qua" },
+  { n: 4, label: "Qui" },
+  { n: 5, label: "Sex" },
+  { n: 6, label: "Sáb" },
+  { n: 7, label: "Dom" },
 ];
 
 export function EntregaClientes() {
@@ -457,7 +469,9 @@ function ProdutosDoCliente({
   const [addOpen, setAddOpen] = useState(false);
   const [productId, setProductId] = useState<string>("");
   const [qtd, setQtd] = useState("1");
+  const [modo, setModo] = useState<"dias" | "semana">("dias"); // recorrência: a cada N dias OU dias da semana
   const [freq, setFreq] = useState(""); // dias; vazio = avulso
+  const [diasSemana, setDiasSemana] = useState<number[]>([]); // ISO 1=seg … 7=dom
   const [preco, setPreco] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -477,25 +491,37 @@ function ProdutosDoCliente({
     setSalvando(true);
     setErro(null);
     try {
+      // Manda SÓ o modo escolhido: "semana" → diasSemana (ISO ordenado); senão,
+      // frequenciaDias. Nunca os dois (o payload só carrega a chave do modo ativo).
+      const recorrencia =
+        modo === "semana"
+          ? diasSemana.length > 0
+            ? { diasSemana: [...diasSemana].sort((a, b) => a - b).join(",") }
+            : {}
+          : freq.trim()
+            ? { frequenciaDias: Math.max(1, Number(freq)) }
+            : {};
       const criado = await criarClienteProduto({
         customerProfileId: clienteId,
         productId: pid,
         qtdPadrao: Math.max(1, Number(qtd) || 1),
-        ...(freq.trim() ? { frequenciaDias: Math.max(1, Number(freq)) } : {}),
+        ...recorrencia,
         ...(preco.trim() ? { precoAcordado: Math.max(0, Number(preco.replace(",", "."))) } : {}),
       });
       onMudou([...produtos, criado]);
       setAddOpen(false);
       setProductId("");
       setQtd("1");
+      setModo("dias");
       setFreq("");
+      setDiasSemana([]);
       setPreco("");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao adicionar");
     } finally {
       setSalvando(false);
     }
-  }, [clienteId, productId, qtd, freq, preco, produtos, onMudou]);
+  }, [clienteId, productId, qtd, modo, freq, diasSemana, preco, produtos, onMudou]);
 
   const alternar = useCallback(
     async (p: ClienteProduto) => {
@@ -519,7 +545,7 @@ function ProdutosDoCliente({
             <div className="ent-prod-main">
               <div className="ent-prod-name">{p.produto?.nome || "Produto"}</div>
               <div className="ent-prod-sub">
-                {p.qtdPadrao} {p.produto?.unidade || "un"} · {frequenciaLabel(p.frequenciaDias)}
+                {p.qtdPadrao} {p.produto?.unidade || "un"} · {recorrenciaLabel(p)}
                 {p.precoAcordado != null ? ` · R$ ${p.precoAcordado.toFixed(2)}` : ""}
               </div>
             </div>
@@ -543,16 +569,58 @@ function ProdutosDoCliente({
               ))}
             </select>
           </label>
-          <div className="ent-field-row">
-            <label className="ent-field ent-field--grow">
-              <span className="ent-field-label">Quantidade</span>
-              <input className="ent-input" type="number" inputMode="numeric" min={1} value={qtd} onChange={(e) => setQtd(e.target.value)} />
-            </label>
-            <label className="ent-field ent-field--grow">
+          <label className="ent-field">
+            <span className="ent-field-label">Quantidade</span>
+            <input className="ent-input" type="number" inputMode="numeric" min={1} value={qtd} onChange={(e) => setQtd(e.target.value)} />
+          </label>
+
+          {/* RECORRÊNCIA — 2 modos: a cada N dias OU dias fixos da semana. */}
+          <div className="ent-field-label ent-section">Quando entregar</div>
+          <div className="ent-chips">
+            <button
+              type="button"
+              className={`ent-chip${modo === "dias" ? " is-on" : ""}`}
+              onClick={() => setModo("dias")}
+            >
+              A cada N dias
+            </button>
+            <button
+              type="button"
+              className={`ent-chip${modo === "semana" ? " is-on" : ""}`}
+              onClick={() => setModo("semana")}
+            >
+              Dias da semana
+            </button>
+          </div>
+
+          {modo === "dias" ? (
+            <label className="ent-field">
               <span className="ent-field-label">A cada (dias)</span>
               <input className="ent-input" type="number" inputMode="numeric" min={1} value={freq} onChange={(e) => setFreq(e.target.value)} placeholder="Avulso" />
             </label>
-          </div>
+          ) : (
+            <div className="ent-chips">
+              {DIAS_SEMANA.map((d) => {
+                const on = diasSemana.includes(d.n);
+                return (
+                  <button
+                    type="button"
+                    key={d.n}
+                    className={`ent-chip${on ? " is-on" : ""}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setDiasSemana((prev) =>
+                        prev.includes(d.n) ? prev.filter((x) => x !== d.n) : [...prev, d.n],
+                      )
+                    }
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <label className="ent-field">
             <span className="ent-field-label">Preço combinado</span>
             <input className="ent-input" type="text" inputMode="decimal" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="Opcional" />

@@ -195,6 +195,52 @@ test('gerarDia: frequência 7d avança proximaData +7 dias', async () => {
   assert.equal(r2.criadas, 0);
 });
 
+// diasSemana que INCLUI o dia simulado → gerarDia CRIA a entrega.
+test('gerarDia: diasSemana inclui o dia (seg) → cria', async () => {
+  // 2026-07-06 é segunda (ISO dow = 1). Lista seg/qua/sex inclui hoje.
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '1,3,5',
+      proximaData: null,
+      product: { id: 10, price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas } = buildPrismaMock(vinculos);
+  const r = await svc(prisma).gerarDia(1, '2026-07-06');
+  assert.equal(r.criadas, 1);
+  assert.equal(entregas.length, 1);
+});
+
+// diasSemana que NÃO inclui o dia simulado → gerarDia NÃO cria (coração do pedido).
+test('gerarDia: diasSemana NÃO inclui o dia (seg) → não cria', async () => {
+  // 2026-07-06 é segunda (ISO dow = 1). Lista ter/qui NÃO inclui hoje.
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '2,4',
+      proximaData: null,
+      product: { id: 10, price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas } = buildPrismaMock(vinculos);
+  const r = await svc(prisma).gerarDia(1, '2026-07-06');
+  assert.equal(r.criadas, 0);
+  assert.equal(entregas.length, 0);
+});
+
 // Vínculo com proximaData no FUTURO não vence hoje (não gera nada).
 test('gerarDia: vínculo com proximaData futura não gera', async () => {
   const vinculos = [

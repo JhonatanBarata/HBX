@@ -185,6 +185,9 @@ export interface CriarClienteProdutoPayload {
   qtdPadrao?: number;
   precoAcordado?: number;
   frequenciaDias?: number;
+  // Recorrência por dia da semana (convenção ISO do backend: 1=seg … 7=dom),
+  // ex.: "1,3,5" = seg/qua/sex. Modo alternativo a frequenciaDias.
+  diasSemana?: string;
 }
 
 export function criarClienteProduto(p: CriarClienteProdutoPayload): Promise<ClienteProduto> {
@@ -231,4 +234,38 @@ export function frequenciaLabel(dias: number | null | undefined): string {
   if (dias === 1) return "Todo dia";
   if (dias === 7) return "Toda semana";
   return `A cada ${dias} dias`;
+}
+
+// Rótulos ISO (1=seg … 7=dom) na ordem natural pra exibição ("Seg, Qua, Sex").
+const DIA_SEMANA_LABEL: Record<number, string> = {
+  1: "Seg",
+  2: "Ter",
+  3: "Qua",
+  4: "Qui",
+  5: "Sex",
+  6: "Sáb",
+  7: "Dom",
+};
+
+/** "Seg, Qua, Sex" a partir da string do backend ("1,3,5"), ordenada. */
+export function diasSemanaLabel(diasSemana: string | null | undefined): string {
+  const dias = String(diasSemana ?? "")
+    .split(",")
+    .map((s) => Math.trunc(Number(s.trim())))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 7);
+  const unicos = Array.from(new Set(dias)).sort((a, b) => a - b);
+  return unicos.map((n) => DIA_SEMANA_LABEL[n]).join(", ");
+}
+
+/**
+ * Rótulo de recorrência do produto do cliente — cobre os 2 modos:
+ * dia-da-semana ("Seg, Qua, Sex") tem prioridade; senão, frequência em dias.
+ */
+export function recorrenciaLabel(p: {
+  diasSemana?: string | null;
+  frequenciaDias?: number | null;
+}): string {
+  const porSemana = diasSemanaLabel(p.diasSemana);
+  if (porSemana) return porSemana;
+  return frequenciaLabel(p.frequenciaDias);
 }
