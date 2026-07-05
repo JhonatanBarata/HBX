@@ -98,7 +98,20 @@ fixam `num_ctx`** → herdam 32K → sozinhos o 4b vira 7,2GB. Sem pinar context
 - ⚠️ **nt=4 no meu rig SUBESTIMA a VPS.** Minha máquina tem 12 threads → 2 chamadas × 4 threads (8) cabem;
   a VPS tem 4 cores → o mesmo overlap oversubscreve 2:1. O p95 real do bot-sob-carga na VPS é **≥ 31s**.
 
-<!-- BRACKET-NT2 -->
+**Bracket pessimista nt=2** (2 modelos × 2 threads = 4 = os 4 vCPU da VPS — o overlap mais fiel):
+
+| Recorte | n | p50 | p95 | max | >9s | reloads |
+|---|---|---|---|---|---|---|
+| bot_solo | 10 | 8.011 | **10.944** ⚠️ | 10.944 | 1/10 | 0 |
+| bot_alt | 6 | 6.399 | 7.771 ✅ | 7.771 | 0/6 | 0 |
+| **bot_mix** | 15 | 15.488 | **37.925** ❌ | 37.925 | **14/15** | **0** |
+| xray_mix | 7 | 25.526 | 33.240 | 33.240 | (gate 60s: ok) | 0 |
+| saneia_mix | 7 | 16.087 | 36.990 | 36.990 | (gate 20s: estoura) | 0 |
+
+**Este bracket é a prova limpa:** com `reloads=0` na corrida inteira, o bot_mix p95 de **37,9s** é
+**contenção pura de CPU** — não sobra a desculpa de "foi só o Ollama recarregando". E a nt=2 mostra
+que, com só 2 threads, **até o bot PARADO já raspa o gate** (p95 10,9s). Nos 4 cores da VPS, dois
+modelos não coexistem sem cegar o classificador.
 
 ## Parte 2 — VPS, SOMENTE LEITURA (headroom real com tudo vivo)
 
