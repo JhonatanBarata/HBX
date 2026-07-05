@@ -469,6 +469,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [siteFiltro, setSiteFiltro] = useState<"qualquer" | "com" | "sem">("qualquer");
   const [zapFiltro, setZapFiltro] = useState<"qualquer" | "com">("qualquer");
 
+  // Combobox próprio do segmento (05/07) — o <datalist> nativo do Chrome só
+  // mostrava, pela seta, o que casa com o texto já digitado. Aqui a seta abre a
+  // lista INTEIRA sempre; digitar só prioriza (matches no topo/realçados).
+  const [segMenuOpen, setSegMenuOpen] = useState(false);
+  const segBoxRef = useRef<HTMLDivElement | null>(null);
+
   // Geolocalização — sincroniza com o botão do Topbar via localStorage + evento
   const [geoBusy, setGeoBusy] = useState(false);
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(() => {
@@ -487,6 +493,25 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     window.addEventListener("hbx:geo-updated", onGeo);
     return () => window.removeEventListener("hbx:geo-updated", onGeo);
   }, []);
+
+  // Fecha o combobox de segmento ao clicar fora ou apertar Escape.
+  useEffect(() => {
+    if (!segMenuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      if (segBoxRef.current && !segBoxRef.current.contains(e.target as Node)) {
+        setSegMenuOpen(false);
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setSegMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [segMenuOpen]);
 
   async function pullGeoLocation() {
     if (!geo || geoBusy) return;
@@ -1201,19 +1226,75 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return (
       <div className="be-cmdbar" data-tut="leads-filtros">
         <div className="be-cmdbar__primary">
-          <div className="be-search" data-tut="leads-busca-criativa">
+          <div className="be-search" data-tut="leads-busca-criativa" ref={segBoxRef}>
             <I d={ICONS.search} size={16} />
             <input
               className="be-search__input"
               placeholder="O que você procura? Ex.: restaurantes em São Paulo com WhatsApp"
               value={segment}
-              onChange={e => setSegment(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !runBusy && !runActive) executarBusca(); }}
-              list="rc-seg-options"
+              onChange={e => { setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}
+              onKeyDown={e => {
+                if (e.key === "Enter" && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
+                else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
+              }}
+              role="combobox"
+              aria-expanded={segMenuOpen}
+              aria-controls="rc-seg-menu"
+              aria-autocomplete="list"
             />
-            <datalist id="rc-seg-options">
-              {segOptions.map(o => <option key={o.value} value={o.label} />)}
-            </datalist>
+            <button
+              type="button"
+              className={"be-search__chevron" + (segMenuOpen ? " be-search__chevron--open" : "")}
+              onClick={() => setSegMenuOpen(o => !o)}
+              aria-label={segMenuOpen ? "Fechar lista de segmentos" : "Abrir lista de segmentos"}
+              tabIndex={-1}
+            >
+              <I d={ICONS.chevronDown} size={16} />
+            </button>
+            {segMenuOpen && (
+              <div className="be-search__menu" id="rc-seg-menu" role="listbox">
+                {segOptions.length === 0 ? (
+                  <div className="be-search__opt be-search__opt--empty" aria-disabled>
+                    Digite pra buscar
+                  </div>
+                ) : (
+                  // Lista SEMPRE completa (aberta pela seta mostra tudo); o texto
+                  // digitado só prioriza — matches sobem pro topo e ficam realçados.
+                  [...segOptions]
+                    .sort((a, b) => {
+                      const q = segment.trim().toLowerCase();
+                      if (!q) return 0;
+                      const am = a.label.toLowerCase().includes(q) ? 0 : 1;
+                      const bm = b.label.toLowerCase().includes(q) ? 0 : 1;
+                      return am - bm;
+                    })
+                    .map(o => {
+                      const q = segment.trim().toLowerCase();
+                      const match = q.length > 0 && o.label.toLowerCase().includes(q);
+                      const selected = o.label === segment;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          className={
+                            "be-search__opt"
+                            + (match ? " be-search__opt--match" : "")
+                            + (selected ? " be-search__opt--active" : "")
+                          }
+                          onClick={() => { setSegment(o.label); setSegMenuOpen(false); }}
+                        >
+                          <span>{o.label}</span>
+                          {typeof o.count === "number" && (
+                            <span className="be-search__opt-count">{o.count}</span>
+                          )}
+                        </button>
+                      );
+                    })
+                )}
+              </div>
+            )}
           </div>
           {runActive ? (
             <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
@@ -1248,6 +1329,23 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               <option value="100">+ 100 km</option>
             </select>
           </div>
+          {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
+          {geo && (
+            <div className="be-cmdbar__group">
+              <span className="be-cmdbar__group-lbl">Localização</span>
+              <button
+                type="button"
+                className="be-cmdbar__geo"
+                onClick={pullGeoLocation}
+                disabled={geoBusy}
+                title="Preencher Estado/Cidade com a minha localização"
+              >
+                <I d={ICONS.mapin} size={13} />
+                <span className="be-cmdbar__geo-lbl">Minha localização</span>
+                <span className="be-cmdbar__geo-act">{geoBusy ? "…" : "Preencher"}</span>
+              </button>
+            </div>
+          )}
           <div className="be-cmdbar__group">
             <span className="be-cmdbar__group-lbl">Tem site</span>
             <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
@@ -1435,22 +1533,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             </div>
           )}
         </div>
-
-        {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
-        {geo && (
-          <div className="radar-geo-chip">
-            <I d={ICONS.mapin} size={13} />
-            <span className="radar-geo-chip__lbl">Minha localização</span>
-            <button
-              type="button"
-              className="btn-teal btn-xs"
-              onClick={pullGeoLocation}
-              disabled={geoBusy}
-            >
-              {geoBusy ? "…" : "Preencher"}
-            </button>
-          </div>
-        )}
       </div>
     );
   }

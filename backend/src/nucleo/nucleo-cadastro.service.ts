@@ -431,11 +431,26 @@ export class NucleoCadastroService {
               isCliente: true,
               isLead: true,
               isFornecedor: true,
+              phoneNormalized: true,
+              botOff: true,
+              botOffReason: true,
+              botOffAt: true,
             },
           },
         },
       }),
     ]);
+
+    // Atendimento: casa cada contato com a conversa salva pelo telefone (1 query pra página).
+    const conversaMap = await this.loadConversasForContatos(
+      companyId,
+      rows.map((r) => ({
+        id: r.id,
+        whatsapp: r.whatsapp ?? null,
+        phone: r.phone ?? null,
+        profilePhone: r.customerProfile?.phoneNormalized ?? null,
+      })),
+    );
 
     return {
       page,
@@ -457,8 +472,84 @@ export class NucleoCadastroService {
         contaIsCliente: Boolean(r.customerProfile?.isCliente),
         contaIsLead: Boolean(r.customerProfile?.isLead),
         contaIsFornecedor: Boolean(r.customerProfile?.isFornecedor),
+        conversa: conversaMap.get(r.id) ?? null,
+        finalizado: Boolean(r.customerProfile?.botOff),
+        finalizadoMotivo: r.customerProfile?.botOffReason ?? null,
+        finalizadoEm: r.customerProfile?.botOffAt
+          ? new Date(r.customerProfile.botOffAt).toISOString()
+          : null,
       })),
     };
+  }
+
+  /**
+   * Casa os contatos da página com a conversa salva (CompanyConversation) pelo
+   * telefone, tolerando país (55) e o "9" de celular. READ-ONLY: só lê o que o
+   * Atendimento já grava — não cria conversa nem dispara nada pro WhatsApp.
+   *
+   * Uma query só pra a página inteira (OR de `contact endsWith <chave-local>`),
+   * depois o casamento fino é feito em memória comparando as chaves locais
+   * (DDD+número, com/sem o 9). Quando o mesmo número tem várias linhas (chips
+   * diferentes), soma as mensagens e abre a mais recente que tem mensagem.
+   */
+  private async loadConversasForContatos(
+    companyId: number,
+    contatos: Array<{ id: string; whatsapp: string | null; phone: string | null; profilePhone: string | null }>,
+  ): Promise<Map<string, ContatoConversaResumo>> {
+    const result = new Map<string, ContatoConversaResumo>();
+    if (!companyId || !contatos.length) return result;
+
+    const perContato = new Map<string, Set<string>>();
+    const allKeys = new Set<string>();
+    for (const c of contatos) {
+      const keys = new Set<string>();
+      for (const src of [c.whatsapp, c.phone, c.profilePhone]) {
+        for (const k of phoneLocalKeys(src)) {
+          keys.add(k);
+          allKeys.add(k);
+        }
+      }
+      if (keys.size) perContato.set(c.id, keys);
+    }
+    if (!allKeys.size) return result;
+
+    const conversas = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        OR: [...allKeys].map((k) => ({ contact: { endsWith: k } })),
+      },
+      orderBy: { lastMessageAt: 'desc' },
+      take: 1000,
+      select: {
+        id: true,
+        contact: true,
+        lastMessageAt: true,
+        _count: { select: { messages: true } },
+      },
+    });
+
+    const convKeys = conversas.map((cv) => ({
+      id: cv.id,
+      lastMessageAt: cv.lastMessageAt ? new Date(cv.lastMessageAt).toISOString() : null,
+      mensagens: Number(cv._count?.messages || 0),
+      keys: new Set(phoneLocalKeys(cv.contact)),
+    }));
+
+    for (const [contatoId, keys] of perContato) {
+      const matches = convKeys.filter((cv) => {
+        for (const k of cv.keys) if (keys.has(k)) return true;
+        return false;
+      });
+      if (!matches.length) continue;
+      const mensagens = matches.reduce((s, m) => s + m.mensagens, 0);
+      // conversas já vêm ordenadas por lastMessageAt desc → [0] é a mais recente.
+      const comMsg = matches.filter((m) => m.mensagens > 0);
+      const pick = (comMsg.length ? comMsg : matches)[0];
+      result.set(contatoId, { id: pick.id, lastMessageAt: pick.lastMessageAt, mensagens });
+    }
+
+    return result;
   }
 
   /**
@@ -1134,6 +1225,25 @@ function normalizeDigits(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D+/g, '');
 }
 
+// Casa contato↔conversa pelo MESMO número, tolerando país (55) e o "9" de celular.
+// Devolve as chaves LOCAIS comparáveis (DDD+número): p.ex. "85999990000" e a
+// variante sem o 9 ("8599990000"). Interseção não-vazia entre dois conjuntos de
+// chaves = mesmo telefone (evita falso-positivo cross-DDD do simples "últimos 8").
+function phoneLocalKeys(raw: string | null | undefined): string[] {
+  const digits = normalizeDigits(raw);
+  if (digits.length < 10) return [];
+  let local = digits;
+  if (local.length > 11 && local.startsWith('55')) local = local.slice(2);
+  const keys = new Set<string>();
+  keys.add(local);
+  if (local.length === 11 && local[2] === '9') {
+    keys.add(local.slice(0, 2) + local.slice(3)); // celular sem o 9 (10 dígitos)
+  } else if (local.length === 10) {
+    keys.add(local.slice(0, 2) + '9' + local.slice(2)); // celular com o 9 (11 dígitos)
+  }
+  return [...keys];
+}
+
 // Import de planilha: coluna "uf" aceita 2 letras OU o nome do estado ("Ceará",
 // "sao paulo"). Devolve a sigla de 2 letras, ou undefined quando não reconhece
 // (deixa vazio em vez de gravar lixo). Sem acento/caixa importam.
@@ -1296,6 +1406,14 @@ export interface ListContatosParams {
   pageSize?: number;
 }
 
+// Resumo da conversa salva (WhatsApp) casada pelo telefone do contato. `id` abre
+// a conversa no Atendimento (deep-link /atendimento?conversation=<id>).
+export interface ContatoConversaResumo {
+  id: number;
+  lastMessageAt: string | null;
+  mensagens: number;
+}
+
 export interface ContatoListItem {
   id: string;
   nome: string;
@@ -1311,6 +1429,12 @@ export interface ContatoListItem {
   contaIsCliente: boolean;
   contaIsLead: boolean;
   contaIsFornecedor: boolean;
+  // Atendimento: "teve conversa" (conversa salva casada por telefone) + "finalizado"
+  // (o SOFT-hide do cliente vive em CustomerProfile.botOff — sobrevive à troca de chip).
+  conversa: ContatoConversaResumo | null;
+  finalizado: boolean;
+  finalizadoMotivo: string | null;
+  finalizadoEm: string | null;
 }
 
 export interface ListContatosResult {

@@ -1225,6 +1225,10 @@ export function AtendimentoClient() {
       atBottomRef.current = true;
       void stampOnboardingEvent("first_conversation_started"); // marco: ATIVADO (Camada 1)
       await loadThread(selId);
+      // Mensagem própria: cola no fim SEMPRE, sem depender só do efeito de `thread`
+      // (o dono reportou ficar preso acima do "Hoje" recém-criado ao enviar).
+      requestAnimationFrame(scrollMsgsToEnd);
+      window.setTimeout(scrollMsgsToEnd, 150);
       void loadConvs(); // sobe a conversa e atualiza o preview na hora (sem esperar SSE)
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "Não foi possível enviar a mensagem.");
@@ -1271,6 +1275,8 @@ export function AtendimentoClient() {
       setReplyTo(null);
       atBottomRef.current = true;
       await loadThread(selId);
+      requestAnimationFrame(scrollMsgsToEnd);
+      window.setTimeout(scrollMsgsToEnd, 150);
       void loadConvs(); // mesma razão do send(): conversa sobe e preview atualiza já
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "Não foi possível enviar o anexo.");

@@ -1179,7 +1179,10 @@ export function DetalhesNegocio({
       peopleList.push({ name: n.ownerName, role: null, source: "receita_qsa", phoneDigits: n.ownerPhone || null });
     }
     return (
-      <div style={{ display: "grid", gap: 6 }}>
+      // .kv dá o layout de "tabela" (label/valor alinhados + hairline entre linhas) às
+      // .row/.k/.v abaixo — sem essa classe elas caem em fluxo inline (bug: "E-mail" e
+      // o valor grudados, sem separador, quebrando linha de qualquer jeito).
+      <div className="kv" style={{ gap: 6 }}>
         {n.phone ? (
           <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
             <CanalIcon canal="telefone" /> {n.phone}

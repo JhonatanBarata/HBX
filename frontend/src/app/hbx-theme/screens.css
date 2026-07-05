@@ -2048,10 +2048,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 
 .radar-state-msg { font-size: 0.64rem; color: var(--text-muted); text-align: center; line-height: 1.4; margin: 4px 14px 0; }
 
-/* Chip de localização do vendedor — aparece quando geo está ativo */
-.radar-geo-chip { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: var(--radius-md); border: 1px solid var(--hbx-brand-strong); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
-.radar-geo-chip__lbl { flex: 1; font-size: 0.72rem; font-weight: 600; }
-
 .radar-controls { display: grid; gap: 8px; }
 .radar-controls .f { display: grid; gap: 4px; }
 .radar-controls label { font-size: 0.64rem; font-weight: 700; color: var(--text-muted); }
@@ -2163,6 +2159,41 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .be-adv-open { justify-content: center; margin-top: 2px; }
 
+/* Combobox próprio do segmento (05/07) — substitui o <datalist> nativo, que
+   filtrava as sugestões pro texto digitado e NÃO reabria a lista inteira pela
+   seta do Chrome (dor do dono). Aqui a seta abre TODAS as opções, sempre. */
+.be-search { position: relative; }
+.be-search__chevron {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
+}
+.be-search__chevron:hover { color: var(--text-strong); background: var(--hbx-brand-soft); }
+.be-search__chevron--open { color: var(--hbx-brand-strong); transform: rotate(180deg); }
+.be-search__menu {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+  max-height: 320px; overflow-y: auto; padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  border-radius: var(--radius-md); border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface); box-shadow: var(--shadow-md);
+}
+.be-search__opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-strong); cursor: pointer;
+  font-family: var(--font-body); font-size: 0.82rem; text-align: left;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.be-search__opt:hover,
+.be-search__opt--active { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.be-search__opt--match { font-weight: 700; }
+.be-search__opt-count { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-muted); }
+.be-search__opt:hover .be-search__opt-count,
+.be-search__opt--active .be-search__opt-count { color: var(--hbx-brand-strong); }
+.be-search__opt--empty { color: var(--text-muted); cursor: default; }
+.be-search__opt--empty:hover { background: transparent; color: var(--text-muted); }
+
 /* ══════════════════════════════════════════════════════════════════════════
    Barra de comando "Buscar empresas" (redesenho 05/07) — os inputs saíram do
    aside-paredão (o "caos" apontado pelo dono) pra uma barra horizontal no topo
@@ -2189,6 +2220,22 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .be-cmdbar__group { display: grid; gap: 5px; align-content: end; }
 .be-cmdbar__spacer { flex: 1 1 24px; min-width: 12px; }
 .be-cmdbar__actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
+
+/* Botão "Minha localização / Preencher" (05/07) — saiu do aside pro grupo de
+   filtros de local na barra de comando. Assenta na baseline da linha (flex-end)
+   como um item do grupo; visual de chip soft do brand, mesmo vocabulário do
+   .radar-canais__switch. */
+.be-cmdbar__geo {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 34px; padding: 4px 12px; cursor: pointer;
+  border-radius: var(--radius-md); border: 1px solid var(--hbx-brand-strong);
+  background: var(--hbx-brand-soft); color: var(--hbx-brand-strong);
+  transition: background var(--motion-fast), border-color var(--motion-fast), opacity var(--motion-fast);
+}
+.be-cmdbar__geo:hover:not(:disabled) { background: var(--hbx-brand); color: var(--hbx-brand-contrast); border-color: var(--hbx-brand); }
+.be-cmdbar__geo:disabled { opacity: 0.6; cursor: default; }
+.be-cmdbar__geo-lbl { font-size: 0.72rem; font-weight: 600; }
+.be-cmdbar__geo-act { font-size: 0.7rem; font-weight: 700; padding-left: 4px; border-left: 1px solid currentColor; }
 @media (max-width: 900px) {
   .be-cmdbar__spacer { display: none; }
   .be-cmdbar__actions { width: 100%; }
@@ -3786,6 +3833,29 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   font-size: 0.66rem; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* Atendimento na linha do contato: "Conversou/Sem conversa" + "Finalizado".
+   Mesmo vocabulário de pílula do .emp-role; só muda a semântica de cor. Zero hex. */
+.ctt-conv { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 3px; }
+.ctt-conv__tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.02em;
+  padding: 2px 7px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-hairline); color: var(--text-muted);
+  background: var(--hbx-surface-raised);
+}
+.ctt-conv__tag.is-talk {
+  color: var(--hbx-brand-strong);
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent);
+  background: var(--hbx-brand-soft);
+}
+.ctt-conv__tag.is-done {
+  color: var(--text-body);
+  border-color: var(--border-hairline);
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+.ctt-conv__tag.is-none { border-style: dashed; background: transparent; }
+.ctt-conv-btn { flex: none; }
 
 .ctt-toggle {
   display: inline-flex; align-items: center; gap: 7px; cursor: pointer;

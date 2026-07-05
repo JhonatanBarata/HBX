@@ -12,6 +12,7 @@
 // screens.css + .hbx-veil/.hbx-modal/.field-dark/.btn-teal do kit). Inline aqui
 // = só layout (display/gap/grid) — nada de cor/borda/sombra/fonte inline.
 
+import Link from "next/link";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { EditarContaModal, EditarContatoModal } from "@/components/hbx/editar-nucleo-modais";
@@ -67,6 +68,12 @@ const CONTATOS_IMPORT_SCHEMA: ImportSchema = {
   ],
 };
 
+type ContatoConversa = {
+  id: number;
+  lastMessageAt: string | null;
+  mensagens: number;
+};
+
 type ContatoItem = {
   id: string;
   nome: string;
@@ -82,6 +89,11 @@ type ContatoItem = {
   contaIsCliente: boolean;
   contaIsLead: boolean;
   contaIsFornecedor: boolean;
+  // Atendimento (backend NÚCLEO): conversa salva casada por telefone + finalizado.
+  conversa: ContatoConversa | null;
+  finalizado: boolean;
+  finalizadoMotivo: string | null;
+  finalizadoEm: string | null;
 };
 
 type ContatoListResponse = {
@@ -126,6 +138,38 @@ function fmtPhone(v: string | null): string {
 
 function localCityUf(cidade: string | null, uf: string | null): string {
   return [String(cidade || "").trim(), String(uf || "").trim()].filter(Boolean).join(" · ");
+}
+
+// Rótulos dos motivos de finalização (o backend guarda o código cru em botOffReason).
+const FINALIZADO_LABEL: Record<string, string> = {
+  sem_interesse: "Sem interesse",
+  nao_ligar: "Não ligar mais",
+  do_not_call: "Não ligar mais",
+  ja_tem: "Já tem solução",
+  preco: "Preço alto",
+  sem_perfil: "Sem perfil",
+};
+
+function finalizadoLabel(motivo: string | null): string {
+  const key = String(motivo || "").trim();
+  if (!key) return "Finalizado";
+  return FINALIZADO_LABEL[key] || key;
+}
+
+// "há 3 dias" / "hoje" — tempo relativo curto da última mensagem da conversa salva.
+function fmtRelative(iso: string | null): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const diff = Date.now() - t;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `há ${d} d`;
+  return new Date(iso).toLocaleDateString("pt-BR");
 }
 
 // ── LOGÍSTICA-MOBILE M2 — "Produtos do cliente" (vínculo produto×cliente) ─────
@@ -886,6 +930,7 @@ export function ContatosClient() {
             {cttItems.map((c) => {
               const canal = c.whatsapp ? fmtPhone(c.whatsapp) : c.phone ? fmtPhone(c.phone) : c.email || "";
               const sub = [c.cargo || "", canal].filter(Boolean).join("  ·  ");
+              const teveConversa = Boolean(c.conversa && c.conversa.mensagens > 0);
               return (
                 <div className="emp-row ctt-row" key={c.id}>
                   <span className="emp-row__ico"><I d={ICONS.users} size={18} /></span>
@@ -900,6 +945,22 @@ export function ContatosClient() {
                         <I d={ICONS.empresas} size={11} /> {c.contaNome}
                       </span>
                     )}
+                    {/* Atendimento: teve conversa? finalizado? (dado já salvo no backend) */}
+                    <span className="ctt-conv">
+                      {teveConversa ? (
+                        <span className="ctt-conv__tag is-talk" title={`${c.conversa!.mensagens} mensagem(ns) salva(s)`}>
+                          <I d={ICONS.msg} size={11} /> Conversou
+                          {c.conversa!.lastMessageAt ? ` · ${fmtRelative(c.conversa!.lastMessageAt)}` : ""}
+                        </span>
+                      ) : (
+                        <span className="ctt-conv__tag is-none">Sem conversa</span>
+                      )}
+                      {c.finalizado && (
+                        <span className="ctt-conv__tag is-done" title={c.finalizadoEm ? `Finalizado ${fmtRelative(c.finalizadoEm)}` : "Finalizado"}>
+                          <I d={ICONS.check} size={11} /> {finalizadoLabel(c.finalizadoMotivo)}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   <span className="emp-row__side">
                     {(c.contaIsCliente || c.contaIsLead || c.contaIsFornecedor) && (
@@ -908,6 +969,15 @@ export function ContatosClient() {
                         {c.contaIsLead && <span className="emp-role is-lead">Lead</span>}
                         {c.contaIsFornecedor && <span className="emp-role is-fornecedor">Fornecedor</span>}
                       </span>
+                    )}
+                    {teveConversa && (
+                      <Link
+                        className="btn-ghost btn-xs ctt-conv-btn"
+                        href={`/atendimento?conversation=${c.conversa!.id}`}
+                        title="Abrir a conversa salva no Atendimento"
+                      >
+                        <I d={ICONS.msg} size={13} /> Ver conversa
+                      </Link>
                     )}
                     <button
                       type="button"
