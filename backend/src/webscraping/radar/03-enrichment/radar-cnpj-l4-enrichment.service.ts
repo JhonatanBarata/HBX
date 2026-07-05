@@ -1,6 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { SourceBudgetService } from '../../source-budget/source-budget.service';
-import { normalizeLegacyBrCellphone } from '../providers/cnpj-public/cnpj-public-types';
+import { cleanRfbLegalName, normalizeLegacyBrCellphone } from '../providers/cnpj-public/cnpj-public-types';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 import { LeadPersonWriteService, type LeadPersonCandidate } from '../persistence/lead-person-write.service';
 
@@ -148,7 +148,8 @@ export class RadarCnpjL4EnrichmentService {
           local = {
             found: true,
             cnpj: row.cnpj || cnpj,
-            razaoSocial: row.razaoSocial || null,
+            // MEI/EI vem "<CNPJ básico> <NOME>" no dump — tira o prefixo pra razão do detalhe sair limpa.
+            razaoSocial: cleanRfbLegalName(row.razaoSocial, row.cnpj || cnpj) || null,
             cnae: row.cnae || null,
             cnaeDescription: row.cnaeDescription || null,
             companySituation: String(row.situacao || '').toLowerCase() || null,
@@ -332,7 +333,7 @@ export class RadarCnpjL4EnrichmentService {
       const result: CnpjL4Result = {
         found: true,
         cnpj,
-        razaoSocial: String(data?.razao_social || '').trim() || null,
+        razaoSocial: cleanRfbLegalName(data?.razao_social, cnpj) || null,
         cnae: data?.cnae_fiscal != null ? String(data.cnae_fiscal) : null,
         cnaeDescription: String(data?.cnae_fiscal_descricao || '').trim() || null,
         companySituation: String(data?.descricao_situacao_cadastral || '').trim().toLowerCase() || null,

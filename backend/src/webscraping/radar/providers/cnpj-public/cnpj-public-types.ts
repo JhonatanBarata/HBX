@@ -63,3 +63,30 @@ export function normalizeLegacyBrCellphone(value: unknown): string {
   }
   return digits;
 }
+
+// Empresário Individual / MEI (natureza 2135) no dump da RFB vem com o CNPJ básico
+// FORMATADO grudado na frente do nome da pessoa e SEM nome fantasia:
+//   "61.847.418 JOSELMA DA SILVA FLORENTINO"  (cnpj 61847418000123)
+// Como o card faz `name = nomeFantasia || razaoSocial`, o número aparece "antes do nome".
+// O CNPJ já tem campo próprio no card/detalhe — então tira-se o prefixo do NOME, sem perder
+// dado. É o formato do próprio dump (não erro de import), por isso só atinge um subconjunto.
+const RFB_CNPJ_BASICO_PREFIX = /^\s*(\d{2}\.\d{3}\.\d{3})\s+(?=\S)/;
+
+/**
+ * Remove o prefixo de CNPJ básico da razão social de MEI/EI. Só age quando o prefixo (8
+ * dígitos sem pontos) BATE com o CNPJ básico do registro (`cnpj.slice(0,8)`) e sobra um nome
+ * com letra — nunca produz nome vazio/numérico nem mexe em razão legítima que só por acaso
+ * comece com número. Sem CNPJ pra conferir, exige o padrão estrito + resto com letra.
+ */
+export function cleanRfbLegalName(razaoSocial: unknown, cnpj?: unknown): string {
+  const raw = String(razaoSocial || '').trim();
+  if (!raw) return raw;
+  const match = raw.match(RFB_CNPJ_BASICO_PREFIX);
+  if (!match) return raw;
+  const prefixDigits = match[1].replace(/\D/g, '');
+  const cnpjDigits = String(cnpj || '').replace(/\D/g, '');
+  if (cnpjDigits.length >= 8 && prefixDigits !== cnpjDigits.slice(0, 8)) return raw;
+  const rest = raw.slice(match[0].length).trim();
+  if (!rest || !/\p{L}/u.test(rest)) return raw;
+  return rest;
+}

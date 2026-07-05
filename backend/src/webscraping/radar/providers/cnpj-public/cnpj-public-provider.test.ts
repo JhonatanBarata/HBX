@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CnpjPublicProviderService, isValidCnpjCheckDigits } from './cnpj-public-provider.service';
-import { normalizeLegacyBrCellphone } from './cnpj-public-types';
+import { cleanRfbLegalName, normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord } from './cnpj-public-types';
 
 const provider = new CnpjPublicProviderService();
@@ -129,6 +129,42 @@ test('provider: aceita COM AVISO registro cujo CNAE não casa (não descarta mai
   assert.equal(result.acceptedCount, 1);
   assert.equal(result.rejectedCount, 0);
   assert.equal(result.results.length, 1);
+});
+
+// MEI/EI da RFB: razão social vem "<CNPJ básico formatado> <NOME>" e sem fantasia — o
+// prefixo do CNPJ NÃO pode aparecer antes do nome no card (o CNPJ tem campo próprio).
+test('cleanRfbLegalName: remove prefixo de CNPJ básico quando bate com o CNPJ do registro', () => {
+  assert.equal(
+    cleanRfbLegalName('11.222.333 MARIA HELENA NOVAES SOARES', '11222333000181'),
+    'MARIA HELENA NOVAES SOARES',
+  );
+});
+
+test('cleanRfbLegalName: NÃO remove quando o prefixo não bate com o CNPJ (evita falso positivo)', () => {
+  assert.equal(
+    cleanRfbLegalName('99.999.999 NOME QUALQUER', '11222333000181'),
+    '99.999.999 NOME QUALQUER',
+  );
+});
+
+test('cleanRfbLegalName: razão legítima sem prefixo fica intocada', () => {
+  assert.equal(cleanRfbLegalName('Padaria Exemplo Ltda', '11222333000181'), 'Padaria Exemplo Ltda');
+  assert.equal(cleanRfbLegalName('3M DO BRASIL LTDA', '11222333000181'), '3M DO BRASIL LTDA');
+});
+
+test('cleanRfbLegalName: nunca produz nome vazio/numérico (mantém original se não sobra nome)', () => {
+  assert.equal(cleanRfbLegalName('11.222.333 ', '11222333000181'), '11.222.333');
+  assert.equal(cleanRfbLegalName('', '11222333000181'), '');
+  assert.equal(cleanRfbLegalName(null, null), '');
+});
+
+test('provider.toContactResult: MEI sem fantasia entrega nome LIMPO (sem o CNPJ na frente)', () => {
+  const mapped = provider.toContactResult(
+    baseRecord({ nomeFantasia: null, razaoSocial: '11.222.333 MARIA HELENA NOVAES SOARES' }),
+    baseNormalized,
+  );
+  assert.equal(mapped?.name, 'MARIA HELENA NOVAES SOARES');
+  assert.equal((mapped as any)?.legalName, 'MARIA HELENA NOVAES SOARES');
 });
 
 test('provider: 3 motivos de rejeicao (dv/ativa/cidade-uf) somam rejectedCount sem lancar excecao; segmento-sem-match agora passa', async () => {

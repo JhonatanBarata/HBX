@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { WebscrapingContactResult } from '../../shared/radar-core-shared';
-import { normalizeLegacyBrCellphone } from './cnpj-public-types';
+import { cleanRfbLegalName, normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord, CnpjPublicProviderResult, CnpjPublicSearchInput } from './cnpj-public-types';
 
 // Log dos rejeitados da porta receita (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md,
@@ -162,7 +162,10 @@ export class CnpjPublicProviderService {
 
   toContactResult(record: CnpjPublicCompanyRecord, normalized: { city?: string | null; state?: string | null; segment?: string | null }): WebscrapingContactResult | null {
     const cnpj = normalizeCnpj(record.cnpj);
-    const name = String(record.nomeFantasia || record.razaoSocial || '').trim();
+    // MEI/EI da RFB grava a razão como "<CNPJ básico> <NOME>" e sem fantasia — limpa o prefixo
+    // pro nome do card não nascer com o número na frente (o CNPJ tem campo próprio no detalhe).
+    const legalName = cleanRfbLegalName(record.razaoSocial, cnpj);
+    const name = String(record.nomeFantasia || legalName || '').trim();
     if (!cnpj || !name) return null;
     // Fonte cnpj_public: cadastro pode ser celular legado (10 dig, 3º dígito 6-9) —
     // normaliza pra nono-dígito atual da Anatel na FONTE, nunca no filtro.
@@ -171,7 +174,7 @@ export class CnpjPublicProviderService {
     return {
       placeId: `cnpj_public:${cnpj}`,
       name,
-      legalName: record.razaoSocial || null,
+      legalName: legalName || null,
       phone,
       phoneDigits,
       rating: null,
