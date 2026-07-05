@@ -1733,3 +1733,96 @@ test('checkWhatsappNumbers: número ausente na resposta do motor vira exists=fal
     restorePerUserModalEnv(prev);
   }
 });
+
+// PR05072026 (04-AVATAR-LID-FALLBACK): fetchProfilePictureUrl ao vivo TRAVA (>25s, medido em
+// prod) pra contato migrado pra @lid. O sync por-conversa tem que PULAR esse fetch quando o
+// remoteJid OU o remoteJidAlt é @lid, e usar o profilePicUrl que já veio do Contact (webhook)
+// via getCachedContacts/contactsByJid — nunca ficar sem foto por causa do fetch travado.
+function makeLidSyncPrisma(conversationOverrides?: Record<string, unknown>) {
+  const updates: any[] = [];
+  return {
+    prisma: {
+      companyConversation: {
+        findFirst: async () => makeConversation(conversationOverrides),
+        update: async ({ where, data }: any) => {
+          updates.push({ where, data });
+          return { id: where.id, ...data };
+        },
+      },
+    },
+    updates,
+  };
+}
+
+test('syncConversationMessagesDetailed PULA o fetchProfilePictureUrl ao vivo quando o jid é @lid e usa o profilePicUrl do Contact', async () => {
+  const prev = setPerUserModalEnv();
+  const { prisma, updates } = makeLidSyncPrisma();
+  const service = new WebwhatsBridgeService(prisma as any);
+  (service as any).resolveCurrentWebwhatsSession = async () => TEST_SESSION;
+
+  const calls: string[] = [];
+  (service as any).requestRead = async (input: any) => {
+    calls.push(input.path);
+    if (input.path.startsWith('/chat/findContacts/')) {
+      return [
+        { remoteJid: '230498781634702@lid', profilePicUrl: 'https://pps.whatsapp.net/lid-avatar.jpg' },
+      ];
+    }
+    if (input.path.startsWith('/chat/findChats/')) {
+      return [];
+    }
+    if (input.path.startsWith('/chat/findMessages/')) {
+      return { messages: { records: [] } };
+    }
+    if (input.path.startsWith('/chat/fetchProfilePictureUrl/')) {
+      throw new Error('fetchProfilePictureUrl NÃO deveria ser chamado pra contato @lid (trava em prod)');
+    }
+    throw new Error(`rota inesperada no teste: ${input.path}`);
+  };
+  // Cache local não deve tentar baixar de verdade neste teste (sem rede) — força ficar na URL crua.
+  (service as any).cacheProfilePictureLocally = async () => null;
+
+  try {
+    const result = await service.syncConversationMessagesDetailed(47, 70, { force: true });
+
+    assert.ok(!calls.some((path) => path.startsWith('/chat/fetchProfilePictureUrl/')));
+    assert.equal(result.avatarUrl, 'https://pps.whatsapp.net/lid-avatar.jpg');
+    assert.equal(updates.length, 1);
+    const metadata = JSON.parse(updates[0].data.metadata);
+    assert.equal(metadata.whatsappAvatarUrl, 'https://pps.whatsapp.net/lid-avatar.jpg');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('syncConversationMessagesDetailed mantém o fetchProfilePictureUrl ao vivo pra jid normal (@s.whatsapp.net)', async () => {
+  const prev = setPerUserModalEnv();
+  const { prisma } = makeLidSyncPrisma({
+    contact: '+5511943171224',
+    metadata: JSON.stringify({ whatsappRemoteJid: '5511943171224@s.whatsapp.net' }),
+  });
+  const service = new WebwhatsBridgeService(prisma as any);
+  (service as any).resolveCurrentWebwhatsSession = async () => TEST_SESSION;
+
+  let fetchProfilePictureCalled = false;
+  (service as any).requestRead = async (input: any) => {
+    if (input.path.startsWith('/chat/findContacts/')) return [];
+    if (input.path.startsWith('/chat/findChats/')) return [];
+    if (input.path.startsWith('/chat/findMessages/')) return { messages: { records: [] } };
+    if (input.path.startsWith('/chat/fetchProfilePictureUrl/')) {
+      fetchProfilePictureCalled = true;
+      return { profilePictureUrl: 'https://pps.whatsapp.net/live-fetch.jpg' };
+    }
+    throw new Error(`rota inesperada no teste: ${input.path}`);
+  };
+  (service as any).cacheProfilePictureLocally = async () => null;
+
+  try {
+    const result = await service.syncConversationMessagesDetailed(47, 70, { force: true });
+
+    assert.equal(fetchProfilePictureCalled, true);
+    assert.equal(result.avatarUrl, 'https://pps.whatsapp.net/live-fetch.jpg');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});

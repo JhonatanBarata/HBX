@@ -471,6 +471,14 @@ export class WebwhatsBridgeService {
       const avatarTtlMs = 12 * 60 * 60 * 1000;
       const avatarCheckedAt = Number(metadata.whatsappAvatarCheckedAt || 0);
       const avatarFresh = avatarCheckedAt > 0 && Date.now() - avatarCheckedAt < avatarTtlMs;
+      // Contato migrado pra @lid TRAVA no fetch ao vivo (medido em prod 05/07: >25s sem
+      // resposta, tanto pelo número quanto pelo lid). Nesses casos o fetch ao vivo é PULADO
+      // por inteiro — o `contactsByJid` (já buscado abaixo/em paralelo via getCachedContacts,
+      // indexado por remoteJid E remoteJidAlt) é a única fonte, com o `profilePicUrl` que já
+      // chegou por webhook `contacts.update`. Pra jid normal (@s.whatsapp.net) o comportamento
+      // ao vivo é mantido.
+      const involvesLid = [remoteJid, remoteJidAlt].some((jid) => (jid || '').includes('@lid'));
+      const skipLiveAvatarFetch = avatarFresh || involvesLid;
       const [messageGroups, profilePicture] = await Promise.all([
         Promise.all(
           [
@@ -487,7 +495,7 @@ export class WebwhatsBridgeService {
             }, session.tenantKey),
           ),
         ),
-        avatarFresh
+        skipLiveAvatarFetch
           ? Promise.resolve(null)
           : this.fetchProfilePicture(companyId, syncableRemoteJids[0], session.tenantKey),
       ]);
