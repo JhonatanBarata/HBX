@@ -45,6 +45,12 @@ import {
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from '../vendas/prospecting-safety';
+import {
+  clampInteger as clampTimingInteger,
+  computeHumanTimingPhases,
+  computeSilenceRemainderMs,
+  randomSilenceFloorMs,
+} from '../vendas/prospecting-bot-timing';
 import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 import { LegacyRulesInboundHandler } from '../bot/pipeline/legacy-rules.handler';
@@ -2101,6 +2107,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         leadId: job.leadId,
         firstContact: true,
         preMessageFollowUp: true,
+        // PR05072026 (timing humano): mesma fase 3 do followUp de interesse — este
+        // envio também acontece logo após a IA decidir (resposta humana ao pitch).
+        typingDelayMs: this.computeVendasFollowUpTypingDelayMs(job.campaign, body),
       },
       flowState: {
         currentFlow: ATENDIMENTO_FLOW_ID,
@@ -2974,6 +2983,97 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return { handled: true, classification: 'email_sent' };
   }
 
+  /**
+   * PR05072026 (timing humano) — piso aleatório humano da fase 1 (2-6s default),
+   * configurável via env para calibração/teste. NÃO é o teto da fase 1 — é só o
+   * mínimo aplicado quando a classificação foi instantânea (caminho keyword). Env
+   * ausente/inválida cai no default do módulo (`randomSilenceFloorMs()`); testes
+   * pinam `HBX_PROSPECTING_SILENCE_FLOOR_MAX_MS=0` para não esperar de verdade.
+   */
+  private resolveVendasSilenceFloorMs(): number {
+    const min = Number(process.env.HBX_PROSPECTING_SILENCE_FLOOR_MIN_MS);
+    const max = Number(process.env.HBX_PROSPECTING_SILENCE_FLOOR_MAX_MS);
+    if (Number.isFinite(min) && Number.isFinite(max) && min >= 0 && max >= 0) {
+      return randomSilenceFloorMs(min, max);
+    }
+    return randomSilenceFloorMs();
+  }
+
+  /**
+   * PR05072026 (timing humano) — fase 2 "viu": marca a mensagem inbound do lead
+   * como lida via Webwhats (`markMessagesAsRead`, rota já existente no motor).
+   * BEST-EFFORT: qualquer falha (motor fora, jid ausente, sessão não-Webwhats)
+   * só loga warn — nunca bloqueia a classificação/resposta, que já foi decidida.
+   */
+  private async markVendasAutomationInboundAsReadBestEffort(input: {
+    companyId: number;
+    conversationId: number;
+    inboundMessageId: number;
+  }): Promise<void> {
+    try {
+      const message = await this.prisma.companyMessage.findUnique({
+        where: { id: input.inboundMessageId },
+        select: {
+          rawPayload: true,
+          providerMessageId: true,
+          whatsappConnectionSessionId: true,
+          sourceTenantKey: true,
+        },
+      });
+      if (!message) return;
+      const rawPayload = this.parseConversationMetadata(message.rawPayload as any);
+      const rawIdFromPayload = String(rawPayload?.key?.id || '').trim();
+      const rawIdFromProviderId = String(message.providerMessageId || '').split(':').pop()?.trim() || '';
+      const rawId = rawIdFromPayload || rawIdFromProviderId;
+      if (!rawId) return;
+      const remoteJid = String(rawPayload?.key?.remoteJid || '').trim() || null;
+
+      const conversation = await this.prisma.companyConversation.findFirst({
+        where: { id: input.conversationId, companyId: input.companyId },
+        select: { metadata: true },
+      });
+      const conversationMetadata = this.parseConversationMetadata(conversation?.metadata as any);
+      const selector = {
+        sessionId: message.whatsappConnectionSessionId ?? null,
+        tenantKey: message.sourceTenantKey ?? null,
+      };
+
+      await this.webwhatsBridge.markMessagesAsRead(
+        input.companyId,
+        {
+          conversationId: input.conversationId,
+          remoteJid: remoteJid || String(conversationMetadata?.whatsappRemoteJid || '').trim() || null,
+          messages: [{ id: rawId, fromMe: false, remoteJid }],
+        },
+        selector,
+      );
+    } catch (error: any) {
+      this.logger.warn(
+        `[prospeccao] marcar como lida (timing humano) falhou company=${input.companyId} conversation=${input.conversationId}: ${String(error?.message || error)}`,
+      );
+    }
+  }
+
+  /**
+   * PR05072026 (timing humano) — fase 3 "digitando": ms de presence "composing"
+   * proporcional ao tamanho de `body`, clampado nos knobs `typingSeconds`/
+   * `typingVarianceSeconds` JÁ EXISTENTES da campanha (mesmos usados pelo delay de
+   * primeiro contato em vendas-automation.service.ts). Sem knobs configurados
+   * (undefined/null) cai no default 8s + variância 12s — mesmo default do primeiro
+   * contato — para não silenciar o typing por omissão em campanhas antigas.
+   */
+  private computeVendasFollowUpTypingDelayMs(campaign: any, body: string): number {
+    const typingSecondsKnob = clampTimingInteger(campaign?.typingSeconds, 8, 0, 45);
+    const typingVarianceSecondsKnob = clampTimingInteger(campaign?.typingVarianceSeconds, 12, 0, 30);
+    const { typingMs } = computeHumanTimingPhases({
+      aiElapsedMs: 0,
+      responseBody: String(body || ''),
+      typingSecondsKnob,
+      typingVarianceSecondsKnob,
+    });
+    return typingMs;
+  }
+
   private async handleVendasAutomationInbound(input: {
     companyId: number;
     conversationId: number;
@@ -3054,6 +3154,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'me chama',
       'pode ligar',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+
+    // PR05072026 (timing humano) — fase 1 "antes de ver": SILÊNCIO TOTAL (sem read,
+    // sem presence) enquanto a IA classifica. A resposta só é decidida quando esta
+    // fase acaba. Duração = tempo real da classificação (IA pode levar até o timeout
+    // configurado em HBX_LLM_CLASSIFIER_TIMEOUT_MS — sem teto novo aqui), com um piso
+    // aleatório humano só para o caminho keyword (~0ms, responderia instantâneo sem
+    // o piso). O ÚNICO clamp de timing fica na fase 3 (digitando), não aqui.
+    const aiStartedAt = Date.now();
     const { intent, autoReply: autoReplyClassification } = await this.intentEngine.classifyIntentWithFallback(
       {
         text: input.text,
@@ -3067,6 +3175,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       // Caminho VIVO de produção (inbound real da prospecção) → grava a decisão.
       { companyId: input.companyId, conversationId: input.conversationId, flow: 'prospeccao' },
     );
+    const aiElapsedMs = Date.now() - aiStartedAt;
+    const silenceMs = computeSilenceRemainderMs(aiElapsedMs, this.resolveVendasSilenceFloorMs());
+    if (silenceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, silenceMs));
+    }
+    // Fase 2 "viu": marca como lida SÓ ao fim do silêncio — best-effort (nunca
+    // bloqueia a classificação/resposta já decidida por falha de read receipt).
+    await this.markVendasAutomationInboundAsReadBestEffort(input).catch(() => null);
+
     const terminalStatus = new Set(['negative', 'opt_out', 'replied_negative', 'no_response_archived']);
     const alreadyClosed =
       terminalStatus.has(automationStatus) ||
@@ -3296,6 +3413,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             leadId: job.leadId,
             replyKind: input.replyKind || 'positive',
             automaticFollowUp: true,
+            // PR05072026 (timing humano): fase 3 "digitando" proporcional ao tamanho
+            // desta resposta, já clampada nos knobs typingSeconds/typingVarianceSeconds
+            // da campanha — o dispatch worker só repassa ao motor (sendText delay).
+            typingDelayMs: this.computeVendasFollowUpTypingDelayMs(job.campaign, followUpMessage),
           },
           flowState: {
             ...nextState,
@@ -8448,11 +8569,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
       if (messageType === 'text' && webwhatsAvailable) {
         try {
+          // PR05072026 (timing humano): quando o remetente calculou o "digitando"
+          // proporcional ao tamanho da resposta (bot de prospecção pós-classificação
+          // IA), o valor já clampado nos knobs da campanha vem em `variables.typingDelayMs`
+          // — este worker só repassa ao motor. Ausente/0 = comportamento atual (sem delay).
+          const typingDelayMs = Number(dispatchVariables?.typingDelayMs);
           const webwhatsResult = await this.webwhatsBridge.sendText(msg.companyId, {
             to: msg.to,
             text: dispatchBody,
             conversationId,
             quoted,
+            ...(Number.isFinite(typingDelayMs) && typingDelayMs > 0 ? { typingDelayMs } : {}),
           }, webwhatsSelector);
           await markWebwhatsSent({
             requestBody: { number: webwhatsResult.target, text: dispatchBody },

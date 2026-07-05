@@ -7,6 +7,15 @@ import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
 import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 
+// PR05072026 (timing humano): pina o piso de silêncio da fase 1 em 0 para este
+// arquivo de teste inteiro — sem isso, cada teste que passa por
+// handleVendasAutomationInbound esperaria de verdade 2-6s reais (setTimeout), o
+// que deixaria a suíte lenta sem testar nada de novo (a ordem/clamp das fases já
+// tem cobertura isolada e determinística em vendas/prospecting-bot-timing.test.ts).
+// Host/worktree não têm `.env` carregado neste processo de teste — pinar aqui.
+process.env.HBX_PROSPECTING_SILENCE_FLOOR_MIN_MS = '0';
+process.env.HBX_PROSPECTING_SILENCE_FLOOR_MAX_MS = '0';
+
 const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
   ...DEFAULT_ATENDIMENTO_BOT_CONFIG,
   setup: {

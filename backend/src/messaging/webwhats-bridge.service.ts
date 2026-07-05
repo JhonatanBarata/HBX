@@ -40,6 +40,13 @@ type WebwhatsRequestOptions = {
   purpose: string;
   data?: unknown;
   treatNotFoundAsNull?: boolean;
+  /**
+   * Override do timeout default (`config.timeoutMs`) SÓ para esta chamada. Usado pelo
+   * envio com presence "composing" embutido (`sendText` com `delay`), cujo `delay` já
+   * é bloqueante dentro do motor — sem isso o axios estouraria antes do motor terminar
+   * de digitar+enviar. Nunca reduz o timeout abaixo do default.
+   */
+  timeoutOverrideMs?: number;
 };
 
 type ResolvedWebwhatsMediaAttachment = {
@@ -955,13 +962,30 @@ export class WebwhatsBridgeService {
 
   async sendText(
     companyId: number,
-    input: { to: string; text: string; conversationId?: number | null; quoted?: WebwhatsQuotedInput | null },
+    input: {
+      to: string;
+      text: string;
+      conversationId?: number | null;
+      quoted?: WebwhatsQuotedInput | null;
+      /**
+       * PR05072026 (timing humano): ms de presence "composing" que o motor mostra
+       * ANTES de enviar (padrão Evolution API — `data.delay` em `/message/sendText`
+       * liga o composing e só envia ao fim do delay). Vem já clampado nos knobs
+       * `typingSeconds`/`typingVarianceSeconds` da campanha — quem chama decide o
+       * valor, este método só repassa. Omitido/0 = comportamento atual (sem digitando).
+       */
+      typingDelayMs?: number | null;
+    },
     selector?: WebwhatsSessionSelector,
   ) {
     const company = await this.requireConnectedCompany(companyId, selector);
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
+    const delay = Math.max(0, Math.trunc(Number(input.typingDelayMs) || 0));
+    // Margem de 15s sobre o próprio delay: o motor só responde ao terminar de digitar
+    // e enviar, então o timeout HTTP precisa cobrir o delay inteiro + a chamada real.
+    const timeoutOverrideMs = delay > 0 ? delay + 15000 : undefined;
     const response = await this.requestRead<any>({
       method: 'POST',
       path: `/message/sendText/${encodeURIComponent(tenantKey)}`,
@@ -970,7 +994,9 @@ export class WebwhatsBridgeService {
         number: target,
         text: String(input.text || ''),
         ...(input.quoted ? { quoted: input.quoted } : {}),
+        ...(delay > 0 ? { delay, presence: 'composing' } : {}),
       },
+      timeoutOverrideMs,
     });
 
     const rawMessageId = this.normalizeOptionalString(response?.key?.id || response?.id);
@@ -2131,12 +2157,13 @@ export class WebwhatsBridgeService {
     }
 
     const url = new URL(options.path.replace(/^\/+/, ''), `${config.internalUrl.replace(/\/+$/, '')}/`).toString();
+    const timeout = Math.max(config.timeoutMs, Math.trunc(Number(options.timeoutOverrideMs) || 0));
     try {
       const response = await axios.request<T>({
         method: options.method,
         url,
         data: options.data,
-        timeout: config.timeoutMs,
+        timeout,
         headers: {
           apikey: config.apiKey,
           'Content-Type': 'application/json',
