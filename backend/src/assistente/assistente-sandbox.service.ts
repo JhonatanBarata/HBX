@@ -10,9 +10,13 @@ import {
 // WORM-14 — SANDBOX "Teste sua IA".
 //
 // ⚠️ SEGURANCA (o ponto que faz este modulo valer ouro): este servico NAO PODE
-// TOCAR O WEBWHATS NEM CHIP NENHUM. E um chat interno que roda o MESMO pipeline
-// do bot (classificador local qwen2.5:7b via Ollama, /api/chat) SEM enviar 1
-// mensagem real. Zero socket, zero API de motor, zero numero.
+// TOCAR O WEBWHATS NEM CHIP NENHUM. E um chat interno que roda o MESMO Ollama
+// local do classificador do bot (/api/chat), mas com env de MODELO/TIMEOUT
+// PROPRIA do assistente (HBX_ASSISTENTE_MODEL / HBX_ASSISTENTE_TIMEOUT_MS —
+// fallback pra env do classificador, depois pro default 'qwen2.5:7b'/12000).
+// Isso permite bot e assistente usarem modelos diferentes sem mexer em codigo
+// (bench 4b x 7b por frente). URL e flag liga/desliga seguem compartilhadas
+// (1 Ollama so). Zero socket, zero API de motor, zero numero.
 //
 // Por construcao ele NAO importa ConversationsService, MessagingModule, nem
 // nenhum client do Webwhats. A UNICA saida de rede e a chamada ao Ollama LOCAL
@@ -39,6 +43,25 @@ function envOn(name: string) {
 // reuso, nao IA nova.
 function ollamaBaseUrl() {
   return envStr('HBX_LLM_CLASSIFIER_URL', 'http://host.docker.internal:11434').replace(/\/+$/, '');
+}
+
+// ── Envs PROPRIAS do assistente (desacopladas do classificador do bot) ─────
+// Bot e Assistente podem precisar de modelos diferentes (bench 4b x 7b por
+// frente — ver docs/PLANEJAMENTOS/IA-VPS/PLANO.md). Cadeia de fallback:
+//   HBX_ASSISTENTE_MODEL -> HBX_LLM_CLASSIFIER_MODEL -> 'qwen2.5:7b'
+//   HBX_ASSISTENTE_TIMEOUT_MS -> HBX_LLM_CLASSIFIER_TIMEOUT_MS -> 12000
+// Sem nenhuma env nova setada, comportamento IDENTICO ao anterior (cai nas
+// mesmas envs do classificador). URL e flag liga/desliga continuam
+// compartilhadas de proposito (1 Ollama so, 1 ambiente de IA so).
+function assistenteModel() {
+  const own = String(process.env.HBX_ASSISTENTE_MODEL || '').trim();
+  if (own) return own;
+  return envStr('HBX_LLM_CLASSIFIER_MODEL', 'qwen2.5:7b');
+}
+function assistenteTimeoutMs() {
+  const own = Number.parseInt(String(process.env.HBX_ASSISTENTE_TIMEOUT_MS || ''), 10);
+  if (Number.isFinite(own) && own > 0) return own;
+  return envInt('HBX_LLM_CLASSIFIER_TIMEOUT_MS', 12000);
 }
 
 export type SandboxTurn = { role: 'user' | 'assistant'; content: string };
@@ -81,7 +104,7 @@ export class AssistenteSandboxService {
     chat?: OllamaChat,
   ): Promise<SandboxReplyResult> {
     const startedAt = Date.now();
-    const model = envStr('HBX_LLM_CLASSIFIER_MODEL', 'qwen2.5:7b');
+    const model = assistenteModel();
     const empresa = config.empresaNome || 'a empresa';
     const vars = { empresa, assistente: config.nome };
 
@@ -157,8 +180,8 @@ export class AssistenteSandboxService {
       throw new Error('classificador IA desligado (HBX_LLM_CLASSIFIER_ENABLED)');
     }
     const baseUrl = ollamaBaseUrl();
-    const model = envStr('HBX_LLM_CLASSIFIER_MODEL', 'qwen2.5:7b');
-    const timeoutMs = envInt('HBX_LLM_CLASSIFIER_TIMEOUT_MS', 12000);
+    const model = assistenteModel();
+    const timeoutMs = assistenteTimeoutMs();
 
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',

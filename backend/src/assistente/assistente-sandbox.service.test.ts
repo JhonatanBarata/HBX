@@ -74,6 +74,119 @@ test('sandbox: IA indisponivel cai no ROTEIRO (fallback), nunca em envio real', 
   assert.equal(svc.guard.realDispatchCalls, 0);
 });
 
+// ── Envs proprias do assistente (desacopladas do classificador do bot) ─────
+// Pinar env no teste: host/worktree nao tem .env garantido (ver MEMORY.md).
+function withEnv(vars: Record<string, string | undefined>, run: () => Promise<void> | void) {
+  const prev: Record<string, string | undefined> = {};
+  for (const key of Object.keys(vars)) prev[key] = process.env[key];
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return Promise.resolve(run()).finally(() => {
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+}
+
+test('sandbox: HBX_ASSISTENTE_MODEL setada -> usa o modelo proprio do assistente', async () => {
+  await withEnv(
+    {
+      HBX_ASSISTENTE_MODEL: 'qwen3:4b',
+      HBX_LLM_CLASSIFIER_MODEL: 'qwen2.5:7b',
+    },
+    async () => {
+      const svc = new AssistenteSandboxService();
+      const chat = async () => 'ok';
+      const res = await svc.reply(
+        makeConfig(),
+        [{ role: 'assistant', content: 'oi' }],
+        'quero',
+        chat,
+      );
+      assert.equal(res.model, 'qwen3:4b', 'assistente deve usar HBX_ASSISTENTE_MODEL, nao a env do classificador');
+    },
+  );
+});
+
+test('sandbox: sem HBX_ASSISTENTE_MODEL -> cai na env do classificador do bot (fallback)', async () => {
+  await withEnv(
+    {
+      HBX_ASSISTENTE_MODEL: undefined,
+      HBX_LLM_CLASSIFIER_MODEL: 'qwen2.5:7b-classificador',
+    },
+    async () => {
+      const svc = new AssistenteSandboxService();
+      const chat = async () => 'ok';
+      const res = await svc.reply(
+        makeConfig(),
+        [{ role: 'assistant', content: 'oi' }],
+        'quero',
+        chat,
+      );
+      assert.equal(res.model, 'qwen2.5:7b-classificador', 'sem env propria, deve cair na env do classificador');
+    },
+  );
+});
+
+test('sandbox: sem nenhuma env setada -> cai no default qwen2.5:7b (comportamento identico ao atual)', async () => {
+  await withEnv(
+    {
+      HBX_ASSISTENTE_MODEL: undefined,
+      HBX_LLM_CLASSIFIER_MODEL: undefined,
+    },
+    async () => {
+      const svc = new AssistenteSandboxService();
+      const chat = async () => 'ok';
+      const res = await svc.reply(
+        makeConfig(),
+        [{ role: 'assistant', content: 'oi' }],
+        'quero',
+        chat,
+      );
+      assert.equal(res.model, 'qwen2.5:7b');
+    },
+  );
+});
+
+test('sandbox: HBX_ASSISTENTE_TIMEOUT_MS setada -> defaultOllamaChat usa o timeout e o model proprios (mock de fetch, sem rede)', async () => {
+  await withEnv(
+    {
+      HBX_ASSISTENTE_TIMEOUT_MS: '5000',
+      HBX_LLM_CLASSIFIER_TIMEOUT_MS: '9999',
+      HBX_ASSISTENTE_MODEL: 'qwen3:4b',
+      HBX_LLM_CLASSIFIER_MODEL: 'qwen2.5:7b',
+      HBX_LLM_CLASSIFIER_ENABLED: 'true',
+    },
+    async () => {
+      const originalFetch = global.fetch;
+      let capturedBody: any = null;
+      let capturedSignal: AbortSignal | undefined;
+      (global as any).fetch = async (_url: string, init: any) => {
+        capturedBody = JSON.parse(init.body);
+        capturedSignal = init.signal;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ message: { content: 'resposta via fetch mockado' } }),
+        };
+      };
+      try {
+        const svc = new AssistenteSandboxService();
+        // Sem `chat` injetado -> cai no defaultOllamaChat (fetch mockado acima).
+        const res = await svc.reply(makeConfig(), [{ role: 'assistant', content: 'oi' }], 'quero');
+        assert.equal(res.source, 'ia');
+        assert.equal(capturedBody?.model, 'qwen3:4b', 'defaultOllamaChat deve usar HBX_ASSISTENTE_MODEL');
+        assert.ok(capturedSignal, 'deve montar um AbortSignal a partir do timeout proprio do assistente');
+      } finally {
+        (global as any).fetch = originalFetch;
+      }
+    },
+  );
+});
+
 // ── PROVA ESTATICA: o modulo do sandbox NAO importa Webwhats/Conversations/Messaging.
 // Se alguem soldar um envio real aqui, este teste quebra. Le a FONTE .ts (o teste
 // roda de dist/, entao sobe ate a raiz do backend e desce em src/assistente).
