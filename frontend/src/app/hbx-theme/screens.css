@@ -1723,12 +1723,46 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   .vnd-supcard__ic::after { animation: none; }
   .vnd-caret { animation: none; }
 }
-@media (max-width: 760px) {
-  .vnd-funhead { flex-wrap: wrap; gap: 10px; padding: 10px 12px 0; }
-  .vnd-segbtns { width: 100%; }
+/* ── A5 (B4/B5) — passe mobile do funil de Vendas ────────────────────────────
+   No desktop a casca é overlay ABSOLUTO: .vnd-funhead (barra do topo, right:360px)
+   flutua POR CIMA das 2 camadas (.vnd-stage inset:0) e o conteúdo ganha
+   padding-top:74px pra não passar por baixo. No mobile esse modelo quebrava:
+   a barra herdava right:360px (some numa faixa de ~15px), os KPIs empilhavam
+   por cima do título (B4) e a lista/Radar embutido (B5) ficava coberta.
+   Fix = só layout: no ≤860px a casca vira COLUNA EM FLUXO (funhead empilha em
+   cima, stage/camadas descem em fluxo). Zero mudança de lógica/estado. */
+@media (max-width: 860px) {
+  /* modehost deixa de ser palco de overlay → coluna que rola no .vnd-page/.leads */
+  .vnd-modehost { display: flex; flex-direction: column; min-height: 0; }
+
+  /* Barra do topo entra no FLUXO (não mais absoluta sobre o conteúdo) e ocupa
+     a largura toda — some o right:360px que a estrangulava. */
+  .vnd-funhead {
+    position: static; right: auto; left: auto; z-index: auto;
+    flex-wrap: wrap; align-items: stretch; gap: 10px;
+    padding: 10px 12px 2px; min-height: 0; flex: 0 0 auto;
+  }
+  .vnd-segbtns { flex-basis: 100%; width: 100%; }
   .vnd-segbtn { flex: 1; justify-content: center; min-height: 46px; padding: 0 14px; font-size: 0.86rem; }
-  .vnd-stats { flex-basis: 100%; }
+  /* KPIs do modo ativo: linha de 3 colunas que ENVELOPA (min-width:0), rótulo
+     não estoura. A camada inativa some (não empilha fantasma por baixo). */
+  .vnd-stats { flex: 1 1 100%; flex-basis: 100%; min-width: 0; }
   .vnd-stats__layer:not(.is-on) { display: none; }
+  .vnd-stats__layer.is-on .kpis { flex-wrap: nowrap; gap: 8px; }
+  .vnd-stats__layer .kpi { min-width: 0; padding: 6px 6px; }
+  .vnd-stats__layer .kpi .kpi-label { font-size: 0.6rem; white-space: normal; text-align: center; }
+  .vnd-stats__layer .kpi .kpi-value { font-size: 1.05rem; }
+  /* card do radar (4º) ao lado dos KPIs sem estourar */
+  .vnd-supcard { flex: 0 0 auto; }
+
+  /* Stage/camadas descem pro fluxo (não mais absoluto inset:0). O crossfade
+     continua (opacity), mas a camada inativa é removida do fluxo pra não empurrar. */
+  .vnd-stage { position: relative; inset: auto; flex: 1; min-height: 0; display: flex; }
+  .vnd-layer { position: relative; inset: auto; flex: 1; min-width: 0; }
+  .vnd-layer:not(.is-on) { display: none; }
+  /* Sem a barra flutuante em cima, o conteúdo não precisa mais do respiro de 74px. */
+  .vnd-layer.is-on .content > .work,
+  .vnd-layer--buscar.is-on .content .work { padding-top: 0; }
 }
 
 /* ══ Faixa "por que o Radar parou de buscar" ════════════════════════════════

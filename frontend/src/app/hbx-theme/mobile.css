@@ -536,6 +536,32 @@
     flex-direction: column;
   }
 
+  /* A5 (B4): cabeçalho do funil no mobile — título numa coluna própria e a
+     barra de ações (.meta com "Modo foco"/"Novo lead") ENVOLVE em vez de ser
+     cortada na borda direita. Só layout: nada de esconder ação. */
+  .vnd-page .panel > .panel-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 10px;
+    padding: 12px 14px;
+  }
+  .vnd-page .panel > .panel-head > h2 {
+    flex: 1 1 100%;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .vnd-page .panel > .panel-head > .meta {
+    margin-left: 0;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  /* "Modo foco" e "Novo lead" no fim da linha, inteiros (sem corte) */
+  .vnd-page .panel > .panel-head > .meta .btn-teal { flex: 0 0 auto; }
+
   /* Tabela legada e kanban: ocultos no mobile (branch isMobile no TSX) */
   .vnd-page .tbl-wrap { display: none; }
   .vnd-page .board    { display: none; }
