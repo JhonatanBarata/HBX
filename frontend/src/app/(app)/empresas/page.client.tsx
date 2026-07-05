@@ -13,6 +13,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { AdicionarContatoModal, EditarContaModal, EditarContatoModal } from "@/components/hbx/editar-nucleo-modais";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
@@ -111,26 +112,46 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
   const [data, setData] = useState<EmpresaDetail>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // NÚCLEO-CRM — edição na Ficha (PATCH já publicado no backend).
+  const [editando, setEditando] = useState(false);
+  const [editContato, setEditContato] = useState<EmpresaContato | null>(null);
+  const [addContato, setAddContato] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    apiFetch<EmpresaDetail>(`/nucleo/empresas/${encodeURIComponent(id)}`)
-      .then((res) => { if (alive) setData(res); })
+    return apiFetch<EmpresaDetail>(`/nucleo/empresas/${encodeURIComponent(id)}`)
+      .then((res) => { setData(res); })
       .catch((err: unknown) => {
-        if (alive) setError(err instanceof Error ? err.message : "Não foi possível abrir a ficha.");
+        setError(err instanceof Error ? err.message : "Não foi possível abrir a ficha.");
       })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+      .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function afterEdit() {
+    setEditando(false);
+    setEditContato(null);
+    setAddContato(false);
+    load();
+  }
 
   return (
     <div className="hbx-veil" onClick={onClose}>
       <div className="hbx-modal" style={{ width: "min(520px, 94vw)", padding: 22 }} onClick={(e) => e.stopPropagation()}>
         <h3>
           {data?.name || "Empresa"}
-          <button className="btn-ghost btn-xs" onClick={onClose}>Fechar</button>
+          <span className="emp-ficha__head-actions">
+            {data && !loading && !editando && (
+              <button className="btn-ghost btn-xs" onClick={() => setEditando(true)}>
+                <I d={ICONS.edit} size={13} /> Editar
+              </button>
+            )}
+            <button className="btn-ghost btn-xs" onClick={onClose}>Fechar</button>
+          </span>
         </h3>
 
         {loading && <p className="hint" style={{ marginTop: 12 }}>Carregando…</p>}
@@ -151,7 +172,12 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
 
             <div style={{ display: "grid", gap: 8 }}>
-              <span className="field-label">Contatos ({data.contatos.length})</span>
+              <div className="emp-ficha__contatos-head">
+                <span className="field-label">Contatos ({data.contatos.length})</span>
+                <button type="button" className="btn-ghost btn-xs" onClick={() => setAddContato(true)}>
+                  <I d={ICONS.plus} size={12} /> Adicionar contato
+                </button>
+              </div>
               {data.contatos.length === 0 && (
                 <p className="hint">Nenhum contato vinculado a esta empresa ainda.</p>
               )}
@@ -168,6 +194,9 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
                       {c.cargo && <span className="emp-contact__role">{c.cargo}</span>}
                       {canal && <span className="emp-contact__ch">{canal}</span>}
                     </span>
+                    <button type="button" className="btn-ghost btn-xs" onClick={() => setEditContato(c)}>
+                      <I d={ICONS.edit} size={12} /> Editar
+                    </button>
                   </div>
                 );
               })}
@@ -175,6 +204,41 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         )}
       </div>
+
+      {editando && data && (
+        <EditarContaModal
+          conta={{
+            id: data.id,
+            nome: data.name,
+            tipo: "pj",
+            email: data.email,
+            phone: data.phone,
+            endereco: data.endereco,
+            cidade: data.cidade,
+            uf: data.uf,
+            cep: data.cep,
+            isCliente: data.isCliente,
+            isLead: data.isLead,
+            isFornecedor: data.isFornecedor,
+          }}
+          onClose={() => setEditando(false)}
+          onSaved={afterEdit}
+        />
+      )}
+      {editContato && (
+        <EditarContatoModal
+          contato={editContato}
+          onClose={() => setEditContato(null)}
+          onSaved={afterEdit}
+        />
+      )}
+      {addContato && data && (
+        <AdicionarContatoModal
+          customerProfileId={data.id}
+          onClose={() => setAddContato(false)}
+          onSaved={afterEdit}
+        />
+      )}
     </div>
   );
 }

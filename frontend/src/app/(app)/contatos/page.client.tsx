@@ -14,6 +14,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { EditarContaModal, EditarContatoModal } from "@/components/hbx/editar-nucleo-modais";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { ImportPlanilhaModal, type ImportSchema } from "@/components/hbx/import-planilha-modal";
 import { apiFetch } from "@/lib/api";
@@ -766,6 +767,9 @@ export function ContatosClient() {
   const [showImport, setShowImport] = useState(false);
   // LOGÍSTICA-MOBILE M2 — cliente com o drawer "Produtos do cliente" aberto.
   const [prodCliente, setProdCliente] = useState<{ id: string; nome: string | null } | null>(null);
+  // NÚCLEO-CRM — edição (pessoa ou conta) via PATCH já publicado no backend.
+  const [editContato, setEditContato] = useState<ContatoItem | null>(null);
+  const [editCliente, setEditCliente] = useState<ClienteItem | null>(null);
 
   const load = useCallback((only: boolean, q: string, p: number) => {
     setLoading(true);
@@ -802,6 +806,12 @@ export function ContatosClient() {
 
   function afterSaved() {
     setShowNovo(false);
+    load(onlyClientes, query, page);
+  }
+
+  function afterEdited() {
+    setEditContato(null);
+    setEditCliente(null);
     load(onlyClientes, query, page);
   }
 
@@ -899,6 +909,13 @@ export function ContatosClient() {
                         {c.contaIsFornecedor && <span className="emp-role is-fornecedor">Fornecedor</span>}
                       </span>
                     )}
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      onClick={() => setEditContato(c)}
+                    >
+                      <I d={ICONS.edit} size={13} /> Editar
+                    </button>
                   </span>
                 </div>
               );
@@ -930,6 +947,13 @@ export function ContatosClient() {
                       onClick={() => setProdCliente({ id: e.id, nome: e.name })}
                     >
                       <I d={ICONS.logistica} size={13} /> Produtos
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      onClick={() => setEditCliente(e)}
+                    >
+                      <I d={ICONS.edit} size={13} /> Editar
                     </button>
                     <span className="emp-row__contacts" title="Contatos">
                       <I d={ICONS.users} size={13} /> {e.contatosCount}
@@ -963,6 +987,28 @@ export function ContatosClient() {
         />
       )}
       {prodCliente && <ClienteProdutosDrawer cliente={prodCliente} admin={admin} onClose={() => setProdCliente(null)} />}
+      {editContato && (
+        <EditarContatoModal
+          contato={editContato}
+          onClose={() => setEditContato(null)}
+          onSaved={afterEdited}
+        />
+      )}
+      {editCliente && (
+        <EditarContaModal
+          conta={{
+            id: editCliente.id,
+            nome: editCliente.name,
+            cidade: editCliente.cidade,
+            uf: editCliente.uf,
+            isCliente: editCliente.isCliente,
+            isLead: editCliente.isLead,
+            isFornecedor: editCliente.isFornecedor,
+          }}
+          onClose={() => setEditCliente(null)}
+          onSaved={afterEdited}
+        />
+      )}
     </div>
   );
 }

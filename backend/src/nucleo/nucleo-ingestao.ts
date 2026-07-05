@@ -4,25 +4,32 @@ import type {
 } from './nucleo-cadastro.service';
 
 /**
- * NÚCLEO-CRM N2 (04/07) — INGESTÃO no PULL.
+ * NÚCLEO-CRM N2 (04/07, estendido 05/07) — INGESTÃO no PULL.
  *
- * Quando um lead da base 28M (RFB / CnpjPublicCompany) é "puxado" para o módulo Vendas,
- * materializa a ESPINHA: Conta(PJ) = o lugar (nomeFantasia/razaoSocial) + Contato(dono) =
- * a pessoa (ownerName/ownerQualification). É ADITIVO e SÓ-LATERAL: roda DEPOIS que o
- * VendasLead já foi criado/entregue, num único choke (`importRadarLeadToVendasForUser`),
- * e NUNCA quebra o fluxo do pull — qualquer erro é engolido pelo caller (fire-and-forget).
+ * Quando um lead é "puxado" para o módulo Vendas, materializa a ESPINHA: Conta(PJ) = o
+ * lugar (nomeFantasia/razaoSocial/nome do lead) + Contato principal = a pessoa. É ADITIVO
+ * e SÓ-LATERAL: roda DEPOIS que o VendasLead já foi criado/entregue, num único choke
+ * (`importRadarLeadToVendasForUser`), e NUNCA quebra o fluxo do pull — qualquer erro é
+ * engolido pelo caller (fire-and-forget).
  *
  * Gate DURO: `HBX_NUCLEO_INGESTAO_ENABLED` default OFF. Enquanto OFF, esta função é um
  * no-op COMPLETO (nem lê banco). Isso protege o refab "Buscar empresas" do dono: com a
  * flag desligada o comportamento do pull é EXATAMENTE o de hoje, zero escrita nova.
  *
- * O CNPJ NÃO existe como coluna em `RadarLeadPool`; ele sobrevive do `materialize` da Base
- * Receita em dois lugares do pool row: `sourceUrl = internal://cnpj-base/<cnpj>` e/ou
- * `evidenceJson = { evidence: { cnpj } }`. Um lead WEB (Google/scraping) não tem CNPJ →
- * esta função é no-op pra ele (sem CNPJ, sem Conta materializada — por design).
+ * Dois ramos (05/07 — TODO lead puxado materializa, pedido do dono):
+ *  - COM CNPJ (base RFB): o CNPJ sobrevive do `materialize` da Base Receita em dois
+ *    lugares do pool row: `sourceUrl = internal://cnpj-base/<cnpj>` e/ou
+ *    `evidenceJson = { evidence: { cnpj } }`. Chave de idempotência = (companyId, cnpj)
+ *    via `upsertContaFromCnpj`.
+ *  - SEM CNPJ (lead WEB — Google Maps/scraping): chave de idempotência = (companyId,
+ *    phoneNormalized) via `upsertContaFromRadarWebLead`. Sem telefone normalizável não dá
+ *    pra deduplicar com segurança → skip (`no_key`).
  *
- * Idempotência: `NucleoCadastroService.upsertContaFromCnpj` faz acha-ou-cria por
- * (companyId, cnpj); puxar o mesmo lead de novo NÃO duplica.
+ * Contato principal em AMBOS os ramos (pra aparecer na janela Contatos): se a RFB conhece
+ * o sócio (ownerName), o Contato é o dono; senão, reaproveita o NOME DO LUGAR (business
+ * name) + telefone do lead como canal — nunca inventamos CPF/pessoa fictícia.
+ *
+ * Idempotência: puxar o mesmo lead de novo NÃO duplica (upsert por cnpj OU phoneNormalized).
  */
 
 export const NUCLEO_INGESTAO_FLAG = 'HBX_NUCLEO_INGESTAO_ENABLED';
@@ -43,6 +50,10 @@ export type NucleoRadarLeadRow = {
   city?: string | null;
   state?: string | null;
   address?: string | null;
+  /** telefone bruto do lead (Radar) — usado como chave de dedup do ramo WEB (sem CNPJ). */
+  phone?: string | null;
+  /** telefone só-dígitos (já normalizado no pool); fallback quando `phone` está ausente. */
+  phoneDigits?: string | null;
 };
 
 /** Linha da base RFB (CnpjPublicCompany) — leitura opcional pra enriquecer a Conta/Contato. */
@@ -61,7 +72,7 @@ export type NucleoIngestaoDeps = {
   /** Serviço da espinha (upsert idempotente Conta+Contato). */
   cadastro: Pick<
     NucleoCadastroService,
-    'upsertContaFromCnpj' | 'upsertContatoPrincipal'
+    'upsertContaFromCnpj' | 'upsertContaFromRadarWebLead' | 'upsertContatoPrincipal'
   >;
   /** Leitura opcional da base RFB p/ nome do dono/qualificação/endereço. Pode faltar. */
   loadCnpjPublic?: (cnpj: string) => Promise<NucleoCnpjPublicRow>;
@@ -135,8 +146,41 @@ export async function materializeNucleoFromRadarLead(
     if (!companyId) return { status: 'skipped', reason: 'no_company' };
 
     const cnpj = extractCnpjFromRadarLead(row);
-    if (!cnpj) return { status: 'skipped', reason: 'no_cnpj' };
 
+    // ── Ramo SEM CNPJ (lead WEB — Google Maps/scraping): TODO lead puxado materializa,
+    // pedido do dono 05/07. Chave de idempotência = phoneNormalized; sem telefone não dá
+    // pra deduplicar com segurança → skip explícito 'no_key'.
+    if (!cnpj) {
+      const phone = (row?.phone ? String(row.phone) : '') || (row?.phoneDigits ? String(row.phoneDigits) : '');
+      if (!digits(phone)) return { status: 'skipped', reason: 'no_key' };
+
+      const nomeLugar = row?.name ? String(row.name) : null;
+      const contaId = await deps.cadastro.upsertContaFromRadarWebLead({
+        companyId,
+        nome: nomeLugar || undefined,
+        phone,
+        endereco: row?.address ?? undefined,
+        cidade: row?.city ?? undefined,
+        uf: row?.state ?? undefined,
+      });
+      if (!contaId) return { status: 'skipped', reason: 'no_key' };
+
+      // Contato principal: nunca inventa CPF/pessoa — reaproveita nome-do-lugar + telefone
+      // do lead como canal (a RFB não existe pra lead web, então não há ownerName aqui).
+      let contatoId: string | undefined;
+      if (nomeLugar) {
+        contatoId = await deps.cadastro.upsertContatoPrincipal({
+          companyId,
+          customerProfileId: contaId,
+          nome: nomeLugar,
+          phone,
+          source: 'radar',
+        });
+      }
+      return { status: 'materialized', contaId, contatoId };
+    }
+
+    // ── Ramo COM CNPJ (base RFB) ────────────────────────────────────────────────
     // Enriquecimento opcional pela base RFB (nome do dono/endereço). Degrada gracioso.
     let base: NucleoCnpjPublicRow = null;
     if (deps.loadCnpjPublic) {
@@ -162,11 +206,13 @@ export async function materializeNucleoFromRadarLead(
 
     const contaId = await deps.cadastro.upsertContaFromCnpj(contaInput);
 
-    // Contato(dono): só quando a RFB conhece o sócio (ownerName). Sem dono conhecido,
-    // NÃO inventamos pessoa — a Conta fica sem Contato principal (pedido do dono: nome do
-    // lugar → Conta; nome do dono → Contato). N4 (manual) pode adicionar depois.
+    // Contato principal: se a RFB conhece o sócio (ownerName), o Contato é o dono (pedido
+    // do dono: nome do dono → Contato). SEM ownerName conhecido, reaproveita o nome do
+    // lugar (business name) + telefone do lead como canal — assim a Conta SEMPRE aparece
+    // em Contatos também, sem inventar pessoa fictícia.
     let contatoId: string | undefined;
     const ownerName = String(base?.ownerName || '').trim();
+    const phone = (row?.phone ? String(row.phone) : '') || (row?.phoneDigits ? String(row.phoneDigits) : '');
     if (contaId && ownerName) {
       contatoId = await deps.cadastro.upsertContatoPrincipal({
         companyId,
@@ -175,6 +221,17 @@ export async function materializeNucleoFromRadarLead(
         cargo: base?.ownerQualification || null,
         source: 'cnpj_socio',
       });
+    } else if (contaId) {
+      const nomeLugar = nome || (row?.name ? String(row.name) : null);
+      if (nomeLugar) {
+        contatoId = await deps.cadastro.upsertContatoPrincipal({
+          companyId,
+          customerProfileId: contaId,
+          nome: nomeLugar,
+          phone: phone || undefined,
+          source: 'radar',
+        });
+      }
     }
 
     return { status: 'materialized', contaId, contatoId };

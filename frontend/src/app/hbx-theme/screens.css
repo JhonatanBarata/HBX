@@ -3676,6 +3676,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .emp-contact__role { font-size: 0.68rem; color: var(--text-muted); }
 .emp-contact__ch { font-size: 0.68rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* NÚCLEO-CRM — edição na Ficha de empresa: ações no header do modal (Editar +
+   Fechar) e cabeçalho da lista de contatos (título + "Adicionar contato"). */
+.emp-ficha__head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.emp-ficha__contatos-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
 /* ============================================================
    NÚCLEO-CRM N4 — janela "Contatos" (pessoas) + "Clientes" (papel)
    + modal criar cliente manual. Reusa .emp-* (linhas/badges/empty/

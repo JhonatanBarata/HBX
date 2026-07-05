@@ -3495,6 +3495,8 @@ export class RadarCoreDeliveryMixin {
     if (!nucleoIngestaoEnabled()) return Promise.resolve();
     return materializeNucleoIngestaoFromRadarLead(
       {
+        // getNucleoCadastro() devolve o serviço inteiro; o Pick (upsertContaFromCnpj /
+        // upsertContaFromRadarWebLead / upsertContatoPrincipal) é satisfeito por estrutura.
         cadastro: this.getNucleoCadastro(),
         loadCnpjPublic: async (cnpj: string) => {
           if (!(await this.prisma.hasTable('CnpjPublicCompany').catch(() => false))) return null;

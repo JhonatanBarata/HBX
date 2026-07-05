@@ -97,6 +97,70 @@ export class NucleoCadastroService {
   }
 
   /**
+   * NÚCLEO-CRM N2 (05/07) — Upsert idempotente de uma CONTA (CustomerProfile) a partir
+   * de um lead WEB do Radar (Google Maps/scraping), ou seja, SEM CNPJ. Enquanto
+   * `upsertContaFromCnpj` chaveia por (companyId, cnpj), aqui a única chave segura de
+   * idempotência é (companyId, phoneNormalized) — sem telefone normalizável não dá pra
+   * deduplicar com segurança, então devolve `null` (o helper de ingestão trata como skip).
+   *
+   * Papéis acumulativos (mesma regra do resto do serviço): só LIGA `isLead`, nunca desliga;
+   * gaps de nome/endereço/cidade/uf são preenchidos sem sobrescrever o que já existe.
+   *
+   * @returns o id da Conta (CustomerProfile) criada/atualizada, ou `null` sem phone.
+   */
+  async upsertContaFromRadarWebLead(input: UpsertContaFromRadarWebLeadInput): Promise<string | null> {
+    if (!input.companyId) {
+      throw new Error('upsertContaFromRadarWebLead: companyId é obrigatório');
+    }
+    const phoneNormalized = normalizeDigits(input.phone) || null;
+    if (!phoneNormalized) return null;
+
+    const existing = await this.prisma.customerProfile.findFirst({
+      where: { companyId: input.companyId, phoneNormalized },
+      select: { id: true },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.customerProfile.update({
+        where: { id: existing.id },
+        data: {
+          // nome/endereço só preenchem GAPS (não sobrescrevem o que já existe)
+          ...(input.nome ? { name: input.nome } : {}),
+          ...(input.endereco !== undefined ? { endereco: input.endereco } : {}),
+          ...(input.cidade !== undefined ? { cidade: input.cidade } : {}),
+          ...(input.uf !== undefined ? { uf: input.uf } : {}),
+          // papéis são acumulativos: só LIGA, nunca desliga um papel já marcado
+          isLead: true,
+        },
+        select: { id: true },
+      });
+      return updated.id;
+    }
+
+    const created = await this.prisma.customerProfile.create({
+      data: {
+        companyId: input.companyId,
+        tipo: 'pj',
+        name: input.nome ?? null,
+        phone: normalizeDigits(input.phone) || null,
+        phoneNormalized,
+        // `document` fica NULL de propósito: telefone NÃO é documento. Gravar o phone aqui
+        // colidiria no dedupe-por-document do `createConta` (checa document ANTES de phone)
+        // contra um CPF real de 11 dígitos → falso-merge de contas. A dedupe do lead web já
+        // é garantida pelo @@unique([companyId, phoneNormalized]).
+        endereco: input.endereco ?? null,
+        cidade: input.cidade ?? null,
+        uf: input.uf ?? null,
+        isLead: true,
+        isCliente: false,
+        origin: 'radar',
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /**
    * Upsert idempotente do CONTATO PRINCIPAL de uma Conta (a pessoa: dono/comprador/
    * quem recebe). Idempotência por (companyId, customerProfileId, isPrincipal): mantém
    * NO MÁXIMO um principal por conta. Se já houver um principal, atualiza-o; senão cria.
@@ -1115,6 +1179,16 @@ export interface UpsertContaFromCnpjInput {
   isFornecedor?: boolean;
   /** 'radar' | 'manual' | 'import' — default 'radar' pra este caminho */
   origin?: string;
+}
+
+/** N2 (05/07) — input do upsert de lead WEB do Radar (sem CNPJ), chave = phoneNormalized. */
+export interface UpsertContaFromRadarWebLeadInput {
+  companyId: number;
+  nome?: string | null;
+  phone?: string | null;
+  endereco?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
 }
 
 export interface UpsertContatoPrincipalInput {
