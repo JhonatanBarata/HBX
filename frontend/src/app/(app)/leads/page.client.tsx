@@ -218,15 +218,6 @@ const SIGNAL_META: Record<string, { label: string; tone: "hot" | "warn" | "dange
   cnpj_baixado: { label: "⚠️ CNPJ baixado", tone: "danger" },
 };
 
-type StandingOrder = {
-  active: boolean;
-  city: string;
-  state: string;
-  segment: string;
-  alcance: string;
-  quantos: number;
-};
-
 // WORM-15 — pesquisa salva (recorte de filtros nomeado). filtro = subset dos
 // filtros do Radar. O backend guarda o mesmo shape em filtroJson.
 type SavedFiltro = Record<string, unknown>;
@@ -434,17 +425,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // P4: modal de campo faltando
   const [missingModal, setMissingModal] = useState<string[] | null>(null);
 
-  // P5/EFEITO: chips voando e toast
-  const [flyChips, setFlyChips] = useState<Array<{ id: number; name: string; x0: number; y0: number; x1: number; y1: number; dur: number }>>([]);
+  // P5/EFEITO: toast (o fly-chips animado morreu com o standing-order/auto-feed;
+  // sobrou só o aviso "N leads disponíveis pra puxar" na vitrine).
   const [flyToast, setFlyToast] = useState<string | null>(null);
-  const [tabCarteiraPop, setTabCarteiraPop] = useState(false);
-  const discRef = useRef<HTMLDivElement | null>(null);
-  const tabCarteiraRef = useRef<HTMLButtonElement | null>(null);
-  const flyIdRef = useRef(0);
-
-  // standingOrder: só lido (fly-effect no polling) — item 5/6 removeu o toggle/botão
-  // "@ Automático" da UI (não existe mais gatilho manual pra ligar/desligar).
-  const [standingOrder, setStandingOrder] = useState<StandingOrder | null>(null);
 
   // WORM-15 — pesquisas salvas (recorte de filtros nomeado)
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -587,9 +570,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         }
       })
       .catch(() => { /* sem busca ativa */ });
-    apiFetch<{ standingOrder: StandingOrder }>("/webscraping/radar/standing-order")
-      .then(res => { if (res?.standingOrder) setStandingOrder(res.standingOrder); })
-      .catch(() => null);
     // WORM-15 — carrega pesquisas salvas do usuario (+ vendedores, se admin/gerente)
     apiFetch<{ searches?: SavedSearch[]; sellers?: SavedSeller[]; canAssignSeller?: boolean }>("/saved-search")
       .then(res => {
@@ -649,24 +629,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           loadList("shelf", { page: 1 });
           loadBank();
           loadUsage();
-          // P5/EFEITO: destino depende do "Auto" (standing order).
-          // Auto ON + importou → voa chips pra carteira (foi auto-importado).
-          // Auto OFF → leads ficam na vitrine "Disponíveis"; mostra quantos achou pra puxar.
+          // P5/EFEITO: leads ficam na vitrine "Disponíveis"; mostra quantos achou pra
+          // puxar (o standing-order/auto-feed morreu — não existe mais auto-import).
           type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number; totalAvailable?: number; deliveredCount?: number };
           const resMeta = res?.meta as RunMetaExt | undefined;
-          const importedCount = resMeta?.importedCount ?? 0;
-          const autoOn = Boolean(standingOrder?.active);
-          if (autoOn && importedCount > 0) {
-            triggerFlyEffect(importedCount, res);
-          } else {
-            setTab("shelf");
-            setPage(1);
-            // "Apreciar o resultado": anuncia quantos leads ficaram disponíveis pra puxar.
-            const disponiveis = resMeta?.totalAvailable ?? res?.foundCount ?? 0;
-            if (disponiveis > 0) {
-              setFlyToast(`${disponiveis} lead${disponiveis > 1 ? "s" : ""} disponíve${disponiveis > 1 ? "is" : "l"} pra puxar`);
-              setTimeout(() => setFlyToast(null), 3200);
-            }
+          setTab("shelf");
+          setPage(1);
+          // "Apreciar o resultado": anuncia quantos leads ficaram disponíveis pra puxar.
+          const disponiveis = resMeta?.totalAvailable ?? res?.foundCount ?? 0;
+          if (disponiveis > 0) {
+            setFlyToast(`${disponiveis} lead${disponiveis > 1 ? "s" : ""} disponíve${disponiveis > 1 ? "is" : "l"} pra puxar`);
+            setTimeout(() => setFlyToast(null), 3200);
           }
         }
       } catch {
@@ -676,7 +649,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [run, loadList, loadBank, standingOrder?.active]);
+  }, [run, loadList, loadBank]);
 
   function switchTab(next: Tab) {
     if (next === tab) return;
@@ -824,66 +797,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     opState === "funcionando"
   );
   const runProgress = run?.meta?.progress;
-
-  // P5/EFEITO: anima chips saindo do disco do radar e voando pra aba Minha carteira
-  function triggerFlyEffect(importedCount: number, _run: RunResponse) {
-    void _run;
-    // Embutido no Vendas: não existe aba carteira pra onde voar — só avisa o funil
-    // pra recarregar (sem deslizar; é auto-pull em segundo plano).
-    if (embedded) { onLeadPulled?.(false); return; }
-    const cap = Math.min(importedCount, 5);
-    const discEl = discRef.current;
-    const tabEl = tabCarteiraRef.current;
-
-    if (!discEl || !tabEl || typeof window === "undefined") {
-      // sem elemento de referência: só troca aba
-      setTimeout(() => { setTab("carteira"); setPage(1); loadList("carteira", { page: 1 }); }, 200);
-      return;
-    }
-
-    const discRect = discEl.getBoundingClientRect();
-    const tabRect = tabEl.getBoundingClientRect();
-    const srcX = discRect.left + discRect.width / 2;
-    const srcY = discRect.top + discRect.height / 2;
-    const dstX = tabRect.left + tabRect.width / 2;
-    const dstY = tabRect.top + tabRect.height / 2;
-
-    const chips: typeof flyChips = [];
-    const names = ["Lead", "Empresa", "Contato", "Negócio", "Cliente"];
-    for (let i = 0; i < cap; i++) {
-      chips.push({
-        id: ++flyIdRef.current,
-        name: names[i % names.length],
-        x0: srcX,
-        y0: srcY,
-        x1: dstX - srcX,
-        y1: dstY - srcY,
-        dur: 0.62 + i * 0.12,
-      });
-    }
-    setFlyChips(chips);
-
-    // Badge pop na aba
-    setTimeout(() => {
-      setTabCarteiraPop(true);
-      setTimeout(() => setTabCarteiraPop(false), 500);
-    }, 400);
-
-    // Toast
-    const total = importedCount;
-    setTimeout(() => {
-      setFlyToast(`${total} lead${total > 1 ? "s" : ""} na sua carteira`);
-      setTimeout(() => setFlyToast(null), 3200);
-    }, 600);
-
-    // Limpar chips e trocar aba depois do voo
-    setTimeout(() => {
-      setFlyChips([]);
-      setTab("carteira");
-      setPage(1);
-      loadList("carteira", { page: 1 });
-    }, 1100 + cap * 120);
-  }
 
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
   function validarCamposOuPopup(effSegment?: string): boolean {
@@ -1294,7 +1207,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         {/* Hero decorativo (item 2/8/3): disco-sonar PROTAGONISTA no topo — grande,
             centralizado, puro enfeite. Sem estado, sem texto de pausa/"volta sozinho". */}
         <div className="radar-hero" data-tut="leads-filtros">
-          <div className="radar-hero__disc" ref={discRef}>
+          <div className="radar-hero__disc">
             <RadarDisc />
           </div>
           <div className="radar-hero__copy">
@@ -1846,8 +1759,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                     o que você puxa aparece no "Meu funil" do slide. 27/06. */}
                 {!embedded && (
                   <button
-                    ref={tabCarteiraRef}
-                    className={"tab" + (tab === "carteira" ? " active" : "") + (tabCarteiraPop ? " tab--pop" : "")}
+                    className={"tab" + (tab === "carteira" ? " active" : "")}
                     onClick={() => switchTab("carteira")}
                   >
                     Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
@@ -2126,29 +2038,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         </div>
       )}
 
-      {/* P5/EFEITO: chips voando do disco pra aba Minha carteira */}
-      {flyChips.length > 0 && (
-        <div className="radar-fly-layer" aria-hidden>
-          {flyChips.map(chip => (
-            <div
-              key={chip.id}
-              className="radar-fly-chip"
-              style={{
-                left: chip.x0,
-                top: chip.y0,
-                "--fly-x0": "0px",
-                "--fly-y0": "0px",
-                "--fly-x1": `${chip.x1}px`,
-                "--fly-y1": `${chip.y1}px`,
-                "--fly-dur": `${chip.dur}s`,
-              } as React.CSSProperties}
-            >
-              <span className="radar-fly-chip__av">L</span>
-              {chip.name}
-            </div>
-          ))}
-        </div>
-      )}
       {flyToast && (
         <div className="radar-fly-toast" aria-live="polite">
           ✓ {flyToast}
