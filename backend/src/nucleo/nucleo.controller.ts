@@ -19,6 +19,7 @@ import { NucleoCadastroService } from './nucleo-cadastro.service';
 import {
   CreateContaDto,
   CreateContatoDto,
+  ImportContasDto,
   MergeContaDto,
   SoftDeleteDto,
   UpdateContaDto,
@@ -139,6 +140,17 @@ export class NucleoController {
   createConta(@Req() req: any, @Body() dto: CreateContaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.service.createConta(companyId, dto);
+  }
+
+  /**
+   * IMPORTAÇÃO EM MASSA de contatos/clientes (planilha). Uma linha = uma Conta +
+   * Contato principal, pelo MESMO caminho idempotente do cadastro manual (GRÁTIS).
+   * O front envia em lotes; aqui só validamos e rodamos. Company-scoped (JWT).
+   */
+  @Post('contas/import')
+  importContas(@Req() req: any, @Body() dto: ImportContasDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.importContas(companyId, dto.rows || []);
   }
 
   /** Edita uma conta (papéis/endereço/dados). Company-scoped. */

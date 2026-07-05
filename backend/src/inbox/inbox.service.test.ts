@@ -1201,6 +1201,74 @@ test('refreshConversationAvatar returns null without persisting when motor has n
   assert.equal(conversationUpdates.length, 0);
 });
 
+test('Fix 2 (PR05072026): avatar local existente NÃO é sobrescrito por URL crua pps.whatsapp.net', () => {
+  const service = createBareService();
+  const stateMetadata = { cliente: 'Carlos' };
+  const snapshot = {
+    conversation: { contact: '+5519998877766' },
+    remoteJid: '5519998877766@s.whatsapp.net',
+    remoteJidAlt: null,
+    contact: '+5519998877766',
+    displayName: 'Carlos',
+    avatarUrl: 'https://pps.whatsapp.net/v/abc123.jpg',
+    unreadCount: 0,
+    archived: false,
+    windowActive: null,
+    lastMessageAt: null,
+    lastMessage: null,
+  };
+  const previousAvatarUrl = '/uploads/avatars/9f8e7d6c.jpg';
+
+  const merged = service.buildLiveConversationMetadata(stateMetadata, snapshot, previousAvatarUrl);
+
+  assert.equal(merged.whatsappAvatarUrl, previousAvatarUrl);
+});
+
+test('Fix 2 (PR05072026): avatar local existente É substituído quando o snapshot já traz outro local', () => {
+  const service = createBareService();
+  const stateMetadata = { cliente: 'Carlos' };
+  const snapshot = {
+    conversation: { contact: '+5519998877766' },
+    remoteJid: '5519998877766@s.whatsapp.net',
+    remoteJidAlt: null,
+    contact: '+5519998877766',
+    displayName: 'Carlos',
+    avatarUrl: '/uploads/avatars/novofoto111.jpg',
+    unreadCount: 0,
+    archived: false,
+    windowActive: null,
+    lastMessageAt: null,
+    lastMessage: null,
+  };
+  const previousAvatarUrl = '/uploads/avatars/9f8e7d6c.jpg';
+
+  const merged = service.buildLiveConversationMetadata(stateMetadata, snapshot, previousAvatarUrl);
+
+  assert.equal(merged.whatsappAvatarUrl, '/uploads/avatars/novofoto111.jpg');
+});
+
+test('Fix 2 (PR05072026): sem avatar local prévio, URL crua entra normalmente (nunca pior que hoje)', () => {
+  const service = createBareService();
+  const stateMetadata = { cliente: 'Carlos' };
+  const snapshot = {
+    conversation: { contact: '+5519998877766' },
+    remoteJid: '5519998877766@s.whatsapp.net',
+    remoteJidAlt: null,
+    contact: '+5519998877766',
+    displayName: 'Carlos',
+    avatarUrl: 'https://pps.whatsapp.net/v/abc123.jpg',
+    unreadCount: 0,
+    archived: false,
+    windowActive: null,
+    lastMessageAt: null,
+    lastMessage: null,
+  };
+
+  const merged = service.buildLiveConversationMetadata(stateMetadata, snapshot, null);
+
+  assert.equal(merged.whatsappAvatarUrl, 'https://pps.whatsapp.net/v/abc123.jpg');
+});
+
 test('sendMessage clears pending Vendas agenda draft after queueing manual outbound', async () => {
   const { service, conversationStateCalls } = createService({
     prisma: {

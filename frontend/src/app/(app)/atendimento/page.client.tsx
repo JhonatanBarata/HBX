@@ -520,6 +520,13 @@ export function AtendimentoClient() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [presence, setPresence] = useState<Presence | null>(null);
 
+  // colar (Ctrl+V) / arrastar arquivo: nunca envia direto — fica pendente até confirmar
+  // no cartão de prévia (anti-cagada). previewUrl só existe para imagem (miniatura).
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepthRef = useRef(0); // contador de enter/leave (filhos disparam ambos)
+
   // filtro de fila (?queue=) + popover; filaRef p/ loadConvs ler sem recriar
   const [fila, setFila] = useState("");
   const [filaOpen, setFilaOpen] = useState(false);
@@ -1170,6 +1177,7 @@ export function AtendimentoClient() {
       setMoverOpen(false);
       setTarefaOpen(false);
       setAcaoMsg(null);
+      cancelPendingFile(); // anexo colado/arrastado pendente não atravessa pra outra conversa
     }
     // Foto on-demand: se a conversa abriu sem foto, busca sozinho (best-effort,
     // sem await travando a UI). Patch in-place no estado — não pisca.
@@ -1275,6 +1283,66 @@ export function AtendimentoClient() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (file) sendAttachment(file, attachKindFromMime(file.type));
+  }
+
+  // ── colar (Ctrl+V) / arrastar arquivo: pousa em revisão, nunca envia direto ──
+  function stagePendingFile(file: File) {
+    setSendError(null);
+    setPendingPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPendingFile(file);
+    if (file.type.startsWith("image/")) {
+      setPendingPreviewUrl(URL.createObjectURL(file));
+    }
+  }
+
+  function cancelPendingFile() {
+    setPendingPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPendingFile(null);
+  }
+
+  async function confirmPendingFile() {
+    if (!pendingFile) return;
+    const file = pendingFile;
+    cancelPendingFile();
+    await sendAttachment(file, attachKindFromMime(file.type));
+  }
+
+  // Ctrl+V no composer: só intercepta quando há arquivo colado (imagem de print,
+  // por ex.); texto colado normal segue o fluxo padrão do textarea.
+  function onComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const file = e.clipboardData?.files?.[0];
+    if (!file || !convo || !canSend) return;
+    e.preventDefault();
+    stagePendingFile(file);
+  }
+
+  // Drag & drop na área da conversa aberta (thread inteira) — overlay "Solte para
+  // enviar" enquanto arrasta; contador de profundidade porque os filhos do painel
+  // também disparam dragenter/dragleave.
+  function onThreadDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!convo || !canSend) return;
+    if (!Array.from(e.dataTransfer.types || []).includes("Files")) return;
+    e.preventDefault();
+  }
+  function onThreadDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    if (!convo || !canSend) return;
+    if (!Array.from(e.dataTransfer.types || []).includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragOver(true);
+  }
+  function onThreadDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    if (dragDepthRef.current > 0) dragDepthRef.current -= 1;
+    if (dragDepthRef.current <= 0) { dragDepthRef.current = 0; setDragOver(false); }
+  }
+  function onThreadDrop(e: React.DragEvent<HTMLDivElement>) {
+    dragDepthRef.current = 0;
+    setDragOver(false);
+    if (!convo || !canSend) return;
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    e.preventDefault();
+    stagePendingFile(file);
   }
 
   // ── gravação de nota de voz (fluxo WhatsApp: gravar → pausar → ouvir → enviar) ──
@@ -2084,7 +2152,14 @@ export function AtendimentoClient() {
                 </div>
               </div>
 
-              <div className="thread">
+              <div className="thread"
+                onDragOver={onThreadDragOver}
+                onDragEnter={onThreadDragEnter}
+                onDragLeave={onThreadDragLeave}
+                onDrop={onThreadDrop}>
+                {dragOver && convo && canSend && (
+                  <div className="drop-overlay"><span>Solte para enviar</span></div>
+                )}
                 <div className="thread-head">
                   {/* Voltar para a lista — só aparece no celular (.chat-back é display:none no desktop). */}
                   <button className="chat-back" aria-label="Voltar para conversas" onClick={() => setMobileThread(false)}>
@@ -2198,6 +2273,9 @@ export function AtendimentoClient() {
                               </div>
                             )}
                           </div>
+                          {!meta.isDeleted && reactFor !== m.id && (
+                            <button className="reply-add" onClick={() => setReplyTo(m)} aria-label="Responder" title="Responder"><I d={ICONS.reply} size={15} /></button>
+                          )}
                           {canReact && (reactFor === m.id
                             ? <span className="reactions">{QUICK_RX.map(e => <button className="rx" key={e} onClick={() => doReact(m, e)}>{e}</button>)}</span>
                             : <button className="react-add" onClick={() => setReactFor(m.id)} aria-label="Reagir"><I d={ICONS.smile} size={15} /></button>)}
@@ -2230,6 +2308,27 @@ export function AtendimentoClient() {
                       <I d={ICONS.reply} size={14} />
                       <span className="body"><small>{replyTo.content || "Anexo"}</small></span>
                       <span className="x" onClick={() => setReplyTo(null)}><I d={ICONS.x} size={14} /></span>
+                    </div>
+                  )}
+
+                  {/* Prévia de confirmação (colar/arrastar) — nunca envia direto. */}
+                  {pendingFile && (
+                    <div className="attach-preview"
+                      tabIndex={-1}
+                      ref={el => { if (el) el.focus(); }}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { e.preventDefault(); void confirmPendingFile(); }
+                        else if (e.key === "Escape") { e.preventDefault(); cancelPendingFile(); }
+                      }}>
+                      {pendingPreviewUrl
+                        ? <img className="thumb" src={pendingPreviewUrl} alt="Prévia do anexo" />
+                        : <span className="ic"><I d={ICONS.file} size={18} /></span>}
+                      <span className="info">
+                        <strong>{pendingFile.name || "Anexo"}</strong>
+                        <small>{fmtBytes(pendingFile.size)}</small>
+                      </span>
+                      <button className="btn-ghost btn-xs" onClick={cancelPendingFile} disabled={sendBusy}>Cancelar</button>
+                      <button className="send" onClick={confirmPendingFile} disabled={sendBusy} title="Enviar anexo"><I d={ICONS.send} size={15} /></button>
                     </div>
                   )}
 
@@ -2322,6 +2421,7 @@ export function AtendimentoClient() {
                       <textarea ref={draftRef} className="field-dark" rows={1} style={{ flex: 1, resize: 'none', padding: '8px 12px', lineHeight: '20px', overflowY: 'hidden', verticalAlign: 'top' }} placeholder="Digite sua mensagem..." value={draft}
                         onChange={e => { setDraft(e.target.value); const el = e.target; el.style.height = 'auto'; const h = Math.min(el.scrollHeight, 96); el.style.height = h + 'px'; el.style.overflowY = el.scrollHeight > 96 ? 'auto' : 'hidden'; }}
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                        onPaste={onComposerPaste}
                         disabled={!convo || sendBusy} />
                       <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
                       <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>

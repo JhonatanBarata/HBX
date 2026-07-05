@@ -114,6 +114,11 @@ function buildHarness(input: {
         products.push(created);
         return created;
       },
+      createMany: async ({ data }: any) => {
+        const list = Array.isArray(data) ? data : [data];
+        for (const row of list) products.push({ id: products.length + 1, ...row });
+        return { count: list.length };
+      },
       update: async ({ where, data }: any) => {
         const index = products.findIndex((product) => product.id === where.id);
         assert.notEqual(index, -1);
@@ -301,4 +306,48 @@ test('resolveSellableProductForUser requires products.sell and active tenant pro
     () => allowed.service.resolveSellableProductForUser(allowed.user, 2),
     /not found/i,
   );
+});
+
+test('importProductsForUser cria em lote, pula linha sem nome e converte preço', async () => {
+  const { service, user, products } = buildHarness({
+    access: { 'products.edit': true, 'products.changePrice': true },
+  });
+
+  const res = await service.importProductsForUser(user, [
+    { name: 'Galão 20L', price: 12.5, unidade: 'galão 20L', usaLogistica: true },
+    { name: '', price: 9 }, // pulada (sem nome)
+    { name: 'Água 500ml', price: 2 },
+  ]);
+
+  assert.equal(res.total, 3);
+  assert.equal(res.imported, 2);
+  assert.equal(res.skipped, 1);
+  assert.equal(res.errors.length, 0);
+  // 2 iniciais do harness + 2 importados
+  assert.equal(products.length, 4);
+  const galao = products.find((p: any) => p.name === 'Galão 20L');
+  assert.equal(galao.companyId, 1);
+  assert.equal(galao.priceCents, 1250);
+  assert.equal(galao.usaLogistica, true);
+});
+
+test('importProductsForUser exige products.edit', async () => {
+  const { service, user } = buildHarness({ access: { 'products.edit': false } });
+  await assert.rejects(
+    () => service.importProductsForUser(user, [{ name: 'X' }]),
+    ForbiddenException,
+  );
+});
+
+test('importProductsForUser bloqueia preço sem products.changePrice', async () => {
+  const { service, user } = buildHarness({
+    access: { 'products.edit': true, 'products.changePrice': false },
+  });
+  await assert.rejects(
+    () => service.importProductsForUser(user, [{ name: 'X', price: 10 }]),
+    ForbiddenException,
+  );
+  // sem preço, a mesma política deixa importar
+  const ok = await service.importProductsForUser(user, [{ name: 'Serviço' }]);
+  assert.equal(ok.imported, 1);
 });

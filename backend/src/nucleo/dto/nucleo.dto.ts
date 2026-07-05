@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsNumber,
@@ -6,7 +8,9 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * NÚCLEO-CRM N4 (04/07) — DTOs de ESCRITA da espinha de cadastro.
@@ -224,6 +228,76 @@ export class SoftDeleteDto {
   @IsString()
   @MaxLength(240)
   motivo?: string;
+}
+
+// ── IMPORTAÇÃO EM MASSA (planilha) — uma linha = uma Conta + Contato principal ──
+//
+// Reusa o MESMO contrato do cadastro manual (createConta, idempotente e GRÁTIS). A
+// planilha vem parseada do navegador; o backend só valida e roda em lote. Validação
+// LENIENTE de propósito: campos todos opcionais aqui — quem não tem `nome` é PULADO
+// no serviço (não derruba a batelada inteira por uma linha vazia). companyId sai do JWT.
+export class ImportContatoRowDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  nome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  telefone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  cidade?: string;
+
+  // Aceita UF (2 letras) OU nome do estado ("Ceará") — normalizado no serviço.
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  uf?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  cnpj?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  endereco?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  cep?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  cargo?: string;
+
+  @IsOptional()
+  @IsIn(['pf', 'pj'])
+  tipo?: 'pf' | 'pj';
+
+  @IsOptional()
+  @IsBoolean()
+  isCliente?: boolean;
+}
+
+export class ImportContasDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => ImportContatoRowDto)
+  rows!: ImportContatoRowDto[];
 }
 
 // ── Editar CONTATO ───────────────────────────────────────────────────────────

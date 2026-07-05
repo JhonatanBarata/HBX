@@ -3050,9 +3050,28 @@ export class InboxService {
     return unreadCount;
   }
 
+  // Fix 2 (PR05072026): decide se o avatar novo (vindo do snapshot ao vivo) pode substituir o
+  // que já está salvo. Regra: local (`/uploads/avatars/...`) existente só é substituído por outro
+  // local (nunca por URL crua pps.whatsapp.net) — senão uma busca que falhou o cache no bridge
+  // (`cache ?? rawAvatarUrl`) sobrescreve silenciosamente uma foto que já funcionava. URL crua só
+  // entra se NÃO houver nada local salvo antes (nunca pior que hoje).
+  private resolveNextWhatsappAvatarUrl(
+    previousAvatarUrl: string | null | undefined,
+    nextAvatarUrl: string | null | undefined,
+  ): string | null {
+    const next = this.normalizeMessageMetadataText(nextAvatarUrl);
+    if (!next) return this.normalizeMessageMetadataText(previousAvatarUrl) || null;
+    const previous = this.normalizeMessageMetadataText(previousAvatarUrl);
+    const previousIsLocal = Boolean(previous && previous.startsWith('/uploads/'));
+    const nextIsLocal = next.startsWith('/uploads/');
+    if (previousIsLocal && !nextIsLocal) return previous; // mantém o local, ignora o cru
+    return next;
+  }
+
   private buildLiveConversationMetadata(
     stateMetadata: Record<string, any>,
     snapshot: WebwhatsLiveChatSnapshot | WebwhatsLiveConversationSnapshot,
+    previousAvatarUrl?: string | null,
   ) {
     const unreadCount = this.resolveLiveUnreadCount(stateMetadata, snapshot);
     const agendaDisplayName = this.normalizeDisplayNameCandidate(
@@ -3079,7 +3098,10 @@ export class InboxService {
             waNickname: profileDisplayName,
           }
         : {}),
-      ...(snapshot.avatarUrl ? { whatsappAvatarUrl: snapshot.avatarUrl } : {}),
+      ...(() => {
+        const resolvedAvatarUrl = this.resolveNextWhatsappAvatarUrl(previousAvatarUrl, snapshot.avatarUrl);
+        return resolvedAvatarUrl ? { whatsappAvatarUrl: resolvedAvatarUrl } : {};
+      })(),
       whatsappUnreadCount: unreadCount,
       ...(snapshot.windowActive === null ? {} : { whatsappWindowActive: snapshot.windowActive }),
       ...(snapshot.archived === null
@@ -3102,7 +3124,12 @@ export class InboxService {
     },
   ) {
     const stateMetadata = this.getStateConversationMetadata(snapshot.conversation.metadata);
-    const mergedMetadata = this.buildLiveConversationMetadata(stateMetadata, snapshot);
+    // Avatar local já salvo ANTES do merge (getStateConversationMetadata apaga whatsappAvatarUrl
+    // do stateMetadata de propósito) — precisa do valor cru pra decidir o Fix 2 (não-clobber).
+    const previousAvatarUrl = this.normalizeMessageMetadataText(
+      this.parseConversationMetadata(snapshot.conversation.metadata)?.whatsappAvatarUrl,
+    );
+    const mergedMetadata = this.buildLiveConversationMetadata(stateMetadata, snapshot, previousAvatarUrl);
     const liveMessages =
       'messages' in snapshot && Array.isArray(snapshot.messages)
         ? snapshot.messages

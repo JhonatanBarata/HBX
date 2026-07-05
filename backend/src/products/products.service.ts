@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import type { ImportProductRowDto } from './dto/import-products.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductVersionService } from './product-version.service';
 import { hasTeamAccess } from '../team/team-access-catalog';
@@ -272,6 +273,68 @@ export class ProductsService {
     const data = this.buildCreateData(access.companyId, createDto, access.userId);
     const product = await this.prisma.product.create({ data });
     return this.presentProduct(product, access);
+  }
+
+  /**
+   * IMPORTAÇÃO EM MASSA de produtos (planilha). Resolve o acesso UMA vez, valida cada
+   * linha reusando `buildCreateData` (mesma normalização do cadastro manual) e insere
+   * em lote com `createMany`. Linha sem nome é PULADA; linha inválida (ex.: preço
+   * negativo) vira `errors` e a batelada segue. Se qualquer linha traz preço e a
+   * política da equipe não deixa mexer em preço → 403 (mesmo veredito do create único).
+   */
+  async importProductsForUser(user: any, rows: ImportProductRowDto[]) {
+    const access = await this.resolveAccess(user);
+    this.assertCanEdit(access);
+
+    const list = Array.isArray(rows) ? rows : [];
+    const anyPrice = list.some((r) => r?.price != null && Number(r.price) > 0);
+    if (anyPrice && !access.canChangeProductPrice) {
+      throw new ForbiddenException('Alteracao de preco bloqueada pela politica da equipe.');
+    }
+
+    const result = {
+      total: list.length,
+      imported: 0,
+      skipped: 0,
+      errors: [] as { line: number; name: string; message: string }[],
+    };
+
+    const data: any[] = [];
+    list.forEach((row, index) => {
+      const name = normalizeText(row?.name, 140);
+      if (!name) {
+        result.skipped++;
+        return;
+      }
+      try {
+        data.push(
+          this.buildCreateData(
+            access.companyId,
+            {
+              name,
+              price: row?.price,
+              unidade: row?.unidade,
+              usaLogistica: row?.usaLogistica,
+              sku: row?.sku,
+              description: row?.description,
+            } as CreateProductDto,
+            access.userId,
+          ),
+        );
+      } catch (error: any) {
+        result.errors.push({
+          line: index + 1,
+          name,
+          message: String(error?.message || error || 'linha invalida'),
+        });
+      }
+    });
+
+    if (data.length) {
+      await this.prisma.product.createMany({ data });
+      result.imported = data.length;
+    }
+    return result;
   }
 
   async updateProductForUser(user: any, id: number, updateDto: UpdateProductDto) {

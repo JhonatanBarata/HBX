@@ -660,6 +660,66 @@ export class NucleoCadastroService {
     return { contaId, contatoId };
   }
 
+  /**
+   * IMPORTAÇÃO EM MASSA de contatos/clientes a partir de uma planilha (uma linha =
+   * uma Conta + Contato principal). Roda o MESMO caminho idempotente do cadastro
+   * manual (`createConta`) linha a linha — GRÁTIS (não é lead da base 28M). Uma linha
+   * que falha NÃO derruba as outras: é registrada em `errors` e a batelada segue.
+   *
+   * Regras (pedido do dono): só `nome` é obrigatório (linha sem nome é PULADA); CNPJ
+   * preenchido → a conta vira PJ automaticamente; UF aceita 2 letras OU nome do estado.
+   */
+  async importContas(companyId: number, rows: ImportContatoRow[]): Promise<ImportContasResult> {
+    if (!companyId) throw new Error('importContas: companyId é obrigatório');
+    const list = Array.isArray(rows) ? rows : [];
+    const result: ImportContasResult = {
+      total: list.length,
+      imported: 0,
+      skipped: 0,
+      errors: [],
+    };
+
+    for (let i = 0; i < list.length; i++) {
+      const row = list[i] || {};
+      const nome = String(row.nome ?? '').trim();
+      if (!nome) {
+        result.skipped++;
+        continue;
+      }
+      try {
+        const cnpj = normalizeDigits(row.cnpj);
+        const tipo: 'pf' | 'pj' = row.tipo === 'pj' || cnpj.length === 14 ? 'pj' : 'pf';
+        await this.createConta(companyId, {
+          nome,
+          tipo,
+          whatsapp: row.telefone ?? undefined,
+          cnpj: cnpj || undefined,
+          document: cnpj || undefined,
+          email: row.email ?? undefined,
+          endereco: row.endereco ?? undefined,
+          cidade: row.cidade ?? undefined,
+          uf: normalizeUf(row.uf),
+          cep: row.cep ?? undefined,
+          cargo: row.cargo ?? undefined,
+          // Import do vendedor nasce CLIENTE por default (igual ao cadastro manual).
+          isCliente: row.isCliente ?? true,
+        });
+        result.imported++;
+      } catch (error: any) {
+        result.errors.push({
+          line: i + 1,
+          nome,
+          message: String(error?.message || error || 'linha inválida'),
+        });
+      }
+    }
+
+    this.logger.log(
+      `[nucleo] import contatos company=${companyId} total=${result.total} imported=${result.imported} skipped=${result.skipped} errors=${result.errors.length}`,
+    );
+    return result;
+  }
+
   /** Edita uma CONTA (papéis/endereço/dados). Company-scoped (isolamento duro). */
   async updateConta(companyId: number, id: string, input: UpdateContaInput): Promise<{ id: string } | null> {
     if (!companyId || !id) return null;
@@ -1010,6 +1070,35 @@ function normalizeDigits(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D+/g, '');
 }
 
+// Import de planilha: coluna "uf" aceita 2 letras OU o nome do estado ("Ceará",
+// "sao paulo"). Devolve a sigla de 2 letras, ou undefined quando não reconhece
+// (deixa vazio em vez de gravar lixo). Sem acento/caixa importam.
+const UF_SIGLAS = new Set([
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
+  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+]);
+const UF_POR_NOME: Record<string, string> = {
+  acre: 'AC', alagoas: 'AL', amapa: 'AP', amazonas: 'AM', bahia: 'BA', ceara: 'CE',
+  'distrito federal': 'DF', 'espirito santo': 'ES', goias: 'GO', maranhao: 'MA',
+  'mato grosso': 'MT', 'mato grosso do sul': 'MS', 'minas gerais': 'MG', para: 'PA',
+  paraiba: 'PB', parana: 'PR', pernambuco: 'PE', piaui: 'PI', 'rio de janeiro': 'RJ',
+  'rio grande do norte': 'RN', 'rio grande do sul': 'RS', rondonia: 'RO', roraima: 'RR',
+  'santa catarina': 'SC', 'sao paulo': 'SP', sergipe: 'SE', tocantins: 'TO',
+};
+function normalizeUf(value: string | null | undefined): string | undefined {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const upper = raw.toUpperCase();
+  if (upper.length === 2 && UF_SIGLAS.has(upper)) return upper;
+  const key = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return UF_POR_NOME[key] ?? undefined;
+}
+
 export interface UpsertContaFromCnpjInput {
   companyId: number;
   cnpj: string;
@@ -1181,6 +1270,28 @@ export interface CreateContaInput {
 export interface ContaCreated {
   contaId: string;
   contatoId: string;
+}
+
+// ── Importação em massa (planilha) ────────────────────────────────────────────
+export interface ImportContatoRow {
+  nome?: string | null;
+  telefone?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cnpj?: string | null;
+  email?: string | null;
+  endereco?: string | null;
+  cep?: string | null;
+  cargo?: string | null;
+  tipo?: 'pf' | 'pj';
+  isCliente?: boolean;
+}
+
+export interface ImportContasResult {
+  total: number;
+  imported: number;
+  skipped: number;
+  errors: { line: number; nome: string; message: string }[];
 }
 
 export interface UpdateContaInput {

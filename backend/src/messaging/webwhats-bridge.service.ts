@@ -256,6 +256,12 @@ export class WebwhatsBridgeService {
   private readonly chatListCache = new Map<string, { expiresAt: number; value: WebwhatsFastChatListResult }>();
   private readonly presenceCache = new Map<string, { expiresAt: number; value: WebwhatsPresenceSnapshot }>();
   private inboundRelay: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null = null;
+  // Concorrência do cache de avatar em background (Fix 1, PR05072026): a LISTA de conversas
+  // é hot path com N chats — nunca esperamos download aqui. Isso só limita quantos downloads
+  // de foto rodam "soltos" ao mesmo tempo (evita rajada no motor/disco); a resposta da lista
+  // já saiu antes de qualquer um destes terminar.
+  private readonly avatarBackgroundInFlight = new Set<string>();
+  private static readonly AVATAR_BACKGROUND_MAX_CONCURRENCY = 3;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -621,6 +627,19 @@ export class WebwhatsBridgeService {
       const lastMessageAt =
         this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt) || null;
 
+      // Fix 1 (PR05072026): a lista é hot path com N chats — nunca esperamos download aqui.
+      // Se o arquivo do hash já existe em disco, serve local (stat síncrono, barato). Senão,
+      // devolve a URL crua (nunca pior que hoje) e dispara o cache em background com teto de
+      // concorrência, pra convergir pro local nas próximas leituras da lista.
+      const rawListAvatarUrl =
+        this.normalizeOptionalString(chat?.profilePicUrl)
+        || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
+        || null;
+      const cachedListAvatarUrl = this.resolveCachedAvatarPathSync(rawListAvatarUrl);
+      if (!cachedListAvatarUrl && rawListAvatarUrl) {
+        this.scheduleAvatarBackgroundCache(rawListAvatarUrl);
+      }
+
       snapshots.push({
         conversation: state,
         remoteJid,
@@ -629,10 +648,7 @@ export class WebwhatsBridgeService {
         displayName: displayNames.displayName,
         agendaDisplayName: displayNames.agendaDisplayName,
         profileDisplayName: displayNames.profileDisplayName,
-        avatarUrl:
-          this.normalizeOptionalString(chat?.profilePicUrl)
-          || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
-          || null,
+        avatarUrl: cachedListAvatarUrl || rawListAvatarUrl,
         unreadCount: Math.max(0, Number(chat?.unreadCount || 0)),
         archived: this.resolveChatArchivedFlag(chat),
         windowActive:
@@ -2795,12 +2811,12 @@ export class WebwhatsBridgeService {
   // trocou a foto → o WhatsApp devolve um path novo → chave nova → baixa a nova (NÃO
   // fica desatualizado: a identidade do arquivo é o conteúdo). Falha (URL vencida/rede)
   // → null, e o chamador cai na URL crua (nunca pior que hoje).
-  private async cacheProfilePictureLocally(cdnUrl: string | null | undefined): Promise<string | null> {
-    const url = this.normalizeOptionalString(cdnUrl);
-    if (!url || !/^https?:\/\//i.test(url)) return null;
+  // Deriva nome de arquivo/caminho local a partir do path da URL (sem query), igual ao
+  // esquema de cache por conteúdo: mesmo path = mesmo arquivo.
+  private resolveAvatarCachePath(cdnUrl: string): { filePath: string; publicUrl: string } | null {
     let pathname: string;
     try {
-      pathname = new URL(url).pathname;
+      pathname = new URL(cdnUrl).pathname;
     } catch {
       return null;
     }
@@ -2808,10 +2824,28 @@ export class WebwhatsBridgeService {
     const ext = /^\.(jpe?g|png|webp|gif)$/.test(rawExt) ? rawExt : '.jpg';
     const filename = `${createHash('sha1').update(pathname).digest('hex')}${ext}`;
     const dir = getBackendPublicUploadDir('avatars');
-    const filePath = join(dir, filename);
-    const publicUrl = `/uploads/avatars/${filename}`;
+    return { filePath: join(dir, filename), publicUrl: `/uploads/avatars/${filename}` };
+  }
+
+  // Checagem SÍNCRONA e barata (só stat em disco, sem rede): usada no hot path da lista
+  // (Fix 1) pra decidir se já dá pra servir o local sem esperar nada.
+  private resolveCachedAvatarPathSync(cdnUrl: string | null | undefined): string | null {
+    const url = this.normalizeOptionalString(cdnUrl);
+    if (!url || !/^https?:\/\//i.test(url)) return null;
+    const resolved = this.resolveAvatarCachePath(url);
+    if (!resolved) return null;
+    return existsSync(resolved.filePath) ? resolved.publicUrl : null;
+  }
+
+  private async cacheProfilePictureLocally(cdnUrl: string | null | undefined): Promise<string | null> {
+    const url = this.normalizeOptionalString(cdnUrl);
+    if (!url || !/^https?:\/\//i.test(url)) return null;
+    const resolved = this.resolveAvatarCachePath(url);
+    if (!resolved) return null;
+    const { filePath, publicUrl } = resolved;
     if (existsSync(filePath)) return publicUrl; // mesma foto já em disco → não re-baixa
     try {
+      const dir = getBackendPublicUploadDir('avatars');
       const res = await axios.get<ArrayBuffer>(url, {
         responseType: 'arraybuffer',
         timeout: 15000,
@@ -2828,6 +2862,22 @@ export class WebwhatsBridgeService {
     } catch {
       return null;
     }
+  }
+
+  // Dispara o download/cache em BACKGROUND (não aguardado) pra convergir a lista pro local nas
+  // próximas leituras, sem bloquear o hot path (Fix 1, PR05072026). Teto de concorrência simples
+  // (Set + contador) pra não abrir N requests simultâneos ao motor/CDN quando a lista tem muitos
+  // chats sem cache ainda; URL já em voo ou acima do teto é ignorada nesta passada (tenta na próxima
+  // leitura da lista).
+  private scheduleAvatarBackgroundCache(cdnUrl: string | null | undefined): void {
+    const url = this.normalizeOptionalString(cdnUrl);
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    if (this.avatarBackgroundInFlight.has(url)) return;
+    if (this.avatarBackgroundInFlight.size >= WebwhatsBridgeService.AVATAR_BACKGROUND_MAX_CONCURRENCY) return;
+    this.avatarBackgroundInFlight.add(url);
+    this.cacheProfilePictureLocally(url)
+      .catch(() => null)
+      .finally(() => this.avatarBackgroundInFlight.delete(url));
   }
 
   async refreshConversationProfilePicture(

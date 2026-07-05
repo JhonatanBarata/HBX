@@ -17,7 +17,51 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import {
+  ImportPlanilhaModal,
+  parsePlanilhaBool,
+  parsePlanilhaNumero,
+  type ImportSchema,
+} from "@/components/hbx/import-planilha-modal";
 import { apiFetch } from "@/lib/api";
+
+// Importação em massa (planilha): A nome (obrigatório) · B preço · C unidade ·
+// D usa_logistica · E sku · F descrição. Só nome é obrigatório. Cada linha roda o
+// MESMO caminho do cadastro manual (buildCreateData), inserido em lote (createMany).
+const PRODUTOS_IMPORT_SCHEMA: ImportSchema = {
+  title: "Importar produtos (planilha)",
+  entity: "produto",
+  templateName: "modelo-produtos.xlsx",
+  endpoint: "/products/import",
+  columns: [
+    { key: "nome", header: "nome", label: "Nome", required: true, example: "Galão de água 20L", hint: "nome do produto (obrigatório)", aliases: ["produto"] },
+    { key: "preco", header: "preco", label: "Preço", example: "12,50", hint: "preço em R$ (aceita vírgula)", aliases: ["preço", "valor", "preco (r$)"] },
+    { key: "unidade", header: "unidade", label: "Unidade", example: "galão 20L", hint: "unidade de venda (kg, unidade, galão 20L…)", aliases: ["un", "und"] },
+    { key: "usa_logistica", header: "usa_logistica", label: "Usa logística", example: "sim", hint: '"sim" se entra no roteiro de entrega', aliases: ["logistica", "logística", "entrega", "usa logistica"] },
+    { key: "sku", header: "sku", label: "SKU", example: "AG20", hint: "código interno (opcional)", aliases: ["codigo", "código"] },
+    { key: "descricao", header: "descricao", label: "Descrição", example: "Água mineral natural", hint: "descrição (opcional)", aliases: ["descrição", "obs", "observacao"] },
+  ],
+  normalizeRow: (r) => {
+    const name = String(r.nome ?? "").trim();
+    if (!name) return null;
+    const row: Record<string, unknown> = { name };
+    const preco = parsePlanilhaNumero(r.preco);
+    if (preco != null) row.price = preco;
+    const unidade = String(r.unidade ?? "").trim();
+    if (unidade) row.unidade = unidade;
+    if (String(r.usa_logistica ?? "").trim()) row.usaLogistica = parsePlanilhaBool(r.usa_logistica);
+    const sku = String(r.sku ?? "").trim();
+    if (sku) row.sku = sku;
+    const desc = String(r.descricao ?? "").trim();
+    if (desc) row.description = desc;
+    return row;
+  },
+  previewKeys: [
+    { key: "name", label: "Produto" },
+    { key: "price", label: "Preço (R$)" },
+    { key: "unidade", label: "Unidade" },
+  ],
+};
 
 type Produto = {
   id: number;
@@ -173,6 +217,7 @@ export function ProdutosClient() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; edit: Produto | null }>({ open: false, edit: null });
 
   const load = useCallback(() => {
@@ -246,6 +291,9 @@ export function ProdutosClient() {
             </label>
             <button type="button" className="btn-teal ctt-new" onClick={() => setModal({ open: true, edit: null })}>
               <I d={ICONS.plus} size={13} /> Novo produto
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setShowImport(true)}>
+              <I d={ICONS.upload} size={13} /> Importar planilha
             </button>
             {loading && <span className="emp-count">carregando…</span>}
           </form>
@@ -323,6 +371,13 @@ export function ProdutosClient() {
 
       {modal.open && (
         <ProdutoModal edit={modal.edit} onClose={() => setModal({ open: false, edit: null })} onSaved={afterSaved} />
+      )}
+      {showImport && (
+        <ImportPlanilhaModal
+          schema={PRODUTOS_IMPORT_SCHEMA}
+          onClose={() => setShowImport(false)}
+          onImported={load}
+        />
       )}
     </div>
   );

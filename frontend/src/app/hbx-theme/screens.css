@@ -3795,6 +3795,40 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .prod-toggle__note { font-size: 0.66rem; color: var(--text-muted); line-height: 1.4; }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   Importação em massa (planilha) — modal genérico (ImportPlanilhaModal), reusado
+   por Contatos e Produtos. Só estrutura; cores/bordas em token (5 Leis).
+   ══════════════════════════════════════════════════════════════════════════ */
+.imp-modal { width: min(620px, 96vw); }
+.imp-intro { font-size: 0.76rem; line-height: 1.5; color: var(--text-muted); }
+.imp-intro strong { color: var(--text-strong); font-weight: 700; }
+.imp-cols { display: grid; gap: 6px; margin: 2px 0; }
+.imp-col { display: flex; gap: 8px; align-items: baseline; font-size: 0.72rem; color: var(--text-body); line-height: 1.4; }
+.imp-col__tag {
+  flex: none; min-width: 20px; height: 18px; padding: 0 5px; display: inline-flex;
+  align-items: center; justify-content: center; border-radius: var(--radius-sm);
+  background: var(--hbx-surface); border: 1px solid var(--border-hairline);
+  font-size: 0.6rem; font-weight: 800; color: var(--text-muted);
+}
+.imp-col__name { font-weight: 700; color: var(--text-strong); }
+.imp-col__hint { color: var(--text-muted); }
+.imp-col.is-required .imp-col__name::after { content: " *"; color: var(--hbx-danger, var(--text-body)); }
+.imp-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.imp-actions .btn-teal { display: inline-flex; align-items: center; gap: 6px; }
+.imp-file { display: none; }
+.imp-summary { font-size: 0.78rem; color: var(--text-strong); font-weight: 700; }
+.imp-summary small { display: block; font-weight: 500; color: var(--text-muted); margin-top: 3px; }
+.imp-prev { display: grid; gap: 4px; max-height: 210px; overflow: auto; }
+.imp-prev__row {
+  display: grid; grid-template-columns: repeat(var(--imp-cols, 4), minmax(0, 1fr)); gap: 8px;
+  font-size: 0.7rem; padding: 6px 8px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface); color: var(--text-body);
+}
+.imp-prev__row.is-head { font-weight: 800; color: var(--text-muted); background: transparent; border-color: transparent; padding-bottom: 0; }
+.imp-prev__cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-errs { display: grid; gap: 2px; margin-top: 6px; font-size: 0.7rem; color: var(--hbx-danger, var(--text-body)); }
+.imp-progress { font-size: 0.74rem; color: var(--text-muted); }
+
+/* ══════════════════════════════════════════════════════════════════════════
    NÚCLEO-CRM N6 — módulo "Logística" (app de entrega, cliente água), mobile-first.
    Reusa .emp-* (linhas/empty) e .hbx-drawer-bottom (sheet do detalhe). Aqui SÓ o
    específico da entrega: badge de status, o sheet de detalhe (endereço/ações) e os

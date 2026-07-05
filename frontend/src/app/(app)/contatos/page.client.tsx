@@ -15,8 +15,56 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { ImportPlanilhaModal, type ImportSchema } from "@/components/hbx/import-planilha-modal";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
+
+// Importação em massa (planilha): A nome (obrigatório) · B telefone · C cidade ·
+// D uf · E cnpj (vira PJ) · F email · G endereço · H cep · I cargo — casa com o
+// que o Radar/RFB materializa. Só nome é obrigatório; só A+B já importa. Cada linha
+// roda o MESMO caminho idempotente do cadastro manual (grátis, não debita crédito).
+const CONTATOS_IMPORT_SCHEMA: ImportSchema = {
+  title: "Importar contatos (planilha)",
+  entity: "contato",
+  templateName: "modelo-contatos.xlsx",
+  endpoint: "/nucleo/contas/import",
+  columns: [
+    { key: "nome", header: "nome", label: "Nome", required: true, example: "Dona Maria", hint: "nome da pessoa ou empresa (obrigatório)", aliases: ["nome completo", "cliente", "razao social"] },
+    { key: "telefone", header: "telefone", label: "Telefone", example: "(85) 99999-0000", hint: "telefone com DDD — vira o WhatsApp", aliases: ["whatsapp", "fone", "celular", "telefone/whatsapp"] },
+    { key: "cidade", header: "cidade", label: "Cidade", example: "Fortaleza", hint: "cidade do cliente", aliases: ["municipio"] },
+    { key: "uf", header: "uf", label: "UF", example: "CE", hint: 'estado — 2 letras ("CE") ou nome ("Ceará")', aliases: ["estado"] },
+    { key: "cnpj", header: "cnpj", label: "CNPJ", example: "12.345.678/0001-90", hint: "CNPJ — se preenchido, vira empresa (PJ)", aliases: ["cnpj/cpf", "documento", "cpf"] },
+    { key: "email", header: "email", label: "E-mail", example: "maria@empresa.com", hint: "e-mail de contato", aliases: ["e-mail"] },
+    { key: "endereco", header: "endereco", label: "Endereço", example: "Rua A, 123 - Centro", hint: "endereço / rua", aliases: ["endereço", "logradouro"] },
+    { key: "cep", header: "cep", label: "CEP", example: "60000-000", hint: "CEP" },
+    { key: "cargo", header: "cargo", label: "Cargo", example: "Compradora", hint: "cargo / função da pessoa", aliases: ["funcao", "função"] },
+  ],
+  normalizeRow: (r) => {
+    const nome = String(r.nome ?? "").trim();
+    if (!nome) return null;
+    const row: Record<string, unknown> = { nome };
+    // Backend espera strings; SheetJS pode devolver número (telefone/cep) — sempre coage.
+    const put = (key: string, v: string | number) => {
+      const s = String(v ?? "").trim();
+      if (s) row[key] = s;
+    };
+    put("telefone", r.telefone);
+    put("cidade", r.cidade);
+    put("uf", r.uf);
+    put("cnpj", r.cnpj);
+    put("email", r.email);
+    put("endereco", r.endereco);
+    put("cep", r.cep);
+    put("cargo", r.cargo);
+    return row;
+  },
+  previewKeys: [
+    { key: "nome", label: "Nome" },
+    { key: "telefone", label: "Telefone" },
+    { key: "cidade", label: "Cidade" },
+    { key: "uf", label: "UF" },
+  ],
+};
 
 type ContatoItem = {
   id: string;
@@ -715,6 +763,7 @@ export function ContatosClient() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [showNovo, setShowNovo] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   // LOGÍSTICA-MOBILE M2 — cliente com o drawer "Produtos do cliente" aberto.
   const [prodCliente, setProdCliente] = useState<{ id: string; nome: string | null } | null>(null);
 
@@ -789,6 +838,9 @@ export function ContatosClient() {
             </label>
             <button type="button" className="btn-ghost ctt-new" onClick={() => setShowNovo(true)}>
               <I d={ICONS.plus} size={13} /> Novo contato/cliente
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setShowImport(true)}>
+              <I d={ICONS.upload} size={13} /> Importar planilha
             </button>
             {loading && <span className="emp-count">carregando…</span>}
           </form>
@@ -903,6 +955,13 @@ export function ContatosClient() {
       </section>
 
       {showNovo && <NovoClienteModal onClose={() => setShowNovo(false)} onSaved={afterSaved} />}
+      {showImport && (
+        <ImportPlanilhaModal
+          schema={CONTATOS_IMPORT_SCHEMA}
+          onClose={() => setShowImport(false)}
+          onImported={() => load(onlyClientes, query, page)}
+        />
+      )}
       {prodCliente && <ClienteProdutosDrawer cliente={prodCliente} admin={admin} onClose={() => setProdCliente(null)} />}
     </div>
   );

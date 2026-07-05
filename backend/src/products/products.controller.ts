@@ -14,6 +14,7 @@ import {
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ImportProductsDto } from './dto/import-products.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('products')
@@ -24,6 +25,12 @@ export class ProductsController {
   @Post()
   create(@Req() req: any, @Body() createDto: CreateProductDto) {
     return this.productsService.createProductForUser(req.user, createDto);
+  }
+
+  /** Importação em massa de produtos (planilha). Enviado em lotes pelo front. */
+  @Post('import')
+  importProducts(@Req() req: any, @Body() dto: ImportProductsDto) {
+    return this.productsService.importProductsForUser(req.user, dto.rows || []);
   }
 
   @Get()

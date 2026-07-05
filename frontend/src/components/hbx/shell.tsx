@@ -95,6 +95,7 @@ export const ICONS: Record<string, string[]> = {
   mic: ["M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z", "M5 11a7 7 0 0 0 14 0", "M12 18v3"],
   stop: ["M7 7h10v10H7z"],
   download: ["M12 4v11", "m7 11 5 5 5-5", "M5 20h14"],
+  upload: ["M12 15V4", "m7 9 5-5 5 5", "M5 20h14"],
   reply: ["M9 7 4 12l5 5", "M4 12h11a5 5 0 0 1 5 5v2"],
   x: ["M6 6 18 18M18 6 6 18"],
   file: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5"],
