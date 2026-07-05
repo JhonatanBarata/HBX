@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
 
 import { ArrivalSheet } from "./ArrivalSheet";
+import { EntregaTabBar } from "./EntregaTabBar";
 import { Onboarding, jaViuOnboarding } from "./Onboarding";
 import {
   cancelarEntrega,
@@ -233,7 +234,7 @@ export function EntregaHome() {
   }
 
   return (
-    <div className="ent-app">
+    <div className="ent-app has-tabbar">
       <header className="ent-head">
         <div>
           <div className="ent-head-title">{view === "rota" ? "Rota" : "Hoje"}</div>
@@ -320,6 +321,8 @@ export function EntregaHome() {
           submitting={submitting}
         />
       ) : null}
+
+      <EntregaTabBar />
     </div>
   );
 }

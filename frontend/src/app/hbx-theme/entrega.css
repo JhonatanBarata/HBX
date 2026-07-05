@@ -740,6 +740,75 @@
   padding-top: var(--ent-4);
 }
 
+/* ============================================================
+   A2 — TAB BAR PRÓPRIA DO APP (Rota · Clientes · Produtos · Ajustes).
+   Fixa no rodapé, safe-area, alvo >=52px, item ativo = cor da marca.
+   NÃO é a MobileTabBar do dashboard — é a barra do skin entrega.
+   ============================================================ */
+[data-skin="entrega"] {
+  /* altura útil das abas (sem contar a safe-area do gesto) */
+  --ent-tabbar-h: 64px;
+}
+[data-skin="entrega"] .ent-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  gap: var(--ent-1);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--ent-1) var(--ent-2) calc(var(--ent-1) + var(--ent-safe-bottom));
+  background: var(--ent-surface);
+  border-top: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-lg);
+}
+[data-skin="entrega"] .ent-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--ent-tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--ent-1) var(--ent-1);
+  border-radius: var(--ent-radius-sm);
+  text-decoration: none;
+  color: var(--ent-ink-muted);
+  font-family: var(--ent-font);
+  font-size: 12px;
+  font-weight: 700;
+  transition: color var(--ent-motion-fast), background var(--ent-motion-fast), transform var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-tab:active { transform: scale(0.94); }
+[data-skin="entrega"] .ent-tab.is-on {
+  color: var(--ent-brand);
+  background: var(--ent-brand-soft);
+}
+[data-skin="entrega"] .ent-tab-label {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+/* Conteúdo não pode ficar embaixo da tab bar fixa: reserva espaço no fim do
+   scroll. Aplica em qualquer .ent-app que monte a barra (home + cascas). */
+[data-skin="entrega"] .ent-app.has-tabbar {
+  padding-bottom: calc(var(--ent-tabbar-h) + var(--ent-safe-bottom));
+}
+/* A barra de ação (Iniciar rota / Cheguei) é sticky no rodapé — sobe pra ficar
+   ACIMA da tab bar quando ela existe (não pode cobrir o botão principal). */
+[data-skin="entrega"] .ent-app.has-tabbar .ent-actionbar {
+  bottom: calc(var(--ent-tabbar-h) + var(--ent-safe-bottom));
+  padding-bottom: var(--ent-4);
+}
+
 /* ---------- RESPEITA quem pediu menos movimento ---------- */
 @media (prefers-reduced-motion: reduce) {
   [data-skin="entrega"] * {
