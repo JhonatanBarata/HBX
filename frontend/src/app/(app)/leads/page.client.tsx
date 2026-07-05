@@ -178,6 +178,13 @@ type Tab = "shelf" | "carteira";
 // B0: statuses realmente terminais — removeu "error" fantasma, adicionou partial_error
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
 
+// Redesenho "Buscar empresas" (05/07): o usuário NÃO pré-seta quantidade (modelo
+// Mercado Livre — ninguém pergunta "quantos iPhones você quer ver"). A prateleira
+// mostra um lote saudável (antes o "Quantos puxar" capava em 5) e a busca traz um
+// lote fixo pro motor. Puxar = quantos você SELECIONA, não um número no filtro.
+const SHELF_LIMIT = 24;
+const SEARCH_BATCH = 12;
+
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
   const seen = new Set<string>();
   const merged: FilterOption[] = [];
@@ -527,7 +534,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
-    const limit = which === "shelf" ? (opts?.quantosOverride ?? quantos) : pageSize;
+    // Prateleira: lote saudável fixo (SHELF_LIMIT) — não mais capado pelo "Quantos
+    // puxar" (removido). Carteira: paginação normal.
+    const limit = which === "shelf" ? SHELF_LIMIT : pageSize;
     params.set("limit", String(limit));
     if (which === "shelf") params.set("scope", "vitrine");
     if (segment) params.set("segment", segment);
@@ -551,7 +560,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         setData(null);
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
       });
-  }, [segment, city, uf, alcance, quantos, siteFiltro, zapFiltro]);
+  }, [segment, city, uf, alcance, siteFiltro, zapFiltro]);
 
   useEffect(() => {
     loadBank();
@@ -823,8 +832,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setSearchMsg(null);
     setRunBusy(true);
     try {
-      // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400)
-      const body: Record<string, unknown> = { city, state: uf || undefined, segment: effSegment, quantity: quantos };
+      // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400).
+      // Lote fixo (SEARCH_BATCH) — o usuário não escolhe mais "quantos" (removido).
+      const body: Record<string, unknown> = { city, state: uf || undefined, segment: effSegment, quantity: SEARCH_BATCH };
       if (effRadius > 0) body.radiusKm = effRadius;
       if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
       // Filtro estilo CNPJ Biz (mesmo DTO do GET /radar/leads — RadarPullDto estende
@@ -1183,6 +1193,128 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
+  // ── Barra de comando (desktop): os INPUTS da busca — antes um paredão vertical
+  // no aside direito ("caos" apontado pelo dono). Agora uma barra horizontal no
+  // topo dos resultados: busca grande (o que você procura) + refino (Estado/Cidade/
+  // Alcance/site/WhatsApp) + ações. Zero "Quantos puxar" (modelo Mercado Livre).
+  function renderCommandBar() {
+    return (
+      <div className="be-cmdbar" data-tut="leads-filtros">
+        <div className="be-cmdbar__primary">
+          <div className="be-search" data-tut="leads-busca-criativa">
+            <I d={ICONS.search} size={16} />
+            <input
+              className="be-search__input"
+              placeholder="O que você procura? Ex.: restaurantes em São Paulo com WhatsApp"
+              value={segment}
+              onChange={e => setSegment(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !runBusy && !runActive) executarBusca(); }}
+              list="rc-seg-options"
+            />
+            <datalist id="rc-seg-options">
+              {segOptions.map(o => <option key={o.value} value={o.label} />)}
+            </datalist>
+          </div>
+          {runActive ? (
+            <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
+          ) : (
+            <button className="btn-teal be-cmdbar__go" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>
+              {runBusy ? "Iniciando…" : "Buscar"}
+            </button>
+          )}
+        </div>
+
+        <div className="be-cmdbar__refine">
+          <div className="be-cmdbar__field">
+            <label htmlFor="cb-uf">Estado</label>
+            <select id="cb-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
+              <option value="">Todos</option>
+              {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="be-cmdbar__field">
+            <label htmlFor="cb-city">Cidade</label>
+            <select id="cb-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
+              <option value="">Cidade</option>
+              {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="be-cmdbar__field">
+            <label htmlFor="cb-alcance">Alcance</label>
+            <select id="cb-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
+              <option value="">Só a cidade</option>
+              <option value="25">+ 25 km</option>
+              <option value="50">+ 50 km</option>
+              <option value="100">+ 100 km</option>
+            </select>
+          </div>
+          <div className="be-cmdbar__group">
+            <span className="be-cmdbar__group-lbl">Tem site</span>
+            <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
+              {([
+                { key: "qualquer", label: "Qualquer" },
+                { key: "com", label: "Com" },
+                { key: "sem", label: "Sem" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                  onClick={() => setSiteFiltro(opt.key)}
+                  aria-pressed={siteFiltro === opt.key}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="be-cmdbar__group">
+            <span className="be-cmdbar__group-lbl">Tem WhatsApp</span>
+            <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
+              {([
+                { key: "qualquer", label: "Qualquer" },
+                { key: "com", label: "Com" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                  onClick={() => setZapFiltro(opt.key)}
+                  aria-pressed={zapFiltro === opt.key}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="be-cmdbar__spacer" />
+          <div className="be-cmdbar__actions">
+            <button
+              type="button"
+              className="btn-ghost btn-xs"
+              data-tut="leads-filtro-avancado"
+              onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); setAdvOpen(true); }}
+            >
+              <I d={ICONS.filter} size={13} /> Filtro avançado
+            </button>
+            <button type="button" className="btn-ghost btn-xs" onClick={limparFiltros} title="Limpar todos os filtros e pesquisas">
+              Limpar
+            </button>
+            <button
+              type="button"
+              className="btn-ghost btn-xs"
+              onClick={openSaveModal}
+              disabled={!segment.trim() && !city.trim() && !uf.trim()}
+              title="Salvar este filtro como pesquisa"
+            >
+              Salvar filtro
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Radar console: o disco + controles quando nenhum lead está selecionado ──
   function renderRadarConsole(mini: boolean) {
     // Item 8: sem cálculo de estado de pausa/parada aqui — o painel não renderiza
@@ -1204,11 +1336,23 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       );
     }
 
+    // Espelho legível dos filtros ativos pro show-off do aside (não é input —
+    // quem busca é a barra de comando no topo dos resultados).
+    const activeSummary = [
+      segment.trim(),
+      [city, uf].filter(Boolean).join("/"),
+      alcance ? `+ ${alcance} km` : "",
+      siteFiltro === "com" ? "Com site" : siteFiltro === "sem" ? "Sem site" : "",
+      zapFiltro === "com" ? "Com WhatsApp" : "",
+    ].filter(Boolean);
+
     return (
-      <div className="radar-console">
-        {/* Hero decorativo (item 2/8/3): disco-sonar PROTAGONISTA no topo — grande,
-            centralizado, puro enfeite. Sem estado, sem texto de pausa/"volta sozinho". */}
-        <div className="radar-hero" data-tut="leads-filtros">
+      <div className="radar-console radar-showoff">
+        {/* Show-off do Radar: disco-sonar protagonista (puro enfeite) + ESPELHO dos
+            filtros ativos + status ao vivo. Os INPUTS saíram daqui pra barra de
+            comando no topo dos resultados (redesenho 05/07) — o aside deixou de ser
+            um paredão de campos e virou a vitrine do que o Radar está varrendo. */}
+        <div className="radar-hero">
           <div className="radar-hero__disc">
             <RadarDisc />
           </div>
@@ -1218,140 +1362,27 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         </div>
 
-        {/* Item 3: caixa de busca criativa — vira o segmento/palavra-chave real
-            da busca (mesmo campo que o motor recebe), estilo site famoso. */}
-        <div className="be-search" data-tut="leads-busca-criativa">
-          <I d={ICONS.search} size={16} />
-          <input
-            className="be-search__input"
-            placeholder="O que você procura? Ex.: restaurantes em São Paulo com WhatsApp"
-            value={segment}
-            onChange={e => setSegment(e.target.value)}
-            list="rc-seg-options"
-          />
-          <datalist id="rc-seg-options">
-            {segOptions.map(o => <option key={o.value} value={o.label} />)}
-          </datalist>
-        </div>
-
-        {/* Essenciais (item 3): Estado / Cidade / Alcance */}
-        <div className="radar-panel">
-          <div className="radar-panel__grid3">
-            <div className="f">
-              <label htmlFor="rc-uf">Estado</label>
-              <select id="rc-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
-                <option value="">Todos</option>
-                {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+        {/* Espelho dos filtros ativos — mostra o que a barra de comando vai varrer */}
+        <div className="radar-showoff__mirror">
+          <span className="radar-showoff__mirror-lbl">Varrendo por</span>
+          {activeSummary.length > 0 ? (
+            <div className="radar-showoff__chips">
+              {activeSummary.map((t, i) => <span key={i} className="radar-showoff__chip">{t}</span>)}
             </div>
-            <div className="f">
-              <label htmlFor="rc-city">Cidade</label>
-              <select id="rc-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
-                <option value="">Cidade</option>
-                {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-              </select>
-            </div>
-            <div className="f">
-              <label htmlFor="rc-alcance">Alcance</label>
-              <select id="rc-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
-                <option value="">Só a cidade</option>
-                <option value="25">+ 25 km</option>
-                <option value="50">+ 50 km</option>
-                <option value="100">+ 100 km</option>
-              </select>
-            </div>
-          </div>
-          <div className="radar-panel__grid2">
-            <div className="f">
-              <label htmlFor="rc-quantos">Quantos puxar</label>
-              <select id="rc-quantos" className="select-dark" value={quantos} onChange={e => setQuantos(Number(e.target.value))}>
-                {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
-            <div className="f">
-              <label>Tem WhatsApp</label>
-              <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
-                {([
-                  { key: "qualquer", label: "Qualquer" },
-                  { key: "com", label: "Com WhatsApp" },
-                ] as const).map(opt => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                    onClick={() => setZapFiltro(opt.key)}
-                    aria-pressed={zapFiltro === opt.key}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="f">
-            <label>Tem site</label>
-            <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
-              {([
-                { key: "qualquer", label: "Qualquer" },
-                { key: "com", label: "Com site" },
-                { key: "sem", label: "Sem site" },
-              ] as const).map(opt => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                  onClick={() => setSiteFiltro(opt.key)}
-                  aria-pressed={siteFiltro === opt.key}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn-ghost be-adv-open"
-            data-tut="leads-filtro-avancado"
-            onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); setAdvOpen(true); }}
-          >
-            <I d={ICONS.filter} size={14} /> Filtro avançado
-          </button>
-        </div>
-
-        {/* Ações: UM botão só — Buscar (ou Parar enquanto busca). Sem "Retomar",
-            sem estado de pausa (item 8: zero UI de estado/auto-feed no painel). */}
-        <div className="radar-actions">
-          {runActive ? (
-            <button className="btn-ghost" onClick={pararBusca}>
-              ◼ Parar
-            </button>
           ) : (
-            <button className="btn-teal" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>
-              {runBusy ? "Iniciando…" : "▶ Buscar"}
-            </button>
+            <p className="radar-showoff__empty">Escolha segmento e cidade na barra acima e clique em Buscar.</p>
           )}
-          <button
-            className="btn-ghost"
-            onClick={limparFiltros}
-            title="Limpar todos os filtros e pesquisas"
-          >
-            Limpar
-          </button>
-          {/* WORM-15: salvar o recorte atual como pesquisa nomeada */}
-          <button
-            className="btn-ghost radar-actions__save"
-            onClick={openSaveModal}
-            disabled={!segment.trim() && !city.trim() && !uf.trim()}
-            title="Salvar este filtro como pesquisa"
-          >
-            Salvar filtro
-          </button>
         </div>
-        {savedMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{savedMsg}</p>}
 
-        {/* Item 8: NÃO renderiza mais nenhum aviso de pausa/estado/"carteira cheia"/
-            auto-expandir raio — seja qual for a resposta do backend. */}
-        {searchMsg && <p className="hint" style={{ margin: "4px 0 0" }}>{searchMsg}</p>}
+        {/* Status REAL de uma busca em andamento (feedback de operação async — não
+            é o disco decorativo narrando estado). */}
+        {runActive && (
+          <div className="radar2-live radar2-live--funcionando">
+            <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+          </div>
+        )}
+        {savedMsg && <p className="hint" style={{ margin: 0 }}>{savedMsg}</p>}
+        {searchMsg && <p className="hint" style={{ margin: 0 }}>{searchMsg}</p>}
 
         {/* WORM-15: Minhas pesquisas salvas — accordion ABAIXO dos filtros */}
         <div className="radar-saved">
@@ -1753,6 +1784,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   <h2>{embedTitle}</h2>
                 </div>
               )}
+              {/* Barra de comando horizontal (desktop) — os filtros saíram do aside
+                  paredão pra cá. Mobile mantém o radar2-rail via toggle. */}
+              {!isMobile && renderCommandBar()}
               <div className="tabs" data-tut="leads-abas">
                 <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
                   Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
@@ -1806,74 +1840,83 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 renderListMobile()
               ) : (
                 <>
-                  <div className="tbl-wrap">
-                    <table className="tbl">
-                      <thead>
-                        <tr>
-                          {tab === "shelf" && <th style={{ width: 34 }} aria-label="Selecionar" />}
-                          <th>Empresa</th>
-                          <th className="tbl-col-city">Cidade</th>
-                          <th className="tbl-col-contact">Contato</th>
-                          <th style={{ width: 96 }} />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.length === 0 && (
-                          <tr><td colSpan={tab === "shelf" ? 5 : 4}><div className="radar2-empty">{emptyMsg}</div></td></tr>
-                        )}
-                        {items.map(row => (
-                          <tr
-                            key={row.id}
-                            className={selLead?.id === row.id ? "sel" : ""}
-                            style={{ cursor: "pointer" }}
-                            onClick={() => setSelLead(selLead?.id === row.id ? null : row)}
-                          >
-                            {tab === "shelf" && (
-                              <td onClick={e => e.stopPropagation()}>
-                                <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSel(row.id)} aria-label={`Selecionar ${row.name || "lead"}`} />
-                              </td>
-                            )}
-                            <td>
-                              <div className="co">
-                                <strong>
-                                  {row.name || "—"}
-                                  {row.fitScore != null && row.fitScore > 0 && (
-                                    <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {row.fitScore}</span>
-                                  )}
-                                </strong>
-                                <span className="sub2">{row.segment || row.businessCategory || "—"}</span>
-                                {renderOriginBadge(row)}
-                                {row.opportunitySignals && row.opportunitySignals.length > 0 && (
-                                  <div className="radar2-signals">
-                                    {row.opportunitySignals.slice(0, 4).map(sig => {
-                                      const m = SIGNAL_META[sig];
-                                      if (!m) return null;
-                                      return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
-                                    })}
-                                  </div>
-                                )}
-                                {row.opportunityReason && (
-                                  <span className="radar2-reason">{row.opportunityReason}</span>
-                                )}
+                  {/* Grade de cards (redesenho Buscar 05/07) — substitui a tabela
+                      densa. 1 card = 1 empresa/oportunidade real. Mesma seleção
+                      (checkbox → puxar em lote), badges de origem, sinais e contato
+                      mascarado; clique no card abre o detalhe no aside. */}
+                  <div className="tbl-wrap be-grid-wrap">
+                    {items.length === 0 ? (
+                      <div className="be-grid__empty radar2-empty">{emptyMsg}</div>
+                    ) : (
+                      <div className="be-grid">
+                        {items.map(row => {
+                          const isSel = selLead?.id === row.id;
+                          const checked = selected.has(row.id);
+                          return (
+                            <article
+                              key={row.id}
+                              className={"be-card" + (isSel ? " be-card--sel" : "") + (checked ? " be-card--checked" : "")}
+                              onClick={() => setSelLead(isSel ? null : row)}
+                            >
+                              {tab === "shelf" && (
+                                <label className="be-card__pick" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleSel(row.id)}
+                                    aria-label={`Selecionar ${row.name || "lead"}`}
+                                  />
+                                </label>
+                              )}
+                              <div className="be-card__head">
+                                <Av name={row.name || "—"} size={40} />
+                                <div className="be-card__id">
+                                  <strong className="be-card__name">
+                                    {row.name || "—"}
+                                    {row.fitScore != null && row.fitScore > 0 && (
+                                      <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {row.fitScore}</span>
+                                    )}
+                                  </strong>
+                                  <span className="be-card__seg">{row.segment || row.businessCategory || "—"}</span>
+                                  <span className="be-card__loc">
+                                    <I d={ICONS.mapin} size={11} />
+                                    {row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "Brasil"}
+                                  </span>
+                                </div>
                               </div>
-                            </td>
-                            <td className="tbl-col-city">{row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "—"}</td>
-                            <td className="tbl-col-contact">
-                              {tab === "shelf"
-                                ? contatoMascarado(row)
-                                : <span>{row.phone || row.email || "—"}</span>}
-                            </td>
-                            <td onClick={e => e.stopPropagation()}>
-                              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                                {tab === "shelf"
-                                  ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
-                                  : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
+
+                              {renderOriginBadge(row)}
+
+                              {row.opportunitySignals && row.opportunitySignals.length > 0 && (
+                                <div className="radar2-signals">
+                                  {row.opportunitySignals.slice(0, 3).map(sig => {
+                                    const m = SIGNAL_META[sig];
+                                    if (!m) return null;
+                                    return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
+                                  })}
+                                </div>
+                              )}
+                              {row.opportunityReason && (
+                                <span className="be-card__reason">{row.opportunityReason}</span>
+                              )}
+
+                              <div className="be-card__foot">
+                                <div className="be-card__contact">
+                                  {tab === "shelf"
+                                    ? contatoMascarado(row)
+                                    : <span>{row.phone || row.email || "—"}</span>}
+                                </div>
+                                <div onClick={e => e.stopPropagation()}>
+                                  {tab === "shelf"
+                                    ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
+                                    : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
+                                </div>
                               </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {tab === "shelf" && (

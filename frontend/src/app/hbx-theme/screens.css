@@ -2163,6 +2163,98 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .be-adv-open { justify-content: center; margin-top: 2px; }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   Barra de comando "Buscar empresas" (redesenho 05/07) — os inputs saíram do
+   aside-paredão (o "caos" apontado pelo dono) pra uma barra horizontal no topo
+   dos resultados. Linha primária (busca grande + Buscar) + linha de refino
+   (Estado/Cidade/Alcance/site/WhatsApp/ações) que quebra em telas estreitas.
+   ══════════════════════════════════════════════════════════════════════════ */
+.be-cmdbar {
+  display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
+  padding: 12px 16px; border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+}
+.be-cmdbar__primary { display: flex; align-items: center; gap: 10px; }
+.be-cmdbar__primary .be-search { flex: 1; min-height: 44px; }
+.be-cmdbar__go { flex: 0 0 auto; min-width: 128px; height: 44px; }
+
+.be-cmdbar__refine { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.be-cmdbar__field { display: grid; gap: 4px; min-width: 128px; }
+.be-cmdbar__field > label,
+.be-cmdbar__group-lbl {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted);
+}
+.be-cmdbar__field .select-dark { width: 100%; min-width: 0; }
+.be-cmdbar__group { display: grid; gap: 5px; align-content: end; }
+.be-cmdbar__spacer { flex: 1 1 24px; min-width: 12px; }
+.be-cmdbar__actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
+@media (max-width: 900px) {
+  .be-cmdbar__spacer { display: none; }
+  .be-cmdbar__actions { width: 100%; }
+}
+
+/* ── Show-off do Radar (aside idle): disco protagonista + ESPELHO dos filtros
+   ativos (não é input — a barra de comando é que busca) ───────────────────── */
+.radar-showoff { gap: 12px; }
+.radar-showoff__mirror {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft);
+}
+.radar-showoff__mirror-lbl {
+  font-size: 0.58rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--text-muted);
+}
+.radar-showoff__chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.radar-showoff__chip {
+  font-size: 0.68rem; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  color: var(--hbx-brand-strong); background: var(--hbx-brand-soft);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 34%, transparent);
+  white-space: nowrap;
+}
+.radar-showoff__empty { margin: 0; font-size: 0.68rem; color: var(--text-muted); line-height: 1.45; }
+
+/* ── Grade de cards dos resultados (redesenho Buscar 05/07) — substitui a tabela
+   densa no desktop. auto-fill responsivo; 1 card = 1 empresa/oportunidade. ───── */
+.be-grid-wrap { padding: 12px 16px; }
+.be-grid {
+  display: grid; gap: 10px; align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+}
+.be-grid__empty { grid-column: 1 / -1; }
+
+.be-card {
+  position: relative; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: var(--radius-lg);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface);
+  box-shadow: var(--shadow-xs); cursor: pointer;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.be-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.be-card--sel { border-color: var(--hbx-brand-strong); box-shadow: 0 0 0 2px var(--ring-brand); }
+.be-card--checked { background: color-mix(in srgb, var(--hbx-brand) 5%, var(--hbx-surface)); }
+
+.be-card__pick { position: absolute; top: 10px; right: 10px; display: inline-flex; }
+.be-card__head { display: flex; align-items: flex-start; gap: 10px; padding-right: 22px; }
+.be-card__id { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.be-card__name {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-family: var(--font-display); font-size: 0.9rem; font-weight: 800;
+  color: var(--text-strong); line-height: 1.2;
+}
+.be-card__seg { font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.be-card__loc { display: inline-flex; align-items: center; gap: 4px; font-size: 0.68rem; color: var(--text-muted); }
+.be-card__reason {
+  font-size: 0.7rem; color: var(--text-muted); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.be-card__foot {
+  margin-top: auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding-top: 8px; border-top: 1px solid var(--border-hairline);
+}
+.be-card__contact { min-width: 0; font-size: 0.7rem; color: var(--text-muted); }
+
 /* Filtro estilo CNPJ Biz no radar console (tem-site/tem-WhatsApp). VENDAS-REFAB
    S4 04/07 — substituiu "Canais exigidos" (chips de 6 ícones removidos). */
 .radar-canais { display: flex; flex-direction: column; gap: 5px; margin-bottom: 0; }
