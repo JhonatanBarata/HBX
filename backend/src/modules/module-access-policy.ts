@@ -54,14 +54,12 @@ export function resolveKillSwitchModuleKeys(snapshot: KillSwitchModuleSnapshot |
   return result;
 }
 
-// Flag mestra do R2 (mesmo padrao booleano de HBX_CREDITS_ENABLED em
-// credits.flags.ts). Default OFF: com a flag desligada, resolveCompanyModuleAccessPolicy
-// se comporta EXATAMENTE como antes (moduleKeys deriva so de COMMERCIAL_PLAN_MODULE_KEYS),
-// nenhuma mudanca de comportamento em prod ate o dono ligar.
+// FASE 2 (REMOÇÃO) — kill-switch deixou de ser opt-in: é o único comportamento.
+// Função mantida só por compatibilidade de import (não gateia mais nada em
+// resolveCompanyModuleAccessPolicy); a env HBX_MODULES_KILLSWITCH_ONLY não é
+// mais lida em nenhum ponto de decisão. Não usar em código novo.
 export function isModulesKillSwitchOnlyEnabled(): boolean {
-  return ['true', '1', 'yes', 'on'].includes(
-    String(process.env.HBX_MODULES_KILLSWITCH_ONLY || '').trim().toLowerCase(),
-  );
+  return true;
 }
 
 export type CompanyModuleAccessPolicy = {
@@ -202,10 +200,13 @@ export function resolveCompanyModuleAccessPolicy(
               ? 'grace'
               : 'open';
 
-  // R2: com a flag ON e snapshot disponivel, modulo vira kill-switch puro do
-  // master (nao deriva mais do plano). Sem flag ou sem snapshot, regressao
-  // zero: mesma linha de sempre (COMMERCIAL_PLAN_MODULE_KEYS[planKey]).
-  const moduleKeys = isModulesKillSwitchOnlyEnabled() && moduleSnapshot
+  // R2 (FASE 2 — REMOÇÃO, definitivo): módulo é kill-switch PURO do master.
+  // Não deriva mais de plano/tier (COMMERCIAL_PLAN_MODULE_KEYS morreu como
+  // driver de acesso). `HBX_MODULES_KILLSWITCH_ONLY` deixou de gatear — o
+  // caminho por snapshot é o ÚNICO agora; a env fica só como interruptor de
+  // emergência caso o chamador ainda não tenha migrado para passar o
+  // snapshot (fallback abaixo cobre esse caso defensivamente, não por flag).
+  const moduleKeys = moduleSnapshot
     ? resolveKillSwitchModuleKeys(moduleSnapshot)
     : new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []);
 

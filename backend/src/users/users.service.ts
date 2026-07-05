@@ -4,12 +4,9 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { User } from '@prisma/client';
 import {
-  canBillExtraSeatsForPlan,
-  computeCompanySeatBillingSnapshot,
   isBillableUserSeatSnapshot,
 } from '../commercial-plans/seat-billing.util';
 import {
-  getCommercialPlanExtraUserMonthlyPrice,
   getCommercialPlanTitle,
   normalizeCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
@@ -611,8 +608,10 @@ export class UsersService {
     return { rawToken, expiresAt };
   }
 
-  // Aviso de custo ANTES de confirmar o convite (PR-002 C.3): projeta o
-  // snapshot de assentos + valores do catalogo para a tela do gerencial.
+  // R4 (FASE 2 — REMOÇÃO, definitivo): assento GRÁTIS — não existe mais aviso
+  // de custo antes do convite (D5). Endpoint mantido (front ainda pode chamar)
+  // devolvendo headcount informativo com preço sempre zero; seatCap sobrevive
+  // só como teto OPERACIONAL do master (não é cobrança).
   async getCompanySeatBilling(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
@@ -621,23 +620,19 @@ export class UsersService {
     if (!company) throw new NotFoundException('Empresa não encontrada');
     const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
     const seatCap = Number((company as any)?.seatCap || 0) > 0 ? Math.trunc(Number((company as any).seatCap)) : null;
-    const seats = await computeCompanySeatBillingSnapshot(this.prisma, {
-      companyId: Number(companyId),
-      planKey,
-      extraSeatMonthlyAmount: canBillExtraSeatsForPlan(planKey)
-        ? getCommercialPlanExtraUserMonthlyPrice(planKey)
-        : 0,
-    });
+    const activeUsers = await this.prisma.user.count({
+      where: { companyId: Number(companyId), isActive: true, deactivatedAt: null, isSystemMaster: false, role: { in: ['USER', 'ADMIN'] } },
+    }).catch(() => 0);
     return {
       planKey,
       planTitle: getCommercialPlanTitle(planKey),
-      activeUsers: seats.activeUsers,
-      includedUsers: seats.includedActiveUsers,
-      extraActiveUsers: seats.extraActiveUsers,
-      extraUserMonthlyPrice: seats.extraSeatMonthlyAmount,
-      nextUserIsExtra: seats.extraSeatMonthlyAmount > 0 && seats.activeUsers + 1 > seats.includedActiveUsers,
+      activeUsers,
+      includedUsers: activeUsers,
+      extraActiveUsers: 0,
+      extraUserMonthlyPrice: 0,
+      nextUserIsExtra: false,
       seatCap,
-      capReached: seatCap != null && seats.activeUsers >= seatCap,
+      capReached: seatCap != null && activeUsers >= seatCap,
     };
   }
 

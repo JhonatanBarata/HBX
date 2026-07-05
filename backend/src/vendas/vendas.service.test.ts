@@ -451,7 +451,11 @@ test('syncTodayAgendaForUser deactivates stale agendamento items when the lead i
   );
 });
 
-test('getBoardForUser hides complete intelligence for HBX List', async () => {
+// R3 (FASE 2 — REMOÇÃO): tier deixou de decidir capacidade — toda empresa
+// projeta 'full' e enxerga a inteligência completa do lead, independente do
+// selectedPlanKey histórico (hbx_lite). Nome do teste atualizado; o cenário
+// antigo (List capado) morreu junto com o driver de acesso por tier.
+test('getBoardForUser exposes full lead intelligence regardless of selectedPlanKey (R3: tier não gateia mais)', async () => {
   const now = new Date();
   const rows = [
     {
@@ -492,13 +496,10 @@ test('getBoardForUser hides complete intelligence for HBX List', async () => {
   const result = await service.getBoardForUser({ companyId: 7, id: 99 });
   const lead = result.blocks.today[0];
 
-  assert.equal(result.planTier, 'list');
-  assert.equal(result.capabilities.canSeeLeadIntelligence, false);
-  assert.equal(lead.leadIntelligence.opportunityScore, null);
-  assert.equal(lead.leadIntelligence.opportunityReason, null);
-  assert.equal(lead.leadIntelligence.instagramUrl, null);
-  assert.equal(lead.leadIntelligence.primarySocial, 'instagram');
-  assert.ok(lead.leadIntelligence.premiumTeaser);
+  assert.equal(result.planTier, 'full');
+  assert.equal(result.capabilities.canSeeLeadIntelligence, true);
+  assert.equal(lead.leadIntelligence.opportunityReason, 'Instagram encontrado + sem site: oportunidade premium.');
+  assert.equal(lead.leadIntelligence.instagramUrl, 'https://instagram.com/loja');
 });
 
 test('getBoardForUser hides product catalog price without products.viewPrice', async () => {

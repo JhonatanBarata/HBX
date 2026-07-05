@@ -908,25 +908,24 @@ export class CommercialUsageLimitsService {
     });
   }
 
+  // R5 (FASE 2 — REMOÇÃO, definitivo): cota count-based (mensal/diária por
+  // plano) DEIXA DE BLOQUEAR — vira só leitura/telemetria. O teto real agora é
+  // o saldo de crédito (CreditWalletService, gate em enforceLeadDeliveryDebit
+  // logo abaixo, que continua rodando normalmente). Mantém o LOG de "teria
+  // bloqueado" (mesmo evento de antes) para não perder o dado histórico/
+  // comparativo, mas nunca mais lança ConflictException por conta disso.
   async assertCanImportCard(companyId: number, userId?: number | null) {
     const snapshot = await this.getUsageSnapshot(companyId, userId);
     const userBlocked = snapshot.cards.perUserLimit != null && snapshot.cards.userUsed >= snapshot.cards.userLimit;
     const monthlyBlocked = snapshot.cards.remaining <= 0 || userBlocked;
     const dailyBlocked = Number(snapshot.cards.dailyRemaining || 0) <= 0;
     if (monthlyBlocked || dailyBlocked) {
-      await this.log(companyId, Number(userId || 0) || null, 'card_import_blocked', 'usage_limit', {
+      await this.log(companyId, Number(userId || 0) || null, 'card_import_limit_shadow', 'usage_limit', {
         reason: userBlocked
           ? 'monthly_user_card_limit_reached'
           : monthlyBlocked
             ? 'monthly_card_limit_reached'
             : 'daily_card_safety_limit_reached',
-      });
-      throw new ConflictException({
-        code: dailyBlocked && !monthlyBlocked ? 'DAILY_CARD_SAFETY_LIMIT_REACHED' : 'MONTHLY_CARD_LIMIT_REACHED',
-        message: dailyBlocked && !monthlyBlocked
-          ? 'Trava diária de segurança atingida. Tente novamente após o reset diário.'
-          : 'Limite mensal de cards atingido. O contador reinicia no próximo ciclo mensal.',
-        usage: snapshot,
       });
     }
     await this.log(companyId, Number(userId || 0) || null, 'card_import_attempt', 'usage_limit');
@@ -1052,6 +1051,9 @@ export class CommercialUsageLimitsService {
     return { debited: true, alreadyDebited: false };
   }
 
+  // R5 (FASE 2 — REMOÇÃO, definitivo): enriquecimento é capacidade GRÁTIS
+  // (D1 do PLANO — RBAC decide se pode, não crédito nem cota de plano). O
+  // limite diário por plano deixa de bloquear; mantém o log de telemetria.
   async recordLeadEnrichmentUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
     const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.leadId);
     if (usageKey) {
@@ -1070,15 +1072,10 @@ export class CommercialUsageLimitsService {
 
     const snapshot = await this.getUsageSnapshot(companyId, userId);
     if (Number(snapshot.enrichment?.dailyRemaining || 0) <= 0) {
-      await this.log(companyId, Number(userId || 0) || null, 'lead_enrichment_blocked', 'lead_enrichment', {
+      await this.log(companyId, Number(userId || 0) || null, 'lead_enrichment_limit_shadow', 'lead_enrichment', {
         reason: 'daily_enrichment_limit_reached',
         ...metadata,
         usageKey: usageKey || undefined,
-      });
-      throw new ConflictException({
-        code: 'DAILY_LEAD_ENRICHMENT_LIMIT_REACHED',
-        message: 'Créditos de enriquecimento de hoje acabaram. Cards novos seguem básicos até o reset diário.',
-        usage: snapshot,
       });
     }
 
@@ -1116,19 +1113,14 @@ export class CommercialUsageLimitsService {
     return result;
   }
 
+  // R5 (FASE 2 — REMOÇÃO, definitivo): cota diária de e-mail por plano deixa
+  // de bloquear (mesma régua do resto da cota count-based). Mantém telemetria.
   async assertCanSendPresentationEmail(companyId: number, userId?: number | null) {
     const snapshot = await this.getUsageSnapshot(companyId, userId);
     const userBlocked = snapshot.emails.perUserLimit != null && snapshot.emails.userSent >= snapshot.emails.userLimit;
     if (snapshot.emails.remaining <= 0 || userBlocked) {
-      await this.log(companyId, Number(userId || 0) || null, 'presentation_email_blocked_limit', 'email_presentation', {
+      await this.log(companyId, Number(userId || 0) || null, 'presentation_email_limit_shadow', 'email_presentation', {
         reason: userBlocked ? 'daily_user_email_limit_reached' : 'daily_email_limit_reached',
-      });
-      throw new ConflictException({
-        code: 'DAILY_EMAIL_LIMIT_REACHED',
-        message: snapshot.planKey === COMMERCIAL_PLAN_KEYS.MELHOR
-          ? 'Limite diário da empresa atingido. Aguarde o reset ou reduza uso por equipe.'
-          : 'Limite diário atingido. O contador reinicia às 00:00.',
-        usage: snapshot,
       });
     }
     return snapshot;

@@ -358,7 +358,12 @@ test('tenant usage does not become special seller quota from legacy user overrid
   assert.equal(snapshot.enrichment.mode, 'manual_only');
 });
 
-test('team policy card delivery daily limit blocks import when seller daily use is exhausted', async () => {
+// R5 (FASE 2 — REMOÇÃO, definitivo): cota count-based (mensal/diária por plano)
+// deixou de bloquear — vira só telemetria (`card_import_limit_shadow`). O teto
+// real agora é o saldo de crédito (CreditWalletService), gate separado nesta
+// mesma chamada (enforceLeadDeliveryDebit) que não faz parte deste cenário.
+test('team policy card delivery daily limit no longer blocks import (R5: cota vira telemetria)', async () => {
+  const shadowLogs: Array<Record<string, any>> = [];
   const service = new CommercialUsageLimitsService({
     company: {
       findUnique: async () => ({
@@ -378,7 +383,10 @@ test('team policy card delivery daily limit blocks import when seller daily use 
     },
     $queryRawUnsafe: async () => [],
     companyCommercialUsageLog: {
-      create: async () => ({}),
+      create: async ({ data }: any) => {
+        shadowLogs.push(data);
+        return {};
+      },
       count: async (args: any) => {
         const eventTypes = args?.where?.eventType?.in || [];
         const userScoped = Number(args?.where?.userId || 0) === 7;
@@ -388,10 +396,9 @@ test('team policy card delivery daily limit blocks import when seller daily use 
     },
   } as any);
 
-  await assert.rejects(
-    () => service.assertCanImportCard(1, 7),
-    (error: any) => error?.response?.code === 'DAILY_CARD_SAFETY_LIMIT_REACHED',
-  );
+  const snapshot = await service.assertCanImportCard(1, 7);
+  assert.ok(snapshot);
+  assert.ok(shadowLogs.some((row) => row.eventType === 'card_import_limit_shadow'));
 });
 
 test('seller active card quota limits requested Radar quantity to available slots', async () => {
