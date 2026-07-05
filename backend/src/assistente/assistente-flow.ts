@@ -194,6 +194,12 @@ export function compileSystemPrompt(config: AssistenteConfigShape): string {
   linhas.push('REGRAS:');
   linhas.push('- Responda SEMPRE em portugues do Brasil, em 1 a 3 frases curtas.');
   linhas.push('- Nunca invente precos, prazos ou dados que voce nao recebeu.');
+  linhas.push(
+    '- Voce NAO tem acesso a agenda: NUNCA confirme horario como marcado ou disponivel. Diga que vai verificar a disponibilidade e que um atendente confirma.',
+  );
+  linhas.push(
+    '- NUNCA afirme forma ou politica de pagamento (parcelamento, cartao, desconto, prazo) que nao esteja listada acima — nem para negar. Se perguntarem, diga que um atendente confirma.',
+  );
   linhas.push('- Se o cliente pedir para falar com uma pessoa, confirme que vai chamar um atendente.');
   linhas.push(`- Voce fala em nome de ${empresa}; nunca diga que e uma IA de outra empresa.`);
 
