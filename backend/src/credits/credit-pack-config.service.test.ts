@@ -9,7 +9,14 @@ import { clearCreditPackOverrides, CREDIT_PACK_KEYS } from './credit-pack-catalo
 
 function createFakePrisma() {
   const packs: Array<{ packKey: string; configJson: string; createdAt: Date; updatedAt: Date }> = [];
-  const globalConfig: Array<{ key: string; defaultExpiryDays: number; createdAt: Date; updatedAt: Date }> = [];
+  const globalConfig: Array<{
+    key: string;
+    defaultExpiryDays: number;
+    welcomeCredits?: number;
+    welcomeExpiryDays?: number;
+    createdAt: Date;
+    updatedAt: Date;
+  }> = [];
 
   const creditPackConfig = {
     findMany: async () => packs.map((p) => ({ ...p })),
@@ -133,4 +140,57 @@ test('configJson corrompido no banco não derruba o refresh (defensivo, cai na b
 
   const def = service.listAvailable().find((p) => p.key === CREDIT_PACK_KEYS.STARTER)!;
   assert.equal(def.price, 97.0); // base, não quebrou
+});
+
+// ─── CRÉDITOS A3 — config global do lote grátis de boas-vindas ──────────────────────────────────
+
+test('updateWelcomeBatchConfig: persiste os 2 campos e refresca o overlay em memória', async () => {
+  const fake = createFakePrisma();
+  const service = new CreditPackConfigService(fake as any);
+
+  const result = await service.updateWelcomeBatchConfig({ welcomeCredits: 50, welcomeExpiryDays: 45 });
+  assert.equal(result.welcomeCredits, 50);
+  assert.equal(result.welcomeExpiryDays, 45);
+  assert.equal(service.getWelcomeCreditsDefault(), 50);
+  assert.equal(service.getWelcomeExpiryDaysDefault(), 45);
+  assert.equal(fake.globalConfig[0].welcomeCredits, 50);
+  assert.equal(fake.globalConfig[0].welcomeExpiryDays, 45);
+});
+
+test('updateWelcomeBatchConfig: aceita atualizar só 1 campo por vez sem perder o outro', async () => {
+  const fake = createFakePrisma();
+  const service = new CreditPackConfigService(fake as any);
+
+  await service.updateWelcomeBatchConfig({ welcomeCredits: 40 });
+  await service.updateWelcomeBatchConfig({ welcomeExpiryDays: 20 });
+
+  assert.equal(service.getWelcomeCreditsDefault(), 40);
+  assert.equal(service.getWelcomeExpiryDaysDefault(), 20);
+});
+
+test('refreshOverlay no boot hidrata welcomeCredits/welcomeExpiryDays já persistidos', async () => {
+  const fake = createFakePrisma();
+  fake.globalConfig.push({
+    key: 'default',
+    defaultExpiryDays: 90,
+    welcomeCredits: 77,
+    welcomeExpiryDays: 33,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as any);
+  const service = new CreditPackConfigService(fake as any);
+  await service.onModuleInit();
+
+  assert.equal(service.getWelcomeCreditsDefault(), 77);
+  assert.equal(service.getWelcomeExpiryDaysDefault(), 33);
+});
+
+test('updateWelcomeBatchConfig sem nenhum campo valido: no-op, devolve os defaults atuais', async () => {
+  const fake = createFakePrisma();
+  const service = new CreditPackConfigService(fake as any);
+
+  const result = await service.updateWelcomeBatchConfig({});
+  assert.equal(result.welcomeCredits, 30);
+  assert.equal(result.welcomeExpiryDays, 30);
+  assert.equal(fake.globalConfig.length, 0); // nada persistido
 });

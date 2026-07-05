@@ -936,6 +936,9 @@ export class CommercialUsageLimitsService {
   async recordCardImport(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
     const source = String(metadata.source || 'vendas');
     const eventType = metadata.eventType || (source === 'radar_claim' ? 'radar_card_claimed' : 'vendas_card_imported');
+    // CRÉDITOS R1 — gate REAL ANTES do log de sucesso: sem saldo (fail-closed), a entrega
+    // PARA e nada é gravado como sucesso. Com o gate OFF (2 chaves), é no-op transparente.
+    await this.enforceLeadDeliveryDebit(companyId, userId, metadata);
     const result = await this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
     // CRÉDITOS S2 — shadow-debit no ponto ÚNICO da baixa. recordCardImport loga
     // vendas_card_imported/radar_card_claimed (2 dos 4 CARD_SUCCESS_EVENTS que contam a cota);
@@ -987,10 +990,36 @@ export class CommercialUsageLimitsService {
       .catch(() => undefined);
   }
 
+  /**
+   * CRÉDITOS R1 — gate REAL (bloqueante) no MESMO ponto/MESMA chave canônica do shadow (S2).
+   * Diferente do shadow (fire-and-forget), este AWAIT e PODE LANÇAR: se o gate (2 chaves) está
+   * ON e não há saldo (ou o vendedor estourou o teto S4), a exceção sobe e a chamada de fora
+   * (recordCardImport/recordCardCommercialUseOnce) PARA antes de logar sucesso — fail-closed.
+   * Com o gate OFF (`isEnforceActiveForCompany` false), o próprio CreditsService devolve
+   * `applied: false` sem tocar o banco — no-op transparente, shadow continua sendo a única
+   * medição ativa.
+   */
+  private async enforceLeadDeliveryDebit(companyId: number, userId: number | null, metadata: Record<string, any>) {
+    // Defensivo: se o provider injetado (fake/mock de teste, ou versão antiga do módulo) não
+    // expõe assertAndDebitLeadDelivery, trata como enforcement indisponível/OFF — nunca quebra
+    // o caminho de venda por causa de um shape de objeto diferente.
+    if (!this.creditsService || typeof this.creditsService.assertAndDebitLeadDelivery !== 'function') return;
+    const leadId = this.resolveLeadDeliveryKey(metadata);
+    if (!leadId) return;
+    const isBillingAudienceUser = Boolean(metadata?.isBillingAudienceUser);
+    await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
+      leadId,
+      actionKey: 'lead_delivery',
+      isBillingAudienceUser,
+    });
+  }
+
   async recordCardCommercialUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
     const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.radarLeadId);
     if (!usageKey) {
       await this.assertCanImportCard(companyId, userId);
+      // CRÉDITOS R1 — gate REAL ANTES do log de sucesso (ver enforceLeadDeliveryDebit).
+      await this.enforceLeadDeliveryDebit(companyId, userId, metadata);
       await this.log(companyId, userId, 'card_commercial_used', String(metadata.source || 'commercial_use'), {
         status: 'success',
         ...metadata,
@@ -1009,6 +1038,9 @@ export class CommercialUsageLimitsService {
     });
     if (existing) return { debited: false, alreadyDebited: true };
     await this.assertCanImportCard(companyId, userId);
+    // CRÉDITOS R1 — gate REAL ANTES do log de sucesso. Passa a usageKey já normalizada para
+    // bater EXATAMENTE com a mesma chave do shadow/recordCardImport do mesmo lead.
+    await this.enforceLeadDeliveryDebit(companyId, userId, { ...metadata, usageKey });
     await this.log(companyId, userId, 'card_commercial_used', String(metadata.source || 'commercial_use'), {
       status: 'success',
       ...metadata,
@@ -1068,7 +1100,20 @@ export class CommercialUsageLimitsService {
         count,
       }),
     );
-    return Promise.all(writes);
+    const result = await Promise.all(writes);
+    // CRÉDITOS R1 — refund atômico on-failure no MESMO ponto do evento `vendas_card_refunded`
+    // já existente (spec R1). Best-effort: reusa a chave canônica do lead (mesma resolvida no
+    // enforcement/shadow); se o gate estiver OFF ou não houver débito pra essa usageKey, o
+    // CreditsService.refundLeadDelivery é no-op silencioso (nada a reverter).
+    if (this.creditsService && typeof this.creditsService.refundLeadDelivery === 'function') {
+      const leadId = this.resolveLeadDeliveryKey(metadata);
+      if (leadId) {
+        void this.creditsService
+          .refundLeadDelivery(companyId, userId, { leadId, actionKey: 'lead_delivery' })
+          .catch(() => undefined);
+      }
+    }
+    return result;
   }
 
   async assertCanSendPresentationEmail(companyId: number, userId?: number | null) {

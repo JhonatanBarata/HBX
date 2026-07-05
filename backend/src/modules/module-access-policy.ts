@@ -20,6 +20,50 @@ export type ModuleAccessCompanySnapshot = {
   courtesyReason?: string | null;
 };
 
+// R2 (CREDITOS — kill-switch puro do master, atras de HBX_MODULES_KILLSWITCH_ONLY,
+// default OFF): 1 entrada por SystemModule assignable a empresa. `enabled=null`
+// = sem post-it da empresa (CompanyModule) -> segue `defaultEnabled` do master;
+// `enabled=true/false` = override explicito da empresa (post-it), sempre manda.
+export type KillSwitchModuleEntry = {
+  key: string;
+  companyAssignable: boolean;
+  defaultEnabled: boolean;
+  enabled: boolean | null;
+};
+
+export type KillSwitchModuleSnapshot = {
+  modules: KillSwitchModuleEntry[];
+};
+
+// R2: helper PURO (sem banco) que aplica o kill-switch do master sobre um
+// snapshot ja carregado pelo chamador (modules.service.ts monta o snapshot
+// lendo SystemModule/CompanyModule e injeta aqui). Regra: modulo comercial
+// disponivel = companyAssignable && (override===true || (override===null &&
+// defaultEnabled)). Nao deriva mais de COMMERCIAL_PLAN_MODULE_KEYS.
+export function resolveKillSwitchModuleKeys(snapshot: KillSwitchModuleSnapshot | null | undefined): Set<string> {
+  const result = new Set<string>();
+  for (const moduleItem of snapshot?.modules || []) {
+    if (!moduleItem?.companyAssignable) continue;
+    const key = String(moduleItem.key || '').trim().toLowerCase();
+    if (!key) continue;
+    const enabled = moduleItem.enabled === null || moduleItem.enabled === undefined
+      ? Boolean(moduleItem.defaultEnabled)
+      : Boolean(moduleItem.enabled);
+    if (enabled) result.add(key);
+  }
+  return result;
+}
+
+// Flag mestra do R2 (mesmo padrao booleano de HBX_CREDITS_ENABLED em
+// credits.flags.ts). Default OFF: com a flag desligada, resolveCompanyModuleAccessPolicy
+// se comporta EXATAMENTE como antes (moduleKeys deriva so de COMMERCIAL_PLAN_MODULE_KEYS),
+// nenhuma mudanca de comportamento em prod ate o dono ligar.
+export function isModulesKillSwitchOnlyEnabled(): boolean {
+  return ['true', '1', 'yes', 'on'].includes(
+    String(process.env.HBX_MODULES_KILLSWITCH_ONLY || '').trim().toLowerCase(),
+  );
+}
+
 export type CompanyModuleAccessPolicy = {
   accessState: 'pending_checkout' | 'trial' | 'paid' | 'manual' | 'exempt' | 'grace' | 'open' | 'blocked';
   active: boolean;
@@ -75,9 +119,17 @@ function hasSelectedPlan(value: unknown) {
 // Projecao do estado canonico (company-access-state.ts) para o contrato de
 // modulos. Nenhuma regra de cobranca e re-derivada aqui: este arquivo so
 // decide planKey/moduleKeys e traduz o vocabulario.
+//
+// R2 (kill-switch, atras de HBX_MODULES_KILLSWITCH_ONLY default OFF):
+// `moduleSnapshot` e OPCIONAL e so tem efeito quando a flag esta ON — quem
+// chama (modules.service.ts) ja resolveu SystemModule/CompanyModule e injeta
+// aqui. Com a flag OFF (ou sem snapshot), o calculo e IDENTICO ao anterior
+// (moduleKeys deriva so de COMMERCIAL_PLAN_MODULE_KEYS[planKey]) — a funcao
+// permanece PURA (nenhum acesso a banco daqui).
 export function resolveCompanyModuleAccessPolicy(
   company: ModuleAccessCompanySnapshot | null | undefined,
   nowMs = Date.now(),
+  moduleSnapshot?: KillSwitchModuleSnapshot | null,
 ): CompanyModuleAccessPolicy {
   const access = resolveCompanyAccessState(company, nowMs);
 
@@ -150,12 +202,19 @@ export function resolveCompanyModuleAccessPolicy(
               ? 'grace'
               : 'open';
 
+  // R2: com a flag ON e snapshot disponivel, modulo vira kill-switch puro do
+  // master (nao deriva mais do plano). Sem flag ou sem snapshot, regressao
+  // zero: mesma linha de sempre (COMMERCIAL_PLAN_MODULE_KEYS[planKey]).
+  const moduleKeys = isModulesKillSwitchOnlyEnabled() && moduleSnapshot
+    ? resolveKillSwitchModuleKeys(moduleSnapshot)
+    : new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []);
+
   return {
     accessState,
     active: true,
     pendingCheckout: false,
     planKey,
-    moduleKeys: new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []),
+    moduleKeys,
     blockedCode: null,
     blockedReason: null,
   };

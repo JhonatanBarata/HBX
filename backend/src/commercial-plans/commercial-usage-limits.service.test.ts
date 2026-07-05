@@ -478,6 +478,11 @@ function buildShadowCredits() {
       ) => {
         calls.push({ companyId, userId, leadId: String(input.leadId), actionKey: input.actionKey });
       },
+      // CRÉDITOS R1 — o fake real (CreditsService) sempre expõe isto; aqui simula gate OFF
+      // (no-op transparente), que é o comportamento default enquanto HBX_CREDITS_ENFORCE não
+      // está ligada. Provado à parte em credits.service.test.ts.
+      assertAndDebitLeadDelivery: async () => ({ applied: false, debited: 0 }),
+      refundLeadDelivery: async () => ({ refunded: 0 }),
     } as any,
   };
 }

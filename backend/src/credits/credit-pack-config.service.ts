@@ -3,10 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   applyCreditExpiryDefaultOverride,
   applyCreditPackOverrides,
+  applyWelcomeCreditsOverride,
+  applyWelcomeExpiryDaysOverride,
   buildCreditPacksCatalog,
   CreditPackDefinition,
   CreditPackOverride,
   getCreditExpiryDefaultDays,
+  getWelcomeCreditsDefault,
+  getWelcomeExpiryDaysDefault,
   listCreditPackKeys,
   normalizeCreditPackKey,
 } from './credit-pack-catalog';
@@ -65,8 +69,13 @@ export class CreditPackConfigService implements OnModuleInit {
     try {
       const cfg = await (this.prisma as any).creditGlobalConfig.findUnique({ where: { key: 'default' } });
       applyCreditExpiryDefaultOverride(cfg?.defaultExpiryDays ?? null);
+      // CRÉDITOS A3 — mesmas 2 colunas novas de CreditGlobalConfig, hidratadas junto.
+      applyWelcomeCreditsOverride(cfg?.welcomeCredits ?? null);
+      applyWelcomeExpiryDaysOverride(cfg?.welcomeExpiryDays ?? null);
     } catch {
       applyCreditExpiryDefaultOverride(null);
+      applyWelcomeCreditsOverride(null);
+      applyWelcomeExpiryDaysOverride(null);
     }
   }
 
@@ -82,6 +91,15 @@ export class CreditPackConfigService implements OnModuleInit {
 
   getGlobalExpiryDefaultDays(): number {
     return getCreditExpiryDefaultDays();
+  }
+
+  // CRÉDITOS A3 — config global do lote grátis de boas-vindas (quantidade/validade).
+  getWelcomeCreditsDefault(): number {
+    return getWelcomeCreditsDefault();
+  }
+
+  getWelcomeExpiryDaysDefault(): number {
+    return getWelcomeExpiryDaysDefault();
   }
 
   /**
@@ -151,6 +169,39 @@ export class CreditPackConfigService implements OnModuleInit {
     });
     await this.refreshOverlay();
     return getCreditExpiryDefaultDays();
+  }
+
+  /**
+   * CRÉDITOS A3 — config global do lote grátis de boas-vindas (quantidade + validade),
+   * MESMO padrão de updateGlobalExpiryDefaultDays acima (upsert na linha única 'default' +
+   * refresh do overlay em memória). Aceita atualizar só um dos dois campos por chamada.
+   */
+  async updateWelcomeBatchConfig(patch: { welcomeCredits?: number; welcomeExpiryDays?: number }): Promise<{
+    welcomeCredits: number;
+    welcomeExpiryDays: number;
+  }> {
+    const data: Record<string, number> = {};
+    if (patch.welcomeCredits != null && Number.isFinite(Number(patch.welcomeCredits))) {
+      data.welcomeCredits = Math.max(1, Math.trunc(Number(patch.welcomeCredits)));
+    }
+    if (patch.welcomeExpiryDays != null && Number.isFinite(Number(patch.welcomeExpiryDays))) {
+      data.welcomeExpiryDays = Math.max(1, Math.trunc(Number(patch.welcomeExpiryDays)));
+    }
+    if (Object.keys(data).length === 0) {
+      return { welcomeCredits: getWelcomeCreditsDefault(), welcomeExpiryDays: getWelcomeExpiryDaysDefault() };
+    }
+
+    await (this.prisma as any).creditGlobalConfig.upsert({
+      where: { key: 'default' },
+      update: data,
+      create: {
+        key: 'default',
+        welcomeCredits: data.welcomeCredits ?? 30,
+        welcomeExpiryDays: data.welcomeExpiryDays ?? 30,
+      },
+    });
+    await this.refreshOverlay();
+    return { welcomeCredits: getWelcomeCreditsDefault(), welcomeExpiryDays: getWelcomeExpiryDaysDefault() };
   }
 
   listPackKeys() {

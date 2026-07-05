@@ -45,6 +45,13 @@ export class CreditsMasterController {
     return this.creditsService.updateGlobalExpiryDefaultAsMaster(Number(body?.defaultExpiryDays));
   }
 
+  // CRÉDITOS A3 — config global do lote grátis de boas-vindas (quantidade/validade).
+  @Put('config/welcome-batch')
+  async updateWelcomeBatch(@Body() body: { welcomeCredits?: number; welcomeExpiryDays?: number }) {
+    this.assertEnabled();
+    return this.creditsService.updateWelcomeBatchConfigAsMaster(body || {});
+  }
+
   // Concessão manual de crédito a uma empresa ("master libera créditos ao admin"). Idempotente
   // por sourceRef/usageKey (o service deriva usageKey do sourceRef quando não informada
   // explicitamente). createdByUserId = o master autenticado (trilha de auditoria no ledger).

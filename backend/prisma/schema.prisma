@@ -103,6 +103,11 @@ model Company {
   tasteGrantedByUserId    Int?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
+  // CRÉDITOS R1 (docs/PLANEJAMENTOS/CREDITOS/R1-SPEC-GATE-ENFORCE.md): gate por-empresa do
+  // enforcement real de crédito. Só entra em vigor quando HBX_CREDITS_ENFORCE (env, mestre)
+  // TAMBÉM está ON — as duas precisam ser true. Default false: nenhuma empresa é afetada até
+  // o dono ligar manualmente por tenant (cutover gradual do S7).
+  creditsEnforceEnabled   Boolean   @default(false)
   seatCap                 Int?     // teto RÍGIDO de assentos por empresa (master) — PR13062026005
   commissionDueBusinessDays Int      @default(3)
   // Régua única (PR13062026007 P1): molho de ACESSO do cargo Vendedor (1 por
@@ -4240,6 +4245,11 @@ model CreditPackConfig {
 model CreditGlobalConfig {
   key                      String   @id @default("default")
   defaultExpiryDays        Int      @default(90)
+  // CRÉDITOS A3 (docs/PLANEJAMENTOS/CREDITOS/A3-RESULTADO.md) — lote grátis de boas-vindas
+  // no signup self-service. Config global editável pelo master, mesmo padrão de
+  // defaultExpiryDays acima. Migration ADITIVA (2 colunas com DEFAULT, nenhuma existente muda).
+  welcomeCredits           Int      @default(30)
+  welcomeExpiryDays        Int      @default(30)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

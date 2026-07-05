@@ -8,7 +8,13 @@ import {
 } from '../commercial-plans/commercial-plan-catalog';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
 import { ModulesService } from './modules.service';
-import { presentModuleBlockForRole, resolveCompanyModuleAccessPolicy } from './module-access-policy';
+import {
+  presentModuleBlockForRole,
+  resolveCompanyModuleAccessPolicy,
+  resolveKillSwitchModuleKeys,
+  isModulesKillSwitchOnlyEnabled,
+  type KillSwitchModuleSnapshot,
+} from './module-access-policy';
 
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
@@ -281,4 +287,199 @@ test('seller access governance blocks platform_infra and keeps tenant admin boun
     targetUser: { id: 4, companyId: 30, role: 'USER' },
     targetCompany: { id: 30, companyKind: COMPANY_KIND_TENANT, slug: 'hbx' },
   }));
+});
+
+// R2 (CREDITOS — kill-switch puro do master, docs/PLANEJAMENTOS/CREDITOS/R2-SPEC-KILLSWITCH.md).
+// HBX_MODULES_KILLSWITCH_ONLY default OFF: flag manipulada só dentro destes testes,
+// sempre restaurada no finally para não vazar estado entre suítes.
+function withKillSwitchFlag<T>(value: string | undefined, fn: () => T): T {
+  const previous = process.env.HBX_MODULES_KILLSWITCH_ONLY;
+  if (value === undefined) delete process.env.HBX_MODULES_KILLSWITCH_ONLY;
+  else process.env.HBX_MODULES_KILLSWITCH_ONLY = value;
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) delete process.env.HBX_MODULES_KILLSWITCH_ONLY;
+    else process.env.HBX_MODULES_KILLSWITCH_ONLY = previous;
+  }
+}
+
+function buildSnapshot(
+  entries: Array<{ key: string; defaultEnabled: boolean; enabled?: boolean | null; companyAssignable?: boolean }>,
+): KillSwitchModuleSnapshot {
+  return {
+    modules: entries.map((entry) => ({
+      key: entry.key,
+      companyAssignable: entry.companyAssignable !== false,
+      defaultEnabled: entry.defaultEnabled,
+      enabled: entry.enabled === undefined ? null : entry.enabled,
+    })),
+  };
+}
+
+test('R2 flag OFF: moduleKeys idêntico ao snapshot atual mesmo se um snapshot for passado (regressão zero)', () => {
+  withKillSwitchFlag(undefined, () => {
+    assert.equal(isModulesKillSwitchOnlyEnabled(), false);
+
+    const snapshot = buildSnapshot([
+      { key: 'atendimento', defaultEnabled: true },
+      { key: 'vendas', defaultEnabled: true },
+      { key: 'webscraping', defaultEnabled: true },
+      { key: 'cadastro', defaultEnabled: true },
+      { key: 'bot', defaultEnabled: false },
+    ]);
+
+    const withSnapshot = resolveCompanyModuleAccessPolicy(
+      { status: 'active', selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE },
+      Date.now(),
+      snapshot,
+    );
+    const withoutSnapshot = resolveCompanyModuleAccessPolicy({
+      status: 'active',
+      selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
+    });
+
+    // Com a flag OFF, o snapshot é ignorado — mesmo resultado de sempre (plano LITE = vendas+webscraping).
+    assert.deepEqual([...withSnapshot.moduleKeys].sort(), [...withoutSnapshot.moduleKeys].sort());
+    assert.equal(withSnapshot.moduleKeys.has('atendimento'), false);
+    assert.equal(withSnapshot.moduleKeys.has('cadastro'), false);
+  });
+});
+
+test('R2 flag ON: empresa active sem plano nenhum enxerga módulos default-ON (kill-switch do master)', () => {
+  withKillSwitchFlag('true', () => {
+    assert.equal(isModulesKillSwitchOnlyEnabled(), true);
+
+    const snapshot = buildSnapshot([
+      { key: 'atendimento', defaultEnabled: true },
+      { key: 'vendas', defaultEnabled: true },
+      { key: 'webscraping', defaultEnabled: true },
+      { key: 'cadastro', defaultEnabled: true },
+      { key: 'bot', defaultEnabled: false },
+      { key: 'website', defaultEnabled: false },
+    ]);
+
+    const policy = resolveCompanyModuleAccessPolicy(
+      { status: 'active', selectedPlanKey: null },
+      Date.now(),
+      snapshot,
+    );
+
+    assert.equal(policy.active, true);
+    assert.equal(policy.moduleKeys.has('atendimento'), true);
+    assert.equal(policy.moduleKeys.has('vendas'), true);
+    assert.equal(policy.moduleKeys.has('webscraping'), true);
+    assert.equal(policy.moduleKeys.has('cadastro'), true);
+    // defaultEnabled=false e sem post-it da empresa continua desligado.
+    assert.equal(policy.moduleKeys.has('bot'), false);
+    assert.equal(policy.moduleKeys.has('website'), false);
+  });
+});
+
+test('R2 flag ON: master desligou módulo X da empresa (post-it enabled=false) → X some, resto fica', () => {
+  withKillSwitchFlag('1', () => {
+    const snapshot = buildSnapshot([
+      { key: 'atendimento', defaultEnabled: true, enabled: false }, // post-it desligando explicitamente
+      { key: 'vendas', defaultEnabled: true },
+      { key: 'webscraping', defaultEnabled: true },
+      { key: 'bot', defaultEnabled: false, enabled: true }, // post-it ligando explicitamente
+    ]);
+
+    const policy = resolveCompanyModuleAccessPolicy(
+      { status: 'active', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      Date.now(),
+      snapshot,
+    );
+
+    assert.equal(policy.moduleKeys.has('atendimento'), false); // apagado pelo master
+    assert.equal(policy.moduleKeys.has('vendas'), true);
+    assert.equal(policy.moduleKeys.has('webscraping'), true);
+    assert.equal(policy.moduleKeys.has('bot'), true); // ligado pelo master mesmo com defaultEnabled=false
+  });
+});
+
+test('R2 flag ON: empresa overdue/pending_checkout continua com tudo bloqueado (inadimplência ≠ paywall de tier)', () => {
+  withKillSwitchFlag('true', () => {
+    const snapshot = buildSnapshot([
+      { key: 'atendimento', defaultEnabled: true },
+      { key: 'vendas', defaultEnabled: true },
+      { key: 'webscraping', defaultEnabled: true },
+    ]);
+
+    const pendingCheckout = resolveCompanyModuleAccessPolicy(
+      { status: 'pending_checkout', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      Date.now(),
+      snapshot,
+    );
+    assert.equal(pendingCheckout.active, false);
+    assert.equal(pendingCheckout.pendingCheckout, true);
+    assert.equal(pendingCheckout.blockedCode, 'pending_checkout');
+    assert.deepEqual([...pendingCheckout.moduleKeys], []);
+
+    const overdue = resolveCompanyModuleAccessPolicy(
+      { status: 'overdue', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      Date.now(),
+      snapshot,
+    );
+    assert.equal(overdue.active, false);
+    assert.equal(overdue.blockedCode, 'billing_overdue');
+    assert.deepEqual([...overdue.moduleKeys], []);
+
+    const suspended = resolveCompanyModuleAccessPolicy(
+      { status: 'suspended', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      Date.now(),
+      snapshot,
+    );
+    assert.equal(suspended.active, false);
+    assert.equal(suspended.blockedCode, 'subscription_inactive');
+    assert.deepEqual([...suspended.moduleKeys], []);
+  });
+});
+
+test('R2 flag ON: vendedor sem RBAC do módulo continua barrado (camada 3 — RBAC — intacta)', () => {
+  withKillSwitchFlag('true', () => {
+    const snapshot = buildSnapshot([
+      { key: 'atendimento', defaultEnabled: true },
+      { key: 'vendas', defaultEnabled: true },
+      { key: 'webscraping', defaultEnabled: true },
+      { key: 'gerencial', defaultEnabled: true },
+      { key: 'financeiro', defaultEnabled: true },
+    ]);
+
+    const policy = resolveCompanyModuleAccessPolicy(
+      { status: 'active', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      Date.now(),
+      snapshot,
+    );
+
+    // Módulo (camada 1) libera até gerencial/financeiro no kill-switch — mas o
+    // bloqueio de vendedor (RBAC, camada 3) é decidido em presentModuleBlockForRole
+    // e resolveCargoModuleAllowed (modules.service.ts), não aqui. O kill-switch NUNCA
+    // substitui RBAC: só decide disponibilidade, o vendedor sem permissão de cargo
+    // continua vendo bloqueio neutro do lado do RBAC.
+    const billingBlock = {
+      blockedReason: 'Modulo nao habilitado para esta conta.',
+      blockedCode: 'user_module_blocked',
+      criticalEngine: null,
+    };
+    const sellerView = presentModuleBlockForRole('USER', billingBlock);
+    // user_module_blocked não é um código de billing — passa intacto (RBAC, não paywall).
+    assert.deepEqual(sellerView, billingBlock);
+    assert.equal(policy.active, true);
+  });
+});
+
+test('resolveKillSwitchModuleKeys: helper puro ignora módulos não companyAssignable e aplica precedência override > default', () => {
+  const snapshot = buildSnapshot([
+    { key: 'vendas', defaultEnabled: true },
+    { key: 'atendimento', defaultEnabled: false, enabled: true },
+    { key: 'bot', defaultEnabled: true, enabled: false },
+    { key: 'master', defaultEnabled: true, companyAssignable: false },
+  ]);
+
+  const keys = resolveKillSwitchModuleKeys(snapshot);
+  assert.equal(keys.has('vendas'), true);
+  assert.equal(keys.has('atendimento'), true); // override liga mesmo com defaultEnabled=false
+  assert.equal(keys.has('bot'), false); // override desliga mesmo com defaultEnabled=true
+  assert.equal(keys.has('master'), false); // não companyAssignable, nunca entra
 });

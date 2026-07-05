@@ -57,7 +57,7 @@ function buildAuthServiceForLogin(
       return 'signed-token';
     },
   };
-  const service = new AuthService({} as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any);
+  const service = new AuthService({} as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
   return { service, companyFindUniqueCalls, signedPayloads };
 }
 
@@ -166,7 +166,7 @@ test('bootstrap do System Master preserva sessao ativa quando usuario ja esta co
   };
 
   try {
-    const service = new AuthService({} as any, {} as any, prisma as any, {} as any, {} as any, {} as any) as any;
+    const service = new AuthService({} as any, {} as any, prisma as any, {} as any, {} as any, {} as any, {} as any) as any;
     await service.ensureSystemMasterUser();
 
     assert.equal(revocationCalls.length, 0);
@@ -256,7 +256,7 @@ test('login do System Master substitui a propria sessao ativa no mesmo cliente',
   const previousMasterUsername = process.env.SYSTEM_MASTER_USERNAME;
   process.env.SYSTEM_MASTER_USERNAME = 'OutroMaster';
   try {
-    service = new AuthService(usersService as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any);
+    service = new AuthService(usersService as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
     const result = await service.loginWithUsername('Jhonatan', 'master-secret', { userAgent: 'Local Browser', ip: '127.0.0.1' });
 
     assert.equal(result.next, '/master');
@@ -525,7 +525,7 @@ function buildTrialActivationTx(company: any) {
 }
 
 function buildBareAuthService() {
-  return new AuthService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  return new AuthService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
 }
 
 test('SEGURANCA: confirmacao de e-mail NAO concede trial sem cartao (vai para pending_checkout)', async () => {
@@ -610,7 +610,7 @@ function buildAuthServiceForResume(userSnapshot: any) {
     verify: () => ({ sub: userSnapshot?.id ?? 1, purpose: 'email_confirmation_poll' }),
     sign: () => 'signed',
   };
-  return new AuthService({} as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any);
+  return new AuthService({} as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
 }
 
 test('resume: e-mail não confirmado → awaiting_email + resendAvailableAt (cooldown 60s)', async () => {
@@ -679,7 +679,7 @@ function buildAuthServiceForUnconfirmedLogin(passwordHash: string) {
     }),
   };
   const jwtService = { sign: () => 'signed', verify: () => ({}) };
-  return new AuthService(usersService as any, jwtService as any, {} as any, {} as any, {} as any, {} as any);
+  return new AuthService(usersService as any, jwtService as any, {} as any, {} as any, {} as any, {} as any, {} as any);
 }
 
 test('login no-beco: e-mail pendente + senha CORRETA → resume pro funil (next + step)', async () => {

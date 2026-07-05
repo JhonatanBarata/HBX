@@ -6,9 +6,17 @@ export function isCreditsFeatureEnabled(): boolean {
 }
 
 // CRÉDITOS S2 — flag do shadow-debit (MEDIÇÃO, sem enforcement). Separada de
-// HBX_CREDITS_ENABLED (S1/S3, liga o módulo/endpoints) e de HBX_CREDITS_ENFORCE (futuro R1,
+// HBX_CREDITS_ENABLED (S1/S3, liga o módulo/endpoints) e de HBX_CREDITS_ENFORCE (R1,
 // bloqueio real). Default OFF: com a flag desligada, recordShadowDebit é no-op imediato —
 // nenhuma linha `debit_shadow` é gravada, nenhuma leitura ao banco é feita.
 export function isCreditsShadowEnabled(): boolean {
   return ['true', '1', 'yes', 'on'].includes(String(process.env.HBX_CREDITS_SHADOW || '').trim().toLowerCase());
+}
+
+// CRÉDITOS R1 — flag MESTRA do enforcement real (débito que BLOQUEIA a entrega sem saldo).
+// Gate em 2 chaves (R1-SPEC): esta env (global) E `Company.creditsEnforceEnabled` (por-tenant)
+// precisam estar ON — qualquer uma OFF mantém o comportamento atual (shadow) intocado. Default
+// OFF: nenhuma empresa é afetada até o dono ligar as duas explicitamente (cutover por empresa).
+export function isCreditsEnforceEnabled(): boolean {
+  return ['true', '1', 'yes', 'on'].includes(String(process.env.HBX_CREDITS_ENFORCE || '').trim().toLowerCase());
 }

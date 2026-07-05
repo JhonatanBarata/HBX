@@ -23,7 +23,7 @@ function buildService(userSnapshot: any) {
     trialPhoneUsage: { findUnique: async () => null, findFirst: async () => null },
     company: { findUnique: async () => ({ id: 77 }) },
   };
-  const service = new AuthService({} as any, jwt as any, prisma as any, {} as any, {} as any, {} as any);
+  const service = new AuthService({} as any, jwt as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
   return { service, jwt };
 }
 

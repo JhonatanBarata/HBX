@@ -5621,6 +5621,174 @@ test('listagem radar tolera engine=hbx sem quebrar', async () => {
   assert.equal(response.items[0].name, 'Loja Radar');
 });
 
+// ─── FIX-ENRICHMENT-STATUS-SHELF (05/07) — o shelf do Radar nunca emitia `enrichmentStatus`,
+// deixando o badge "enriquecendo agora" do front morto. Estes testes provam a normalização do
+// vocabulário da fila (RadarLeadEnrichment: queued|running|enriched|failed|skipped) pro
+// vocabulário do front (pending|completed|failed) e o degrade quando a fila não existe/lança.
+test('listRadarLeadsForUser: fila com enrichmentStatus "queued" -> item sai com enrichmentStatus "pending"', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-queue-pending',
+    name: 'Loja Aguardando Ltda',
+    phone: '(19) 99999-5555',
+    phoneDigits: '19999995555',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  (prisma as any).radarLeadEnrichment = {
+    findMany: async ({ where }: any) => {
+      const ids: string[] = where?.OR?.flatMap((clause: any) =>
+        clause?.radarLeadId?.in || clause?.sourceLeadPoolId?.in || []) || [];
+      if (!ids.includes('lead-queue-pending')) return [];
+      return [{ radarLeadId: 'lead-queue-pending', sourceLeadPoolId: 'lead-queue-pending', enrichmentStatus: 'queued' }];
+    },
+  };
+  const service = new WebscrapingService(prisma);
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  const item = response.items.find((row: any) => row.name === 'Loja Aguardando Ltda');
+  assert.ok(item, 'lead da fila deveria estar na lista');
+  assert.equal(item.enrichmentStatus, 'pending');
+});
+
+test('listRadarLeadsForUser: fila com enrichmentStatus "enriched" -> item sai com enrichmentStatus "completed"', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-queue-enriched',
+    name: 'Loja Enriquecida',
+    phone: '(19) 99999-6666',
+    phoneDigits: '19999996666',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  (prisma as any).radarLeadEnrichment = {
+    findMany: async ({ where }: any) => {
+      const ids: string[] = where?.OR?.flatMap((clause: any) =>
+        clause?.radarLeadId?.in || clause?.sourceLeadPoolId?.in || []) || [];
+      if (!ids.includes('lead-queue-enriched')) return [];
+      return [{ radarLeadId: 'lead-queue-enriched', sourceLeadPoolId: 'lead-queue-enriched', enrichmentStatus: 'enriched' }];
+    },
+  };
+  const service = new WebscrapingService(prisma);
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  const item = response.items.find((row: any) => row.name === 'Loja Enriquecida');
+  assert.ok(item, 'lead enriquecido deveria estar na lista');
+  assert.equal(item.enrichmentStatus, 'completed');
+});
+
+test('listRadarLeadsForUser: prisma sem o modelo radarLeadEnrichment -> NAO lanca (degrade gracioso do lookup da fila)', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  // Sem `prisma.radarLeadEnrichment` (igual ao mock padrão de createCampaignPrisma) — hasTable()
+  // do mock devolve `true` (createPrisma:48) mas o modelo não existe no objeto, então acessar
+  // `.findMany` direto lançaria TypeError síncrono se o degrade não fosse robusto (try/catch).
+  // NOTA: `queryRadarRowsForCompany` já roda um enriquecimento em memória PRÉ-EXISTENTE
+  // (ensureRadarRowsEnriched/needsRadarLeadEnrichmentRefresh, :1684) pra QUALQUER card lido sem
+  // `lastEnrichedAt`/`enrichmentVersion` atual — por isso o card sai sempre 'completed' aqui
+  // (mesmo "sem nada" inicialmente); esse comportamento é anterior a este fix e ortogonal a ele.
+  // A prova real do fallback json/lastEnrichedAt→completed / sem-nada→null (isolada desse
+  // enriquecimento automático) está no teste unitário abaixo, direto no helper.
+  leads.push({
+    id: 'lead-sem-fila-com-json',
+    name: 'Loja Com Enrichment Antigo',
+    phone: '(19) 99999-7777',
+    phoneDigits: '19999997777',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    enrichmentJson: JSON.stringify({ recommendedChannel: 'whatsapp' }),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+
+  const response = await service.listRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    engine: 'hbx',
+    limit: 20,
+  });
+
+  const comJson = response.items.find((item: any) => item.name === 'Loja Com Enrichment Antigo');
+  assert.ok(comJson, 'item deveria estar na lista (lookup da fila nao pode lancar nem sumir com o card)');
+  assert.equal(comJson.enrichmentStatus, 'completed');
+});
+
+test('resolveRadarLeadEnrichmentStatus (unidade): sem status de fila, cai no fallback json/lastEnrichedAt -> completed; sem nenhum dado -> null', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+
+  // Fallback: enrichmentJson com chaves -> completed (sem status de fila vindo do banco).
+  const comJson = service.resolveRadarLeadEnrichmentStatus(
+    { enrichmentJson: JSON.stringify({ recommendedChannel: 'whatsapp' }) },
+    null,
+  );
+  assert.equal(comJson, 'completed');
+
+  // Fallback: lastEnrichedAt preenchido -> completed.
+  const comData = service.resolveRadarLeadEnrichmentStatus({ lastEnrichedAt: new Date() }, null);
+  assert.equal(comData, 'completed');
+
+  // Sem status de fila, sem enrichmentJson, sem lastEnrichedAt -> null (badge apagado).
+  const semNada = service.resolveRadarLeadEnrichmentStatus({}, null);
+  assert.equal(semNada, null);
+
+  // Vocabulario da fila: queued/running -> pending; enriched/skipped -> completed; failed -> failed.
+  assert.equal(service.resolveRadarLeadEnrichmentStatus({}, 'queued'), 'pending');
+  assert.equal(service.resolveRadarLeadEnrichmentStatus({}, 'running'), 'pending');
+  assert.equal(service.resolveRadarLeadEnrichmentStatus({}, 'enriched'), 'completed');
+  assert.equal(service.resolveRadarLeadEnrichmentStatus({}, 'skipped'), 'completed');
+  assert.equal(service.resolveRadarLeadEnrichmentStatus({}, 'failed'), 'failed');
+});
+
+test('fetchRadarLeadEnrichmentQueueStatusMap (unidade): prisma sem o modelo radarLeadEnrichment -> NAO lanca, devolve Map vazio', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  // createPrisma() base nao tem `radarLeadEnrichment` — hasTable() devolve true (mock), mas o
+  // acesso a `.findMany` direto lancaria TypeError sincrono sem o try/catch do helper.
+  const map = await service.fetchRadarLeadEnrichmentQueueStatusMap(['lead-x', 'lead-y']);
+  assert.equal(map.size, 0);
+});
+
+test('fetchRadarLeadEnrichmentQueueStatusMap (unidade): findMany lançando -> NAO propaga, devolve Map vazio', async () => {
+  const prisma = createPrisma({
+    radarLeadEnrichment: {
+      findMany: async () => { throw new Error('boom'); },
+    },
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const map = await service.fetchRadarLeadEnrichmentQueueStatusMap(['lead-x']);
+  assert.equal(map.size, 0);
+});
+
 // ─── VENDAS-REFAB S3 — "Total no Brasil"/"Leads na base (Radar)" tem que vir da base 28M
 // (CnpjPublicCompany), nao do pool local (RadarLeadPool, ~893 no ambiente do dono). Estes testes
 // prova a composicao: scope=vitrine chama CnpjBaseQueryService.countBase com o filtro ativo

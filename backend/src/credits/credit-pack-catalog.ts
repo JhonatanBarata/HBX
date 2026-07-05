@@ -41,6 +41,14 @@ export type CreditPackDefinition = {
 // `applyCreditExpiryDefaultOverride`), o dono ajusta no /master.
 const DEFAULT_CREDIT_EXPIRY_DAYS = 90;
 
+// CRÉDITOS A3 (docs/PLANEJAMENTOS/CREDITOS/A3-RESULTADO.md) — lote grátis de boas-vindas no
+// signup self-service (substitui o trial por tempo, A3 do PLANO.md). Defaults de código:
+// 30 créditos / 30 dias de validade (âncora de mercado: CNPJ.biz dá ~10 créditos de trial —
+// dar 3x é argumento de venda). Config global editável pelo master, MESMO padrão do prazo
+// default de expiração acima (override em memória + persistência em CreditGlobalConfig).
+const DEFAULT_WELCOME_CREDITS = 30;
+const DEFAULT_WELCOME_EXPIRY_DAYS = 30;
+
 // Base em CÓDIGO — 3 pacotes default. `price`/`credits` são PLACEHOLDER: o dono cravará o
 // número real no /master (decisão 04/07: "NÃO cravar preço final"). Nada aqui é lido pelo
 // frontend diretamente — só via endpoint do backend.
@@ -100,6 +108,11 @@ const CREDIT_PACK_OVERRIDES = new Map<CreditPackKey, CreditPackOverride>();
 // especificado). null/ausente → cai no default de código (nunca "sem expiração" por engano).
 let CREDIT_EXPIRY_DEFAULT_DAYS_OVERRIDE: number | null = null;
 
+// CRÉDITOS A3 — overrides GLOBAIS do lote de boas-vindas (quantidade/validade), mesmo desenho
+// do override de expiração acima. null/ausente → cai nos defaults de código.
+let WELCOME_CREDITS_OVERRIDE: number | null = null;
+let WELCOME_EXPIRY_DAYS_OVERRIDE: number | null = null;
+
 function toCreditCurrency(value: unknown) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric)) return 0;
@@ -142,6 +155,8 @@ export function applyCreditPackOverrides(
 export function clearCreditPackOverrides() {
   CREDIT_PACK_OVERRIDES.clear();
   CREDIT_EXPIRY_DEFAULT_DAYS_OVERRIDE = null;
+  WELCOME_CREDITS_OVERRIDE = null;
+  WELCOME_EXPIRY_DAYS_OVERRIDE = null;
 }
 
 export function getCreditPackOverride(packKey: unknown): CreditPackOverride | null {
@@ -166,6 +181,32 @@ export function getCreditExpiryDefaultDays(): number {
  * não especifica `expiresAt`). */
 export function computeDefaultExpiresAt(now: Date = new Date()): Date {
   return new Date(now.getTime() + getCreditExpiryDefaultDays() * 24 * 60 * 60 * 1000);
+}
+
+// ── CRÉDITOS A3 — lote grátis de boas-vindas (config global) ────────────────────────
+export function applyWelcomeCreditsOverride(value: unknown) {
+  const n = Number(value);
+  WELCOME_CREDITS_OVERRIDE = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
+export function applyWelcomeExpiryDaysOverride(value: unknown) {
+  const n = Number(value);
+  WELCOME_EXPIRY_DAYS_OVERRIDE = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
+/** Quantidade default do lote de boas-vindas — config global, editável pelo master. */
+export function getWelcomeCreditsDefault(): number {
+  return WELCOME_CREDITS_OVERRIDE != null ? WELCOME_CREDITS_OVERRIDE : DEFAULT_WELCOME_CREDITS;
+}
+
+/** Validade (em dias) do lote de boas-vindas — config global, editável pelo master. */
+export function getWelcomeExpiryDaysDefault(): number {
+  return WELCOME_EXPIRY_DAYS_OVERRIDE != null ? WELCOME_EXPIRY_DAYS_OVERRIDE : DEFAULT_WELCOME_EXPIRY_DAYS;
+}
+
+/** `expiresAt` do lote de boas-vindas: agora + validade default global. */
+export function computeWelcomeExpiresAt(now: Date = new Date()): Date {
+  return new Date(now.getTime() + getWelcomeExpiryDaysDefault() * 24 * 60 * 60 * 1000);
 }
 
 export function isCreditPackPaused(packKey: unknown): boolean {

@@ -58,8 +58,10 @@ import { resolveActorKind, isAdminTierActor } from '../access/actor-kind';
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
+  isModulesKillSwitchOnlyEnabled,
   presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
+  type KillSwitchModuleSnapshot,
 } from './module-access-policy';
 import {
   isCompanyAccessReleased,
@@ -1963,6 +1965,51 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return SELLER_CARGO_DEFAULT_ACCESS.has(norm);
   }
 
+  // R2 (CREDITOS — kill-switch puro do master, atras de HBX_MODULES_KILLSWITCH_ONLY,
+  // default OFF): resolvedor COM-BANCO que monta o snapshot para o helper puro
+  // (module-access-policy.ts). Reusa as mesmas leituras que já existem para o
+  // post-it da empresa (getCompanyModuleOverride / prisma.companyModule) — não
+  // duplica query nova. So chamar quando a flag estiver ON (custo de 2 SELECTs
+  // extras por resolução; flag OFF = este método nem é invocado pelos call-sites).
+  private async buildKillSwitchModuleSnapshot(companyId: number): Promise<KillSwitchModuleSnapshot> {
+    const [moduleRows, companyModuleRows] = await Promise.all([
+      this.prisma.systemModule.findMany({
+        where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+        select: { id: true, key: true, companyAssignable: true, defaultEnabled: true },
+      }),
+      this.prisma.companyModule.findMany({
+        where: { companyId },
+        select: { moduleId: true, enabled: true },
+      }),
+    ]);
+    const overrideByModuleId = new Map<number, boolean>(
+      companyModuleRows.map((row) => [row.moduleId, Boolean(row.enabled)]),
+    );
+    return {
+      modules: moduleRows.map((moduleItem) => ({
+        key: this.normalizeRequestedModuleKey(moduleItem.key),
+        companyAssignable: Boolean(moduleItem.companyAssignable),
+        defaultEnabled: Boolean(moduleItem.defaultEnabled),
+        enabled: overrideByModuleId.has(moduleItem.id) ? Boolean(overrideByModuleId.get(moduleItem.id)) : null,
+      })),
+    };
+  }
+
+  // R2: wrapper único — decide se busca o snapshot do kill-switch (flag ON) e
+  // chama o helper puro. Com a flag OFF, comportamento idêntico ao anterior
+  // (nenhuma leitura extra ao banco, resolveCompanyModuleAccessPolicy roda sem
+  // o 3º parâmetro exatamente como antes do R2).
+  private async resolveCompanyModulePolicyWithKillSwitch(
+    company: any,
+    companyId: number | null | undefined,
+  ) {
+    if (!isModulesKillSwitchOnlyEnabled() || !companyId) {
+      return resolveCompanyModuleAccessPolicy(company);
+    }
+    const snapshot = await this.buildKillSwitchModuleSnapshot(companyId);
+    return resolveCompanyModuleAccessPolicy(company, Date.now(), snapshot);
+  }
+
   // Régua única (PR13062026007 PB1/PB2): "caixa do plano" VIVA, editável no
   // Sistema. Base = COMMERCIAL_PLAN_MODULE_KEYS; por cima, o que o master editou
   // em PlanModuleConfig. É o que a empresa segue quando NÃO tem post-it.
@@ -2145,7 +2192,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         sellerCargoAccessJson: true,
       },
     });
-    const accessPolicy = resolveCompanyModuleAccessPolicy(companyAccessSnapshot);
+    const accessPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(companyAccessSnapshot, companyId);
     if (!status.active || !accessPolicy.active) {
       return this.isFinanceModuleKey(key);
     }
@@ -2249,7 +2296,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         sellerCargoAccessJson: true,
       },
     });
-    const accessPolicy = resolveCompanyModuleAccessPolicy(company);
+    const accessPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(company, companyId);
     // Acesso por CARGO (PR13062026007 P2): molho do cargo Vendedor, 1 por empresa.
     const sellerCargoAccess = this.parseSellerCargoAccess(company);
     // Post-it (PB2): caixa do plano (viva) — usada quando a empresa não tem post-it.
@@ -2432,7 +2479,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         },
       }),
     ]);
-    const accessPolicy = resolveCompanyModuleAccessPolicy(company);
+    const accessPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(company, companyId);
     const planManagedModuleKeys = new Set(
       Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
         .flat()
@@ -2531,7 +2578,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
     // Delegação descendente: só libera o que a empresa possui.
     if (!isSystemMaster && targetCompanyId) {
-      const companyPolicy = resolveCompanyModuleAccessPolicy(company);
+      const companyPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(company, targetCompanyId);
       const planManagedKeys = new Set(
         Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
           .flat()

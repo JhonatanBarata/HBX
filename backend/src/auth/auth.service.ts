@@ -31,6 +31,7 @@ import {
 import * as TrialUsage from '../commercial-plans/trial-usage';
 import { evaluateSignupRisk } from './signup-risk';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
+import { CreditsService } from '../credits/credits.service';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import {
@@ -56,7 +57,22 @@ export class AuthService implements OnModuleInit {
     private mail: MailService,
     private emailTemplates: EmailTemplateService,
     private hbxCommissionSync: HbxCommissionSyncService,
+    private credits: CreditsService,
   ) {}
+
+  // CRÉDITOS A3 (docs/PLANEJAMENTOS/CREDITOS/A3-RESULTADO.md) — lote grátis de boas-vindas.
+  // Chamado FORA da transação de criação da Company (nunca acopla erro de crédito ao rollback
+  // do signup) nos 2 choke points de nascimento de empresa TENANT self-service
+  // (signupWithGoogle / signup). Best-effort puro: grantWelcomeBatch já engole qualquer erro
+  // e respeita HBX_CREDITS_ENABLED — este wrapper só existe pra documentar o contrato no
+  // ponto de chamada (nunca lança, nunca é `await`ado de forma bloqueante-crítica).
+  private grantWelcomeCreditsBatch(companyId: number | null | undefined) {
+    const companyIdNum = Number(companyId || 0);
+    if (!companyIdNum) return;
+    this.credits.grantWelcomeBatch(companyIdNum).catch((error: any) => {
+      this.logger.warn(`welcome_batch_grant_unexpected_throw company=${companyIdNum} error=${String(error?.message || error)}`);
+    });
+  }
 
   async onModuleInit() {
     await this.ensureSystemMasterUser();
@@ -1456,6 +1472,10 @@ export class AuthService implements OnModuleInit {
 
     await ensureUserTeamPolicyForUser(this.prisma, created.user.id, { source: 'auth_google_signup' });
 
+    // CRÉDITOS A3 — empresa TENANT self-service nasceu agora (Google): lote grátis de
+    // boas-vindas. platform_infra nunca nasce por este caminho (só master cria essas).
+    this.grantWelcomeCreditsBatch(created.company.id);
+
     return this.login(created.user, { companyId: created.company.id });
   }
 
@@ -1693,6 +1713,15 @@ export class AuthService implements OnModuleInit {
     });
 
     await ensureUserTeamPolicyForUser(this.prisma, (created as any).user?.id, { source: 'auth_signup' });
+
+    // CRÉDITOS A3 — só concede quando a empresa NASCEU agora (`attachedToExistingCompany:
+    // false`). Reivindicar uma empresa existente vazia (convite/colisão de nome) NÃO é
+    // nascimento — a empresa já pode ter recebido o lote antes (ou nunca deveria, se veio de
+    // outro caminho); usageKey `welcome:<companyId>` dedupa de qualquer forma, mas o filtro
+    // aqui evita a chamada à toa.
+    if (!(created as any).attachedToExistingCompany) {
+      this.grantWelcomeCreditsBatch((created as any).companyId);
+    }
 
     await this.syncHbxSalesReferralCompany(
       (created as any).companyId || (created as any).user?.companyId,

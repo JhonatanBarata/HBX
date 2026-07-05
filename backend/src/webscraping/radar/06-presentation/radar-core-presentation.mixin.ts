@@ -2155,7 +2155,56 @@ export class RadarCorePresentationMixin {
     };
   }
 
-  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean } = {}) {
+  // FIX-ENRICHMENT-STATUS-SHELF (05/07): normaliza o vocabulário da fila (RadarLeadEnrichment.
+  // enrichmentStatus: queued|running|enriched|failed|skipped) pro vocabulário que o front entende
+  // (pending|completed|failed) — o card não deve conhecer o schema interno da fila. Sem status de
+  // fila (nenhuma linha ou lookup indisponível neste ambiente), degrada pro que já existia antes
+  // desta mudança: `enrichmentJson` com chaves OU `lastEnrichedAt` preenchido → completed; senão
+  // null (badge "enriquecendo agora" fica apagado, igual ao comportamento anterior a este fix).
+  private resolveRadarLeadEnrichmentStatus(row: any, queueStatus?: string | null): 'pending' | 'completed' | 'failed' | null {
+    const normalizedQueueStatus = String(queueStatus || '').trim().toLowerCase();
+    if (normalizedQueueStatus === 'queued' || normalizedQueueStatus === 'running') return 'pending';
+    if (normalizedQueueStatus === 'enriched' || normalizedQueueStatus === 'skipped') return 'completed';
+    if (normalizedQueueStatus === 'failed') return 'failed';
+    const enrichmentParsed = parseJsonObject(row?.enrichmentJson);
+    if (enrichmentParsed && Object.keys(enrichmentParsed).length) return 'completed';
+    if (row?.lastEnrichedAt instanceof Date) return 'completed';
+    return null;
+  }
+
+  // FIX-ENRICHMENT-STATUS-SHELF (05/07): lookup em massa da fila (RadarLeadEnrichment) pra UMA
+  // página de cards. RadarLeadEnrichment é 1:1 (radarLeadId @unique), mas o único escritor
+  // (night-factory.service.ts) grava radarLeadId=sourceLeadPoolId=RadarLeadPool.id — casa pelas
+  // DUAS colunas via OR (mesmo padrão do cleanup em radar-core-master-database.mixin.ts:611) pra
+  // não depender de qual coluna acabou populada. Degrade DUPLO (hasTable + try/catch): os testes
+  // existentes mockam prisma SEM esse modelo — `(this.prisma as any).radarLeadEnrichment` pode ser
+  // `undefined` e lançar TypeError SÍNCRONO antes mesmo do await; hasTable sozinho não protege
+  // contra isso, por isso o try/catch por fora. Falha aqui NUNCA impede a listagem — só o badge
+  // de status cai pro fallback (json/lastEnrichedAt) dentro de resolveRadarLeadEnrichmentStatus.
+  private async fetchRadarLeadEnrichmentQueueStatusMap(ids: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    const uniqueIds = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.trim())));
+    if (!uniqueIds.length) return map;
+    try {
+      if (!(await this.prisma.hasTable('RadarLeadEnrichment').catch(() => false))) return map;
+      const rows = await (this.prisma as any).radarLeadEnrichment.findMany({
+        where: { OR: [{ radarLeadId: { in: uniqueIds } }, { sourceLeadPoolId: { in: uniqueIds } }] },
+        select: { radarLeadId: true, sourceLeadPoolId: true, enrichmentStatus: true },
+      });
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const status = String(row?.enrichmentStatus || '').trim();
+        if (!status) continue;
+        if (row?.radarLeadId) map.set(String(row.radarLeadId), status);
+        if (row?.sourceLeadPoolId) map.set(String(row.sourceLeadPoolId), status);
+      }
+    } catch {
+      // Degrade gracioso: sem lookup de fila, buildRadarLeadPublic cai no fallback json/lastEnrichedAt.
+      return map;
+    }
+    return map;
+  }
+
+  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean; enrichmentQueueStatus?: string | null } = {}) {
     // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
     // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
     // (telefone/e-mail) — revela só quando o lead é PUXADO no Leads. Sinais de
@@ -2309,6 +2358,10 @@ export class RadarCorePresentationMixin {
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,
       ...smartFields,
+      // FIX-ENRICHMENT-STATUS-SHELF (05/07): badge "enriquecendo agora" do front (page.client.tsx
+      // :1122) — normalizado pending|completed|failed (fila) ou fallback json/lastEnrichedAt.
+      // Não é premium-gated: é status de fila, não dado sensível do enriquecimento em si.
+      enrichmentStatus: this.resolveRadarLeadEnrichmentStatus(row, options.enrichmentQueueStatus ?? null),
       rating: row?.rating == null ? null : Number(row.rating),
       reviews: safeInteger(row?.reviews),
       source: row?.source || null,
@@ -2767,11 +2820,13 @@ export class RadarCorePresentationMixin {
     return Array.isArray(arr) ? arr.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
   }
 
-  // MIX de preferências (dono, 14/06): o Radar/Leads exibe "misturadas" as
-  // preferências da EMPRESA (ramo-alvo) + dos VENDEDORES. Devolve o conjunto
-  // normalizado de segmentos preferidos pra usar como BOOST (não filtro — não
-  // esconde nada; só sobe o relevante). Vendedor = a preferência dele; admin/dono
-  // = a da empresa ∪ a de todos os vendedores ativos.
+  // MIX de preferências (dono, 14/06; achatado por papel — LIMPEZA-DESTRUTIVA L6,
+  // 05/07): o Radar/Leads exibe "misturadas" as preferências da EMPRESA (ramo-alvo)
+  // + de QUEM ESTÁ LOGADO (própria afinidade) + de todos os vendedores ativos da
+  // empresa. Devolve o conjunto normalizado de segmentos preferidos pra usar como
+  // BOOST (não filtro — não esconde nada; só sobe o relevante). Igual pra qualquer
+  // papel (antes: vendedor via só a própria; admin via só o mix agregado — não é
+  // mais bifurcação por role, todos veem a própria + o mix).
   private async resolveRadarPreferenceSegments(user: any, context: SearchExecutionContext): Promise<Set<string>> {
     const set = new Set<string>();
     const add = (seg: any) => { const n = normalizeLookupValue(String(seg || '')); if (n) set.add(n); };
@@ -2781,26 +2836,25 @@ export class RadarCorePresentationMixin {
         select: { prospectingSegmentsJson: true } as any,
       }).catch(() => null);
       for (const s of this.extractPreferredSegmentList((company as any)?.prospectingSegmentsJson)) add(s);
-      if (this.isCompanySellerUser(user)) {
-        const me = await this.prisma.user.findUnique({
-          where: { id: context.userId },
-          select: { segmentAffinityJson: true, preferredSegmentsJson: true } as any,
-        }).catch(() => null);
-        for (const s of confirmedSegments((me as any)?.segmentAffinityJson, 3)) add(s);
-        // HOT-07: preferência EXPLÍCITA do vendedor (cadastro), não só a
-        // afinidade observada — é o campo que o lead recém-aberto precisa
-        // casar para furar a fila.
-        for (const s of this.extractPreferredSegmentList((me as any)?.preferredSegmentsJson)) add(s);
-      } else {
-        const sellers = await this.prisma.user.findMany({
-          where: { companyId: context.companyId, isActive: true, isSystemMaster: false },
-          select: { segmentAffinityJson: true, preferredSegmentsJson: true } as any,
-          take: 200,
-        }).catch(() => []);
-        for (const row of sellers || []) {
-          for (const s of confirmedSegments((row as any)?.segmentAffinityJson, 3)) add(s);
-          for (const s of this.extractPreferredSegmentList((row as any)?.preferredSegmentsJson)) add(s);
-        }
+
+      const me = await this.prisma.user.findUnique({
+        where: { id: context.userId },
+        select: { segmentAffinityJson: true, preferredSegmentsJson: true } as any,
+      }).catch(() => null);
+      for (const s of confirmedSegments((me as any)?.segmentAffinityJson, 3)) add(s);
+      // HOT-07: preferência EXPLÍCITA de quem está logado (cadastro), não só a
+      // afinidade observada — é o campo que o lead recém-aberto precisa
+      // casar para furar a fila.
+      for (const s of this.extractPreferredSegmentList((me as any)?.preferredSegmentsJson)) add(s);
+
+      const sellers = await this.prisma.user.findMany({
+        where: { companyId: context.companyId, isActive: true, isSystemMaster: false },
+        select: { segmentAffinityJson: true, preferredSegmentsJson: true } as any,
+        take: 200,
+      }).catch(() => []);
+      for (const row of sellers || []) {
+        for (const s of confirmedSegments((row as any)?.segmentAffinityJson, 3)) add(s);
+        for (const s of this.extractPreferredSegmentList((row as any)?.preferredSegmentsJson)) add(s);
       }
     } catch {
       // preferência é só boost de ordenação; falha aqui nunca quebra a lista.
@@ -2891,6 +2945,11 @@ export class RadarCorePresentationMixin {
     const orderedRows = this.boostRadarRowsByPreference(filteredRows, preferenceSet);
     const offset = (filters.page - 1) * filters.limit;
     const pageRows = orderedRows.slice(offset, offset + filters.limit);
+    // FIX-ENRICHMENT-STATUS-SHELF (05/07): status da fila SÓ da página exibida (nunca das até
+    // 2000 linhas de allRows/filteredRows) — o shelf pinta o badge "enriquecendo agora" por card.
+    const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap(
+      pageRows.map((row: any) => String(row?.id || '')),
+    );
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const enrichmentSummary = this.buildRadarEnrichmentSummary(allRows);
     // VENDAS-REFAB S3 (04/07) — "Total no Brasil"/"Leads na base (Radar)" liam SÓ o pool local
@@ -2904,7 +2963,11 @@ export class RadarCorePresentationMixin {
       ? await this.cnpjBaseQuery.countBase(buildCnpjBaseQueryInputFromRadarFilters(filters)).catch(() => ({ available: false, count: null }))
       : { available: false, count: null };
     return {
-      items: pageRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields, maskContact: vitrine })),
+      items: pageRows.map((row) => this.buildRadarLeadPublic(row, {
+        includeSmartFields,
+        maskContact: vitrine,
+        enrichmentQueueStatus: enrichmentQueueStatusById.get(String(row?.id || '')) ?? null,
+      })),
       total: filteredRows.length,
       facets: this.buildRadarFacets(allRows),
       meta: {
@@ -2968,8 +3031,13 @@ export class RadarCorePresentationMixin {
     const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
     const leadRow = enrichedRow || row;
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    // FIX-ENRICHMENT-STATUS-SHELF (05/07): mesmo lookup da listagem, só que pra 1 card (detalhe).
+    const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap([String(leadRow?.id || '')]);
     return {
-      item: this.buildRadarLeadPublic(leadRow, { includeSmartFields }),
+      item: this.buildRadarLeadPublic(leadRow, {
+        includeSmartFields,
+        enrichmentQueueStatus: enrichmentQueueStatusById.get(String(leadRow?.id || '')) ?? null,
+      }),
       events: (leadRow.events || []).map((event: any) => ({
         id: event.id,
         eventType: event.eventType,
@@ -3748,11 +3816,12 @@ export class RadarCorePresentationMixin {
   }
 
   // Bloco 4 (PR17062026020-4): sugestões de segmentos com novos leads disponíveis
-  // baseadas na afinidade confirmada (≥3 ações) do vendedor logado. Barato: só count,
-  // sem join caro. Falha → { suggestions: [] } (nunca 500).
+  // baseadas na afinidade confirmada (≥3 ações) de quem está logado. Barato: só count,
+  // sem join caro. Falha → { suggestions: [] } (nunca 500). Igual pra qualquer papel
+  // (LIMPEZA-DESTRUTIVA L6, 05/07: antes só rodava pro vendedor; admin também trabalha
+  // leads e tem afinidade própria).
   async getPreferenceSuggestionsForUser(user: any) {
     try {
-      if (!this.isCompanySellerUser(user)) return { suggestions: [] };
       const context = this.resolveContext(user);
       if (!(await this.supportsRadarPersistence())) return { suggestions: [] };
 

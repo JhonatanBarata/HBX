@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 import {
   applyCreditExpiryDefaultOverride,
   applyCreditPackOverrides,
+  applyWelcomeCreditsOverride,
+  applyWelcomeExpiryDaysOverride,
   buildCreditPacksCatalog,
   clearCreditPackOverrides,
   computeDefaultExpiresAt,
+  computeWelcomeExpiresAt,
   CREDIT_PACK_KEYS,
   getCreditExpiryDefaultDays,
   getCreditPackDefinition,
+  getWelcomeCreditsDefault,
+  getWelcomeExpiryDaysDefault,
   isCreditPackPaused,
   listCreditPackKeys,
   normalizeCreditPackKey,
@@ -118,4 +123,46 @@ test('override com valor invalido (nao numerico/negativo) e ignorado, mantem a b
   assert.equal(def.price, 97.0);
   // credits negativo é clampado para 0 (toCreditInt usa Math.max(0, ...)).
   assert.equal(def.credits, 0);
+});
+
+// ─── CRÉDITOS A3 — lote grátis de boas-vindas (config global) ───────────────────────────────────
+
+test('lote de boas-vindas: sem override usa os defaults de código (30 créditos / 30 dias)', () => {
+  assert.equal(getWelcomeCreditsDefault(), 30);
+  assert.equal(getWelcomeExpiryDaysDefault(), 30);
+});
+
+test('lote de boas-vindas: override do master GANHA da base (quantidade e validade)', () => {
+  applyWelcomeCreditsOverride(50);
+  applyWelcomeExpiryDaysOverride(60);
+  assert.equal(getWelcomeCreditsDefault(), 50);
+  assert.equal(getWelcomeExpiryDaysDefault(), 60);
+});
+
+test('lote de boas-vindas: override invalido (<=0/NaN) e ignorado, mantem o default de codigo', () => {
+  applyWelcomeCreditsOverride(NaN);
+  applyWelcomeExpiryDaysOverride(-10);
+  assert.equal(getWelcomeCreditsDefault(), 30);
+  assert.equal(getWelcomeExpiryDaysDefault(), 30);
+});
+
+test('computeWelcomeExpiresAt: agora + validade default (30d) quando sem override', () => {
+  const now = new Date('2026-07-05T00:00:00.000Z');
+  const expires = computeWelcomeExpiresAt(now);
+  assert.equal(expires.getTime() - now.getTime(), 30 * 24 * 60 * 60 * 1000);
+});
+
+test('computeWelcomeExpiresAt: usa o override do master quando presente (ex.: 15 dias)', () => {
+  applyWelcomeExpiryDaysOverride(15);
+  const now = new Date('2026-07-05T00:00:00.000Z');
+  const expires = computeWelcomeExpiresAt(now);
+  assert.equal(expires.getTime() - now.getTime(), 15 * 24 * 60 * 60 * 1000);
+});
+
+test('clearCreditPackOverrides tambem limpa os overrides do lote de boas-vindas', () => {
+  applyWelcomeCreditsOverride(99);
+  applyWelcomeExpiryDaysOverride(99);
+  clearCreditPackOverrides();
+  assert.equal(getWelcomeCreditsDefault(), 30);
+  assert.equal(getWelcomeExpiryDaysDefault(), 30);
 });

@@ -1,10 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService, CreditGrantType, GrantOptions } from './credit-wallet.service';
 import { CreditPackConfigService } from './credit-pack-config.service';
-import { computeDefaultExpiresAt, CreditPackDefinition, normalizeCreditPackKey } from './credit-pack-catalog';
-import { isCreditsFeatureEnabled, isCreditsShadowEnabled } from './credits.flags';
+import {
+  computeDefaultExpiresAt,
+  computeWelcomeExpiresAt,
+  CreditPackDefinition,
+  getWelcomeCreditsDefault,
+  normalizeCreditPackKey,
+} from './credit-pack-catalog';
+import { isCreditsEnforceEnabled, isCreditsFeatureEnabled, isCreditsShadowEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
+import { loadUserTeamPolicyRuntime, resolveTeamPolicyStoredLimit } from '../team/team-policy-persistence';
 
 // CRÉDITOS S3-PARTE1 — camada de orquestração entre o ledger (S1, CreditWalletService) e o
 // catálogo de pacotes (credit-pack-catalog.ts). Tudo aqui respeita HBX_CREDITS_ENABLED
@@ -74,6 +81,27 @@ export class CreditsService {
     }
     const defaultExpiryDays = await this.packConfig.updateGlobalExpiryDefaultDays(n);
     return { defaultExpiryDays };
+  }
+
+  // CRÉDITOS A3 — config global do lote grátis de boas-vindas (mesmo padrão do endpoint
+  // acima). Ao menos um dos dois campos deve ser informado.
+  async updateWelcomeBatchConfigAsMaster(input: {
+    welcomeCredits?: number;
+    welcomeExpiryDays?: number;
+  }): Promise<{ welcomeCredits: number; welcomeExpiryDays: number }> {
+    this.assertFeatureEnabled();
+    const welcomeCredits = input?.welcomeCredits != null ? Number(input.welcomeCredits) : undefined;
+    const welcomeExpiryDays = input?.welcomeExpiryDays != null ? Number(input.welcomeExpiryDays) : undefined;
+    if (welcomeCredits == null && welcomeExpiryDays == null) {
+      throw new BadRequestException('informe welcomeCredits e/ou welcomeExpiryDays');
+    }
+    if (welcomeCredits != null && (!Number.isFinite(welcomeCredits) || welcomeCredits <= 0)) {
+      throw new BadRequestException('welcomeCredits deve ser um numero positivo');
+    }
+    if (welcomeExpiryDays != null && (!Number.isFinite(welcomeExpiryDays) || welcomeExpiryDays <= 0)) {
+      throw new BadRequestException('welcomeExpiryDays deve ser um numero positivo');
+    }
+    return this.packConfig.updateWelcomeBatchConfig({ welcomeCredits, welcomeExpiryDays });
   }
 
   // ── MASTER: concessão manual de crédito a uma empresa ────────────────────────
@@ -262,6 +290,217 @@ export class CreditsService {
     } catch (error: any) {
       // Best-effort puro: shadow-debit nunca pode quebrar/atrasar o fluxo de venda real.
       this.logger.warn(`shadow_debit_failed company=${companyId} error=${String(error?.message || error)}`);
+    }
+  }
+
+  // ── A3 — lote grátis de boas-vindas no signup self-service ───────────────────
+  /**
+   * Concede 1 lote `kind:'promo'`/`grantType:'promo'` (NUNCA receita — D3/S5) na hora em que
+   * uma empresa TENANT self-service nasce (auth.service.ts: signupWithGoogle / signup).
+   * Quantidade/validade vêm da config global do master (`welcomeCredits`/`welcomeExpiryDays`,
+   * default 30/30 — âncora de mercado: CNPJ.biz dá ~10 créditos de trial, 3x é argumento de
+   * venda). Idempotente por `usageKey: welcome:<companyId>` — 1 lote por empresa, PRA SEMPRE
+   * (retry/duplo-clique/reprocesso nunca duplica; `CreditWalletService.grant` já dedupa).
+   *
+   * Best-effort PURO (mesmo padrão do `recordShadowDebit` acima): nunca lança, nunca atrasa
+   * nem quebra o signup. Flag `HBX_CREDITS_ENABLED` OFF → no-op imediato, sem tocar o banco.
+   * Chamador é responsável por NÃO invocar para `platform_infra` nem para empresa criada pelo
+   * master (Implantação/companies.service.ts) — ver comentário no auth.service.ts.
+   */
+  async grantWelcomeBatch(companyId: number): Promise<void> {
+    if (!isCreditsFeatureEnabled()) return;
+    try {
+      const companyIdNum = Number(companyId);
+      if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return;
+
+      const amount = getWelcomeCreditsDefault();
+      if (!Number.isInteger(amount) || amount <= 0) return;
+
+      const usageKey = `welcome:${companyIdNum}`;
+      const expiresAt = computeWelcomeExpiresAt();
+
+      await this.wallet.grant(companyIdNum, amount, {
+        kind: 'promo',
+        grantType: 'promo',
+        expiresAt,
+        usageKey,
+        sourceRef: 'welcome_batch_signup',
+      });
+    } catch (error: any) {
+      // Best-effort puro: o lote de boas-vindas NUNCA pode quebrar/atrasar o signup.
+      this.logger.warn(`welcome_batch_grant_failed company=${companyId} error=${String(error?.message || error)}`);
+    }
+  }
+
+  // ── R1 — gate REAL de enforcement (débito que BLOQUEIA a entrega sem saldo) ──
+  /**
+   * Gate em 2 chaves (R1-SPEC): `HBX_CREDITS_ENFORCE` (env, mestre) E
+   * `Company.creditsEnforceEnabled` (por-tenant) precisam estar ON. Qualquer uma OFF →
+   * enforcement INTEIRO desligado (o caller decide se ainda quer disparar o shadow).
+   */
+  async isEnforceActiveForCompany(companyId: number): Promise<boolean> {
+    if (!isCreditsEnforceEnabled()) return false;
+    const companyIdNum = Number(companyId);
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return false;
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyIdNum },
+      select: { creditsEnforceEnabled: true },
+    }).catch(() => null);
+    return Boolean((company as any)?.creditsEnforceEnabled);
+  }
+
+  /**
+   * S4 — teto individual OPCIONAL por vendedor. Reusa os campos que JÁ existem no
+   * `UserTeamPolicy` (D4 do PLANO.md): `monthlyCardsLimit` vira teto MENSAL de crédito,
+   * `cardDeliveryDailyLimit` vira teto DIÁRIO — o mesmo padrão `inherit` = sem teto que o
+   * `CommercialUsageLimitsService` já usa pra cota count-based. Contagem do consumo
+   * individual = linhas `debit` do ledger com `createdByUserId` = este vendedor no período
+   * (mesma fonte única do saldo — não um contador paralelo). A EMPRESA nunca é capada por
+   * este teto (invariante da ÁRVORE: admin NUNCA capado por vendedor) — só o PRÓPRIO
+   * vendedor é bloqueado quando estoura o teto dele.
+   */
+  private async checkSellerCreditCap(
+    companyId: number,
+    userId: number | null,
+    now: Date,
+  ): Promise<{ blocked: boolean; scope: 'monthly' | 'daily' | null }> {
+    const userIdNum = Number(userId || 0);
+    if (!userIdNum) return { blocked: false, scope: null };
+
+    const policy = await loadUserTeamPolicyRuntime(this.prisma, userIdNum).catch(() => null);
+    if (!policy) return { blocked: false, scope: null };
+
+    const monthly = resolveTeamPolicyStoredLimit(policy, 'monthlyCards');
+    const daily = resolveTeamPolicyStoredLimit(policy, 'cardDeliveryDaily');
+    if (!monthly.applies && !daily.applies) return { blocked: false, scope: null };
+
+    if (monthly.applies) {
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const monthlyUsed = await this.prisma.creditLedgerEntry.count({
+        where: {
+          companyId,
+          createdByUserId: userIdNum,
+          kind: 'debit',
+          createdAt: { gte: monthStart },
+        },
+      }).catch(() => 0);
+      if (monthlyUsed >= monthly.limit!) return { blocked: true, scope: 'monthly' };
+    }
+
+    if (daily.applies) {
+      const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const dailyUsed = await this.prisma.creditLedgerEntry.count({
+        where: {
+          companyId,
+          createdByUserId: userIdNum,
+          kind: 'debit',
+          createdAt: { gte: dayStart },
+        },
+      }).catch(() => 0);
+      if (dailyUsed >= daily.limit!) return { blocked: true, scope: 'daily' };
+    }
+
+    return { blocked: false, scope: null };
+  }
+
+  /**
+   * Bloqueio NEUTRO (LEI DO VENDEDOR): vendedor/gerente recebem código sem citar
+   * crédito/saldo/R$. Dono/master recebem código claro pra oferecer recarga no front.
+   * `isBillingAudienceUser` decide qual mensagem sai — o CALLER (choke em
+   * `CommercialUsageLimitsService`) sabe o role de quem está agindo; se não informado,
+   * assume o pior caso (vendedor) e nunca vaza financeiro por omissão.
+   */
+  private throwBlocked(reason: 'no_balance' | 'seller_cap_monthly' | 'seller_cap_daily', isBillingAudienceUser: boolean) {
+    if (isBillingAudienceUser) {
+      throw new ConflictException({
+        ok: false,
+        code: 'CREDIT_BALANCE_EXHAUSTED',
+        message: reason === 'no_balance'
+          ? 'Saldo de créditos esgotado. Recarregue para continuar recebendo leads.'
+          : 'Teto de créditos do vendedor atingido no período.',
+        reason,
+      });
+    }
+    throw new ConflictException({
+      ok: false,
+      code: 'company_access_paused',
+      message: 'Acesso pausado pela administracao da conta.',
+    });
+  }
+
+  /**
+   * Choke ÚNICO de débito REAL (R1). Chamado do MESMO ponto do shadow (S2) em
+   * `CommercialUsageLimitsService`, logo após o sucesso da baixa. Se o gate (2 chaves) está
+   * OFF, é no-op transparente (`applied: false`) — quem chama segue o fluxo shadow normal.
+   * Com o gate ON: (1) checa teto individual do vendedor (S4) ANTES do débito da empresa —
+   * estourou, bloqueia SÓ ele; (2) debita 1 crédito da carteira via `CreditWalletService.debit`
+   * (fail-closed, nunca negativo, idempotente pela mesma `usageKey` do shadow:
+   * `enforce:<actionKey>:<leadId>`); sem saldo → bloqueio (fail-closed), a entrega PARA.
+   */
+  async assertAndDebitLeadDelivery(
+    companyId: number,
+    userId: number | null,
+    input: { leadId: string | number; actionKey: string; isBillingAudienceUser?: boolean },
+  ): Promise<{ applied: boolean; debited: number; balanceAfter?: number }> {
+    const companyIdNum = Number(companyId);
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return { applied: false, debited: 0 };
+
+    const enforceActive = await this.isEnforceActiveForCompany(companyIdNum);
+    if (!enforceActive) return { applied: false, debited: 0 };
+
+    const actionKey = String(input?.actionKey || '').trim() || 'lead_delivery';
+    const leadId = String(input?.leadId ?? '').trim();
+    if (!leadId) return { applied: false, debited: 0 };
+
+    const isBillingAudienceUser = Boolean(input?.isBillingAudienceUser);
+    const now = new Date();
+
+    // S4 — teto individual do vendedor ANTES do débito da empresa.
+    const cap = await this.checkSellerCreditCap(companyIdNum, userId, now);
+    if (cap.blocked) {
+      this.throwBlocked(cap.scope === 'daily' ? 'seller_cap_daily' : 'seller_cap_monthly', isBillingAudienceUser);
+    }
+
+    const usageKey = `enforce:${actionKey}:${leadId}`;
+    const result = await this.wallet.debit(companyIdNum, 1, {
+      actionKey,
+      usageKey,
+      userId,
+    });
+
+    if (result.debited < 1) {
+      // Fail-closed (D7): saldo não cobriu o pedido — a entrega PARA. Nunca saldo negativo.
+      this.throwBlocked('no_balance', isBillingAudienceUser);
+    }
+
+    return { applied: true, debited: result.debited, balanceAfter: result.balanceAfter };
+  }
+
+  /**
+   * Refund atômico on-failure (mesma usageKey do débito original) — reusa o evento
+   * `vendas_card_refunded` já existente no `CommercialUsageLimitsService.recordCardRefund`.
+   * Idempotente (o `CreditWalletService.refund` já garante isso por `refund:<usageKey>`).
+   * Best-effort: se o gate estiver OFF ou não houver débito registrado pra essa usageKey,
+   * é no-op silencioso (nada a reverter).
+   */
+  async refundLeadDelivery(
+    companyId: number,
+    userId: number | null,
+    input: { leadId: string | number; actionKey: string },
+  ): Promise<{ refunded: number }> {
+    const companyIdNum = Number(companyId);
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return { refunded: 0 };
+    const actionKey = String(input?.actionKey || '').trim() || 'lead_delivery';
+    const leadId = String(input?.leadId ?? '').trim();
+    if (!leadId) return { refunded: 0 };
+
+    const usageKey = `enforce:${actionKey}:${leadId}`;
+    try {
+      const result = await this.wallet.refund(companyIdNum, { usageKey, userId });
+      return { refunded: result.refunded };
+    } catch (error: any) {
+      this.logger.warn(`enforce_refund_failed company=${companyId} error=${String(error?.message || error)}`);
+      return { refunded: 0 };
     }
   }
 }
