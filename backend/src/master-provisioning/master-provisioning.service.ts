@@ -221,6 +221,9 @@ export class MasterProvisioningService {
 
     const adminEmail = input.admin ? normalizeEmail(input.admin.email) : null;
     if (input.admin && !adminEmail) throw new BadRequestException('E-mail do admin inicial e obrigatorio.');
+    // Senha definida pelo master de propósito não obriga troca no 1º login; só a
+    // senha temporária gerada automaticamente força a troca (via boas-vindas-gate).
+    const adminPasswordProvided = Boolean(input.admin && String(input.admin.password || '').trim());
 
     const assistedRequired = Boolean(input.assistedImplementation?.required);
     const assistedCompleted = Boolean(input.assistedImplementation?.completed);
@@ -277,8 +280,8 @@ export class MasterProvisioningService {
             name: normalizeText(input.admin.name, 120),
             email: adminEmail,
             phone: normalizeText(input.admin.phone, 40),
-            passwordProvided: Boolean(String(input.admin.password || '').trim()),
-            mustChangePassword: true,
+            passwordProvided: adminPasswordProvided,
+            mustChangePassword: !adminPasswordProvided,
           }
         : null,
       supportChannels,
@@ -394,7 +397,7 @@ export class MasterProvisioningService {
               name: plan.admin.name,
               phone: plan.admin.phone,
               password: adminPasswordHash,
-              mustChangePassword: true,
+              mustChangePassword: plan.admin.mustChangePassword,
             },
             select: { id: true },
           })

@@ -135,6 +135,7 @@ const PROV_VAZIO = {
   adminName: "",
   adminEmail: "",
   adminPhone: "",
+  adminPassword: "",
   seatCap: "",
   monthlyValueOverride: "",
 };
@@ -208,7 +209,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [provForm, setProvForm] = useState(PROV_VAZIO);
   const [provBusy, setProvBusy] = useState(false);
   const [provMsg, setProvMsg] = useState<string | null>(null);
-  const [provResult, setProvResult] = useState<{ companyId?: number; temporaryPassword?: string | null } | null>(null);
+  const [provResult, setProvResult] = useState<{ companyId?: number; adminUserId?: number | null; temporaryPassword?: string | null; passwordDefined?: boolean } | null>(null);
 
   // cortesia
   const [cortesiaForm, setCortesiaForm] = useState({ reason: "", endsAt: "" });
@@ -359,17 +360,18 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
           email: provForm.adminEmail.trim(),
           ...(provForm.adminName.trim() ? { name: provForm.adminName.trim() } : {}),
           ...(provForm.adminPhone.trim() ? { phone: provForm.adminPhone.trim() } : {}),
+          ...(provForm.adminPassword.trim() ? { password: provForm.adminPassword.trim() } : {}),
         };
       }
       if (provForm.seatCap.trim()) body.seatCap = Math.max(0, Number(provForm.seatCap) || 0);
       if (provForm.monthlyValueOverride.trim() !== "") {
         body.monthlyValueOverride = Math.max(0, Number(String(provForm.monthlyValueOverride).replace(",", ".")) || 0);
       }
-      const res = await apiFetch<{ ok?: boolean; companyId?: number; temporaryPassword?: string | null }>(
+      const res = await apiFetch<{ ok?: boolean; companyId?: number; adminUserId?: number | null; temporaryPassword?: string | null }>(
         "/master/provisioning/tenants",
         { method: "POST", body: JSON.stringify(body) },
       );
-      setProvResult(res || null);
+      setProvResult(res ? { ...res, passwordDefined: Boolean(provForm.adminPassword.trim()) } : null);
       setProvForm(PROV_VAZIO);
       setProvOpen(false);
       setProvStep(1);
@@ -392,6 +394,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
     if (provStep === 4 && provForm.adminEmail.trim() && !provForm.adminEmail.includes("@")) {
       setProvMsg("E-mail do admin inválido."); return;
+    }
+    if (provStep === 4 && provForm.adminPassword.trim() && provForm.adminPassword.trim().length < 6) {
+      setProvMsg("A senha do admin deve ter ao menos 6 caracteres."); return;
     }
     setProvMsg(null);
     setProvStep(s => s + 1);
@@ -906,7 +911,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             {provResult.temporaryPassword ? (
               <span style={{ fontSize: "0.74rem", lineHeight: 1.5 }}>
                 Senha temporária do admin: <b style={{ fontFamily: "var(--font-mono)" }}>{provResult.temporaryPassword}</b>
-                {" "}— anote agora, ela não aparece de novo.
+                {" "}— anote agora, ela não aparece de novo (o admin troca no 1º login).
+              </span>
+            ) : provResult.passwordDefined && provResult.adminUserId ? (
+              <span style={{ fontSize: "0.74rem", lineHeight: 1.5 }}>
+                Admin criado com a senha que você definiu — já pode entrar com ela (sem troca forçada).
               </span>
             ) : (
               <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem usuário admin inicial (criado sem senha ou não informado).</span>
@@ -1698,13 +1707,20 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <div style={{ display: "grid", gap: 10 }}>
                 <strong style={{ fontSize: "0.76rem" }}>Admin inicial</strong>
                 <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-                  Com e-mail preenchido o backend cria o admin com senha temporária (mostrada uma única vez).
-                  Deixe vazio para criar a empresa sem usuário.
+                  Com e-mail preenchido o backend cria o admin. Defina uma senha para ele já entrar com ela;
+                  deixe a senha vazia e o backend gera uma temporária (mostrada uma única vez, trocada no 1º login).
+                  Deixe o e-mail vazio para criar a empresa sem usuário.
                 </span>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail do admin</label>
                   <input className="field-dark" type="email" maxLength={180} value={provForm.adminEmail}
                     onChange={e => setProvForm(f => ({ ...f, adminEmail: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Senha (opcional — vazio = temporária)</label>
+                  <input className="field-dark" type="text" autoComplete="new-password" maxLength={72} placeholder="deixe vazio para gerar automática"
+                    value={provForm.adminPassword} onChange={e => setProvForm(f => ({ ...f, adminPassword: e.target.value }))} />
+                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Mínimo 6 caracteres. Se você definir a senha, o admin NÃO é obrigado a trocá-la no primeiro login.</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div style={{ display: "grid", gap: 6 }}>

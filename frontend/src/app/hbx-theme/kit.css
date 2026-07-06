@@ -255,7 +255,9 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    06/07): padding macro desce um degrau (token, não valor solto) — só casca,
    nunca dentro de card/conteúdo. */
 .work { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-4); display: grid; gap: 14px; align-content: start; min-width: 0; }
-.ctx { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); padding: var(--space-4) var(--space-4) 0; display: grid; gap: var(--space-3); align-content: start; min-height: 0; overflow-y: auto; }
+/* Espaçamento do aside do Radar/detalhe = ORIGINAL (dono 06/07: a densidade apertou
+   esses cards que dividem espaço com o radar; voltou padding 16→20 e gap 12→16). */
+.ctx { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); padding: 20px 20px 0; display: grid; gap: 16px; align-content: start; min-height: 0; overflow-y: auto; }
 .ctx h3 { margin: 0; font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
 .ctx h3 .x { display: grid; place-items: center; width: 30px; height: 30px; margin: -4px -6px -4px 0; border-radius: 999px; color: var(--text-muted); cursor: pointer; font-weight: 400; transition: background var(--motion-fast, 0.16s), color var(--motion-fast, 0.16s), transform var(--motion-fast, 0.16s); }
 .ctx h3 .x:hover { background: var(--hbx-surface-raised); color: var(--text-strong); transform: rotate(90deg); }

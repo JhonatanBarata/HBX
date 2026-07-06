@@ -40,7 +40,7 @@
      borda direita). 240px dá folga real; o conteúdo também virou fluido. */
   --rail-width: 228px;       /* primary nav rail (era 260px)   */
   --rail-width-min: 64px;    /* rail colapsado — só ícone (novo) */
-  --context-width: 240px;    /* contextual sidebar (era 248px, depois 212px) */
+  --context-width: 248px;    /* contextual sidebar — ORIGINAL (dono 06/07: densidade apertou o radar/aside que divide a linha com os cards; voltou 240→248) */
   --shell-gap: 12px;
   --content-gutter: 12px;
 
