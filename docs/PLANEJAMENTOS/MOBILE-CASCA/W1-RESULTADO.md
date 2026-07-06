@@ -95,10 +95,34 @@ state while rendering"), sem `useEffect` — passa no lint estrito (React Compil
   acabamento **metálico platina** (gradiente + `background-clip:text`, classe
   central `.casca-loading__mark strong`) — logotipo, não texto default.
 - Anel **multi-cor** (conic-gradient) que ENCHE 0→100% via `--casca-fill` (com
-  `@property` pra interpolar suave). Espectro **termina em platina**, sem
-  vermelho/rosa. Anel **fino** (`--casca-loading-thick:10px` ≈ 7% de 148px).
-  Acabamento 3D: glow (`drop-shadow`), sombra interna, hub elevado.
-- 2 modos: determinado (mostra %) e indeterminado (gira + pulsa com easing).
+  `@property` pra interpolar suave). Espectro **roxo→azul→teal→âmbar→platina**
+  (pele aurora: `#6D28D9→#0284C7→#0D9488→#D97706→#E7E9EC`), sem vermelho/rosa.
+  Anel **fino** (`--casca-loading-thick:10px` ≈ 7% de 148px). Acabamento 3D:
+  glow (`drop-shadow`), sombra interna, hub elevado.
+- 2 modos: determinado (% real, marca parada, anel só preenche suave) e
+  indeterminado (marca parada, anel enche em loop com easing).
+
+### FIX 06/07 — reprovado em prod ("letras girando") → corrigido
+O dono reprovou a v1 em prod: a wordmark "»HBX" girava junto com o anel
+(`.casca-loading__ring` tinha `animation: casca-ring-spin … rotate(360deg)`, e
+o hub com a marca é filho desse mesmo elemento — girava tudo junto, virando
+"spinner genérico com letra deitada"). Corrigido em
+`frontend/src/app/hbx-theme/casca.css`:
+- **Removida TODA rotação.** Não existe mais `transform: rotate` em nenhuma
+  regra do `CascaLoading`, em nenhum modo. A marca "»HBX" fica **sempre
+  estática, horizontal, centrada** — determinado e indeterminado.
+- **Indeterminado agora é só preenchimento em loop:** `casca-ring-fill-loop`
+  anima `--casca-fill` de 0deg→360deg (ease-in-out, ~1.6s), segura em 360deg
+  (~1s de "respiro"), e reinicia — nunca gira o elemento. Acompanha um pulso
+  sutil de escala no hub (`casca-hub-breathe`, `scale(1.045)` no instante em
+  que completa) só como acabamento, sem afetar a marca (chevron/texto não
+  escalam sozinhos, o hub inteiro respira ~4.5%).
+- `prefers-reduced-motion`: trava as duas animações e fixa o anel num
+  `--casca-fill: 300deg` estático (sem pulo, sem loop).
+- Checks: `npx tsc --noEmit` limpo; `npm run build` verde (42 rotas). Catraca
+  do check-pele (497/495) é FALHA PRÉ-EXISTENTE de outros arquivos fora de
+  escopo (`janela-empresas.tsx` etc., não tocados aqui) — `casca.css` é CSS
+  puro, não adiciona nenhum style inline em TSX.
 
 ## Régua (auditada)
 Cromo fixo = topo 48px + tab bar 55px = **103px** (< 140px). Linhas 60px (56–64),
