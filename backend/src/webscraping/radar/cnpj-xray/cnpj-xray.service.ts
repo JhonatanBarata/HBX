@@ -211,7 +211,7 @@ export class CnpjXrayService {
           if (materialized) {
             leadId = materialized.id;
             missionsQueued += 1;
-            await this.enqueueEnrichMission(materialized.id, cnpj);
+            await this.enqueueEnrichMission(materialized.id, cnpj, cadastral?.website || null, cadastral?.nomeFantasia || cadastral?.razaoSocial || null);
             const enriched = await this.processVivoLayer(materialized.id).catch(() => null);
             if (enriched) {
               missionsDone += 1;
@@ -225,7 +225,7 @@ export class CnpjXrayService {
         let notaIcp: number | null = null;
         let resumoIa: string | null = null;
         if (layers.includes('ia') && CnpjXrayAiNoteService.enabled()) {
-          const noteResult = await this.aiNote.note({
+          const noteInput = {
             razaoSocial: cadastral?.razaoSocial || null,
             nomeFantasia: cadastral?.nomeFantasia || null,
             situacao: cadastral?.companySituation || null,
@@ -236,12 +236,15 @@ export class CnpjXrayService {
             hasWebsite: Boolean(siteVivo),
             hasWhatsappValidado: whatsappValidado,
             hasEmail: Boolean(cadastral?.email),
-          }).catch(() => null);
+          };
+          const noteResult = await this.aiNote.note(noteInput).catch(() => null);
           if (noteResult?.ok) {
             aiDone += 1;
             notaIcp = noteResult.notaIcp;
             resumoIa = noteResult.resumo;
           }
+          // CHIP E1: a nota HONESTA do 30B roda pela PONTE (só quando há lead materializado pra gravar).
+          if (leadId) await this.enqueueXrayNoteMission(leadId, noteInput);
         }
 
         rows.push(this.buildRow(cnpj, cadastral, {
@@ -346,12 +349,33 @@ export class CnpjXrayService {
     return Boolean(found);
   }
 
-  /** Missão `enrich_lead` idempotente (dedupeKey `lead:<id>`) — MESMA fila da fábrica, sem fila nova. */
-  private async enqueueEnrichMission(leadId: string, cnpj: string): Promise<void> {
+  /**
+   * Missão `enrich_lead` idempotente (dedupeKey `lead:<id>`) — MESMA fila da fábrica, sem fila nova.
+   * `website`/`name` no payload (aditivo, o consumo in-process ignora extras) dão ao worker da PONTE
+   * o que ele precisa pra crawlear+extrair no 30B; o gate anti-alucinação roda no BACKEND na volta.
+   */
+  private async enqueueEnrichMission(leadId: string, cnpj: string, website?: string | null, name?: string | null): Promise<void> {
     await this.missionQueue.enqueue({
       stage: 'enrich_lead',
-      payload: { radarLeadId: leadId, cnpj },
+      payload: { radarLeadId: leadId, cnpj, website: website || null, name: name || null },
       dedupeKey: `lead:${leadId}`,
+      correlationId: 'cnpj-xray',
+    }).catch(() => null);
+  }
+
+  /**
+   * Missão `xray_note` (CHIP E1) — a nota ICP HONESTA vira trabalho da PONTE no 30B (T1 provou que
+   * ranqueia). Idempotente por dedupeKey `xray-note:<leadId>`. O payload carrega os campos que o
+   * prompt real precisa; o worker roda o 30B e devolve {notaIcp, resumo}, que o backend grava no
+   * metadataJson do lead (MissionResultApplyService). Só enfileira com o worker/fila LIGADOS — o
+   * inline (7b VPS-sim) segue servindo o XLSX do job pra não mudar o comportamento atual do dono.
+   */
+  private async enqueueXrayNoteMission(leadId: string, noteInput: Record<string, unknown>): Promise<void> {
+    if (!this.missionQueue.enabled()) return;
+    await this.missionQueue.enqueue({
+      stage: 'xray_note',
+      payload: { radarLeadId: leadId, note: noteInput },
+      dedupeKey: `xray-note:${leadId}`,
       correlationId: 'cnpj-xray',
     }).catch(() => null);
   }

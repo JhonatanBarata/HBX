@@ -21,6 +21,8 @@ const {
   parseLoadTriplet,
 } = require("./lib/util");
 const { parseEngineCapacity } = require("./lib/engine-capacity");
+// Worker local da PONTE (CHIP E1) — puxa missão do backend e executa no 30B local. Ver lib/ponte-worker.js.
+const { createPonteWorker } = require("./lib/ponte-worker");
 
 // Limiares de aviso (alinhados aos soft limits da Night Factory).
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
@@ -539,6 +541,38 @@ async function readAiStatus() {
     warm7b: Boolean(m7 && m7.warm),
   };
 }
+
+// Crawl LEVE de site → texto puro (mesma limpeza do cnpj-xray.service.ts). Só p/ o worker da PONTE
+// extrair contato via 30B; degrada gracioso (string vazia) em qualquer erro/timeout.
+async function fetchSiteText(website) {
+  if (!website || !/^https?:\/\//i.test(website)) return "";
+  try {
+    const response = await fetch(website, {
+      signal: AbortSignal.timeout(8000),
+      headers: { "user-agent": "Mozilla/5.0 (compatible; HBX-Ponte/1.0)" },
+    });
+    if (!response.ok) return "";
+    const html = await response.text();
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
+// Instância única do worker da PONTE. Injetado com os helpers da casa (ollamaRequest, backendRequest,
+// fetchSiteText). Só INICIA se HBX_PONTE_WORKER_ENABLED=on (default OFF — lei da casa, nunca loop livre).
+const ponteWorker = createPonteWorker({
+  ollamaRequest,
+  backendRequest: (method, route, payload, options) => backendRequest(method, route, payload, options || {}),
+  fetchSiteText,
+  log: (msg) => console.log(msg),
+  env: process.env,
+});
 
 // Garante o Local Lab no ar (sobe se preciso) e espera o /health responder.
 async function ensureLocalLabUp(maxWaitMs = 6000) {
@@ -3118,6 +3152,37 @@ async function route(req, res) {
     return;
   }
 
+  // ── PONTE (CHIP E1): status vermelho/verde + controles p/ o cockpit :3107 (E2) ──────────────────
+  if (req.method === "GET" && url.pathname === "/owner/ponte/status") {
+    sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/ponte/reset") {
+    ponteWorker.resetCircuit();
+    sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/ponte/start") {
+    const started = ponteWorker.start();
+    sendJson(res, 200, { ok: started, ponte: ponteWorker.status() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/ponte/stop") {
+    ponteWorker.stop();
+    sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/ponte/warm") {
+    const r = await ponteWorker.warm();
+    sendJson(res, 200, { ok: Boolean(r && r.ok), warm: r, ponte: ponteWorker.status() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/ponte/unload") {
+    const ok = await ponteWorker.unload("manual (painel)");
+    sendJson(res, 200, { ok, ponte: ponteWorker.status() });
+    return;
+  }
+
   sendError(res, 404, "Endpoint nao encontrado.");
 }
 
@@ -3132,4 +3197,6 @@ server.listen(PORT, HOST, () => {
   const resume = loadTransferResumeOnBoot();
   if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
   console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
+  // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
+  try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
 });

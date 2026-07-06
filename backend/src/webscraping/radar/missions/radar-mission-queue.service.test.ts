@@ -39,16 +39,21 @@ function applyData(row: Row, data: Row) {
   row.updatedAt = new Date();
 }
 
-function createFakePrisma(options: { cursorEnabled?: boolean | null; hasCursorTable?: boolean } = {}) {
+function createFakePrisma(options: { cursorEnabled?: boolean | null; hasCursorTable?: boolean; activeSessions?: number; hasAuthSessionTable?: boolean } = {}) {
   const missions: Row[] = [];
   let nextId = 1;
   const tableSet = new Set(['RadarMission']);
   if (options.hasCursorTable !== false) tableSet.add('RadarFactoryCursor');
+  if (options.hasAuthSessionTable !== false) tableSet.add('AuthSession');
   const fake = {
     missions,
     hasTable: async (name: string) => tableSet.has(name),
     radarFactoryCursor: {
       findUnique: async () => (options.cursorEnabled == null ? null : { enabled: options.cursorEnabled }),
+    },
+    authSession: {
+      // conta "sessões ativas na janela" — o teste injeta o número direto (não simula lastSeenAt real)
+      count: async () => Math.max(0, Math.trunc(Number(options.activeSessions) || 0)),
     },
     radarMission: {
       create: async ({ data }: any) => {
@@ -275,4 +280,51 @@ test('lag da fila: conta só missão devida; idade do item mais velho', async ()
   const lag = await service.getQueueLagSnapshot();
   assert.equal(lag.queuedDue, 1);
   assert.ok(lag.oldestQueuedAgeMs >= 0);
+});
+
+// ─── CHIP E1 (PONTE) ───────────────────────────────────────────────────────────────────────────
+
+test('CHIP E1: sinal elástico (activity+lag) viaja junto do lease — mesmo vazio', async () => {
+  const { service } = buildService({ activeSessions: 3 });
+  const result = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
+  assert.ok(result.activity, 'lease traz activity');
+  assert.equal(result.activity!.activeUsers, 3);
+  assert.ok(result.lag, 'lease traz lag');
+});
+
+test('CHIP E1: activity degrada gracioso sem tabela AuthSession (activeUsers 0, não trava)', async () => {
+  const { service } = buildService({ hasAuthSessionTable: false, activeSessions: 9 });
+  const snap = await service.getActivitySnapshot();
+  assert.equal(snap.activeUsers, 0);
+  const result = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
+  assert.equal(result.activity!.activeUsers, 0);
+});
+
+test('CHIP E1: stage xray_note é leasável e getLeasedContext devolve stage+payload sob o lease', async () => {
+  const { service } = buildService();
+  await service.enqueue({ stage: 'xray_note', payload: { radarLeadId: 'lead-9', note: { razaoSocial: 'ACME' } }, dedupeKey: 'xray-note:lead-9' });
+  const leased = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
+  assert.equal(leased.missions.length, 1);
+  const m = leased.missions[0];
+  const ctx = await service.getLeasedContext(m.id, m.leaseId);
+  assert.equal(ctx.ok, true);
+  if (ctx.ok) {
+    assert.equal(ctx.stage, 'xray_note');
+    assert.equal((ctx.payload as any).radarLeadId, 'lead-9');
+    assert.ok(!ctx.alreadyCompleted);
+  }
+  // lease alheio → stale
+  const stale = await service.getLeasedContext(m.id, 'lease-errado');
+  assert.equal(stale.ok, false);
+});
+
+test('CHIP E1: getLeasedContext após complete sinaliza alreadyCompleted (idempotência do apply)', async () => {
+  const { service } = buildService();
+  await service.enqueue({ stage: 'enrich_lead', payload: { radarLeadId: 'l1' }, dedupeKey: 'lead:l1' });
+  const leased = await service.lease({ workerId: 'ponte', stages: ['enrich_lead'], batchSize: 1 });
+  const m = leased.missions[0];
+  await service.complete(m.id, m.leaseId, { ok: true });
+  const ctx = await service.getLeasedContext(m.id, m.leaseId);
+  assert.equal(ctx.ok, true);
+  if (ctx.ok) assert.equal(ctx.alreadyCompleted, true);
 });

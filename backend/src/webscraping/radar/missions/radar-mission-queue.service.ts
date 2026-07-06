@@ -13,8 +13,14 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // pesquisa (alvo→…→card), ela pega um lead JÁ existente na base (materializado da lista RFB local) e
 // completa contato/site/social/sócio — SEMPRE grátis no local (trava Lei nº1), sempre via
 // LeadContactWriteService (gate anti-alucinação). Ver RadarFabricaService.
-export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead'] as const;
+// `xray_note` (CHIP E1, 05/07): missão de NOTA ICP + resumo do raio-x, processada pela PONTE no 30B
+// local (o T1 provou que o 30B RANQUEIA a nota — sai do interino 4b/7b da VPS). A nota grava no lead
+// via o caminho de aplicação de resultado (MissionResultApplyService), nunca direto pelo worker.
+export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead', 'xray_note'] as const;
 export type RadarMissionStage = (typeof RADAR_MISSION_STAGES)[number];
+
+/** Estágios que a PONTE (worker local do 30B) processa por lease/HTTP. Os demais são da fábrica in-process. */
+export const PONTE_MISSION_STAGES: readonly RadarMissionStage[] = ['enrich_lead', 'xray_note'];
 
 export const RADAR_MISSION_PAYLOAD_VERSION = 1;
 
@@ -30,10 +36,20 @@ export type RadarMissionLeaseDto = {
   heartbeatSeconds: number;
 };
 
+export type RadarMissionActivitySnapshot = {
+  /** usuários com sessão vista nos últimos N minutos (sinal de "gente ativa" pro freio elástico) */
+  activeUsers: number;
+  /** janela usada (min) — o worker decide o freio, o backend só informa o número honesto */
+  windowMinutes: number;
+};
+
 export type RadarMissionLeaseResult = {
   supported: boolean;
   paused: boolean;
   missions: RadarMissionLeaseDto[];
+  /** sinal elástico: nº de usuários ativos + lag da fila viajam junto do lease (worker freia, não o backend) */
+  activity?: RadarMissionActivitySnapshot;
+  lag?: RadarMissionQueueLag;
 };
 
 export type RadarMissionQueueLag = {
@@ -54,6 +70,17 @@ export function resolveMissionLeaseTtlMs(env: NodeJS.ProcessEnv = process.env) {
 export function resolveMissionMaxAttempts(env: NodeJS.ProcessEnv = process.env) {
   const parsed = Number.parseInt(String(env.HBX_MISSION_MAX_ATTEMPTS ?? '').trim(), 10);
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 20) : 3;
+}
+
+/**
+ * Janela (min) do sinal de "usuário ativo" que o freio elástico da PONTE respeita. Alinhada ao
+ * onlineCutoff das sessões ativas (ActiveSessionsService = 5min): sessão vista há ≤5min = gente
+ * mexendo agora → o worker cede a vez. Configurável, capado em [1, 60].
+ */
+export function resolveMissionActivityWindowMinutes(env: NodeJS.ProcessEnv = process.env) {
+  const parsed = Number.parseInt(String(env.HBX_PONTE_ACTIVITY_WINDOW_MINUTES ?? '').trim(), 10);
+  const minutes = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+  return Math.min(Math.max(minutes, 1), 60);
 }
 
 /** Backoff exponencial com teto: 30s · 2^(attempts-1), cap 15min. attempts=1 → 30s; 2 → 60s; 3 → 120s… */
@@ -206,7 +233,9 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     leaseTtlMs?: number | null;
   }): Promise<RadarMissionLeaseResult> {
     if (!(await this.supportsMissionPersistence())) return { supported: false, paused: false, missions: [] };
-    if (await this.isQueuePaused()) return { supported: true, paused: true, missions: [] };
+    // Sinal elástico sempre acompanha o lease (mesmo pausado/vazio) — é como o worker decide o freio.
+    const [activity, lag] = await Promise.all([this.getActivitySnapshot(), this.getQueueLagSnapshot()]);
+    if (await this.isQueuePaused()) return { supported: true, paused: true, missions: [], activity, lag };
     await this.reviveExpiredLeases().catch(() => 0);
 
     const db = this.prisma as any;
@@ -253,7 +282,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
         heartbeatSeconds: Math.max(10, Math.trunc(ttlMs / 3000)),
       });
     }
-    return { supported: true, paused: false, missions };
+    return { supported: true, paused: false, missions, activity, lag };
   }
 
   /** Heartbeat estende o lease (+TTL). Só o dono do lease vivo consegue — leaseId é a prova. */
@@ -264,6 +293,32 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       data: { heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + resolveMissionLeaseTtlMs()) },
     }).catch(() => ({ count: 0 }));
     return updated.count > 0 ? { ok: true } : { ok: false, reason: 'stale_lease' };
+  }
+
+  /**
+   * Contexto (stage + payload) da missão sob o lease vivo — pro handler de complete aplicar o
+   * resultado ANTES de marcar completa. Só devolve se o lease casa e a missão está 'leased'
+   * (idempotência: se já completou com o MESMO lease, devolve `alreadyCompleted` pra pular a aplicação
+   * e responder ok sem reprocessar).
+   */
+  async getLeasedContext(missionId: string, leaseId: string): Promise<
+    { ok: true; stage: RadarMissionStage; payload: Record<string, unknown>; alreadyCompleted?: boolean } | { ok: false; reason: string }
+  > {
+    if (!(await this.supportsMissionPersistence())) return { ok: false, reason: 'unsupported' };
+    const db = this.prisma as any;
+    const id = String(missionId || '');
+    const lease = String(leaseId || '');
+    const row = await db.radarMission.findUnique({
+      where: { id },
+      select: { stage: true, payloadJson: true, status: true, leaseId: true },
+    }).catch(() => null);
+    if (!row) return { ok: false, reason: 'not_found' };
+    if (row.leaseId !== lease) return { ok: false, reason: 'stale_lease' };
+    if (row.status === 'completed') {
+      return { ok: true, stage: row.stage, payload: (row.payloadJson || {}) as Record<string, unknown>, alreadyCompleted: true };
+    }
+    if (row.status !== 'leased') return { ok: false, reason: 'stale_lease' };
+    return { ok: true, stage: row.stage, payload: (row.payloadJson || {}) as Record<string, unknown> };
   }
 
   /** Idempotente: repetir complete com o MESMO leaseId de quem completou devolve ok sem tocar nada. */
@@ -378,10 +433,11 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   async stats() {
     if (!(await this.supportsMissionPersistence())) return { supported: false, paused: true, byStageStatus: [], lag: { queuedDue: 0, oldestQueuedAgeMs: 0 } };
     const db = this.prisma as any;
-    const [grouped, paused, lag] = await Promise.all([
+    const [grouped, paused, lag, activity] = await Promise.all([
       db.radarMission.groupBy({ by: ['stage', 'status'], _count: { _all: true } }).catch(() => []),
       this.isQueuePaused(),
       this.getQueueLagSnapshot(),
+      this.getActivitySnapshot(),
     ]);
     return {
       supported: true,
@@ -392,6 +448,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
         count: Number(row?._count?._all || 0),
       })),
       lag,
+      activity,
     };
   }
 
@@ -413,5 +470,23 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       queuedDue: Number(queuedDue) || 0,
       oldestQueuedAgeMs: oldestAt ? Math.max(0, now.getTime() - oldestAt.getTime()) : 0,
     };
+  }
+
+  /**
+   * Sinal elástico de "gente ativa" REAPROVEITANDO o que já existe: conta sessões AuthSession com
+   * lastSeenAt na janela (mesmo campo que o JWT toca a cada request e que o ActiveSessionsService
+   * usa). Não é scheduler novo — é uma leitura leve que viaja junto do lease pro worker DECIDIR o
+   * freio (o backend só informa o número honesto; quem cede a vez é o worker da ponte).
+   * Degrada gracioso: sem tabela/erro → activeUsers 0 (nunca trava o lease por causa deste sinal).
+   */
+  async getActivitySnapshot(): Promise<RadarMissionActivitySnapshot> {
+    const windowMinutes = resolveMissionActivityWindowMinutes();
+    const hasTable = await this.prisma.hasTable('AuthSession').catch(() => false);
+    if (!hasTable) return { activeUsers: 0, windowMinutes };
+    const cutoff = new Date(Date.now() - windowMinutes * 60_000);
+    const activeUsers = await (this.prisma as any).authSession
+      .count({ where: { lastSeenAt: { gte: cutoff }, revokedAt: null } })
+      .catch(() => 0);
+    return { activeUsers: Math.max(0, Number(activeUsers) || 0), windowMinutes };
   }
 }
