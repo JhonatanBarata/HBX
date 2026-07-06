@@ -135,7 +135,6 @@ function WhatsAppSheet({ open, onClose }: { open: boolean; onClose: () => void }
     if (!open) return;
     async function load() { await refresh(); }
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh é recriada a cada render (não-memoizada de propósito, chamada também pelos handlers onConnected/onDisconnected/onClose); só o `open` deve reabrir o poll inicial.
   }, [open]);
 
   const connected = status === "connected";

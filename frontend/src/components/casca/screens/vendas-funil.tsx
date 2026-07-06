@@ -127,8 +127,6 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
 
   const empty = todos.length === 0;
 
-  const vistaGp = useGlassPill<HTMLButtonElement>(vista);
-
   return (
     <div className="vnd-m__body">
       <div className="vnd-m__toolbar">
