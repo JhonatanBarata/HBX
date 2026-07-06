@@ -5069,3 +5069,260 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   display: grid;
   gap: 2px;
 }
+
+/* ============================================================
+   MOBILE-CASCA/W4 — EMPRESAS mobile (lista + ficha bottom sheet).
+   Métrica estrutural = tokens --casca-* (Lei 1). Zero cor/hex — só
+   var(--token). Régua: linhas --casca-row-h (60px), ≥8 visíveis, busca 36px,
+   stats 11px, badge única por linha, cromo ≤140px.
+   ============================================================ */
+
+/* ---------- LISTA ---------- */
+.emp-m__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.emp-m__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-1);
+}
+.emp-m__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--casca-text-title);
+  font-weight: var(--weight-bold);
+  color: var(--text-strong);
+}
+/* botão compacto 28px "+ Nova" (régua W4 — nunca botão-cartaz) */
+.emp-m__nova {
+  flex: 0 0 auto;
+  height: var(--casca-segment-h);
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.emp-m__nova:active { transform: scale(0.96); }
+
+/* busca 36px (--field-height) */
+.emp-m__searchbar { flex: 0 0 auto; padding: var(--space-1) var(--space-4); }
+.emp-m__searchfield {
+  height: var(--field-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+}
+.emp-m__searchinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+}
+.emp-m__searchinput:focus { outline: none; }
+
+/* stats 1 linha micro 11px: "{n} empresas · {n} clientes" */
+.emp-m__stats {
+  flex: 0 0 auto;
+  padding: 0 var(--space-4) var(--space-1);
+  font-size: var(--casca-text-stat);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+}
+
+.emp-m__empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+}
+.emp-m__empty p { margin: 0; font-size: var(--casca-text-sub); line-height: var(--leading-body); max-width: 32ch; }
+.emp-m__empty-cta { margin-top: var(--space-1); }
+
+/* linhas 60px: avatar quadrado 32 iniciais, nome, "cidade/UF · segmento",
+   badge única, chevron. ≥8 visíveis (--casca-row-h). */
+.emp-m__list { flex: 1 1 auto; display: flex; flex-direction: column; }
+.emp-m__row {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: var(--casca-row-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-canvas);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.emp-m__row:active { background: var(--surface-recessed); }
+
+/* avatar quadrado 32 (iniciais) — a régua pede QUADRADO, não circular (não
+   reusa <Av> central, que é redondo). */
+.emp-m__ico {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: 0.66rem;
+  font-weight: var(--weight-bold);
+}
+.emp-m__ico--lg { width: 40px; height: 40px; font-size: var(--casca-text-label); }
+
+.emp-m__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.emp-m__row-name {
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.emp-m__row-sub {
+  font-size: var(--casca-text-label);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* badge única por linha: cliente=verde / lead=neutro / fornecedor=neutro */
+.emp-m__badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.6rem;
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+}
+.emp-m__badge.is-cliente { color: var(--hbx-success); background: color-mix(in srgb, var(--hbx-success) 16%, transparent); }
+
+/* ---------- FICHA (CascaSheet) ---------- */
+.emp-m__ficha { display: flex; flex-direction: column; gap: var(--space-4); }
+.emp-m__ficha-err { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; color: var(--text-muted); font-size: var(--casca-text-sub); }
+
+.emp-m__ficha-head { display: flex; align-items: center; gap: var(--space-3); }
+.emp-m__ficha-head-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.emp-m__ficha-name {
+  font-size: var(--casca-text-title);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.emp-m__ficha-sub {
+  font-size: var(--casca-text-sub);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.emp-m__edit-btn {
+  flex: 0 0 auto;
+  width: var(--casca-action-max);
+  height: var(--casca-action-max);
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  cursor: pointer;
+}
+.emp-m__edit-btn:active { transform: scale(0.94); }
+
+/* 3 ações que cruzam a casca: Conversar / Ligar / Funil */
+.emp-m__acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+.emp-m__act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 56px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+  text-decoration: none;
+}
+.emp-m__act:active { transform: scale(0.97); }
+.emp-m__act:disabled { opacity: 0.45; cursor: default; }
+.emp-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
+
+/* tabela resumo 12px */
+.emp-m__kv { display: flex; flex-direction: column; }
+.emp-m__kv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-hairline);
+  font-size: var(--casca-text-sub);
+}
+.emp-m__kv-row:last-child { border-bottom: none; }
+.emp-m__kv-k { flex: 0 0 auto; color: var(--text-muted); }
+.emp-m__kv-v {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* rodapé micro: "Última conversa {quando} · {n} não lidas" */
+.emp-m__foot { margin: 0; font-size: var(--casca-text-label); color: var(--text-muted); }
+
+/* ---------- sheet "Nova empresa" ---------- */
+.emp-m__novo { display: flex; flex-direction: column; gap: var(--space-3); }
+.emp-m__novo-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
+.emp-m__novo-submit { margin-top: var(--space-2); }
