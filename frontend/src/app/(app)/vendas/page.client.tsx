@@ -16,12 +16,14 @@ import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, us
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { VendasModoFoco } from "@/components/hbx/vendas-modo-foco";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { isCompanySeller } from "@/lib/roles";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type VendasLead = {
@@ -965,6 +967,11 @@ export function VendasClient() {
     return list;
   })();
 
+  // CHIP E3 (05/07) — status de IA por lote no ESTOQUE de Vendas (mesma fonte da vitrine de
+  // leads): "na fila"/"enriquecendo agora"/"enriquecido", ligado por leadId (id do VendasLead ==
+  // radarLeadId). Flag da fila OFF no backend → tudo 'none', badge some sozinho.
+  const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.id));
+
   // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
   const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
   function toggleTodos() {
@@ -1193,6 +1200,7 @@ export function VendasClient() {
                                 <span className="vnd-row-sub">
                                   {card.segment || card.city || card.statusLabel || "—"}
                                 </span>
+                                <RadarAiBadge status={aiStatusMap[card.id]} />
                               </div>
                               <div className="vnd-row-end">
                                 {board.canViewValues && <span className="vnd-row-val">{leadValueLabel(card)}</span>}
@@ -1255,7 +1263,7 @@ export function VendasClient() {
                                 <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
                                   aria-label={`Selecionar ${card.name || "card"}`} />
                               </td>
-                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}</div></td>
+                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}<RadarAiBadge status={aiStatusMap[card.id]} /></div></td>
                               <td>{card.segment || "—"}</td>
                               <td><span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>{card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}</td>
                               {board.canViewValues && <td className="hbx-mono">{leadValueLabel(card)}</td>}
@@ -1327,6 +1335,7 @@ export function VendasClient() {
                                     {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
                                   </div>
                                   <span className="vnd-card__sub">{card.segment || card.city || card.phone || "—"}</span>
+                                  <RadarAiBadge status={aiStatusMap[card.id]} />
                                   <div className="vnd-card__row">
                                     <Termometro score={therm.score} why={therm.why} />
                                     {canViewValues && <span className="vnd-card__val">{leadValueLabel(card)}</span>}
@@ -1355,6 +1364,7 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
+                crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.id]} /> : undefined}
                 onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
                 waQrActive={waQrActive}
@@ -1421,6 +1431,7 @@ export function VendasClient() {
               detail={toNegocioDetail(sel)}
               title={sel.name || "Negócio"}
               onClose={() => setMobileDetailOpen(false)}
+              crownSlot={<RadarAiBadge status={aiStatusMap[sel.id]} />}
               onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone, buildWaMessage({ name: sel.name, segment: sel.segment, city: sel.city })) : undefined}
               onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
               waQrActive={waQrActive}

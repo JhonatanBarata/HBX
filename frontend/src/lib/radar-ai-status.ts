@@ -61,6 +61,7 @@ export function radarAiStatusSummaryLabel(status: RadarAiLeadStatus | undefined 
 }
 
 const POLL_MS = 6000;
+const EMPTY_STATUS_MAP: RadarAiStatusMap = {};
 
 /**
  * Polling leve por lote de leadIds — reusa o padrão de refresh que a vitrine já tem
@@ -83,7 +84,7 @@ export function useRadarAiStatusPoll(leadIds: string[]): RadarAiStatusMap {
   useEffect(() => {
     const ids = idsKey ? idsKey.split(",") : [];
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    if (!ids.length) { setStatusMap({}); return; }
+    if (!ids.length) return;
 
     let cancelled = false;
 
@@ -116,8 +117,9 @@ export function useRadarAiStatusPoll(leadIds: string[]): RadarAiStatusMap {
       cancelled = true;
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
-  return statusMap;
+  // Sem leadIds pra observar → mapa vazio (mesmo resultado de antes, sem setState síncrono no
+  // corpo do effect — o fiscal react-hooks/set-state-in-effect reprova isso).
+  return idsKey ? statusMap : EMPTY_STATUS_MAP;
 }

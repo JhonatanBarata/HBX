@@ -950,6 +950,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   const items = data?.items || [];
 
+  // CHIP E3 (05/07) — status de IA por lote (fila da PONTE 30B): "na fila"/"enriquecendo agora"/
+  // "enriquecido", ligado por leadId. Polling leve só dos leads da página atual (nunca N chamadas
+  // por card); flag da fila OFF no backend → tudo 'none' e o badge simplesmente não aparece.
+  const aiStatusMap = useRadarAiStatusPoll(items.map(row => row.id));
+
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
@@ -1157,6 +1162,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         title={opts?.title ?? "Detalhes"}
         enriching={enriching}
         onClose={opts?.onClose}
+        crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
         onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone, buildWaMessage({ name: lead.name, segment: lead.segment, city: lead.city })) : undefined}
         onWaOpenInternal={revealed ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
@@ -1925,6 +1931,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                               </div>
 
                               {renderOriginBadge(row)}
+                              <RadarAiBadge status={aiStatusMap[row.id]} />
 
                               {row.opportunitySignals && row.opportunitySignals.length > 0 && (
                                 <div className="radar2-signals">
