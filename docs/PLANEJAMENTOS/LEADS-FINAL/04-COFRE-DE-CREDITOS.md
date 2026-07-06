@@ -36,6 +36,39 @@ Qualquer buraco = correção imediata (mask server-side no presenter, mesmo padr
 Entregável: teste de integração "scraper simulado" que pagina a vitrine e afere que nunca
 recebe telefone/e-mail sem débito.
 
+#### RESULTADO DA AUDITORIA (Opus, 06/07) — 3 furos CONFIRMADOS no código
+Causa-raiz: a máscara de contato está presa à flag `vitrine`, mas a visibilidade de
+contato deveria ser gated por **POSSE do lead** (`ownerCompanyId === companyId` = a empresa
+já puxou). O portão atual (`canUseRadarSmartLeadFields`) é só de PLANO ("HBX Lead Plus ou
+superior", `webscraping.service.test.ts:2338`) — libera SE a empresa paga plano, não SE
+puxou o lead. `buildRadarLeadPublic` só zera contato quando recebe `maskContact:true`
+([mixin:2442]) e várias chamadas não passam a flag:
+
+1. **PIOR — `GET /webscraping/radar/leads/:id`** (`getRadarLeadForUser`, [mixin:3012-3051]):
+   `findUnique` por id, **sem checagem de posse** (diferente do enrich [mixin:3611-3614] que
+   valida `ownerCompanyId`), **sem `maskContact`**. Devolve contato CHEIO de QUALQUER lead
+   do pool, inclusive os que a vitrine mostra mascarados. Alvo por-id → scraper lê a lista
+   mascarada só pra pegar os ids, depois bate no detalhe por id = contato cheio, débito ZERO.
+2. **`GET /webscraping/radar/leads` sem `scope=vitrine`** (`listRadarLeadsForUser`,
+   [mixin:2966-2968]): `availableOnly=false` inclui leads `ownerCompanyId:null` (não-puxados,
+   [mixin:1490-1499]) e `maskContact:vitrine=false` → contato cru dos disponíveis.
+3. **`GET /webscraping/radar/database`** (`listRadarDatabaseForUser`, [mixin:3818-3834]):
+   sem `availableOnly`, sem `maskContact` → mesmos não-puxados, contato cru.
+
+Também sem máscara (checar se são pós-débito/master-only, provavelmente OK): delivery
+[mixin:842/1544/1647] (pull = pós-débito), master-database [mixin:438/525] (RBAC master).
+Pull-preview [delivery:1940] usa `maskContact:true` (correto).
+
+**Fix robusto de UMA regra (independe do modelo): mascarar contato sempre que
+`ownershipEnabled && ownerCompanyId !== companyId`** (empresa não puxou este lead), centralizado
+em `buildRadarLeadPublic` (o `ownerCompanyId` já está disponível ali, [mixin:2215]):
+`const mask = options.maskContact === true || (ownershipEnabled && ownerCompanyId && ownerCompanyId !== companyId);`
+Fecha os 3 furos num ponto, torna contato estritamente pull-gated, preserva o fluxo
+"puxou → possui → vê contato". **É mudança de contrato de visibilidade/crédito = frente
+financeira = Opus edita direto + revisão de diff, e SÓ após o dono confirmar o modelo
+(decisão registrada abaixo). NÃO aplicar enquanto o cutover 06-07 estiver no tree sem
+coordenar (merge 3-way).**
+
 ### Etapa 2 — UX de cobrança honesta (front)
 - Puxada em lote: modal central (`.hbx-veil`) "**Puxar 24 leads = 24 créditos** — saldo
   atual X" com confirmar/cancelar. Puxada unitária: custo visível no próprio botão
