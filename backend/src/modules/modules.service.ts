@@ -13,9 +13,10 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import { listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
-import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
+import { buildMasterWhatsAppSituation, MasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
 import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT, isPlatformInfraCompany } from '../common/company-kind';
 import { buildWaLink } from '../webscraping/radar/shared/radar-core-shared';
 import {
@@ -213,6 +214,11 @@ type ModuleAccessContext = {
 export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ModulesService.name);
   private tasteSweepHandle: ReturnType<typeof setInterval> | null = null;
+  // C3 (TESTE-GERAL/CORRECOES.md): cache da leitura do motor ao vivo p/ a coluna
+  // WhatsApp do master/Empresas — mesmo TTL/padrão do MasterCockpitService
+  // (WHATSAPP_HEALTH_TTL_MS), pra não martelar o motor a cada listMasterOverview.
+  private motorInstancesCache: { at: number; value: any[] | null } | null = null;
+  private static readonly MOTOR_INSTANCES_TTL_MS = 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -221,10 +227,93 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     private readonly masterContextService: MasterContextService,
     private readonly companyOperationalStatus: CompanyOperationalStatusService,
     private readonly commercialUsageLimits: CommercialUsageLimitsService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
   private async supportsWhatsAppEndpointTable() {
     return this.prisma.hasTable('CompanyWhatsAppEndpoint');
+  }
+
+  // C3 (TESTE-GERAL/CORRECOES.md): leitura do MOTOR AO VIVO (mesmo padrão do
+  // MasterCockpitService.buildWhatsappHealth — /instance/fetchInstances via
+  // WebwhatsBridgeService.listMotorInstances, SÓ LEITURA, nunca conectar/
+  // reconectar/deslogar chip) — cache 60 s pra não martelar o motor a cada
+  // listMasterOverview. Motor desligado/indisponível → null (cacheado também,
+  // pra não bater de novo num motor caído dentro da janela de TTL).
+  private async getMotorInstancesCached(): Promise<any[] | null> {
+    const cached = this.motorInstancesCache;
+    if (cached && Date.now() - cached.at < ModulesService.MOTOR_INSTANCES_TTL_MS) {
+      return cached.value;
+    }
+    const value = await this.webwhatsBridge.listMotorInstances();
+    this.motorInstancesCache = { at: Date.now(), value };
+    return value;
+  }
+
+  // Nome da instância no motor segue `company-{id}` ou `company-{id}-user-{n}`
+  // (WebwhatsBridgeService.buildTenantKey) — mesmo parse usado no wipeMotorInstance.
+  private static parseMotorInstanceCompanyId(instanceName: string): number | null {
+    const match = /^company-(\d+)(?:-user-\d+)?$/.exec(instanceName.trim());
+    if (!match) return null;
+    const id = Number(match[1]);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  }
+
+  // Estado "melhor" do motor por company: entre todas as instâncias da empresa
+  // (principal + por-usuário), 'open' vence se QUALQUER uma estiver aberta —
+  // reflete que o WhatsApp da empresa está operacional mesmo que outra sessão
+  // secundária esteja caída. Sem nenhuma instância no motor → null (sem leitura).
+  private buildMotorStateByCompany(instances: any[]): Map<number, string> {
+    const rank: Record<string, number> = { open: 3, connecting: 2, close: 1, closed: 1 };
+    const byCompany = new Map<number, string>();
+    for (const inst of instances) {
+      const name = String(inst?.instance?.instanceName ?? inst?.instanceName ?? '').trim();
+      if (!name) continue;
+      const companyId = ModulesService.parseMotorInstanceCompanyId(name);
+      if (!companyId) continue;
+      const state = String(
+        inst?.connectionStatus ?? inst?.instance?.state ?? inst?.instance?.status ?? inst?.state ?? inst?.status ?? '',
+      )
+        .trim()
+        .toLowerCase();
+      const current = byCompany.get(companyId);
+      if (!current || (rank[state] || 0) > (rank[current] || 0)) {
+        byCompany.set(companyId, state);
+      }
+    }
+    return byCompany;
+  }
+
+  // Decora a situação unificada (banco) com a leitura do motor ao vivo: se o
+  // motor está disponível e enxerga a company, o estado do motor manda —
+  // 'open' vira 'connected' mesmo que o banco esteja desatualizado; motor
+  // fechado/erro rebaixa um banco "connected" pra 'attention' (chip caído,
+  // painel não deve mentir "conectado"). Motor indisponível/empresa sem
+  // instância no motor → devolve a situação do banco sem alteração (fallback
+  // defensivo — nunca quebra a lista por causa da sonda).
+  private decorateWhatsAppSituationWithMotor(
+    situation: MasterWhatsAppSituation,
+    motorState: string | undefined,
+  ): MasterWhatsAppSituation {
+    if (!motorState) return situation;
+    if (motorState === 'open') {
+      if (situation.status === 'connected') return situation;
+      return {
+        ...situation,
+        status: 'connected',
+        statusLabel: situation.statusLabel && situation.statusLabel !== 'Sem leitura'
+          ? situation.statusLabel
+          : 'Conectado (motor)',
+      };
+    }
+    if ((motorState === 'close' || motorState === 'closed') && situation.status === 'connected') {
+      return {
+        ...situation,
+        status: 'attention',
+        statusLabel: 'Chip caído no motor (atualize)',
+      };
+    }
+    return situation;
   }
 
   private buildLegacyEndpointSnapshot(company: any) {
@@ -3584,6 +3673,11 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // trilhos (Meta oficial por token proprio/Master + conexao rapida QR/WebWhats),
     // nao so a coluna whatsappStatus (que e somente o status oficial da Meta).
     const masterIntegrationConfig = await getMasterGlobalIntegrationConfig(this.prisma);
+    // C3 (TESTE-GERAL/CORRECOES.md): a coluna WhatsApp da lista não pode confiar
+    // só no banco — decora com a leitura do MOTOR AO VIVO (cache 60 s). Motor
+    // desligado/indisponível → mapa vazio, decorador vira no-op (fallback pro banco).
+    const motorInstances = await this.getMotorInstancesCached();
+    const motorStateByCompany = motorInstances ? this.buildMotorStateByCompany(motorInstances) : new Map<number, string>();
 
     const result: any[] = [];
     for (const company of companies) {
@@ -3600,13 +3694,19 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         effectiveConfig: effectiveWhatsApp,
         temporaryAvailable: false,
       });
-      const whatsappSituation = buildMasterWhatsAppSituation({
+      const whatsappSituationFromDb = buildMasterWhatsAppSituation({
         company,
         credential: selectedWhatsAppCredential,
         effectiveConfig: effectiveWhatsApp,
         whatsappCenter,
         endpoints: whatsappEndpoints,
       });
+      // C3: decora com o motor ao vivo (SÓ leitura) — chip caído no motor não
+      // deixa a coluna mentir "conectado" mesmo se o banco ainda não atualizou.
+      const whatsappSituation = this.decorateWhatsAppSituationWithMotor(
+        whatsappSituationFromDb,
+        motorStateByCompany.get(Number(company.id)),
+      );
       result.push({
         id: company.id,
         name: company.name,

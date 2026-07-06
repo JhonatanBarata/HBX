@@ -54,6 +54,17 @@ type CommissionFeedItem = {
   text: string;
 };
 
+// C4 (TESTE-GERAL/CORRECOES.md): totais de hoje/mês calculados por query Prisma
+// própria (count/aggregate), SEM depender do `take: 60` do feed visual.
+type SaleAndCommissionTotals = {
+  salesTodayCount: number;
+  salesTodayValue: number;
+  salesMonthCount: number;
+  salesMonthValue: number;
+  commissionPayable: number;
+  commissionPaidMonth: number;
+};
+
 type RosterCompany = {
   id: number;
   name: string;
@@ -213,7 +224,7 @@ export class MasterCockpitService {
     this.overviewRebuilds += 1;
     this.logger.debug(`overview rebuild #${this.overviewRebuilds}`);
     const nowMs = Date.now();
-    const [feed, commissions, roster, sellers, events, health] = await Promise.all([
+    const [feed, commissions, roster, sellers, events, health, saleTotals] = await Promise.all([
       this.buildSaleFeed().catch(() => [] as SaleFeedItem[]),
       this.buildCommissionFeed().catch(() => [] as CommissionFeedItem[]),
       this.buildRoster(nowMs).catch(() => [] as RosterCompany[]),
@@ -222,6 +233,7 @@ export class MasterCockpitService {
       this.buildHealth().catch(
         () => ({ whatsapp: null, billing: null, factory: null }) as HealthBlock,
       ),
+      this.buildSaleAndCommissionTotals().catch(() => null as SaleAndCommissionTotals | null),
     ]);
 
     const activatedSellers = sellers.filter((s) => s.activated);
@@ -236,6 +248,11 @@ export class MasterCockpitService {
     );
 
     // Recortes do feed (todas as empresas) p/ os cards de topo.
+    // C4 (TESTE-GERAL/CORRECOES.md): feed/commissions acima vêm truncados
+    // (`take: 60`, só para exibição da lista). Os KPIs de hoje/mês NÃO podem
+    // depender desse corte — usam `buildSaleAndCommissionTotals()` (query
+    // Prisma count/aggregate própria, sem take). Fallback pro filtro do array
+    // truncado só se a query de totais falhar (defensivo, igual ao resto do arquivo).
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const startOfMonth = new Date();
@@ -244,17 +261,36 @@ export class MasterCockpitService {
     const dayMs = startOfDay.getTime();
     const monthMs = startOfMonth.getTime();
 
-    const salesToday = feed.filter((f) => new Date(f.at).getTime() >= dayMs);
-    const salesMonth = feed.filter((f) => new Date(f.at).getTime() >= monthMs);
+    let salesTodayCount: number;
+    let salesTodayValue: number;
+    let salesMonthCount: number;
+    let salesMonthValue: number;
+    let commissionPayable: number;
+    let commissionPaidMonth: number;
 
-    const commissionPayable = money(
-      commissions.filter((c) => c.status === 'payable').reduce((a, c) => a + c.amount, 0),
-    );
-    const commissionPaidMonth = money(
-      commissions
-        .filter((c) => c.status === 'paid' && new Date(c.at).getTime() >= monthMs)
-        .reduce((a, c) => a + c.amount, 0),
-    );
+    if (saleTotals) {
+      salesTodayCount = saleTotals.salesTodayCount;
+      salesTodayValue = saleTotals.salesTodayValue;
+      salesMonthCount = saleTotals.salesMonthCount;
+      salesMonthValue = saleTotals.salesMonthValue;
+      commissionPayable = saleTotals.commissionPayable;
+      commissionPaidMonth = saleTotals.commissionPaidMonth;
+    } else {
+      const salesToday = feed.filter((f) => new Date(f.at).getTime() >= dayMs);
+      const salesMonth = feed.filter((f) => new Date(f.at).getTime() >= monthMs);
+      salesTodayCount = salesToday.length;
+      salesTodayValue = money(salesToday.reduce((a, f) => a + f.saleValue, 0));
+      salesMonthCount = salesMonth.length;
+      salesMonthValue = money(salesMonth.reduce((a, f) => a + f.saleValue, 0));
+      commissionPayable = money(
+        commissions.filter((c) => c.status === 'payable').reduce((a, c) => a + c.amount, 0),
+      );
+      commissionPaidMonth = money(
+        commissions
+          .filter((c) => c.status === 'paid' && new Date(c.at).getTime() >= monthMs)
+          .reduce((a, c) => a + c.amount, 0),
+      );
+    }
 
     return {
       generatedAt: new Date().toISOString(),
@@ -268,10 +304,10 @@ export class MasterCockpitService {
         activatedSellers: activatedSellers.length,
         totalSellers,
         activationRate: totalSellers > 0 ? Math.round((activatedSellers.length / totalSellers) * 100) : 0,
-        salesTodayCount: salesToday.length,
-        salesTodayValue: money(salesToday.reduce((a, f) => a + f.saleValue, 0)),
-        salesMonthCount: salesMonth.length,
-        salesMonthValue: money(salesMonth.reduce((a, f) => a + f.saleValue, 0)),
+        salesTodayCount,
+        salesTodayValue,
+        salesMonthCount,
+        salesMonthValue,
         commissionPayable,
         commissionPaidMonth,
         mrrTotal,
@@ -513,6 +549,64 @@ export class MasterCockpitService {
         text,
       };
     });
+  }
+
+  // ── Totais de hoje/mês (C4 — TESTE-GERAL/CORRECOES.md) ──────────────────────
+  // `buildSaleFeed`/`buildCommissionFeed` truncam em 60 registros (só para a
+  // lista visual do feed). Os KPIs "Vendas hoje/mês" e "comissão paga no mês"
+  // NÃO podem herdar esse corte — aqui é count/aggregate direto no banco,
+  // cross-company, sem `take`. Replica a mesma regra de "data efetiva" do feed
+  // (`saleConfirmedAt` OU, na ausência, `updatedAt`) via OR de filtros.
+  private async buildSaleAndCommissionTotals(): Promise<SaleAndCommissionTotals> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const effectiveDateFilter = (threshold: Date) => ({
+      OR: [
+        { saleConfirmedAt: { gte: threshold } },
+        { saleConfirmedAt: null, updatedAt: { gte: threshold } },
+      ],
+    });
+
+    const [salesTodayAgg, salesMonthAgg, commissionPayableAgg, commissionPaidMonthAgg] =
+      await Promise.all([
+        this.prisma.vendasLead.aggregate({
+          where: { saleStatus: { not: 'none' }, ...effectiveDateFilter(startOfDay) },
+          _count: { _all: true },
+          _sum: { saleValue: true },
+        }),
+        this.prisma.vendasLead.aggregate({
+          where: { saleStatus: { not: 'none' }, ...effectiveDateFilter(startOfMonth) },
+          _count: { _all: true },
+          _sum: { saleValue: true },
+        }),
+        this.prisma.vendasCommissionReceivable.aggregate({
+          where: { status: 'payable' },
+          _sum: { amount: true },
+        }),
+        this.prisma.vendasCommissionReceivable.aggregate({
+          where: {
+            status: 'paid',
+            OR: [
+              { paidAt: { gte: startOfMonth } },
+              { paidAt: null, updatedAt: { gte: startOfMonth } },
+            ],
+          },
+          _sum: { amount: true },
+        }),
+      ]);
+
+    return {
+      salesTodayCount: salesTodayAgg._count._all,
+      salesTodayValue: money(salesTodayAgg._sum.saleValue),
+      salesMonthCount: salesMonthAgg._count._all,
+      salesMonthValue: money(salesMonthAgg._sum.saleValue),
+      commissionPayable: money(commissionPayableAgg._sum.amount),
+      commissionPaidMonth: money(commissionPaidMonthAgg._sum.amount),
+    };
   }
 
   // ── Roster de empresas (status comercial + MRR) ─────────────────────────────

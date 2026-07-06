@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { apiFetch, setToken } from "@/lib/api";
 import { PLAN_STATIC } from "@/lib/plans";
+import { fetchCreditStorefront } from "@/lib/credits-storefront";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
@@ -97,13 +98,35 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [waChallengeToken, setWaChallengeToken] = useState<string | null>(null);
   const [waPreviewCode, setWaPreviewCode] = useState<string | null>(null);
 
+  // CRÉDITOS (cutover 06/07) — chavinha HBX_CREDITS_ENABLED. `enabled===true`:
+  // cadastro direto sem plano (email + telefone confirmados = welcomeCredits
+  // grátis, sem cartão). `enabled===false` (ou ainda carregando): mantém o
+  // funil de PLANOS de hoje intacto (regressão zero).
+  const [creditsEnabled, setCreditsEnabled] = useState(false);
+  const [welcomeCredits, setWelcomeCredits] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    fetchCreditStorefront().then((sf) => {
+      if (!alive) return;
+      setCreditsEnabled(sf.enabled);
+      setWelcomeCredits(sf.welcomeCredits);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // Cadastro grátis (modelo créditos): telefone obrigatório (base do dedup
+  // anti-farra + confirmação por WhatsApp), CPF opcional.
+  const [freeTelefone, setFreeTelefone] = useState("");
+  const [freeCpf, setFreeCpf] = useState("");
+
   const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : "hbx_padrao";
   const isTrial = selectedPlan === "hbx_padrao";
   const copy = PLAN_STATIC[selectedPlan] ?? PLAN_STATIC.hbx_padrao;
   // Checkout na casca: List/Full cobram na hora; Lead salva o cartão e NÃO cobra
   // (Plano B — trial com cartão, 1ª cobrança só no X+14, o backend adia). Company
   // não tem self-checkout (falar com especialista).
-  const needsCheckout = selectedPlan !== "hbx_melhor";
+  // Modelo grátis (créditos): NUNCA tem checkout — não há venda no cadastro.
+  const needsCheckout = !creditsEnabled && selectedPlan !== "hbx_melhor";
   // checkout_token = sessão de escopo restrito gerada no signup (produção).
   // access_token = sessão completa (mock/local que auto-confirma o e-mail).
   // Qualquer um dos dois habilita o CheckoutPanel na mesma cena.
@@ -234,15 +257,30 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
       setError("As senhas não conferem.");
       return;
     }
+    if (creditsEnabled && !freeTelefone.trim()) {
+      setError("Informe seu telefone com DDD — usamos ele para confirmar sua conta e liberar seus créditos.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       // Cadastro enxuto (ordem do dono 19/06): paridade com o Google — só
       // e-mail/nome/senha (+empresa). Telefone e CPF saíram daqui: telefone vem
       // depois (confirmação por WhatsApp/F6), CPF no checkout (F7).
+      // CRÉDITOS (cutover 06/07): com a chavinha ON, o cadastro é direto (sem
+      // plano) e já manda telefone/CPF — o backend EXIGE telefone nesse modo
+      // (base do dedup anti-farra dos welcomeCredits).
       const res = await apiFetch<SignupResponse>("/auth/signup", {
         method: "POST",
-        body: JSON.stringify({
+        body: JSON.stringify(creditsEnabled ? {
+          email,
+          name: nome,
+          password: senha,
+          acceptedTerms: true,
+          trialContactName: nome,
+          trialContactPhone: freeTelefone,
+          trialTaxDocument: freeCpf || undefined,
+        } : {
           companyName: empresa,
           email,
           name: nome,
@@ -388,15 +426,25 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
           />
         ) : (
         <div className="card">
-          <h2>{done.access_token ? "Tudo pronto ✓" : selectedPlan === "hbx_melhor" ? "Recebido ✓" : `HBX ${copy.accent} — Aguardando confirmação`}</h2>
+          <h2>
+            {done.access_token
+              ? "Tudo pronto ✓"
+              : creditsEnabled
+                ? "Falta pouco — confirme sua conta"
+                : selectedPlan === "hbx_melhor"
+                  ? "Recebido ✓"
+                  : `HBX ${copy.accent} — Aguardando confirmação`}
+          </h2>
           <p className="sub">
             {done.access_token
-              ? copy.doneSub
-              : selectedPlan === "hbx_melhor"
-                ? copy.doneSub
-                : (isTrial
-                  ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
-                  : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
+              ? (creditsEnabled ? `Sua conta está ativa com ${welcomeCredits} créditos grátis.` : copy.doneSub)
+              : creditsEnabled
+                ? `Confirme seu email e telefone para liberar seus ${welcomeCredits} créditos.`
+                : selectedPlan === "hbx_melhor"
+                  ? copy.doneSub
+                  : (isTrial
+                    ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
+                    : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
           </p>
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
@@ -417,9 +465,10 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>
                 Ir para o login
               </Link>
-              {/* F6 — Confirmação por WhatsApp */}
+              {/* F6 — Confirmação por WhatsApp (modelo grátis: telefone já veio do
+                  cadastro — pré-preenche pra não digitar de novo) */}
               {waStep === "idle" && (
-                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (creditsEnabled && freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
                   Confirmar pelo WhatsApp
                 </button>
               )}
@@ -476,9 +525,13 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         )
       ) : (
         <form className="card" onSubmit={onSubmit}>
-          <h2>{copy.formTitle}</h2>
-          <p className="sub">{copy.formSub}</p>
-          {GOOGLE_CLIENT_ID && selectedPlan !== "hbx_melhor" && (
+          <h2>{creditsEnabled ? "Criar sua conta grátis" : copy.formTitle}</h2>
+          <p className="sub">
+            {creditsEnabled
+              ? <>Confirme email e telefone e ganhe <strong>{welcomeCredits} créditos</strong> grátis. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</>
+              : copy.formSub}
+          </p>
+          {GOOGLE_CLIENT_ID && (creditsEnabled || selectedPlan !== "hbx_melhor") && (
             <>
               {prefillActive && (
                 <p className="sub" style={{ margin: "0 0 4px", fontWeight: 700, textAlign: "center" }}>
@@ -489,11 +542,13 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               <div className="login-or"><span>ou preencha abaixo</span></div>
             </>
           )}
-          <div className="f">
-            <label htmlFor="emp">Empresa</label>
-            <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}
-              value={empresa} onChange={e => setEmpresa(e.target.value)} />
-          </div>
+          {!creditsEnabled && (
+            <div className="f">
+              <label htmlFor="emp">Empresa</label>
+              <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}
+                value={empresa} onChange={e => setEmpresa(e.target.value)} />
+            </div>
+          )}
           <div className="f">
             <label htmlFor="em">E-mail</label>
             <input id="em" className="field-dark" type="email" placeholder="Digite seu e-mail" required autoComplete="email"
@@ -504,6 +559,13 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             <input id="nm" className="field-dark" placeholder="Nome que aparecerá no atendimento" required maxLength={120}
               value={nome} onChange={e => setNome(e.target.value)} />
           </div>
+          {creditsEnabled && (
+            <div className="f">
+              <label htmlFor="free-tel">WhatsApp com DDD</label>
+              <input id="free-tel" className="field-dark" type="tel" placeholder="WhatsApp com DDD" required autoComplete="tel"
+                value={freeTelefone} onChange={e => setFreeTelefone(e.target.value)} />
+            </div>
+          )}
           <div className="f">
             <label htmlFor="pw">Senha</label>
             <div style={{ position: "relative" }}>
@@ -519,6 +581,13 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               required minLength={8} autoComplete="new-password"
               value={confirma} onChange={e => setConfirma(e.target.value)} />
           </div>
+          {creditsEnabled && (
+            <div className="f">
+              <label htmlFor="free-cpf">CPF (opcional)</label>
+              <input id="free-cpf" className="field-dark" inputMode="numeric" placeholder="Só números, se quiser informar" maxLength={14}
+                value={freeCpf} onChange={e => setFreeCpf(e.target.value.replace(/\D/g, ""))} />
+            </div>
+          )}
           {error && (
             <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
               {error}
@@ -531,7 +600,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             </div>
           )}
           <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
-            {busy ? "Enviando…" : selectedPlan === "hbx_melhor" ? "Falar com especialista" : isTrial ? "Começar teste grátis" : "Criar conta"}
+            {busy ? "Enviando…" : creditsEnabled ? "Criar conta grátis" : selectedPlan === "hbx_melhor" ? "Falar com especialista" : isTrial ? "Começar teste grátis" : "Criar conta"}
           </button>
           <p style={{ margin: "2px 0 0", fontSize: "0.62rem", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>
             Ao criar a conta, você concorda com os Termos de uso e a Política de privacidade do HBX.

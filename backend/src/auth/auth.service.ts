@@ -32,6 +32,7 @@ import * as TrialUsage from '../commercial-plans/trial-usage';
 import { evaluateSignupRisk } from './signup-risk';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { CreditsService } from '../credits/credits.service';
+import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import {
@@ -72,6 +73,46 @@ export class AuthService implements OnModuleInit {
     this.credits.grantWelcomeBatch(companyIdNum).catch((error: any) => {
       this.logger.warn(`welcome_batch_grant_unexpected_throw company=${companyIdNum} error=${String(error?.message || error)}`);
     });
+  }
+
+  // CRÉDITOS (cutover 06/07) — grant dos 50 créditos grátis DEPOIS da identidade confirmada
+  // (email OU código WhatsApp/F6), com DEDUP anti-farra por telefone/CPF (regra do dono 06/07:
+  // "confirmar repetição de CPF ou telefone"). Se a mesma identidade já existe em OUTRA empresa,
+  // a conta é criada normalmente mas NÃO recebe o brinde de novo (resposta do dono: não bloquear,
+  // só não dar). Best-effort e gated por HBX_CREDITS_ENABLED — com a chavinha OFF é no-op (o
+  // grantWelcomeBatch também no-opa). Fail-CLOSED do brinde: se a checagem de dedup falhar, NÃO
+  // concede (evita farra às cegas) — nunca trava a confirmação em si.
+  private async maybeGrantWelcomeAfterConfirm(companyId: number | null | undefined) {
+    const id = Number(companyId || 0);
+    if (!id || !isCreditsFeatureEnabled()) return;
+    try {
+      const company = await this.prisma.company.findUnique({
+        where: { id },
+        select: { contactPhone: true, taxDocument: true },
+      });
+      const phone = this.normalizeBrazilPhone(company?.contactPhone) || null;
+      const taxDoc = (this.normalizeDigits(company?.taxDocument || '') || '').slice(0, 14) || null;
+      if (phone || taxDoc) {
+        const clash = await this.prisma.company.findFirst({
+          where: {
+            id: { not: id },
+            OR: [
+              ...(phone ? [{ contactPhone: phone }] : []),
+              ...(taxDoc ? [{ taxDocument: taxDoc }] : []),
+            ],
+          },
+          select: { id: true },
+        });
+        if (clash) {
+          this.logger.warn(`welcome_batch_skipped_duplicate_identity company=${id} clashWith=${clash.id}`);
+          return;
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`welcome_dedup_check_failed company=${id} error=${String(error?.message || error)}`);
+      return; // fail-closed do brinde
+    }
+    this.grantWelcomeCreditsBatch(id);
   }
 
   async onModuleInit() {
@@ -826,6 +867,30 @@ export class AuthService implements OnModuleInit {
     // furo que vazou pra VPS. NUNCA reintroduzir a concessao de trial neste
     // ponto sem passar pelo checkout. (Nome mantido por compatibilidade dos
     // chamadores; hoje so prepara o pending_checkout.)
+    // CRÉDITOS (cutover 06/07) — modelo GRÁTIS pré-pago: confirmar identidade ATIVA a conta como
+    // `courtesy` PERMANENTE (courtesyEndsAt null → estado 'exempt' = liberado, módulos default-on
+    // pelo kill-switch). NÃO reabre o furo do "trial sem cartão" travado em 16/06: aquilo era
+    // acesso TEMPORÁRIO por TEMPO sem pagar; aqui o acesso é a cortesia do modelo grátis e o LIMITE
+    // real é o SALDO de crédito (gate S2/R1), não o relógio. NÃO desabilita companyModule (o path
+    // pending_checkout abaixo faz isso, o que no kill-switch apagaria os módulos do grátis). Gated
+    // pela chavinha — com ela OFF, cai no fluxo pending_checkout de sempre (regressão zero).
+    if (isCreditsFeatureEnabled()) {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          status: 'courtesy',
+          statusChangedAt: activatedAt,
+          courtesyEndsAt: null,
+          trialModuleSelection: null,
+          isActive: true,
+          trialStartsAt: null,
+          trialEndsAt: null,
+          deactivatedAt: null,
+        },
+      });
+      return null;
+    }
+
     const company = await tx.company.findUnique({
       where: { id: companyId },
       select: { selectedPlanKey: true },
@@ -1472,9 +1537,10 @@ export class AuthService implements OnModuleInit {
 
     await ensureUserTeamPolicyForUser(this.prisma, created.user.id, { source: 'auth_google_signup' });
 
-    // CRÉDITOS A3 — empresa TENANT self-service nasceu agora (Google): lote grátis de
-    // boas-vindas. platform_infra nunca nasce por este caminho (só master cria essas).
-    this.grantWelcomeCreditsBatch(created.company.id);
+    // CRÉDITOS (cutover 06/07) — Google já nasce com email verificado (= "email confirmado"),
+    // então o brinde de 50 créditos pode nascer aqui mesmo, mas via o caminho com DEDUP por
+    // telefone/CPF (não concede 2x pra mesma identidade). platform_infra nunca nasce por aqui.
+    await this.maybeGrantWelcomeAfterConfirm(created.company.id);
 
     return this.login(created.user, { companyId: created.company.id });
   }
@@ -1554,6 +1620,17 @@ export class AuthService implements OnModuleInit {
     // libera mais nada sozinha.
     const signupTrialProfile = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
       ? this.validateSignupTrialProfile(data)
+      : null;
+    // CRÉDITOS (cutover 06/07) — modelo grátis pré-pago: com a chavinha ON, o cadastro é direto
+    // (sem plano) e EXIGE telefone (verificável por código; base do dedup anti-farra dos 50
+    // créditos — regra do dono 06/07). CPF opcional. Fora do modelo grátis nada muda.
+    const creditsFreeSignup = isCreditsFeatureEnabled();
+    const freeContactPhone = creditsFreeSignup ? this.normalizeBrazilPhone(data.trialContactPhone) : null;
+    if (creditsFreeSignup && !freeContactPhone) {
+      throw new BadRequestException('Informe um telefone válido — usamos ele para confirmar sua conta e liberar seus créditos.');
+    }
+    const freeTaxDocument = creditsFreeSignup
+      ? (this.normalizeDigits(data.trialTaxDocument || '').slice(0, 14) || null)
       : null;
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
@@ -1655,8 +1732,8 @@ export class AuthService implements OnModuleInit {
         referralCode,
         primaryContactName: signupTrialProfile?.contactName || resolvedName,
         contactEmail: email,
-        contactPhone: signupTrialProfile?.contactPhone || null,
-        taxDocument: signupTrialProfile?.taxDocument || null,
+        contactPhone: signupTrialProfile?.contactPhone || freeContactPhone || null,
+        taxDocument: signupTrialProfile?.taxDocument || freeTaxDocument || null,
           // Estado unico nativo (PR-002 C.1): empresa nasce pending_checkout;
           // "aguardando confirmacao de e-mail" e um fato do USUARIO (token
           // pendente), nao um estado da empresa (DROP — sem espelho legado).
@@ -1714,14 +1791,10 @@ export class AuthService implements OnModuleInit {
 
     await ensureUserTeamPolicyForUser(this.prisma, (created as any).user?.id, { source: 'auth_signup' });
 
-    // CRÉDITOS A3 — só concede quando a empresa NASCEU agora (`attachedToExistingCompany:
-    // false`). Reivindicar uma empresa existente vazia (convite/colisão de nome) NÃO é
-    // nascimento — a empresa já pode ter recebido o lote antes (ou nunca deveria, se veio de
-    // outro caminho); usageKey `welcome:<companyId>` dedupa de qualquer forma, mas o filtro
-    // aqui evita a chamada à toa.
-    if (!(created as any).attachedToExistingCompany) {
-      this.grantWelcomeCreditsBatch((created as any).companyId);
-    }
+    // CRÉDITOS (cutover 06/07) — o brinde NÃO é mais concedido no signup: passou a nascer na
+    // CONFIRMAÇÃO da identidade (email/F6), com dedup por telefone/CPF (regra do dono 06/07 —
+    // "50 créditos apenas para email confirmados"). Ver maybeGrantWelcomeAfterConfirm, chamado
+    // de finalizeConfirmedIdentity. Com a chavinha OFF nada muda (grantWelcomeBatch já no-opava).
 
     await this.syncHbxSalesReferralCompany(
       (created as any).companyId || (created as any).user?.companyId,
@@ -1871,6 +1944,9 @@ export class AuthService implements OnModuleInit {
       }).catch((error: any) => {
         this.logger.warn(`commission_sync_confirm_failed company=${user.companyId} error=${String(error?.message || error)}`);
       });
+      // CRÉDITOS (cutover 06/07) — identidade confirmada = hora do brinde de 50 créditos, com
+      // dedup por telefone/CPF. Best-effort (nunca trava a confirmação); no-op se a chavinha OFF.
+      await this.maybeGrantWelcomeAfterConfirm(Number(user.companyId));
     }
 
     const loginPayload = user.companyId
@@ -1887,14 +1963,19 @@ export class AuthService implements OnModuleInit {
       : null;
     const next = loginPayload?.next || this.pendingCheckoutNextPath();
 
+    // CRÉDITOS (cutover 06/07) — no modelo grátis a empresa já saiu como `courtesy` (ativada acima),
+    // então a confirmação NÃO manda pro checkout: anuncia a conta ativa + os créditos liberados.
+    const creditsFreeConfirm = isCreditsFeatureEnabled();
     return {
       ok: true,
-      status: user.companyId ? (trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
+      status: user.companyId ? (trialEndsAt ? 'active_trial' : creditsFreeConfirm ? 'active' : 'pending_checkout') : 'confirmed',
       email: user.email || null,
       message: user.companyId
         ? trialEndsAt
           ? `${identityLabel} confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
-          : `${identityLabel} confirmado. Finalize o pagamento no Financeiro para liberar o plano.`
+          : creditsFreeConfirm
+            ? `${identityLabel} confirmado! Sua conta está ativa e seus créditos de boas-vindas já estão liberados.`
+            : `${identityLabel} confirmado. Finalize o pagamento no Financeiro para liberar o plano.`
         : `${identityLabel} confirmado com sucesso.`,
       trialStartsAt: trialEndsAt ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,

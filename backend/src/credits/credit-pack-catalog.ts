@@ -46,7 +46,9 @@ const DEFAULT_CREDIT_EXPIRY_DAYS = 90;
 // 30 créditos / 30 dias de validade (âncora de mercado: CNPJ.biz dá ~10 créditos de trial —
 // dar 3x é argumento de venda). Config global editável pelo master, MESMO padrão do prazo
 // default de expiração acima (override em memória + persistência em CreditGlobalConfig).
-const DEFAULT_WELCOME_CREDITS = 30;
+// 06/07: dono cravou 50 créditos no cadastro grátis (modelo CNPJ.biz — email+telefone
+// confirmados liberam o lote; sem cartão). Ajustável no /master; prod segue o override se houver.
+const DEFAULT_WELCOME_CREDITS = 50;
 const DEFAULT_WELCOME_EXPIRY_DAYS = 30;
 
 // Base em CÓDIGO — 3 pacotes default. `price`/`credits` são PLACEHOLDER: o dono cravará o

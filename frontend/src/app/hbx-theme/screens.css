@@ -1030,6 +1030,10 @@ html, body { height: 100%; }
 
 /* PLANOS (foto 1): cards no MESMO fundo do card, accent ciclando, Lead destacado. */
 .site-plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: min(1240px, 100%); margin-top: 20px; align-items: stretch; }
+/* CRÉDITOS (cutover 06/07) — vitrine grátis: só 2 cards (Grátis + Company/Implantação),
+   mesmo card .site-plan2, grid mais estreito pra não esticar demais em telas largas. */
+.site-plans--free { grid-template-columns: repeat(2, minmax(260px, 360px)); width: min(760px, 100%); justify-content: center; }
+@media (max-width: 640px) { .site-plans--free { grid-template-columns: 1fr; width: min(400px, 100%); } }
 .site-plan2 { position: relative; display: grid; gap: 10px; justify-items: center; text-align: center; padding: 28px 22px; border-radius: 22px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 /* quando usado como botão (card inteiro clicável): resets + cursor */
 button.site-plan2 { font: inherit; text-align: left; -webkit-appearance: none; appearance: none; cursor: pointer; transition: transform .2s, border-color .2s, box-shadow .2s; }

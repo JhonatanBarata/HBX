@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
@@ -6,6 +6,12 @@ import { sanitizeUser } from './profile.controller';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// CRÉDITOS (cutover 06/07) — a chavinha vive no .env local (HBX_CREDITS_ENABLED=true) e vaza pro
+// processo de teste. A maioria destes testes cobre o caminho LEGADO (pending_checkout); zerar a
+// flag antes de CADA teste os deixa determinísticos independente do ambiente. O teste do caminho
+// novo (courtesy do modelo grátis) liga a flag localmente e restaura no fim.
+beforeEach(() => { delete process.env.HBX_CREDITS_ENABLED; });
 
 function inDays(days: number) {
   return new Date(Date.now() + days * DAY_MS);
@@ -599,6 +605,37 @@ test('plano sem trial (List) confirma e segue direto para o checkout', async () 
   assert.equal(trialEndsAt, null);
   assert.equal(companyUpdates.length, 1);
   assert.equal(companyUpdates[0].status, 'pending_checkout');
+});
+
+test('CRÉDITOS: com a chavinha ON a confirmação ATIVA a conta como courtesy (modelo grátis, sem checkout)', async () => {
+  // Cutover 06/07: no modelo grátis, confirmar identidade não vai mais pro checkout — ativa a
+  // empresa como `courtesy` PERMANENTE (courtesyEndsAt null → 'exempt' = liberado, módulos default-on
+  // pelo kill-switch). NÃO é trial (não reabre o furo 16/06): o limite real é o SALDO de crédito.
+  const prev = process.env.HBX_CREDITS_ENABLED;
+  process.env.HBX_CREDITS_ENABLED = 'true';
+  try {
+    const service = buildBareAuthService();
+    const { tx, companyUpdates, entitlementUpserts } = buildTrialActivationTx({
+      selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+      trialModuleSelection: 'vendas',
+      primaryContactName: 'Dono Teste',
+      contactPhone: '19999990000',
+      taxDocument: '52998224725',
+    });
+
+    const trialEndsAt = await service.activateConfirmedTrialTx(tx, 7, new Date());
+
+    assert.equal(trialEndsAt, null);
+    assert.equal(companyUpdates.length, 1);
+    assert.equal(companyUpdates[0].status, 'courtesy');
+    assert.equal(companyUpdates[0].isActive, true);
+    assert.equal(companyUpdates[0].courtesyEndsAt, null);
+    // modelo grátis NÃO cria entitlements de pending_checkout nem desabilita módulos.
+    assert.equal(entitlementUpserts.length, 0);
+  } finally {
+    if (prev === undefined) delete process.env.HBX_CREDITS_ENABLED;
+    else process.env.HBX_CREDITS_ENABLED = prev;
+  }
 });
 
 // ── F4 (19/06): máquina de estados do onboarding — resume server-side ────────

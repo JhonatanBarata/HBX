@@ -1890,6 +1890,7 @@ function ponteRenderJobs(lastJobs) {
 
 async function ponteRender() {
   const pill = $("#ponte-status");
+  const toggleBtn = $("#btn-ponte-toggle");
   let r;
   try { r = await api("GET", "/owner/ponte/status"); }
   catch (err) { r = { ok: false, reason: err.message }; }
@@ -1898,6 +1899,7 @@ async function ponteRender() {
     // Endpoint ausente (server.js antigo ainda no ar, pré-E1) OU worker não instanciado — degrada
     // honesto, nunca trava o resto do painel.
     if (pill) { pill.textContent = "sem leitura"; pill.className = "pill pill-muted"; }
+    if (toggleBtn) toggleBtn.disabled = true;
     const verdictTitle = $("#ponte-verdict-title");
     const verdictDetail = $("#ponte-verdict-detail");
     if (verdictTitle) verdictTitle.textContent = "Sem leitura do worker da ponte";
@@ -1907,12 +1909,21 @@ async function ponteRender() {
   }
   const p = r.ponte;
 
-  // Pill principal: enabled/disjuntor/rodando — na ordem de urgência.
+  // Endpoint respondeu: a ponte está conectada. O estado quente/frio fica no botão único.
   if (pill) {
-    if (p.circuitOpen) { pill.textContent = "disjuntor aberto"; pill.className = "pill pill-bad"; }
-    else if (!p.enabled) { pill.textContent = "desligado (flag OFF)"; pill.className = "pill pill-muted"; }
-    else if (p.warm) { pill.textContent = "residente (quente)"; pill.className = "pill pill-ok"; }
-    else { pill.textContent = "frio (descarregado)"; pill.className = "pill pill-amber"; }
+    pill.textContent = "conectado";
+    pill.className = "pill pill-ok";
+  }
+  if (toggleBtn) {
+    const warm = Boolean(p.warm);
+    toggleBtn.dataset.warm = warm ? "true" : "false";
+    toggleBtn.setAttribute("aria-pressed", warm ? "true" : "false");
+    toggleBtn.textContent = warm ? "ON · Descarregar" : "OFF · Aquecer";
+    toggleBtn.className = `btn btn-sm ${warm ? "btn-amber" : "btn-blue"}`;
+    toggleBtn.title = warm
+      ? "Descarrega o 30B da RAM agora (keep_alive 0)"
+      : "Aquece o 30B agora (cold-load ~2min, keep_alive -1)";
+    if (toggleBtn.dataset.busy !== "true") toggleBtn.disabled = false;
   }
 
   ponteRenderCircuit(p);
@@ -1960,28 +1971,27 @@ async function ponteRender() {
   ponteRenderJobs(p.lastJobs);
 }
 
-async function ponteWarmClick() {
+async function ponteToggleClick() {
   const fb = $("#ponte-feedback");
-  const btn = $("#btn-ponte-warm");
+  const btn = $("#btn-ponte-toggle");
+  const unload = btn && btn.dataset.warm === "true";
+  if (btn) btn.dataset.busy = "true";
   if (btn) btn.disabled = true;
-  if (fb) fb.textContent = "aquecendo o 30b (ponte) — cold-load capado leva ~2min…";
+  if (fb) fb.textContent = unload
+    ? "descarregando o 30b…"
+    : "aquecendo o 30b (ponte) — cold-load capado leva ~2min…";
   try {
-    const r = await api("POST", "/owner/ponte/warm");
-    if (fb) fb.textContent = r && r.ok ? "30b residente (ponte)." : `falhou: ${(r && r.warm && r.warm.reason) || "?"}`;
+    const r = await api("POST", unload ? "/owner/ponte/unload" : "/owner/ponte/warm");
+    if (fb) {
+      fb.textContent = r && r.ok
+        ? (unload ? "30b descarregado (RAM liberada)." : "30b residente (ponte).")
+        : (unload ? "não confirmado — confira /api/ps." : `falhou: ${(r && r.warm && r.warm.reason) || "?"}`);
+    }
   } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
-  finally { if (btn) btn.disabled = false; ponteRender(); }
-}
-
-async function ponteUnloadClick() {
-  const fb = $("#ponte-feedback");
-  const btn = $("#btn-ponte-unload");
-  if (btn) btn.disabled = true;
-  if (fb) fb.textContent = "descarregando o 30b…";
-  try {
-    const r = await api("POST", "/owner/ponte/unload");
-    if (fb) fb.textContent = r && r.ok ? "30b descarregado (RAM liberada)." : "não confirmado — confira /api/ps.";
-  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
-  finally { if (btn) btn.disabled = false; ponteRender(); }
+  finally {
+    if (btn) delete btn.dataset.busy;
+    await ponteRender();
+  }
 }
 
 async function ponteResetClick() {
@@ -2221,8 +2231,7 @@ async function xrayDownload(jobId, btn) {
 { const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
-{ const b = $("#btn-ponte-warm"); if (b) b.addEventListener("click", ponteWarmClick); }
-{ const b = $("#btn-ponte-unload"); if (b) b.addEventListener("click", ponteUnloadClick); }
+{ const b = $("#btn-ponte-toggle"); if (b) b.addEventListener("click", ponteToggleClick); }
 { const b = $("#btn-ponte-reset"); if (b) b.addEventListener("click", ponteResetClick); }
 
 /* ================= HOT-02 + HOT-03 (fundidos) — Base Receita ================= */

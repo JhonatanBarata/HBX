@@ -109,11 +109,10 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
       "O HBX localiza empresas reais no seu perfil e abastece a sua lista",
       "Você toca o card e o WhatsApp ou a ligação já abrem prontos, sem copiar número",
     ],
-    points: (_u, cards) => [
+    points: (_u, _cards) => [
       "Seus contatos em cards, com agenda e aviso de retorno pra não perder a hora",
       "Telefone, endereço e segmento de cada empresa encontrada",
       "1 acesso, sem custos extras",
-      `${cards.toLocaleString("pt-BR")} leads por mês`,
     ],
     forWho: "Pra quem precisa de volume de contato barato e faz a abordagem no braço.",
     foot: "Lista nova sempre · Você no controle",
@@ -137,11 +136,10 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
       "A IA lê a oportunidade: te dá um score e o motivo por trás dele",
       "Você começa pelos melhores, com a mensagem pronta do segmento na mão",
     ],
-    points: (n, cards) => [
+    points: (n, _cards) => [
       "Contexto que abre conversa: o que a empresa faz e por onde falar com ela",
       "Canal recomendado pra cada contato: ligar, WhatsApp ou rede social",
       `Painel com administrador + ${Math.max(n - 1, 1)} funcionário${n > 2 ? "s" : ""}`,
-      `${cards.toLocaleString("pt-BR")} leads inteligentes por mês`,
     ],
     forWho: "Pra quem cansou de ligar no escuro e quer priorizar quem realmente vale.",
     foot: "14 dias grátis · Não cobramos nada antes",
@@ -163,11 +161,10 @@ export const PLAN_STATIC: Record<string, PlanStaticCopy> = {
       "A IA monta a árvore de respostas (URA) — ou você desenha do seu jeito",
       "O bot responde e qualifica sozinho, e passa pro humano quando aperta",
     ],
-    points: (n, cards) => [
+    points: (n, _cards) => [
       "Prospecção e atendimento rodando dentro de um lugar só",
       "O bot reaquece quem respondeu antes do lead chegar em você",
       `Painel com gerencial e administrador + ${Math.max(n - 1, 2)} funcionário${Math.max(n - 1, 2) !== 1 ? "s" : ""}`,
-      `${cards.toLocaleString("pt-BR")} leads inteligentes por mês`,
       "Configuração assistida: a HBX deixa tudo de pé com você",
     ],
     forWho: "Pra equipe que já não dá conta de responder todo mundo na mão.",

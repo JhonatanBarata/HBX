@@ -22,6 +22,7 @@ import {
 } from "@/lib/plans";
 import { PlanCard } from "@/components/hbx/plan-card";
 import { PlanDetailCard } from "@/components/hbx/plan-detail-card";
+import { fetchCreditStorefront } from "@/lib/credits-storefront";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 // Login saiu da casca (16/06): a view "entrar" foi removida — "Entrar" agora abre
@@ -142,6 +143,25 @@ export function MarketingClient() {
   const [intruderVisible, setIntruderVisible] = useState(false);
   const [intruder2Visible, setIntruder2Visible] = useState(false);
   const [livePlans, setLivePlans] = useState<PublicPlan[]>(FALLBACK_PLANS);
+  // CRÉDITOS (cutover 06/07) — chavinha HBX_CREDITS_ENABLED. true → troca a
+  // vitrine de PLANOS pela pitch do modelo grátis; false (ou ainda carregando)
+  // → mantém a vitrine de planos de hoje intacta (regressão zero).
+  const [creditsEnabled, setCreditsEnabled] = useState(false);
+  const [welcomeCredits, setWelcomeCredits] = useState(0);
+  // Modelo grátis: nem o cadastro nem o card Company/Implantação usam a
+  // esteira animada de planos (não existe mais escolha de plano) — cada um
+  // só abre a tela seguinte direto (sem plano pra "escolher").
+  const [freeImplantacaoOpen, setFreeImplantacaoOpen] = useState(false);
+  const [freeRegisterOpen, setFreeRegisterOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetchCreditStorefront().then((sf) => {
+      if (!alive) return;
+      setCreditsEnabled(sf.enabled);
+      setWelcomeCredits(sf.welcomeCredits);
+    });
+    return () => { alive = false; };
+  }, []);
   // Documento legal aberto como pop-up central (Lei 2). Plugado nas rotas
   // /politicas e /termos (redirect → ?ver=) e nos links do rodapé da home.
   const [legal, setLegal] = useState<LegalKind | null>(null);
@@ -248,6 +268,15 @@ export function MarketingClient() {
           setPlanMode("register");
           return;
         }
+        // CRÉDITOS (cutover 06/07) — /register sem ?plan= (modelo grátis não tem
+        // plano pra decidir): a rota /register cai em /?ver=planos e, com a
+        // chavinha ON, pula direto pro form de cadastro (sem passar pela pitch).
+        if (ver === "planos" && !plan) {
+          fetchCreditStorefront().then((sf) => {
+            if (!alive || !sf.enabled) return;
+            setFreeRegisterOpen(true);
+          });
+        }
         if (ver === "esteira" || ver === "modulos" || ver === "planos") setView(ver);
       } catch { /* sem storage */ }
     });
@@ -270,6 +299,8 @@ export function MarketingClient() {
       setPlanMode("list");
       setIntruderVisible(false);
       setIntruder2Visible(false);
+      setFreeImplantacaoOpen(false);
+      setFreeRegisterOpen(false);
       const param = v === "inicio" ? "" : `?ver=${v}`;
       try { window.history.replaceState(null, "", `/${param}`); } catch { /* no-op */ }
     });
@@ -833,8 +864,60 @@ export function MarketingClient() {
           </div>
         )}
 
-        {/* ── PLANOS ──────────────────────────────────────────────────────── */}
-        {view === "planos" && (
+        {/* ── PLANOS (modelo GRÁTIS — chavinha HBX_CREDITS_ENABLED) ─────────── */}
+        {view === "planos" && creditsEnabled && (
+          <div className={"scene-center scene-planos" + (freeImplantacaoOpen || freeRegisterOpen ? " is-choosing is-register" : "")}>
+            {!freeImplantacaoOpen && !freeRegisterOpen && (
+              <>
+                <span className="site-eyebrow">Cadastro grátis</span>
+                <h2 className="site-esteira-title">Cadastre-se <span className="site-accent">grátis</span>.</h2>
+                <p className="site-sub">Confirme email e telefone e ganhe {welcomeCredits} créditos. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</p>
+                <div className="site-plans site-plans--free">
+                  <div className="site-plan2">
+                    <span className="site-plan2__ic"><Ic paths={PLAN_STATIC.hbx_padrao.ic} /></span>
+                    <strong className="site-plan2__name">HBX <span className="site-accent">Grátis</span></strong>
+                    <span className="site-plan2__price"><b>{welcomeCredits} créditos</b><em>de boas-vindas</em></span>
+                    <span className="site-plan2__tag">Sem plano, sem cartão. Cadastre-se, confirme email e telefone e comece a puxar leads na hora.</span>
+                    <ul className="site-plan2__feats">
+                      <li><Ic paths={IC_CHECK} />A busca é sempre grátis</li>
+                      <li><Ic paths={IC_CHECK} />1 crédito = 1 lead entregue e validado</li>
+                      <li><Ic paths={IC_CHECK} />{welcomeCredits} créditos grátis ao confirmar email e telefone</li>
+                    </ul>
+                    <button type="button" className="site-plan2__cta" onClick={() => setFreeRegisterOpen(true)}>Cadastrar grátis</button>
+                  </div>
+                  <PlanCard
+                    planKey="hbx_melhor"
+                    live={getLivePlan("hbx_melhor")}
+                    as="button"
+                    onClick={() => setFreeImplantacaoOpen(true)}
+                    cta={<div className="site-plan2__cta">{PLAN_STATIC.hbx_melhor.cta}</div>}
+                  />
+                </div>
+              </>
+            )}
+            {freeImplantacaoOpen && (
+              <div className="site-plan-register">
+                <button type="button" className="scene-next scene-next--back" onClick={() => setFreeImplantacaoOpen(false)} aria-label="Voltar">
+                  <Ic paths={CHEVRON} />
+                  <span className="scene-next__hint">Voltar</span>
+                </button>
+                <div className="reg-form"><ImplantacaoContato asModal={false} onClose={() => setFreeImplantacaoOpen(false)} /></div>
+              </div>
+            )}
+            {freeRegisterOpen && (
+              <div className="site-plan-register">
+                <button type="button" className="scene-next scene-next--back" onClick={() => setFreeRegisterOpen(false)} aria-label="Voltar">
+                  <Ic paths={CHEVRON} />
+                  <span className="scene-next__hint">Voltar</span>
+                </button>
+                <RegisterPanel embedded />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── PLANOS (modelo de planos — fallback, chavinha OFF) ────────────── */}
+        {view === "planos" && !creditsEnabled && (
           <div className={"scene-center scene-planos" + (planMode !== "list" ? " is-choosing is-" + planMode : "") + (intruderVisible ? " has-intruder" : "") + (intruder2Visible ? " has-intruder2" : "")}>
             {(() => { const c = innerCopy("planos"); return (<>
               <span className="site-eyebrow">{c.eyebrow}</span>
