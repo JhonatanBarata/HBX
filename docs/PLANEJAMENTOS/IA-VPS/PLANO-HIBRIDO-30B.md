@@ -163,6 +163,37 @@ O CHIP 6 (injeção do 4b-instruct na VPS) é o LADO VPS desta arquitetura — s
 interino"** (ou OFF) **até a ponte 30B existir**, porque a nota honesta pode vir do 30B via missão
 (decisão real no T1). O 7b não entra na VPS em nenhum cenário.
 
-## Ordem de disparo (1 chip por vez, bench exclusivo no rig)
+## 9. GOVERNOR-IA — regra ABSOLUTA do dono (05/07): "não chega paulada nos IAs; tem que ter fila"
 
-**T1 → T2 → E1 → E2 → E3 → D1.** E2/E3 podem inverter; D1 é sempre o último e depende de publish.
+**Por quê (dado, não opinião):** CHIP 5 provou que lote de cards atropela o bot (p95 31–38s vs
+gate); o Ollama até enfileira sozinho (NUM_PARALLEL=2 + fila interna), mas fila ÚNICA/FIFO
+consagraria o atropelo — o bot entraria atrás de 50 raios-X. Fila SIM, com FAIXAS e prioridade.
+
+**Design — `AiGatewayService` (backend), ponto ÚNICO de passagem de TODA chamada de IA:**
+- **2 faixas**: `realtime` (bot `ai-intent-classifier`, `intent-engine`, assistente sandbox) —
+  passa NA FRENTE, sempre; `batch` (xray-note, saneamento, extração manual) — concorrência 1,
+  PAUSA enquanto houver realtime esperando, espera o quanto for.
+- **Recusa cedo, não trava fundo**: espera prevista > orçamento de timeout do caller → nem entra
+  na fila; devolve "indisponível" NA HORA e o caller cai no fallback que JÁ tem (keyword/roteiro/
+  nota-null). Fila com profundidade LIMITADA por faixa (estouro = recusa graciosa).
+- **Espelhar o padrão da casa**: mesma filosofia do `SourceBudgetService` (governor por fonte).
+- **Telemetria**: contadores por faixa (aceitas/recusadas/aguardando/p95 de espera) expostos no
+  tree-status/:3107 — fila invisível é fila crescendo sem ninguém ver.
+- **Fora do escopo**: ponte-worker do 30B local (a serialização dele É a fila de missões — já
+  cumpre a regra por construção); Webwhats.
+- **Aceite**: teste de rajada — 20 chamadas batch + 5 realtime simultâneas → realtime fecha dentro
+  do orçamento, batch cede; com gateway OFF reproduzir o atropelo (grupo de controle); starvation
+  reversa coberta (batch não morre de fome eterna: processa quando realtime esvazia).
+
+## 10. V-FINAL — "garanta tudo funcionando" (ordem do dono 05/07)
+
+Depois do governor, UM worker de validação integrada local (nada de prod): stack local de pé +
+Ollama + ponte + governor → (a) rajada real provando a regra absoluta na prática; (b) ciclo
+completo do lead descartável (fila → 30B → gate → card com badge visível); (c) regressão das
+suítes de TODOS os módulos tocados na frente (bot, assistente, webscraping/missions, local-agent,
+front typecheck+check-pele); (d) checklist da promessa: BOT ✓ Assistente ✓ Cards ✓ fila-visível ✓
+governor ✓ ponte ✓. Entrega `RESULTADO-V.md`. O que passar daqui, o D1 só repete em produção.
+
+## Ordem de disparo (1 worker por vez, bench exclusivo no rig)
+
+**T1 ✅ → T2 ✅ → E1 ✅ → E2 ✅ → E3 (rodando) → GOVERNOR-IA (Opus) → V-FINAL → D1 (com o dono).**
