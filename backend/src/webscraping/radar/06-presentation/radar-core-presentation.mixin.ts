@@ -3050,6 +3050,46 @@ export class RadarCorePresentationMixin {
     };
   }
 
+  /**
+   * CHIP E3 (05/07) — status de IA por lote de leads: "na fila da IA"/"enriquecendo agora"/
+   * "enriquecido" pra vitrine (leads/page.client.tsx) e estoque de Vendas. RBAC: só devolve
+   * status dos leadIds que pertencem ao tenant do usuário — mesmo filtro ownerCompanyId/
+   * companyStates do getRadarLeadForUser, aplicado aqui em LOTE (1 findMany, não N chamadas).
+   * Flag da fila OFF (RadarPonteStatusService.enabled()) → 'none' pra tudo, sem tocar o banco
+   * de missões (degrade invisível — a UI do cliente não muda enquanto a ponte não for ligada).
+   */
+  async getRadarAiStatusForUser(user: any, leadIds: string[]) {
+    const context = this.resolveContext(user);
+    const requested = Array.from(new Set((leadIds || []).map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 200);
+    if (!requested.length) return { items: {} };
+    if (!(await this.supportsRadarPersistence())) return { items: {} };
+
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: { id: { in: requested } },
+      select: {
+        id: true,
+        ownerCompanyId: true,
+        companyStates: { where: { companyId: context.companyId }, select: { id: true }, take: 1 },
+      },
+    }).catch(() => []);
+
+    // Card é da EMPRESA (LIMPEZA-DESTRUTIVA L3): pertence ao tenant quando ownerCompanyId casa OU
+    // quando existe um RadarLeadCompanyState do tenant (mesma regra de posse do resto do Radar).
+    const allowedIds = (Array.isArray(rows) ? rows : [])
+      .filter((row: any) => {
+        const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+        if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) return false;
+        if (ownerCompanyId === context.companyId) return true;
+        return Array.isArray(row?.companyStates) && row.companyStates.length > 0;
+      })
+      .map((row: any) => String(row.id));
+
+    if (!allowedIds.length) return { items: {} };
+    const items = await this.getRadarPonteStatus().getStatusForLeads(allowedIds);
+    return { items };
+  }
+
   private async enrichRadarLeadViaLeadPlusEngine(
     context: SearchExecutionContext,
     row: any,

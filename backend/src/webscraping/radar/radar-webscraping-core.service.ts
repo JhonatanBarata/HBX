@@ -49,6 +49,7 @@ import { RadarSourceExpansionService } from './01-search/radar-source-expansion.
 import { RadarSearchStrategyService } from './01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
 import { RadarMissionQueueService } from './missions/radar-mission-queue.service';
+import { RadarPonteStatusService } from './missions/radar-ponte-status.service';
 import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
 import { RadarSourceExecutorService } from './01-search/radar-source-executor.service';
 import { RadarCnpjPublicSourceService } from './01-search/radar-cnpj-public-source.service';
@@ -308,6 +309,16 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       this.radarMissionQueueLazy = new RadarMissionQueueService(this.prisma);
     }
     return this.radarMissionQueueLazy;
+  }
+
+  // CHIP E3 (05/07): status de IA por lote de leads (vitrine + estoque de Vendas), mesmo padrão
+  // lazy do getMissionQueue — instância própria, sem timers de lifecycle (o serviço não tem).
+  private radarPonteStatusLazy: RadarPonteStatusService | null = null;
+  private getRadarPonteStatus() {
+    if (!this.radarPonteStatusLazy) {
+      this.radarPonteStatusLazy = new RadarPonteStatusService(this.prisma);
+    }
+    return this.radarPonteStatusLazy;
   }
 
   private getRadarRunRepository() {

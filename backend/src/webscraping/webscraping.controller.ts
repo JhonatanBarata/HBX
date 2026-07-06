@@ -445,6 +445,14 @@ class RadarMarkSentDto {
   leadIds?: string[];
 }
 
+// CHIP E3 (05/07) — status de IA por lote de leads (vitrine + estoque de Vendas). Endpoint LEVE:
+// 1 POST com até 200 leadIds, devolve o estado de cada um (queued/processing/done/none).
+class RadarPonteStatusDto {
+  @IsArray()
+  @IsString({ each: true })
+  leadIds!: string[];
+}
+
 class RadarAutoDistributionRunDto {
   @IsOptional()
   @Type(() => Number)
@@ -599,6 +607,15 @@ export class WebscrapingController {
   @Post('radar/leads/mark-sent-to-vendas')
   radarLeadsMarkSentToVendas(@Req() req: any, @Body() dto: RadarMarkSentDto) {
     return this.webscrapingService.markRadarLeadsSentToVendasForUser(req.user, dto?.leadIds || []);
+  }
+
+  // CHIP E3 (05/07) — status de IA por lote (vitrine de leads + estoque de Vendas): "na fila da
+  // IA", "enriquecendo agora", "enriquecido" com resumo. RBAC: só devolve status dos leadIds que
+  // pertencem ao tenant do usuário (checado no service via ownerCompanyId/companyStates, mesmo
+  // padrão do getRadarLeadForUser). Flag da fila OFF → 'none' pra tudo (degrade invisível).
+  @Post('radar/ai-status')
+  radarAiStatus(@Req() req: any, @Body() dto: RadarPonteStatusDto) {
+    return this.webscrapingService.getRadarAiStatusForUser(req.user, dto?.leadIds || []);
   }
 
   @Get('radar/auto-distribution')

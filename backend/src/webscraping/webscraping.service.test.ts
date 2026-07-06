@@ -6182,3 +6182,75 @@ test('pullRadarLeadsForUser nao transforma resultado insuficiente em erro', asyn
     else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
   }
 });
+
+// CHIP E3 (05/07) — status de IA por lote de leads: RBAC (só devolve status de leads do TENANT
+// do usuário) + degrade da flag OFF. A lógica de estados (queued/processing/done) já é coberta
+// isoladamente em radar/missions/radar-ponte-status.service.test.ts; aqui o foco é o filtro de
+// posse (ownerCompanyId) aplicado em LOTE por getRadarAiStatusForUser.
+function createRadarAiStatusPrisma(input: { leads: any[]; missions?: any[] }) {
+  const missions = input.missions || [];
+  return createPrisma({
+    radarLeadCompanyState: {},
+    radarLeadPool: {
+      findMany: async ({ where }: any) => {
+        const ids: string[] = where?.id?.in || [];
+        return input.leads.filter((lead) => ids.includes(lead.id));
+      },
+    },
+    radarMission: {
+      findMany: async ({ where }: any) => {
+        const stages: string[] = where?.stage?.in || [];
+        const statuses: string[] = where?.status?.in || [];
+        return missions.filter((m) => (!stages.length || stages.includes(m.stage)) && (!statuses.length || statuses.includes(m.status)));
+      },
+    },
+  });
+}
+
+test('E3 getRadarAiStatusForUser: card de OUTRA empresa (ownerCompanyId diferente) nao aparece no lote', async () => {
+  const prevFlag = process.env.HBX_MISSION_QUEUE_ENABLED;
+  process.env.HBX_MISSION_QUEUE_ENABLED = 'true';
+  try {
+    const prisma = createRadarAiStatusPrisma({
+      leads: [
+        { id: 'lead-minha', ownerCompanyId: 7, companyStates: [] },
+        { id: 'lead-de-outra-empresa', ownerCompanyId: 999, companyStates: [] },
+      ],
+      missions: [
+        { id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-minha' }, createdAt: new Date() },
+        { id: 'm2', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-de-outra-empresa' }, createdAt: new Date() },
+      ],
+    });
+    const service = new WebscrapingService(prisma) as any;
+    const res = await service.getRadarAiStatusForUser(createUser(), ['lead-minha', 'lead-de-outra-empresa']);
+    assert.ok(res.items['lead-minha']);
+    assert.equal(res.items['lead-minha'].state, 'queued');
+    assert.equal(res.items['lead-de-outra-empresa'], undefined);
+  } finally {
+    if (prevFlag === undefined) delete process.env.HBX_MISSION_QUEUE_ENABLED;
+    else process.env.HBX_MISSION_QUEUE_ENABLED = prevFlag;
+  }
+});
+
+test('E3 getRadarAiStatusForUser: flag da fila OFF devolve status none pros leads do proprio tenant (degrade invisivel)', async () => {
+  const prevFlag = process.env.HBX_MISSION_QUEUE_ENABLED;
+  delete process.env.HBX_MISSION_QUEUE_ENABLED;
+  try {
+    const prisma = createRadarAiStatusPrisma({
+      leads: [{ id: 'lead-minha', ownerCompanyId: 7, companyStates: [] }],
+      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-minha' }, createdAt: new Date() }],
+    });
+    const service = new WebscrapingService(prisma) as any;
+    const res = await service.getRadarAiStatusForUser(createUser(), ['lead-minha']);
+    assert.equal(res.items['lead-minha'].state, 'none');
+  } finally {
+    if (prevFlag === undefined) delete process.env.HBX_MISSION_QUEUE_ENABLED;
+    else process.env.HBX_MISSION_QUEUE_ENABLED = prevFlag;
+  }
+});
+
+test('E3 getRadarAiStatusForUser: lista vazia de leadIds devolve items vazio sem tocar o banco', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const res = await service.getRadarAiStatusForUser(createUser(), []);
+  assert.deepEqual(res.items, {});
+});
