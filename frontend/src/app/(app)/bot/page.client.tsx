@@ -17,7 +17,6 @@ import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-previ
 import { BotOnboarding, type BotOnboardingField } from "@/components/hbx/bot-onboarding";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { apiFetch } from "@/lib/api";
-import { useIsMobile } from "@/lib/use-is-mobile";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -168,7 +167,6 @@ function hhmm() {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function BotClient() {
-  const isMobile = useIsMobile();
   const [chat, setChat] = useState(CHAT0);
   const [draft, setDraft] = useState("");
   // config do atendimento (alimenta o organograma + chat de teste)
@@ -683,133 +681,6 @@ export function BotClient() {
       onClose={() => setEditorKey(null)}
     />
   ) : null;
-
-  // ── Render mobile ─────────────────────────────────────────────────────────
-
-  if (isMobile) {
-    return (
-      <div className="bot-page">
-        <div className="bot-head">
-          <h1>Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
-          <span className={"saved" + (cfgData && !cfgData.setup?.completed ? " bot-badge--warn" : "")}>{setupBadge}</span>
-          {/* Chave de liberação mobile (read-only): amarela = armado, vermelha = não armado */}
-          <span
-            className={"bot-release-key" + (act.armed ? " bot-release-key--on" : " bot-release-key--off")}
-            title={act.armed ? "Liberado pelo Suporte — configure e ligue" : "Aguardando liberação do Suporte"}
-            aria-label={act.armed ? "Liberado pelo Suporte" : "Aguardando liberação do Suporte"}
-          />
-          {actMsg && (
-            <span className={"bot-mobile-msg" + (actMsg.startsWith("✓") ? " bot-mobile-msg--ok" : " bot-mobile-msg--err")}>{actMsg}</span>
-          )}
-        </div>
-
-        <div className="bot-mobile-view">
-          <div className="bot-mobile-notice">
-            <I d={ICONS.scrape} size={15} />
-            Edição do desenho é no computador. Aqui você vê o fluxo e controla o bot.
-          </div>
-
-          <div className="bot-block-list">
-            {BOT_MSG_FIELDS.map(f => {
-              const real = config?.[f.key];
-              const texto = typeof real === "string" && real.trim() ? real : "Sem mensagem ainda";
-              const btns = f.buttonsKey ? (config?.[f.buttonsKey] || []) : [];
-              return (
-                <div className="bot-block-item" key={String(f.key)}>
-                  <span className="bicon bot-block-icon" style={{ "--bot-nc": f.color, width: 34, height: 34, flexShrink: 0 } as React.CSSProperties}>
-                    <I d={ICONS[f.icon] || ICONS.msg} size={16} />
-                  </span>
-                  <div className="bot-block-body">
-                    <div className="bot-block-title">{f.label}</div>
-                    <div className="bot-block-text">{texto}</div>
-                    {btns.length > 0 && (
-                      <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-                        {btns.map((b, i) => (
-                          <span className="tag teal" key={b.buttonId || i}>{b.title || `Opção ${i + 1}`}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="bot-mobile-actions">
-            <button className="btn-ghost" onClick={() => setOnbOpen(true)}>
-              <I d={ICONS.help || ICONS.bot} size={14} /> Configurar com ajuda
-            </button>
-            <button className="btn-ghost" onClick={() => setTestOpen(true)}>
-              <I d={ICONS.send} size={14} /> Testar bot
-            </button>
-            <button
-              className="btn-teal"
-              onClick={() => {
-                const tipo = "atendimento";
-                const status = act.types[tipo];
-                if (!act.armed) return;
-                const ligar = !status.live;
-                if (ligar) {
-                  // Gate de termos antes de ativar
-                  requestActivate();
-                  return;
-                }
-                // Desligar: direto, sem gate
-                void toggleType(tipo, ligar);
-              }}
-              disabled={actBusy || !act.armed}
-            >
-              {actBusy ? "Aguarde…" : act.types.atendimento.live ? "Desativar bot" : "Ativar bot"}
-            </button>
-          </div>
-        </div>
-        {testDrawer}
-
-        {/* Onboarding assistido mobile */}
-        <BotOnboarding
-          open={onbOpen && cfgTipo !== "prospeccao"}
-          botType={cfgTipo as "atendimento" | "recovery"}
-          fields={BOT_MSG_FIELDS.map<BotOnboardingField>(f => ({
-            key: String(f.key),
-            label: f.label,
-            hint: f.hint,
-            icon: f.icon,
-            tone: f.color,
-            buttonsKey: f.buttonsKey,
-          }))}
-          value={k => cfgValue(k as keyof BotConfig)}
-          onChange={(k, v) => setCfgForm(prev => ({ ...prev, [k]: v }))}
-          onSave={async () => { await salvarConfig(); }}
-          saving={cfgBusy}
-          connectionReady={act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado}
-          connectionHint={
-            act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado
-              ? "WhatsApp conectado"
-              : "Conexão pendente — peça ao Suporte"
-          }
-          onClose={() => setOnbOpen(false)}
-          onRequestActivate={() => { setOnbOpen(false); requestActivate(); }}
-        />
-
-        {/* Gate de Termos mobile */}
-        <BotTermsModal
-          open={termsOpen}
-          botType={cfgTipo}
-          checklist={[
-            ...BOT_MSG_FIELDS.map(f => ({ label: f.label, done: cfgValue(f.key).trim().length > 0 })),
-            { label: "WhatsApp conectado", done: act.types[cfgTipo].preflight.chipConectado },
-          ]}
-          onAccept={() => {
-            setBotTermsAccepted(cfgTipo);
-            setTermsOpen(false);
-            pendingActivateRef.current = false;
-            void toggleType(cfgTipo, true);
-          }}
-          onClose={() => { setTermsOpen(false); pendingActivateRef.current = false; }}
-        />
-      </div>
-    );
-  }
 
   // ── Render desktop ────────────────────────────────────────────────────────
 

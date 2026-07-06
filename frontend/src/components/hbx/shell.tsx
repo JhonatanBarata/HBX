@@ -87,6 +87,9 @@ export const ICONS: Record<string, string[]> = {
   phone: ["M5 4h4l1.5 4.5L8 10a13 13 0 0 0 6 6l1.5-2.5L20 15v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"],
   mapin: ["M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z", "M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"],
   arrow: ["M5 12h14", "m13 6 6 6-6 6"],
+  // Duplo-chevron (rail toggle, LEADS-FINAL/01): "«" recolhe, "»" expande.
+  railCollapse: ["m10 6-6 6 6 6", "m17 6-6 6 6 6"],
+  railExpand: ["m7 6 6 6-6 6", "m14 6 6 6-6 6"],
   // Chevron pra baixo — seta de combobox/dropdown (ex.: busca de segmento no Radar).
   chevronDown: ["m6 9 6 6 6-6"],
   sun: ["M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z", "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"],
@@ -122,6 +125,10 @@ export const ICONS: Record<string, string[]> = {
   // NÚCLEO-CRM N6 — módulo "Logística": caminhão de entrega. A chave PRECISA
   // existir (nav id sem entrada em ICONS derruba a Sidebar — P0 do "assistente").
   logistica: ["M3 6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9H3z", "M14 9h3.6a1 1 0 0 1 .8.4l2.4 3.1a1 1 0 0 1 .2.6V15h-7z", "M7.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z", "M17.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z"],
+  // LEADS-FINAL/02 — toggle Linhas|Cards da lista densa: 3 linhas empilhadas
+  // (lista) vs. grade 2x2 (cards). Reutilizável por qualquer lista com 2 vistas.
+  list: ["M4 6h16", "M4 12h16", "M4 18h16"],
+  grid: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"],
 };
 
 // Logo do WhatsApp (PREENCHIDO, currentColor). O <I> é stroke = balão genérico
@@ -304,9 +311,8 @@ export const NAV_LINKS = [
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
   { id: "assistente", label: "Assistente IA", href: "/assistente" },
   { id: "relat", label: "Relatórios", href: "/relatorios" },
-  // Website (WEBSITE-KIT Sprint 1): tela ocasional, não entra na mobile-tab-bar
-  // (só no menu). Gate fail-closed via /modules/me — some quando o módulo não
-  // está liberado pro usuário/empresa.
+  // Website (WEBSITE-KIT Sprint 1): tela ocasional, só no menu. Gate fail-closed
+  // via /modules/me — some quando o módulo não está liberado pro usuário/empresa.
   { id: "website", label: "Website", href: "/dashboard/website" },
   { id: "config", label: "Configurações", href: "/configuracoes" },
 ];
@@ -716,7 +722,45 @@ function useRadarNavState(): RadarNavState {
   return state;
 }
 
-export function Sidebar({ active }: { active: string }) {
+// ---------------------------------------------------------------
+// Sidebar colapsável — rail de ícones (LEADS-FINAL/01, 06/07).
+// Mesmo padrão de subscribeToThemeMode/useSyncExternalStore (tema): store
+// mínima sem useEffect+setState (evita cascading render / lint
+// react-hooks/set-state-in-effect). localStorage("hbx:rail") persiste;
+// default EXPANDIDA (decisão 3 do PLANO.md); getServerSnapshot fixo
+// "expanded" evita hydration mismatch.
+// ---------------------------------------------------------------
+export const RAIL_KEY = "hbx:rail";
+const railListeners = new Set<() => void>();
+
+export function getRailSnapshot(): "expanded" | "min" {
+  try {
+    return localStorage.getItem(RAIL_KEY) === "min" ? "min" : "expanded";
+  } catch {
+    return "expanded";
+  }
+}
+
+function getRailServerSnapshot(): "expanded" | "min" {
+  return "expanded";
+}
+
+export function subscribeRail(cb: () => void) {
+  railListeners.add(cb);
+  return () => railListeners.delete(cb);
+}
+
+export function toggleRailState() {
+  const next = getRailSnapshot() === "min" ? "expanded" : "min";
+  try { localStorage.setItem(RAIL_KEY, next); } catch { /* sem storage */ }
+  railListeners.forEach(cb => cb());
+}
+
+export function useRailState(): "expanded" | "min" {
+  return useSyncExternalStore(subscribeRail, getRailSnapshot, getRailServerSnapshot);
+}
+
+export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: string; rail?: "expanded" | "min"; onToggleRail?: () => void }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
@@ -726,7 +770,9 @@ export function Sidebar({ active }: { active: string }) {
   // posição do item ATIVO e desliza até ele em vez de pular de item pra item.
   const visible = NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods));
   const visibleKey = visible.map(n => n.id).join(",");
-  const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey);
+  // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
+  // precisa re-medir quando o rail colapsa/expande (a largura do item muda).
+  const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey, rail);
   // Cota do PLANO da empresa (Leads do mês) — todo mundo menos o vendedor comum.
   const cardUsage = useCardUsage(Boolean(user) && !isCompanySeller(user));
   const radarNavState = useRadarNavState();
@@ -749,6 +795,19 @@ export function Sidebar({ active }: { active: string }) {
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
         <strong>HBX</strong>
       </div>
+      {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
+          Botão central existente (round-btn) — zero visual novo. */}
+      {onToggleRail && (
+        <button
+          type="button"
+          className="round-btn rail-toggle"
+          onClick={onToggleRail}
+          aria-label={rail === "min" ? "Expandir menu" : "Recolher menu"}
+          title={rail === "min" ? "Expandir menu" : "Recolher menu"}
+        >
+          <I d={rail === "min" ? ICONS.railExpand : ICONS.railCollapse} size={16} />
+        </button>
+      )}
       <GlassPill {...gp} />
       {visible.map(n => {
         let cls = "nav-item" + (n.id === active ? " active" : "");
@@ -758,9 +817,9 @@ export function Sidebar({ active }: { active: string }) {
         if (n.id === "vendas" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
         if (n.id === "vendas" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
         return (
-          <Link key={n.id} ref={gp.itemRef(n.id)} className={cls} href={n.href} data-tut={"nav-" + n.id}>
+          <Link key={n.id} ref={gp.itemRef(n.id)} className={cls} href={n.href} data-tut={"nav-" + n.id} title={rail === "min" ? n.label : undefined}>
             <I d={ICONS[n.id]} />
-            {n.label}
+            <span className="nav-item__label">{n.label}</span>
           </Link>
         );
       })}
@@ -1010,7 +1069,7 @@ const MODULE_TOURS: Record<string, string> = {
   "/vendas": "vendas",
 };
 
-export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React.ReactNode; onMenu?: () => void }) {
+export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNode }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
@@ -1233,7 +1292,6 @@ export function Topbar({ title, crumbs, onMenu }: { title: string; crumbs: React
 
   return (
     <header className="topbar">
-      <button className="burger" aria-label="Menu" onClick={onMenu}><span></span><span></span><span></span></button>
       <div className="page-id">
         <h1>{title}</h1>
         <div className="crumbs">{crumbs}</div>

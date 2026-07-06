@@ -17,12 +17,10 @@ import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-n
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
-import { VendasModoFoco } from "@/components/hbx/vendas-modo-foco";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { isCompanySeller } from "@/lib/roles";
 import { useTabParam } from "@/lib/use-tab-param";
-import { useIsMobile } from "@/lib/use-is-mobile";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
@@ -730,16 +728,6 @@ export function VendasClient() {
     };
   }, []);
 
-  // Mobile: lista agrupada + pop-up de detalhe (substitui kanban swipe)
-  const isMobile = useIsMobile();
-  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
-  // Mobile: Modo Foco (overlay 1 lead de cada vez — hoje+atrasados)
-  const [modoFocoOpen, setModoFocoOpen] = useState(false);
-  // Ponte Modo Foco → FecharVendaModal: o foco passa um callback de "avançar quando
-  // a venda for REALMENTE concluída"; ligamos ao onDone do modal (sucesso). Cancelar
-  // (✕) só fecha o modal e devolve o MESMO lead, sem avançar/contar.
-  const focoWinConfirmRef = useRef<(() => void) | null>(null);
-
   // Quadro arrastável (drag-and-drop nativo): arrastar um card pra outra coluna
   // muda a ETAPA (status). dragId = card sendo arrastado; dragOverStage = coluna
   // sob o cursor (highlight). Move é otimista + PATCH + reconcilia no loadBoard.
@@ -778,14 +766,6 @@ export function VendasClient() {
       setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
       await loadBoard(); // desfaz o otimista voltando à verdade do servidor
     }
-  }
-
-  // Abre o detalhe do negócio no mobile
-  function abrirDetalhe(card: VendasLead) {
-    setSel(card);
-    setAcaoMsg(null);
-    setFecharMsg(null);
-    setMobileDetailOpen(true);
   }
 
   // Prospecção automática (GET /vendas/automation/live-status + controles;
@@ -980,12 +960,12 @@ export function VendasClient() {
 
   // Navega com ↑/↓ entre leads igual Excel — só na lista desktop
   useEffect(() => {
-    if (isMobile || view !== "list") return;
+    if (view !== "list") return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (fecharOpen || novoOpen || prospOpen || agendaOpen || mobileDetailOpen || retornoOpen || semInteresseOpen) return;
+      if (fecharOpen || novoOpen || prospOpen || agendaOpen || retornoOpen || semInteresseOpen) return;
       e.preventDefault();
       const q = searchQuery.toLowerCase();
       let list = BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
@@ -1005,7 +985,7 @@ export function VendasClient() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, mobileDetailOpen, retornoOpen, semInteresseOpen]);
+  }, [view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen]);
 
   const summary = board?.summary;
   const deal = sel;
@@ -1072,7 +1052,7 @@ export function VendasClient() {
           {/* STAGE — 2 camadas SOBREPOSTAS em crossfade (uma casca só) */}
           <div className="vnd-stage">
             <div className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <div className={"content" + (isMobile ? " vnd-page" : "")}>
+                <div className="content">
                   <div className="work">
             <section className="panel">
               <div className="panel-head">
@@ -1083,7 +1063,7 @@ export function VendasClient() {
                     <button className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
                     <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
                   </span>
-                  {!isMobile && view === "list" && (
+                  {view === "list" && (
                     <button className="btn-ghost" onClick={() => setSortBy(s => s === "default" ? "az" : s === "az" ? "za" : "default")}
                       title="Ordenar por nome" aria-label="Ordenar por nome">
                       {sortBy === "az" ? "A→Z" : sortBy === "za" ? "Z→A" : "A→Z"}
@@ -1095,7 +1075,7 @@ export function VendasClient() {
                   <button className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" data-tut="vendas-agenda" onClick={() => setAgendaOpen(o => !o)}>
                     <I d={ICONS.clock} size={16} />
                   </button>
-                  {board?.team && !isMobile && (() => {
+                  {board?.team && (() => {
                     const team = board.team;
                     const selSeller = teamFilter ? team.sellers.find(x => x.id === teamFilter) : null;
                     const label = !teamFilter ? "Todas as equipes" : selSeller ? (selSeller.isMe ? "Eu" : selSeller.name) : "Todas as equipes";
@@ -1126,11 +1106,6 @@ export function VendasClient() {
                       </div>
                     );
                   })()}
-                  {isMobile && board && ((board.blocks?.today?.length ?? 0) + (board.blocks?.overdue?.length ?? 0)) > 0 && (
-                    <button className="btn-teal vf-entry-btn" data-tut="vendas-modo-foco" onClick={() => setModoFocoOpen(true)}>
-                      <I d={ICONS.bolt} size={14} /> Modo foco
-                    </button>
-                  )}
                   <button className="btn-teal" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}><I d={ICONS.plus} size={14} /> Novo lead</button>
                 </div>
               </div>
@@ -1169,56 +1144,9 @@ export function VendasClient() {
                   </div>
                 </div>
               )}
-              {/* MOBILE: lista agrupada — substitui tabela e kanban no mobile.
-                  Toque na linha abre pop-up de detalhe (.hbx-veil + .vnd-detail). */}
-              {isMobile && board && (summary?.total ?? 0) > 0 && (
-                <div className="vnd-list">
-                  {BLOCK_ORDER.map(({ key, label }) => {
-                    const cards = (board?.blocks?.[key] || []).filter(matchSearch);
-                    if (cards.length === 0) return null;
-                    return (
-                      <React.Fragment key={key}>
-                        <div className="vnd-group-head">
-                          {label}
-                          <span className="vnd-group-badge">{cards.length}</span>
-                        </div>
-                        {cards.map(card => {
-                          const when = fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt);
-                          const isWarn = key === "overdue";
-                          return (
-                            <div
-                              key={card.id}
-                              className="vnd-row"
-                              role="button"
-                              tabIndex={0}
-                              aria-label={`Abrir detalhes de ${card.name || "negócio"}`}
-                              onClick={() => abrirDetalhe(card)}
-                              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") abrirDetalhe(card); }}
-                            >
-                              <div className="vnd-row-main">
-                                <span className="vnd-row-name">{card.name || "—"}</span>
-                                <span className="vnd-row-sub">
-                                  {card.segment || card.city || card.statusLabel || "—"}
-                                </span>
-                                <RadarAiBadge status={aiStatusMap[card.id]} />
-                              </div>
-                              <div className="vnd-row-end">
-                                {board.canViewValues && <span className="vnd-row-val">{leadValueLabel(card)}</span>}
-                                <span className={"vnd-row-when" + (isWarn ? " vnd-row-when--warn" : "")}>{when}</span>
-                              </div>
-                              <span className="vnd-row-arrow" aria-hidden="true">›</span>
-                            </div>
-                          );
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-              )}
-
               {/* LISTA DENSA (padrão): varredura rápida de todos os leads —
                   tabela central do kit, clique na linha abre o detalhe lateral. */}
-              {!isMobile && view === "list" && board && (summary?.total ?? 0) > 0 && (
+              {view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <>
                   {/* Barra de seleção em massa: "Selecionar todos" + excluir em lote */}
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 8px" }}>
@@ -1283,7 +1211,7 @@ export function VendasClient() {
               {/* QUADRO — pipeline arrastável por ETAPA (status). Desktop only.
                   Arraste um card para outra coluna: a etapa muda na hora. A cor do
                   chip carrega a urgência da agenda (atrasado/hoje). */}
-              {!isMobile && view === "board" && board && (summary?.total ?? 0) > 0 && (() => {
+              {view === "board" && board && (summary?.total ?? 0) > 0 && (() => {
                 const stageCards: Record<VendasStage, VendasLead[]> = { novo: [], contato: [], retorno: [], qualificado: [], encerrado: [] };
                 for (const c of flatLeads) stageCards[normalizeStage(c.status)].push(c);
                 // LEI DO VENDEDOR: valores R$ (soma por coluna + valor no card) só
@@ -1422,78 +1350,6 @@ export function VendasClient() {
           </div>{/* /vnd-stage */}
         </div>{/* /vnd-modehost */}
 
-      {/* MOBILE: pop-up de detalhe do negócio — abre ao tocar uma linha da lista.
-          Folha que ENCOSTA NO TOPO e usa a tela toda (veil deixa de centralizar). */}
-      {isMobile && mobileDetailOpen && sel && (
-        <div className="hbx-veil vnd-detail-veil" onClick={e => { if (e.target === e.currentTarget) setMobileDetailOpen(false); }}>
-          <div className="vnd-detail" onClick={e => e.stopPropagation()}>
-            <DetalhesNegocio
-              detail={toNegocioDetail(sel)}
-              title={sel.name || "Negócio"}
-              onClose={() => setMobileDetailOpen(false)}
-              crownSlot={<RadarAiBadge status={aiStatusMap[sel.id]} />}
-              onWaOpenExternal={sel.phone ? () => abrirWhatsAppExterno(sel.phone, buildWaMessage({ name: sel.name, segment: sel.segment, city: sel.city })) : undefined}
-              onWaOpenInternal={sel.phone ? () => abrirWhatsAppInterno({ phone: sel.phone, name: sel.name }) : undefined}
-              waQrActive={waQrActive}
-              waCanInternal={canAtendimento}
-              onDelete={() => { setMobileDetailOpen(false); setAcaoMsg(null); setExcluirMotivoOpen("card"); }}
-              actions={
-                <div className="dn-cockpit">
-                  {/* TIER 1 — Fechar venda (herói bonito, mesmo do Atendimento) */}
-                  <div className="dn-cockpit__group">
-                    <button className="fv-open-cta" onClick={() => { setMobileDetailOpen(false); abrirFechar(); }} disabled={sel.block === "closed"}>
-                      <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
-                      <span className="fv-open-cta-txt">
-                        <b>{sel.block === "closed" ? "Card já fechado" : "Fechar venda"}</b>
-                        <small>Gere o link e garanta sua comissão</small>
-                      </span>
-                      <I d={ICONS.arrow} size={16} />
-                    </button>
-                  </div>
-
-                  {/* TIER 2 — Retorno + Sem Interesse */}
-                  <div className="dn-cockpit__group">
-                    {acaoMsg && (
-                      <div className={acaoMsg.startsWith("✓") ? "vnd-msg-ok" : "vnd-msg-err"}>{acaoMsg}</div>
-                    )}
-                    <div className="vnd-quick-acts">
-                      <button className="btn-result btn-result--ok" onClick={() => { setRetornoData(""); setObs(""); setAcaoMsg(null); setRetornoOpen(true); }} disabled={sel.block === "closed"}>
-                        <I d={ICONS.clock} size={14} /> Retorno
-                      </button>
-                      <button className="btn-result btn-result--cold" onClick={() => { setSemInteresseMotivo(""); setAcaoMsg(null); setSemInteresseOpen(true); }} disabled={sel.block === "closed"}>
-                        Sem Interesse
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              }
-            />
-          </div>
-        </div>
-      )}
-
-      {/* MOBILE — Modo Foco: overlay full-screen 1 lead de cada vez (hoje+atrasados). */}
-      {isMobile && modoFocoOpen && board && (
-        <VendasModoFoco
-          board={board}
-          onExit={() => setModoFocoOpen(false)}
-          onWhatsApp={lead => {
-            setModoFocoOpen(false);
-            abrirWhatsAppInterno({ phone: lead.phone, name: lead.name });
-          }}
-          onCall={lead => {
-            if (lead.phone) window.location.href = `tel:${lead.phone.replace(/\D/g, "")}`;
-          }}
-          onWinSale={(lead, onConfirmed) => {
-            // Mantém o foco montado (z 80); o FecharVendaModal (z 90) abre por cima.
-            // Guarda o avanço; só dispara no onDone do modal (venda concluída).
-            focoWinConfirmRef.current = onConfirmed;
-            setSel(lead as unknown as VendasLead);
-            setFecharOpen(true);
-          }}
-          onMutated={loadBoard}
-        />
-      )}
 
       {novoOpen && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}>
@@ -1546,20 +1402,8 @@ export function VendasClient() {
           leadName={sel.name}
           phone={sel.phone}
           sellsHbxPlans={Boolean(board?.sellsHbxPlans)}
-          onClose={() => {
-            // Fechar puro (✕/fora): se o foco está aberto e a venda NÃO foi concluída
-            // (ref ainda setado), cancela sem avançar nem contar.
-            focoWinConfirmRef.current = null;
-            setFecharOpen(false);
-          }}
-          onDone={() => {
-            loadBoard();
-            // Venda concluída (gerou link / salvou no card): avança o foco + conta
-            // como fechado. Consome o ref pra não re-disparar no onClose seguinte.
-            const confirm = focoWinConfirmRef.current;
-            focoWinConfirmRef.current = null;
-            confirm?.();
-          }}
+          onClose={() => setFecharOpen(false)}
+          onDone={() => loadBoard()}
         />
       )}
 

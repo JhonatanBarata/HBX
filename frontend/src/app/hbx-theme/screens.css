@@ -337,7 +337,7 @@ html, body { height: 100%; }
 
 /* ---------- Bot.html ---------- */
 .bot-head { display: flex; align-items: center; gap: 12px; padding: 14px 22px 0; flex-wrap: wrap; }
-.bot-head h1 { margin: 0; font-family: var(--font-display); font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; display: inline-flex; gap: 10px; align-items: center; }
+.bot-head h1 { margin: 0; font-family: var(--font-display); font-size: var(--text-h2); font-weight: 800; letter-spacing: -0.01em; display: inline-flex; gap: 10px; align-items: center; }
 .saved { display: inline-flex; gap: 5px; align-items: center; font-size: 0.7rem; font-weight: 700; color: var(--hbx-brand-strong); }
 
 /* Faixa do pino (parte B) */
@@ -511,7 +511,7 @@ html, body { height: 100%; }
 .tp-modal { max-height: min(90vh, 880px); overflow: hidden; }
 .tp-modal-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
 .tp-modal-titles { display: grid; gap: 4px; min-width: 0; }
-.tp-modal-titles > h3 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; }
+.tp-modal-titles > h3 { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: 800; }
 .tp-modal-titles > p { margin: 0; font-size: 0.7rem; line-height: 1.45; color: var(--text-muted); }
 .tp-modal-body { overflow-y: auto; min-height: 0; padding-right: 4px; }
 
@@ -562,7 +562,7 @@ html, body { height: 100%; }
 .bv-hero .orb { position: absolute; right: -38px; top: -46px; width: 168px; height: 168px; border-radius: var(--radius-pill); background: radial-gradient(circle, color-mix(in srgb, var(--hbx-brand-contrast) 28%, transparent), transparent 70%); pointer-events: none; }
 .bv-hero .kicker { position: relative; font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85; }
 .bv-hero .bv-tag { position: relative; display: inline-flex; align-items: center; padding: 4px 11px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--hbx-brand-contrast) 20%, transparent); font-size: 0.66rem; font-weight: 700; }
-.bv-hero h2 { position: relative; margin: 10px 0 0; font-family: var(--font-display); font-size: 1.48rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.14; }
+.bv-hero h2 { position: relative; margin: 10px 0 0; font-family: var(--font-display); font-size: var(--text-h2); font-weight: 800; letter-spacing: -0.01em; line-height: 1.14; }
 .bv-hero p { position: relative; margin: 9px 0 0; font-size: 0.84rem; line-height: 1.55; opacity: 0.93; max-width: 48ch; }
 .bv-body { padding: 22px 30px 26px; display: grid; gap: 15px; }
 .bv-hint { font-size: 0.71rem; line-height: 1.5; color: var(--text-muted); }
@@ -687,7 +687,7 @@ html, body { height: 100%; }
    (Radar→Leads→Vendas) + quantos leads esperam + botão. Só tokens centrais. */
 .funil-empty { display: grid; gap: 18px; justify-items: center; text-align: center; padding: 30px 18px 36px; }
 .funil-empty-why { display: grid; gap: 6px; max-width: 48ch; }
-.funil-empty-why h3 { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; }
+.funil-empty-why h3 { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: 800; }
 .funil-empty-why p { margin: 0; font-size: 0.82rem; line-height: 1.55; color: var(--text-muted); }
 .funil-flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; justify-content: center; }
 .funil-flow .step { display: grid; gap: 2px; justify-items: center; padding: 10px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-muted); }
@@ -1343,7 +1343,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar2-pull-btn { margin-left: auto; min-height: 30px; padding: 0 12px; font-size: 0.72rem; }
 .radar2-bar { height: 3px; border-radius: 99px; background: var(--border-hairline); margin-top: 7px; width: 160px; overflow: hidden; }
 .radar2-bar-fill { height: 100%; border-radius: 99px; background: var(--hbx-primary); transition: width 0.6s ease; }
-@media (max-width: 760px) { .radar2-shell { grid-template-columns: 1fr; } .radar2-rail { border-right: none; border-bottom: 1px solid var(--border-hairline); } }
 .radar2-auto { position: relative; overflow: hidden; }
 .radar2-auto--on { animation: radar2-auto-pulse 2s ease-in-out infinite; }
 @keyframes radar2-auto-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-brand-strong) 40%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
@@ -1596,8 +1595,20 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* Card de detalhe encosta no topo, com respiro suave */
 .vnd-layer aside.ctx { padding-top: 14px; }
 
-/* Título do Radar embutido — herda .panel-head (mesmo do funil); só separa do tab */
-.leads-embed-head { border-bottom: 1px solid var(--border-hairline); }
+/* Título do Radar embutido — herda .panel-head (mesmo do funil); só separa do tab.
+   Padding reduzido (06/07, item 6 do redesenho): a barra de filtro tava comendo
+   metade do pipeline — aqui é o 1º andar a comprimir (título fino, sem alterar
+   o .panel-head global que o funil de Vendas também usa). */
+.leads-embed-head { border-bottom: 1px solid var(--border-hairline); padding: 8px 16px; }
+
+/* Cabeçalho da lista (LEADS-FINAL/02, 06/07): abas à esquerda + toggle
+   Linhas|Cards à direita, mesma linha. O .tabs interno perde a borda própria
+   (o wrapper já fecha a linha) — layout puro, zero cor/sombra aqui. */
+.leads-headrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border-hairline); }
+.leads-headrow .tabs { border-bottom: none; }
+.leads-viewtoggle { display: inline-flex; gap: 2px; margin: 6px 14px 6px 0; padding: 3px; --glass-pill-radius: var(--radius-sm); }
+.leads-viewtoggle__item { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); cursor: pointer; padding: 6px 11px; border-radius: var(--radius-sm); transition: color var(--motion-fast); }
+.leads-viewtoggle__item.active { color: var(--hbx-brand-strong); }
 
 /* ── RADAR CARD — indicador visual puro do estado do Radar (sem texto) ─────────
    pele-allow: animações do radar usam --radar-color (CSS var por estado, não hex) */
@@ -1709,48 +1720,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   .vnd-supcard__ic::after { animation: none; }
   .vnd-caret { animation: none; }
 }
-/* ── A5 (B4/B5) — passe mobile do funil de Vendas ────────────────────────────
-   No desktop a casca é overlay ABSOLUTO: .vnd-funhead (barra do topo, right:360px)
-   flutua POR CIMA das 2 camadas (.vnd-stage inset:0) e o conteúdo ganha
-   padding-top:74px pra não passar por baixo. No mobile esse modelo quebrava:
-   a barra herdava right:360px (some numa faixa de ~15px), os KPIs empilhavam
-   por cima do título (B4) e a lista/Radar embutido (B5) ficava coberta.
-   Fix = só layout: no ≤860px a casca vira COLUNA EM FLUXO (funhead empilha em
-   cima, stage/camadas descem em fluxo). Zero mudança de lógica/estado. */
-@media (max-width: 860px) {
-  /* modehost deixa de ser palco de overlay → coluna que rola no .vnd-page/.leads */
-  .vnd-modehost { display: flex; flex-direction: column; min-height: 0; }
-
-  /* Barra do topo entra no FLUXO (não mais absoluta sobre o conteúdo) e ocupa
-     a largura toda — some o right:360px que a estrangulava. */
-  .vnd-funhead {
-    position: static; right: auto; left: auto; z-index: auto;
-    flex-wrap: wrap; align-items: stretch; gap: 10px;
-    padding: 10px 12px 2px; min-height: 0; flex: 0 0 auto;
-  }
-  .vnd-segbtns { flex-basis: 100%; width: 100%; }
-  .vnd-segbtn { flex: 1; justify-content: center; min-height: 46px; padding: 0 14px; font-size: 0.86rem; }
-  /* KPIs do modo ativo: linha de 3 colunas que ENVELOPA (min-width:0), rótulo
-     não estoura. A camada inativa some (não empilha fantasma por baixo). */
-  .vnd-stats { flex: 1 1 100%; flex-basis: 100%; min-width: 0; }
-  .vnd-stats__layer:not(.is-on) { display: none; }
-  .vnd-stats__layer.is-on .kpis { flex-wrap: nowrap; gap: 8px; }
-  .vnd-stats__layer .kpi { min-width: 0; padding: 6px 6px; }
-  .vnd-stats__layer .kpi .kpi-label { font-size: 0.6rem; white-space: normal; text-align: center; }
-  .vnd-stats__layer .kpi .kpi-value { font-size: 1.05rem; }
-  /* card do radar (4º) ao lado dos KPIs sem estourar */
-  .vnd-supcard { flex: 0 0 auto; }
-
-  /* Stage/camadas descem pro fluxo (não mais absoluto inset:0). O crossfade
-     continua (opacity), mas a camada inativa é removida do fluxo pra não empurrar. */
-  .vnd-stage { position: relative; inset: auto; flex: 1; min-height: 0; display: flex; }
-  .vnd-layer { position: relative; inset: auto; flex: 1; min-width: 0; }
-  .vnd-layer:not(.is-on) { display: none; }
-  /* Sem a barra flutuante em cima, o conteúdo não precisa mais do respiro de 74px. */
-  .vnd-layer.is-on .content > .work,
-  .vnd-layer--buscar.is-on .content .work { padding-top: 0; }
-}
-
 /* ══ Faixa "por que o Radar parou de buscar" ════════════════════════════════
    A cor é a mensagem: verde = buscando, âmbar = quase cheia, vermelho = cheia
    (busca pausada). Gauge radial + barra de vagas + pill. Texto mínimo.        */
@@ -1877,6 +1846,37 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .leads-page .radar2-shell { flex: 1; min-height: 0; align-items: stretch; grid-template-columns: 1fr; }
 .leads-page .radar2-main { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .leads-page .radar2-main .tbl-wrap { flex: 1; overflow-y: auto; min-height: 0; }
+
+/* ── Página do lead /leads/[id] (LEADS-FINAL/02, 06/07) — NET-NEW ───────────
+   Casca fixa (zero-scroll, herda o viewport-lock global de .app): o MIOLO de
+   cada coluna rola por dentro, igual .work/.ctx já fazem no resto do produto.
+   Grid 3 colunas: esquerda (DetalhesNegocio) | centro (abas + histórico) |
+   direita (empresa/contatos/atividades). */
+.lead-detail-page { grid-template-columns: 1fr; display: flex; flex-direction: column; min-height: 0; padding: var(--space-3) var(--space-4); gap: 10px; }
+.lead-detail-head { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.lead-detail-head__title { margin: 0; font-family: var(--font-display); font-size: var(--text-h3); font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-detail-loading { display: grid; gap: 10px; padding: 24px; }
+/* Card ainda NÃO puxado (regra de posse): SÓ o DetalhesNegocio mascarado + CTA
+   Puxar, moldura estreita centralizada — nunca o grid de 3 colunas com contato. */
+.lead-detail-locked { flex: 1; min-height: 0; overflow-y: auto; display: flex; justify-content: center; padding: 8px 0; }
+.lead-detail-locked > .dn-root { width: min(420px, 100%); border: 1px solid var(--border-hairline); border-radius: var(--panel-radius); background: var(--hbx-surface-soft); padding: var(--space-4); align-self: flex-start; }
+.lead-detail-grid {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.6fr) minmax(240px, 1fr);
+  gap: 14px;
+}
+.lead-detail-col { min-height: 0; overflow-y: auto; border: 1px solid var(--border-hairline); border-radius: var(--panel-radius); background: var(--hbx-surface-soft); padding: var(--space-4); }
+.lead-detail-col--left { padding-top: 0; }
+.lead-detail-col--center { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.lead-detail-col--right { display: grid; gap: 14px; align-content: start; }
+.lead-detail-col__head { margin: 0; font-family: var(--font-display); font-size: 0.82rem; font-weight: 800; }
+.lead-detail-col__head:not(:first-child) { margin-top: 4px; }
+.lead-detail-tabs { display: flex; align-items: center; gap: 2px; padding: 10px 12px; border-bottom: 1px solid var(--border-hairline); flex-shrink: 0; }
+.lead-detail-tabs__item { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.76rem; font-weight: 700; color: var(--text-muted); cursor: pointer; padding: 7px 13px; border-radius: var(--radius-sm); transition: color var(--motion-fast); }
+.lead-detail-tabs__item.active { color: var(--hbx-brand-strong); }
+.lead-detail-tabpanel { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+.lead-detail-history { display: grid; gap: 10px; }
+.lead-detail-noconn { display: grid; gap: 12px; justify-items: center; padding: 28px 16px; text-align: center; }
 
 /* ── Leads: cabeçalho banco (linha fininha com Total no Brasil) ─────────── */
 .leads-bank-strip { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--border-hairline); }
@@ -2099,6 +2099,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-hero {
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   padding: 18px 14px 16px; margin-bottom: 2px;
+  width: 100%; max-width: 100%; box-sizing: border-box;
   border-radius: var(--radius-lg);
   background:
     radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--hbx-brand) 12%, transparent) 0%, transparent 70%),
@@ -2106,8 +2107,12 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   border: 1px solid var(--border-hairline);
   box-shadow: var(--shadow-inset);
 }
+/* Disco fluido (06/07): era width:148px fixo — em asides mais estreitos que
+   148px + os paddings acumulados (.ctx/.radar-console/.radar-hero) isso
+   cortava na borda direita (achado do dono, "está torto"). Agora usa min()
+   pra nunca passar da largura que sobrou dentro do card. */
 .radar-hero__disc {
-  flex: 0 0 auto; width: 148px; height: 148px;
+  flex: 0 0 auto; width: min(148px, 100%); aspect-ratio: 1; height: auto;
   filter: drop-shadow(0 10px 24px color-mix(in srgb, var(--hbx-brand-strong) 22%, transparent));
 }
 .radar-hero__copy { min-width: 0; display: grid; gap: 2px; justify-items: center; text-align: center; }
@@ -2186,42 +2191,77 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    dos resultados. Linha primária (busca grande + Buscar) + linha de refino
    (Estado/Cidade/Alcance/site/WhatsApp/ações) que quebra em telas estreitas.
    ══════════════════════════════════════════════════════════════════════════ */
+/* Compressão 06/07 (3ª passada, brief cirúrgico do dono): a barra comia METADE
+   do pipeline — só ~4 cards apareciam. Padding/gap encolhidos, altura da busca
+   e do Buscar alinhada a --field-height/--control-height (eram 44px soltos, um
+   degrau acima do resto do produto), refino numa linha só (sem align-items:
+   flex-end + labels de texto por cima de cada campo — isso é que empilhava
+   altura). Rótulos dos selects viram title (a11y) em vez de <label> visível;
+   os grupos (localização/site/whatsapp) viram botões ícone-only compactos. */
 .be-cmdbar {
-  display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto;
-  padding: 12px 16px; border-bottom: 1px solid var(--border-hairline);
+  display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto;
+  padding: 8px 16px; border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
 }
-.be-cmdbar__primary { display: flex; align-items: center; gap: 10px; }
-.be-cmdbar__primary .be-search { flex: 1; min-height: 44px; }
-.be-cmdbar__go { flex: 0 0 auto; min-width: 128px; height: 44px; }
+.be-cmdbar__primary { display: flex; align-items: center; gap: 8px; }
+.be-cmdbar__primary .be-search { flex: 1; min-height: var(--field-height); padding: 0 12px; }
+.be-cmdbar__go { flex: 0 0 auto; min-width: 96px; height: var(--field-height); }
 
-.be-cmdbar__refine { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.be-cmdbar__field { display: grid; gap: 4px; min-width: 128px; }
+.be-cmdbar__refine { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.be-cmdbar__field { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .be-cmdbar__field > label,
 .be-cmdbar__group-lbl {
   font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-muted);
+  letter-spacing: 0.05em; color: var(--text-muted); white-space: nowrap;
 }
-.be-cmdbar__field .select-dark { width: 100%; min-width: 0; }
-.be-cmdbar__group { display: grid; gap: 5px; align-content: end; }
+.be-cmdbar__field .select-dark { width: auto; min-width: 92px; }
+.be-cmdbar__group { display: flex; align-items: center; gap: 5px; }
 .be-cmdbar__spacer { flex: 1 1 24px; min-width: 12px; }
-.be-cmdbar__actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
+.be-cmdbar__actions { display: flex; align-items: center; gap: 4px; }
 
-/* Botão "Minha localização / Preencher" (05/07) — saiu do aside pro grupo de
-   filtros de local na barra de comando. Assenta na baseline da linha (flex-end)
-   como um item do grupo; visual de chip soft do brand, mesmo vocabulário do
-   .radar-canais__switch. */
+/* Botão "Minha localização" (06/07, 3ª passada) — era chip com 2 textos
+   ("Minha localização" + "Preencher"), o dono pediu "podia ser 1 ícone". Vira
+   botão ícone-only quadrado, mesma altura de controle do resto da barra;
+   title carrega a explicação (a11y), onClick/disabled intactos. */
 .be-cmdbar__geo {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: 34px; padding: 4px 12px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--control-height); height: var(--control-height); padding: 0; cursor: pointer;
   border-radius: var(--radius-md); border: 1px solid var(--hbx-brand-strong);
   background: var(--hbx-brand-soft); color: var(--hbx-brand-strong);
   transition: background var(--motion-fast), border-color var(--motion-fast), opacity var(--motion-fast);
 }
 .be-cmdbar__geo:hover:not(:disabled) { background: var(--hbx-brand); color: var(--hbx-brand-contrast); border-color: var(--hbx-brand); }
 .be-cmdbar__geo:disabled { opacity: 0.6; cursor: default; }
-.be-cmdbar__geo-lbl { font-size: 0.72rem; font-weight: 600; }
-.be-cmdbar__geo-act { font-size: 0.7rem; font-weight: 700; padding-left: 4px; border-left: 1px solid currentColor; }
+
+/* Botão ícone-only genérico da barra (06/07) — usado por "Filtro"/"Limpar" nas
+   ações e reaproveitado pelos toggles Tem site/Tem WhatsApp (label de texto
+   virou <I title>/<WhatsAppMark> na frente do tristate). Mesmo vocabulário do
+   .radar-canais__switch (chip soft), só quadrado e sem rótulo — cada uso tem
+   `title` obrigatório porque não sobra texto visível. */
+.be-cmdbar__iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--control-height); height: var(--control-height); padding: 0; cursor: pointer;
+  border-radius: var(--radius-md); border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised); color: var(--text-muted);
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+}
+.be-cmdbar__iconbtn:hover { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
+/* Marcador estático (grupo site/whatsapp) não precisa de hover de botão —
+   só sinaliza o que o tristate ao lado filtra. */
+.be-cmdbar__group-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; color: var(--text-muted); flex: 0 0 auto;
+}
+/* 1 LINHA no desktop (ordem do dono 06/07): busca + Buscar + TODOS os filtros +
+   ações numa única linha, pra a barra roubar o mínimo de altura do pipeline.
+   Mobile (<=900px, mexido em paralelo) NÃO é afetado — a base segue
+   flex-direction:column e empilha. Só desktop entra aqui. */
+@media (min-width: 901px) {
+  .be-cmdbar { flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 10px; }
+  .be-cmdbar__primary { flex: 0 1 auto; min-width: 0; }
+  .be-cmdbar__primary .be-search { flex: 0 1 380px; min-width: 150px; }
+  .be-cmdbar__refine { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
+}
 @media (max-width: 900px) {
   .be-cmdbar__spacer { display: none; }
   .be-cmdbar__actions { width: 100%; }

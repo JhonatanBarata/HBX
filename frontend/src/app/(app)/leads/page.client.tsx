@@ -13,10 +13,11 @@
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS } from "@/components/hbx/shell";
+import { Av, I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import {
   FILTRO_AVANCADO_VAZIO,
@@ -26,13 +27,15 @@ import {
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
-import { useIsMobile } from "@/lib/use-is-mobile";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };
 
-type RadarLead = {
+// Exportado (LEADS-FINAL/02): a página /leads/[id] reusa o MESMO tipo — o GET
+// /webscraping/radar/leads/:id devolve o mesmo shape de item da listagem
+// (buildRadarLeadPublic é a mesma função nos dois endpoints do backend).
+export type RadarLead = {
   id: string;
   name: string;
   phone: string;
@@ -63,6 +66,9 @@ type RadarLead = {
   ownerInstagram?: string | null;
   ownerFacebook?: string | null;
   companySituation?: string | null;
+  // WORM-16: pessoas estruturadas (sócio da Receita etc.) — mesmo campo opcional
+  // que NegocioDetail.people (detalhes-negocio.tsx). Ausente em leads antigos.
+  people?: Array<{ name: string; role?: string | null; source?: string | null; phoneDigits?: string | null }> | null;
   emails?: string[] | null;
   phones?: string[] | null;
   phonesWhatsapp?: Record<string, boolean> | null;
@@ -88,6 +94,11 @@ type RadarLead = {
   // HOT-07 (empresa recém-aberta): badge de urgência + prioridade na entrega. Opcional.
   isFreshCompany?: boolean | null;
   daysSinceOpened?: number | null;
+  // Posse do lead (LEADS-FINAL/02): 'mine' = a empresa já puxou (contato revelado
+  // pelo backend); 'available'/'in_attendance'/'negative' = ainda não. A página
+  // /leads/[id] usa isto (com fallback em Boolean(phone)) pra decidir entre a
+  // página cheia e o aside mascarado + CTA "Puxar".
+  ownershipStatus?: "mine" | "available" | "in_attendance" | "negative" | null;
 };
 
 type LeadsResponse = {
@@ -382,10 +393,113 @@ function getStoredFilters() {
 // embedded: render DENTRO do Vendas (modo "Buscar empresas" do slide), sem a aba
 // "Minha carteira" (carteira = funil) nem o "Voltar pro funil". onLeadPulled avisa
 // o Vendas que um lead entrou no funil — focus=true desliza pro funil. 27/06.
+// Lista densa (LEADS-FINAL/02, 06/07): toggle Linhas|Cards no cabeçalho —
+// default LINHAS (alvo ≥9 leads em 1080p). Estado por usuário em localStorage
+// — não é filtro (não recarrega a lista).
+function fmtVendasStatusLabel(status: string | null | undefined) {
+  switch (String(status || "").trim().toLowerCase()) {
+    case "contato": return "Em contato";
+    case "retorno": return "Retorno";
+    case "qualificado": return "Qualificado";
+    case "encerrado": return "Encerrado";
+    default: return "Novo lead";
+  }
+}
+
+function fmtSaleStatusLabel(status: string | null | undefined) {
+  switch (String(status || "").trim().toLowerCase()) {
+    case "activation_pending": return "Aguardando ativação";
+    case "trial_started": return "Trial iniciado";
+    case "sale_confirmed": return "Venda confirmada";
+    case "inactive": return "Inativo";
+    case "canceled": return "Cancelado";
+    default: return null;
+  }
+}
+
+function fmtMoney(value: number | null | undefined) {
+  if (value == null || value <= 0) return null;
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// Exportado (LEADS-FINAL/02): tradutor RadarLead → NegocioDetail puro — recebe
+// `revealed` como parâmetro em vez de ler `tab` do closure da tela de listagem,
+// pra a página /leads/[id] poder chamar a MESMA função com seu próprio critério
+// de posse (ownershipStatus === 'mine', sem conceito de "aba"). Nenhuma lógica
+// de mapeamento duplicada entre lista e página.
+export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: boolean }): NegocioDetail {
+  const revealed = opts.revealed;
+  const hasVendas = revealed && lead.vendasStatus != null;
+  const saleStatus = hasVendas ? lead.vendasSaleStatus : null;
+  const saleStatusLabel = fmtSaleStatusLabel(saleStatus);
+  return {
+    id: lead.id,
+    enriched: Boolean(lead.lastEnrichedAt) || Number(lead.enrichmentScore) > 0,
+    name: lead.name,
+    city: lead.city,
+    state: lead.state,
+    segment: lead.segment || lead.businessCategory || null,
+    opportunityScore: lead.opportunityScore > 0 ? lead.opportunityScore : null,
+    rating: lead.rating ?? null,
+    reviews: lead.reviews ?? null,
+    phone: revealed ? lead.phone : null,
+    email: revealed ? (lead.email ?? null) : null,
+    website: revealed ? (lead.website ?? null) : null,
+    // Multi-contatos e empresa/dono — revelados junto do contato; o card ainda
+    // aplica o cadeado por tier (canSeeCompany) sobre os dados pessoais do dono.
+    people: revealed ? (lead.people ?? null) : null,
+    emails: revealed ? (lead.emails ?? null) : null,
+    phones: revealed ? (lead.phones ?? null) : null,
+    phonesWhatsapp: revealed ? (lead.phonesWhatsapp ?? null) : null,
+    cnpj: revealed ? (lead.cnpj ?? null) : null,
+    cnae: revealed ? (lead.cnae ?? null) : null,
+    razaoSocial: revealed ? (lead.razaoSocial ?? null) : null,
+    ownerName: revealed ? (lead.ownerName ?? null) : null,
+    ownerNames: revealed ? (lead.ownerNames ?? null) : null,
+    ownerPhone: revealed ? (lead.ownerPhone ?? null) : null,
+    ownerInstagram: revealed ? (lead.ownerInstagram ?? null) : null,
+    ownerFacebook: revealed ? (lead.ownerFacebook ?? null) : null,
+    companySituation: revealed ? (lead.companySituation ?? null) : null,
+    sourceChain: lead.sourceChain ?? null,
+    isFreshCompany: lead.isFreshCompany ?? null,
+    daysSinceOpened: lead.daysSinceOpened ?? null,
+    leadIntelligence: {
+      whatsappStatus: lead.hasWhatsapp ? "confirmed" : null,
+      emailStatus: lead.hasEmail ? "confirmed" : null,
+      instagramUrl: revealed ? (lead.instagramUrl ?? null) : null,
+      facebookUrl: revealed ? (lead.facebookUrl ?? null) : null,
+    },
+    statusLabel: hasVendas ? fmtVendasStatusLabel(lead.vendasStatus) : undefined,
+    returnAt: hasVendas ? (lead.vendasReturnAt ?? undefined) : undefined,
+    attemptCount: hasVendas ? (lead.vendasAttemptCount ?? undefined) : undefined,
+    shortNote: hasVendas ? (lead.vendasShortNote ?? null) : undefined,
+    lastResult: hasVendas ? (lead.vendasLastResult ?? null) : undefined,
+    sale: saleStatusLabel && saleStatus && saleStatus !== "none"
+      ? {
+          status: saleStatus,
+          statusLabel: saleStatusLabel,
+          valueLabel: fmtMoney(lead.vendasSaleValue) ?? undefined,
+        }
+      : undefined,
+  };
+}
+
+type ViewMode = "linhas" | "cards";
+function getStoredViewMode(): ViewMode {
+  if (typeof window === "undefined") return "linhas";
+  try {
+    const s = localStorage.getItem("hbx:leads-view-mode");
+    return s === "cards" ? "cards" : "linhas";
+  } catch { return "linhas"; }
+}
+
 export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }) => void; embedTitle?: ReactNode } = {}) {
   const router = useRouter();
-  const isMobile = useIsMobile();
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
+  const viewPill = useGlassPill<HTMLButtonElement>(viewMode);
+  useEffect(() => {
+    try { localStorage.setItem("hbx:leads-view-mode", viewMode); } catch { /* sem storage */ }
+  }, [viewMode]);
 
   // Filtro avançado (item 3b — popup ressuscitado do commit revertido): consulta
   // a base Receita (28M) via cnpj-base/query só como PRÉVIA; "Aplicar" traduz o
@@ -452,13 +566,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [canBot, setCanBot] = useState(false);
   const [waStartBusy, setWaStartBusy] = useState(false);
   const [waStartError, setWaStartError] = useState<string | null>(null);
-
-  // Mobile v2: lista + card-overlay com swipe
-  const [cardIdx, setCardIdx] = useState(0);
-  const [cardOpen, setCardOpen] = useState(false);
-  const dragRef = useRef<{ startX: number; dx: number; active: boolean }>({ startX: 0, dx: 0, active: false });
-  const [dragDx, setDragDx] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
 
   // Filtro estilo CNPJ Biz sobre a base (VENDAS-REFAB S4, 04/07): tem-site e
   // tem-WhatsApp provável. Tri-estado (qualquer/sim/não) — mapeia direto pros
@@ -691,8 +798,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setSelected(new Set());
     setPullMsg(null);
     setSelLead(null);
-    setCardIdx(0);
-    setCardOpen(false);
     loadList(next, { page: 1 });
   }
 
@@ -993,9 +1098,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
         : city
           ? `Nenhuma empresa disponível em ${city} ainda. Use o Radar ao lado para buscar.`
-          : isMobile
-            ? "Toque em Filtrar para escolher cidade + segmento e buscar leads."
-            : "Escolha cidade + segmento no painel ao lado e busque leads.";
+          : "Escolha cidade + segmento no painel ao lado e busque leads.";
 
   const meterPct = Math.min(100, Math.round(
     isSeller
@@ -1064,86 +1167,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     }
   }
 
-  function fmtVendasStatusLabel(status: string | null | undefined) {
-    switch (String(status || "").trim().toLowerCase()) {
-      case "contato": return "Em contato";
-      case "retorno": return "Retorno";
-      case "qualificado": return "Qualificado";
-      case "encerrado": return "Encerrado";
-      default: return "Novo lead";
-    }
-  }
-
-  function fmtSaleStatusLabel(status: string | null | undefined) {
-    switch (String(status || "").trim().toLowerCase()) {
-      case "activation_pending": return "Aguardando ativação";
-      case "trial_started": return "Trial iniciado";
-      case "sale_confirmed": return "Venda confirmada";
-      case "inactive": return "Inativo";
-      case "canceled": return "Cancelado";
-      default: return null;
-    }
-  }
-
-  function fmtMoney(value: number | null | undefined) {
-    if (value == null || value <= 0) return null;
-    return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  }
-
   function buildNegocioDetail(lead: RadarLead): NegocioDetail {
     const revealed = tab === "carteira" && Boolean(lead.phone);
-    const hasVendas = revealed && lead.vendasStatus != null;
-    const saleStatus = hasVendas ? lead.vendasSaleStatus : null;
-    const saleStatusLabel = fmtSaleStatusLabel(saleStatus);
-    return {
-      id: lead.id,
-      enriched: Boolean(lead.lastEnrichedAt) || Number(lead.enrichmentScore) > 0,
-      name: lead.name,
-      city: lead.city,
-      state: lead.state,
-      segment: lead.segment || lead.businessCategory || null,
-      opportunityScore: lead.opportunityScore > 0 ? lead.opportunityScore : null,
-      rating: lead.rating ?? null,
-      reviews: lead.reviews ?? null,
-      phone: revealed ? lead.phone : null,
-      email: revealed ? (lead.email ?? null) : null,
-      website: revealed ? (lead.website ?? null) : null,
-      // Multi-contatos e empresa/dono — revelados junto do contato; o card ainda
-      // aplica o cadeado por tier (canSeeCompany) sobre os dados pessoais do dono.
-      emails: revealed ? (lead.emails ?? null) : null,
-      phones: revealed ? (lead.phones ?? null) : null,
-      phonesWhatsapp: revealed ? (lead.phonesWhatsapp ?? null) : null,
-      cnpj: revealed ? (lead.cnpj ?? null) : null,
-      cnae: revealed ? (lead.cnae ?? null) : null,
-      razaoSocial: revealed ? (lead.razaoSocial ?? null) : null,
-      ownerName: revealed ? (lead.ownerName ?? null) : null,
-      ownerNames: revealed ? (lead.ownerNames ?? null) : null,
-      ownerPhone: revealed ? (lead.ownerPhone ?? null) : null,
-      ownerInstagram: revealed ? (lead.ownerInstagram ?? null) : null,
-      ownerFacebook: revealed ? (lead.ownerFacebook ?? null) : null,
-      companySituation: revealed ? (lead.companySituation ?? null) : null,
-      sourceChain: lead.sourceChain ?? null,
-      isFreshCompany: lead.isFreshCompany ?? null,
-      daysSinceOpened: lead.daysSinceOpened ?? null,
-      leadIntelligence: {
-        whatsappStatus: lead.hasWhatsapp ? "confirmed" : null,
-        emailStatus: lead.hasEmail ? "confirmed" : null,
-        instagramUrl: revealed ? (lead.instagramUrl ?? null) : null,
-        facebookUrl: revealed ? (lead.facebookUrl ?? null) : null,
-      },
-      statusLabel: hasVendas ? fmtVendasStatusLabel(lead.vendasStatus) : undefined,
-      returnAt: hasVendas ? (lead.vendasReturnAt ?? undefined) : undefined,
-      attemptCount: hasVendas ? (lead.vendasAttemptCount ?? undefined) : undefined,
-      shortNote: hasVendas ? (lead.vendasShortNote ?? null) : undefined,
-      lastResult: hasVendas ? (lead.vendasLastResult ?? null) : undefined,
-      sale: saleStatusLabel && saleStatus && saleStatus !== "none"
-        ? {
-            status: saleStatus,
-            statusLabel: saleStatusLabel,
-            valueLabel: fmtMoney(lead.vendasSaleValue) ?? undefined,
-          }
-        : undefined,
-    };
+    return buildNegocioDetailFromLead(lead, { revealed });
   }
 
   function renderLeadDetail(lead: RadarLead, opts?: { title?: string; onClose?: () => void }) {
@@ -1207,6 +1233,16 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             {tab === "carteira" && (
               <button className="btn-ghost" onClick={() => router.push("/vendas")}>
                 Ver em Vendas →
+              </button>
+            )}
+            {/* "Ver mais" abre a página cheia /leads/[id] — SÓ pra lead já POSSUÍDO
+                (regra dura do plano: card ainda não puxado nunca vê a página cheia,
+                fica no aside mascarado + CTA Puxar, que é exatamente o que já
+                acontece acima quando tab==="shelf"). revealed usa o mesmo critério
+                de buildNegocioDetail (tab==="carteira" && Boolean(phone)). */}
+            {revealed && (
+              <button className="btn-ghost" onClick={() => router.push(`/leads/${encodeURIComponent(lead.id)}`)}>
+                Ver mais →
               </button>
             )}
           </div>
@@ -1326,25 +1362,28 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               <option value="100">+ 100 km</option>
             </select>
           </div>
-          {/* Localização do vendedor — aparece quando geo está ativo no Topbar */}
+          {/* Localização do vendedor — aparece quando geo está ativo no Topbar.
+              06/07 (3ª passada): era chip com 2 textos ("Minha localização" +
+              "Preencher"); dono pediu "podia ser 1 ícone" — vira botão ícone-only,
+              mesma ação (pullGeoLocation) e disabled, title carrega a explicação. */}
           {geo && (
-            <div className="be-cmdbar__group">
-              <span className="be-cmdbar__group-lbl">Localização</span>
-              <button
-                type="button"
-                className="be-cmdbar__geo"
-                onClick={pullGeoLocation}
-                disabled={geoBusy}
-                title="Preencher Estado/Cidade com a minha localização"
-              >
-                <I d={ICONS.mapin} size={13} />
-                <span className="be-cmdbar__geo-lbl">Minha localização</span>
-                <span className="be-cmdbar__geo-act">{geoBusy ? "…" : "Preencher"}</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              className="be-cmdbar__geo"
+              onClick={pullGeoLocation}
+              disabled={geoBusy}
+              title={geoBusy ? "Buscando sua localização…" : "Preencher Estado/Cidade com a minha localização"}
+            >
+              <I d={ICONS.mapin} size={15} />
+            </button>
           )}
+          {/* Tem site / Tem WhatsApp — rótulo de texto virou ícone com title
+              (dono: "dava pra ter ícone"). Ícone é só marcador (não clicável) na
+              frente do tristate Qualquer/Com/Sem, que segue funcionando igual. */}
           <div className="be-cmdbar__group">
-            <span className="be-cmdbar__group-lbl">Tem site</span>
+            <span className="be-cmdbar__group-icon" title="Filtrar por site">
+              <I d={ICONS.website} size={15} />
+            </span>
             <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
               {([
                 { key: "qualquer", label: "Qualquer" },
@@ -1364,7 +1403,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             </div>
           </div>
           <div className="be-cmdbar__group">
-            <span className="be-cmdbar__group-lbl">Tem WhatsApp</span>
+            <span className="be-cmdbar__group-icon" title="Filtrar por WhatsApp">
+              <WhatsAppMark size={15} />
+            </span>
             <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
               {([
                 { key: "qualquer", label: "Qualquer" },
@@ -1389,11 +1430,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               className="btn-ghost btn-xs"
               data-tut="leads-filtro-avancado"
               onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); setAdvOpen(true); }}
+              title="Filtro avançado"
             >
-              <I d={ICONS.filter} size={13} /> Filtro avançado
+              <I d={ICONS.filter} size={13} /> Filtro
             </button>
-            <button type="button" className="btn-ghost btn-xs" onClick={limparFiltros} title="Limpar todos os filtros e pesquisas">
-              Limpar
+            <button type="button" className="be-cmdbar__iconbtn" onClick={limparFiltros} title="Limpar todos os filtros e pesquisas">
+              <I d={ICONS.x} size={15} />
             </button>
             <button
               type="button"
@@ -1534,59 +1576,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  // ── Swipe handlers (card-overlay mobile) ─────────────────────────────────
-  function onPointerDown(e: React.PointerEvent) {
-    dragRef.current = { startX: e.clientX, dx: 0, active: true };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setIsDragging(true);
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!dragRef.current.active) return;
-    const dx = e.clientX - dragRef.current.startX;
-    dragRef.current.dx = dx;
-    setDragDx(dx);
-  }
-
-  function onPointerUp() {
-    if (!dragRef.current.active) return;
-    dragRef.current.active = false;
-    setIsDragging(false);
-    const dx = dragRef.current.dx;
-    setDragDx(0);
-    if (Math.abs(dx) > 80) {
-      if (dx < 0) cardGo(1);
-      else cardGo(-1);
-    }
-  }
-
-  const isCardHandoff = cardIdx >= items.length;
-  const activeCard = !isCardHandoff ? items[cardIdx] : null;
-
-  function cardGo(dir: 1 | -1) {
-    setCardIdx(prev => {
-      const next = prev + dir;
-      if (next < 0) return 0;
-      if (next >= items.length) {
-        router.push("/vendas");
-        return items.length;
-      }
-      return next;
-    });
-  }
-
-  function openCard(idx: number) {
-    setCardIdx(idx);
-    setCardOpen(true);
-    setDragDx(0);
-    dragRef.current = { startX: 0, dx: 0, active: false };
-  }
-
-  function closeCard() {
-    setCardOpen(false);
-  }
-
-  // ── Vista mobile: lista vertical ──────────────────────────────────────────
   // Origem do lead na lista: badge de quem DESCOBRIU (sourceChain) + chip de quem
   // só ENRIQUECEU. Card antigo sem esses campos → devolve null (renderiza idêntico a hoje).
   function renderOriginBadge(row: RadarLead) {
@@ -1603,139 +1592,109 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  function renderListMobile() {
+  // ── Lista densa (LEADS-FINAL/02): linhas de --row-height, default desktop —
+  // MESMO items, MESMAS funções de dado da grade de cards (renderOriginBadge/
+  // contatoMascarado/puxar/toggleSel) — só a moldura muda. "Ver mais" navega
+  // pra /leads/[id] SÓ quando o lead já está POSSUÍDO (revealed) — regra dura
+  // do plano: card ainda não puxado nunca vê a página cheia, o clique na linha
+  // (setSelLead) já abre o aside mascarado + CTA "Puxar", que é o caminho certo.
+  function renderRowsDense() {
     return (
-      <>
-        <div className="lead-list">
-          {items.length === 0 && (
-            <div className="lead-list__empty">
-              <div className="radar2-empty">{emptyMsg}</div>
+      <div className="tbl-wrap row-dense-list-wrap">
+        {items.length === 0 ? (
+          <div className="radar2-empty">{emptyMsg}</div>
+        ) : (
+          <div className="row-dense-list">
+            <div className="row-dense-list__head" aria-hidden="true">
+              <span>Empresa</span>
+              <span>Cidade/UF</span>
+              <span>Contato</span>
+              <span style={{ textAlign: "center" }}>Score</span>
+              <span>Responsável</span>
+              <span />
             </div>
-          )}
-          {items.map((row, i) => (
-            <button
-              key={row.id}
-              className="lead-list-row"
-              onClick={() => openCard(i)}
-              aria-label={`Abrir detalhes de ${row.name || "lead"}`}
-            >
-              <Av name={row.name || "—"} size={42} />
-              <div className="lead-list-row__body">
-                <span className="lead-list-row__name">{row.name || "—"}</span>
-                <span className="lead-list-row__sub">
-                  {row.segment || row.businessCategory || "—"}
-                  {row.city ? ` · ${row.city}${row.state ? `/${row.state}` : ""}` : ""}
-                </span>
-                {renderOriginBadge(row)}
-                {row.opportunitySignals && row.opportunitySignals.length > 0 && (
-                  <div className="lead-list-row__pills">
-                    {row.opportunitySignals.slice(0, 2).map(sig => {
-                      const m = SIGNAL_META[sig];
-                      if (!m) return null;
-                      return <span key={sig} className={`radar2-sig radar2-sig--${m.tone}`}>{m.label}</span>;
-                    })}
-                    {row.fitScore != null && row.fitScore > 0 && (
-                      <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>
-                        Fit {row.fitScore}
-                      </span>
+            {items.map(row => {
+              const isSel = selLead?.id === row.id;
+              const checked = selected.has(row.id);
+              const revealed = tab === "carteira" && Boolean(row.phone);
+              return (
+                <button
+                  key={row.id}
+                  type="button"
+                  className={"row-dense" + (isSel ? " row-dense--sel" : "")}
+                  onClick={() => setSelLead(isSel ? null : row)}
+                >
+                  <span className="row-dense__id">
+                    {tab === "shelf" && (
+                      <label className="row-dense__pick" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSel(row.id)}
+                          aria-label={`Selecionar ${row.name || "lead"}`}
+                        />
+                      </label>
                     )}
-                  </div>
-                )}
-              </div>
-              <span className="lead-list-row__chev" aria-hidden>›</span>
-            </button>
-          ))}
-        </div>
-
-        {tab === "shelf" && (
-          <div className={"lead-list__meter" + (meterBlocked ? " blocked" : "")}>
-            <div className="lead-list__meter-row">
-              <span className="lead-list__meter-lbl">
-                <I d={ICONS.bolt} size={10} /> {meterLabel}
-              </span>
-              <span className="lead-list__meter-val">{meterValue}</span>
-            </div>
-            <div className="radar2-bar">
-              <div className="radar2-bar-fill" style={{ width: `${meterPct}%` }} />
-            </div>
+                    <Av name={row.name || "—"} size={30} />
+                    <span className="row-dense__id-body">
+                      <span className="row-dense__name">{row.name || "—"}</span>
+                      <span className="row-dense__seg">{row.segment || row.businessCategory || "—"}</span>
+                      {renderOriginBadge(row)}
+                    </span>
+                  </span>
+                  <span className="row-dense__loc">
+                    {row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "Brasil"}
+                  </span>
+                  <span className="row-dense__contact">
+                    {tab === "shelf" ? contatoMascarado(row) : <span>{row.phone || row.email || "—"}</span>}
+                  </span>
+                  <span className="row-dense__temp">
+                    {row.opportunityScore != null && row.opportunityScore > 0 ? (
+                      <span className={"score-ring" + (row.opportunityScore >= 60 ? " hi" : " mid")} style={{ width: 26, height: 26, fontSize: "0.6rem" }}>
+                        {row.opportunityScore}
+                      </span>
+                    ) : "—"}
+                  </span>
+                  {/* Responsável: sem contrato de nome resolvido na listagem hoje
+                      (assignedUserId sem nome) — "—" em vez de inventar dado. */}
+                  <span className="row-dense__owner">—</span>
+                  <span className="row-dense__actions" onClick={e => e.stopPropagation()}>
+                    {revealed && (
+                      <button
+                        type="button"
+                        className="btn-ghost btn-xs"
+                        title="Abrir WhatsApp"
+                        onClick={() => abrirWhatsAppInterno({ phone: row.phone, name: row.name })}
+                      >
+                        <I d={ICONS.msg} size={13} />
+                      </button>
+                    )}
+                    {tab === "shelf" ? (
+                      <button
+                        type="button"
+                        className="btn-teal btn-xs"
+                        onClick={() => puxar(row.id)}
+                        disabled={pullBusyId === row.id || bulkBusy || meterBlocked}
+                      >
+                        {pullBusyId === row.id ? "Puxando…" : "Puxar"}
+                      </button>
+                    ) : null}
+                    {revealed && (
+                      <button
+                        type="button"
+                        className="btn-ghost btn-xs"
+                        title="Ver mais"
+                        onClick={() => router.push(`/leads/${encodeURIComponent(row.id)}`)}
+                      >
+                        Ver mais
+                      </button>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
-
-        {pullMsg && <p className="radar2-pull-msg" style={{ padding: "0 14px" }}>{pullMsg}</p>}
-      </>
-    );
-  }
-
-  // ── Card overlay mobile (swipe Tinder) ────────────────────────────────────
-  function renderCardOverlay() {
-    if (!cardOpen) return null;
-    return (
-      <div className="hbx-veil" onClick={closeCard}>
-        <div className="lead-card-modal" onClick={e => e.stopPropagation()}>
-          <div className="lead-card-modal__nav">
-            <button className="lead-card-modal__arrow" onClick={() => cardGo(-1)} disabled={cardIdx === 0} aria-label="Anterior">‹</button>
-            <div className="lead-card-modal__dots">
-              {items.slice(0, Math.min(items.length, 10)).map((_, i) => (
-                <span key={i} className={"lead-card-modal__dot" + (i === cardIdx ? " lead-card-modal__dot--active" : "")} />
-              ))}
-            </div>
-            <span className="lead-card-modal__progress">
-              {isCardHandoff ? `${items.length}/${items.length}` : `${cardIdx + 1}/${items.length}`}
-            </span>
-            <button className="lead-card-modal__arrow" onClick={() => { if (isCardHandoff) router.push("/vendas"); else cardGo(1); }} aria-label="Próximo">›</button>
-            <button className="lead-card-modal__close" onClick={closeCard} aria-label="Fechar">✕</button>
-          </div>
-
-          <div className="lead-card-modal__body">
-            {isCardHandoff ? (
-              <div className="lead-card lead-card--handoff" onClick={() => router.push("/vendas")}>
-                <div className="lead-handoff__icon">🏆</div>
-                <div className="lead-handoff__title">Acabou a prateleira</div>
-                <div className="lead-handoff__sub">Seus leads viram negócios — toque pra abrir o Vendas</div>
-                <button className="btn-teal" onClick={() => router.push("/vendas")}>Abrir Vendas →</button>
-              </div>
-            ) : activeCard && (
-              <div
-                className="lead-card"
-                style={{
-                  transform: isDragging ? `translateX(${dragDx}px) rotate(${dragDx * 0.03}deg)` : "translateX(0) rotate(0deg)",
-                  opacity: isDragging ? Math.max(0.75, 1 - Math.abs(dragDx) / 500) : 1,
-                  transition: isDragging ? "none" : "transform 0.22s ease, opacity 0.22s ease",
-                }}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerUp}
-              >
-                <div className="lead-card__hero">
-                  <Av name={activeCard.name || "—"} size={48} />
-                  <div className="lead-card__hero-body">
-                    <span className="lead-card__name">{activeCard.name || "—"}</span>
-                    <span className="lead-card__sub">{activeCard.segment || activeCard.businessCategory || "—"}</span>
-                    {activeCard.city && (
-                      <span className="lead-card__loc">
-                        <I d={ICONS.mapin} size={11} />
-                        {activeCard.city}{activeCard.state ? `/${activeCard.state}` : ""}
-                      </span>
-                    )}
-                    <div className="lead-card__badges">
-                      {activeCard.fitScore != null && activeCard.fitScore > 0 && (
-                        <span className={`radar2-fit${activeCard.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>
-                          Fit {activeCard.fitScore}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="lead-card__body">
-                  {renderLeadDetail(activeCard)}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <p className="lead-card-modal__hint">← Arraste o card para navegar →</p>
-        </div>
       </div>
     );
   }
@@ -1756,7 +1715,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         {!embedded && (
         <section className="panel" style={{ padding: 0 }}>
           <div className="leads-bank-strip" data-tut="leads-kpis">
-            <span>{isMobile ? "Brasil:" : "Total no Brasil:"}</span>
+            <span>Total no Brasil:</span>
             <span className="leads-bank-strip__num">{totalBrasilReal != null ? fmtInt(totalBrasilReal) : "—"}</span>
             {bank && Number(bank.deltaToday || 0) > 0 && (
               <span className="leads-bank-strip__delta">+{fmtInt(bank.deltaToday)} hoje</span>
@@ -1768,65 +1727,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         {/* PRATELEIRA + CARTEIRA */}
         <section className="panel leads-shelf" style={{ padding: 0 }}>
           <div className="radar2-shell">
-            {/* Mobile: filtro toggle */}
-            {isMobile && (
-              <button
-                className="radar2-filter-toggle"
-                onClick={() => setFilterOpen(o => !o)}
-                aria-expanded={filterOpen}
-              >
-                <I d={ICONS.search} size={16} />
-                <span>{filterOpen ? "Ocultar filtros" : "Buscar leads — cidade, segmento…"}</span>
-                <I d={ICONS.filter} size={14} />
-              </button>
-            )}
-
-            {/* Mobile: rail de filtros (ainda existe no mobile via toggle) */}
-            {isMobile && (
-              <div className={"radar2-rail" + (filterOpen ? " radar2-rail--open" : "")}>
-                <div className="f">
-                  <label>Estado</label>
-                  <select className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
-                    <option value="">Todos</option>
-                    {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </div>
-                <div className="f">
-                  <label>Cidade</label>
-                  <select className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
-                    <option value="">Cidade</option>
-                    {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-                  </select>
-                </div>
-                {/* P2 mobile: segmento — select igual desktop */}
-                <div className="f">
-                  <label>Segmento{!segment.trim() && <span className="radar-field-arrow" aria-hidden>›</span>}</label>
-                  <select
-                    className="select-dark"
-                    value={segment}
-                    onChange={e => setSegment(e.target.value)}
-                  >
-                    <option value="">Escolha um segmento</option>
-                    {segOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-                    {segment && !segOptions.some(o => o.label === segment) && (
-                      <option value={segment}>{segment}</option>
-                    )}
-                  </select>
-                </div>
-                {/* P4 mobile: botão Buscar usa validação com popup */}
-                <button className="btn-teal" onClick={() => executarBusca()} disabled={runBusy || runActive}>
-                  {runActive ? "Varrendo…" : "Buscar (motor)"}
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={limparFiltros}
-                >
-                  Limpar
-                </button>
-                {searchMsg && <p className="hint">{searchMsg}</p>}
-              </div>
-            )}
-
             {/* Área principal da lista */}
             <div className="radar2-main">
               {/* Embutido no Vendas (casca única): título "Pipeline de pesquisa" DENTRO
@@ -1836,27 +1736,52 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   <h2>{embedTitle}</h2>
                 </div>
               )}
-              {/* Barra de comando horizontal (desktop) — os filtros saíram do aside
-                  paredão pra cá. Mobile mantém o radar2-rail via toggle. */}
-              {!isMobile && renderCommandBar()}
+              {/* Barra de comando horizontal — os filtros saíram do aside paredão pra cá. */}
+              {renderCommandBar()}
               {/* Barra de abas escondida no modo embutido (produção): sobrava só
                   "Disponíveis" — rótulo redundante. No alias não-embutido as duas
-                  abas continuam. 05/07. */}
-              {!embedded && (
-                <div className="tabs" data-tut="leads-abas">
-                  <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
-                    Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
-                  </button>
-                  {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
-                      o que você puxa aparece no "Meu funil" do slide. 27/06. */}
+                  abas continuam. 05/07. Toggle Linhas|Cards sempre visível — vive na
+                  mesma linha, alinhado à direita. */}
+              <div className="leads-headrow">
+                {!embedded ? (
+                  <div className="tabs" data-tut="leads-abas">
+                    <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                      Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                    </button>
+                    {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
+                        o que você puxa aparece no "Meu funil" do slide. 27/06. */}
+                    <button
+                      className={"tab" + (tab === "carteira" ? " active" : "")}
+                      onClick={() => switchTab("carteira")}
+                    >
+                      Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                    </button>
+                  </div>
+                ) : <span />}
+                <div className="glass-pill-track leads-viewtoggle" role="group" aria-label="Modo de exibição da lista">
+                  <GlassPill {...viewPill} />
                   <button
-                    className={"tab" + (tab === "carteira" ? " active" : "")}
-                    onClick={() => switchTab("carteira")}
+                    type="button"
+                    ref={viewPill.itemRef("linhas")}
+                    className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "linhas" ? " active" : "")}
+                    onClick={() => setViewMode("linhas")}
+                    aria-pressed={viewMode === "linhas"}
+                    title="Ver em linhas (denso)"
                   >
-                    Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                    <I d={ICONS.list} size={14} /> Linhas
+                  </button>
+                  <button
+                    type="button"
+                    ref={viewPill.itemRef("cards")}
+                    className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "cards" ? " active" : "")}
+                    onClick={() => setViewMode("cards")}
+                    aria-pressed={viewMode === "cards"}
+                    title="Ver em cards"
+                  >
+                    <I d={ICONS.grid} size={14} /> Cards
                   </button>
                 </div>
-              )}
+              </div>
 
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
@@ -1880,15 +1805,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 );
               })()}
 
-              {/* Branch mobile/desktop */}
-              {isMobile ? (
-                renderListMobile()
-              ) : (
-                <>
-                  {/* Grade de cards (redesenho Buscar 05/07) — substitui a tabela
-                      densa. 1 card = 1 empresa/oportunidade real. Mesma seleção
-                      (checkbox → puxar em lote), badges de origem, sinais e contato
-                      mascarado; clique no card abre o detalhe no aside. */}
+              {/* Linhas densas (default) ou grade de cards — MESMO items, MESMO
+                  modelo/normalização (buildNegocioDetail/renderOriginBadge/
+                  contatoMascarado); só a moldura muda por viewMode. */}
+              {viewMode === "linhas" ? renderRowsDense() : (
                   <div className="tbl-wrap be-grid-wrap">
                     {items.length === 0 ? (
                       <div className="be-grid__empty radar2-empty">{emptyMsg}</div>
@@ -1964,83 +1884,69 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       </div>
                     )}
                   </div>
-
-                  {tab === "shelf" && (
-                    <div className={"radar2-actionbar" + (meterBlocked ? " blocked" : "")}>
-                      <div className="radar2-sel-all">
-                        <button
-                          className="btn-ghost btn-xs"
-                          onClick={() => {
-                            if (selected.size === items.length && items.length > 0) {
-                              setSelected(new Set());
-                            } else {
-                              setSelected(new Set(items.map(r => r.id)));
-                            }
-                          }}
-                        >
-                          {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
-                        </button>
-                      </div>
-                      <button className="btn-teal radar2-pull-btn" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
-                        <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
-                      </button>
-                    </div>
                   )}
-                  {meterBlocked && isSeller && (
-                    <p className="radar2-cap--danger">
-                      Carteira cheia — feche ou agende um retorno pra liberar vaga.
-                    </p>
-                  )}
-                  {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
 
-                  <div className="pager">
-                    <span style={{ marginLeft: "auto" }}>
-                      {pageTotal > 0
-                        ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`
-                        : "0 de 0"}
-                    </span>
-                    <button className="pg" onClick={() => irParaPagina(page - 1)} disabled={page <= 1}>‹</button>
-                    {[page - 1, page, page + 1].filter(p => p >= 1 && p <= lastPage).map(p => (
-                      <button key={p} className={"pg" + (p === page ? " on" : "")} onClick={() => irParaPagina(p)}>{p}</button>
-                    ))}
-                    <button className="pg" onClick={() => irParaPagina(page + 1)} disabled={page >= lastPage}>›</button>
+              {tab === "shelf" && (
+                <div className={"radar2-actionbar" + (meterBlocked ? " blocked" : "")}>
+                  <div className="radar2-sel-all">
+                    <button
+                      className="btn-ghost btn-xs"
+                      onClick={() => {
+                        if (selected.size === items.length && items.length > 0) {
+                          setSelected(new Set());
+                        } else {
+                          setSelected(new Set(items.map(r => r.id)));
+                        }
+                      }}
+                    >
+                      {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
                   </div>
-                </>
+                  <button className="btn-teal radar2-pull-btn" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                    <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                  </button>
+                </div>
               )}
+              {meterBlocked && isSeller && (
+                <p className="radar2-cap--danger">
+                  Carteira cheia — feche ou agende um retorno pra liberar vaga.
+                </p>
+              )}
+              {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
+
+              <div className="pager">
+                <span style={{ marginLeft: "auto" }}>
+                  {pageTotal > 0
+                    ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`
+                    : "0 de 0"}
+                </span>
+                <button className="pg" onClick={() => irParaPagina(page - 1)} disabled={page <= 1}>‹</button>
+                {[page - 1, page, page + 1].filter(p => p >= 1 && p <= lastPage).map(p => (
+                  <button key={p} className={"pg" + (p === page ? " on" : "")} onClick={() => irParaPagina(p)}>{p}</button>
+                ))}
+                <button className="pg" onClick={() => irParaPagina(page + 1)} disabled={page >= lastPage}>›</button>
+              </div>
             </div>
           </div>
         </section>
 
       </div>
 
-      {/* B4: Desktop: aside lateral com 2 estados */}
-      {!isMobile && (
-        <aside className="ctx">
-          {!selLead ? (
-            /* Idle: radar console completo */
-            renderRadarConsole(false)
-          ) : (
-            /* Lead selecionado: mini-radar no topo + detalhe */
-            <>
-              <div className="radar-console--mini">
-                {renderRadarConsole(true)}
-              </div>
-              {renderLeadDetail(selLead, { title: "Detalhes do lead", onClose: () => setSelLead(null) })}
-            </>
-          )}
-        </aside>
-      )}
-
-      {/* Mobile: radar hero no topo (sempre visível) + card-overlay com swipe */}
-      {isMobile && (
-        <>
-          {/* Hero radar no topo mobile */}
-          <div style={{ padding: "10px 14px 0" }}>
-            {renderRadarConsole(true)}
-          </div>
-          {renderCardOverlay()}
-        </>
-      )}
+      {/* Aside lateral com 2 estados */}
+      <aside className="ctx">
+        {!selLead ? (
+          /* Idle: radar console completo */
+          renderRadarConsole(false)
+        ) : (
+          /* Lead selecionado: mini-radar no topo + detalhe */
+          <>
+            <div className="radar-console--mini">
+              {renderRadarConsole(true)}
+            </div>
+            {renderLeadDetail(selLead, { title: "Detalhes do lead", onClose: () => setSelLead(null) })}
+          </>
+        )}
+      </aside>
 
       {/* Item 3b: popup "Filtro avançado" ressuscitado — todas as colunas reais
           do RFB (CONTRATO-FILTRO.md), prévia ao vivo contra a base 28M. */}
