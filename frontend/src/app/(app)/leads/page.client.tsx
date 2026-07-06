@@ -17,6 +17,7 @@ import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
+import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import {
   FILTRO_AVANCADO_VAZIO,
   FiltroAvancadoModal,
@@ -26,6 +27,7 @@ import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };

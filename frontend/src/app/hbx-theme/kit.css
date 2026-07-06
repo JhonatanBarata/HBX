@@ -1361,6 +1361,35 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   animation: dn-shimmer 1.4s ease-in-out infinite;
 }
 
+/* ── Badge de status de IA por CARD (CHIP E3, 05/07) — vitrine de leads + estoque de Vendas ──────
+   Mesma família visual do .dn-enriching-badge do detalhe (selo pulsante âmbar), num tamanho que
+   cabe na fileira de um card fechado (be-card / vnd-card). Estados: queued (âmbar, "na fila")
+   processing (âmbar pulsante, "enriquecendo agora") done (verde/teal, selo PERMANENTE — nunca
+   pulsa, nunca some). Texto vem de radar-ai-status.ts (RADAR_AI_STATUS_COPY) — token central,
+   nunca string solta na tela. */
+.radar-ai-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px; align-self: flex-start;
+  font-size: 0.64rem; font-weight: 800; white-space: nowrap; line-height: 1.3;
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 32%, transparent);
+  background: color-mix(in srgb, var(--hbx-warning) 12%, transparent);
+  color: var(--hbx-warning);
+}
+.radar-ai-badge--processing {
+  animation: dn-enriching-pulse 1.7s ease-in-out infinite;
+}
+.radar-ai-badge--done {
+  border-color: color-mix(in srgb, var(--hbx-success) 32%, transparent);
+  background: color-mix(in srgb, var(--hbx-success) 12%, transparent);
+  color: var(--hbx-success);
+  animation: none;
+}
+.radar-ai-badge__summary {
+  display: block; margin-top: 2px;
+  font-size: 0.62rem; font-weight: 600; color: var(--text-muted);
+  white-space: normal; line-height: 1.35;
+}
+
 /* ============================================================
    DETALHES NEGÓCIO — classes das 2 ZONAS + score ring + cadeado
    Geradas 25/06 (reset de git apagou; reconstituídas do markup real).
