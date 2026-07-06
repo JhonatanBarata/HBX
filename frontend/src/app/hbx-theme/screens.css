@@ -2059,13 +2059,13 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* WORM-15: "Salvar filtro" ocupa a linha inteira, abaixo de Buscar/Limpar */
 .radar-actions__save { grid-column: 1 / -1; }
 
-/* ── WORM-15: barra "Minhas pesquisas salvas" (accordion acima dos filtros) ── */
-.radar-saved { border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); overflow: hidden; }
-.radar-saved__head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px; background: transparent; border: 0; cursor: pointer; color: var(--text-body); }
-.radar-saved__title { display: inline-flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-.radar-saved__count { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 5px; border-radius: 999px; font-size: 0.6rem; font-weight: 800; color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
-.radar-saved__chev { font-size: 0.7rem; color: var(--text-muted); }
-.radar-saved__body { padding: 4px 8px 8px; border-top: 1px solid var(--border-hairline); }
+/* ── LEADS-FINAL/03 (06/07): "Minhas pesquisas" virou dropdown na barra
+   (era accordion .radar-saved no aside idle — a classe do popover mudou, o
+   vocabulário do CONTEÚDO abaixo continua .radar-saved__* — reusado, não
+   duplicado). .be-saved-menu = container relativo (âncora); __pop = o
+   popover ancorado (mesmo par position:relative/absolute do .vnd-team). */
+.be-saved-menu { position: relative; display: inline-flex; }
+.be-saved-menu__pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 41; width: min(280px, 80vw); max-height: 320px; overflow-y: auto; padding: 8px; }
 .radar-saved__empty { font-size: 0.66rem; color: var(--text-muted); line-height: 1.4; margin: 6px 4px; }
 .radar-saved__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .radar-saved__item { display: flex; align-items: stretch; gap: 4px; }
@@ -2192,18 +2192,14 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .be-search__opt--empty:hover { background: transparent; color: var(--text-muted); }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Barra de comando "Buscar empresas" (redesenho 05/07) — os inputs saíram do
-   aside-paredão (o "caos" apontado pelo dono) pra uma barra horizontal no topo
-   dos resultados. Linha primária (busca grande + Buscar) + linha de refino
-   (Estado/Cidade/Alcance/site/WhatsApp/ações) que quebra em telas estreitas.
+   Barra de comando "Buscar empresas" — GAVETA (LEADS-FINAL/03, 06/07): a barra
+   virou MÍNIMA (busca + Buscar + Filtro + chips de filtro ativo + Limpar +
+   Salvar filtro + Minhas pesquisas), 1 linha limpa sempre. Estado/Cidade/
+   Alcance/Tem site/Tem WhatsApp SAÍRAM daqui pra dentro da gaveta "Filtro"
+   (renderQuickFilters, dentro do FiltroAvancadoModal) — não ficam mais
+   espremidos inline. Histórico: nasceu como barra horizontal (05/07),
+   comprimida 3x (06/07) até o dono decidir tirar os campos pra gaveta de vez.
    ══════════════════════════════════════════════════════════════════════════ */
-/* Compressão 06/07 (3ª passada, brief cirúrgico do dono): a barra comia METADE
-   do pipeline — só ~4 cards apareciam. Padding/gap encolhidos, altura da busca
-   e do Buscar alinhada a --field-height/--control-height (eram 44px soltos, um
-   degrau acima do resto do produto), refino numa linha só (sem align-items:
-   flex-end + labels de texto por cima de cada campo — isso é que empilhava
-   altura). Rótulos dos selects viram title (a11y) em vez de <label> visível;
-   os grupos (localização/site/whatsapp) viram botões ícone-only compactos. */
 .be-cmdbar {
   display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto;
   padding: 8px 16px; border-bottom: 1px solid var(--border-hairline);
@@ -2214,36 +2210,10 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .be-cmdbar__go { flex: 0 0 auto; min-width: 96px; height: var(--field-height); }
 
 .be-cmdbar__refine { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.be-cmdbar__field { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.be-cmdbar__field > label,
-.be-cmdbar__group-lbl {
-  font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-muted); white-space: nowrap;
-}
-.be-cmdbar__field .select-dark { width: auto; min-width: 92px; }
-.be-cmdbar__group { display: flex; align-items: center; gap: 5px; }
 .be-cmdbar__spacer { flex: 1 1 24px; min-width: 12px; }
 .be-cmdbar__actions { display: flex; align-items: center; gap: 4px; }
 
-/* Botão "Minha localização" (06/07, 3ª passada) — era chip com 2 textos
-   ("Minha localização" + "Preencher"), o dono pediu "podia ser 1 ícone". Vira
-   botão ícone-only quadrado, mesma altura de controle do resto da barra;
-   title carrega a explicação (a11y), onClick/disabled intactos. */
-.be-cmdbar__geo {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: var(--control-height); height: var(--control-height); padding: 0; cursor: pointer;
-  border-radius: var(--radius-md); border: 1px solid var(--hbx-brand-strong);
-  background: var(--hbx-brand-soft); color: var(--hbx-brand-strong);
-  transition: background var(--motion-fast), border-color var(--motion-fast), opacity var(--motion-fast);
-}
-.be-cmdbar__geo:hover:not(:disabled) { background: var(--hbx-brand); color: var(--hbx-brand-contrast); border-color: var(--hbx-brand); }
-.be-cmdbar__geo:disabled { opacity: 0.6; cursor: default; }
-
-/* Botão ícone-only genérico da barra (06/07) — usado por "Filtro"/"Limpar" nas
-   ações e reaproveitado pelos toggles Tem site/Tem WhatsApp (label de texto
-   virou <I title>/<WhatsAppMark> na frente do tristate). Mesmo vocabulário do
-   .radar-canais__switch (chip soft), só quadrado e sem rótulo — cada uso tem
-   `title` obrigatório porque não sobra texto visível. */
+/* Botão ícone-only genérico da barra — usado por "Limpar". */
 .be-cmdbar__iconbtn {
   display: inline-flex; align-items: center; justify-content: center;
   width: var(--control-height); height: var(--control-height); padding: 0; cursor: pointer;
@@ -2252,27 +2222,36 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
 }
 .be-cmdbar__iconbtn:hover { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand-strong); }
-/* Marcador estático (grupo site/whatsapp) não precisa de hover de botão —
-   só sinaliza o que o tristate ao lado filtra. */
-.be-cmdbar__group-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; color: var(--text-muted); flex: 0 0 auto;
+
+/* Chip de filtro ativo (LEADS-FINAL/03) — reflete o que está setado na gaveta
+   (ex.: "SP", "Belém de Maria", "Com site"); ✕ remove só aquele campo. Mesmo
+   vocabulário pill do .radar-canais__switch (soft, borda fina), com um botão
+   ✕ embutido em vez de aria-pressed. */
+.be-chip-active {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.66rem; font-weight: 700; padding: 3px 4px 3px 10px;
+  border-radius: 999px; border: 1px solid var(--hbx-brand-strong);
+  background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); white-space: nowrap;
 }
+.be-chip-active button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: inherit; cursor: pointer; opacity: 0.75;
+  transition: background var(--motion-fast), opacity var(--motion-fast);
+}
+.be-chip-active button:hover { background: var(--hbx-brand-strong); color: var(--hbx-brand-contrast); opacity: 1; }
+
 /* 1 LINHA no desktop (ordem do dono 06/07). Regra dura pra NÃO ficar horrível:
    os controles viram IRMÃOS diretos (`display:contents` nos wrappers) numa linha
-   que só quebra ENTRE controles inteiros — nunca no meio de um tristate/botão. A
-   BUSCA absorve a folga; rótulos redundantes dos selects somem (o dropdown já
-   rotula). Mobile (<=900px, mexido em paralelo) NÃO é tocado — a base segue
-   flex-direction:column e empilha. */
+   que só quebra ENTRE controles inteiros. A BUSCA absorve a folga. Mobile
+   (<=900px, mexido em paralelo) NÃO é tocado — a base segue flex-direction:
+   column e empilha. */
 @media (min-width: 901px) {
   .be-cmdbar { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
   .be-cmdbar__primary, .be-cmdbar__refine { display: contents; }
   .be-cmdbar__primary .be-search { flex: 1 1 280px; min-width: 150px; }
   .be-cmdbar__go { flex: 0 0 auto; }
-  .be-cmdbar__field { flex: 0 0 auto; }
-  .be-cmdbar__field > label { display: none; }
-  .be-cmdbar__group, .be-cmdbar__actions { flex: 0 0 auto; }
-  .be-cmdbar__refine .radar-canais__tristate { flex-wrap: nowrap; }
+  .be-cmdbar__actions { flex: 0 0 auto; }
   .be-cmdbar__actions button { white-space: nowrap; }
   .be-cmdbar__spacer { display: none; }
 }
@@ -3926,7 +3905,12 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    odiada). .hbx-veil/.hbx-modal centralizam (Lei 2) — aqui só dimensiona a
    moldura e organiza o conteúdo em seções roláveis. Zero hex/inline.
    ══════════════════════════════════════════════════════════════════════════ */
-.be-adv-modal { width: min(640px, 92vw); max-height: min(720px, 88vh); display: flex; flex-direction: column; }
+/* Gaveta lateral (LEADS-FINAL/03, 06/07): era popup centralizado
+   (.hbx-veil + .hbx-modal), virou .hbx-veil.to-right + .hbx-drawer — altura
+   cheia encostada à direita (Lei nº2, FRONTEND.md: pop-up só re-posiciona via
+   classe central, nunca inline). Largura própria (mais estreita que modal
+   centralizado — é painel, não diálogo). */
+.be-adv-modal { width: min(420px, 100vw); height: 100%; max-height: none; display: flex; flex-direction: column; }
 .be-adv-modal > h3 { padding: 18px 20px 14px; border-bottom: 1px solid var(--border-hairline); }
 .be-adv-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: grid; gap: 20px; }
 .be-adv-sec { display: grid; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid var(--border-hairline); }
@@ -4338,13 +4322,24 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 
 /* ---------- toolbar compacta: ModoSegment (Funil|Buscar) + Lista|Quadro +
-   foco + "+ Novo" — orçamento de cromo ≤140px, padding vertical mínimo. */
+   foco + "+ Novo" — orçamento de cromo ≤140px, padding vertical mínimo.
+   FIX2/V1 (reprova do dono: "parece planilha do excel" — cromo sem hierarquia):
+   o grupo INTEIRO ganha um painel de vidro leve (mesma linguagem de
+   surface-card + hairline + sombra baixa do resto do kit) em vez de flutuar
+   pelado direto no canvas — mata a cara de linha solta de planilha. */
 .vnd-m__toolbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-4);
+  margin: var(--space-1) var(--space-3) 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 8%, transparent), transparent 60%),
+    var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-xs);
 }
 .vnd-m__mini-segment { width: 64px; flex: 0 0 auto; }
 .vnd-m__tool-btn {
@@ -4353,15 +4348,16 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   height: var(--casca-action-max);
   display: grid;
   place-items: center;
-  border: none;
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-recessed);
   color: var(--text-body);
   cursor: pointer;
+  transition: transform var(--motion-fast), background var(--motion-fast);
 }
-.vnd-m__tool-btn:active { transform: scale(0.94); }
+.vnd-m__tool-btn:active { transform: scale(0.94); background: var(--surface-canvas); }
 .vnd-m__tool-btn:disabled { opacity: 0.45; cursor: default; }
-.vnd-m__tool-btn--primary { margin-left: auto; background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
+.vnd-m__tool-btn--primary { margin-left: auto; background: var(--hbx-brand-strong); border-color: transparent; color: var(--hbx-action-ink); }
 
 /* ---------- stats 1 linha micro ----------
    No Funil é bloco isolado (padding próprio); no Buscar vive DENTRO de
@@ -4394,12 +4390,21 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 
 /* ---------- barra de busca (campo 36px + botão filtro) — cromo compacto:
    só padding lateral + respiro mínimo (o campo de 36px é a altura real). */
+/* FIX2/V1: mesmo painel de vidro leve do .vnd-m__toolbar — o modo Buscar
+   funde o ModoSegment aqui (orçamento ≤140px), então ganha a MESMA hierarquia. */
 .vnd-m__searchbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-4);
+  margin: var(--space-1) var(--space-3) 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 8%, transparent), transparent 60%),
+    var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-xs);
 }
 .vnd-m__searchfield {
   flex: 1 1 auto;

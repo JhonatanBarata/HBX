@@ -247,8 +247,14 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 /* ---------- Context panel (right) ---------- */
 /* Largura do painel de contexto = --context-width (token de esqueleto). Usado
-   por Vendas/Leads/Atendimento (aside de detalhe/filtro/show-off). */
-.content { display: grid; grid-template-columns: 1fr var(--context-width); gap: 0; flex: 1; min-height: 0; }
+   por Vendas/Leads/Atendimento (aside de detalhe/filtro/show-off).
+   minmax(0, 1fr) — NÃO "1fr" puro (correção LEADS-FINAL/03, 06/07): grid-track
+   com "1fr" tem min-width:auto implícito, então uma tabela larga (Meu funil,
+   view=Lista) força a coluna a crescer pelo conteúdo mínimo e empurra o
+   --context-width pra fora da viewport (aside "Detalhes" cortado ~1568px).
+   minmax(0, 1fr) deixa a coluna esquerda encolher/rolar; --context-width
+   (aside) nunca encolhe — é o filho que cede, nunca o aside. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr) var(--context-width); gap: 0; flex: 1; min-height: 0; }
 /* .work é o container de rolagem padrão: enche a altura sobrando e rola por
    dentro (a página nunca rola). Vale para tela só-conteúdo e para a coluna
    esquerda das telas com painel de contexto. Passe de densidade (LEADS-FINAL/01,
@@ -690,11 +696,21 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .hbx-x { color: var(--text-muted); font-weight: 400; cursor: pointer; }
 .hbx-pop { border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 .hbx-drawer { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); }
+/* Cabeçalho da gaveta — mesmo tratamento do .hbx-modal > h3 (central, Lei nº2):
+   primeira gaveta com <h3> própria (be-adv-modal, LEADS-FINAL/03) — sem isto o
+   título ficaria sem o layout flex/tamanho do resto do kit. */
+.hbx-drawer > h3 { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: 800; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 /* Aviso transitório (canto inferior). Empilha acima das veils (z 60). */
 .hbx-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; max-width: min(420px, calc(100% - 32px)); padding: 11px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); color: var(--text-strong); font-size: 0.76rem; font-weight: 700; line-height: 1.45; text-align: center; }
 
 /* ---------- Tabela de dados (Webscraping) ---------- */
-.tbl-wrap { overflow-x: auto; }
+/* min-width:0 — reforça a cadeia de encolhimento junto do fix de .content
+   (grid-template-columns: minmax(0,1fr) ...): sem isso, .tbl-wrap (grid item
+   dentro de .work) herda o min-width:auto do conteúdo intrínseco da <table>
+   (células com white-space:nowrap) e força a coluna toda a crescer. Com
+   min-width:0 a tabela rola por dentro (overflow-x) em vez de empurrar o
+   aside .ctx pra fora da viewport. */
+.tbl-wrap { overflow-x: auto; min-width: 0; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
 .tbl th { text-align: left; padding: 10px 12px; font-size: 0.64rem; letter-spacing: 0.04em; text-transform: none; color: var(--text-muted); font-weight: 700; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-table-head); white-space: nowrap; }
 .tbl td { padding: 11px 12px; border-bottom: 1px solid var(--border-hairline); vertical-align: middle; white-space: nowrap; }

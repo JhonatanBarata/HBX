@@ -23,6 +23,8 @@
 import { usePathname } from "next/navigation";
 import React, { useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+
 import { VendasBuscarMobile } from "./vendas-buscar";
 import { VendasFunilMobile } from "./vendas-funil";
 
@@ -42,14 +44,22 @@ function readInitialModo(pathname: string): Modo {
   return "funil";
 }
 
+// Guia Funil|Buscar — Lei nº2 do Design System (FRONTEND.md §2): seleção ativa
+// de um grupo com "um por vez" é SEMPRE Glass Pill deslizante, nunca um
+// background que troca instantâneo (reprova do dono 06/07: cromo do topo
+// "parece planilha do excel"). Container pill-shaped: --glass-pill-radius
+// herda --radius-pill do .casca-segment (não seta nada — já é a forma padrão).
 export function ModoSegment({ modo, onChange }: { modo: Modo; onChange: (m: Modo) => void }) {
+  const gp = useGlassPill<HTMLButtonElement>(modo);
   return (
-    <div className="casca-segment vnd-m__segment" role="tablist" aria-label="Modo">
+    <div className="casca-segment vnd-m__segment glass-pill-track" role="tablist" aria-label="Modo">
+      <GlassPill {...gp} />
       <button
         type="button"
         role="tab"
+        ref={gp.itemRef("funil")}
         aria-selected={modo === "funil"}
-        className={"casca-segment__item" + (modo === "funil" ? " is-on" : "")}
+        className={"casca-segment__item glass-pill-item" + (modo === "funil" ? " is-on" : "")}
         onClick={() => onChange("funil")}
       >
         Funil
@@ -57,8 +67,9 @@ export function ModoSegment({ modo, onChange }: { modo: Modo; onChange: (m: Modo
       <button
         type="button"
         role="tab"
+        ref={gp.itemRef("buscar")}
         aria-selected={modo === "buscar"}
-        className={"casca-segment__item" + (modo === "buscar" ? " is-on" : "")}
+        className={"casca-segment__item glass-pill-item" + (modo === "buscar" ? " is-on" : "")}
         onClick={() => onChange("buscar")}
       >
         Buscar

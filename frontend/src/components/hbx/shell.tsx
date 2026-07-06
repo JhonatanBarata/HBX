@@ -92,6 +92,10 @@ export const ICONS: Record<string, string[]> = {
   railExpand: ["m7 6 6 6-6 6", "m14 6 6 6-6 6"],
   // Chevron pra baixo — seta de combobox/dropdown (ex.: busca de segmento no Radar).
   chevronDown: ["m6 9 6 6 6-6"],
+  // Voltar (casca mobile — FIX2/V5): chevron pra ESQUERDA. `arrow` acima aponta
+  // pra DIREITA e é usado em várias telas como "ver mais" — não pode virar seta
+  // de voltar (quebraria essas telas). Chave própria, só pro botão de voltar.
+  back: ["M19 12H5", "m11 18-6-6 6-6"],
   sun: ["M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z", "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"],
   moon: ["M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z"],
   image: ["M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "m21 16-5-5-7 7"],

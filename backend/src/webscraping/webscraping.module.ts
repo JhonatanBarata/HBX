@@ -61,6 +61,7 @@ import { CnpjPublicProviderService } from './radar/providers/cnpj-public/cnpj-pu
 import { CnpjDiscoveryService } from './radar/providers/cnpj-public/cnpj-discovery.service';
 import { CnpjBaseQueryService } from './radar/providers/cnpj-public/cnpj-base-query.service';
 import { CnpjBaseController } from './radar/providers/cnpj-public/cnpj-base.controller';
+import { RadarCountService } from './radar/providers/cnpj-public/radar-count.service';
 import { LocalDirectoryProviderService } from './radar/providers/local-directories/local-directory-provider.service';
 import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
@@ -154,6 +155,7 @@ const RADAR_PROVIDER_SERVICES = [
   CnpjPublicProviderService,
   CnpjDiscoveryService,
   CnpjBaseQueryService,
+  RadarCountService,
   LocalDirectoryProviderService,
   VerticalSourceProviderService,
   WebsiteCrawlProviderService,

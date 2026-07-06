@@ -16,6 +16,7 @@
 
 import React from "react";
 
+import { ConfiguracoesMobile } from "./screens/configuracoes";
 import { ConversasMobile } from "./screens/conversas";
 import { EmpresasMobile } from "./screens/empresas";
 import { VendasMobile } from "./screens/vendas";
@@ -32,11 +33,17 @@ export type CascaScreen = React.ComponentType;
 // (leads/redirect.client.tsx) resolver.
 // W3 (Conversas): <ConversasMobile/> — lista + chat takeover.
 // W4 (Empresas): <EmpresasMobile/> — lista + ficha bottom sheet.
+// W5 (Mais/Config): <ConfiguracoesMobile/> — whitelist curada (Conta/WhatsApp/
+// Equipe/Aparência); o resto (IA/avançado/cobrança/automações) NÃO é
+// registrado aqui de propósito — cai no fallback central. A folha "Mais" em
+// si (components/casca/screens/mais-sheet.tsx) é uma CascaSheet acionada pela
+// tab bar, não uma tela registrada no pathname.
 export const CASCA_SCREENS: Record<string, CascaScreen> = {
   "/vendas": VendasMobile,
   "/leads": VendasMobile,
   "/atendimento": ConversasMobile,
   "/empresas": EmpresasMobile,
+  "/configuracoes": ConfiguracoesMobile,
 };
 
 // Título do topo por rota (1 linha). Sem entrada = usa o title do AppShell META
@@ -47,6 +54,7 @@ export const CASCA_TITLES: Record<string, string> = {
   "/leads": "Vendas",
   "/atendimento": "Conversas",
   "/empresas": "Empresas",
+  "/configuracoes": "Configurações",
 };
 
 /** Devolve a tela mobile registrada para a rota, ou null (→ fallback central). */

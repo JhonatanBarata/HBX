@@ -9,6 +9,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { showCascaToast } from "@/lib/casca-toast";
@@ -122,15 +123,19 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
 
   const empty = todos.length === 0;
 
+  const vistaGp = useGlassPill<HTMLButtonElement>(vista);
+
   return (
     <div className="vnd-m__body">
       <div className="vnd-m__toolbar">
         <ModoSegment modo={modo} onChange={onModoChange} />
-        <div className="casca-segment vnd-m__mini-segment" role="tablist" aria-label="Visualização">
-          <button type="button" role="tab" aria-selected={vista === "lista"} className={"casca-segment__item" + (vista === "lista" ? " is-on" : "")} onClick={() => setVista("lista")}>
+        {/* Lista|Quadro — mesma Lei nº2: Glass Pill, não background instantâneo. */}
+        <div className="casca-segment vnd-m__mini-segment glass-pill-track" role="tablist" aria-label="Visualização">
+          <GlassPill {...vistaGp} />
+          <button type="button" role="tab" ref={vistaGp.itemRef("lista")} aria-selected={vista === "lista"} className={"casca-segment__item glass-pill-item" + (vista === "lista" ? " is-on" : "")} onClick={() => setVista("lista")}>
             <I d={ICONS.list} size={14} />
           </button>
-          <button type="button" role="tab" aria-selected={vista === "quadro"} className={"casca-segment__item" + (vista === "quadro" ? " is-on" : "")} onClick={() => setVista("quadro")}>
+          <button type="button" role="tab" ref={vistaGp.itemRef("quadro")} aria-selected={vista === "quadro"} className={"casca-segment__item glass-pill-item" + (vista === "quadro" ? " is-on" : "")} onClick={() => setVista("quadro")}>
             <I d={ICONS.grid} size={14} />
           </button>
         </div>

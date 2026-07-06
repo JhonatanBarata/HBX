@@ -106,7 +106,7 @@ export function CascaView({
       >
         <div className="casca-top">
           <button className="casca-top__back" onClick={requestClose} aria-label="Voltar">
-            <I d={ICONS.arrow} size={18} />
+            <I d={ICONS.back} size={18} />
           </button>
           {title ? <h1 className="casca-top__title">{title}</h1> : <span className="casca-top__title" />}
           {actions ? <div className="casca-top__actions">{actions}</div> : null}

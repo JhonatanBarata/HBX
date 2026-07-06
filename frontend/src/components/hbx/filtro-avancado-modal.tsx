@@ -22,7 +22,7 @@
 // │  fingidos. Zero hex/inline (5 Leis) — só classe/token central.             │
 // └────────────────────────────────────────────────────────────────────────────┘
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
@@ -241,13 +241,22 @@ function TriState({ value, onChange, labelOn = "Sim", labelOff = "Não" }: { val
   );
 }
 
+// LEADS-FINAL/03 (06/07): o popup centralizado virou GAVETA lateral
+// (.hbx-veil.to-right + .hbx-drawer, mesmo par usado em outras telas do kit —
+// nunca reposiciona inline) pra caber os controles que SAÍRAM da barra de
+// comando (Estado/Cidade/Alcance/Tem site/Tem WhatsApp). Esses 5 controles não
+// são campo do FiltroAvancadoState (são estado próprio da tela de Leads, ligados
+// direto no Pipeline de busca) — em vez de a gaveta conhecer o shape da tela
+// que a usa, ela recebe um slot (quickSlot) renderizado ANTES das seções
+// "só prévia RFB". Mantém o componente reusável e sem acoplar ao caller.
 export function FiltroAvancadoModal({
-  draft, onChange, onClose, onApply,
+  draft, onChange, onClose, onApply, quickSlot,
 }: {
   draft: FiltroAvancadoState;
   onChange: (next: FiltroAvancadoState) => void;
   onClose: () => void;
   onApply: (f: FiltroAvancadoState) => void;
+  quickSlot?: ReactNode;
 }) {
   function patch(p: Partial<FiltroAvancadoState>) { onChange({ ...draft, ...p }); }
   const [cidadesTxt, setCidadesTxt] = useState(draft.cities.join(", "));
@@ -287,17 +296,23 @@ export function FiltroAvancadoModal({
   const soPrevia = useMemo(() => camposSoPreviaAtivos(draft), [draft]);
 
   return (
-    <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="hbx-modal be-adv-modal" onClick={e => e.stopPropagation()}>
+    <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="hbx-drawer be-adv-modal" onClick={e => e.stopPropagation()}>
         <h3>
-          Filtro avançado
+          Filtro
           <span className="x" role="button" tabIndex={0} aria-label="Fechar" onClick={onClose} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onClose(); }}>
             <I d={ICONS.x} size={16} />
           </span>
         </h3>
         <div className="be-adv-body">
+          {quickSlot && (
+            <section className="be-adv-sec">
+              <h4>Onde buscar</h4>
+              {quickSlot}
+            </section>
+          )}
           <section className="be-adv-sec">
-            <h4>Localização</h4>
+            <h4>Localização (base Receita — só prévia)</h4>
             <div className="be-adv-grid2">
               <div className="f">
                 <label>UF</label>

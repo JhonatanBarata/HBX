@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 import type { Response } from 'express';
@@ -17,6 +18,7 @@ import { SourceBudgetService } from './source-budget/source-budget.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { WebscrapingService } from './webscraping.service';
 import { CnpjBaseQueryDto } from './radar/providers/cnpj-public/cnpj-base.controller';
+import { RadarCountService } from './radar/providers/cnpj-public/radar-count.service';
 
 class WebscrapingSearchDto {
   @IsOptional()
@@ -490,6 +492,32 @@ class RadarTenantAutoDistributionDto {
   }>;
 }
 
+// LEADS-FINAL 03 (06/07, docs/PLANEJAMENTOS/LEADS-FINAL/03-FILTROS-E-PESQUISAS-SALVAS.md) —
+// "os 6 filtros que importam" da gaveta nova. Whitelist EXPLICITA server-side (é input do
+// usuário, ver radar-count-filters.util.ts) — nunca aceita campo livre.
+class RadarCountContatoDto {
+  @IsOptional() @IsBoolean() temTelefone?: boolean;
+  @IsOptional() @IsBoolean() temEmail?: boolean;
+}
+
+class RadarCountDto {
+  @IsOptional() @IsString() uf?: string;
+  @IsOptional() @IsString() estado?: string;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() cidade?: string;
+  @IsOptional() @IsString() segment?: string;
+  @IsOptional() @IsString() cnae?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) porte?: string[];
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? undefined : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  situacao?: string[];
+  @IsOptional() @IsString() abertaDe?: string;
+  @IsOptional() @IsString() abertaAte?: string;
+  @IsOptional() @IsObject() contato?: RadarCountContatoDto;
+}
+
 @Controller('webscraping')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
@@ -499,11 +527,23 @@ export class WebscrapingController {
     private readonly hbxEnginePool: HbxEnginePoolService,
     private readonly leadHarvestImportService: LeadHarvestImportService,
     private readonly enrichmentCostService: EnrichmentCostService,
+    private readonly radarCountService: RadarCountService,
   ) {}
 
   @Get('runtime')
   getRuntime(@Req() req: any) {
     return this.webscrapingService.getRuntime(req.user);
+  }
+
+  // LEADS-FINAL 03 (06/07) — contagem GRÁTIS da gaveta de filtros ("1.243 empresas batem").
+  // SÓ conta (nunca amostra/contato), degrade gracioso (never throws — sem base carregada no
+  // ambiente devolve available:false/count:null). Rate-limit apertado: contagem também é
+  // oráculo pra scraper (plano, seção "Backend"). 30/min é generoso pra humano navegando a
+  // gaveta (debounce do front já limita a cadência) e curto pra automação varrer combinações.
+  @Post('radar/count')
+  @Throttle({ default: { limit: 30, ttl: 60 } })
+  radarCount(@Body() dto: RadarCountDto) {
+    return this.radarCountService.count(dto || {});
   }
 
   @Get('engines/status')

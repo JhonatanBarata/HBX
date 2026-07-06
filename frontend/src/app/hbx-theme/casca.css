@@ -386,7 +386,9 @@
   to { opacity: 0; transform: translate(-50%, 16px); }
 }
 
-/* ---------- segmented compacto 28px (guia de modo — reusável W2–W6) ------- */
+/* ---------- segmented compacto 28px (guia de modo — reusável W2–W6) -------
+   Forma pill (Lei nº2): quando vira glass-pill-track, o vidro deslizante
+   nasce arredondado igual ao track — --glass-pill-radius aqui, não por tela. */
 .casca-segment {
   position: relative;
   display: flex;
@@ -395,6 +397,7 @@
   gap: 2px;
   border-radius: var(--radius-pill);
   background: var(--surface-recessed);
+  --glass-pill-radius: var(--radius-pill);
 }
 .casca-segment__item {
   flex: 1 1 0;
@@ -410,10 +413,18 @@
   cursor: pointer;
   white-space: nowrap;
 }
+/* Sem glass-pill (legado): destaque próprio. Quando o track é .glass-pill-track
+   (FIX2/V1 — Lei nº2), o vidro por trás JÁ dá fundo+sombra; o item só troca a
+   cor do texto (senão duplicaria: quadrado sólido + vidro por cima). */
 .casca-segment__item.is-on {
   background: var(--surface-card);
   color: var(--text-strong);
   box-shadow: var(--shadow-sm);
+}
+.glass-pill-track .casca-segment__item.is-on {
+  background: transparent;
+  color: var(--text-strong);
+  box-shadow: none;
 }
 
 /* ============================================================

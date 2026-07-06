@@ -1,10 +1,15 @@
 # TESTE-GERAL — validação do sistema TODO (06/07/2026)
 
+> **QUEM testa: o DONO (decisão 06/07). NÃO é o Claude, NÃO é localhost.** Ele testa no VPS, com calma.
+> Este arquivo é o roteiro DELE. O Claude só conserta o que ele apontar depois. Mock de Logística foi
+> RETIRADO da alçada do Claude (o dono valida a Logística direto quando quiser). [[testar-no-vps]]
+
 Formato: `{user}: {modulo} — entrar X, fazer Y`. Básico do básico, nada de fora.
 Marcar cada linha: ✅ ok | ⚠️ feio/incompleto | ❌ quebrado. Todo ⚠️/❌ vira linha em
-[CORRECOES.md](CORRECOES.md) na hora (não confiar na memória).
+[CORRECOES.md](CORRECOES.md).
 
-**Onde:** localhost:3001, Chrome (cred em `.test-login.local.md`). Prod só spot-check se o dono mandar.
+**Onde:** **VPS `www.hbxsystem.com.br`** (login `jhonatan@hbxsystem.com.br`, cred em `.test-login.local.md`).
+Local (`localhost:3001`) SAIU — dá 401/vazio. Testar só depois de publicar.
 **Regra dura:** conexão/reconexão de chip WhatsApp NÃO se testa com chip real — mandar mensagem pelo chip já `open` pode, mas destino = número descartável.
 
 ---
@@ -84,11 +89,14 @@ Pré-requisito: mock de 5 clientes (seção 6). Testar no CELULAR de verdade, Ch
 - [ ] público: Termos/Políticas — /termos e /politicas abrem
 - [ ] redirect: /workspace→/dashboard, /webscraping→/leads, /dashboard/master→/master (só conferir que redirecionam)
 
-## 6. MOCK LOGÍSTICA — 5 clientes (depois da validação acima)
+## 6. MOCK LOGÍSTICA — 5 clientes [RETIRADO da alçada do Claude, 06/07 — referência só]
 
-**Mock de clientes: SIM, sempre.** Seed de 5 clientes fake com **endereços REAIS** da sua
-cidade (espalhados, 2–5 km entre si), 1 produto (Galão 20L) e dias de entrega — roda em
-LOCAL ou tenant de teste (fake em prod suja o CRM; você decide onde).
+> **O dono decidiu (06/07): o Claude NÃO constrói mais este mock nem roda esta campanha.**
+> O dono valida a Logística direto no VPS, quando quiser. O texto abaixo fica só como referência
+> de COMO ele mesmo pode montar o teste se decidir fazer. Não é tarefa pendente do Claude.
+
+**Mock de clientes:** Seed de 5 clientes fake com **endereços REAIS** da sua
+cidade (espalhados, 2–5 km entre si), 1 produto (Galão 20L) e dias de entrega.
 
 **GPS: os dois, mas em fases — porque testam coisas diferentes:**
 1. **GPS emulado (desktop, DevTools→Sensors):** valida o FLUXO Hoje→Rota→Chegada→Entregue
