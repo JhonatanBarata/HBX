@@ -2252,15 +2252,23 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; color: var(--text-muted); flex: 0 0 auto;
 }
-/* 1 LINHA no desktop (ordem do dono 06/07): busca + Buscar + TODOS os filtros +
-   ações numa única linha, pra a barra roubar o mínimo de altura do pipeline.
-   Mobile (<=900px, mexido em paralelo) NÃO é afetado — a base segue
-   flex-direction:column e empilha. Só desktop entra aqui. */
+/* 1 LINHA no desktop (ordem do dono 06/07). Regra dura pra NÃO ficar horrível:
+   os controles viram IRMÃOS diretos (`display:contents` nos wrappers) numa linha
+   que só quebra ENTRE controles inteiros — nunca no meio de um tristate/botão. A
+   BUSCA absorve a folga; rótulos redundantes dos selects somem (o dropdown já
+   rotula). Mobile (<=900px, mexido em paralelo) NÃO é tocado — a base segue
+   flex-direction:column e empilha. */
 @media (min-width: 901px) {
-  .be-cmdbar { flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 10px; }
-  .be-cmdbar__primary { flex: 0 1 auto; min-width: 0; }
-  .be-cmdbar__primary .be-search { flex: 0 1 380px; min-width: 150px; }
-  .be-cmdbar__refine { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
+  .be-cmdbar { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+  .be-cmdbar__primary, .be-cmdbar__refine { display: contents; }
+  .be-cmdbar__primary .be-search { flex: 1 1 280px; min-width: 150px; }
+  .be-cmdbar__go { flex: 0 0 auto; }
+  .be-cmdbar__field { flex: 0 0 auto; }
+  .be-cmdbar__field > label { display: none; }
+  .be-cmdbar__group, .be-cmdbar__actions { flex: 0 0 auto; }
+  .be-cmdbar__refine .radar-canais__tristate { flex-wrap: nowrap; }
+  .be-cmdbar__actions button { white-space: nowrap; }
+  .be-cmdbar__spacer { display: none; }
 }
 @media (max-width: 900px) {
   .be-cmdbar__spacer { display: none; }
@@ -4287,4 +4295,357 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .log-qr__link { display: flex; align-items: center; gap: 8px; width: 100%; }
 .log-qr__url { flex: 1; min-width: 0; font-size: 0.8rem; }
 .log-qr__copy { flex: none; white-space: nowrap; }
+
+/* ============================================================
+   MOBILE-CASCA/W2 — VENDAS/LEADS mobile (Funil | Buscar | Modo foco).
+   Métrica estrutural = tokens --casca-* (Lei 1, spacing/typography.css);
+   aqui só COMPÕE a estrutura por-tela. Zero cor/hex (5 Leis) — só var(--token).
+   Régua: linhas --casca-row-h (56–64px), ≥8 visíveis, segmented 28px,
+   stats 11px, anti-placona.
+   ============================================================ */
+
+/* tela genérica dentro do palco da casca (ocupa o resto da viewport) */
+.casca-screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- segmented Funil|Buscar ----------
+   Orçamento de cromo (PLANO §régua, ≤140px): NÃO vira linha própria — cada
+   modo funde o segmented na SUA barra superior (Buscar: com o campo; Funil:
+   com a toolbar). Largura fixa compacta (2 abas curtas). */
+.vnd-m__segment { flex: 0 0 auto; width: 112px; }
+
+/* ---------- corpo rolável de cada modo ----------
+   gap mínimo entre os blocos de cromo (cabeçalho/busca/stats/live) — evita
+   empilhar padding+margin redundante em cada bloco (orçamento ≤140px). */
+.vnd-m__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- toolbar compacta: ModoSegment (Funil|Buscar) + Lista|Quadro +
+   foco + "+ Novo" — orçamento de cromo ≤140px, padding vertical mínimo. */
+.vnd-m__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+}
+.vnd-m__mini-segment { width: 64px; flex: 0 0 auto; }
+.vnd-m__tool-btn {
+  flex: 0 0 auto;
+  width: var(--casca-action-max);
+  height: var(--casca-action-max);
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  cursor: pointer;
+}
+.vnd-m__tool-btn:active { transform: scale(0.94); }
+.vnd-m__tool-btn:disabled { opacity: 0.45; cursor: default; }
+.vnd-m__tool-btn--primary { margin-left: auto; background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
+
+/* ---------- stats 1 linha micro ----------
+   No Funil é bloco isolado (padding próprio); no Buscar vive DENTRO de
+   .vnd-m__statsrow (lado a lado com o CTA "Buscar") — economiza uma linha
+   inteira de cromo (orçamento ≤140px). */
+.vnd-m__stats {
+  flex: 0 0 auto;
+  padding: 0 var(--space-4) var(--space-1);
+  font-size: var(--casca-text-stat);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+}
+/* linha combinada stats + CTA "Buscar" (modo Buscar, quando NÃO há busca ativa) */
+.vnd-m__statsrow {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  height: var(--casca-segment-h);
+}
+.vnd-m__statsrow .vnd-m__stats {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- barra de busca (campo 36px + botão filtro) — cromo compacto:
+   só padding lateral + respiro mínimo (o campo de 36px é a altura real). */
+.vnd-m__searchbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+}
+.vnd-m__searchfield {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--field-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+}
+.vnd-m__searchinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+}
+.vnd-m__searchinput:focus { outline: none; }
+.vnd-m__searchcta {
+  flex: 0 0 auto;
+  height: var(--casca-segment-h);
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vnd-m__searchcta:disabled { opacity: 0.6; }
+
+/* ---------- faixa fina viva de busca rodando: pulso + contador + × ---------- */
+.vnd-m__live {
+  flex: 0 0 auto;
+  margin: 0 var(--space-4);
+  height: var(--casca-segment-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+.vnd-m__live-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--hbx-brand-strong);
+  animation: vnd-m-pulse 1.3s ease-in-out infinite;
+}
+@keyframes vnd-m-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.7); }
+}
+.vnd-m__live-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vnd-m__live-stop {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hbx-brand-strong);
+  cursor: pointer;
+}
+
+/* ---------- estado vazio ---------- */
+.vnd-m__empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+}
+.vnd-m__empty p { margin: 0; font-size: var(--casca-text-sub); line-height: var(--leading-body); max-width: 32ch; }
+
+/* ---------- lista densa: grupos + linhas 56–64px, ≥8 visíveis ---------- */
+.vnd-m__list { flex: 1 1 auto; display: flex; flex-direction: column; }
+.vnd-m__group { display: flex; flex-direction: column; }
+.vnd-m__group-head {
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-4) 4px;
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.vnd-m__row {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: var(--casca-row-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-canvas);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+.vnd-m__row:active { background: var(--surface-recessed); }
+/* recém-chegado durante a busca ao vivo: marca leve + tag "novo", some sozinha */
+.vnd-m__row.is-new { animation: vnd-m-row-in var(--casca-motion-dur) var(--casca-motion-ease) both; background: var(--hbx-brand-soft); }
+@keyframes vnd-m-row-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+.vnd-m__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vnd-m__row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vnd-m__row-tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: 0.6rem;
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+}
+.vnd-m__row-sub {
+  font-size: var(--casca-text-sub);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vnd-m__row-value {
+  flex: 0 0 auto;
+  font-size: var(--casca-text-sub);
+  font-weight: var(--weight-bold);
+  color: var(--text-strong);
+}
+
+/* ---------- sheet de detalhe: DetalhesNegocio + ações rápidas ---------- */
+.vnd-m__sheet { display: flex; flex-direction: column; gap: var(--space-4); }
+.vnd-m__sheet-acts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: var(--space-2);
+}
+.vnd-m__act {
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: var(--casca-text-sub);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+  cursor: pointer;
+}
+.vnd-m__act:disabled { opacity: 0.45; cursor: default; }
+.vnd-m__act--wa { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.vnd-m__act--primary { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
+.vnd-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
+
+/* ---------- modal "Novo negócio" (reusa .hbx-veil/.hbx-modal centrais) ---------- */
+.vnd-m__novo-modal { width: min(92vw, 360px); display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); }
+.vnd-m__novo-title { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: var(--weight-bold); }
+.vnd-m__novo-acts { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+/* ---------- filtros (dentro do CascaSheet) ---------- */
+.vnd-m__filters { display: flex; flex-direction: column; gap: var(--space-3); }
+.vnd-m__filter-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
+.vnd-m__filter-apply { margin-top: var(--space-2); }
+
+/* ============================================================
+   MODO FOCO — takeover da casca (CascaView), 1 card por vez, swipe ←/→.
+   Nasce de novo (W0 deletou o VendasModoFoco velho); layout mínimo digno.
+   ============================================================ */
+.vnd-foco {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  gap: var(--space-4);
+}
+.vnd-foco__card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
+  touch-action: pan-y;
+  transition: transform var(--motion-fast);
+}
+.vnd-foco__name { margin: 0; font-family: var(--font-display); font-size: var(--text-h3); font-weight: var(--weight-bold); color: var(--text-strong); }
+.vnd-foco__sub { margin: 0; font-size: var(--casca-text-body); color: var(--text-muted); }
+.vnd-foco__value { margin: 0; font-size: var(--text-h4); font-weight: var(--weight-bold); color: var(--hbx-brand-strong); }
+.vnd-foco__note { margin: 0; font-size: var(--casca-text-sub); color: var(--text-body); }
+.vnd-foco__nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+.vnd-foco__pos { font-size: var(--casca-text-stat); font-weight: var(--weight-bold); color: var(--text-muted); }
+.vnd-foco__acts { flex: 0 0 auto; }
 .log-qr__open { justify-self: center; }

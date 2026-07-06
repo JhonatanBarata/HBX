@@ -17,16 +17,12 @@
 import React from "react";
 
 import { CascaStub } from "./stub";
+import { VendasMobile } from "./screens/vendas";
 
 // Tela mobile = componente sem props (consome os mesmos hooks/endpoints do
 // desktop). O registry casa pelo pathname exato.
 export type CascaScreen = React.ComponentType;
 
-// STUBS provisórios (W1) — navegação já vive; miolo entra em W2–W4.
-// W2 (Vendas): substituir por <VendasMobile/>.
-function VendasStub() {
-  return <CascaStub label="Vendas" msg="Funil e Buscar empresas chegam aqui (W2)." />;
-}
 // W3 (Conversas): substituir por <ConversasMobile/>.
 function ConversasStub() {
   return <CascaStub label="Conversas" msg="Caixa de WhatsApp + chat chegam aqui (W3)." />;
@@ -37,8 +33,11 @@ function EmpresasStub() {
 }
 
 // Mapa rota→tela. Chave = pathname canônico (o mesmo do AppShell META).
+// W2 (Vendas): /vendas usa <VendasMobile/> (Funil + Buscar). /leads NÃO precisa
+// de entrada própria — é alias client-side que já redireciona pra /vendas
+// (app/(app)/leads/redirect.client.tsx), inclusive no mobile.
 export const CASCA_SCREENS: Record<string, CascaScreen> = {
-  "/vendas": VendasStub,
+  "/vendas": VendasMobile,
   "/atendimento": ConversasStub,
   "/empresas": EmpresasStub,
 };
