@@ -85,8 +85,14 @@ export function CascaView({
 
   // fecho por gesto de voltar do browser/hardware seria plugado aqui (W7);
   // por ora só o botão/seta chama requestClose.
+  //
+  // Direção (fix revisão W1): ABRIR sub-tela = IR → entra DA DIREITA
+  // (.casca-view--enter, SEM is-back — o is-back inverteria pro keyframe de
+  // VOLTAR, entrando da esquerda). FECHAR = VOLTAR → sai PRA DIREITA
+  // (.casca-view--leave.is-back). O onClose só dispara no onAnimationEnd do
+  // fechar (guard `if (closing)` abaixo).
   const cls =
-    "casca-view " + (closing ? "casca-view--leave is-back" : "casca-view--enter is-back");
+    "casca-view " + (closing ? "casca-view--leave is-back" : "casca-view--enter");
 
   return (
     <div className="casca-stack-layer" role="dialog" aria-modal="true">

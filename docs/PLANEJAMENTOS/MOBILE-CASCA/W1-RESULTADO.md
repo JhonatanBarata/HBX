@@ -56,8 +56,9 @@ classe `.casca-*` entra no DOM do desktop).
    registrada → `CascaFallback` central automático ("Disponível no computador").
 2. **É mobile?** `const mobile = useCascaMobile();` (true < 768px, SSR-safe).
 3. **Sub-tela empilhada (IR/VOLTAR):** `{open && <CascaView title="Ficha"
-   onClose={()=>setOpen(false)}>…</CascaView>}` — entra deslizando, o botão/seta
-   chama `onClose`, ela anima a saída e **desmonta sozinha** (não some seco).
+   onClose={()=>setOpen(false)}>…</CascaView>}` — ABRIR = IR (entra DA direita,
+   `.casca-view--enter` sem `is-back`); FECHAR = VOLTAR (sai PRA direita,
+   `.casca-view--leave.is-back`), e ela **desmonta sozinha** (não some seco).
 4. **Bottom sheet:** `<CascaSheet open={open} title="Detalhe"
    onClose={()=>setOpen(false)}>…</CascaSheet>` — handle, sobe/desce com
    transição, arrastar-pra-baixo > 96px fecha, veil clicável fecha.
