@@ -254,23 +254,25 @@ test.describe("APPIFICAÇÃO A6 — app /entrega no viewport iPhone", () => {
     );
   });
 
-  // 1) As 4 abas do app existem e navegam.
-  test("as 4 abas do app (Rota · Clientes · Produtos · Ajustes) existem e navegam", async ({ page }) => {
+  // 1) As 5 abas do app existem e navegam (MOBILE-CASCA/W6: /entrega foi
+  // re-vestido na casca central — nav.ent-tabbar/a.ent-tab viraram
+  // nav.casca-tabbar/a.casca-tab, e a 5ª aba "HBX" leva de volta a /vendas).
+  test("as abas do app (Rota · Clientes · Produtos · Ajustes · HBX) existem e navegam", async ({ page }) => {
     await setupMocks(page);
     await gotoAutenticado(page, "/entrega");
 
-    const tabbar = page.locator("nav.ent-tabbar");
+    const tabbar = page.locator("nav.casca-tabbar");
     await expect(tabbar).toBeVisible();
 
-    // As 4 abas presentes com os labels certos.
-    for (const label of ["Rota", "Clientes", "Produtos", "Ajustes"]) {
+    // As 4 abas de navegação + o link de volta "HBX" presentes com os labels certos.
+    for (const label of ["Rota", "Clientes", "Produtos", "Ajustes", "HBX"]) {
       await expect(tabbar.getByText(label, { exact: true })).toBeVisible();
     }
-    // Exatamente 4 abas.
-    await expect(tabbar.locator("a.ent-tab")).toHaveCount(4);
-    // Na home, a aba "Rota" está ativa (is-on).
-    await expect(tabbar.locator("a.ent-tab.is-on")).toHaveCount(1);
-    await expect(tabbar.locator("a.ent-tab.is-on")).toContainText("Rota");
+    // 5 itens no total (4 abas + o link de volta pro HBX central).
+    await expect(tabbar.locator("a.casca-tab")).toHaveCount(5);
+    // Na home, a aba "Rota" está ativa (is-on); "HBX" nunca acende (é saída, não aba).
+    await expect(tabbar.locator("a.casca-tab.is-on")).toHaveCount(1);
+    await expect(tabbar.locator("a.casca-tab.is-on")).toContainText("Rota");
 
     // Navega Clientes → Produtos → Ajustes e confirma que a URL e a aba ativa mudam.
     for (const [label, rota] of [
@@ -280,9 +282,14 @@ test.describe("APPIFICAÇÃO A6 — app /entrega no viewport iPhone", () => {
     ] as const) {
       await tabbar.getByText(label, { exact: true }).click();
       await expect(page).toHaveURL(new RegExp(rota.replace(/\//g, "\\/") + "$"));
-      await expect(page.locator("nav.ent-tabbar a.ent-tab.is-on")).toContainText(label);
+      await expect(page.locator("nav.casca-tabbar a.casca-tab.is-on")).toContainText(label);
       await assertNoHorizontalOverflow(page, rota);
     }
+
+    // "HBX" (5º ícone) volta pro HBX central — LEI nº5 do dono (Rota é "outro
+    // app" mas tem que ter como voltar pro HBX central nos ícones da tab bar).
+    await tabbar.getByText("HBX", { exact: true }).click();
+    await expect(page).toHaveURL(/\/vendas$/);
   });
 
   // 2) Overflow horizontal nas rotas do app + B1 (/logistica) + B4 (/vendas).
@@ -302,20 +309,29 @@ test.describe("APPIFICAÇÃO A6 — app /entrega no viewport iPhone", () => {
     });
   }
 
-  // 3) Folha "Mais" do dashboard lista Empresas/Contatos/Produtos (A1).
-  test('folha "Mais" do dashboard lista Empresas, Contatos e Produtos', async ({ page }) => {
+  // 3) Folha "Mais" do dashboard (MOBILE-CASCA/W5): a folha velha
+  // (nav.mobile-tab-bar + .hbx-drawer-bottom listando Empresas/Contatos/
+  // Produtos) foi REMOVIDA na limpeza W0. A casca nova abre CascaSheet via
+  // tab bar central e curou a whitelist (Notificações/Relatórios/Tutorial/
+  // Configurações + Aparência + Sair) — Empresas virou aba própria da tab
+  // bar (não item de "Mais"); Contatos/Produtos não fazem parte da
+  // whitelist mobile hoje.
+  test('folha "Mais" da casca abre com a whitelist curada (W5)', async ({ page }) => {
     await setupMocks(page);
-    await gotoAutenticado(page, "/dashboard");
+    await gotoAutenticado(page, "/vendas");
 
-    // Abre a folha "Mais" da tab bar do dashboard.
-    const maisBtn = page.locator("nav.mobile-tab-bar button", { hasText: "Mais" });
+    const tabbar = page.locator("nav.casca-tabbar");
+    await expect(tabbar).toBeVisible();
+    const maisBtn = tabbar.getByRole("button", { name: "Mais" });
     await expect(maisBtn).toBeVisible();
     await maisBtn.click();
 
-    const sheet = page.locator('.hbx-drawer-bottom[role="dialog"]');
+    const sheet = page.locator('.casca-sheet[role="dialog"]').filter({ hasText: "Mais" });
     await expect(sheet).toBeVisible();
-    for (const label of ["Empresas", "Contatos", "Produtos"]) {
+    for (const label of ["Notificações", "Relatórios", "Tutorial", "Configurações", "Tela cheia", "Sair"]) {
       await expect(sheet.getByText(label, { exact: true })).toBeVisible();
     }
+    // Empresas é aba própria da tab bar central hoje, não item da folha "Mais".
+    await expect(sheet.getByText("Empresas", { exact: true })).toHaveCount(0);
   });
 });

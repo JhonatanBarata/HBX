@@ -1153,8 +1153,8 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .scene-planos.is-detail2Returning .site-plan-intruder--second { animation: site-detail-to-register 0.65s var(--ease-out-quint) both; }
 .scene-planos.is-returning .reg-form { animation: site-write-in 1.5s var(--ease-out-quint) reverse both; }
 .scene-planos.is-returning .scene-next--back { animation: site-write-in 1.5s var(--ease-out-quint) reverse both; }
-.site-plan-register .reg-form .card { width: 480px; }
-.scene-planos.has-intruder .site-plan-register .reg-form .card { width: 480px; }
+.site-plan-register .reg-form .card { width: min(480px, 100%); }
+.scene-planos.has-intruder .site-plan-register .reg-form .card { width: min(480px, 100%); }
 .scene-next--back { grid-column: 1; grid-row: 4; margin: 0; align-self: center; justify-self: center; }
 .scene-next--back .site-ic { transform: rotate(180deg); }
 .scene-planos.has-intruder2 .scene-next--back { width: 88px; height: 88px; border-radius: 22px; }
@@ -1382,10 +1382,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar2-pull-msg { font-size: 0.66rem; color: var(--text-muted); margin: 0 16px 10px; }
 
 /* ============================================================
-   Leads/Radar — Lista mobile v2 + card-overlay com swipe (PR20062026)
+   Leads/Radar — Lista desktop (PR20062026)
    Lista vertical rolável como main; detalhe abre em overlay central.
-   Estrutura definida aqui (screens.css = por-tela),
-   pintura 100% via tokens. Layout mobile em mobile.css.
+   Estrutura definida aqui (screens.css = por-tela), pintura 100% via
+   tokens. (mobile.css foi removido na limpeza W0 — a versão mobile
+   vive na casca, components/casca/screens/vendas-*.tsx.)
    ============================================================ */
 
 /* ── Lista vertical de leads ──────────────────────────────────────────────── */
