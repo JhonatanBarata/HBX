@@ -4548,6 +4548,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   font-size: var(--casca-text-body);
   font-weight: var(--weight-semibold);
   color: var(--text-strong);
@@ -4670,15 +4671,10 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-.cvs-m__head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4) var(--space-1);
-}
 /* pontinho de status do chip: verde=open / vermelho=caído (LEITURA do que o
-   front já consome — /inbox/whatsapp-health; zero lógica de conexão nova). */
+   front já consome — /inbox/whatsapp-health; zero lógica de conexão nova).
+   Vive na faixa de chips de filtro (o título "Conversas" já é o MobileShell
+   quem mostra no topo da casca — sem cabeçalho próprio aqui). */
 .cvs-m__dot {
   flex: 0 0 auto;
   width: 8px;
@@ -4687,15 +4683,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   background: var(--hbx-danger);
 }
 .cvs-m__dot.is-ok { background: var(--hbx-success); }
-.cvs-m__title {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--casca-text-title);
-  font-weight: var(--weight-bold);
-  color: var(--text-strong);
-}
 .cvs-m__tool-btn {
   flex: 0 0 auto;
   width: var(--casca-action-max);
@@ -4735,8 +4722,16 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   text-overflow: ellipsis;
 }
 
-.cvs-m__searchbar { flex: 0 0 auto; padding: var(--space-1) var(--space-4); }
+.cvs-m__searchbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+}
 .cvs-m__searchfield {
+  flex: 1 1 auto;
+  min-width: 0;
   height: var(--field-height);
   display: flex;
   align-items: center;
@@ -4756,10 +4751,13 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .cvs-m__searchinput:focus { outline: none; }
 
-/* chips finos 11px (Todas · Não lidas·n · Bot·n) — filtro 1 toque */
+/* chips finos 11px (Todas · Não lidas·n · Bot·n) — filtro 1 toque. O pontinho
+   de status do chip (era cabeçalho próprio, removido — MobileShell já mostra
+   o título "Conversas" no topo da casca) entra aqui como 1º item da faixa. */
 .cvs-m__chips {
   flex: 0 0 auto;
   display: flex;
+  align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-4) var(--space-2);
 }

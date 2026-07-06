@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { I, ICONS } from "@/components/hbx/shell";
+import { Av, I, ICONS } from "@/components/hbx/shell";
 import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { apiFetch } from "@/lib/api";
 
@@ -264,6 +264,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
               className={"vnd-m__row" + (newIds.has(lead.id) ? " is-new" : "")}
               onClick={() => setSel(lead)}
             >
+              <Av name={lead.name || "?"} size={30} />
               <span className="vnd-m__row-main">
                 <span className="vnd-m__row-name">
                   {lead.name || "Sem nome"}

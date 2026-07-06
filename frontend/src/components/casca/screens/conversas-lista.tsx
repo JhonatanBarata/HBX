@@ -1,10 +1,14 @@
 "use client";
 
-// MOBILE-CASCA/W3 — LISTA de conversas (mockup aprovado 2). Topo "Conversas" +
-// pontinho de status do chip (verde=open / vermelho + faixa fina quando cai,
-// mesmo padrão da faixa de busca do W2) + busca. Chips finos 11px (Todas ·
-// Não lidas · n · Bot · n). Linhas 64px (avatar 36, nome, prévia truncada com
-// prefixos, hora accent quando não lida, bolha contador). ≥8 visíveis.
+// MOBILE-CASCA/W3 — LISTA de conversas (mockup aprovado 2). O título "Conversas"
+// já é o MobileShell quem mostra no topo da casca — SEM cabeçalho próprio aqui
+// (polimento pós-auditoria prod: havia um 2º título "Conversas" duplicado,
+// removido). Pontinho de status do chip (verde=open / vermelho=caído) vive na
+// faixa de chips de filtro; a ação "+" vive no lado direito da busca; faixa
+// fina de aviso quando o chip cai (mesmo padrão da faixa de busca do W2) +
+// busca. Chips finos 11px (Todas · Não lidas · n · Bot · n). Linhas 64px
+// (avatar 36, nome, prévia truncada com prefixos, hora accent quando não
+// lida, bolha contador). ≥8 visíveis.
 //
 // Dados: MESMO endpoint do desktop — GET /inbox/conversations?take=50 (sem
 // filtro de fila no mobile: 1a versão enxuta). Zero endpoint novo.
@@ -116,14 +120,6 @@ export function ConversasLista({
 
   return (
     <div className="cvs-m__body">
-      <div className="cvs-m__head">
-        <span className={"cvs-m__dot" + (chipOk ? " is-ok" : " is-down")} aria-hidden="true" />
-        <h2 className="cvs-m__title">Conversas</h2>
-        <button type="button" className="cvs-m__tool-btn" onClick={onNova} aria-label="Nova conversa">
-          <I d={ICONS.plus} size={18} />
-        </button>
-      </div>
-
       {chipFaixaMsg ? (
         <div className="cvs-m__faixa" role="status">
           <span className="cvs-m__faixa-dot" aria-hidden="true" />
@@ -141,9 +137,13 @@ export function ConversasLista({
             onChange={(e) => setBusca(e.target.value)}
           />
         </div>
+        <button type="button" className="cvs-m__tool-btn" onClick={onNova} aria-label="Nova conversa">
+          <I d={ICONS.plus} size={18} />
+        </button>
       </div>
 
       <div className="cvs-m__chips" role="tablist" aria-label="Filtro">
+        <span className={"cvs-m__dot" + (chipOk ? " is-ok" : " is-down")} aria-hidden="true" title={chipOk ? "WhatsApp conectado" : "WhatsApp com problema"} />
         <button type="button" role="tab" aria-selected={tab === "todas"} className={"cvs-m__chip" + (tab === "todas" ? " is-on" : "")} onClick={() => setTab("todas")}>
           Todas
         </button>
