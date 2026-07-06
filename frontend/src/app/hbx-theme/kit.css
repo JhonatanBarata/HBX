@@ -47,15 +47,6 @@ html, body { margin: 0; }
 .logo { display: flex; align-items: center; gap: 8px; padding: 2px 10px 18px; view-transition-name: hbx-brand; }
 .logo strong { font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); }
 .nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.86rem; font-weight: 600; cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
-/* Densidade da barra lateral no desktop (06/07): a fonte foi pra 14px mas os vãos
-   px do menu não acompanharam — itens altos/espaçados. Aperta padding/gap SÓ no
-   desktop (>=901px); mobile (drawer, mexido em paralelo) fica intocado. */
-@media (min-width: 901px) {
-  .side { gap: 2px; padding: 12px 10px 12px; }
-  .logo { padding-bottom: 12px; }
-  .nav-item { padding: 6px 10px; gap: 9px; }
-  .app[data-rail="min"] .nav-item { padding: 6px 0; }
-}
 .nav-item__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* hover = mesma linguagem de vidro (não mais um retângulo chapado): brilho no
    topo + leve elevação, some macio quando o mouse sai. No item já ATIVO o
