@@ -250,13 +250,19 @@ function TriState({ value, onChange, labelOn = "Sim", labelOff = "Não" }: { val
 // que a usa, ela recebe um slot (quickSlot) renderizado ANTES das seções
 // "só prévia RFB". Mantém o componente reusável e sem acoplar ao caller.
 export function FiltroAvancadoModal({
-  draft, onChange, onClose, onApply, quickSlot,
+  draft, onChange, onClose, onApply, quickSlot, extraQueryInput,
 }: {
   draft: FiltroAvancadoState;
   onChange: (next: FiltroAvancadoState) => void;
   onClose: () => void;
   onApply: (f: FiltroAvancadoState) => void;
   quickSlot?: ReactNode;
+  // Contagem grátis (LEADS-FINAL/03): os campos do quickSlot (Estado/Cidade/Tem
+  // site/Tem WhatsApp) não vivem em FiltroAvancadoState — sem isto a prévia só
+  // reagiria às seções avançadas e ficaria muda pro que o usuário vê no topo da
+  // gaveta. O pai manda o recorte já no formato do contrato (states/cities/
+  // contato); o preview faz merge por cima do draft (extra tem prioridade).
+  extraQueryInput?: Partial<CnpjBaseQueryInput>;
 }) {
   function patch(p: Partial<FiltroAvancadoState>) { onChange({ ...draft, ...p }); }
   const [cidadesTxt, setCidadesTxt] = useState(draft.cities.join(", "));
@@ -274,11 +280,11 @@ export function FiltroAvancadoModal({
   // o Pipeline de pesquisa, que continua vindo do /webscraping/radar/leads.
   const [preview, setPreview] = useState<{ count: number; loading: boolean; error: string | null }>({ count: 0, loading: false, error: null });
 
-  const runPreview = useCallback((f: FiltroAvancadoState) => {
+  const runPreview = useCallback((f: FiltroAvancadoState, extra?: Partial<CnpjBaseQueryInput>) => {
     setPreview(p => ({ ...p, loading: true, error: null }));
     apiFetch<CnpjBaseQueryResponse>("/webscraping/radar/cnpj-base/query", {
       method: "POST",
-      body: JSON.stringify(buildQueryInput(f)),
+      body: JSON.stringify({ ...buildQueryInput(f), ...extra }),
     })
       .then(res => setPreview({ count: res?.count ?? 0, loading: false, error: null }))
       .catch((err: unknown) => {
@@ -288,10 +294,10 @@ export function FiltroAvancadoModal({
   }, []);
 
   useEffect(() => {
-    const handle = setTimeout(() => runPreview(draft), 380);
+    const handle = setTimeout(() => runPreview(draft, extraQueryInput), 380);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
+  }, [draft, extraQueryInput]);
 
   const soPrevia = useMemo(() => camposSoPreviaAtivos(draft), [draft]);
 

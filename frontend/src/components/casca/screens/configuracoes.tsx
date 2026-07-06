@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
-import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 import { fetchWhatsAppModalStatus } from "@/lib/whatsapp-connection-flow";
@@ -24,7 +24,7 @@ import { whatsappPillLabel, whatsappPillVariant, type WhatsAppModalPayload } fro
 
 import { CascaLoading, CascaSheet } from "../index";
 import { TemaSection } from "./mais-sheet";
-import { type MaisCurrentUser, roleLabel, type TeamMember } from "./mais-types";
+import { type MaisCurrentUser, roleLabel, type TeamMember, useMaisCurrentUser } from "./mais-types";
 
 // ---------------------------------------------------------------
 // Sheet "Conta": nome (editável), e-mail (leitura), senha (editável).
@@ -226,7 +226,7 @@ function CfgRow({ icon, label, sub, onClick }: { icon: string; label: string; su
 }
 
 export function ConfiguracoesMobile() {
-  const user = useCurrentUser();
+  const user = useMaisCurrentUser();
   const admin = isTenantAdmin(user);
 
   const [contaOpen, setContaOpen] = useState(false);

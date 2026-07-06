@@ -4765,6 +4765,9 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-4) var(--space-2);
+  /* FIX2/V2 (Lei nº2): chip ativo é Glass Pill deslizante — vidro nasce
+     redondo igual ao chip, não o --radius-sm default do menu lateral. */
+  --glass-pill-radius: var(--radius-pill);
 }
 .cvs-m__chip {
   flex: 0 0 auto;
@@ -4781,7 +4784,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   cursor: pointer;
   white-space: nowrap;
 }
+/* Sem glass-pill: destaque próprio (fallback). Dentro do track (V2), o vidro
+   por trás já dá fundo — o chip ativo só troca a cor do texto (senão
+   duplicaria: pill sólida + vidro por cima). */
 .cvs-m__chip.is-on { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
+.glass-pill-track .cvs-m__chip.is-on { background: transparent; color: var(--text-strong); }
 
 .cvs-m__err { margin: 0 var(--space-4) var(--space-2); font-size: var(--casca-text-sub); color: var(--hbx-danger); }
 
@@ -4984,8 +4991,14 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .cvs-m__ck.is-err { color: var(--hbx-danger); font-weight: var(--weight-bold); }
 
 .cvs-m__media-img, .cvs-m__media-video { max-width: 100%; border-radius: var(--radius-md); }
-.cvs-m__audio { display: flex; align-items: center; gap: var(--space-2); }
+
+/* ---------- FIX2/V4: bolha de áudio de verdade (play + waveform + duração) —
+   reprova do dono: "só um play, não tem tempo, nada". Reusa o MESMO <audio>/
+   fluxo de mídia do desktop (preload=metadata, onPlay/onPause/onTimeUpdate);
+   só a pele visual troca de barra fina pra forma de onda em barras. ---------- */
+.cvs-m__audio { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .cvs-m__audio-play {
+  flex: 0 0 auto;
   width: 28px;
   height: 28px;
   display: grid;
@@ -4996,6 +5009,49 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   color: inherit;
   cursor: pointer;
 }
+/* waveform: barras estáticas por token (altura por nth-child, padrão
+   determinístico) + camada "fill" idêntica por cima, recortada por width%
+   (progresso real de currentTime/duration) — as barras já tocadas "acendem"
+   em opacidade cheia, o resto fica esmaecido. */
+.cvs-m__audio-wave {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 64px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+.cvs-m__audio-wave-fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 0%;
+  overflow: hidden;
+  transition: width 0.1s linear;
+}
+.cvs-m__audio-bar {
+  flex: 0 0 auto;
+  width: 2.5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.35;
+}
+.cvs-m__audio-wave-fill .cvs-m__audio-bar { opacity: 1; }
+/* padrão de altura determinístico (grave→agudo→grave), 8 alturas em loop —
+   decorativo (a API não manda amplitude por segmento), dá a "cara de áudio". */
+.cvs-m__audio-bar:nth-child(8n+1) { height: 40%; }
+.cvs-m__audio-bar:nth-child(8n+2) { height: 70%; }
+.cvs-m__audio-bar:nth-child(8n+3) { height: 100%; }
+.cvs-m__audio-bar:nth-child(8n+4) { height: 55%; }
+.cvs-m__audio-bar:nth-child(8n+5) { height: 85%; }
+.cvs-m__audio-bar:nth-child(8n+6) { height: 45%; }
+.cvs-m__audio-bar:nth-child(8n+7) { height: 65%; }
+.cvs-m__audio-bar:nth-child(8n+8) { height: 30%; }
+.cvs-m__audio-dur { flex: 0 0 auto; font-size: var(--casca-text-label); font-variant-numeric: tabular-nums; opacity: 0.85; }
 .cvs-m__doc { display: flex; align-items: center; gap: var(--space-2); }
 
 /* composer fixo embaixo: + (anexo), campo pill 36px, mic/enviar */
@@ -5329,3 +5385,247 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .emp-m__novo { display: flex; flex-direction: column; gap: var(--space-3); }
 .emp-m__novo-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
 .emp-m__novo-submit { margin-top: var(--space-2); }
+
+/* ============================================================
+   MOBILE-CASCA/W5 — MAIS + CONFIGURAÇÕES mobile (curadas — o resto do
+   sistema mora aqui, MENOS IA e avançados). Densidade PRÓPRIA desta folha:
+   linhas 52px (--mais-row-h, mais compacta que a régua de listas 56-64px,
+   por ser um menu de itens curtos, não uma lista de registros). Zero
+   cor/hex — só var(--token). Alvos ≥28px, anti-placona.
+   ============================================================ */
+.mais-m, .cfg-m__form, .cfg-m__wa, .cfg-m__equipe { --mais-row-h: 52px; }
+
+/* ---------- folha "Mais" ---------- */
+.mais-m { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.mais-m__perfil {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.mais-m__perfil-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mais-m__perfil-nome {
+  font-size: var(--casca-text-title);
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mais-m__perfil-empresa {
+  font-size: var(--casca-text-sub);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mais-m__list { display: flex; flex-direction: column; }
+/* linha 52px inteira clicável — alvo ≥28px cumprido com folga */
+.mais-m__row {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: var(--mais-row-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+  border: none;
+  border-bottom: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-strong);
+  text-align: left;
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+.mais-m__row:last-child { border-bottom: none; }
+.mais-m__row:active { background: var(--surface-recessed); }
+.mais-m__row.is-danger { color: var(--hbx-danger); }
+.mais-m__row-ico {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.mais-m__row.is-danger .mais-m__row-ico { color: var(--hbx-danger); }
+.mais-m__row-label { flex: 1 1 auto; min-width: 0; }
+
+/* Tema: modo (segmented) + pele (chips) — controles compactos na folha */
+.mais-m__tema { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-1) var(--space-1) var(--space-2); border-bottom: 1px solid var(--border-hairline); }
+.mais-m__tema-row { display: flex; flex-direction: column; gap: 6px; }
+.mais-m__tema-label { font-size: var(--casca-text-label); font-weight: var(--weight-bold); color: var(--text-muted); }
+.mais-m__mode-seg { width: 100%; }
+.mais-m__pele-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.mais-m__pele-chip {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+.mais-m__pele-chip.is-on { border-color: var(--hbx-brand-strong); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand-strong) 14%, transparent); }
+
+/* Tela cheia: linha com switch próprio (toggle visual, sem <input>) */
+.mais-m__fs { border-bottom: 1px solid var(--border-hairline); }
+.mais-m__fs-sw {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  position: relative;
+  transition: background var(--motion-fast);
+}
+.mais-m__fs-sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--motion-fast);
+}
+.mais-m__fs-sw.is-on { background: var(--hbx-brand-strong); }
+.mais-m__fs-sw.is-on::after { transform: translateX(14px); }
+
+.mais-m__sair { border-bottom: none; }
+
+/* confirmação de "Sair" em sheet própria */
+.mais-m__confirm { display: flex; flex-direction: column; gap: var(--space-4); }
+.mais-m__confirm p { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); line-height: var(--leading-body); }
+.mais-m__confirm-acts { display: flex; gap: var(--space-2); }
+.mais-m__confirm-cancel, .mais-m__confirm-ok {
+  flex: 1 1 0;
+  min-height: var(--control-height);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+.mais-m__confirm-cancel { background: var(--surface-recessed); color: var(--text-strong); }
+.mais-m__confirm-ok { background: var(--hbx-danger); color: var(--hbx-action-ink); }
+.mais-m__confirm-ok:disabled { opacity: 0.6; cursor: default; }
+
+/* sheet "Notificações" */
+.mais-m__notif { display: flex; flex-direction: column; gap: var(--space-2); }
+.mais-m__notif-msg { margin: 0; padding: var(--space-4) 0; text-align: center; font-size: var(--casca-text-sub); color: var(--text-muted); }
+.mais-m__notif-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.mais-m__notif-row.is-unread { background: var(--surface-recessed); }
+.mais-m__notif-title { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-strong); }
+.mais-m__notif-body { font-size: var(--casca-text-label); color: var(--text-muted); }
+.mais-m__notif-when { font-size: var(--casca-text-label); color: var(--text-muted); }
+
+/* ============================================================
+   CONFIGURAÇÕES mobile (/configuracoes) — grupos de linhas 52px.
+   ============================================================ */
+.cfg-m__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+
+.cfg-m__group { display: flex; flex-direction: column; }
+.cfg-m__group-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--casca-text-stat);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cfg-m__row {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: var(--mais-row-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+}
+.cfg-m__row:active { background: var(--surface-recessed); }
+.cfg-m__row-ico { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; color: var(--text-muted); }
+.cfg-m__row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cfg-m__row-label { font-size: var(--casca-text-body); font-weight: var(--weight-semibold); }
+.cfg-m__row-sub {
+  font-size: var(--casca-text-label);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* sheet "Conta" — form simples */
+.cfg-m__form { display: flex; flex-direction: column; gap: var(--space-2); }
+.cfg-m__label { font-size: var(--casca-text-label); font-weight: var(--weight-bold); color: var(--text-muted); }
+.cfg-m__label--sp { margin-top: var(--space-3); }
+.cfg-m__input {
+  height: var(--field-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+}
+.cfg-m__input:focus { outline: none; border-color: var(--hbx-brand-strong); }
+.cfg-m__save {
+  margin-top: var(--space-1);
+  min-height: var(--control-height);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+.cfg-m__save:disabled { opacity: 0.5; cursor: default; }
+.cfg-m__msg { margin: 0; font-size: var(--casca-text-label); color: var(--text-muted); }
+
+/* sheet "WhatsApp" — status + botão */
+.cfg-m__wa { display: flex; flex-direction: column; gap: var(--space-4); }
+.cfg-m__wa-status { display: flex; align-items: center; gap: var(--space-3); }
+.cfg-m__wa-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--hbx-danger); }
+.cfg-m__wa-dot.is-on { background: var(--hbx-success); }
+.cfg-m__wa-status-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--casca-text-sub); }
+.cfg-m__wa-sub { font-size: var(--casca-text-label); color: var(--text-muted); }
+.cfg-m__wa-btn {
+  min-height: var(--control-height);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+
+/* sheet "Equipe" — lista de leitura */
+.cfg-m__equipe { display: flex; flex-direction: column; gap: var(--space-2); }
+.cfg-m__equipe-row { display: flex; align-items: center; gap: var(--space-3); min-height: var(--mais-row-h); }
+.cfg-m__equipe-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: var(--casca-text-sub); }
+.cfg-m__equipe-main span { font-size: var(--casca-text-label); color: var(--text-muted); }

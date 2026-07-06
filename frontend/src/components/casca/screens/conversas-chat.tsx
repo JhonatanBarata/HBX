@@ -23,6 +23,7 @@ import { apiFetch, getApiBase } from "@/lib/api";
 import { CascaView } from "../transitions";
 import {
   convName,
+  fmtDur,
   fmtMsgTime,
   msgType,
   phoneFromContact,
@@ -65,21 +66,49 @@ function Checks({ status }: { status?: string }) {
   return <span className="cvs-m__ck">✓</span>;
 }
 
-function AudioBubble({ src }: { src: string }) {
+// Barras da forma de onda: quantidade fixa, altura por token CSS (--h,
+// nth-child no screens.css) — decorativo (o WhatsApp não manda amplitude por
+// segmento na API que o desktop já consome), mas dá a "cara de áudio" que
+// faltava (reprova do dono: "só um play, não tem tempo, nada"). Progresso
+// real preenche as barras (currentTime/duration) — mesmo <audio> do desktop,
+// só a pele visual muda de barra de progresso pra waveform.
+const WAVE_BARS = 24;
+
+function AudioBubble({ src, seconds }: { src: string; seconds?: number | null }) {
   const ref = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [prog, setProg] = useState(0); // 0–100
+  const [dur, setDur] = useState<number | null>(seconds ?? null);
+
   function toggle() {
     const a = ref.current;
     if (!a) return;
     if (playing) a.pause();
     else a.play().catch(() => { /* gesto/codec */ });
   }
+
   return (
     <div className="cvs-m__audio">
       <button type="button" className="cvs-m__audio-play" onClick={toggle} aria-label={playing ? "Pausar" : "Tocar"}>
         <I d={playing ? ICONS.pause : ICONS.play} size={14} />
       </button>
-      <audio ref={ref} src={src} preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+      <span className="cvs-m__audio-wave" aria-hidden="true">
+        {Array.from({ length: WAVE_BARS }, (_, i) => <i key={i} className="cvs-m__audio-bar" />)}
+        <span className="cvs-m__audio-wave-fill" style={{ width: `${prog}%` }}>
+          {Array.from({ length: WAVE_BARS }, (_, i) => <i key={i} className="cvs-m__audio-bar" />)}
+        </span>
+      </span>
+      <span className="cvs-m__audio-dur">{fmtDur(dur)}</span>
+      <audio
+        ref={ref}
+        src={src}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setProg(0); }}
+        onLoadedMetadata={(e) => { const a = e.currentTarget; if (Number.isFinite(a.duration)) setDur(a.duration); }}
+        onTimeUpdate={(e) => { const a = e.currentTarget; setProg(a.duration ? (a.currentTime / a.duration) * 100 : 0); }}
+      />
     </div>
   );
 }
@@ -101,7 +130,7 @@ function renderBody(m: InboxMessage) {
     return url ? <video className="cvs-m__media-video" src={url} controls /> : <div className="cvs-m__cap">Vídeo</div>;
   }
   if (type === "audio") {
-    return url ? <AudioBubble src={url} /> : <div className="cvs-m__cap">Áudio</div>;
+    return url ? <AudioBubble src={url} seconds={meta.durationSeconds} /> : <div className="cvs-m__cap">Áudio</div>;
   }
   if (type === "document") {
     return (

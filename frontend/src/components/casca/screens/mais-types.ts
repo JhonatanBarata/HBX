@@ -2,6 +2,17 @@
 // Configurações mobile. Espelham (mesmo contrato, sem importar — os do
 // desktop não são exportados) os tipos locais de
 // app/(app)/configuracoes/page.client.tsx e components/hbx/shell.tsx.
+//
+// useMaisCurrentUser() busca DIRETO de /profile/current-user (não usa o
+// useCurrentUser() de shell.tsx: aquele CurrentUser não expõe avatarUrl — o
+// desktop configuracoes/page.client.tsx também busca à parte pelo mesmo
+// motivo). Zero endpoint novo. FIX pós-publish 06/07: a versão publicada em
+// 49cd2d89 usava useCurrentUser (sem avatarUrl) e quebrava tsc --noEmit —
+// corrigido aqui.
+
+import { useEffect, useState } from "react";
+
+import { apiFetch } from "@/lib/api";
 
 export type MaisCurrentUser = {
   name?: string | null;
@@ -50,6 +61,19 @@ export function displayName(user: MaisCurrentUser): string {
 
 export function companyName(user: MaisCurrentUser): string {
   return user?.company?.name || "Sua empresa";
+}
+
+/** GET /profile/current-user — mesmo endpoint do desktop, shape com avatarUrl. */
+export function useMaisCurrentUser(): MaisCurrentUser {
+  const [user, setUser] = useState<MaisCurrentUser>(null);
+  useEffect(() => {
+    let alive = true;
+    apiFetch<MaisCurrentUser>("/profile/current-user")
+      .then(res => { if (alive) setUser(res); })
+      .catch(() => { /* sem sessão — AuthGate cuida */ });
+    return () => { alive = false; };
+  }, []);
+  return user;
 }
 
 // Data relativa curta para o rodapé/lista de avisos ("agora", "há 5 min",

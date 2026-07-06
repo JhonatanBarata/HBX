@@ -11,7 +11,7 @@
 // Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Av, I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
@@ -22,6 +22,7 @@ import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import {
   FILTRO_AVANCADO_VAZIO,
   FiltroAvancadoModal,
+  type CnpjBaseQueryInput,
   type FiltroAvancadoState,
 } from "@/components/hbx/filtro-avancado-modal";
 import { apiFetch } from "@/lib/api";

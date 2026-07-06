@@ -13,12 +13,12 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-import { Av, I, ICONS, subscribeToThemeMode, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS, subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken } from "@/lib/api";
 
 import { CascaSheet, toggleCascaFullscreen } from "../index";
-import { companyName, displayName, fmtWhen, type MasterNotice } from "./mais-types";
+import { companyName, displayName, fmtWhen, type MasterNotice, useMaisCurrentUser } from "./mais-types";
 
 // ---------------------------------------------------------------
 // Sub-sheet: Notificações (lê o mesmo /vendas/master-notices que o sino do
@@ -31,11 +31,19 @@ function NotificacoesSheet({ open, onClose }: { open: boolean; onClose: () => vo
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    setLoading(true);
-    apiFetch<{ notices?: MasterNotice[] }>("/vendas/master-notices")
-      .then(res => { if (alive) setNotices(Array.isArray(res?.notices) ? res.notices : []); })
-      .catch(() => { if (alive) setNotices([]); })
-      .finally(() => { if (alive) setLoading(false); });
+    async function load() {
+      if (!alive) return;
+      setLoading(true);
+      try {
+        const res = await apiFetch<{ notices?: MasterNotice[] }>("/vendas/master-notices");
+        if (alive) setNotices(Array.isArray(res?.notices) ? res.notices : []);
+      } catch {
+        if (alive) setNotices([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    void load();
     return () => { alive = false; };
   }, [open]);
 
@@ -81,11 +89,10 @@ export function TemaSection() {
     () => null,
   );
   const isDark = modeAttr === "dark";
-  const [pele, setPele] = useState<string>(DEFAULT_PELE);
-
-  useEffect(() => {
-    setPele(getActivePele());
-  }, []);
+  // lazy init: leitura síncrona do atributo já aplicado no <html> (boot inline
+  // do layout.tsx já rodou antes da hidratação) — sem useEffect, sem
+  // set-state-in-effect. Troca local (escolherPele) já mantém o state em dia.
+  const [pele, setPele] = useState<string>(() => (typeof document !== "undefined" ? getActivePele() : DEFAULT_PELE));
 
   function flipMode(next: "light" | "dark") {
     if ((next === "dark") === isDark) return;
@@ -149,15 +156,20 @@ function MaisRow({ icon, label, danger, onClick }: { icon: string; label: string
 
 export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
-  const user = useCurrentUser();
+  const user = useMaisCurrentUser();
   const [notifOpen, setNotifOpen] = useState(false);
   const [sairConfirm, setSairConfirm] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [fsOn, setFsOn] = useState(false);
 
-  useEffect(() => {
+  // Reset das sub-sheets ao fechar "Mais" — ajuste de state DURANTE o render
+  // (padrão oficial React "adjust state while rendering", mesmo usado no
+  // useCascaExitGate central), sem useEffect/set-state-in-effect.
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
     if (!open) { setNotifOpen(false); setSairConfirm(false); }
-  }, [open]);
+  }
 
   const irConfiguracoes = useCallback(() => {
     onClose();

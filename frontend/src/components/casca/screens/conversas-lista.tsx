@@ -15,8 +15,10 @@
 
 import React, { useEffect, useState } from "react";
 
-import { Av, I, ICONS } from "@/components/hbx/shell";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { isTenantAdmin } from "@/lib/roles";
 import { whatsappPillLabel } from "@/lib/whatsapp-center";
 
 import { CascaLoading } from "../loading";
@@ -30,6 +32,12 @@ import {
 } from "./conversas-types";
 
 type Tab = "todas" | "naolidas" | "bot";
+// "meu"/"todos" — SÓ existe pra quem é admin/gestor do tenant (mesma fonte de
+// papel do desktop, isTenantAdmin/@lib/roles). Vendedor nunca vê o chip e
+// segue só nas conversas atribuídas a ele (gate igual ao /atendimento
+// desktop: souAdmin ali usa a MESMA isTenantAdmin). Filtro client-side por
+// assignedUserId (já vem no payload de /inbox/conversations) — zero endpoint novo.
+type Escopo = "todos" | "meu";
 
 function convAvatar(c: InboxConversation | null | undefined): string | undefined {
   return c?.customer?.avatarUrl || undefined;
@@ -58,10 +66,23 @@ export function ConversasLista({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [tab, setTab] = useState<Tab>("todas");
+  const [escopo, setEscopo] = useState<Escopo>("todos");
   // Status do chip: LEITURA do que o front já consome (/inbox/whatsapp-health,
   // fallback /companies/me/whatsapp-modal/status via fetchWhatsAppModalStatus
   // — aqui só o health, mais leve; mesma fonte do selo do desktop).
   const [chipStatus, setChipStatus] = useState<string | null>(null);
+
+  // Papel: MESMA fonte que o /atendimento desktop usa (useCurrentUser +
+  // isTenantAdmin) — vendedor nunca vê o chip Todos|Meus, admin/gestor vê.
+  const me = useCurrentUser();
+  const meuUserId = me ? String((me as { id?: number | string | null }).id ?? "") : "";
+  const souAdmin = isTenantAdmin(me);
+
+  // Hooks de Glass Pill ANTES do early-return de loading (regra de hooks —
+  // nunca condicionais). souAdmin ainda pode ser false no 1º render (useCurrentUser
+  // ainda carregando) — o hook só reage à troca de key, não muda a ordem.
+  const escopoGp = useGlassPill<HTMLButtonElement>(souAdmin ? escopo : null);
+  const tabGp = useGlassPill<HTMLButtonElement>(tab);
 
   useEffect(() => {
     let alive = true;
@@ -104,10 +125,17 @@ export function ConversasLista({
 
   if (loading) return <CascaLoading caption="Carregando conversas…" />;
 
-  const naoLidas = convs.filter(c => convUnread(c) > 0);
-  const bots = convs.filter(c => c.botActive === true);
+  // Escopo Todos|Meus (só admin/gestor): "Meus" = atribuída a mim OU sem
+  // atendente ainda (mesmo espírito do desktop — dono não some da própria
+  // fila só por falta de atribuição explícita).
+  const escopoBase = souAdmin && escopo === "meu"
+    ? convs.filter(c => !c.assignedUserId || String(c.assignedUserId) === meuUserId)
+    : convs;
 
-  const filtered = convs
+  const naoLidas = escopoBase.filter(c => convUnread(c) > 0);
+  const bots = escopoBase.filter(c => c.botActive === true);
+
+  const filtered = escopoBase
     .filter(c => tab === "naolidas" ? convUnread(c) > 0 : tab === "bot" ? c.botActive === true : true)
     .filter(c => {
       const q = busca.trim().toLowerCase();
@@ -142,18 +170,34 @@ export function ConversasLista({
         </button>
       </div>
 
-      <div className="cvs-m__chips" role="tablist" aria-label="Filtro">
+      <div className="cvs-m__chips glass-pill-track" role="tablist" aria-label="Filtro">
         <span className={"cvs-m__dot" + (chipOk ? " is-ok" : " is-down")} aria-hidden="true" title={chipOk ? "WhatsApp conectado" : "WhatsApp com problema"} />
-        <button type="button" role="tab" aria-selected={tab === "todas"} className={"cvs-m__chip" + (tab === "todas" ? " is-on" : "")} onClick={() => setTab("todas")}>
+        <GlassPill {...tabGp} />
+        <button type="button" role="tab" ref={tabGp.itemRef("todas")} aria-selected={tab === "todas"} className={"cvs-m__chip glass-pill-item" + (tab === "todas" ? " is-on" : "")} onClick={() => setTab("todas")}>
           Todas
         </button>
-        <button type="button" role="tab" aria-selected={tab === "naolidas"} className={"cvs-m__chip" + (tab === "naolidas" ? " is-on" : "")} onClick={() => setTab("naolidas")}>
+        <button type="button" role="tab" ref={tabGp.itemRef("naolidas")} aria-selected={tab === "naolidas"} className={"cvs-m__chip glass-pill-item" + (tab === "naolidas" ? " is-on" : "")} onClick={() => setTab("naolidas")}>
           Não lidas{naoLidas.length > 0 ? ` · ${naoLidas.length}` : ""}
         </button>
-        <button type="button" role="tab" aria-selected={tab === "bot"} className={"cvs-m__chip" + (tab === "bot" ? " is-on" : "")} onClick={() => setTab("bot")}>
+        <button type="button" role="tab" ref={tabGp.itemRef("bot")} aria-selected={tab === "bot"} className={"cvs-m__chip glass-pill-item" + (tab === "bot" ? " is-on" : "")} onClick={() => setTab("bot")}>
           Bot{bots.length > 0 ? ` · ${bots.length}` : ""}
         </button>
       </div>
+
+      {/* V2 — seletor do admin: gate igual desktop (isTenantAdmin, mesma fonte
+          de papel do /atendimento). Vendedor não vê — segue só nas dele.
+          Filtro client-side por assignedUserId, zero endpoint novo. */}
+      {souAdmin ? (
+        <div className="cvs-m__chips glass-pill-track" role="tablist" aria-label="Escopo">
+          <GlassPill {...escopoGp} />
+          <button type="button" role="tab" ref={escopoGp.itemRef("todos")} aria-selected={escopo === "todos"} className={"cvs-m__chip glass-pill-item" + (escopo === "todos" ? " is-on" : "")} onClick={() => setEscopo("todos")}>
+            Todos
+          </button>
+          <button type="button" role="tab" ref={escopoGp.itemRef("meu")} aria-selected={escopo === "meu"} className={"cvs-m__chip glass-pill-item" + (escopo === "meu" ? " is-on" : "")} onClick={() => setEscopo("meu")}>
+            Meus
+          </button>
+        </div>
+      ) : null}
 
       {loadError ? <p className="cvs-m__err">{loadError}</p> : null}
 
