@@ -41,9 +41,13 @@ function ContaSheet({ open, onClose, user }: {
   const [senhaBusy, setSenhaBusy] = useState(false);
   const [senhaMsg, setSenhaMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reset do form ao abrir — ajuste de state DURANTE o render (mesmo padrão
+  // do useCascaExitGate central), sem useEffect/set-state-in-effect.
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
     if (open) { setNome(user?.name || user?.username || ""); setSaveMsg(null); setSenha(""); setSenhaMsg(null); }
-  }, [open, user]);
+  }
 
   async function salvarNome() {
     if (saveBusy || !nome.trim()) return;
@@ -113,20 +117,25 @@ function WhatsAppSheet({ open, onClose }: { open: boolean; onClose: () => void }
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
 
-  function refresh() {
+  async function refresh() {
     setLoading(true);
-    return fetchWhatsAppModalStatus()
-      .then(res => {
-        setStatus(res?.status || null);
-        setCompanyNameLocal(res?.data?.companyName || null);
-      })
-      .catch(() => { setStatus(null); setCompanyNameLocal(null); })
-      .finally(() => setLoading(false));
+    try {
+      const res = await fetchWhatsAppModalStatus();
+      setStatus(res?.status || null);
+      setCompanyNameLocal(res?.data?.companyName || null);
+    } catch {
+      setStatus(null);
+      setCompanyNameLocal(null);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     if (!open) return;
-    refresh();
+    async function load() { await refresh(); }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh é recriada a cada render (não-memoizada de propósito, chamada também pelos handlers onConnected/onDisconnected/onClose); só o `open` deve reabrir o poll inicial.
   }, [open]);
 
   const connected = status === "connected";
