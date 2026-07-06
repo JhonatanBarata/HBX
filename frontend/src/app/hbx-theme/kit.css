@@ -62,7 +62,11 @@ html, body { margin: 0; }
 /* fundo do item ativo virou o .nav-pill abaixo (elemento único que DESLIZA
    entre itens em vez de o destaque "pular" — Sidebar mede a posição do item
    ativo e anima top/height); aqui só a cor do texto/ícone troca. */
-.nav-item.active { color: var(--hbx-brand-strong); }
+/* Cor do item ativo = MARCA (--hbx-brand), não --hbx-brand-strong: no dark mode
+   brand-strong vira branco (#FFF na base / claro nas peles) e o pill do menu é
+   CLARO (vidro c/ brilho branco) → texto branco no fundo branco, ilegível (bug
+   06/07 "branco com branco"). A marca lê no pill claro nos 2 modos e é on-brand. */
+.nav-item.active { color: var(--hbx-brand); }
 .nav-item svg { flex: 0 0 auto; opacity: 0.85; }
 .nav-item .chev { margin-left: auto; opacity: 0.5; }
 
