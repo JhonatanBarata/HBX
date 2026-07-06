@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as dns from 'node:dns';
+import { AiGatewayService } from '../../../ai-gateway/ai-gateway.service';
 import {
   gateLeadContacts,
   ownerNameExistsInSource,
@@ -125,25 +126,35 @@ export class AiContactExtractionService {
       const controller = new AbortController();
       const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model,
-            stream: false,
-            think: false,
-            format: 'json',
-            options: { temperature: 0, num_predict: numPredict, num_ctx: numCtx },
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              {
-                role: 'user',
-                content: `${leadName ? `NEGÓCIO: ${leadName}\n` : ''}TEXTO DO SITE:\n"""${sourceText}"""`,
-              },
-            ],
+        // GOVERNOR-IA: faixa batch (extração 30B cede a vez ao bot/assistente). Recusa cedo (fila
+        // cheia/espera condenada) → EMPTY_RESULT, o mesmo degrade gracioso de sempre. NÃO retenta
+        // numa recusa (o governor já decidiu não admitir; retentar só re-recusaria).
+        const gw = await AiGatewayService.run('batch', timeoutMs, () =>
+          fetch(`${baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              stream: false,
+              think: false,
+              format: 'json',
+              options: { temperature: 0, num_predict: numPredict, num_ctx: numCtx },
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: `${leadName ? `NEGÓCIO: ${leadName}\n` : ''}TEXTO DO SITE:\n"""${sourceText}"""`,
+                },
+              ],
+            }),
+            signal: controller.signal,
           }),
-          signal: controller.signal,
-        });
+        );
+        if (gw.refused) {
+          this.logger.warn('extração IA recusada cedo pelo governor (fila cheia) — EMPTY_RESULT');
+          return EMPTY_RESULT;
+        }
+        const response = gw.value;
 
         if (!response.ok) {
           this.logger.warn(`extração IA respondeu HTTP ${response.status}`);

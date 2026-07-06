@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AiGatewayService } from '../../ai-gateway/ai-gateway.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiIntentClassifierService } from './ai-intent-classifier.service';
 import type {
@@ -184,30 +185,37 @@ export class IntentEngineService {
     let classification: AtendimentoActionClassification | null = null;
     let latencyMs = 0;
     try {
-      const response = await fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          think: false,
-          format: 'json',
-          options: { temperature: 0.1, num_predict: 60 },
-          messages: [
-            { role: 'system', content: ATENDIMENTO_NLU_SYSTEM_PROMPT },
-            {
-              role: 'user',
-              content: `Acoes disponiveis:\n${catalogPrompt}\n\nMensagem do cliente: ${text}`,
-            },
-          ],
+      // GOVERNOR-IA: faixa realtime (bot de atendimento tem gate apertado, passa na frente).
+      // Recusa cedo → cai no MESMO menu de sempre (classification fica null).
+      const gw = await AiGatewayService.run('realtime', timeoutMs, () =>
+        fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            think: false,
+            format: 'json',
+            options: { temperature: 0.1, num_predict: 60 },
+            messages: [
+              { role: 'system', content: ATENDIMENTO_NLU_SYSTEM_PROMPT },
+              {
+                role: 'user',
+                content: `Acoes disponiveis:\n${catalogPrompt}\n\nMensagem do cliente: ${text}`,
+              },
+            ],
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
         }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      );
       latencyMs = Date.now() - startedAt;
 
-      if (!response.ok) {
-        this.logger.warn(`NLU atendimento respondeu HTTP ${response.status} — caindo no menu`);
+      if (gw.refused) {
+        this.logger.warn('NLU atendimento recusado cedo pelo governor (fila cheia) — caindo no menu');
+      } else if (!gw.value.ok) {
+        this.logger.warn(`NLU atendimento respondeu HTTP ${gw.value.status} — caindo no menu`);
       } else {
+        const response = gw.value;
         const data = (await response.json()) as { message?: { content?: string } };
         const raw = String(data?.message?.content || '');
         const parsed = safeParseJson(raw);

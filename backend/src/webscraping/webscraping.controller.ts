@@ -14,6 +14,7 @@ import { RadarMissionQueueService } from './radar/missions/radar-mission-queue.s
 import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
 import { RadarTreeStatusService } from './radar-tree-status/radar-tree-status.service';
 import { SourceBudgetService } from './source-budget/source-budget.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { WebscrapingService } from './webscraping.service';
 import { CnpjBaseQueryDto } from './radar/providers/cnpj-public/cnpj-base.controller';
 
@@ -754,6 +755,7 @@ export class MasterWebscrapingController {
       missions: async () => this.radarMissionQueue.stats(),
       vault: async () => SourceBudgetService.usageSnapshot(),
       zapGate: () => ZapCheckGuardService.getStats(),
+      aiGateway: () => AiGatewayService.snapshot(),
     });
     this.treeStatusCache = { at: now, data };
     return { ...data, cached: false };
@@ -769,6 +771,14 @@ export class MasterWebscrapingController {
   @Get('source-budget')
   getSourceBudget() {
     return SourceBudgetService.usageSnapshot();
+  }
+
+  // Gauge do GOVERNOR-IA (§9): 2 faixas (realtime/batch) do AiGatewayService —
+  // aceitas/recusadas-cedo/aguardando/em-voo/p95 de espera. Estado ESTÁTICO em memória
+  // (mesma verdade que os 6 callers de IA usam). Fila invisível = fila crescendo sem ninguém ver.
+  @Get('ai-gateway')
+  getAiGateway() {
+    return AiGatewayService.snapshot();
   }
 
   @Get('database-audit')

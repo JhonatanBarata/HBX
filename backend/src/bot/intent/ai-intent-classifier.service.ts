@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AiGatewayService } from '../../ai-gateway/ai-gateway.service';
 import { classifyProspectingAutoReply, classifyProspectingIntent } from '../../vendas/prospecting-safety';
 import type {
   ProspectingAutoReplyClassification,
@@ -151,22 +152,31 @@ export class AiIntentClassifierService {
     const startedAt = Date.now();
 
     try {
-      const response = await fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          think: false,
-          format: 'json',
-          options: { temperature: 0.1, num_predict: 80 },
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: `Resposta do lead: ${text}` },
-          ],
+      // GOVERNOR-IA: faixa realtime (prioridade absoluta). Recusa cedo (fila cheia/espera condenada)
+      // → cai no MESMO fallback keyword de sempre (return null aqui = caller usa keyword).
+      const gw = await AiGatewayService.run('realtime', timeoutMs, () =>
+        fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            think: false,
+            format: 'json',
+            options: { temperature: 0.1, num_predict: 80 },
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: `Resposta do lead: ${text}` },
+            ],
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
         }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      );
+      if (gw.refused) {
+        this.logger.warn('classificador IA recusado cedo pelo governor (fila cheia) — caindo no keyword');
+        return null;
+      }
+      const response = gw.value;
 
       if (!response.ok) {
         this.logger.warn(`classificador IA respondeu HTTP ${response.status} — caindo no keyword`);

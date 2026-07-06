@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as dns from 'node:dns';
+import { AiGatewayService } from '../../../ai-gateway/ai-gateway.service';
 
 /**
  * PR4a (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md)
@@ -210,22 +211,32 @@ export class AiSaneamentoService {
       const controller = new AbortController();
       const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model,
-            stream: false,
-            think: false,
-            format: 'json',
-            options: { temperature: 0.2 },
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
+        // GOVERNOR-IA: faixa batch (saneamento cede a vez ao bot/assistente). Recusa cedo (fila
+        // cheia/espera condenada) → null, o mesmo degrade gracioso de sempre. NÃO faz retry numa
+        // recusa (o governor já decidiu não admitir; retentar só re-recusaria) — return direto.
+        const gw = await AiGatewayService.run('batch', timeoutMs, () =>
+          fetch(`${baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              stream: false,
+              think: false,
+              format: 'json',
+              options: { temperature: 0.2 },
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+            }),
+            signal: controller.signal,
           }),
-          signal: controller.signal,
-        });
+        );
+        if (gw.refused) {
+          this.logger.warn(`saneamento IA recusado cedo pelo governor (fila cheia) para "${name}"`);
+          return null;
+        }
+        const response = gw.value;
 
         if (!response.ok) {
           this.logger.warn(`saneamento IA respondeu HTTP ${response.status} para "${name}"`);

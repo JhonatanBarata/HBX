@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as dns from 'node:dns';
+import { AiGatewayService } from '../../../ai-gateway/ai-gateway.service';
 
 /**
  * CAMADA 3 (opcional) do RAIO-X EM LOTE (HOT-04, 02/07): nota ICP (0-100) + resumo de 1 linha
@@ -111,22 +112,31 @@ export class CnpjXrayAiNoteService {
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          think: false,
-          format: 'json',
-          options: { temperature: 0, num_predict: numPredict, num_ctx: numCtx },
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: lines.join('\n') },
-          ],
+      // GOVERNOR-IA: faixa batch (nota ICP do xray cede a vez ao bot/assistente). Recusa cedo (fila
+      // cheia/espera condenada) → EMPTY_RESULT, o mesmo degrade gracioso de sempre (nota null).
+      const gw = await AiGatewayService.run('batch', timeoutMs, () =>
+        fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            think: false,
+            format: 'json',
+            options: { temperature: 0, num_predict: numPredict, num_ctx: numCtx },
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: lines.join('\n') },
+            ],
+          }),
+          signal: controller.signal,
         }),
-        signal: controller.signal,
-      });
+      );
+      if (gw.refused) {
+        this.logger.warn('nota IA recusada cedo pelo governor (fila cheia) — nota null');
+        return EMPTY_RESULT;
+      }
+      const response = gw.value;
       if (!response.ok) {
         this.logger.warn(`nota IA respondeu HTTP ${response.status}`);
         return EMPTY_RESULT;

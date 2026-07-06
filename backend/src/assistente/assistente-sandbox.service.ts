@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import {
   compileSystemPrompt,
   compileConditions,
@@ -183,18 +184,25 @@ export class AssistenteSandboxService {
     const model = assistenteModel();
     const timeoutMs = assistenteTimeoutMs();
 
-    const response = await fetch(`${baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        think: false,
-        options: { temperature: 0.4, num_predict: 220 },
-        messages,
+    // GOVERNOR-IA: faixa realtime (assistente é interação ao vivo). Recusa cedo (fila cheia/espera
+    // condenada) lança o MESMO tipo de erro que já cai no roteiro no `reply()` — o contrato de
+    // degradação (nunca envio real, sempre roteiro/fallback) fica intacto.
+    const gw = await AiGatewayService.run('realtime', timeoutMs, () =>
+      fetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          think: false,
+          options: { temperature: 0.4, num_predict: 220 },
+          messages,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    );
+    if (gw.refused) throw new Error('governor recusou a chamada de IA (fila cheia) — caindo no roteiro');
+    const response = gw.value;
     if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
     const data = (await response.json()) as { message?: { content?: string } };
     return String(data?.message?.content || '');

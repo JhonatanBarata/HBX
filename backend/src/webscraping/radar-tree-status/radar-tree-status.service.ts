@@ -230,6 +230,9 @@ export class RadarTreeStatusService {
     missions: () => Promise<unknown>;
     vault: () => Promise<unknown>;
     zapGate: () => unknown;
+    // GOVERNOR-IA (§9): gauge das 2 faixas do AiGatewayService (aceitas/recusadas/aguardando/p95).
+    // Síncrono e estático (snapshot em memória) — mesma filosofia do zapGate.
+    aiGateway?: () => unknown;
   }) {
     const now = new Date();
     const { start: todayStart, end: todayEnd } = saoPauloDayRange(now);
@@ -261,6 +264,9 @@ export class RadarTreeStatusService {
       wrap('missions', externalBlocks.missions),
       wrap('vault', externalBlocks.vault),
     ]);
+    const aiGateway = externalBlocks.aiGateway
+      ? wrapSync(externalBlocks.aiGateway)
+      : ({ ok: true as const, data: null });
 
     return {
       generatedAt: now.toISOString(),
@@ -274,6 +280,7 @@ export class RadarTreeStatusService {
       card,
       missions,
       vault,
+      aiGateway,
     };
   }
 }
