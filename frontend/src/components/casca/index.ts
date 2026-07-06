@@ -24,6 +24,10 @@ export { CascaLoading } from "./loading";
 // Peças de apoio.
 export { CascaFallback } from "./fallback";
 export { CascaStub } from "./stub";
+// Host do toast central — precisa ser montado 1× por árvore de shell própria
+// (o MobileShell já monta o seu; W6/Rota monta o dele porque /entrega vive
+// FORA do grupo (app) e não passa pelo MobileShell).
+export { CascaToastHost } from "./toast-host";
 
 // Utilitários (libs) re-exportados pra API única.
 export { useCascaMobile, CASCA_BP } from "@/lib/casca-mobile";

@@ -1,15 +1,16 @@
 "use client";
 
 // ================================================================
-// LOGÍSTICA-MOBILE A2 — TAB BAR PRÓPRIA DO APP /entrega (skin entrega).
-// NÃO reusa a MobileTabBar do dashboard (skin aurora, gates de módulo, folha
-// "Mais"): o app tem a SUA barra, com 4 abas grandes e o vocabulário do
-// entregador. Fixa no rodapé, safe-area, alvo >=52px, ativo pelo pathname.
+// MOBILE-CASCA/W6 — TAB BAR do app /entrega, agora nas MESMAS classes
+// estruturais .casca-tabbar/.casca-tab da casca central (casca.css) —
+// "outra cor, mesma casca" (regra nº5 do dono). 5 abas: Rota · Clientes ·
+// Produtos · Ajustes · HBX (a exigência "voltar pro HBX central nos
+// ícones" — navega pra /vendas, o app do dashboard).
 //
-// As 4 abas: Rota (/entrega = o app M4) · Clientes · Produtos · Ajustes.
-// A aba "Rota" acende em /entrega exato; as demais em /entrega/<seção>.
-// Classes .ent-tabbar/.ent-tab vivem em hbx-theme/entrega.css (zero visual
-// solto aqui — 5 Leis; ícone + label, sem hex/inline).
+// HBX NÃO é uma aba deste app (não acende como ativa) — é a porta de
+// saída, sempre no mesmo lugar da tab bar (ordem visual: por último).
+// Ativo pelo pathname: "Rota" só no /entrega exato; as demais quando o
+// pathname bate a seção.
 // ================================================================
 
 import Link from "next/link";
@@ -24,8 +25,6 @@ const TABS = [
   { href: "/entrega/ajustes", label: "Ajustes", icon: "ajustes" },
 ] as const;
 
-// Aba ativa: "Rota" só no /entrega exato; as demais quando o pathname bate a
-// seção (cobre subrotas futuras tipo /entrega/clientes/novo).
 function isActive(href: string, pathname: string): boolean {
   if (href === "/entrega") return pathname === "/entrega";
   return pathname === href || pathname.startsWith(href + "/");
@@ -34,21 +33,30 @@ function isActive(href: string, pathname: string): boolean {
 export function EntregaTabBar() {
   const pathname = usePathname() || "";
   return (
-    <nav className="ent-tabbar" aria-label="Navegação do app">
+    <nav className="casca-tabbar" aria-label="Navegação do app de entrega">
       {TABS.map((tab) => {
         const active = isActive(tab.href, pathname);
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={`ent-tab${active ? " is-on" : ""}`}
+            className={"casca-tab" + (active ? " is-on" : "")}
             aria-current={active ? "page" : undefined}
           >
-            <I d={ICON_PATHS[tab.icon]} size={22} />
-            <span className="ent-tab-label">{tab.label}</span>
+            <I d={ICON_PATHS[tab.icon]} size={20} />
+            <span className="casca-tab__label">{tab.label}</span>
           </Link>
         );
       })}
+      {/* HBX — volta pro app central (regra nº5: "como voltar nos ÍCONES"). */}
+      <Link
+        href="/vendas"
+        className="casca-tab"
+        aria-label="Voltar para o HBX"
+      >
+        <I d={ICON_PATHS.hbx} size={20} />
+        <span className="casca-tab__label">HBX</span>
+      </Link>
     </nav>
   );
 }

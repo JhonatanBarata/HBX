@@ -12,11 +12,10 @@
 // ================================================================
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
-import { getToken } from "@/lib/api";
+import { CascaLoading, CascaView } from "@/components/casca";
 
-import { EntregaTabBar } from "../EntregaTabBar";
+import { EntregaScaffold } from "../EntregaScaffold";
 import { I, ICON_PATHS } from "../icons";
 import {
   type ProdutoItem,
@@ -40,22 +39,25 @@ const UNIDADES: Array<{ v: UnidadeProduto; label: string }> = [
 ];
 
 export function EntregaProdutos() {
-  const router = useRouter();
   const [view, setView] = useState<View>({ tela: "lista" });
 
-  // AUTH: reusa a sessão do app (mesma regra da home). Sem token → login.
-  useEffect(() => {
-    if (!getToken()) router.replace("/login");
-  }, [router]);
-
-  if (view.tela === "editor") {
-    return <ProdutoEditor item={view.item} onSair={() => setView({ tela: "lista" })} />;
-  }
   return (
-    <ProdutoLista
-      onNovo={() => setView({ tela: "editor", item: null })}
-      onAbrir={(item) => setView({ tela: "editor", item })}
-    />
+    <EntregaScaffold title="Produtos">
+      <ProdutoLista
+        onNovo={() => setView({ tela: "editor", item: null })}
+        onAbrir={(item) => setView({ tela: "editor", item })}
+      />
+
+      {/* MOBILE-CASCA/W6 — editor empilha por CIMA com IR/VOLTAR (CascaView). */}
+      {view.tela === "editor" ? (
+        <CascaView
+          title={view.item ? "Editar produto" : "Novo produto"}
+          onClose={() => setView({ tela: "lista" })}
+        >
+          <ProdutoEditor item={view.item} onSair={() => setView({ tela: "lista" })} />
+        </CascaView>
+      ) : null}
+    </EntregaScaffold>
   );
 }
 
@@ -82,16 +84,10 @@ function ProdutoLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (p: Pr
   }, [carregar]);
 
   return (
-    <div className="ent-app has-tabbar">
-      <header className="ent-head">
-        <div>
-          <div className="ent-head-title">Produtos</div>
-        </div>
-      </header>
-
+    <>
       {itens === null ? (
         <div className="ent-empty">
-          <div className="ent-spinner" aria-label="Carregando" />
+          <CascaLoading caption="Carregando" />
         </div>
       ) : erro ? (
         <div className="ent-empty">
@@ -140,9 +136,7 @@ function ProdutoLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (p: Pr
           Novo produto
         </button>
       </div>
-
-      <EntregaTabBar />
-    </div>
+    </>
   );
 }
 
@@ -197,16 +191,7 @@ function ProdutoEditor({ item, onSair }: { item: ProdutoItem | null; onSair: () 
   }, [item, arquivado, onSair]);
 
   return (
-    <div className="ent-app has-tabbar">
-      <header className="ent-head">
-        <div>
-          <div className="ent-head-title">{editando ? "Editar produto" : "Novo produto"}</div>
-        </div>
-        <button type="button" className="ent-chip" onClick={onSair}>
-          Voltar
-        </button>
-      </header>
-
+    <>
       <div className="ent-form">
         <label className="ent-field">
           <span className="ent-field-label">Nome</span>
@@ -269,9 +254,7 @@ function ProdutoEditor({ item, onSair }: { item: ProdutoItem | null; onSair: () 
           {salvando ? "Salvando…" : editando ? "Salvar" : "Cadastrar produto"}
         </button>
       </div>
-
-      <EntregaTabBar />
-    </div>
+    </>
   );
 }
 

@@ -16,12 +16,15 @@
 
 import { useMemo, useState } from "react";
 
+import { CascaSheet } from "@/components/casca";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import type { ReceiptMethod, RotaItem } from "./entrega-api";
 import { buzz } from "./entrega-hooks";
 
 interface Props {
-  parada: RotaItem;
+  /** MOBILE-CASCA/W6 — abre/fecha pela API central (CascaSheet), nunca seco. */
+  open: boolean;
+  parada: RotaItem | null;
   moduloFinanceiroAtivo: boolean;
   onEntregue: (payload: { itens: Array<{ id: string; qtdEntregue: number }>; receiptMethod?: ReceiptMethod }) => void;
   onNaoEntregue: (motivo: string) => void;
@@ -56,6 +59,7 @@ function itensIniciais(parada: RotaItem): Array<{ id: string; label: string; qtd
 }
 
 export function ArrivalSheet({
+  open,
   parada,
   moduloFinanceiroAtivo,
   onEntregue,
@@ -63,6 +67,42 @@ export function ArrivalSheet({
   onClose,
   submitting,
 }: Props) {
+  // MOBILE-CASCA/W6 — o CascaSheet segura o unmount até a animação de saída
+  // terminar (LEI "nada fecha seco"); nesse intervalo `parada` já pode ter
+  // virado null (o caller avança/limpa o índice ao confirmar). Guardamos a
+  // ÚLTIMA parada não-nula pra o conteúdo não sumir/piscar durante o VOLTAR.
+  const [ultimaParada, setUltimaParada] = useState<RotaItem | null>(parada);
+  if (parada && parada !== ultimaParada) setUltimaParada(parada);
+  const paradaExibida = parada ?? ultimaParada;
+
+  return (
+    <CascaSheet open={open} onClose={onClose}>
+      {paradaExibida ? (
+        <ArrivalSheetBody
+          parada={paradaExibida}
+          moduloFinanceiroAtivo={moduloFinanceiroAtivo}
+          onEntregue={onEntregue}
+          onNaoEntregue={onNaoEntregue}
+          submitting={submitting}
+        />
+      ) : null}
+    </CascaSheet>
+  );
+}
+
+function ArrivalSheetBody({
+  parada,
+  moduloFinanceiroAtivo,
+  onEntregue,
+  onNaoEntregue,
+  submitting,
+}: {
+  parada: RotaItem;
+  moduloFinanceiroAtivo: boolean;
+  onEntregue: (payload: { itens: Array<{ id: string; qtdEntregue: number }>; receiptMethod?: ReceiptMethod }) => void;
+  onNaoEntregue: (motivo: string) => void;
+  submitting: boolean;
+}) {
   const [itens, setItens] = useState(() => itensIniciais(parada));
   const [receipt, setReceipt] = useState<ReceiptMethod | null>(null);
   const [motivo, setMotivo] = useState<MotivoNaoEntregue | null>(null);
@@ -89,156 +129,147 @@ export function ArrivalSheet({
   };
 
   return (
-    <div className="ent-sheet-veil" role="dialog" aria-modal="true" aria-label="Chegada">
-      <div className="ent-sheet">
-        <div className="ent-sheet-grip" aria-hidden="true" />
-        <div className="ent-sheet-title">{parada.cliente.nome ?? "Cliente"}</div>
-        <div className="ent-sheet-sub">{parada.cliente.endereco ?? "Sem endereço"}</div>
+    <>
+      <div className="ent-sheet-title">{parada.cliente.nome ?? "Cliente"}</div>
+      <div className="ent-sheet-sub">{parada.cliente.endereco ?? "Sem endereço"}</div>
 
-        {!naoEntregueAberto ? (
-          <>
-            {itens.map((it) => (
-              <div className="ent-item" key={it.id}>
-                <div className="ent-item-label">{it.label}</div>
-                <div className="ent-stepper">
-                  <button
-                    type="button"
-                    className="ent-stepper-btn"
-                    aria-label={`Menos um ${it.label}`}
-                    onClick={() => setQtd(it.id, -1)}
-                    disabled={submitting}
-                  >
-                    −
-                  </button>
-                  <div className="ent-stepper-val">{it.qtd}</div>
-                  <button
-                    type="button"
-                    className="ent-stepper-btn"
-                    aria-label={`Mais um ${it.label}`}
-                    onClick={() => setQtd(it.id, 1)}
-                    disabled={submitting}
-                  >
-                    +
-                  </button>
-                </div>
+      {!naoEntregueAberto ? (
+        <>
+          {itens.map((it) => (
+            <div className="ent-item" key={it.id}>
+              <div className="ent-item-label">{it.label}</div>
+              <div className="ent-stepper">
+                <button
+                  type="button"
+                  className="ent-stepper-btn"
+                  aria-label={`Menos um ${it.label}`}
+                  onClick={() => setQtd(it.id, -1)}
+                  disabled={submitting}
+                >
+                  −
+                </button>
+                <div className="ent-stepper-val">{it.qtd}</div>
+                <button
+                  type="button"
+                  className="ent-stepper-btn"
+                  aria-label={`Mais um ${it.label}`}
+                  onClick={() => setQtd(it.id, 1)}
+                  disabled={submitting}
+                >
+                  +
+                </button>
               </div>
-            ))}
-
-            {chipsVisiveis ? (
-              <>
-                <div className="ent-chips-label">Recebimento</div>
-                <div className="ent-chips">
-                  <GlassPill {...receiptPill} />
-                  <button
-                    type="button"
-                    ref={receiptPill.itemRef("dinheiro")}
-                    className={`ent-chip${receipt === "dinheiro" ? " is-on" : ""}`}
-                    onClick={() => setReceipt("dinheiro")}
-                    disabled={submitting}
-                  >
-                    Dinheiro
-                  </button>
-                  <button
-                    type="button"
-                    ref={receiptPill.itemRef("pix")}
-                    className={`ent-chip${receipt === "pix" ? " is-on" : ""}`}
-                    onClick={() => setReceipt("pix")}
-                    disabled={submitting}
-                  >
-                    Pix
-                  </button>
-                  <button
-                    type="button"
-                    ref={receiptPill.itemRef("fiado")}
-                    className={`ent-chip${receipt === "fiado" ? " is-on" : ""}`}
-                    onClick={() => setReceipt("fiado")}
-                    disabled={submitting}
-                  >
-                    Pendura
-                  </button>
-                </div>
-              </>
-            ) : null}
-
-            <div className="ent-sheet-actions">
-              <button
-                type="button"
-                className="ent-btn ent-btn--primary"
-                onClick={confirmarEntregue}
-                disabled={submitting}
-              >
-                {submitting ? "Enviando…" : "Entregue"}
-              </button>
-              <button
-                type="button"
-                className="ent-btn ent-btn--ghost"
-                onClick={() => setNaoEntregueAberto(true)}
-                disabled={submitting}
-              >
-                Não entregue
-              </button>
             </div>
-          </>
-        ) : (
-          <>
-            <div className="ent-chips-label">Por quê?</div>
-            <div className="ent-chips">
-              <GlassPill {...motivoPill} />
-              <button
-                type="button"
-                ref={motivoPill.itemRef("ausente")}
-                className={`ent-chip${motivo === "ausente" ? " is-on" : ""}`}
-                onClick={() => setMotivo("ausente")}
-                disabled={submitting}
-              >
-                Ausente
-              </button>
-              <button
-                type="button"
-                ref={motivoPill.itemRef("recusou")}
-                className={`ent-chip${motivo === "recusou" ? " is-on" : ""}`}
-                onClick={() => setMotivo("recusou")}
-                disabled={submitting}
-              >
-                Recusou
-              </button>
-              <button
-                type="button"
-                ref={motivoPill.itemRef("reagendar")}
-                className={`ent-chip${motivo === "reagendar" ? " is-on" : ""}`}
-                onClick={() => setMotivo("reagendar")}
-                disabled={submitting}
-              >
-                Reagendar
-              </button>
-            </div>
-            <div className="ent-sheet-actions">
-              <button
-                type="button"
-                className="ent-btn ent-btn--secondary"
-                onClick={() => motivo && onNaoEntregue(motivo)}
-                disabled={submitting || !motivo}
-              >
-                {submitting ? "Enviando…" : "Confirmar"}
-              </button>
-              <button
-                type="button"
-                className="ent-btn ent-btn--ghost"
-                onClick={() => setNaoEntregueAberto(false)}
-                disabled={submitting}
-              >
-                Voltar
-              </button>
-            </div>
-          </>
-        )}
+          ))}
 
-        <div className="ent-sheet-actions">
-          <button type="button" className="ent-btn ent-btn--ghost" onClick={onClose} disabled={submitting}>
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
+          {chipsVisiveis ? (
+            <>
+              <div className="ent-chips-label">Recebimento</div>
+              <div className="ent-chips">
+                <GlassPill {...receiptPill} />
+                <button
+                  type="button"
+                  ref={receiptPill.itemRef("dinheiro")}
+                  className={`ent-chip${receipt === "dinheiro" ? " is-on" : ""}`}
+                  onClick={() => setReceipt("dinheiro")}
+                  disabled={submitting}
+                >
+                  Dinheiro
+                </button>
+                <button
+                  type="button"
+                  ref={receiptPill.itemRef("pix")}
+                  className={`ent-chip${receipt === "pix" ? " is-on" : ""}`}
+                  onClick={() => setReceipt("pix")}
+                  disabled={submitting}
+                >
+                  Pix
+                </button>
+                <button
+                  type="button"
+                  ref={receiptPill.itemRef("fiado")}
+                  className={`ent-chip${receipt === "fiado" ? " is-on" : ""}`}
+                  onClick={() => setReceipt("fiado")}
+                  disabled={submitting}
+                >
+                  Pendura
+                </button>
+              </div>
+            </>
+          ) : null}
+
+          <div className="ent-sheet-actions">
+            <button
+              type="button"
+              className="ent-btn ent-btn--primary"
+              onClick={confirmarEntregue}
+              disabled={submitting}
+            >
+              {submitting ? "Enviando…" : "Entregue"}
+            </button>
+            <button
+              type="button"
+              className="ent-btn ent-btn--ghost"
+              onClick={() => setNaoEntregueAberto(true)}
+              disabled={submitting}
+            >
+              Não entregue
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="ent-chips-label">Por quê?</div>
+          <div className="ent-chips">
+            <GlassPill {...motivoPill} />
+            <button
+              type="button"
+              ref={motivoPill.itemRef("ausente")}
+              className={`ent-chip${motivo === "ausente" ? " is-on" : ""}`}
+              onClick={() => setMotivo("ausente")}
+              disabled={submitting}
+            >
+              Ausente
+            </button>
+            <button
+              type="button"
+              ref={motivoPill.itemRef("recusou")}
+              className={`ent-chip${motivo === "recusou" ? " is-on" : ""}`}
+              onClick={() => setMotivo("recusou")}
+              disabled={submitting}
+            >
+              Recusou
+            </button>
+            <button
+              type="button"
+              ref={motivoPill.itemRef("reagendar")}
+              className={`ent-chip${motivo === "reagendar" ? " is-on" : ""}`}
+              onClick={() => setMotivo("reagendar")}
+              disabled={submitting}
+            >
+              Reagendar
+            </button>
+          </div>
+          <div className="ent-sheet-actions">
+            <button
+              type="button"
+              className="ent-btn ent-btn--secondary"
+              onClick={() => motivo && onNaoEntregue(motivo)}
+              disabled={submitting || !motivo}
+            >
+              {submitting ? "Enviando…" : "Confirmar"}
+            </button>
+            <button
+              type="button"
+              className="ent-btn ent-btn--ghost"
+              onClick={() => setNaoEntregueAberto(false)}
+              disabled={submitting}
+            >
+              Voltar
+            </button>
+          </div>
+        </>
+      )}
+    </>
   );
 }

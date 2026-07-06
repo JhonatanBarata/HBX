@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { CascaLoading, toggleCascaFullscreen } from "@/components/casca";
 import { getToken } from "@/lib/api";
 
 import { ArrivalSheet } from "./ArrivalSheet";
-import { EntregaTabBar } from "./EntregaTabBar";
+import { EntregaScaffold } from "./EntregaScaffold";
 import { GestaoDia } from "./GestaoDia";
+import { I, ICON_PATHS } from "./icons";
 import { Onboarding, jaViuOnboarding } from "./Onboarding";
 import {
   cancelarEntrega,
@@ -117,6 +119,11 @@ export function EntregaHome() {
     setErro(null);
     buzz(14);
     void wakeLock.enable(); // tela acesa durante a rota
+    // LEI nº3 (fullscreen "especialmente no Rota"): oferece tela cheia em 1
+    // toque ao iniciar — a lib central já emite o aviso ("deslize a borda de
+    // cima pra sair"); se o device recusar/não suportar, segue sem travar o
+    // fluxo (best-effort, igual ao wakeLock).
+    void toggleCascaFullscreen();
     let origem: { lat: number; lng: number } | undefined;
     try {
       origem = await getPosicaoUma();
@@ -235,13 +242,10 @@ export function EntregaHome() {
   }
 
   return (
-    <div className="ent-app has-tabbar">
-      <header className="ent-head">
-        <div>
-          <div className="ent-head-title">{view === "rota" ? "Rota" : "Hoje"}</div>
-          <div className="ent-head-sub">{DATA_HOJE}</div>
-        </div>
-        <div className="ent-head-actions">
+    <EntregaScaffold
+      title={view === "rota" ? "Rota" : "Hoje"}
+      headerActions={
+        <>
           {/* M8 — pendências não sincronizadas (fila offline). Ícone + número, sem texto
               (Lei nº1). Vira alerta quando algum item estourou o teto de tentativas. */}
           {sync.pendentes > 0 ? (
@@ -260,16 +264,16 @@ export function EntregaHome() {
             </span>
           ) : null}
           {view === "rota" ? (
-            <button type="button" className="ent-chip" onClick={() => setView("hoje")}>
-              Hoje
+            <button type="button" className="casca-top__act" aria-label="Ver Hoje" onClick={() => setView("hoje")}>
+              <I d={ICON_PATHS.route} size={18} />
             </button>
           ) : null}
-        </div>
-      </header>
-
+        </>
+      }
+    >
       {loading ? (
         <div className="ent-empty">
-          <div className="ent-spinner" aria-label="Carregando" />
+          <CascaLoading caption="Carregando" />
         </div>
       ) : erro ? (
         <div className="ent-empty">
@@ -313,19 +317,16 @@ export function EntregaHome() {
         />
       )}
 
-      {sheetAberta && paradaAtual ? (
-        <ArrivalSheet
-          parada={paradaAtual}
-          moduloFinanceiroAtivo={rota?.moduloFinanceiroAtivo ?? false}
-          onEntregue={onEntregue}
-          onNaoEntregue={onNaoEntregue}
-          onClose={() => setSheetAberta(false)}
-          submitting={submitting}
-        />
-      ) : null}
-
-      <EntregaTabBar />
-    </div>
+      <ArrivalSheet
+        open={sheetAberta && !!paradaAtual}
+        parada={paradaAtual}
+        moduloFinanceiroAtivo={rota?.moduloFinanceiroAtivo ?? false}
+        onEntregue={onEntregue}
+        onNaoEntregue={onNaoEntregue}
+        onClose={() => setSheetAberta(false)}
+        submitting={submitting}
+      />
+    </EntregaScaffold>
   );
 }
 
@@ -354,6 +355,7 @@ function ViewHoje({
   if (!rota || total === 0) {
     return (
       <>
+        <div className="ent-head-sub ent-head-sub--standalone">{DATA_HOJE}</div>
         <GestaoDia onGerou={onGerou} />
         <div className="ent-empty">
           <div className="ent-empty-icon" aria-hidden="true">
@@ -367,6 +369,7 @@ function ViewHoje({
   const pct = total > 0 ? Math.round((feitas / total) * 100) : 0;
   return (
     <>
+      <div className="ent-head-sub ent-head-sub--standalone">{DATA_HOJE}</div>
       <GestaoDia onGerou={onGerou} />
       <section className="ent-progress" aria-label="Progresso do dia">
         <div className="ent-progress-row">

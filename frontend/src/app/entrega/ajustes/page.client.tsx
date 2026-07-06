@@ -16,10 +16,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { clearToken, getToken } from "@/lib/api";
+import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFullscreen } from "@/components/casca";
+import { clearToken } from "@/lib/api";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
-import { EntregaTabBar } from "../EntregaTabBar";
+import { EntregaScaffold } from "../EntregaScaffold";
 import {
   type LogisticaConfig,
   fecharMes,
@@ -84,11 +85,11 @@ export function EntregaAjustes() {
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // AUTH: reusa a sessão do app. Sem token → login.
-  useEffect(() => {
-    if (!getToken()) router.replace("/login");
-  }, [router]);
+  // LEI nº3 (fullscreen) — toggle também em Ajustes, além da oferta ao
+  // "Iniciar rota". Estado local só de exibição (a lib central é a fonte);
+  // lazy init lê o estado real 1x (mesmo padrão de TemaSection, W5), sem
+  // useEffect supérfluo.
+  const [fsAtivo, setFsAtivo] = useState(() => isFullscreenActive());
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -147,19 +148,20 @@ export function EntregaAjustes() {
     router.replace("/login");
   }, [router]);
 
-  return (
-    <div className="ent-app has-tabbar">
-      <header className="ent-head">
-        <div>
-          <div className="ent-head-title">Ajustes</div>
-        </div>
-        {salvando ? <span className="ent-chip">salvando…</span> : salvo ? <span className="ent-chip is-on">salvo ✓</span> : null}
-      </header>
+  const onToggleFullscreen = useCallback(async () => {
+    const ativo = await toggleCascaFullscreen();
+    setFsAtivo(ativo);
+  }, []);
 
+  return (
+    <EntregaScaffold
+      title="Ajustes"
+      headerActions={salvando ? <span className="ent-chip">salvando…</span> : salvo ? <span className="ent-chip is-on">salvo ✓</span> : null}
+    >
       <div className="ent-form">
         {!cfg && !erro ? (
           <div className="ent-empty">
-            <div className="ent-spinner" aria-label="Carregando" />
+            <CascaLoading caption="Carregando" />
           </div>
         ) : null}
 
@@ -262,6 +264,23 @@ export function EntregaAjustes() {
 
         {erro ? <div className="ent-erro">{erro}</div> : null}
 
+        {/* ── TELA CHEIA (LEI nº3 — toggle também aqui, além da oferta no
+            "Iniciar rota") ─────────────────────────────────────────────── */}
+        {isFullscreenSupported() ? (
+          <>
+            <div className="ent-field-label ent-section">Tela</div>
+            <button
+              type="button"
+              className="ent-toggle"
+              onClick={() => void onToggleFullscreen()}
+              aria-pressed={fsAtivo}
+            >
+              <span className="ent-toggle-label">Tela cheia</span>
+              <span className={`ent-switch${fsAtivo ? " is-on" : ""}`} aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
+
         {/* ── INSTALAR APP ─────────────────────────────────────────────── */}
         <div className="ent-field-label ent-section">Instalar o app</div>
         <InstalarApp />
@@ -271,9 +290,7 @@ export function EntregaAjustes() {
           Sair da conta
         </button>
       </div>
-
-      <EntregaTabBar />
-    </div>
+    </EntregaScaffold>
   );
 }
 

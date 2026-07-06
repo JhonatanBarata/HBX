@@ -12,11 +12,10 @@
 // ================================================================
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 
-import { getToken } from "@/lib/api";
+import { CascaLoading, CascaView } from "@/components/casca";
 
-import { EntregaTabBar } from "../EntregaTabBar";
+import { EntregaScaffold } from "../EntregaScaffold";
 import { I, ICON_PATHS } from "../icons";
 import { getPosicaoUma } from "../entrega-hooks";
 import {
@@ -61,23 +60,24 @@ const DIAS_SEMANA: Array<{ n: number; label: string }> = [
 ];
 
 export function EntregaClientes() {
-  const router = useRouter();
   const [view, setView] = useState<View>({ tela: "lista" });
 
-  // AUTH: reusa a sessão do app (mesma regra da home). Sem token → login.
-  useEffect(() => {
-    if (!getToken()) router.replace("/login");
-  }, [router]);
+  return (
+    <EntregaScaffold title="Clientes">
+      <ClienteLista onNovo={() => setView({ tela: "editor", id: null })} onAbrir={(id) => setView({ tela: "editor", id })} />
 
-  if (view.tela === "editor") {
-    return (
-      <ClienteEditor
-        id={view.id}
-        onSair={() => setView({ tela: "lista" })}
-      />
-    );
-  }
-  return <ClienteLista onNovo={() => setView({ tela: "editor", id: null })} onAbrir={(id) => setView({ tela: "editor", id })} />;
+      {/* MOBILE-CASCA/W6 — o editor empilha por CIMA da lista com IR/VOLTAR
+          (CascaView), nunca troca de tela seco. */}
+      {view.tela === "editor" ? (
+        <CascaView
+          title={view.id ? "Editar cliente" : "Novo cliente"}
+          onClose={() => setView({ tela: "lista" })}
+        >
+          <ClienteEditor id={view.id} onSair={() => setView({ tela: "lista" })} />
+        </CascaView>
+      ) : null}
+    </EntregaScaffold>
+  );
 }
 
 // ── LISTA + BUSCA ────────────────────────────────────────────────────────────
@@ -104,13 +104,7 @@ function ClienteLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (id: s
   }, [busca, carregar]);
 
   return (
-    <div className="ent-app has-tabbar">
-      <header className="ent-head">
-        <div>
-          <div className="ent-head-title">Clientes</div>
-        </div>
-      </header>
-
+    <>
       <div className="ent-search">
         <input
           className="ent-input"
@@ -125,7 +119,7 @@ function ClienteLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (id: s
 
       {itens === null ? (
         <div className="ent-empty">
-          <div className="ent-spinner" aria-label="Carregando" />
+          <CascaLoading caption="Carregando" />
         </div>
       ) : erro ? (
         <div className="ent-empty">
@@ -164,9 +158,7 @@ function ClienteLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (id: s
           Novo cliente
         </button>
       </div>
-
-      <EntregaTabBar />
-    </div>
+    </>
   );
 }
 
@@ -309,20 +301,14 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
 
   if (carregando) {
     return (
-      <div className="ent-app has-tabbar">
-        <EditorHeader titulo={editando ? "Editar cliente" : "Novo cliente"} onSair={onSair} />
-        <div className="ent-empty">
-          <div className="ent-spinner" aria-label="Carregando" />
-        </div>
-        <EntregaTabBar />
+      <div className="ent-empty">
+        <CascaLoading caption="Carregando" />
       </div>
     );
   }
 
   return (
-    <div className="ent-app has-tabbar">
-      <EditorHeader titulo={editando ? "Editar cliente" : "Novo cliente"} onSair={onSair} />
-
+    <>
       <div className="ent-form">
         <label className="ent-field">
           <span className="ent-field-label">Nome</span>
@@ -435,22 +421,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
           {salvando ? "Salvando…" : editando ? "Salvar" : "Cadastrar cliente"}
         </button>
       </div>
-
-      <EntregaTabBar />
-    </div>
-  );
-}
-
-function EditorHeader({ titulo, onSair }: { titulo: string; onSair: () => void }) {
-  return (
-    <header className="ent-head">
-      <div>
-        <div className="ent-head-title">{titulo}</div>
-      </div>
-      <button type="button" className="ent-chip" onClick={onSair}>
-        Voltar
-      </button>
-    </header>
+    </>
   );
 }
 

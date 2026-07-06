@@ -188,6 +188,12 @@
   color: var(--ent-ink-muted);
   font-weight: 600;
 }
+/* MOBILE-CASCA/W6 — mesma legenda, agora fora do .ent-head cru (o topo virou
+   .casca-top da casca central, que não duplica título) — usada como 1ª linha
+   do conteúdo (ex.: data de hoje sob "Hoje"/"Rota"). */
+[data-skin="entrega"] .ent-head-sub--standalone {
+  padding: var(--ent-4) var(--ent-4) 0;
+}
 /* M8 — ações do header (pendências offline + atalho "Hoje"). */
 [data-skin="entrega"] .ent-head-actions {
   display: flex;
@@ -1141,4 +1147,84 @@
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ============================================================
+   MOBILE-CASCA/W6 — RE-VESTIMENTO da CASCA CENTRAL (regra nº5 do dono:
+   "Rota é OUTRO aplicativo — pode ter outra cor, mas é o MESMO ideal e
+   MESMA casca"). /entrega passa a montar as MESMAS classes estruturais
+   .casca-top/.casca-tabbar/.casca-tab/.casca-stage/.casca-view/
+   .casca-sheet e .casca-loading que o restante do app usa (mobile-shell.tsx,
+   transitions.tsx, loading.tsx) — ZERO CSS novo de estrutura aqui, só os
+   TOKENS de cor que essas classes consomem, redirecionados pros valores
+   --ent-* que já existem (claro alto-contraste + escuro automático,
+   seção acima). É a definição literal de "outra cor, mesma casca": a
+   MESMA árvore de classes, vestida por um dicionário de cores diferente.
+   ============================================================ */
+[data-skin="entrega"] {
+  /* Superfícies que a casca central usa (topo, canvas, cards, sheet, recesso) */
+  --surface-canvas: var(--ent-canvas);
+  --surface-card: var(--ent-surface);
+  --surface-recessed: var(--ent-surface-soft);
+  --hbx-header-surface: var(--ent-surface);
+  --hbx-nav-surface: var(--ent-surface);
+  --hbx-overlay: var(--ent-overlay);
+
+  /* Texto */
+  --text-strong: var(--ent-ink);
+  --text-body: var(--ent-ink-soft);
+  --text-muted: var(--ent-ink-muted);
+
+  /* Marca (título ativo da tab bar, ação do topo) = verde do entregador */
+  --hbx-brand-strong: var(--ent-brand);
+  --hbx-action-ink: var(--ent-on-brand);
+
+  /* Bordas / sombras */
+  --border-hairline: var(--ent-hairline);
+  --border-strong: var(--ent-line-strong);
+  --shadow-sm: var(--ent-shadow-sm);
+  --shadow-lg: var(--ent-shadow-lg);
+
+  /* CascaLoading — o anel/marca vestem o verde do entregador (nunca o
+     espectro roxo→platina do dashboard: aqui é "outro aplicativo"). */
+  --casca-ring-1: var(--ent-brand);
+  --casca-ring-2: var(--ent-brand-strong);
+  --casca-ring-3: var(--ent-accent);
+  --casca-ring-4: var(--ent-brand);
+  --casca-ring-5: var(--ent-brand-strong);
+  --casca-ring-track: var(--ent-surface-soft);
+  --casca-ring-glow: color-mix(in srgb, var(--ent-brand) 35%, transparent);
+  --casca-mark-1: var(--ent-ink);
+  --casca-mark-2: var(--ent-ink-soft);
+  --casca-mark-3: var(--ent-ink-muted);
+}
+
+/* A casca central (.casca / .casca-top / .casca-tabbar / .casca-sheet) usa
+   var(--font-body)/var(--font-display) do dashboard — aqui a fonte é a do
+   entregador (Plus Jakarta/Sora), então redeclaramos SÓ dentro do escopo,
+   sem duplicar layout (a métrica de altura/spacing continua a mesma dos
+   tokens --casca-* globais, ISTO é o que garante "mesma casca"). */
+[data-skin="entrega"] .casca,
+[data-skin="entrega"] .casca-top,
+[data-skin="entrega"] .casca-tabbar,
+[data-skin="entrega"] .casca-sheet {
+  font-family: var(--ent-font);
+}
+[data-skin="entrega"] .casca-top__title,
+[data-skin="entrega"] .casca-sheet__title {
+  font-family: var(--ent-font-num);
+}
+
+/* .casca-view (o palco) herda a régua central de altura mas o /entrega não
+   fica preso ao position:fixed de tela-inteira da .casca (o app já controla
+   sua própria viewport via .ent-app) — aqui .casca-stage/.casca-view viram
+   só o container de transição all IR/VOLTAR, altura automática. */
+[data-skin="entrega"] .casca-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+[data-skin="entrega"] .casca-shell .casca-stage {
+  flex: 1 1 auto;
+  min-height: 0;
 }
