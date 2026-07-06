@@ -1,8 +1,10 @@
 # W2 — RESULTADO: VENDAS/LEADS mobile (mockup aprovado 1)
 
-Tela mobile registrada em `/vendas` (única chave — `/leads` já é alias
-client-side que redireciona pra `/vendas`, inclusive no mobile). Uma tela,
-dois modos por segmented compacto 28px (Funil | Buscar), consumindo os MESMOS
+Tela mobile registrada em `/vendas` **e** `/leads` (uma tela, dois modos —
+em `/leads` abre direto no modo Buscar lendo o pathname, então o alias
+`/webscraping → /leads` e links internos nunca caem no fallback, mesmo antes
+do redirect client-side `leads/redirect.client.tsx` resolver). Dois modos por
+segmented compacto 28px (Funil | Buscar), consumindo os MESMOS
 hooks/endpoints que `vendas/page.client.tsx` e `leads/page.client.tsx` usam no
 desktop. Zero backend novo, zero endpoint novo, zero alteração na lógica das
 telas desktop (DOM mobile é árvore separada, registrada via `CASCA_SCREENS`).
@@ -17,7 +19,9 @@ telas desktop (DOM mobile é árvore separada, registrada via `CASCA_SCREENS`).
   toolbar (`ModoSegment` + Lista|Quadro + "Modo foco" ícone + "+ Novo"),
   grupos por bloco real do backend (Hoje/Atrasados/Agendados/Fechados — vista
   Lista) OU por etapa real (Prospecção→Fechamento — vista Quadro), linhas
-  56–64px, sheet de detalhe, modal "Novo negócio".
+  56–64px, sheet de detalhe, "+ Novo" em `CascaSheet` (pela central da casca,
+  com IR/VOLTAR — corrigido na revisão: a 1ª versão usava `.hbx-veil`/
+  `.hbx-modal` do desktop, que abre/fecha seco).
 - `frontend/src/components/casca/screens/vendas-foco.tsx` — Modo Foco: nasce
   DE NOVO como takeover (`CascaView`), 1 card por vez, swipe ←/→ (pointer
   events), ações rápidas (WhatsApp/ligar/avançar etapa). O `VendasModoFoco`
@@ -42,7 +46,8 @@ telas desktop (DOM mobile é árvore separada, registrada via `CASCA_SCREENS`).
 ## Arquivos alterados
 
 - `frontend/src/components/casca/registry.tsx` — `CASCA_SCREENS["/vendas"]`
-  trocado do stub pra `<VendasMobile/>`.
+  trocado do stub pra `<VendasMobile/>` + entrada `"/leads": VendasMobile` e
+  título em `CASCA_TITLES` (revisão do orquestrador).
 - `frontend/src/app/hbx-theme/screens.css` — bloco novo "MOBILE-CASCA/W2" no
   final do arquivo (estrutura por-tela, Lei 2 do Design System): classes
   `.vnd-m__*` e `.vnd-foco__*`. Zero cor/hex — só tokens (`--casca-*`,

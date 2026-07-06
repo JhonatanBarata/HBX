@@ -33,11 +33,14 @@ function EmpresasStub() {
 }
 
 // Mapa rota→tela. Chave = pathname canônico (o mesmo do AppShell META).
-// W2 (Vendas): /vendas usa <VendasMobile/> (Funil + Buscar). /leads NÃO precisa
-// de entrada própria — é alias client-side que já redireciona pra /vendas
-// (app/(app)/leads/redirect.client.tsx), inclusive no mobile.
+// W2 (Vendas): /vendas E /leads usam <VendasMobile/> (uma tela, dois modos —
+// spec do W2). Em /leads a tela abre direto no modo Buscar (ela lê o pathname);
+// assim quem chega pelo alias (/webscraping → /leads) ou por link interno vê a
+// tela na hora, sem fallback, mesmo antes do redirect client-side
+// (leads/redirect.client.tsx) resolver.
 export const CASCA_SCREENS: Record<string, CascaScreen> = {
   "/vendas": VendasMobile,
+  "/leads": VendasMobile,
   "/atendimento": ConversasStub,
   "/empresas": EmpresasStub,
 };
@@ -47,6 +50,7 @@ export const CASCA_SCREENS: Record<string, CascaScreen> = {
 // única do que a casca conhece.
 export const CASCA_TITLES: Record<string, string> = {
   "/vendas": "Vendas",
+  "/leads": "Vendas",
   "/atendimento": "Conversas",
   "/empresas": "Empresas",
 };

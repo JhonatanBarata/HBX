@@ -14,6 +14,7 @@ import { apiFetch } from "@/lib/api";
 import { showCascaToast } from "@/lib/casca-toast";
 
 import { CascaLoading } from "../loading";
+import { CascaSheet } from "../transitions";
 import { NegocioSheet } from "./negocio-sheet";
 import { ModoSegment, type Modo } from "./vendas";
 import { VendasFocoMobile } from "./vendas-foco";
@@ -202,32 +203,33 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
         onClose={() => setSel(null)}
       />
 
-      {novoOpen ? (
-        <div className="hbx-veil" onClick={(e) => { if (e.target === e.currentTarget) setNovoOpen(false); }}>
-          <div className="hbx-modal vnd-m__novo-modal">
-            <h3 className="vnd-m__novo-title">Novo negócio</h3>
-            <input
-              className="field-dark"
-              placeholder="Nome"
-              value={novoForm.name}
-              onChange={(e) => setNovoForm(f => ({ ...f, name: e.target.value }))}
-            />
-            <input
-              className="field-dark"
-              placeholder="Telefone (opcional)"
-              value={novoForm.phone}
-              onChange={(e) => setNovoForm(f => ({ ...f, phone: e.target.value }))}
-            />
-            {novoMsg ? <p className="vnd-m__sheet-msg">{novoMsg}</p> : null}
-            <div className="vnd-m__novo-acts">
-              <button type="button" className="btn-ghost" onClick={() => setNovoOpen(false)}>Cancelar</button>
-              <button type="button" className="btn-teal" onClick={criarLead} disabled={novoBusy || !novoForm.name.trim()}>
-                {novoBusy ? "Criando…" : "Criar"}
-              </button>
-            </div>
+      {/* "+ Novo" pela central da casca (CascaSheet — LEI: nada abre/fecha
+          seco). NÃO usa .hbx-veil/.hbx-modal (camada do desktop, sem IR/VOLTAR). */}
+      <CascaSheet open={novoOpen} title="Novo lead" onClose={() => setNovoOpen(false)}>
+        <div className="vnd-m__filters">
+          <label className="vnd-m__filter-label">Nome</label>
+          <input
+            className="field-dark"
+            placeholder="Nome"
+            value={novoForm.name}
+            onChange={(e) => setNovoForm(f => ({ ...f, name: e.target.value }))}
+          />
+          <label className="vnd-m__filter-label">Telefone (opcional)</label>
+          <input
+            className="field-dark"
+            placeholder="Telefone"
+            value={novoForm.phone}
+            onChange={(e) => setNovoForm(f => ({ ...f, phone: e.target.value }))}
+          />
+          {novoMsg ? <p className="vnd-m__sheet-msg">{novoMsg}</p> : null}
+          <div className="vnd-m__novo-acts">
+            <button type="button" className="btn-ghost" onClick={() => setNovoOpen(false)}>Cancelar</button>
+            <button type="button" className="btn-teal" onClick={criarLead} disabled={novoBusy || !novoForm.name.trim()}>
+              {novoBusy ? "Criando…" : "Criar"}
+            </button>
           </div>
         </div>
-      ) : null}
+      </CascaSheet>
     </div>
   );
 }

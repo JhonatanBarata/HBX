@@ -4600,9 +4600,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-m__act--primary { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
 .vnd-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
 
-/* ---------- modal "Novo negócio" (reusa .hbx-veil/.hbx-modal centrais) ---------- */
-.vnd-m__novo-modal { width: min(92vw, 360px); display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); }
-.vnd-m__novo-title { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: var(--weight-bold); }
+/* ---------- ações do sheet "Novo lead" (vive num CascaSheet) ---------- */
 .vnd-m__novo-acts { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
 /* ---------- filtros (dentro do CascaSheet) ---------- */
