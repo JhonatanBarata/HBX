@@ -576,6 +576,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [siteFiltro, setSiteFiltro] = useState<"qualquer" | "com" | "sem">("qualquer");
   const [zapFiltro, setZapFiltro] = useState<"qualquer" | "com">("qualquer");
 
+  // Contagem grátis da gaveta (LEADS-FINAL/03): Estado/Cidade/Tem WhatsApp
+  // viram recorte real da base Receita (states/cities/contato.comCelular) —
+  // sem isto a prévia da gaveta ficaria muda pro que o usuário vê no topo.
+  // "Tem site" fica de fora de propósito: a base RFB não tem coluna de site
+  // (é dado de scraping web) — não finge que filtra o que não pode filtrar,
+  // mesma honestidade do resto do popup (ver camposSoPreviaAtivos no modal).
+  // Memo estabiliza a referência (o preview do modal reage a mudança de
+  // objeto) — só recalcula quando Estado/Cidade/WhatsApp realmente mudam.
+  const advExtraQueryInput = useMemo<Partial<CnpjBaseQueryInput>>(() => {
+    const extra: Partial<CnpjBaseQueryInput> = {};
+    if (uf) extra.states = [uf];
+    if (city) extra.cities = [city];
+    if (zapFiltro === "com") extra.contato = { comCelular: true };
+    return extra;
+  }, [uf, city, zapFiltro]);
+
   // Combobox próprio do segmento (05/07) — o <datalist> nativo do Chrome só
   // mostrava, pela seta, o que casa com o texto já digitado. Aqui a seta abre a
   // lista INTEIRA sempre; digitar só prioriza (matches no topo/realçados).
@@ -2011,6 +2027,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           onClose={() => setAdvOpen(false)}
           onApply={aplicarFiltroAvancado}
           quickSlot={renderQuickFilters()}
+          extraQueryInput={advExtraQueryInput}
         />
       )}
 

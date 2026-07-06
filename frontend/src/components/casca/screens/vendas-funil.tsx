@@ -59,6 +59,10 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   const [novoBusy, setNovoBusy] = useState(false);
   const [novoMsg, setNovoMsg] = useState<string | null>(null);
 
+  // Glass Pill de Lista|Quadro (Lei nº2) — hook ANTES de qualquer early return
+  // (loading/loadError/foco abaixo): regra de hooks, nunca condicional.
+  const vistaGp = useGlassPill<HTMLButtonElement>(vista);
+
   const load = useCallback(async () => {
     try {
       const res = await apiFetch<VendasBoardResponse>("/vendas/board");
