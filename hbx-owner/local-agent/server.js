@@ -19,6 +19,7 @@ const {
   parsePercentString,
   parseSizeToGb,
   parseLoadTriplet,
+  httpModuleForUrl,
 } = require("./lib/util");
 const { parseEngineCapacity } = require("./lib/engine-capacity");
 // Worker local da PONTE (CHIP E1) — puxa missão do backend e executa no 30B local. Ver lib/ponte-worker.js.
@@ -842,8 +843,12 @@ function backendRequestOnce(method, route, payload, token, options = {}) {
       headers["Content-Length"] = data.length;
     }
     const maxBytes = options.maxBytes || 200000;
-    const req = http.request(
-      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: options.timeoutMs || 15000 },
+    // BUG D1: escolhe http/https pelo protocolo real da URL (backendUrl pode ser https:// em prod
+    // via HBX_OWNER_BACKEND_URL) — antes era http.request fixo e a chamada saía em HTTP:80, o nginx
+    // devolvia 301 e quebrava a ponte 30B→VPS.
+    const { mod: httpMod, defaultPort } = httpModuleForUrl(target);
+    const req = httpMod.request(
+      { hostname: target.hostname, port: target.port || defaultPort, path: target.pathname + target.search, method, headers, timeout: options.timeoutMs || 15000 },
       (response) => {
         let body = "";
         response.on("data", (chunk) => {
@@ -887,10 +892,12 @@ function refreshBackendToken() {
     }
 
     const body = Buffer.from(JSON.stringify({ username, password, forceSession: true }));
-    const req = http.request(
+    // BUG D1: mesma escolha de módulo por protocolo (ver backendRequestOnce acima).
+    const { mod: httpMod, defaultPort } = httpModuleForUrl(target);
+    const req = httpMod.request(
       {
         hostname: target.hostname,
-        port: target.port || 80,
+        port: target.port || defaultPort,
         path: target.pathname + target.search,
         method: "POST",
         headers: {
@@ -964,8 +971,11 @@ function streamUpstreamToClient(baseUrl, method, route, clientRes, token) {
     }
     const headers = { Accept: "application/gzip, */*" };
     if (token) headers.Authorization = `Bearer ${token}`;
-    const req = http.request(
-      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method, headers, timeout: 15 * 60 * 1000 },
+    // BUG D1: mesma escolha de módulo por protocolo (ver backendRequestOnce acima) — esta função
+    // é genérica e recebe tanto backendUrl (pode ser https:// em prod) quanto opsUrl (localhost).
+    const { mod: httpMod, defaultPort } = httpModuleForUrl(target);
+    const req = httpMod.request(
+      { hostname: target.hostname, port: target.port || defaultPort, path: target.pathname + target.search, method, headers, timeout: 15 * 60 * 1000 },
       (backendRes) => {
         if (backendRes.statusCode === 401) {
           backendRes.resume(); // drena e descarta

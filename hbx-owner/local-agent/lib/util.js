@@ -109,6 +109,18 @@ function parseLoadTriplet(loadStr) {
   return { load1: num(0), load5: num(1), load15: num(2) };
 }
 
+// BUG D1 (frente IA-VPS, 05-06/07): as chamadas HTTP cruas do agent (backend/ops/upstream)
+// usavam `http.request` FIXO ignorando `target.protocol` — com HBX_OWNER_BACKEND_URL=https://...
+// a chamada saía em HTTP:80 e o nginx devolvia 301, quebrando a ponte 30B→VPS em produção.
+// Esta função escolhe o módulo certo (e a porta-default certa) pelo protocolo da URL alvo.
+// `target` é o objeto `new URL(...)` já parseado pelos callers.
+function httpModuleForUrl(target) {
+  if (target && target.protocol === "https:") {
+    return { mod: require("https"), defaultPort: 443 };
+  }
+  return { mod: require("http"), defaultPort: 80 };
+}
+
 module.exports = {
   nowIso,
   safeText,
@@ -121,4 +133,5 @@ module.exports = {
   parsePercentString,
   parseSizeToGb,
   parseLoadTriplet,
+  httpModuleForUrl,
 };

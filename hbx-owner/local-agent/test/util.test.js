@@ -10,6 +10,7 @@ const {
   parseSizeToGb,
   parseLoadTriplet,
   parsePercentString,
+  httpModuleForUrl,
 } = require("../lib/util");
 
 // ---------- chunkLeadsBySize ----------
@@ -145,4 +146,23 @@ test("parsePercentString: sem número → null", () => {
   assert.equal(parsePercentString("--"), null);
   assert.equal(parsePercentString(""), null);
   assert.equal(parsePercentString(null), null);
+});
+
+// ---------- httpModuleForUrl (BUG D1: ponte 30B→VPS quebrava por http.request fixo) ----------
+test("httpModuleForUrl: https:// escolhe o módulo https com porta-default 443", () => {
+  const { mod, defaultPort } = httpModuleForUrl(new URL("https://api.hbxsystem.com.br/modules/owner/missions/lease"));
+  assert.equal(mod, require("https"));
+  assert.equal(defaultPort, 443);
+});
+
+test("httpModuleForUrl: http:// escolhe o módulo http com porta-default 80", () => {
+  const { mod, defaultPort } = httpModuleForUrl(new URL("http://127.0.0.1:3000/auth/login"));
+  assert.equal(mod, require("http"));
+  assert.equal(defaultPort, 80);
+});
+
+test("httpModuleForUrl: sem target (URL inválida upstream) cai no default http/80, nunca lança", () => {
+  const { mod, defaultPort } = httpModuleForUrl(null);
+  assert.equal(mod, require("http"));
+  assert.equal(defaultPort, 80);
 });
