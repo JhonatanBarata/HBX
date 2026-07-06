@@ -142,6 +142,13 @@
   --motion-slow: 260ms ease;
   --ease-out-quint: ease-out;
 
+  /* ---- CASCA MOBILE — movimento das transições IR/VOLTAR (MOBILE-CASCA/W1)
+     LEI do dono: NADA abre nem fecha sem transição. Duração ~220ms + curva de
+     saída. Estrutura (não é cor) → vive no esqueleto; a pele pode reapontar a
+     curva se quiser, mas o default é seco e responsivo. */
+  --casca-motion-dur: 220ms;
+  --casca-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
   /* ---- Estrutura de entrada de página (a pele troca os 3) --------------- */
   --enter-name: hbx-enter-fade;        /* keyframe (transitions.css)        */
   --enter-duration: var(--motion-base);
@@ -150,6 +157,25 @@
 
   /* ---- Traço dos ícones (estrutura: fino ↔ grosso por pele) ------------- */
   --icon-stroke: 1.7;
+
+  /* ---- CASCA — anel de carregamento (CascaLoading, MOBILE-CASCA/W1) ------
+     O anel multi-cor do loading central. ESQUELETO = neutro (a pele veste em
+     theme-*.css). São 4 paradas do gradiente cônico + o glow + a trilha.
+     Hex literal só aqui/na pele (contrato isento do check-pele); TSX/casca.css
+     usam SÓ var(--casca-ring-*). */
+  /* Ordem do dono: espectro TERMINA em platina (cinza metálico claro), sem
+     vermelho/rosa. 5 paradas: base → meio → meio → âmbar → PLATINA. */
+  --casca-ring-1: #6E6E6E;
+  --casca-ring-2: #4A4A4A;
+  --casca-ring-3: #8A8A8A;
+  --casca-ring-4: #B7BBC0;
+  --casca-ring-5: #E7E9EC;                    /* platina (fim do espectro) */
+  --casca-ring-track: rgba(0, 0, 0, 0.08);   /* sulco de fundo do anel */
+  --casca-ring-glow: rgba(0, 0, 0, 0.16);    /* halo suave ao redor */
+  /* platina metálica do wordmark (gradiente do texto, background-clip:text) */
+  --casca-mark-1: #F4F5F7;
+  --casca-mark-2: #C7CBD1;
+  --casca-mark-3: #E7E9EC;
 
   /* ---- Acentos da landing (site público, mundo próprio — marketing.css) -- */
   --hbx-mint: #6EF2D8;
@@ -229,6 +255,18 @@
   --hbx-action-ink: #111111;
   --hbx-avatar-from: #BFBFBF;
   --hbx-avatar-to: #8C8C8C;
+
+  /* anel de loading — neutro no dark (a pele veste por cima), fim platina */
+  --casca-ring-1: #9A9A9A;
+  --casca-ring-2: #6E6E6E;
+  --casca-ring-3: #C9C9C9;
+  --casca-ring-4: #AEB2B8;
+  --casca-ring-5: #E7E9EC;
+  --casca-ring-track: rgba(255, 255, 255, 0.1);
+  --casca-ring-glow: rgba(255, 255, 255, 0.18);
+  --casca-mark-1: #FBFCFD;
+  --casca-mark-2: #C7CBD1;
+  --casca-mark-3: #E7E9EC;
 }
 
 /* ============================================================

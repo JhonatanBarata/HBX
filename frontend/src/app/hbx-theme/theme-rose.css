@@ -22,6 +22,11 @@
   --hbx-action-ink: #FFF5FA; --hbx-avatar-from: #DB2777; --hbx-avatar-to: #8B5CF6;
   --font-display: "Lora", Georgia, serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* anel do CascaLoading — lilás→roxo→azul→PLATINA (ordem do dono: fim platina,
+     SEM rosa/vermelho mesmo na pele rosé). Wordmark = platina metálica. */
+  --casca-ring-1: #A855F7; --casca-ring-2: #8B5CF6; --casca-ring-3: #7C3AED; --casca-ring-4: #B7BBC0; --casca-ring-5: #E7E9EC;
+  --casca-ring-track: rgba(168,85,247,0.12); --casca-ring-glow: rgba(168,85,247,0.35);
+  --casca-mark-1: #F4F5F7; --casca-mark-2: #C7CBD1; --casca-mark-3: #E7E9EC;
   --radius-xs: 10px; --radius-sm: 14px; --radius-md: 18px; --radius-lg: 22px; --radius-xl: 30px;
   --shadow-xs: 0 10px 24px -18px rgba(74,14,44,0.25); --shadow-sm: 0 16px 40px -22px rgba(74,14,44,0.28);
   --shadow-md: 0 26px 60px -28px rgba(74,14,44,0.34); --shadow-lg: 0 40px 84px -32px rgba(74,14,44,0.4);

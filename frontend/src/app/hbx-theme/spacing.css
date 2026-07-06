@@ -32,13 +32,40 @@
   --space-16: 64px;
 
   /* ---- Workspace shell metrics (from theme.workspace) ----------------- */
-  --rail-width: 260px;       /* primary nav rail   */
-  --context-width: 248px;    /* contextual sidebar */
+  /* Passe de densidade (LEADS-FINAL/01, 06/07): rail e aside contextual encolhem
+     um degrau; --rail-width-min é o rail colapsado (só ícone). 2ª passada
+     (06/07): --context-width voltou de 212→240px — com a fonte global menor
+     (base.css) a densidade já vem daí, e 212px era estreito DEMAIS pro card
+     show-off do Radar (disco 148px + paddings acumulados > 212px, cortava na
+     borda direita). 240px dá folga real; o conteúdo também virou fluido. */
+  --rail-width: 228px;       /* primary nav rail (era 260px)   */
+  --rail-width-min: 64px;    /* rail colapsado — só ícone (novo) */
+  --context-width: 240px;    /* contextual sidebar (era 248px, depois 212px) */
   --shell-gap: 12px;
   --content-gutter: 12px;
 
   /* ---- Control sizing ------------------------------------------------- */
-  --control-height: 38px;    /* default button     */
-  --control-height-sm: 32px;
-  --field-height: 42px;      /* inputs             */
+  --control-height: 32px;    /* default button (era 38px)     */
+  --control-height-sm: 28px; /* era 32px */
+  --field-height: 36px;      /* inputs (era 42px) */
+
+  /* ---- Row sizing (novo — passe de densidade) -------------------------- */
+  --row-height: 48px;        /* linha densa de lista de dados */
+
+  /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — métrica ESTRUTURAL da casca -----
+     A régua aprovada pelo dono (violar = refazer): cromo ≤140px, topo 1 linha
+     ~48px, tab bar 54–56px, linhas de lista 56–64px, segmented 28px. Vive AQUI
+     (esqueleto), NUNCA na pele — pele veste só cor/borda/sombra. A casca herda
+     a pele ativa via os tokens de cor (var(--hbx-*)). */
+  --casca-top-h: 48px;          /* topo 1 linha */
+  --casca-tabbar-h: 55px;       /* tab bar (54–56px) */
+  --casca-row-h: 60px;          /* linha de lista (56–64px) */
+  --casca-segment-h: 28px;      /* guia de modo segmented compacto */
+  --casca-action-max: 28px;     /* alvo de ação compacta no topo */
+  --casca-chrome-max: 140px;    /* orçamento total de cromo (auditoria) */
+  --casca-handle-w: 36px;       /* handle do bottom sheet */
+  --casca-loading-size: 148px;  /* diâmetro do anel do CascaLoading */
+  --casca-loading-thick: 10px;  /* espessura ~7% do diâmetro (anel FINO, ordem do dono) */
+  --casca-safe-top: env(safe-area-inset-top, 0px);
+  --casca-safe-bottom: env(safe-area-inset-bottom, 0px);
 }

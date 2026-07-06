@@ -20,11 +20,13 @@
   --weight-black: 900;
 
   /* ---- Display / heading scale (tight tracking) ----------------------- */
-  --text-display: 3.5rem;     /* 56px — hero numerals / big statements */
-  --text-h1: 2.4rem;          /* 38px */
-  --text-h2: 1.9rem;          /* 30px */
-  --text-h3: 1.35rem;         /* 22px */
-  --text-h4: 1.05rem;         /* 17px */
+  --text-display: 3.5rem;     /* 56px — hero numerals / big statements (landing, NÃO mexe) */
+  /* Passe de densidade (LEADS-FINAL/01, 06/07): app fica com cara de ferramenta
+     pro — menos chrome de heading, mais linha de dado por tela. */
+  --text-h1: 1.8rem;          /* 27px (era 2.4rem) */
+  --text-h2: 1.5rem;          /* era 1.9rem */
+  --text-h3: 1.15rem;         /* era 1.35rem */
+  --text-h4: 0.95rem;         /* era 1.05rem */
 
   /* ---- Body scale ----------------------------------------------------- */
   --text-lg: 1rem;            /* 16px */
@@ -43,4 +45,15 @@
   --leading-heading: 0.98;
   --leading-body: 1.52;
   --leading-tight: 1.1;
+
+  /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — font-size ESTRUTURAL da casca ---
+     Métrica é esqueleto (Lei 1): stats 1 linha = 11px, label da tab = 10.5px,
+     título do topo = 15px. Pele PROIBIDA de mexer nisto (check-pele R5). */
+  --casca-text-title: 0.95rem;   /* ~15px — título do topo (1 linha) */
+  --casca-text-label: 0.66rem;   /* ~10.5px — label da tab bar / segmented */
+  --casca-text-stat: 0.69rem;    /* ~11px — stats 1 linha micro */
+  --casca-text-body: 0.88rem;    /* 14px — corpo de linha de lista */
+  --casca-text-sub: 0.75rem;     /* ~12px — subtítulo/meta de linha */
+  --casca-text-pct: 0.8rem;      /* ~13px — % no centro do loading */
+  --casca-loading-mark: 1.5rem;  /* ~24px — wordmark HBX no loading */
 }

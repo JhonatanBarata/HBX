@@ -15,6 +15,7 @@ import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 import { ConquistaHost } from "@/components/hbx/conquista-host";
 import { ActivationChecklist } from "@/components/hbx/activation-checklist";
+import { MobileShell } from "@/components/casca/mobile-shell";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
 
@@ -64,22 +65,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const meta = META[pathname] || { active: "", title: "HBX", crumbs: crumb("HBX") };
 
+  // CASCA MOBILE (MOBILE-CASCA/W1): no celular a MobileShell substitui TODO o
+  // chrome desktop pela moldura própria (topo/tab bar) + registry de telas. No
+  // desktop ela devolve `children` puro — o shell abaixo fica 100% intocado.
   return (
-    <div className="app" data-rail={rail}>
-      <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
-      <div className="main">
-        <Topbar title={meta.title} crumbs={meta.crumbs} />
-        <div className="app-page" key={pathname}>{children}</div>
+    <MobileShell>
+      <div className="app" data-rail={rail}>
+        <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
+        <div className="main">
+          <Topbar title={meta.title} crumbs={meta.crumbs} />
+          <div className="app-page" key={pathname}>{children}</div>
+        </div>
+        {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
+            módulos; portala pro <body> e só aparece quando a store está ligada. */}
+        <TutorialCoachHost />
+        {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
+        <SellersBrainsHost />
+        {/* Ativação / onboarding (Camada 1): checklist de primeiros passos do vendedor
+            (só aparece pra quem tem jornada) + momento de conquista de cada "1ª vez". */}
+        <ActivationChecklist />
+        <ConquistaHost />
       </div>
-      {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
-          módulos; portala pro <body> e só aparece quando a store está ligada. */}
-      <TutorialCoachHost />
-      {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
-      <SellersBrainsHost />
-      {/* Ativação / onboarding (Camada 1): checklist de primeiros passos do vendedor
-          (só aparece pra quem tem jornada) + momento de conquista de cada "1ª vez". */}
-      <ActivationChecklist />
-      <ConquistaHost />
-    </div>
+    </MobileShell>
   );
 }

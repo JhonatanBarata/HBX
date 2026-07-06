@@ -18,6 +18,12 @@
 @import "./hbx-theme/marketing.css";
 @import "./hbx-theme/transitions.css";
 
+/* CASCA MOBILE (MOBILE-CASCA/W1) — a moldura única do celular (topo + slot +
+   tab bar) + transições IR/VOLTAR + bottom sheet + toast. Só estrutura por
+   token; herda a pele ativa. Desktop nunca vê estas classes (a casca só monta
+   sob o breakpoint mobile — ver components/casca/mobile-shell.tsx). */
+@import "./hbx-theme/casca.css";
+
 /* É AQUI QUE FECHA — modal cinematográfico de fechamento de venda (Atendimento +
    Vendas), com passo-a-passo da comissão do vendedor. */
 @import "./hbx-theme/fechar-venda.css";
