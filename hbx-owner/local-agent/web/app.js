@@ -1803,10 +1803,197 @@ async function aiWarmClick() {
   if (btn) btn.disabled = true;
   if (fb) fb.textContent = "aquecendo o 30b…";
   try {
-    const r = await api("POST", "/owner/ai/warm", { model: "qwen3:30b-a3b" });
+    const r = await api("POST", "/owner/ai/warm", { model: "qwen3:30b-a3b-instruct-2507-q4_K_M" });
     if (fb) fb.textContent = r && r.ok ? "30b aquecido (na RAM)." : `falhou: ${(r && r.reason) || "?"}`;
   } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
   finally { if (btn) btn.disabled = false; }
+}
+
+/* ---------- CÉREBRO 30B — cockpit da PONTE (CHIP E2, 05/07) ----------
+   Lê GET /owner/ponte/status (worker de lib/ponte-worker.js, instanciado no server.js desde o
+   CHIP E1). Tudo que o painel mostra vem do MESMO status() que o worker já expõe — nenhum cálculo
+   novo aqui, só apresentação. AQUECIMENTO ELÁSTICO VISÍVEL (decisão do dono 05/07, sem cron): o
+   painel explica O PORQUÊ do estado atual via lastReason (ex.: "cedendo a vez — 2 usuário(s)
+   ativo(s)", "30B frio — aquecer antes de leasear", "fila vazia — nada a processar"). */
+const PONTE_ACTION_LABEL = {
+  circuit_open: "disjuntor aberto",
+  freia: "cedendo a vez",
+  warm: "aquecendo",
+  idle: "ocioso",
+  work: "processando",
+};
+const PONTE_ACTION_VERDICT_CLASS = {
+  circuit_open: "buy",
+  freia: "tight",
+  warm: "tight",
+  idle: "",
+  work: "ok",
+};
+
+function ponteFmtMs(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1000) return `${Math.round(n)}ms`;
+  return `${(n / 1000).toFixed(1)}s`;
+}
+
+function ponteFmtAgo(iso) {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "—";
+  const deltaS = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (deltaS < 60) return `${deltaS}s atrás`;
+  if (deltaS < 3600) return `${Math.round(deltaS / 60)}min atrás`;
+  return `${Math.round(deltaS / 3600)}h atrás`;
+}
+
+/** Throughput informativo: leads/hora extrapolado da latência média dos últimos jobs OK (não é
+    meta — decisão do dono 05/07, PLANO §7 item 4: "SEM META, roda até o elástico desligar"). */
+function ponteThroughputLabel(lastJobs) {
+  const oks = (Array.isArray(lastJobs) ? lastJobs : []).filter((j) => j && j.ok && Number.isFinite(Number(j.latencyMs)));
+  if (!oks.length) return "—";
+  const avgMs = oks.reduce((sum, j) => sum + Number(j.latencyMs), 0) / oks.length;
+  if (avgMs <= 0) return "—";
+  const perHour = Math.round(3600000 / avgMs);
+  return `~${perHour}/h (p50 ${ponteFmtMs(avgMs)}, n=${oks.length})`;
+}
+
+function ponteRenderCircuit(p) {
+  const alert = $("#ponte-circuit-alert");
+  const reason = $("#ponte-circuit-reason");
+  const resetBtn = $("#btn-ponte-reset");
+  const open = Boolean(p.circuitOpen);
+  if (alert) alert.classList.toggle("hidden", !open);
+  if (reason) reason.textContent = open ? (p.circuitReason || `${p.consecutiveFailures}/${p.maxConsecutiveFailures} falhas consecutivas`) : "";
+  if (resetBtn) resetBtn.classList.toggle("hidden", !open);
+}
+
+function ponteRenderJobs(lastJobs) {
+  const tbody = $("#ponte-jobs-tbody");
+  if (!tbody) return;
+  const jobs = Array.isArray(lastJobs) ? lastJobs : [];
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="delta">nenhum job ainda nesta sessão do worker.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = jobs.slice(0, 10).map((j) => {
+    const resultPill = j.ok ? '<span class="pill pill-ok">ok</span>' : '<span class="pill pill-bad">fail</span>';
+    return `<tr>
+      <td>${esc(ponteFmtAgo(j.at))}</td>
+      <td>${esc(j.stage || "—")}</td>
+      <td>${resultPill}</td>
+      <td>${esc(ponteFmtMs(j.latencyMs))}</td>
+      <td style="font-size:11px;">${esc(j.note || "—")}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function ponteRender() {
+  const pill = $("#ponte-status");
+  let r;
+  try { r = await api("GET", "/owner/ponte/status"); }
+  catch (err) { r = { ok: false, reason: err.message }; }
+
+  if (!r || !r.ok || !r.ponte) {
+    // Endpoint ausente (server.js antigo ainda no ar, pré-E1) OU worker não instanciado — degrada
+    // honesto, nunca trava o resto do painel.
+    if (pill) { pill.textContent = "sem leitura"; pill.className = "pill pill-muted"; }
+    const verdictTitle = $("#ponte-verdict-title");
+    const verdictDetail = $("#ponte-verdict-detail");
+    if (verdictTitle) verdictTitle.textContent = "Sem leitura do worker da ponte";
+    if (verdictDetail) verdictDetail.textContent = (r && r.reason) || "reinicie o local-agent para carregar o CHIP E1/E2.";
+    ponteRenderJobs([]);
+    return;
+  }
+  const p = r.ponte;
+
+  // Pill principal: enabled/disjuntor/rodando — na ordem de urgência.
+  if (pill) {
+    if (p.circuitOpen) { pill.textContent = "disjuntor aberto"; pill.className = "pill pill-bad"; }
+    else if (!p.enabled) { pill.textContent = "desligado (flag OFF)"; pill.className = "pill pill-muted"; }
+    else if (p.warm) { pill.textContent = "residente (quente)"; pill.className = "pill pill-ok"; }
+    else { pill.textContent = "frio (descarregado)"; pill.className = "pill pill-amber"; }
+  }
+
+  ponteRenderCircuit(p);
+
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "—" : String(v); };
+  set("#ponte-model", p.model);
+  const lag = p.lag || {};
+  set("#ponte-lag", lag.queuedDue != null ? lag.queuedDue : "—");
+  const activity = p.activity || {};
+  set("#ponte-activity", activity.activeUsers != null ? `${activity.activeUsers} (janela ${activity.windowMinutes ?? 5}min)` : "—");
+  set("#ponte-throughput", ponteThroughputLabel(p.lastJobs));
+  const totals = p.totals || {};
+  set("#ponte-leased", totals.leased);
+  set("#ponte-completed", totals.completed);
+  set("#ponte-failed", totals.failed);
+  set("#ponte-coldloads", totals.coldLoads);
+
+  // Verdict: POR QUE o worker está em cada estado — a exigência central do CHIP E2 (aquecimento
+  // elástico VISÍVEL, decisão do dono 05/07: "o painel mostra POR QUE o worker está em cada estado").
+  const verdictEl = $("#ponte-verdict");
+  const verdictIcon = $("#ponte-verdict-icon");
+  const verdictTitle = $("#ponte-verdict-title");
+  const verdictDetail = $("#ponte-verdict-detail");
+  const action = p.enabled ? (p.lastAction || (p.circuitOpen ? "circuit_open" : null)) : null;
+  const vClass = action ? (PONTE_ACTION_VERDICT_CLASS[action] || "") : "";
+  if (verdictEl) verdictEl.className = `verdict-line${vClass ? ` ${vClass}` : ""}`;
+  if (verdictIcon) verdictIcon.textContent = action === "work" ? "✓" : (action === "circuit_open" ? "✕" : "•");
+  if (!p.enabled) {
+    if (verdictTitle) verdictTitle.textContent = "Worker desligado";
+    if (verdictDetail) verdictDetail.textContent = "HBX_PONTE_WORKER_ENABLED não está ligado — a fila espera no VPS/backend (estado, não erro).";
+  } else if (!action) {
+    if (verdictTitle) verdictTitle.textContent = "Aguardando 1º ciclo…";
+    if (verdictDetail) verdictDetail.textContent = "";
+  } else {
+    if (verdictTitle) verdictTitle.textContent = PONTE_ACTION_LABEL[action] || action;
+    if (verdictDetail) verdictDetail.textContent = p.lastReason || "";
+  }
+
+  // Interlock informativo: worker OFF (PC prestes a desligar/painel fechado) = "fila espera no VPS"
+  // como ESTADO, nunca erro — coberto pelo ramo `!p.enabled` acima e pelo próprio backoff de rede
+  // (lastError de rede não vira alarme vermelho, só aparece no rodapé).
+  const fb = $("#ponte-feedback");
+  if (fb) fb.textContent = p.lastError ? `último aviso: ${p.lastError}` : "";
+
+  ponteRenderJobs(p.lastJobs);
+}
+
+async function ponteWarmClick() {
+  const fb = $("#ponte-feedback");
+  const btn = $("#btn-ponte-warm");
+  if (btn) btn.disabled = true;
+  if (fb) fb.textContent = "aquecendo o 30b (ponte) — cold-load capado leva ~2min…";
+  try {
+    const r = await api("POST", "/owner/ponte/warm");
+    if (fb) fb.textContent = r && r.ok ? "30b residente (ponte)." : `falhou: ${(r && r.warm && r.warm.reason) || "?"}`;
+  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+  finally { if (btn) btn.disabled = false; ponteRender(); }
+}
+
+async function ponteUnloadClick() {
+  const fb = $("#ponte-feedback");
+  const btn = $("#btn-ponte-unload");
+  if (btn) btn.disabled = true;
+  if (fb) fb.textContent = "descarregando o 30b…";
+  try {
+    const r = await api("POST", "/owner/ponte/unload");
+    if (fb) fb.textContent = r && r.ok ? "30b descarregado (RAM liberada)." : "não confirmado — confira /api/ps.";
+  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+  finally { if (btn) btn.disabled = false; ponteRender(); }
+}
+
+async function ponteResetClick() {
+  const fb = $("#ponte-feedback");
+  const btn = $("#btn-ponte-reset");
+  if (btn) btn.disabled = true;
+  if (fb) fb.textContent = "rearmando o disjuntor…";
+  try {
+    await api("POST", "/owner/ponte/reset");
+    if (fb) fb.textContent = "disjuntor rearmado — worker volta a processar no próximo ciclo.";
+  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+  finally { if (btn) btn.disabled = false; ponteRender(); }
 }
 
 /* ---------- Cartões do tree-status (coluna VPS: motor de leads + fonte de busca) ----------
@@ -2034,6 +2221,9 @@ async function xrayDownload(jobId, btn) {
 { const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
+{ const b = $("#btn-ponte-warm"); if (b) b.addEventListener("click", ponteWarmClick); }
+{ const b = $("#btn-ponte-unload"); if (b) b.addEventListener("click", ponteUnloadClick); }
+{ const b = $("#btn-ponte-reset"); if (b) b.addEventListener("click", ponteResetClick); }
 
 /* ================= HOT-02 + HOT-03 (fundidos) — Base Receita ================= */
 /* Pesquisa avançada em cima do dump local da RFB (CnpjPublicCompany) + anti-contador.
@@ -2363,6 +2553,7 @@ renderVpsEngines();
 loadCockpit();
 fabRender();
 aiLocalRender();
+ponteRender();
 treeCardsRender();
 xrayJobsRender();
 xrayUpdateLineCount();
@@ -2394,6 +2585,7 @@ setInterval(refreshLabState, 5000);
 setInterval(pingStatus, 20000);
 setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
+setInterval(ponteRender, 8000);          // Cérebro 30B · worker da ponte (CHIP E2) — gauge + jobs
 setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tree-status, cache 10s no backend)
 
 // ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────

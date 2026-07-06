@@ -106,10 +106,61 @@
             <span class="label">IA LOCAL · Ollama</span>
             <span id="ai-local-status" class="pill pill-muted">lendo…</span>
           </div>
-          <button id="btn-ai-warm" class="btn btn-sm btn-blue" title="Pré-carrega o 30b na RAM (evita o 1º hit lento)">🔥 Aquecer 30b</button>
+          <button id="btn-ai-warm" class="btn btn-sm btn-blue" title="Pré-carrega o 30b na RAM (evita o 1º hit lento, cold-load ~2min)">🔥 Aquecer 30b</button>
         </div>
         <p id="ai-local-models" class="delta" style="margin-top:8px;">—</p>
         <span id="ai-local-feedback" class="delta"></span>
+      </section>
+
+      <!-- CÉREBRO 30B · cockpit da PONTE (CHIP E2, 05/07) — o worker que puxa missão do backend
+           e processa no 30B local (lib/ponte-worker.js, CHIP E1). Gauge real: residente/frio, fila,
+           throughput, últimos jobs, elástico (POR QUÊ está em cada estado) e disjuntor. -->
+      <section class="card" id="cerebro-30b">
+        <div class="cockpit-head">
+          <div class="hero-title">
+            <span class="label">Cérebro 30B · worker da ponte</span>
+            <span id="ponte-status" class="pill pill-muted">lendo…</span>
+          </div>
+          <div class="cockpit-actions">
+            <button id="btn-ponte-warm" class="btn btn-sm btn-blue" title="Aquece o 30B agora (cold-load ~2min, keep_alive -1)">🔥 Aquecer</button>
+            <button id="btn-ponte-unload" class="btn btn-sm btn-amber" title="Descarrega o 30B da RAM agora (keep_alive 0)">💧 Descarregar</button>
+            <button id="btn-ponte-reset" class="btn btn-sm btn-red hidden" title="Rearma o disjuntor (some falhas consecutivas e volta a processar)">⟲ Rearmar disjuntor</button>
+          </div>
+        </div>
+
+        <div id="ponte-circuit-alert" class="verdict-line buy hidden" style="margin-top:8px;">
+          <span class="vdot">✕</span><strong>DISJUNTOR ABERTO</strong>
+          <span id="ponte-circuit-reason" class="verdict-detail"></span>
+        </div>
+
+        <div class="grid-4" style="margin-top:10px;">
+          <div class="metric"><span class="label">Modelo</span><strong id="ponte-model" style="font-size:12px;">—</strong></div>
+          <div class="metric"><span class="label">Fila (pendentes)</span><strong id="ponte-lag">—</strong></div>
+          <div class="metric"><span class="label">Usuários ativos</span><strong id="ponte-activity">—</strong></div>
+          <div class="metric"><span class="label">Throughput (últimos jobs)</span><strong id="ponte-throughput">—</strong></div>
+        </div>
+        <div class="grid-4" style="margin-top:8px;">
+          <div class="metric"><span class="label">Leaseados</span><strong id="ponte-leased">—</strong></div>
+          <div class="metric"><span class="label">Concluídos</span><strong id="ponte-completed">—</strong></div>
+          <div class="metric"><span class="label">Falhados</span><strong id="ponte-failed">—</strong></div>
+          <div class="metric"><span class="label">Cold-loads</span><strong id="ponte-coldloads">—</strong></div>
+        </div>
+
+        <div id="ponte-verdict" class="verdict-line" style="margin-top:12px;">
+          <span id="ponte-verdict-icon" class="vdot">•</span><strong id="ponte-verdict-title">Lendo…</strong>
+          <span id="ponte-verdict-detail" class="verdict-detail"></span>
+        </div>
+        <p id="ponte-feedback" class="delta" style="margin-top:6px;"></p>
+
+        <details id="ponte-jobs-details" class="motor-details" open>
+          <summary class="label">Últimos jobs</summary>
+          <div style="overflow-x:auto;">
+            <table class="cockpit-table" id="ponte-jobs-table" style="font-size:12px;">
+              <thead><tr><th>Quando</th><th>Tipo</th><th>Resultado</th><th>Latência</th><th>Nota</th></tr></thead>
+              <tbody id="ponte-jobs-tbody"><tr><td colspan="5" class="delta">lendo…</td></tr></tbody>
+            </table>
+          </div>
+        </details>
       </section>
 
       <!-- Enriquecedor (roda NESTA máquina, com o SEU IP — mira o VPS) -->

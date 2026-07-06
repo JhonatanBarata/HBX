@@ -38,10 +38,16 @@ const localLabDir = path.join(rootDir, "hbx-local-lab");
 const localLabUrl = "http://127.0.0.1:3098";
 // Ollama LOCAL (Cérebro IA) — mesma máquina; nunca sai daqui. /api/tags lista presentes,
 // /api/ps lista os que estão QUENTES (carregados em RAM/VRAM). Allowlist p/ o warm.
+// CHIP E2 (05/07): tag alinhada com a REAL usada pelo worker da ponte (lib/ponte-worker.js
+// OLLAMA_30B_MODEL) — a allowlist tinha "qwen3:30b-a3b" (tag que não existe/não é a residente) e
+// nunca batia no /api/tags real. 7b MORTO em toda a arquitetura híbrida (PLANO-HIBRIDO-30B.md §1:
+// "Não puxar 7b em lugar nenhum") — removido da allowlist do painel. Único outro uso de "7b" no
+// arquivo é o par has7b/warm7b do readAiStatus() (linha ~530), que fica só como leitura informativa
+// (mostra se o 7b órfão ainda ocupa disco) — não decide nada, não aquece, não entra na allowlist.
 const ollamaUrl = String(process.env.HBX_OWNER_OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
-const AI_MODEL_30B = "qwen3:30b-a3b";
-const AI_MODEL_7B = "qwen2.5:7b";
-const AI_MODEL_ALLOWLIST = new Set([AI_MODEL_30B, AI_MODEL_7B]);
+const AI_MODEL_30B = "qwen3:30b-a3b-instruct-2507-q4_K_M";
+const AI_MODEL_ALLOWLIST = new Set([AI_MODEL_30B]);
+const PONTE_NUM_CTX_WARM = 8192; // T1/T2: SEMPRE capado — default 262k aloca ~45,7GB de KV (swap-morte)
 // Backend do produto (para Banco de Leads e import local→VPS). Token opcional.
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
@@ -530,7 +536,9 @@ async function readAiStatus() {
 
   const find = (needle) => models.find((m) => m.name === needle || m.name.indexOf(needle) === 0);
   const m30 = find(AI_MODEL_30B);
-  const m7 = find(AI_MODEL_7B);
+  // 7b só como leitura informativa (achado da memória: "7b/3b órfãos em disco, 6,6GB") — MORTO na
+  // arquitetura híbrida (não entra na allowlist de warm, não é aquecido por nada aqui).
+  const m7 = find("qwen2.5:7b");
   return {
     ok: true,
     ollamaUp,
@@ -2713,7 +2721,9 @@ async function route(req, res) {
   }
 
   // Aquecer UM modelo: dispara /api/chat SEM esperar terminar (fire-and-forget).
-  // O 30B leva ~12min p/ carregar em CPU → NUNCA bloquear a resposta HTTP.
+  // CHIP E2 (05/07): msg corrigida — "~12min" era DEFASADA (media o swap do ctx destravado, PLANO
+  // §3.2); T1/T2 mediram cold-load REAL capado em 8192 = ~104-132s (~2min). num_ctx agora SEMPRE
+  // capado aqui também (era o único warm do painel sem cap — o worker da ponte já capa desde o E1).
   if (req.method === "POST" && url.pathname === "/owner/ai/warm") {
     let body;
     try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }
@@ -2729,9 +2739,9 @@ async function route(req, res) {
       stream: false,
       think: false,
       keep_alive: "30m",
-      options: { num_predict: 1 },
+      options: { num_predict: 1, num_ctx: PONTE_NUM_CTX_WARM },
     }, 900000).catch(() => {});
-    sendJson(res, 200, { ok: true, warming: model, message: "Aquecendo " + model + " — o 30B leva ~12min em CPU. Acompanhe o status." });
+    sendJson(res, 200, { ok: true, warming: model, message: "Aquecendo " + model + " — cold-load capado leva ~2min em CPU (T1/T2: 104-132s). Acompanhe o status." });
     return;
   }
 
