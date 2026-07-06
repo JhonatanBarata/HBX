@@ -88,8 +88,18 @@ export class AuthService implements OnModuleInit {
     try {
       const company = await this.prisma.company.findUnique({
         where: { id },
-        select: { contactPhone: true, taxDocument: true },
+        select: { status: true, contactPhone: true, taxDocument: true },
       });
+      // O welcome é brinde de NASCIMENTO self-service: `courtesy` (modelo grátis já ativado na
+      // confirmação/Google) ou `pending_checkout` (recém-nascida pré-ativação). Empresa viva em
+      // qualquer outro estado (active/trial/overdue/suspended) confirmando identidade de um usuário
+      // novo NÃO ganha lote — senão todo tenant pago antigo ganharia 50 créditos de graça no
+      // primeiro confirm pós-chavinha. (usageKey welcome:<id> já dedupa, mas o filtro é semântico.)
+      const companyStatus = String(company?.status || '').trim().toLowerCase();
+      if (companyStatus && companyStatus !== 'courtesy' && companyStatus !== 'pending_checkout') {
+        this.logger.log(`welcome_batch_skipped_status company=${id} status=${companyStatus}`);
+        return;
+      }
       const phone = this.normalizeBrazilPhone(company?.contactPhone) || null;
       const taxDoc = (this.normalizeDigits(company?.taxDocument || '') || '').slice(0, 14) || null;
       if (phone || taxDoc) {
@@ -1484,6 +1494,12 @@ export class AuthService implements OnModuleInit {
     const randomPassword = crypto.randomBytes(32).toString('hex');
     const hashed = await bcrypt.hash(randomPassword, 12);
     const now = new Date();
+    // CRÉDITOS (cutover 06/07) — Google JÁ É identidade confirmada (nunca passa pelo confirmEmail →
+    // activateConfirmedTrialTx nunca roda pra ele). Com a chavinha ON, a empresa nasce direto
+    // `courtesy` ATIVA (mesmo estado que a confirmação de email produz no modelo grátis); sem isso o
+    // usuário Google ganharia os 50 créditos mas ficaria PRESO no pending_checkout. Chavinha OFF →
+    // fluxo de sempre (pending_checkout), regressão zero.
+    const creditsFreeGoogle = isCreditsFeatureEnabled();
 
     const created = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
@@ -1501,12 +1517,13 @@ export class AuthService implements OnModuleInit {
             ? 'Implantação assistida pendente para liberar automação completa.'
             : null,
           signupUsesPublicEmail: false,
-          status: 'pending_checkout',
+          status: creditsFreeGoogle ? 'courtesy' : 'pending_checkout',
           statusChangedAt: now,
-          isActive: false,
+          isActive: creditsFreeGoogle,
+          courtesyEndsAt: null,
           contactEmail: email,
           primaryContactName: name,
-          deactivatedAt: now,
+          deactivatedAt: creditsFreeGoogle ? null : now,
           trialStartsAt: null,
           trialEndsAt: null,
         },

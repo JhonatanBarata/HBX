@@ -25,6 +25,22 @@ informações" num aside. Página de lead = mais tempo dentro do produto = reten
 - Tabs com "um ativo por vez" = **Glass Pill obrigatório** (regra do dono 05/07;
   `useGlassPill` + `.glass-pill-*` no kit).
 
+### VERIFICADO 06/07 (antes de lançar — evita legado/plágio)
+- **Não existe `/leads/[id]`** (só `page.tsx` + `page.client.tsx` + `redirect.client.tsx`) →
+  construir a rota é NET-NEW, não duplica nada.
+- **Os prints foto2/3/4 do dono são o CONCORRENTE (CNPJ Biz), inspiração — NÃO tela HBX.**
+  Confirmado: a UI de conexão de e-mail IMAP/SMTP (foto4) NÃO existe no HBX (zero match pra
+  `IMAP`/`Servidor de entrada`/`senha de app`/`Conecte uma conta`). Logo a página de 3 guias
+  é nossa a construir (cara do HBX), não copiar. E-mail = plano 06 (novo de verdade).
+- **Reusar (não recriar):** `DetalhesNegocio` (aside, `components/hbx/detalhes-negocio.tsx`);
+  painel de conversa do **Atendimento** (`atendimento/page.client.tsx`) pra a tab WhatsApp;
+  helpers de abrir WhatsApp de **Vendas** (`abrirWhatsAppInterno/Externo` em
+  `vendas/page.client.tsx`, que já fazem `POST /inbox/conversations/start` → `/atendimento`).
+  O board de Vendas é KANBAN de deals — NÃO é a "Edição" de 3 guias; não confundir.
+- **Escopo por posse (amarra no fix pull-gated do 04):** a página rica `/leads/[id]` é pra
+  lead POSSUÍDO (puxado → contato revelado). Card da vitrine ainda NÃO puxado → "ver mais"
+  mostra o aside mascarado + CTA "Puxar · N créditos", nunca a página cheia com contato.
+
 ## Desenho
 
 ### Lista densa

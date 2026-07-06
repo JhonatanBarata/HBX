@@ -15,7 +15,11 @@ import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { buildMasterBillingSituation } from './master-billing-situation';
 import { buildMasterWhatsAppSituation, MasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
-import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
+import {
+  isModalSessionAvailable,
+  isMetaConnected,
+  buildMotorStateByCompany,
+} from '../messaging/whatsapp-connection-state';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT, isPlatformInfraCompany } from '../common/company-kind';
 import { buildWaLink } from '../webscraping/radar/shared/radar-core-shared';
@@ -250,39 +254,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return value;
   }
 
-  // Nome da instância no motor segue `company-{id}` ou `company-{id}-user-{n}`
-  // (WebwhatsBridgeService.buildTenantKey) — mesmo parse usado no wipeMotorInstance.
-  private static parseMotorInstanceCompanyId(instanceName: string): number | null {
-    const match = /^company-(\d+)(?:-user-\d+)?$/.exec(instanceName.trim());
-    if (!match) return null;
-    const id = Number(match[1]);
-    return Number.isFinite(id) && id > 0 ? id : null;
-  }
-
-  // Estado "melhor" do motor por company: entre todas as instâncias da empresa
-  // (principal + por-usuário), 'open' vence se QUALQUER uma estiver aberta —
-  // reflete que o WhatsApp da empresa está operacional mesmo que outra sessão
-  // secundária esteja caída. Sem nenhuma instância no motor → null (sem leitura).
-  private buildMotorStateByCompany(instances: any[]): Map<number, string> {
-    const rank: Record<string, number> = { open: 3, connecting: 2, close: 1, closed: 1 };
-    const byCompany = new Map<number, string>();
-    for (const inst of instances) {
-      const name = String(inst?.instance?.instanceName ?? inst?.instanceName ?? '').trim();
-      if (!name) continue;
-      const companyId = ModulesService.parseMotorInstanceCompanyId(name);
-      if (!companyId) continue;
-      const state = String(
-        inst?.connectionStatus ?? inst?.instance?.state ?? inst?.instance?.status ?? inst?.state ?? inst?.status ?? '',
-      )
-        .trim()
-        .toLowerCase();
-      const current = byCompany.get(companyId);
-      if (!current || (rank[state] || 0) > (rank[current] || 0)) {
-        byCompany.set(companyId, state);
-      }
-    }
-    return byCompany;
-  }
+  // Parse do nome de instância + agregação por company: extraído para
+  // `messaging/whatsapp-connection-state.ts` (`buildMotorStateByCompany`) —
+  // reusado também no painel "Equipe" do Atendimento (InboxService.getWhatsappAdminPanel),
+  // que tem a mesma lacuna (status só de projeção/banco, sem checar o motor).
 
   // Decora a situação unificada (banco) com a leitura do motor ao vivo: se o
   // motor está disponível e enxerga a company, o estado do motor manda —
@@ -3677,7 +3652,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // só no banco — decora com a leitura do MOTOR AO VIVO (cache 60 s). Motor
     // desligado/indisponível → mapa vazio, decorador vira no-op (fallback pro banco).
     const motorInstances = await this.getMotorInstancesCached();
-    const motorStateByCompany = motorInstances ? this.buildMotorStateByCompany(motorInstances) : new Map<number, string>();
+    const motorStateByCompany = motorInstances ? buildMotorStateByCompany(motorInstances) : new Map<number, string>();
 
     const result: any[] = [];
     for (const company of companies) {

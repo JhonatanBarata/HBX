@@ -163,7 +163,9 @@ export function JanelaTickets() {
                 ["Cliente", sel.customerName],
                 ["Telefone", sel.customerPhone],
                 ["Branch", sel.githubBranch],
-                ["PR", sel.githubPrNumber != null ? `#${sel.githubPrNumber}` : null],
+                ["PR", sel.githubPrNumber != null
+                  ? <a className="tag teal" href={`https://github.com/JhonatanBarata/HBX/pull/${sel.githubPrNumber}`} target="_blank" rel="noreferrer">#{sel.githubPrNumber} ↗</a>
+                  : null],
               ].map(([label, value]) => (
                 <div key={String(label)} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <span style={{ color: "var(--text-muted)" }}>{label}</span>

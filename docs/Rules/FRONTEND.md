@@ -21,6 +21,17 @@
      (`bg-surface`, `text-ink-muted`, `rounded-panel`, `shadow-lip`…). A
      paleta default do Tailwind foi APAGADA — não existe utility de cor
      fora do contrato.
+   - **Métrica estrutural é ESQUELETO (LEADS-FINAL/01, 06/07).** `font-size`,
+     alturas (`height`, `--control-height*`, `--field-height`, `--row-height`),
+     larguras de shell (`--rail-width*`, `--context-width`) e a escala de
+     spacing nascem SÓ em `typography.css`/`spacing.css`/`skeleton.css`. Pele
+     (`theme-*.css`) é PROIBIDA de declarar `font-size`/altura/largura
+     estrutural — pele veste cor, borda, sombra, vidro, radius e família de
+     fonte. É isso que garante troca de tema sem quebrar densidade (o
+     check-pele reprova `font-size:<px>` dentro de `theme-*.css`).
+     Alvos de densidade: lista de dados mostra **≥9 linhas em 1080p**
+     (`--row-height: 48px`); zero-scroll (abaixo) continua lei — densidade
+     não é desculpa pra deixar a tela rolar.
 2. **Componentes centrais.** Visual repetido vira classe do kit
    (`kit.css`: panels, botões, campos, tabelas, overlays `.hbx-veil/.hbx-modal/
    .hbx-pop/.hbx-drawer`…) ou utility. Estrutura por-tela vive em

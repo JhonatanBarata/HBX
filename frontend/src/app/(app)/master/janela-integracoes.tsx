@@ -77,6 +77,7 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
     setConexoes(null);
     setLoadError(null);
     setAcaoMsg(null);
+    setMsg(null);
   }
 
   async function salvar(e: React.FormEvent<HTMLFormElement>) {

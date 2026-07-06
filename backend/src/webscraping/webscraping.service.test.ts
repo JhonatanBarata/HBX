@@ -2335,6 +2335,38 @@ test('buildRadarLeadPublic sanitiza email de asset e social incompativel', () =>
   assert.equal(item.deliveryProduct, 'list');
 });
 
+test('CONTATO PULL-GATED (06/07): buildRadarLeadPublic mascara contato de lead do pool nao-possuido e revela pro dono', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const base = {
+    id: 'lead-pool', name: 'Loja Do Pool', phone: '(19) 99999-0001', phoneDigits: '19999990001',
+    email: 'contato@lojadopool.com.br', emailStatus: 'confirmed', city: 'Campinas', state: 'SP', segment: 'Lojas',
+  };
+  // Pool nao-possuido (ownerCompanyId null, sem companyState) + posse habilitada -> MASCARA
+  const masked = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  assert.equal(masked.phone, '');
+  assert.equal(masked.phoneDigits, '');
+  assert.equal(masked.email, null);
+  assert.equal(masked.hasPhone, true);   // sinal de presenca permanece (vitrine mostra o check)
+  assert.equal(masked.hasEmail, true);
+
+  // Lead de OUTRA empresa -> MASCARA (nao vaza contato alheio)
+  const alheio = service.buildRadarLeadPublic({ ...base, ownerCompanyId: 999 }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  assert.equal(alheio.phoneDigits, '');
+
+  // Possuido pela empresa (ownerCompanyId === viewer) -> REVELA
+  const owned = service.buildRadarLeadPublic({ ...base, ownerCompanyId: 7 }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  assert.equal(owned.phoneDigits, '19999990001');
+  assert.equal(owned.email, 'contato@lojadopool.com.br');
+
+  // Legado (puxado antes da coluna: companyState presente, ownerCompanyId null) -> REVELA
+  const legacy = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null, companyStates: [{ status: 'reserved' }] }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  assert.equal(legacy.phoneDigits, '19999990001');
+
+  // Ambiente SEM posse (ownershipEnabled ausente) -> comportamento antigo, nao mascara por posse
+  const noOwnership = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null }, { includeSmartFields: true, viewerCompanyId: 7 });
+  assert.equal(noOwnership.phoneDigits, '19999990001');
+});
+
 test('canUseRadarSmartLeadFields libera somente HBX Lead Plus ou superior', async () => {
   const liteService = new WebscrapingService(createPrisma({
     company: {
@@ -5977,6 +6009,36 @@ test('LIMPEZA-DESTRUTIVA L3: vendedor consegue ver/agir num card cujo "Responsá
   // getRadarLeadForUser (chamado no fim de addRadarLeadEventForUser) também não bloqueia mais.
   const detail = await service.getRadarLeadForUser(sellerB, 'lead-do-colega');
   assert.equal(detail.item.name, 'Empresa Do Colega');
+});
+
+test('CONTATO PULL-GATED (06/07): evento "note" exige posse (nao vira claim/reveal) e nunca debita', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-pool-livre', name: 'Loja Livre', phone: '(19) 99999-7777', phoneDigits: '19999997777',
+    city: 'Campinas', state: 'SP', segment: 'Lojas', status: 'available',
+    createdAt: new Date(), updatedAt: new Date(), companyStates: [], events: [],
+  });
+  leads.push({
+    id: 'lead-meu', name: 'Loja Minha', phone: '(19) 99999-8888', phoneDigits: '19999998888',
+    city: 'Campinas', state: 'SP', segment: 'Lojas', status: 'reserved',
+    createdAt: new Date(), updatedAt: new Date(),
+    companyStates: [{ status: 'reserved', assignedUserId: 101, assignedByUserId: 101 }], events: [],
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const seller = { id: 101, companyId: 7, role: 'USER', masterContext: { active: false } };
+
+  // Lead do pool NAO-possuido: notar seria um jeito de claim+reveal sem debito -> BLOQUEADO.
+  await assert.rejects(
+    () => service.addRadarLeadEventForUser(seller, 'lead-pool-livre', { eventType: 'note', note: 'quero espiar' }),
+    /Puxe o lead/,
+  );
+
+  // Lead POSSUIDO (companyState): notar funciona, retorna o card e NUNCA debita.
+  let debited = false;
+  service.commercialUsageLimits = { recordCardCommercialUseOnce: async () => { debited = true; return { debited: true, alreadyDebited: false }; } };
+  const res = await service.addRadarLeadEventForUser(seller, 'lead-meu', { eventType: 'note', note: 'cliente pediu orcamento' });
+  assert.equal(res.item.name, 'Loja Minha');
+  assert.equal(debited, false);
 });
 
 test('LIMPEZA-DESTRUTIVA L3: pullRadarLeadsForUser grava assignedUserId (Responsável) pra QUALQUER papel que puxa, não só vendedor', async () => {

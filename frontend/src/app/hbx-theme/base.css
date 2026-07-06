@@ -1,10 +1,13 @@
 /* base element + helper layer for HBX System — ESQUELETO:
    body flat pintado só por token; receitas de brilho/vidro são PELE. */
 
-/* Escala global um pouco menor (ordem do dono 14/06): tudo no kit é rem,
-   então baixar a raiz encolhe a tipografia inteira de forma proporcional e
-   "encaixa melhor" sem mexer tela por tela. Espaçamentos em px não mudam. */
-html { font-size: 15px; }
+/* Escala global menor (ordem do dono 06/07, 2ª passada — a 1ª só mexeu em
+   headings/alturas e manteve a raiz em 15px, por isso "não fez diferença"
+   nenhuma: o texto é a coisa mais visível do app e ele não tinha encolhido).
+   Tudo no kit é rem, então baixar a raiz encolhe a tipografia inteira de
+   forma proporcional — cara de ferramenta densa, não "alta resolução".
+   Espaçamentos em px não mudam (o esqueleto usa px pra grid/rail/aside). */
+html { font-size: 14px; }
 
 body {
   margin: 0;

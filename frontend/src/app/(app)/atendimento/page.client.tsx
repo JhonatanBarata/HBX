@@ -39,7 +39,7 @@ import { useTabIndex } from "@/lib/use-tab-param";
 import {
   fetchWhatsAppModalStatus,
 } from "@/lib/whatsapp-connection-flow";
-import { whatsappPillLabel, whatsappPillVariant } from "@/lib/whatsapp-center";
+import { whatsappPillLabel } from "@/lib/whatsapp-center";
 
 type MsgMeta = {
   normalizedMessageType?: string | null;
@@ -2011,7 +2011,7 @@ export function AtendimentoClient() {
         <div className="a-content">
           <div className="a-left">
             <KpiRow items={[
-              { icon: "users", label: "Atendimentos em aberto", value: convs.length ? String(convs.length) : "—", delta: "—" },
+              { icon: "msg", label: "WhatsApp", value: whatsappPillLabel(inboxWaStatus), delta: "—", onClick: () => setWaModalOpen(true), dataTut: "atend-whatsapp", title: "Conexão WhatsApp" },
               { icon: "clock", label: "Tempo médio de resposta", value: fmtResp(metrics?.avgResponseSeconds), delta: metrics ? "7 dias" : "—" },
               { icon: "check", label: "Não lidas", value: convs.length ? String(naoLidas.length) : "—", delta: "—" },
               { icon: "money", label: "Conversões", value: metrics?.conversions != null ? String(metrics.conversions) : "—", delta: "—" },
@@ -2032,9 +2032,9 @@ export function AtendimentoClient() {
                     </button>
                   </div>
                   {/* Filtros irmãos: Fila + Chat (um controle por função — sem o ícone-funil que duplicava). */}
-                  <div className="row" style={{ gap: 8 }}>
-                    <span ref={filaWrapRef} style={{ position: "relative", display: "inline-flex" }}>
-                      <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setFilaOpen(o => !o); setVendOpen(false); }} aria-expanded={filaOpen}>
+                  <div className="row at-convs-controls">
+                    <span ref={filaWrapRef} className="at-convs-filter">
+                      <button className="btn-ghost at-convs-control" onClick={() => { setFilaOpen(o => !o); setVendOpen(false); }} aria-expanded={filaOpen}>
                         {FILAS.find(f => f.key === fila)?.label || "Todas as filas"} ▾
                       </button>
                       {filaOpen && (
@@ -2048,8 +2048,8 @@ export function AtendimentoClient() {
                       )}
                     </span>
                     {showNumberFilter && (
-                      <span ref={vendWrapRef} style={{ position: "relative", display: "inline-flex" }}>
-                        <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={() => { setVendOpen(o => !o); setFilaOpen(false); }} aria-expanded={vendOpen}>
+                      <span ref={vendWrapRef} className="at-convs-filter">
+                        <button className="btn-ghost at-convs-control" onClick={() => { setVendOpen(o => !o); setFilaOpen(false); }} aria-expanded={vendOpen}>
                           Chat: {chatFilterLabel} ▾
                         </button>
                         {vendOpen && (
@@ -2072,18 +2072,9 @@ export function AtendimentoClient() {
                         )}
                       </span>
                     )}
-                  </div>
-                  <div className="row">
-                    <button className={"tag" + whatsappPillVariant(inboxWaStatus)}
-                      style={{ cursor: "pointer" }}
-                      data-tut="atend-whatsapp"
-                      onClick={() => setWaModalOpen(true)} title="Conexão WhatsApp">
-                      ● WhatsApp: {whatsappPillLabel(inboxWaStatus)}
-                    </button>
                     {souAdmin && (
                       <button
-                        className="btn-ghost btn-xs"
-                        style={{ marginLeft: "auto" }}
+                        className="btn-ghost at-convs-control"
                         data-tut="atend-modelo"
                         onClick={() => setAtPanelOpen(true)}
                         title="Modelo de atendimento"

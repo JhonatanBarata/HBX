@@ -1291,6 +1291,7 @@ export type RadarLeadEventType =
   | 'no_whatsapp'
   | 'invalid_whatsapp'
   | 'hidden'
+  | 'note'
   | 'duplicate'
   | 'ownership_reserved'
   | 'ownership_released'

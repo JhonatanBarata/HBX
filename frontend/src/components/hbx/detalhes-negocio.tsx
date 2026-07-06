@@ -774,7 +774,12 @@ function fmtMsgTime(iso: string | null | undefined): string {
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function ConversationPanel({
+// Exportado (LEADS-FINAL/02, 06/07): a página /leads/[id] reusa este painel
+// SOZINHO (sem o card inteiro do DetalhesNegocio) na aba central "WhatsApp" —
+// mesma rotina de sempre (/inbox/conversations/start + .../:id/message), zero
+// mudança no motor Webwhats. O <DetalhesNegocio> da coluna esquerda passa
+// showConversation={false} pra não duplicar o painel nas duas colunas.
+export function ConversationPanel({
   phone,
   name,
 }: {

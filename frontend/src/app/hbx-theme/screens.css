@@ -330,6 +330,12 @@ html, body { height: 100%; }
 .a-content { display: grid; grid-template-columns: 1fr 345px; flex: 1; min-height: 0; }
 .a-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 18px 0 0 22px; gap: 16px; }
 .a-left .kpis { padding-right: 22px; }
+.a-left .kpi { padding-block: 7px; }
+.a-left button.kpi { width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.a-left [data-tut="atend-whatsapp"] .kpi-value { font-size: calc(1.5rem - 4px); }
+.at-convs-controls { flex-wrap: nowrap; }
+.at-convs-filter { position: relative; display: inline-flex; flex: 1 1 0; min-width: 0; }
+.at-convs-control { flex: 1 1 0; min-width: 0; min-height: 32px; padding-inline: 7px; font-size: 0.66rem; white-space: nowrap; }
 .a-shell { display: grid; grid-template-columns: 320px 1fr; flex: 1; min-height: 0; border: 1px solid var(--border-hairline); border-right: none; border-bottom: none; border-radius: var(--panel-radius) 0 0 0; overflow: hidden; }
 .stage-dots { display: flex; gap: 4px; }
 .stage-dots i { width: 22px; height: 5px; border-radius: 999px; background: var(--hbx-surface-raised); }
@@ -4647,3 +4653,419 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-foco__pos { font-size: var(--casca-text-stat); font-weight: var(--weight-bold); color: var(--text-muted); }
 .vnd-foco__acts { flex: 0 0 auto; }
 .log-qr__open { justify-self: center; }
+
+/* ============================================================
+   MOBILE-CASCA/W3 — CONVERSAS mobile (lista + chat takeover).
+   Métrica estrutural = tokens --casca-* (Lei 1). Zero cor/hex — só
+   var(--token). Régua: linhas --casca-row-h (56–64px, aqui 64 fixo pro
+   avatar 36 caber com folga), ≥8 visíveis, chips 11px, cromo ≤140px.
+   ============================================================ */
+
+/* ---------- LISTA ---------- */
+.cvs-m__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.cvs-m__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-1);
+}
+/* pontinho de status do chip: verde=open / vermelho=caído (LEITURA do que o
+   front já consome — /inbox/whatsapp-health; zero lógica de conexão nova). */
+.cvs-m__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hbx-danger);
+}
+.cvs-m__dot.is-ok { background: var(--hbx-success); }
+.cvs-m__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--casca-text-title);
+  font-weight: var(--weight-bold);
+  color: var(--text-strong);
+}
+.cvs-m__tool-btn {
+  flex: 0 0 auto;
+  width: var(--casca-action-max);
+  height: var(--casca-action-max);
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  cursor: pointer;
+}
+.cvs-m__tool-btn:active { transform: scale(0.94); }
+
+/* faixa fina de estado quando o chip caiu — mesmo padrão visual da faixa viva
+   de busca do W2 (.vnd-m__live), cor de aviso em vez de marca. */
+.cvs-m__faixa {
+  flex: 0 0 auto;
+  margin: 0 var(--space-4) var(--space-1);
+  height: var(--casca-segment-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+}
+.cvs-m__faixa-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; background: var(--hbx-danger); }
+.cvs-m__faixa-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cvs-m__searchbar { flex: 0 0 auto; padding: var(--space-1) var(--space-4); }
+.cvs-m__searchfield {
+  height: var(--field-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+}
+.cvs-m__searchinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+}
+.cvs-m__searchinput:focus { outline: none; }
+
+/* chips finos 11px (Todas · Não lidas·n · Bot·n) — filtro 1 toque */
+.cvs-m__chips {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4) var(--space-2);
+}
+.cvs-m__chip {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cvs-m__chip.is-on { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
+
+.cvs-m__err { margin: 0 var(--space-4) var(--space-2); font-size: var(--casca-text-sub); color: var(--hbx-danger); }
+
+.cvs-m__empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+}
+.cvs-m__empty p { margin: 0; font-size: var(--casca-text-sub); line-height: var(--leading-body); max-width: 32ch; }
+
+/* linhas 64px: avatar 36, nome, prévia truncada, hora + bolha contador */
+.cvs-m__list { flex: 1 1 auto; display: flex; flex-direction: column; }
+.cvs-m__row {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-canvas);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cvs-m__row:active { background: var(--surface-recessed); }
+.cvs-m__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cvs-m__row-top { display: flex; align-items: center; gap: var(--space-2); }
+.cvs-m__row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cvs-m__row-tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: 0.6rem;
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+}
+.cvs-m__row-time {
+  flex: 0 0 auto;
+  font-size: var(--casca-text-label);
+  color: var(--text-muted);
+}
+.cvs-m__row-time.is-unread { color: var(--hbx-brand-strong); font-weight: var(--weight-bold); }
+.cvs-m__row-bot { display: flex; align-items: center; gap: var(--space-2); }
+.cvs-m__row-prev {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--casca-text-sub);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cvs-m__row.is-unread .cvs-m__row-prev { color: var(--text-body); font-weight: var(--weight-semibold); }
+.cvs-m__row-badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  font-size: 0.62rem;
+  font-weight: var(--weight-bold);
+}
+
+/* ---------- sheet "Nova conversa" ---------- */
+.cvs-m__novo { display: flex; flex-direction: column; gap: var(--space-3); }
+.cvs-m__novo-phone { display: flex; align-items: center; gap: var(--space-2); }
+.cvs-m__novo-ddi { font-weight: var(--weight-bold); color: var(--text-muted); }
+.cvs-m__novo-submit { margin-top: var(--space-2); }
+.cvs-m__filter-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
+.cvs-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
+
+/* ============================================================
+   CHAT — takeover da casca (CascaView monta isto dentro do stack layer;
+   ver mobile-shell/transitions). O header 48px (seta+título+ações) já vem
+   da API central; aqui só o corpo: sub-header (telefone/presença), balões,
+   composer fixo.
+   ============================================================ */
+.cvs-m__chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cvs-m__chat-sub {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.cvs-m__chat-sub-text { font-size: var(--casca-text-sub); color: var(--text-muted); }
+
+.cvs-m__chat-loading {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  font-size: var(--casca-text-sub);
+  color: var(--text-muted);
+}
+.cvs-m__chat-loading.is-err { color: var(--hbx-danger); }
+
+.cvs-m__msgs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.cvs-m__day {
+  align-self: center;
+  margin: var(--space-2) 0;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-semibold);
+}
+.cvs-m__msg { display: flex; }
+.cvs-m__msg.is-out { justify-content: flex-end; }
+.cvs-m__msg.is-in { justify-content: flex-start; }
+.cvs-m__bubble {
+  max-width: 78%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-recessed);
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+  line-height: var(--leading-body);
+}
+/* enviado = token accent da pele (a pele veste --hbx-brand-strong sozinha) */
+.cvs-m__msg.is-out .cvs-m__bubble {
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+}
+.cvs-m__bubble.is-deleted { font-style: italic; opacity: 0.7; }
+.cvs-m__quote {
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid currentColor;
+  opacity: 0.75;
+  font-size: var(--casca-text-sub);
+}
+.cvs-m__cap { white-space: pre-line; }
+.cvs-m__tm {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.62rem;
+  opacity: 0.75;
+}
+.cvs-m__ck.is-read { color: var(--hbx-brand-strong); opacity: 1; }
+.cvs-m__msg.is-out .cvs-m__ck.is-read { color: inherit; }
+.cvs-m__ck.is-err { color: var(--hbx-danger); font-weight: var(--weight-bold); }
+
+.cvs-m__media-img, .cvs-m__media-video { max-width: 100%; border-radius: var(--radius-md); }
+.cvs-m__audio { display: flex; align-items: center; gap: var(--space-2); }
+.cvs-m__audio-play {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+.cvs-m__doc { display: flex; align-items: center; gap: var(--space-2); }
+
+/* composer fixo embaixo: + (anexo), campo pill 36px, mic/enviar */
+.cvs-m__composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  padding-bottom: calc(var(--space-2) + var(--casca-safe-bottom));
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-canvas);
+}
+.cvs-m__send-err {
+  position: absolute;
+  bottom: 100%;
+  left: var(--space-4);
+  right: var(--space-4);
+  font-size: var(--casca-text-sub);
+  font-weight: var(--weight-bold);
+  color: var(--hbx-danger);
+}
+.cvs-m__compose-btn {
+  flex: 0 0 auto;
+  width: var(--casca-action-max);
+  height: var(--casca-action-max);
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-body);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.cvs-m__compose-btn:disabled { opacity: 0.45; cursor: default; }
+.cvs-m__compose-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+}
+.cvs-m__compose-field:focus { outline: none; }
+.cvs-m__compose-send {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: var(--hbx-brand-strong);
+  color: var(--hbx-action-ink);
+  cursor: pointer;
+}
+.cvs-m__compose-send:disabled { opacity: 0.6; }
+
+/* menu ⋮ do header (actions do CascaView) — 3 pontinhos sem ícone novo no
+   contrato central; popover reusa .hbx-pop do kit. */
+.cvs-m__menu-wrap { position: relative; display: inline-flex; }
+.cvs-m__dots { display: inline-flex; flex-direction: column; gap: 2.5px; }
+.cvs-m__dots i { width: 3.5px; height: 3.5px; border-radius: 999px; background: currentColor; display: block; }
+.cvs-m__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 180px;
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+}

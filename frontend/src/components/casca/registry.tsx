@@ -17,16 +17,13 @@
 import React from "react";
 
 import { CascaStub } from "./stub";
+import { ConversasMobile } from "./screens/conversas";
 import { VendasMobile } from "./screens/vendas";
 
 // Tela mobile = componente sem props (consome os mesmos hooks/endpoints do
 // desktop). O registry casa pelo pathname exato.
 export type CascaScreen = React.ComponentType;
 
-// W3 (Conversas): substituir por <ConversasMobile/>.
-function ConversasStub() {
-  return <CascaStub label="Conversas" msg="Caixa de WhatsApp + chat chegam aqui (W3)." />;
-}
 // W4 (Empresas): substituir por <EmpresasMobile/>.
 function EmpresasStub() {
   return <CascaStub label="Empresas" msg="Lista + ficha das contas PJ chegam aqui (W4)." />;
@@ -38,10 +35,11 @@ function EmpresasStub() {
 // assim quem chega pelo alias (/webscraping → /leads) ou por link interno vê a
 // tela na hora, sem fallback, mesmo antes do redirect client-side
 // (leads/redirect.client.tsx) resolver.
+// W3 (Conversas): <ConversasMobile/> — lista + chat takeover.
 export const CASCA_SCREENS: Record<string, CascaScreen> = {
   "/vendas": VendasMobile,
   "/leads": VendasMobile,
-  "/atendimento": ConversasStub,
+  "/atendimento": ConversasMobile,
   "/empresas": EmpresasStub,
 };
 

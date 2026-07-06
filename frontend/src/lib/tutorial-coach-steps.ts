@@ -52,19 +52,23 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
   });
 
   // 2) Tour pelo coração do sistema (clique-a-clique nos importantes).
+  // Radar/"Buscar empresas" não tem mais item de menu próprio (27/06): "Leads"
+  // saiu do NAV_LINKS e virou o modo "Buscar empresas" DENTRO de Vendas. Por
+  // isso este passo não tem alvo de clique (nav-leads não existe mais) — é
+  // central (gate: next) e a rota /leads redireciona sozinha pro Vendas em
+  // modo buscar (ver leads/redirect.client.tsx).
   if (a.hasLeads) {
     steps.push({
       id: "go-leads",
-      target: '[data-tut="nav-leads"]',
       title: "Seus Leads",
-      body: "É aqui que as oportunidades chegam. Clique em Leads pra eu te mostrar.",
-      gate: "click",
+      body: "É aqui que as oportunidades chegam: dentro de Vendas, no modo Buscar empresas. Vou te mostrar.",
+      gate: "next",
     });
     steps.push({
       id: "leads-screen",
       route: "/leads",
-      title: "A sua lista de oportunidades",
-      body: "Cada linha é uma empresa pra abordar. Você filtra por etapa, PUXA leads novos do Radar (por distância) e começa a conversa direto daqui.",
+      title: "A sua prateleira de oportunidades",
+      body: "Mire estado, cidade e segmento, ligue o motor e a prateleira enche de empresas novas. Selecione e PUXE pra sua carteira — o contato libera na hora.",
       gate: "next",
     });
   }
@@ -180,10 +184,10 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
 // ALVO ausente (cargo/plano não tem, ou mobile que não renderiza aquele bloco)
 // NÃO trava: o coach espera ~4s e pula sozinho. Foco do POC = desktop.
 
-// Radar (slide "Buscar empresas" DENTRO de /vendas — 27/06 o Radar deixou de ser
+// Radar (modo "Buscar empresas" DENTRO de /vendas — 27/06 o Radar deixou de ser
 // tela própria; /leads redireciona pra /vendas e o LeadsClient roda embutido).
 // Por isso os passos vivem na rota "/vendas" e o tour é disparado pelo "Como usar"
-// quando a slide está aberta (shell detecta .vnd-slidetrack.is-buscar). Fluxo:
+// quando o modo está aberto (shell detecta .vnd-layer--buscar.is-on). Fluxo:
 // tamanho do lago → mirar filtro → ligar o motor → prateleira/carteira → puxar → cota.
 function leadsModuleSteps(): CoachStep[] {
   return [

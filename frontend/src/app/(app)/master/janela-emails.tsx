@@ -285,7 +285,13 @@ export function JanelaEmails() {
       apiFetch("/master/email/settings", {
         method: "PUT",
         body: JSON.stringify({ recipientName: envioForm.recipientName.trim(), recipientEmail: envioForm.recipientEmail.trim() }),
-      }).catch(() => { /* persistência do form é conveniência */ });
+      }).catch((err: unknown) => {
+        // persistência do form é conveniência — não trava o envio (que já foi
+        // feito), mas o dono precisa saber que o destinatário NÃO foi memorizado
+        // pra próxima vez (achado C8/CORRECOES.md: catch mudo escondia isso).
+        console.warn("Falha ao memorizar destinatário da apresentação:", err);
+        setEnvioMsg(`✓ Apresentação enviada para ${envioForm.recipientEmail.trim()}, mas não consegui memorizar o destinatário para a próxima vez.`);
+      });
       setEnvioForm({ recipientName: "", recipientEmail: "" });
     } catch (err) {
       setEnvioMsg(err instanceof Error ? err.message : "Falha ao enviar a apresentação.");

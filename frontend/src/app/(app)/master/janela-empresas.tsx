@@ -911,6 +911,15 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             ) : (
               <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem usuário admin inicial (criado sem senha ou não informado).</span>
             )}
+            {!provResult.temporaryPassword && provResult.companyId != null && (
+              <button className="btn-teal" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }}
+                onClick={() => {
+                  setDetailTab("Usuários");
+                  document.getElementById("detalhe-empresa")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}>
+                Criar usuário admin agora
+              </button>
+            )}
             <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }} onClick={() => setProvResult(null)}>Fechar</button>
           </div>
         </section>
@@ -995,7 +1004,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
           {detailError && <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{detailError}</div>}
           {!detail && !detailError && <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando detalhe…</div>}
           {c && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 14, alignItems: "start" }}>
+            <div id="detalhe-empresa" style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 14, alignItems: "start" }}>
               <div style={{ display: "grid", gap: 14 }}>
                 <section className="panel">
                   <div className="panel-head">

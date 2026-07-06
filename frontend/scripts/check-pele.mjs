@@ -6,6 +6,9 @@
 //  R1. Cor literal (hex/rgb/hsl) em CSS fora dos arquivos de pele.
 //  R2. Cor literal em TSX do app.
 //  R3. Valor arbitrário do Tailwind em TSX (ex.: bg-[#0af], text-[rgb(...)]).
+//  R5. font-size em px dentro de theme-*.css (pele) — métrica estrutural é
+//      ESQUELETO (FRONTEND.md, Lei 1, LEADS-FINAL/01 06/07): pele veste cor/
+//      borda/sombra/vidro/radius/fonte, NUNCA tamanho. Meta zero (sem catraca).
 // Regra de CATRACA (migração monitorada):
 //  R4. style inline com propriedade VISUAL (cor/borda/sombra/fonte/radius)
 //      em TSX — contagem NUNCA pode subir; quando cair, o teto desce junto
@@ -35,10 +38,14 @@ const CSS_ALLOWED = [
   /hbx-theme[\\/]entrega\.css$/,
 ];
 const TSX_EXEMPT = [/app[\\/]page\.client\.tsx$/, /app[\\/]trabalhe-conosco[\\/]/];
+// Só as PELES de verdade (theme-<nome>.css) — theme.css (base Tailwind) e
+// skeleton.css (contrato neutro) ficam de fora: lá é onde a métrica DEVE viver.
+const THEME_PELE_RE = /hbx-theme[\\/]theme-[^\\/]+\.css$/;
 const NEUTRAL = /^#(fff|ffffff|000|000000)$/i;
 const COLOR_RE = /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/gi;
 const ARBITRARY_RE = /(?:^|[\s"'`{])(?:bg|text|border|shadow|fill|stroke|from|to|via|ring|outline|accent|caret|decoration)-\[/;
 const VISUAL_PROP_RE = /\b(?:background|backgroundColor|backgroundImage|borderColor|borderRadius|boxShadow|textShadow|fontFamily|backdropFilter|WebkitBackdropFilter|border|borderTop|borderRight|borderBottom|borderLeft|color|outline)\s*:/;
+const FONT_SIZE_PX_RE = /font-size\s*:\s*-?\d[\d.]*px/i;
 
 function* walk(dir, ext) {
   for (const name of readdirSync(dir)) {
@@ -54,7 +61,12 @@ let visualCount = 0;
 const visualByFile = new Map();
 
 for (const file of walk(ROOT, [".css"])) {
-  if (CSS_ALLOWED.some(re => re.test(file))) continue;
+  const isThemePele = THEME_PELE_RE.test(file);
+  const skipR1 = CSS_ALLOWED.some(re => re.test(file));
+  // R1 (cor) é isenta pra arquivos de pele/contrato (CSS_ALLOWED) — mas R5
+  // (font-size:px) mira EXATAMENTE nas peles de verdade, então não pode dar
+  // `continue` cedo demais: pele passa pelo arquivo, só pula a varredura R1.
+  if (skipR1 && !isThemePele) continue;
   let peleOn = true; // false = dentro de bloco isento (pele-allow … pele-allow-end)
   readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
     // Bloco isento EXPLÍCITO p/ "mundo visual do site público" em evolução (ex.: a
@@ -62,7 +74,10 @@ for (const file of walk(ROOT, [".css"])) {
     // ao assentar, remover os marcadores e tokenizar. Regra não engessa evolução.
     if (/pele-allow-end/.test(line)) { peleOn = true; return; }
     if (/pele-allow\b/.test(line)) { peleOn = false; return; }
-    if (!peleOn) return;
+    if (isThemePele && FONT_SIZE_PX_RE.test(line)) {
+      hard.push(`R5 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);
+    }
+    if (skipR1 || !peleOn) return;
     for (const m of line.matchAll(COLOR_RE)) {
       if (m[0].startsWith("#") && NEUTRAL.test(m[0])) continue;
       hard.push(`R1 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);

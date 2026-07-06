@@ -69,6 +69,30 @@ financeira = Opus edita direto + revisão de diff, e SÓ após o dono confirmar 
 (decisão registrada abaixo). NÃO aplicar enquanto o cutover 06-07 estiver no tree sem
 coordenar (merge 3-way).**
 
+#### DECISÃO DO DONO (06/07): **Pull-gated + rate generoso** → FIX APLICADO (Opus, local, NÃO publicado)
+Regra central em `buildRadarLeadPublic` ([mixin] ~2212): `maskContact = options.maskContact ||
+(ownershipEnabled && !ownedByViewer)`, onde `ownedByViewer = ownerCompanyId===viewerCompanyId
+|| (!ownerCompanyId && companyState)` (o 2º ramo revela LEGADO puxado antes da coluna de posse —
+claim/pull/evento hoje gravam ownerCompanyId junto do state, então legado é o único caso). Callsites
+que passaram `viewerCompanyId + ownershipEnabled`: detalhe `getRadarLeadForUser`, lista
+`listRadarLeadsForUser` (mantido `maskContact:vitrine` como fallback sem-posse), `listRadarDatabaseForUser`.
+Master-database e delivery (pós-débito) intocados. Opt-in: quem não passa `ownershipEnabled` não muda
+(retrocompat — teste 2315 e todos os diretos seguem verdes). **typecheck limpo + suíte webscraping 137/137
+(136 pass, 1 skip pré-existente), incl. novo teste "CONTATO PULL-GATED".**
+
+**PRÉ-PUBLICAÇÃO (gate obrigatório antes do `npm run publish`):**
+1. **Backfill de posse** — conferir na VPS se há RadarLeadPool com companyState de posse mas
+   `ownerCompanyId` null (legado). O ramo `companyState` já cobre a exibição, mas o correto é
+   backfillar `ownerCompanyId` a partir do state pra manter a coluna como fonte única. Idempotente.
+2. Boot ok pós-deploy (`docker ps` Up + logs — "build verde ≠ boot ok").
+
+**ACHADO SECUNDÁRIO (menor, entra na Etapa 3/4 do débito):** `radar/leads/:id/event`
+(`addRadarLeadEventForUser`, [delivery:3040-3078]) grava `ownerCompanyId` (reivindica) em QUALQUER
+evento, mas só DEBITA em `eventType==='contacted'` ([delivery:3041]). Evento não-'contacted'
+(ex.: 'no_answer') claima + revela contato SEM débito → bypass estreito (1 lead por vez, auditável,
+marca posse — bem menos raspável que o furo do detalhe). Decidir na Etapa 3/4: evento-claim deve
+debitar, ou só 'contacted' reivindica.
+
 ### Etapa 2 — UX de cobrança honesta (front)
 - Puxada em lote: modal central (`.hbx-veil`) "**Puxar 24 leads = 24 créditos** — saldo
   atual X" com confirmar/cancelar. Puxada unitária: custo visível no próprio botão

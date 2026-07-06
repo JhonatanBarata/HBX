@@ -36,6 +36,32 @@ Fatos medidos (06/07):
 01 e 04 podem rodar em paralelo (front×backend). 03 backend pode começar junto; o front
 da gaveta entra depois do 02 pra já nascer na lista densa.
 
+## Estado (06/07, orquestração Opus)
+- **01 CASCA — CONCLUÍDO** (local, não publicado). Verificado: build verde, lint 80 = baseline
+  pré-existente (0 novos), check-pele verde, densidade confirmada ao vivo. Desvio bom do worker:
+  os tokens não governavam o CSS real (valores hardcoded) → ele CONECTOU os seletores aos tokens.
+  `theme-future.css` órfã deletada; fiscal R5 (`font-size:px` em pele reprova). ⚠️ `.test-login.local.md`
+  deu 401 real (senha de teste pode ter mudado — dono conferir).
+- **04 COFRE — Etapa 1 CONCLUÍDA** (local). Furo pull-gated fechado + teste, 137/137. Falta Etapa 2
+  (front confirmação), Etapa 3 (teto/dia + alarme), Etapa 4 (flags, aguarda go do dono). Pré-publish:
+  backfill `ownerCompanyId` legado.
+- **02 — CONCLUÍDO** (local). Rota nova `/leads/[id]` (3 colunas, abas Anotações|WhatsApp glass-pill),
+  lista densa em linhas (toggle Linhas|Cards), "ver mais" respeitando o pull-gate (não-puxado = aside
+  mascarado + CTA Puxar; a própria página `/leads/[id]` é gate de posse contra acesso direto por URL).
+  Reusou `DetalhesNegocio` + `ConversationPanel` (WhatsApp real embutido) + helpers de Vendas. Descoberta:
+  prints foto2/3/4 = CONCORRENTE (Biz), não tela HBX → construído o nosso, sem plágio/legado.
+  - **Correções minhas pós-worker (Opus):** (a) o worker introduziu 1 erro de lint (`set-state-in-effect`
+    em `/leads/[id]`) e deu como "sem erros" — corrigido (IIFE async), eslint do arquivo limpo. (b) Aba
+    Anotações ficou read-only porque faltava eventType neutro no backend → **adicionei `'note'`** ao
+    `RadarLeadEventType` + DTO + `addRadarLeadEventForUser` (record-only: NÃO debita, NÃO muda status, NÃO
+    reivindica posse — senão reabriria o vazamento do 04 via `companyState`; exige lead já possuído). Teste
+    novo verde (138/137). Front: compose ligado no POST `event{eventType:'note'}` + refetch.
+  - Pendência de verificação: banco local sem lead de Radar (total:0) → o happy-path da página cheia
+    (lead possuído) não foi exercido com dado real; backend local não hot-reload no Windows, então
+    salvar-nota ao vivo precisa de restart do backend. Recomendo teste manual do dono com lead real.
+- **03 / 05 / 06 — na fila.** 03 (backend) e Etapa 3 do 04 serializados APÓS 02 (bottleneck de
+  `schema.prisma` + cautela na frente financeira). 05/06 dependem de 02.
+
 ## Regras de execução (workers)
 
 - 1 worker por `.md`; o `.md` some ao concluir. Trabalhar **direto na master**, commit

@@ -22,7 +22,12 @@ import {
   type RecoveryRoutingRules,
 } from '../hbx-recovery/recovery-bot-config';
 import { buildStructuredWhatsAppLog, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
-import { isModalSessionAvailable, isMetaConnected } from '../messaging/whatsapp-connection-state';
+import {
+  isModalSessionAvailable,
+  isMetaConnected,
+  buildMotorStateByCompany,
+  buildMotorStateByCompanyUser,
+} from '../messaging/whatsapp-connection-state';
 // WEBWHATS-ARQ3 S3: leitor PURO da projeção canônica de estado de conexão (fonte única).
 import { WhatsAppConnectionProjectionService } from '../messaging/whatsapp-connection-projection.service';
 import {
@@ -172,6 +177,10 @@ export class InboxService {
   private readonly fullMirrorJobs = new Map<string, Promise<unknown>>();
   private readonly meticulousTrashTimers = new Map<string, NodeJS.Timeout>();
   private readonly serviceStartedAt = new Date();
+  // Painel "Equipe" (getWhatsappAdminPanel): mesmo padrão do C3 (ModulesService.listMasterOverview)
+  // — cache 60s pra não martelar o motor a cada abertura do popup "Modelo de atendimento".
+  private motorInstancesCache: { at: number; value: any[] | null } | null = null;
+  private static readonly MOTOR_INSTANCES_TTL_MS = 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -210,6 +219,22 @@ export class InboxService {
         extra: input.extra || null,
       }),
     });
+  }
+
+  // C3 (TESTE-GERAL/CORRECOES.md), mesma lacuna aplicada aqui: leitura do MOTOR
+  // AO VIVO (SÓ LEITURA, `/instance/fetchInstances` via WebwhatsBridgeService.
+  // listMotorInstances) — cache 60s local a este service (cada módulo tem sua
+  // própria instância de WebwhatsBridgeService, cache não é compartilhável entre
+  // DI graphs). Motor desligado/indisponível → null (cacheado também, pra não
+  // martelar um motor caído dentro da janela de TTL).
+  private async getMotorInstancesCached(): Promise<any[] | null> {
+    const cached = this.motorInstancesCache;
+    if (cached && Date.now() - cached.at < InboxService.MOTOR_INSTANCES_TTL_MS) {
+      return cached.value;
+    }
+    const value = await this.webwhatsBridge.listMotorInstances();
+    this.motorInstancesCache = { at: Date.now(), value };
+    return value;
   }
 
   private requireCompanyIdFromUser(user: any): number {
@@ -1002,6 +1027,28 @@ export class InboxService {
     throw new ForbiddenException('Apenas o admin da empresa acessa o Modelo de atendimento.');
   }
 
+  // Decora o estado DERIVADO da projeção (banco) com a leitura do MOTOR AO VIVO,
+  // igual ao C3 do painel master/Empresas: motor `open` confirma `live` mesmo se
+  // a projeção ainda não recarimbou; motor `close/closed` derruba um `live: true`
+  // que a projeção (carimbo fresco mas sem confirmação recente) ainda não pegou —
+  // é justamente a lacuna do "webhook atrasou e ninguém abriu a tela de conexão
+  // nesse meio-tempo" (getWhatsappAdminPanel nunca disparava o reconciler). Motor
+  // indisponível/sem instância pra esta chave → no-op (fallback honesto pra projeção).
+  private decorateDerivedWithMotor(
+    derived: { live: boolean; motorState: string; seenAgoSeconds: number | null; stale: boolean },
+    motorState: string | undefined,
+  ) {
+    if (!motorState) return derived;
+    if (motorState === 'open') {
+      if (derived.live) return derived;
+      return { ...derived, live: true, motorState: 'open', stale: false };
+    }
+    if ((motorState === 'close' || motorState === 'closed') && derived.live) {
+      return { ...derived, live: false, motorState: 'close' };
+    }
+    return derived;
+  }
+
   // Etapa 1 (read-only): alimenta o painel admin de uma vez (sem gambiarra no front).
   async getWhatsappAdminPanel(user: any) {
     this.assertCompanyAdminOwner(user);
@@ -1034,9 +1081,28 @@ export class InboxService {
     // WEBWHATS-ARQ3 S3 — a VERDADE do "conectado?" agora sai da PROJEÇÃO (motor ao vivo carimbado),
     // não de `status === 'active'` cru. Isso mata o "Conectado fantasma": sessão que ficou 'active'
     // no banco mas cujo socket morreu (motorState 'close' OU carimbo velho) não mente mais.
+    //
+    // Lacuna que sobrava (achado da campanha TESTE-GERAL, mesma classe do C3): este endpoint só
+    // lia a PROJEÇÃO — nunca consultava o motor. A projeção só recarimba via webhook (push) ou via
+    // o reconciler pull de OUTRA rota (status do modal de conexão); se o webhook atrasar/falhar e
+    // ninguém tiver aberto aquela tela dentro da janela de frescor (180s), o painel podia mostrar
+    // "conectado" com o chip já caído no motor. Decoramos aqui com uma leitura SÓ-LEITURA do motor
+    // (cache 60s, mesmo padrão do C3 em ModulesService.listMasterOverview) — motor `open` confirma
+    // vivo, motor `close/closed` derruba o fantasma; motor indisponível = no-op (fallback honesto).
     const nowMs = Date.now();
+    const motorInstances = await this.getMotorInstancesCached();
+    const motorStateByCompany = motorInstances ? buildMotorStateByCompany(motorInstances) : new Map<number, string>();
+    const motorStateByCompanyUser = motorInstances ? buildMotorStateByCompanyUser(motorInstances) : new Map<string, string>();
+
     const principal = company?.currentWhatsappConnectionSession || null;
-    const principalDerived = WhatsAppConnectionProjectionService.derive(principal as any, nowMs);
+    const principalDerivedRaw = WhatsAppConnectionProjectionService.derive(principal as any, nowMs);
+    const principalUserId = Number((principal?.user as any)?.id || 0);
+    // Sessão principal por-usuário (individual gravado sem sufixo aplicável) tenta a chave do
+    // usuário primeiro; sem usuário (compartilhado legado) cai no agregado da empresa.
+    const principalMotorState = principalUserId
+      ? motorStateByCompanyUser.get(`${companyId}:${principalUserId}`) ?? motorStateByCompany.get(companyId)
+      : motorStateByCompany.get(companyId);
+    const principalDerived = this.decorateDerivedWithMotor(principalDerivedRaw, principalMotorState);
     const companyWhatsapp = {
       connected: principalDerived.live,
       phone: this.cleanDisplayPhone(principal?.displayPhone || principal?.phoneNormalized || null),
@@ -1070,7 +1136,9 @@ export class InboxService {
     for (const s of sessions) {
       const uid = Number(s.userId || 0);
       if (uid && !sessionByUser.has(uid)) {
-        const derived = WhatsAppConnectionProjectionService.derive(s as any, nowMs);
+        const derivedRaw = WhatsAppConnectionProjectionService.derive(s as any, nowMs);
+        // Granularidade "Equipe" = POR USUÁRIO: instância do motor `company-{id}-user-{uid}`.
+        const derived = this.decorateDerivedWithMotor(derivedRaw, motorStateByCompanyUser.get(`${companyId}:${uid}`));
         sessionByUser.set(uid, {
           id: String(s.id),
           phone: this.cleanDisplayPhone(s.displayPhone || s.phoneNormalized || null),

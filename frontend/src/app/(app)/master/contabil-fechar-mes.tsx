@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
+import { reportError } from "@/lib/error-bus";
 
 import { fmtData } from "./page.client";
 
@@ -284,7 +285,7 @@ function PassoReceita({ dossie, onRecarregar, onNext }: { dossie: PreClose; onRe
     })
       .then(() => onRecarregar())
       .then(() => { setAjusteOpen(false); setMsg("Ajuste aplicado."); })
-      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "Falha ao ajustar."))
+      .catch((e: unknown) => { reportError(e); setMsg(e instanceof Error ? e.message : "Falha ao ajustar."); })
       .finally(() => setBusy(false));
   }, [ajusteValor, motivo, dossie.competencia, onRecarregar]);
 
@@ -374,7 +375,7 @@ function PassoProlabore({
     })
       .then(() => onRecarregar())
       .then(() => onNext())
-      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "Falha ao gravar o pró-labore."))
+      .catch((e: unknown) => { reportError(e); setMsg(e instanceof Error ? e.message : "Falha ao gravar o pró-labore."); })
       .finally(() => setBusy(false));
   }, [valor, competencia, onRecarregar, onNext]);
 
@@ -580,7 +581,7 @@ function SerproAutopostCard({
       body: JSON.stringify({ confirmacao: confirmacao.trim().toUpperCase() }),
     })
       .then((res) => { setResultado(res); setConfirmacao(""); return onDone(); })
-      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Falha ao transmitir."))
+      .catch((e: unknown) => { reportError(e); setErro(e instanceof Error ? e.message : "Falha ao transmitir."); })
       .finally(() => setBusy(false));
   }, [confirmacao, competencia, onDone]);
 
@@ -740,7 +741,7 @@ function PassoResumo({
       body: JSON.stringify({}),
     })
       .then((res) => { setResultado(res); onDone?.(); })
-      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Falha ao fechar o mês."))
+      .catch((e: unknown) => { reportError(e); setErro(e instanceof Error ? e.message : "Falha ao fechar o mês."); })
       .finally(() => setBusy(false));
   }, [competencia, onDone]);
 
@@ -842,7 +843,7 @@ function MarcarObrigacaoCard({
     apiFetch(`/master/contabil/obrigacoes/${ob.id}/marcar`, { method: "POST", body: JSON.stringify(body) })
       .then(() => onDone())
       .then(() => setMsg(`Marcado como ${ESTADO_LABEL[alvo].toLowerCase()}.`))
-      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "Falha ao marcar."))
+      .catch((e: unknown) => { reportError(e); setMsg(e instanceof Error ? e.message : "Falha ao marcar."); })
       .finally(() => setBusy(false));
   }, [alvo, recibo, ob.id, onDone]);
 
@@ -858,7 +859,7 @@ function MarcarObrigacaoCard({
     })
       .then(async (res) => { if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message || "Falha no upload."); })
       .then(() => { carregarComprovantes(); onDone(); setMsg("Comprovante anexado."); })
-      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "Falha ao anexar."))
+      .catch((e: unknown) => { reportError(e); setMsg(e instanceof Error ? e.message : "Falha ao anexar."); })
       .finally(() => setBusy(false));
   }, [ob.id, carregarComprovantes, onDone]);
 
@@ -879,7 +880,7 @@ function MarcarObrigacaoCard({
   const remover = useCallback((c: Comprovante) => {
     apiFetch(`/master/contabil/comprovantes/${c.id}`, { method: "DELETE" })
       .then(() => { carregarComprovantes(); onDone(); })
-      .catch(() => setMsg("Falha ao remover."));
+      .catch((e: unknown) => { reportError(e); setMsg("Falha ao remover."); });
   }, [carregarComprovantes, onDone]);
 
   return (

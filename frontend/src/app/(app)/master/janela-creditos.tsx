@@ -15,7 +15,9 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import type { ApiError } from "@/lib/api";
 import { apiFetch } from "@/lib/api";
+import { reportError } from "@/lib/error-bus";
 import { useTabParam } from "@/lib/use-tab-param";
 
 import type { MasterCompany } from "./page.client";
@@ -76,15 +78,27 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
   const [packForm, setPackForm] = useState<PackForm>(toForm(null));
   const [packBusy, setPackBusy] = useState(false);
   const [packMsg, setPackMsg] = useState<string | null>(null);
+  // Lista vazia real (flag ligada, catálogo zerado) × erro de rede/500 do
+  // endpoint contam histórias diferentes pro dono — não podem cair na mesma
+  // dica de "confira a flag" (achado C6/CORRECOES.md).
+  const [packsLoadError, setPacksLoadError] = useState<string | null>(null);
 
   const carregarPacks = useCallback(() => {
     apiFetch<{ packs?: CreditPack[] }>("/credits/master/packs")
       .then(res => {
         const list = Array.isArray(res?.packs) ? res.packs : [];
         setPacks(list);
+        setPacksLoadError(null);
         setPackKey(prev => prev && list.some(p => p.key === prev) ? prev : (list[0]?.key || null));
       })
-      .catch(() => { setPacks([]); setPackMsg("Recurso indisponível (crédito desligado ou sem permissão)."); });
+      .catch((err: unknown) => {
+        setPacks([]);
+        const status = (err as ApiError)?.status;
+        const isFeatureFlag = status === 403 || status === 404;
+        setPacksLoadError(isFeatureFlag
+          ? null
+          : ((err as ApiError)?.message || "Falha ao carregar os pacotes de crédito."));
+      });
   }, []);
 
   useEffect(() => { carregarPacks(); }, [carregarPacks]);
@@ -116,6 +130,7 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
       }
       setPackMsg("✓ Pacote salvo. Reflete na carteira de todas as empresas.");
     } catch (e) {
+      reportError(e);
       setPackMsg(e instanceof Error ? e.message : "Falha ao salvar o pacote.");
     } finally {
       setPackBusy(false);
@@ -146,6 +161,7 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
       });
       setExpiryMsg(`✓ Prazo default salvo: ${res?.defaultExpiryDays ?? n} dias. Vale para concessões manuais sem data explícita.`);
     } catch (e) {
+      reportError(e);
       setExpiryMsg(e instanceof Error ? e.message : "Falha ao salvar o prazo default.");
     } finally {
       setExpiryBusy(false);
@@ -203,6 +219,7 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
       // empresa selecionada pra facilitar uma 2ª concessão distinta.
       setUsageKey(newIdempotencyKey());
     } catch (e) {
+      reportError(e);
       setGrantMsg(e instanceof Error ? e.message : "Falha ao conceder crédito.");
     } finally {
       setGrantBusy(false);
@@ -243,7 +260,9 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
         {guia === "Pacotes" && packs === null && <span className="sc-loading">Carregando…</span>}
 
         {guia === "Pacotes" && packs !== null && packs.length === 0 && (
-          <span className="sc-note">Nenhum pacote encontrado — confira se o recurso de créditos está habilitado.</span>
+          <span className="sc-note">
+            {packsLoadError || "Nenhum pacote encontrado — confira se o recurso de créditos está habilitado."}
+          </span>
         )}
 
         {guia === "Pacotes" && packs !== null && packs.length > 0 && (

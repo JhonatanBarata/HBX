@@ -11,7 +11,19 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // processo de teste. A maioria destes testes cobre o caminho LEGADO (pending_checkout); zerar a
 // flag antes de CADA teste os deixa determinísticos independente do ambiente. O teste do caminho
 // novo (courtesy do modelo grátis) liga a flag localmente e restaura no fim.
-beforeEach(() => { delete process.env.HBX_CREDITS_ENABLED; });
+//
+// MOCK LOCAL (achado 06/07) — só importar AuthService já carrega @prisma/client, que por sua vez
+// autocarrega o .env do backend pro process.env (efeito colateral do runtime do Prisma, independente
+// de qualquer PrismaService real ser instanciado). O .env local tem NODE_ENV=development +
+// PAYMENTS_PROVIDER=mock, então isLocalMockSignupFlow() vira TRUE dentro do processo de teste sem
+// nenhum teste ter pedido isso — muda o comportamento real de loginWithUsername (pula o gate de
+// sessão ativa e o throw de EMAIL_CONFIRMATION_REQUIRED). Zerar PAYMENTS_PROVIDER antes de CADA
+// teste garante que os testes exercitem o mesmo caminho que roda em produção (onde essa combinação
+// não existe).
+beforeEach(() => {
+  delete process.env.HBX_CREDITS_ENABLED;
+  delete process.env.PAYMENTS_PROVIDER;
+});
 
 function inDays(days: number) {
   return new Date(Date.now() + days * DAY_MS);

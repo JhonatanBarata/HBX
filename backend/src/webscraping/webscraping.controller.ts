@@ -288,8 +288,8 @@ class RadarDatabaseQueryDto {
 }
 
 class RadarLeadEventDto {
-  @IsIn(['denied', 'complaint', 'no_answer', 'hidden', 'contacted'])
-  eventType!: 'denied' | 'complaint' | 'no_answer' | 'hidden' | 'contacted';
+  @IsIn(['denied', 'complaint', 'no_answer', 'hidden', 'contacted', 'note'])
+  eventType!: 'denied' | 'complaint' | 'no_answer' | 'hidden' | 'contacted' | 'note';
 
   @IsOptional()
   @IsString()

@@ -218,6 +218,9 @@ function createService(overrides?: Partial<Record<string, any>>) {
     }),
     listLiveChats: async () => [buildLiveConversationSnapshot()],
     isDispatchAvailable: () => true,
+    // Default: motor indisponível/sem leitura (mesmo comportamento honesto de fallback do C3) —
+    // testes que querem simular o motor respondendo sobrescrevem via overrides.webwhatsBridge.
+    listMotorInstances: async () => null,
     ...(overrides?.webwhatsBridge || {}),
   } as any;
 
@@ -2726,6 +2729,9 @@ test('clearEmptyConversations remove só-FAILED mas PRESERVA conversa com mensag
 function buildAdminPanelService(sessions: any[]) {
   const service = createBareService();
   (service as any).assertCompanyAdminOwner = () => undefined;
+  // Motor indisponível/sem leitura por padrão (fallback honesto do C3) — os testes abaixo
+  // caracterizam a PROJEÇÃO (banco), não a decoração do motor ao vivo (isso é coberto à parte).
+  (service as any).webwhatsBridge = { listMotorInstances: async () => null };
   (service as any).prisma = {
     company: {
       findUnique: async () => ({
@@ -2846,4 +2852,120 @@ test('ARQ3-S3 retrocompat: sessão active pré-migração (sem carimbo) → segu
   const m = res.team.find((t: any) => String(t.userId) === '40');
   assert.equal(m.whatsappConnected, true); // não regride o legado
   assert.equal(m.whatsappStale, true); // mas sinaliza "visto há —"
+});
+
+// ===========================================================================
+// C3 aplicado ao painel "Equipe" (achado da campanha TESTE-GERAL/CORRECOES.md):
+// getWhatsappAdminPanel só lia a PROJEÇÃO (banco) — nunca o motor ao vivo. Se o
+// webhook atrasar/falhar e ninguém tiver reconciliado (outra rota) dentro da
+// janela de frescor, o painel podia mentir "conectado" com o chip já caído no
+// motor. Estes testes cobrem a decoração com `listMotorInstances` (SÓ LEITURA),
+// por USUÁRIO (`company-{id}-user-{N}` — granularidade da Equipe).
+// ===========================================================================
+
+test('C3/Equipe: motor close derruba o fantasma mesmo com projeção active+fresca', async () => {
+  const prev = process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+  process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = '180';
+  try {
+    const service = buildAdminPanelService([
+      {
+        id: 'sess-live-but-motor-dead',
+        userId: 50,
+        displayPhone: '5511955554444',
+        phoneNormalized: '5511955554444',
+        status: 'active',
+        connectedAt: new Date(Date.now() - 3600_000),
+        lastReconciledAt: new Date(Date.now() - 5_000), // projeção fresca...
+        motorState: 'open', // ...e ainda diz 'open' (webhook de queda não chegou)
+      },
+    ]);
+    // Motor AO VIVO já enxerga o chip caído — é a fonte que a projeção ainda não pegou.
+    (service as any).webwhatsBridge = {
+      listMotorInstances: async () => [
+        { instance: { instanceName: 'company-7-user-50', state: 'close' } },
+      ],
+    };
+    const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+    const m = res.team.find((t: any) => String(t.userId) === '50');
+    assert.equal(m.whatsappConnected, false, 'motor close deve vencer a projeção desatualizada');
+    assert.equal(m.whatsappMotorState, 'close');
+    assert.equal(m.whatsappHasSession, true, 'sessão segue existindo no banco p/ oferecer Derrubar');
+  } finally {
+    if (prev === undefined) delete process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+    else process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = prev;
+  }
+});
+
+test('C3/Equipe: motor open confirma vivo mesmo com projeção stale (carimbo velho)', async () => {
+  const prev = process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+  process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = '180';
+  try {
+    const service = buildAdminPanelService([
+      {
+        id: 'sess-stale-but-motor-alive',
+        userId: 60,
+        displayPhone: '5511944443333',
+        phoneNormalized: '5511944443333',
+        status: 'active',
+        connectedAt: new Date(Date.now() - 7200_000),
+        lastReconciledAt: new Date(Date.now() - 10_000_000), // carimbo MUITO velho
+        motorState: 'open',
+      },
+    ]);
+    (service as any).webwhatsBridge = {
+      listMotorInstances: async () => [
+        { instance: { instanceName: 'company-7-user-60', state: 'open' } },
+      ],
+    };
+    const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+    const m = res.team.find((t: any) => String(t.userId) === '60');
+    assert.equal(m.whatsappConnected, true, 'motor open ao vivo confirma mesmo sem carimbo recente');
+    assert.equal(m.whatsappMotorState, 'open');
+  } finally {
+    if (prev === undefined) delete process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS;
+    else process.env.HBX_WA_PROJECTION_FRESHNESS_SECONDS = prev;
+  }
+});
+
+test('C3/Equipe: motor indisponível é no-op — cai na projeção sem alterar nada', async () => {
+  const service = buildAdminPanelService([
+    {
+      id: 'sess-live',
+      userId: 70,
+      displayPhone: '5511933332222',
+      phoneNormalized: '5511933332222',
+      status: 'active',
+      connectedAt: new Date(Date.now() - 3600_000),
+      lastReconciledAt: new Date(Date.now() - 5_000),
+      motorState: 'open',
+    },
+  ]);
+  (service as any).webwhatsBridge = { listMotorInstances: async () => null }; // motor fora do ar
+  const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+  const m = res.team.find((t: any) => String(t.userId) === '70');
+  assert.equal(m.whatsappConnected, true, 'sem leitura do motor, confia na projeção (fallback honesto)');
+});
+
+test('C3/Equipe: instância do motor de OUTRO usuário não decora quem não tem chip no motor', async () => {
+  const service = buildAdminPanelService([
+    {
+      id: 'sess-live',
+      userId: 80,
+      displayPhone: '5511922221111',
+      phoneNormalized: '5511922221111',
+      status: 'active',
+      connectedAt: new Date(Date.now() - 3600_000),
+      lastReconciledAt: new Date(Date.now() - 5_000),
+      motorState: 'open',
+    },
+  ]);
+  // Motor só enxerga OUTRO usuário (81) — não deve mexer no estado do 80.
+  (service as any).webwhatsBridge = {
+    listMotorInstances: async () => [
+      { instance: { instanceName: 'company-7-user-81', state: 'close' } },
+    ],
+  };
+  const res = await service.getWhatsappAdminPanel({ companyId: 7, role: 'ADMIN' });
+  const m = res.team.find((t: any) => String(t.userId) === '80');
+  assert.equal(m.whatsappConnected, true, 'granularidade por usuário: instância de outro user não afeta este');
 });

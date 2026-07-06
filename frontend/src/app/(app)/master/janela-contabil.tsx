@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
+import { reportError } from "@/lib/error-bus";
 
 import { fmtData, fmtDataHora } from "./page.client";
 import { WizardFecharMes } from "./contabil-fechar-mes";
@@ -335,7 +336,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
         setLcForm((f) => ({ ...f, descricao: "", valor: "" }));
         return Promise.all([carregarLancamentos(), carregarResumoAno(), carregarLucroIsento(), carregarDistribuidoNoMes()]);
       })
-      .catch((err: unknown) => setLcMsg(err instanceof Error ? err.message : "Falha ao registrar o lançamento."))
+      .catch((err: unknown) => { reportError(err); setLcMsg(err instanceof Error ? err.message : "Falha ao registrar o lançamento."); })
       .finally(() => setLcBusy(false));
   }, [lcForm, carregarLancamentos, carregarResumoAno, carregarLucroIsento, carregarDistribuidoNoMes]);
 
@@ -347,7 +348,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
       body: JSON.stringify({ motivo: motivo.trim() }),
     })
       .then(() => Promise.all([carregarLancamentos(), carregarResumoAno(), carregarLucroIsento(), carregarDistribuidoNoMes()]))
-      .catch((err: unknown) => setLcMsg(err instanceof Error ? err.message : "Falha ao estornar."));
+      .catch((err: unknown) => { reportError(err); setLcMsg(err instanceof Error ? err.message : "Falha ao estornar."); });
   }, [carregarLancamentos, carregarResumoAno, carregarLucroIsento, carregarDistribuidoNoMes]);
 
   const registrarRetiradaLucro = useCallback((e: React.FormEvent) => {
@@ -372,7 +373,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
         setRetiradaOpen(false);
         return Promise.all([carregarLancamentos(), carregarResumoAno(), carregarLucroIsento(), carregarDistribuidoNoMes()]);
       })
-      .catch((err: unknown) => setRetiradaMsg(err instanceof Error ? err.message : "Falha ao registrar a retirada."))
+      .catch((err: unknown) => { reportError(err); setRetiradaMsg(err instanceof Error ? err.message : "Falha ao registrar a retirada."); })
       .finally(() => setRetiradaBusy(false));
   }, [retiradaValor, carregarLancamentos, carregarResumoAno, carregarLucroIsento, carregarDistribuidoNoMes]);
 
@@ -385,7 +386,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
         setFecharAnoMsg(`Ano fechado — ${res?.congelados ?? 0} lançamento(s) congelado(s).`);
         return carregarLancamentos();
       })
-      .catch((err: unknown) => setFecharAnoMsg(err instanceof Error ? err.message : "Falha ao fechar o ano."))
+      .catch((err: unknown) => { reportError(err); setFecharAnoMsg(err instanceof Error ? err.message : "Falha ao fechar o ano."); })
       .finally(() => setFecharAnoBusy(false));
   }, [anoAtual, carregarLancamentos]);
 

@@ -1534,8 +1534,8 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
 // histórica no backend, o antigo "— vs mês anterior" + sparkline sempre-pra-cima
 // era dado fake ao lado de dado real (proibido em FRONTEND.md). `sub` mostra um
 // contexto secundário verdadeiro (ex.: comissão liberada). `href`/`onClick`
-// tornam o card clicável (vira <a> que navega para a tela da métrica).
-export type KpiItem = { icon: string; label: string; value: string; delta?: string; sub?: string; down?: boolean; href?: string; onClick?: () => void };
+// tornam o card clicável como link ou botão, respectivamente.
+export type KpiItem = { icon: string; label: string; value: string; delta?: string; sub?: string; down?: boolean; href?: string; onClick?: () => void; dataTut?: string; title?: string };
 
 export function KpiRow({ items }: { items: KpiItem[] }) {
   return (
@@ -1560,9 +1560,11 @@ export function KpiRow({ items }: { items: KpiItem[] }) {
           </React.Fragment>
         );
         return k.href ? (
-          <Link className="kpi" key={k.label} href={k.href} onClick={k.onClick}>{inner}</Link>
+          <Link className="kpi" key={k.label} href={k.href} onClick={k.onClick} data-tut={k.dataTut} title={k.title}>{inner}</Link>
+        ) : k.onClick ? (
+          <button className="kpi" key={k.label} type="button" onClick={k.onClick} data-tut={k.dataTut} title={k.title}>{inner}</button>
         ) : (
-          <div className="kpi" key={k.label}>{inner}</div>
+          <div className="kpi" key={k.label} data-tut={k.dataTut} title={k.title}>{inner}</div>
         );
       })}
     </div>

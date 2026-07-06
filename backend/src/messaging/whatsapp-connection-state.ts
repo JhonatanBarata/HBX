@@ -35,3 +35,85 @@ export function isModalSendReady(modalStatus: unknown): boolean {
 export function isMetaConnected(whatsappStatus: unknown): boolean {
   return normalizeWaStatus(whatsappStatus) === META_CONNECTED_STATE;
 }
+
+// ---------------------------------------------------------------------------
+// Leitura do MOTOR AO VIVO por nome de instância (C3, TESTE-GERAL/CORRECOES.md)
+// — extraído de ModulesService.listMasterOverview (painel master/Empresas) pra
+// ser reusado também no painel "Equipe" do Atendimento (getWhatsappAdminPanel),
+// que tem a MESMA lacuna: status só de projeção/banco, sem checar o motor.
+// Funções puras, sem I/O — quem chama já buscou `WebwhatsBridgeService.listMotorInstances()`.
+// ---------------------------------------------------------------------------
+
+/** Nome da instância no motor: `company-{id}` (principal) ou `company-{id}-user-{userId}` (por vendedor). */
+export type MotorInstanceKey = { companyId: number; userId: number | null };
+
+/** Parse do nome da instância do motor (WebwhatsBridgeService.buildTenantKey). */
+export function parseMotorInstanceKey(instanceName: string): MotorInstanceKey | null {
+  const match = /^company-(\d+)(?:-user-(\d+))?$/.exec(String(instanceName || '').trim());
+  if (!match) return null;
+  const companyId = Number(match[1]);
+  if (!Number.isFinite(companyId) || companyId <= 0) return null;
+  const userId = match[2] ? Number(match[2]) : null;
+  return { companyId, userId: userId && Number.isFinite(userId) && userId > 0 ? userId : null };
+}
+
+/** Só o companyId (retrocompat do parse antigo — ignora o sufixo `-user-N`). */
+export function parseMotorInstanceCompanyId(instanceName: string): number | null {
+  return parseMotorInstanceKey(instanceName)?.companyId ?? null;
+}
+
+function motorStateRank(state: string): number {
+  const rank: Record<string, number> = { open: 3, connecting: 2, close: 1, closed: 1 };
+  return rank[state] || 0;
+}
+
+function readInstanceState(inst: any): string {
+  return String(
+    inst?.connectionStatus ?? inst?.instance?.state ?? inst?.instance?.status ?? inst?.state ?? inst?.status ?? '',
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function readInstanceName(inst: any): string {
+  return String(inst?.instance?.instanceName ?? inst?.instanceName ?? '').trim();
+}
+
+/**
+ * Estado "melhor" do motor por company: entre TODAS as instâncias da empresa
+ * (principal + por-usuário), 'open' vence se qualquer uma estiver aberta.
+ * Mesmo agregado usado no painel master (ModulesService.buildMotorStateByCompany).
+ */
+export function buildMotorStateByCompany(instances: any[] | null | undefined): Map<number, string> {
+  const byCompany = new Map<number, string>();
+  for (const inst of instances || []) {
+    const key = parseMotorInstanceKey(readInstanceName(inst));
+    if (!key) continue;
+    const state = readInstanceState(inst);
+    const current = byCompany.get(key.companyId);
+    if (!current || motorStateRank(state) > motorStateRank(current)) {
+      byCompany.set(key.companyId, state);
+    }
+  }
+  return byCompany;
+}
+
+/**
+ * Estado do motor por USUÁRIO dentro da empresa (granularidade "Equipe"/individual):
+ * chave `"companyId:userId"`. Só cobre instâncias com sufixo `-user-N` — a instância
+ * legada `company-{id}` (sem usuário) não decora nenhum membro específico aqui.
+ */
+export function buildMotorStateByCompanyUser(instances: any[] | null | undefined): Map<string, string> {
+  const byUser = new Map<string, string>();
+  for (const inst of instances || []) {
+    const key = parseMotorInstanceKey(readInstanceName(inst));
+    if (!key || !key.userId) continue;
+    const state = readInstanceState(inst);
+    const mapKey = `${key.companyId}:${key.userId}`;
+    const current = byUser.get(mapKey);
+    if (!current || motorStateRank(state) > motorStateRank(current)) {
+      byUser.set(mapKey, state);
+    }
+  }
+  return byUser;
+}

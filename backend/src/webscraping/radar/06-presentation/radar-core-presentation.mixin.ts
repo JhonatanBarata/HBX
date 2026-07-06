@@ -2204,15 +2204,27 @@ export class RadarCorePresentationMixin {
     return map;
   }
 
-  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean; enrichmentQueueStatus?: string | null } = {}) {
+  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean; enrichmentQueueStatus?: string | null; viewerCompanyId?: number; ownershipEnabled?: boolean } = {}) {
     // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
     // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
     // (telefone/e-mail) — revela só quando o lead é PUXADO no Leads. Sinais de
     // presença viram booleanos (hasPhone/hasEmail/hasWhatsapp) sem o valor cru.
-    const maskContact = options.maskContact === true;
     const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const status = this.resolveRadarLeadStatus(row);
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || null;
+    // Contato é PULL-GATED (decisão do dono 06/07): revela SÓ pra empresa DONA do lead
+    // (ownerCompanyId === viewerCompanyId = já puxou/pagou). Máscara explícita (vitrine)
+    // OU, com posse habilitada, qualquer lead não-possuído pelo espectador. Fecha os furos
+    // de vazamento sem débito (detalhe :id / lista não-vitrine / database — auditoria 06/07).
+    const viewerCompanyId = Math.trunc(Number(options.viewerCompanyId || 0)) || null;
+    // Possuído pelo espectador = ownerCompanyId casa OU (legado) já existe companyState desta
+    // empresa pro lead sem coluna de posse gravada. Nos fluxos atuais claim/pull/evento gravam
+    // ownerCompanyId JUNTO do state, então o ramo legado só pega lead puxado ANTES da coluna
+    // ownerCompanyId existir (jun/26) — evita mascarar contato que a empresa já pagou.
+    const ownedByViewer =
+      Boolean(ownerCompanyId && viewerCompanyId && ownerCompanyId === viewerCompanyId) ||
+      Boolean(!ownerCompanyId && companyState);
+    const maskContact = options.maskContact === true || (options.ownershipEnabled === true && !ownedByViewer);
     const claimedAt = row?.claimedAt instanceof Date ? row.claimedAt.toISOString() : null;
     const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
     const recentEvents = Array.isArray(row?.events) ? row.events : [];
@@ -2966,6 +2978,8 @@ export class RadarCorePresentationMixin {
       items: pageRows.map((row) => this.buildRadarLeadPublic(row, {
         includeSmartFields,
         maskContact: vitrine,
+        viewerCompanyId: context.companyId,
+        ownershipEnabled,
         enrichmentQueueStatus: enrichmentQueueStatusById.get(String(row?.id || '')) ?? null,
       })),
       total: filteredRows.length,
@@ -3031,11 +3045,17 @@ export class RadarCorePresentationMixin {
     const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
     const leadRow = enrichedRow || row;
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    // Contato PULL-GATED (06/07): o detalhe :id devolvia contato cheio de QUALQUER lead do
+    // pool sem débito nem checagem de posse (furo de scraping por id). Agora mascara salvo
+    // se a empresa já é dona (puxou) — mesma regra da lista/database, centralizada no presenter.
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     // FIX-ENRICHMENT-STATUS-SHELF (05/07): mesmo lookup da listagem, só que pra 1 card (detalhe).
     const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap([String(leadRow?.id || '')]);
     return {
       item: this.buildRadarLeadPublic(leadRow, {
         includeSmartFields,
+        viewerCompanyId: context.companyId,
+        ownershipEnabled,
         enrichmentQueueStatus: enrichmentQueueStatusById.get(String(leadRow?.id || '')) ?? null,
       }),
       events: (leadRow.events || []).map((event: any) => ({
@@ -3819,9 +3839,10 @@ export class RadarCorePresentationMixin {
       limit: filters.limit,
       includeHidden: filters.includeHidden,
     });
-    const [includeSmartFields, fingerprint] = await Promise.all([
+    const [includeSmartFields, fingerprint, ownershipEnabled] = await Promise.all([
       this.canUseRadarSmartLeadFields(context.companyId),
       this.getIcpFingerprint().getFingerprint(this.prisma, context.companyId).catch(() => null),
+      this.supportsRadarOwnershipPersistence(),
     ]);
     const gemeosInsight = await this.getIcpFingerprint()
       .getGemeosInsight(this.prisma, context.companyId, fingerprint)
@@ -3829,7 +3850,7 @@ export class RadarCorePresentationMixin {
     const icpSvc = this.getIcpFingerprint();
     return {
       items: rows.map((row) => ({
-        ...this.buildRadarLeadPublic(row, { includeSmartFields }),
+        ...this.buildRadarLeadPublic(row, { includeSmartFields, viewerCompanyId: context.companyId, ownershipEnabled }),
         fitScore: includeSmartFields ? icpSvc.computeFit(row, fingerprint) : null,
       })),
       total: rows.length,

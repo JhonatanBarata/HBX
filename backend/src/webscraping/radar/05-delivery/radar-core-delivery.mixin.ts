@@ -3022,11 +3022,31 @@ export class RadarCoreDeliveryMixin {
     }
 
     const eventType = String(input.eventType || '').trim().toLowerCase() as RadarLeadEventType;
-    if (!['denied', 'complaint', 'no_answer', 'hidden', 'contacted'].includes(eventType)) {
+    if (!['denied', 'complaint', 'no_answer', 'hidden', 'contacted', 'note'].includes(eventType)) {
       throw new BadRequestException('Evento do Radar invalido.');
     }
 
     const previousStatus = this.resolveRadarLeadStatus(row);
+    // Nota neutra (LEADS-FINAL 02): registra no histórico e SÓ isso — NÃO reivindica posse,
+    // NÃO cria companyState (senão o pull-gate do 04 leria como "possuído" e vazaria contato),
+    // NÃO debita, NÃO muda status. Exige que a empresa JÁ seja dona (puxou): anotar não é claim.
+    if (eventType === 'note') {
+      const noteText = String(input.note || '').trim();
+      if (!noteText) throw new BadRequestException('Nota vazia.');
+      const ownedByViewer =
+        (ownershipEnabled && ownerCompanyId === context.companyId) || Boolean(row?.companyStates?.[0]);
+      if (!ownedByViewer) throw new ForbiddenException('Puxe o lead pra sua carteira antes de anotar.');
+      await this.recordRadarLeadEvent({
+        leadId: row.id,
+        companyId: context.companyId,
+        userId: context.userId,
+        eventType: 'note',
+        note: noteText,
+        statusFrom: previousStatus,
+        statusTo: previousStatus,
+      });
+      return this.getRadarLeadForUser(user, row.id);
+    }
     const nextStatus: RadarLeadStatus =
       eventType === 'hidden'
         ? 'hidden'
