@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
 			{
 				key: "Permissions-Policy",
 				// microphone=(self): libera o mic só p/ a própria origem (nota de voz no /atendimento). camera/geo seguem off.
-				value: "camera=(), microphone=(self), geolocation=()",
+				value: "camera=(), microphone=(self), geolocation=(self)",
 			},
 			// CSP fica como follow-up (report-only): o app usa scripts inline
 			// via dangerouslySetInnerHTML (service worker + boot de tema) e login Google.
