@@ -12,7 +12,7 @@
   --hbx-info: #0E7490; --hbx-warning: #B45309; --hbx-danger: #DC2626; --hbx-danger-soft: #FEE2E2;
   --hbx-background: #FAF6F1; --hbx-background-alt: #F3EDE5;
   --hbx-surface: #FFFFFF; --hbx-surface-soft: #F7F2EB; --hbx-surface-raised: #EFE6DA;
-  --hbx-header-surface: #FFFDFA; --hbx-nav-surface: #1C1917;
+  --hbx-header-surface: #FFFDFA; --hbx-nav-surface: #EFE6DA;
   --hbx-field-surface: #FFFDFA; --hbx-table-head: #F4EEE6;
   --hbx-chat-inbound: #FFFFFF; --hbx-chat-outbound: #FFEAD8; --hbx-chat-system: #F6F0E8;
   --hbx-foreground: #1C1410; --hbx-foreground-soft: #44362C; --hbx-muted: #7D6B5D;
@@ -54,13 +54,13 @@
 
 /* ---- Bloco B · CAMADA DE VESTIR (sólida e quente) ---- */
 [data-theme="ember"] .side { border-right: none; }
-[data-theme="ember"] .side .nav-item { color: #C8BBB1; }
-[data-theme="ember"] .side .nav-item:hover { background: rgba(255,255,255,0.06); color: #FFF7ED; }
+[data-theme="ember"] .side .nav-item { color: var(--hbx-foreground-soft); }
+[data-theme="ember"] .side .nav-item:hover { background: rgba(28,20,16,0.06); color: var(--hbx-foreground); }
 [data-theme="ember"] .side .nav-item.active {
   border-left: 3px solid var(--hbx-brand);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding-left: 8px;
-  color: #FFF7ED;
+  color: var(--hbx-foreground);
 }
 [data-theme="ember"] .side .nav-pill__glass {
   background:
@@ -69,12 +69,24 @@
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 [data-theme="ember"] .side .logo strong,
-[data-theme="ember"] .side .user-card strong { color: #FFF7ED; }
+[data-theme="ember"] .side .user-card strong { color: var(--hbx-foreground); }
 [data-theme="ember"] .side .plan-card,
-[data-theme="ember"] .side .user-card { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+[data-theme="ember"] .side .user-card { background: rgba(28,20,16,0.04); border-color: rgba(28,20,16,0.08); }
 [data-theme="ember"] .side .plan-card small,
 [data-theme="ember"] .side .user-card small,
-[data-theme="ember"] .side .user-card .dots { color: #A89A8E; }
+[data-theme="ember"] .side .user-card .dots { color: var(--hbx-muted); }
+
+/* escuro: nav continua sólida escura (design original) — texto claro fixo */
+[data-theme="ember"][data-theme-mode="dark"] .side .nav-item { color: #C8BBB1; }
+[data-theme="ember"][data-theme-mode="dark"] .side .nav-item:hover { background: rgba(255,255,255,0.06); color: #FFF7ED; }
+[data-theme="ember"][data-theme-mode="dark"] .side .nav-item.active { color: #FFF7ED; }
+[data-theme="ember"][data-theme-mode="dark"] .side .logo strong,
+[data-theme="ember"][data-theme-mode="dark"] .side .user-card strong { color: #FFF7ED; }
+[data-theme="ember"][data-theme-mode="dark"] .side .plan-card,
+[data-theme="ember"][data-theme-mode="dark"] .side .user-card { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+[data-theme="ember"][data-theme-mode="dark"] .side .plan-card small,
+[data-theme="ember"][data-theme-mode="dark"] .side .user-card small,
+[data-theme="ember"][data-theme-mode="dark"] .side .user-card .dots { color: #A89A8E; }
 [data-theme="ember"] .panel,
 [data-theme="ember"] .kpi { box-shadow: var(--shadow-xs); border-bottom: 2px solid color-mix(in srgb, var(--border-strong) 60%, transparent); }
 [data-theme="ember"] .btn-teal {
