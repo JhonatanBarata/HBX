@@ -1494,13 +1494,28 @@ export class WebwhatsBridgeService {
     } catch (error) {
       this.logger.warn(`wipe motor: logout falhou para ${name}: ${String((error as any)?.message || error)}`);
     }
-    try {
+    const tryDelete = async () => {
       await this.request<any>({
         method: 'DELETE',
         path: `/instance/delete/${encodeURIComponent(name)}`,
         purpose: 'delete da instancia (wipe)',
       });
       deleted = true;
+    };
+    try {
+      // O Evolution processa o logout de forma ASSÍNCRONA — delete imediato responde
+      // Bad Request e deixa linha inerte (caso Gabrielo 07/07: logout=true delete=false).
+      // Espera curta pós-logout + no máximo 1 retry; NUNCA loop.
+      if (loggedOut) await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        await tryDelete();
+      } catch (firstError) {
+        this.logger.warn(
+          `wipe motor: delete falhou para ${name} (1a tentativa, re-tento em 4s): ${String((firstError as any)?.message || firstError)}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        await tryDelete();
+      }
     } catch (error) {
       this.logger.warn(`wipe motor: delete falhou para ${name}: ${String((error as any)?.message || error)}`);
     }
