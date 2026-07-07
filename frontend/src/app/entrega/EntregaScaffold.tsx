@@ -1,10 +1,10 @@
 "use client";
 
 // ================================================================
-// MOBILE-CASCA/W6+ — /entrega usa a MESMA casca central do HBX:
-// raiz .casca, topo 1 linha, palco, transições, toast e CascaTabBar fixa
-// Vendas · Conversas · Empresas · Rota · Mais. A cor de logística continua
-// vindo do re-vestimento [data-skin="entrega"] em hbx-theme/entrega.css.
+// MOBILE-CASCA/W6+ — /entrega usa a MESMA casca visual do HBX:
+// raiz .casca, topo 1 linha, palco, transições, toast e tab bar nas classes
+// centrais .casca-tabbar/.casca-tab. A navegação interna continua sendo a do
+// app de logística: Rota · Clientes · Produtos · Ajustes · HBX.
 //
 // Título NÃO duplica (regra aprendida na frente): o topo já mostra o nome
 // da tela — os componentes de conteúdo não repetem `<h1>`/título próprio.
@@ -14,9 +14,9 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { CascaToastHost } from "@/components/casca";
-import { CascaTabBar } from "@/components/casca/tab-bar";
 import { getToken } from "@/lib/api";
 
+import { EntregaTabBar } from "./EntregaTabBar";
 import { I, ICON_PATHS } from "./icons";
 
 export function EntregaScaffold({
@@ -60,7 +60,7 @@ export function EntregaScaffold({
         </div>
       </div>
 
-      <CascaTabBar />
+      <EntregaTabBar />
       <CascaToastHost />
     </div>
   );

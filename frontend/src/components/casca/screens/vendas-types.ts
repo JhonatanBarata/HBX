@@ -11,27 +11,87 @@ export type VendasBlockKey = "today" | "overdue" | "scheduled" | "closed";
 
 export type VendasLeadMobile = {
   id: string;
+  customerProfileId?: string | null;
   name: string | null;
   phone: string | null;
   email: string | null;
+  address?: string | null;
+  website?: string | null;
   cnpj?: string | null;
   cnae?: string | null;
   razaoSocial?: string | null;
+  ownerName?: string | null;
+  ownerNames?: string[] | null;
+  ownerPhone?: string | null;
+  ownerInstagram?: string | null;
+  ownerFacebook?: string | null;
+  companySituation?: string | null;
+  emails?: string[] | null;
+  phones?: string[] | null;
+  phonesWhatsapp?: Record<string, boolean> | null;
   city: string | null;
   state: string | null;
   segment: string | null;
+  rating?: number | null;
+  reviews?: number | null;
   opportunityScore?: number | null;
   leadTemperature?: string | null;
+  timesSeen?: number | null;
   status: string;
   statusLabel: string;
+  nextAction?: string | null;
   returnAt: string | null;
   shortNote: string | null;
+  lastContactAt?: string | null;
   attemptCount: number;
+  lastResult?: string | null;
   closedAt: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  sourceType?: string | null;
+  primarySource?: string | null;
+  sourceChain?: string | null;
+  isFreshCompany?: boolean | null;
+  daysSinceOpened?: number | null;
+  isInInbox?: boolean | null;
+  timeline?: Array<{
+    id: string;
+    eventType?: string | null;
+    title: string | null;
+    description: string | null;
+    resultLabel?: string | null;
+    returnAt?: string | null;
+    createdAt?: string | null;
+  }> | null;
+  saleConfirmedAt?: string | null;
   saleStatus?: string | null;
   saleStatusLabel?: string | null;
   saleValue: number | null;
-  product: { name: string | null; priceLabel: string | null } | null;
+  commissionStatusLabel?: string | null;
+  commissionAmount?: number | null;
+  commissionDueAt?: string | null;
+  commissionRecurring?: boolean | null;
+  commissionNote?: string | null;
+  setupValue?: number | null;
+  setupCommissionAmount?: number | null;
+  setupCommissionStatusLabel?: string | null;
+  commissionPercentSnapshot?: number | null;
+  product: { name: string | null; priceLabel: string | null; canViewPrice?: boolean } | null;
+  leadIntelligence?: {
+    whatsappStatus?: string | null;
+    emailStatus?: string | null;
+    websiteStatus?: string | null;
+    instagramUrl?: string | null;
+    facebookUrl?: string | null;
+    opportunityReason?: string | null;
+    leadReasonTags?: string[] | null;
+    recommendedChannel?: string | null;
+    painType?: string | null;
+    painPitch?: string | null;
+    messageTemplate?: string | null;
+    contactQuality?: string | null;
+    enrichedAt?: string | null;
+  } | null;
   owner: { name: string | null } | null;
   block: VendasBlockKey;
 };
@@ -76,30 +136,95 @@ export function vendasLeadValueLabel(lead: VendasLeadMobile, canViewValues: bool
 }
 
 /** VendasLead (board) → NegocioDetail — mesmo shape que toNegocioDetail() do
- * desktop (vendas/page.client.tsx), reduzido aos campos que o board mobile lê. */
+ * desktop (vendas/page.client.tsx). Campos ausentes/null somem no card. */
 export function vendasLeadToDetail(d: VendasLeadMobile): NegocioDetail {
   return {
     id: d.id,
+    enriched: Boolean(d.leadIntelligence?.enrichedAt),
     name: d.name,
     phone: d.phone,
     email: d.email,
+    website: d.website,
     cnpj: d.cnpj ?? null,
     cnae: d.cnae ?? null,
     razaoSocial: d.razaoSocial ?? null,
+    ownerName: d.ownerName ?? null,
+    ownerNames: d.ownerNames ?? null,
+    ownerPhone: d.ownerPhone ?? null,
+    ownerInstagram: d.ownerInstagram ?? null,
+    ownerFacebook: d.ownerFacebook ?? null,
+    companySituation: d.companySituation ?? null,
+    emails: d.emails ?? null,
+    phones: d.phones ?? null,
+    phonesWhatsapp: d.phonesWhatsapp ?? null,
+    address: d.address ?? null,
     city: d.city,
     state: d.state,
     segment: d.segment,
     statusLabel: d.statusLabel,
     leadTemperature: d.leadTemperature,
     opportunityScore: d.opportunityScore,
-    valueLabel: fmtMoneyMobile(d.saleValue) || d.product?.priceLabel || null,
+    rating: d.rating,
+    reviews: d.reviews,
+    valueLabel: d.product?.priceLabel || fmtMoneyMobile(d.saleValue) || "—",
     productName: d.product?.name ?? null,
     returnAt: d.returnAt,
+    lastContactAt: d.lastContactAt,
     shortNote: d.shortNote,
     attemptCount: d.attemptCount,
+    nextAction: d.nextAction,
+    lastResult: d.lastResult,
+    timesSeen: d.timesSeen,
+    isInInbox: d.isInInbox ?? null,
+    createdAt: d.createdAt ?? null,
+    updatedAt: d.updatedAt ?? null,
+    sourceType: d.sourceType ?? null,
+    primarySource: d.primarySource ?? null,
+    sourceChain: d.sourceChain ?? null,
+    isFreshCompany: d.isFreshCompany ?? null,
+    daysSinceOpened: d.daysSinceOpened ?? null,
     owner: d.owner ? { name: d.owner.name } : null,
-    sale: d.saleStatus && d.saleStatus !== "none"
-      ? { status: d.saleStatus, statusLabel: d.saleStatusLabel ?? null, valueLabel: fmtMoneyMobile(d.saleValue) }
+    leadIntelligence: d.leadIntelligence
+      ? {
+          whatsappStatus: d.leadIntelligence.whatsappStatus ?? null,
+          emailStatus: d.leadIntelligence.emailStatus ?? null,
+          websiteStatus: d.leadIntelligence.websiteStatus ?? null,
+          instagramUrl: d.leadIntelligence.instagramUrl ?? null,
+          facebookUrl: d.leadIntelligence.facebookUrl ?? null,
+          opportunityReason: d.leadIntelligence.opportunityReason ?? null,
+          leadReasonTags: d.leadIntelligence.leadReasonTags ?? null,
+          recommendedChannel: d.leadIntelligence.recommendedChannel ?? null,
+          painType: d.leadIntelligence.painType ?? null,
+          painPitch: d.leadIntelligence.painPitch ?? null,
+          messageTemplate: d.leadIntelligence.messageTemplate ?? null,
+          contactQuality: d.leadIntelligence.contactQuality ?? null,
+        }
       : null,
+    sale: d.saleStatus && d.saleStatus !== "none"
+      ? {
+          status: d.saleStatus,
+          statusLabel: d.saleStatusLabel ?? null,
+          valueLabel: fmtMoneyMobile(d.saleValue),
+          commissionLabel: d.commissionStatusLabel ?? null,
+          commissionValueLabel: d.commissionAmount != null ? fmtMoneyMobile(d.commissionAmount) : null,
+          commissionDueAt: d.commissionDueAt ?? null,
+          commissionRecurring: d.commissionRecurring ?? null,
+          commissionNote: d.commissionNote ?? null,
+          setupLabel: d.setupValue != null && d.setupValue > 0
+            ? `${fmtMoneyMobile(d.setupValue)}${d.setupCommissionAmount != null ? ` · comissão: ${fmtMoneyMobile(d.setupCommissionAmount)}` : ""}`
+            : null,
+          setupValue: d.setupValue ?? null,
+          setupCommissionAmount: d.setupCommissionAmount ?? null,
+          setupCommissionStatusLabel: d.setupCommissionStatusLabel ?? null,
+        }
+      : null,
+    history: d.timeline?.map(ev => ({
+      id: ev.id,
+      title: ev.title ?? "Atualização",
+      description: ev.description,
+      resultLabel: ev.resultLabel,
+      returnAt: ev.returnAt,
+      createdAt: ev.createdAt,
+    })) ?? null,
   };
 }

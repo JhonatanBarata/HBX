@@ -4676,6 +4676,97 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 
 /* ---------- sheet de detalhe: DetalhesNegocio + ações rápidas ---------- */
 .vnd-m__sheet { display: flex; flex-direction: column; gap: var(--space-4); }
+.casca-sheet:has(.vnd-m__sheet--lead-detail) {
+  max-height: 94dvh;
+}
+.vnd-m__sheet--lead-detail {
+  gap: var(--space-3);
+}
+.vnd-m__sheet--lead-detail .dn-root {
+  display: grid;
+  gap: var(--space-2);
+}
+.vnd-m__sheet--lead-detail .dn-root > h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: var(--weight-bold);
+  line-height: 1.15;
+}
+.vnd-m__sheet--lead-detail .dn-zone,
+.vnd-m__sheet--lead-detail .dn-zone--1,
+.vnd-m__sheet--lead-detail .dn-zone--2 {
+  gap: var(--space-2);
+}
+.vnd-m__sheet--lead-detail .dn-header {
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+.vnd-m__sheet--lead-detail .ctx-hero {
+  gap: var(--space-3);
+}
+.vnd-m__sheet--lead-detail .ctx .company,
+.vnd-m__sheet--lead-detail .company {
+  font-size: 1rem;
+  line-height: 1.15;
+}
+.vnd-m__sheet--lead-detail .ctx-tags {
+  gap: 4px;
+  margin-top: 4px;
+}
+.vnd-m__sheet--lead-detail .tag {
+  padding: 2px 8px;
+  font-size: 0.6rem;
+}
+.vnd-m__sheet--lead-detail .dn-channels-row {
+  gap: 7px;
+  padding: 2px 0;
+}
+.vnd-m__sheet--lead-detail .dn-zone1-intel {
+  gap: var(--space-2);
+  align-items: center;
+}
+.vnd-m__sheet--lead-detail .dn-opportunity-teaser {
+  padding: 7px 9px;
+}
+.vnd-m__sheet--lead-detail .ctx-phone {
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.92rem;
+}
+.vnd-m__sheet--lead-detail .ctx-phone--site {
+  font-size: 0.72rem;
+}
+.vnd-m__sheet--lead-detail .kv .row {
+  padding: 5px 0;
+  font-size: 0.72rem;
+}
+.vnd-m__sheet--lead-detail .dn-convo__tabs {
+  padding: 5px 6px;
+}
+.vnd-m__sheet--lead-detail .dn-convo__tab {
+  padding: 5px 9px;
+  font-size: 0.68rem;
+}
+.vnd-m__sheet--lead-detail .dn-convo__body {
+  min-height: 142px;
+  max-height: 228px;
+}
+.vnd-m__sheet--lead-detail .dn-convo .msgs {
+  min-height: 92px;
+  max-height: 160px;
+}
+.vnd-m__sheet--lead-detail .dn-convo__hint {
+  padding: 12px;
+  font-size: 0.7rem;
+}
+.vnd-m__sheet--lead-detail .dn-zone-sep {
+  margin: 2px 0 0;
+}
+.vnd-m__sheet--lead-detail .sep {
+  margin: 2px 0;
+}
 .vnd-m__sheet-acts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));

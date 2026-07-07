@@ -9,7 +9,7 @@
 // negócio ainda é um lead do Radar).
 
 import { useRouter } from "next/navigation";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -24,6 +24,7 @@ export function NegocioSheet({
   onClose,
   onPulled,
   showPuxar,
+  showConversation = true,
 }: {
   detail: NegocioDetail | null;
   open: boolean;
@@ -32,21 +33,23 @@ export function NegocioSheet({
   onPulled?: () => void;
   /** true = lead do Radar ainda não puxado — mostra o CTA "Puxar pro funil". */
   showPuxar?: boolean;
+  /** mantém o mesmo painel WhatsApp/E-mail do desktop quando houver telefone. */
+  showConversation?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   // Segura o último detalhe durante a animação de saída: o pai zera `sel` no
-  // clique de fechar, então `detail` vira null NO MESMO frame em que a folha
-  // começa a descer. Sem isto o corpo esvazia e a folha ENCOLHE pro tamanho do
-  // cabeçalho — como translateY(100%) da saída é relativo à própria altura, ela
-  // desce só uns 60px e "colapsa" (a queixa "abaixa um pouco e trava"). Mantendo
-  // o conteúdo, a saída desliza a folha inteira. Quem controla o fecho continua
-  // sendo o `detail` real (via `open` abaixo), não este cache.
-  const lastDetail = useRef<NegocioDetail | null>(detail);
-  if (detail) lastDetail.current = detail;
-  const shown = detail ?? lastDetail.current;
+  // clique de fechar, então `detail` vira null no mesmo frame em que a folha
+  // começa a descer. Mantendo o conteúdo, a saída desliza a folha inteira.
+  const [lastDetail, setLastDetail] = useState<NegocioDetail | null>(detail);
+  useEffect(() => {
+    if (!detail) return;
+    const id = window.setTimeout(() => setLastDetail(detail), 0);
+    return () => window.clearTimeout(id);
+  }, [detail]);
+  const shown = detail ?? lastDetail;
 
   async function abrirConversaInterna() {
     if (!shown?.phone || busy) return;
@@ -95,8 +98,8 @@ export function NegocioSheet({
   return (
     <CascaSheet open={open && Boolean(detail)} title={shown?.name || "Detalhe"} onClose={onClose}>
       {shown ? (
-        <div className="vnd-m__sheet">
-          <DetalhesNegocio detail={shown} title="Detalhes" showConversation={false} />
+        <div className="vnd-m__sheet vnd-m__sheet--lead-detail">
+          <DetalhesNegocio detail={shown} title="Detalhes" showConversation={showConversation} />
 
           <div className="vnd-m__sheet-acts">
             {waLink ? (

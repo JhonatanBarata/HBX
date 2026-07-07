@@ -222,6 +222,53 @@ test.describe("MOBILE-CASCA/W7 — casca autenticada (mock de sessão)", () => {
     await assertNoHorizontalOverflow(page, "/vendas autenticado");
   });
 
+  test("sheet de detalhe em /vendas fecha pelo X no mobile", async ({ page }) => {
+    await setupMocks(page);
+    await page.route("**/hbx/api/vendas/board", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          summary: { total: 1, today: 1, overdue: 0, scheduled: 0, closed: 0 },
+          blocks: {
+            today: [{
+              id: "lead-1",
+              name: "Praca Sao Lourenco Restaurante",
+              phone: "11992040838",
+              email: "contato@pracasaolourenco.com.br",
+              city: "Sao Paulo",
+              state: "SP",
+              segment: "Restaurantes",
+              status: "novo",
+              statusLabel: "Novo lead",
+              returnAt: new Date().toISOString(),
+              shortNote: null,
+              attemptCount: 0,
+              closedAt: null,
+              saleValue: 0,
+              product: null,
+              owner: null,
+              block: "today",
+            }],
+            overdue: [],
+            scheduled: [],
+            closed: [],
+          },
+        }),
+      });
+    });
+
+    await gotoAutenticado(page, "/vendas");
+
+    await page.getByRole("button", { name: /Praca Sao Lourenco Restaurante/ }).click();
+    const sheet = page.locator('.casca-sheet[role="dialog"]').filter({ hasText: "Praca Sao Lourenco Restaurante" });
+    await expect(sheet).toBeVisible();
+
+    await sheet.getByRole("button", { name: "Fechar" }).click();
+
+    await expect(page.locator(".casca-sheet-veil")).toHaveCount(0);
+  });
+
   test("rota não registrada mostra o fallback central dentro da casca", async ({ page }) => {
     await setupMocks(page);
     await gotoAutenticado(page, "/relatorios");
