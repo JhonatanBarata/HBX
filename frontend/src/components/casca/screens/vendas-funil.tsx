@@ -26,6 +26,7 @@ import {
   STAGE_ORDER_MOBILE,
   vendasLeadToDetail,
   vendasLeadValueLabel,
+  type VendasBlockKey,
   type VendasBoardResponse,
   type VendasLeadMobile,
 } from "./vendas-types";
@@ -126,9 +127,58 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   }
 
   const empty = todos.length === 0;
+  const totalFunil = board?.summary.total ?? 0;
+
+  // Vitrine noir: tocar num KPI rola até o grupo correspondente da lista —
+  // gesto equivalente ao da tela antiga (que trocava a aba da agenda).
+  function irAoGrupo(key: VendasBlockKey) {
+    setVista("lista");
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-vnd-group="${key}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   return (
     <div className="vnd-m__body">
+      {/* PELE NOIR (pedido do dono 07/07): vitrine de Vendas resgatada da tela
+          mobile antiga (commit 53ca499d, §mobileVendasHeroPanel). SEMPRE no
+          DOM, mas invisível: screens.css só a revela sob [data-theme="noir"] —
+          nas outras peles a tela continua idêntica. Dados = o MESMO board
+          deste funil (zero endpoint novo, zero número inventado). */}
+      <section className="vnd-m__vitrine" aria-label="Resumo de Vendas">
+        <span className="vnd-m__vitrine-copy">
+          <small>HBX</small>
+          <strong>Vendas</strong>
+          <em>{totalFunil > 0 ? "Radar alimentou sua agenda comercial." : "Receba cards do Radar e acompanhe retornos."}</em>
+        </span>
+        <span className="vnd-m__vitrine-status">
+          <b aria-hidden="true">✓</b>
+          <span>
+            <strong>
+              {totalFunil.toLocaleString("pt-BR")} {totalFunil === 1 ? "card no Vendas" : "cards no Vendas"}
+            </strong>
+            <em>{totalFunil > 0 ? "Finalize ou delete para liberar" : "Radar pronto para buscar"}</em>
+          </span>
+        </span>
+        <button type="button" className="vnd-m__vitrine-cta" onClick={() => onModoChange("buscar")}>
+          Abrir Radar
+        </button>
+        <div className="vnd-m__vitrine-kpis" aria-label="Agenda do funil">
+          <button type="button" onClick={() => irAoGrupo("overdue")}>
+            <b>Atrasados</b>
+            <strong>{board?.summary.overdue ?? 0}</strong>
+          </button>
+          <button type="button" onClick={() => irAoGrupo("today")}>
+            <b>Hoje</b>
+            <strong>{board?.summary.today ?? 0}</strong>
+          </button>
+          <button type="button" onClick={() => irAoGrupo("scheduled")}>
+            <b>Próximos</b>
+            <strong>{board?.summary.scheduled ?? 0}</strong>
+          </button>
+        </div>
+      </section>
+
       {/* FIX4: painel de comando único (.casca-command, casca.css) — mesma
           moldura do modo Buscar, simétrico. Linha 1 = toolbar, linha 2 = stats. */}
       <div className="casca-command">
@@ -168,7 +218,8 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
             const items = board?.blocks?.[key] || [];
             if (items.length === 0) return null;
             return (
-              <div className="vnd-m__group" key={key}>
+              // data-vnd-group: âncora de rolagem dos KPIs da vitrine noir.
+              <div className="vnd-m__group" key={key} data-vnd-group={key}>
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
                 {items.map(card => (
                   <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>

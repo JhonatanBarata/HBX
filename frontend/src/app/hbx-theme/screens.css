@@ -4709,6 +4709,163 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-m__filter-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
 .vnd-m__filter-apply { margin-top: var(--space-2); }
 
+/* ---------- VITRINE NOIR (pedido do dono 07/07) ----------
+   Resgate da tela mobile antiga de Vendas (commit 53ca499d,
+   page.module.css §mobileVendasHeroPanel/§mobileVendasHeroStats),
+   reconstruída como bloco do modo Funil. Vive SEMPRE no DOM, mas só a
+   pele noir a revela — nas demais peles: display none, tela idêntica à
+   de hoje. Aqui SÓ estrutura/métrica (Lei nº1); cor/borda/sombra/fundo
+   vivem em theme-noir.css. */
+.vnd-m__vitrine { display: none; }
+[data-theme="noir"] .vnd-m__vitrine {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  gap: 10px;
+  min-height: 184px;
+  margin: var(--space-1) var(--space-3) 0;
+  padding: 18px 16px 14px;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* conteúdo acima do décor (::before/::after da pele ficam no z 0) */
+[data-theme="noir"] .vnd-m__vitrine > * { position: relative; z-index: 1; }
+[data-theme="noir"] .vnd-m__vitrine-copy {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding-right: 42px;
+}
+[data-theme="noir"] .vnd-m__vitrine-copy small {
+  font-size: 0.74rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+[data-theme="noir"] .vnd-m__vitrine-copy strong {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 8vw, 2.4rem);
+  line-height: 0.94;
+  font-weight: 800;
+}
+[data-theme="noir"] .vnd-m__vitrine-copy em {
+  font-size: 0.88rem;
+  line-height: 1.28;
+  font-style: normal;
+  font-weight: var(--weight-semibold);
+}
+[data-theme="noir"] .vnd-m__vitrine-status {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px 7px 8px;
+}
+[data-theme="noir"] .vnd-m__vitrine-status b {
+  flex: 0 0 auto;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+[data-theme="noir"] .vnd-m__vitrine-status > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+[data-theme="noir"] .vnd-m__vitrine-status > span strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(0.9rem, 4.8vw, 1.18rem);
+  line-height: 1.06;
+  font-weight: var(--weight-bold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-theme="noir"] .vnd-m__vitrine-status > span em {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.66rem;
+  line-height: 1.15;
+  font-style: normal;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-theme="noir"] .vnd-m__vitrine-cta {
+  justify-self: start;
+  min-height: 32px;
+  display: inline-grid;
+  align-items: center;
+  max-width: 100%;
+  padding: 7px 12px;
+  font-size: 0.72rem;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+[data-theme="noir"] .vnd-m__vitrine-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+[data-theme="noir"] .vnd-m__vitrine-kpis > button {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-content: center;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 9px 10px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+[data-theme="noir"] .vnd-m__vitrine-kpis b {
+  grid-column: 1 / -1;
+  font-size: 0.62rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-theme="noir"] .vnd-m__vitrine-kpis strong {
+  font-size: 1.3rem;
+  line-height: 1;
+  font-weight: 800;
+}
+[data-theme="noir"] .vnd-m__vitrine-kpis > button::after {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+/* na pele noir os números da vitrine substituem a linha de stats do card
+   de comando (só no Funil — a vitrine é irmã do .casca-command) */
+[data-theme="noir"] .vnd-m__vitrine ~ .casca-command .vnd-m__stats { display: none; }
+/* lista do funil vira trilha de cards soltos (par do .vnd-m__row da pele) */
+[data-theme="noir"] .vnd-m__list {
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-4);
+}
+[data-theme="noir"] .vnd-m__group { gap: var(--space-2); }
+[data-theme="noir"] .vnd-m__group-head { padding: var(--space-2) var(--space-1) 0; }
+[data-theme="noir"] .vnd-m__row { padding: 0 var(--space-3); }
+/* observação de leads (NegocioSheet): folha vira takeover, zonas viram cards */
+[data-theme="noir"] .casca-sheet:has(.vnd-m__sheet) {
+  height: 94dvh;
+  max-height: 94dvh;
+}
+[data-theme="noir"] .vnd-m__sheet .dn-zone { padding: var(--space-3); }
+
 /* ---------- campo-seletor (abre CascaPickerSheet) — mesma pele do field-dark,
    mas é <button> (abre picker), não <input> de texto livre. ---------- */
 .casca-picker-field {

@@ -94,6 +94,12 @@
 - Peles instaladas (aurora padrão, ember, rose) vestem o contrato neutro de
   tokens; criar/refatorar pele é trabalho autorizado (ver PEDIDO-DE-PELE.md).
   `skeleton.css` é a base de tokens, não uma opção do seletor.
+- **Pele noir (dono 07/07, exceção à Lei nº3):** resgate P&B da tela mobile
+  antiga de Vendas (commit 53ca499d). A "vitrine" (`.vnd-m__vitrine`,
+  vendas-funil.tsx) vive SEMPRE no DOM e é revelada só sob
+  `[data-theme="noir"]` (estrutura em screens.css, vestir em theme-noir.css)
+  — o DOM é um só, a pele decide visibilidade. `mobileOnly` no PELES esconde
+  a pele do seletor desktop (PeleSwitch); na casca aparece normal.
 - `docs/TEMAS` é REFERÊNCIA de estrutura/escrita das telas — o visual de lá
   não se copia para dentro de tela nem de TSX (vira token/classe).
 - Mundo-site (visual próprio, fora do fiscal): `hbx-theme/marketing.css`,

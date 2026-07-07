@@ -72,6 +72,7 @@
 @import "./hbx-theme/theme-ember.css";
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
+@import "./hbx-theme/theme-noir.css";
 
 /* Design System ENTREGA (LOGISTICA-MOBILE M1) — pele mobile do app do
    entregador, TODA escopada em [data-skin="entrega"]. Não vaza pro

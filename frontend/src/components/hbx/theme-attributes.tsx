@@ -15,11 +15,16 @@ import { useEffect } from "react";
 
 // Peles selecionáveis. skeleton.css continua sendo a BASE de tokens (o
 // contrato neutro que toda pele veste) — só não é uma opção do seletor.
-export const PELES: ReadonlyArray<{ key: string; label: string }> = [
+// mobileOnly: pele pensada pra casca (celular) — o seletor desktop
+// (PeleSwitch, shell.tsx) a esconde; o da casca (TemaSection) mostra tudo.
+export const PELES: ReadonlyArray<{ key: string; label: string; mobileOnly?: boolean }> = [
   { key: "aurora", label: "Aurora" },
   { key: "ember", label: "Ember" },
   { key: "rose", label: "Rosé" },
   { key: "hbx-cyber", label: "Tema HBX" },
+  // Noir (dono 07/07): resgate P&B da tela mobile antiga de Vendas (53ca499d)
+  // vestindo a casca — tokens + vitrine em theme-noir.css/screens.css.
+  { key: "noir", label: "Noir", mobileOnly: true },
 ];
 
 // Pele padrão quando não há preferência salva (mantém o boot do layout.tsx
