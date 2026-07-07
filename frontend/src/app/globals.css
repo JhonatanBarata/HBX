@@ -23,6 +23,7 @@
    token; herda a pele ativa. Desktop nunca vê estas classes (a casca só monta
    sob o breakpoint mobile — ver components/casca/mobile-shell.tsx). */
 @import "./hbx-theme/casca.css";
+@import "./hbx-theme/casca-premium.css";
 
 /* É AQUI QUE FECHA — modal cinematográfico de fechamento de venda (Atendimento +
    Vendas), com passo-a-passo da comissão do vendedor. */

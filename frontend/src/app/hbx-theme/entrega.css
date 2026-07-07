@@ -39,7 +39,6 @@
   --ent-surface: #FFFFFF;
   --ent-surface-soft: #EEF1F4;
   --ent-surface-raised: #FFFFFF;
-  --ent-sheet: #FFFFFF;
   --ent-overlay: rgba(9, 18, 28, 0.52);
 
   /* Cor: texto / linhas */
@@ -130,7 +129,6 @@
     --ent-surface: #131A24;
     --ent-surface-soft: #1B2431;
     --ent-surface-raised: #182130;
-    --ent-sheet: #182130;
     --ent-overlay: rgba(2, 6, 12, 0.66);
 
     --ent-ink: #F1F5F9;
@@ -165,29 +163,7 @@
     var(--ent-safe-left);
 }
 [data-skin="entrega"] * { box-sizing: border-box; }
-[data-skin="entrega"] .ent-app {
-  max-width: 560px;
-  margin: 0 auto;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-}
 
-/* ---------- HEADER "Hoje" ---------- */
-[data-skin="entrega"] .ent-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--ent-3);
-  padding: var(--ent-6) var(--ent-4) var(--ent-4);
-}
-[data-skin="entrega"] .ent-head-title {
-  font-family: var(--ent-font-num);
-  font-size: var(--ent-title-lg);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--ent-ink);
-}
 [data-skin="entrega"] .ent-head-sub {
   font-size: var(--ent-text-sm);
   color: var(--ent-ink-muted);
@@ -198,12 +174,6 @@
    do conteúdo (ex.: data de hoje sob "Hoje"/"Rota"). */
 [data-skin="entrega"] .ent-head-sub--standalone {
   padding: var(--ent-4) var(--ent-4) 0;
-}
-/* M8 — ações do header (pendências offline + atalho "Hoje"). */
-[data-skin="entrega"] .ent-head-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--ent-2);
 }
 /* M8 — indicador de confirmações não sincronizadas (fila offline): ícone + número. */
 [data-skin="entrega"] .ent-pendencias {
@@ -430,37 +400,6 @@
   transform: scale(1.5);
 }
 
-/* ---------- SHEET (folha de chegada, sobe de baixo) ---------- */
-[data-skin="entrega"] .ent-sheet-veil {
-  position: fixed;
-  inset: 0;
-  background: var(--ent-overlay);
-  display: flex;
-  align-items: flex-end;
-  z-index: 40;
-}
-[data-skin="entrega"] .ent-sheet {
-  width: 100%;
-  max-width: 560px;
-  margin: 0 auto;
-  background: var(--ent-sheet);
-  border-radius: var(--ent-radius-lg) var(--ent-radius-lg) 0 0;
-  box-shadow: var(--ent-shadow-lg);
-  padding: var(--ent-4) var(--ent-5) calc(var(--ent-6) + var(--ent-safe-bottom));
-  animation: ent-sheet-up var(--ent-motion-slow) both;
-}
-[data-skin="entrega"] .ent-sheet-grip {
-  width: 44px;
-  height: 5px;
-  border-radius: var(--ent-radius-pill);
-  background: var(--ent-line-strong);
-  margin: 0 auto var(--ent-4);
-}
-@keyframes ent-sheet-up {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
 /* ---------- BOTÕES (primário / secundário / ghost) ---------- */
 [data-skin="entrega"] .ent-btn {
   display: inline-flex;
@@ -631,15 +570,6 @@
   font-weight: 800;
   color: var(--ent-ink);
 }
-[data-skin="entrega"] .ent-spinner {
-  width: var(--ent-8);
-  height: var(--ent-8);
-  border-radius: var(--ent-radius-pill);
-  border: 3px solid var(--ent-surface-soft);
-  border-top-color: var(--ent-brand);
-  animation: ent-spin 720ms linear infinite;
-}
-@keyframes ent-spin { to { transform: rotate(360deg); } }
 
 /* ---------- STEPPER: rótulo do item + bloco por item ---------- */
 [data-skin="entrega"] .ent-item {
@@ -754,16 +684,7 @@
   padding-top: var(--ent-4);
 }
 
-/* ============================================================
-   A2 — TAB BAR PRÓPRIA DO APP: REMOVIDA no MOBILE-CASCA/W6 (resíduo morto
-   confirmado no W7 QA, 06/07). O app /entrega foi re-vestido na casca
-   central (EntregaScaffold usa .casca-tabbar/.casca-tab de casca.css, ver
-   EntregaTabBar.tsx) — .ent-tabbar/.ent-tab/.ent-tab-label e a regra
-   .ent-app.has-tabbar não são mais usados em NENHUM JSX (grep confirmado).
-   `--ent-tabbar-h` também caiu com eles (só o token de altura, sem consumidor
-   restante). A9-RESULTADO/W6-RESULTADO documentam o re-vestimento; este
-   bloco só não tinha sido varrido ainda.
-   ============================================================ */
+/* A2 — tab bar própria removida: /entrega usa CascaTabBar central. */
 
 /* ============================================================
    A3 — CLIENTES (lista/busca/cards) + EDITOR (form 1 coluna app-like).
@@ -1162,16 +1083,4 @@
   font-family: var(--ent-font-num);
 }
 
-/* .casca-view (o palco) herda a régua central de altura mas o /entrega não
-   fica preso ao position:fixed de tela-inteira da .casca (o app já controla
-   sua própria viewport via .ent-app) — aqui .casca-stage/.casca-view viram
-   só o container de transição all IR/VOLTAR, altura automática. */
-[data-skin="entrega"] .casca-shell {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-}
-[data-skin="entrega"] .casca-shell .casca-stage {
-  flex: 1 1 auto;
-  min-height: 0;
-}
+/* /entrega agora monta a raiz .casca central; não há casca paralela. */

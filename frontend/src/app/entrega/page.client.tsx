@@ -55,19 +55,16 @@ export function EntregaHome() {
   const [indice, setIndice] = useState(0); // parada atual no carrossel
   const [sheetAberta, setSheetAberta] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  // M9 — onboarding do 1º acesso (3 telas visuais). Começa null (indefinido no
-  // SSR/1º paint) e decide no cliente pra não piscar: null=não sabe, true=mostra.
-  const [onboarding, setOnboarding] = useState<boolean | null>(null);
+  // M9 — onboarding do 1º acesso (3 telas visuais). Lazy init no cliente evita
+  // efeito só para setar estado e mantém o primeiro paint estável.
+  const [onboarding, setOnboarding] = useState<boolean | null>(() =>
+    typeof window === "undefined" ? null : !jaViuOnboarding(),
+  );
 
   // AUTH: reusa a sessão do app. Sem token → login existente.
   useEffect(() => {
     if (!getToken()) router.replace("/login");
   }, [router]);
-
-  // M9 — decide o onboarding só no cliente (localStorage). Aparece 1× por device.
-  useEffect(() => {
-    setOnboarding(!jaViuOnboarding());
-  }, []);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -82,9 +79,7 @@ export function EntregaHome() {
     }
   }, []);
 
-  useEffect(() => {
-    void carregar();
-  }, [carregar]);
+  useEffect(() => { void (async () => { await carregar(); })(); }, [carregar]);
 
   // Paradas abertas na ordem da rota (fonte do carrossel + progresso).
   const abertas = useMemo(() => (rota ? paradasAbertas(rota) : []), [rota]);
@@ -235,9 +230,9 @@ export function EntregaHome() {
   // M9 — 1º acesso: cobre a tela com o onboarding de 3 telas até "Começar".
   if (onboarding) {
     return (
-      <div className="ent-app">
+      <EntregaScaffold title="Rota">
         <Onboarding onDone={() => setOnboarding(false)} />
-      </div>
+      </EntregaScaffold>
     );
   }
 

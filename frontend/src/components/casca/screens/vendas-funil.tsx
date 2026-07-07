@@ -10,7 +10,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { I, ICONS } from "@/components/hbx/shell";
+import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { showCascaToast } from "@/lib/casca-toast";
 
@@ -223,6 +223,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
                 {items.map(card => (
                   <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>
+                    <Av name={card.name || "?"} size={38} />
                     <span className="vnd-m__row-main">
                       <span className="vnd-m__row-name">{card.name || "Sem nome"}</span>
                       <span className="vnd-m__row-sub">{card.statusLabel} · {fmtWhenMobile(card.returnAt)}</span>
@@ -245,6 +246,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
                 {items.map(card => (
                   <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>
+                    <Av name={card.name || "?"} size={38} />
                     <span className="vnd-m__row-main">
                       <span className="vnd-m__row-name">{card.name || "Sem nome"}</span>
                       <span className="vnd-m__row-sub">{card.city || "—"}{card.state ? `/${card.state}` : ""}</span>
