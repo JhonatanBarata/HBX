@@ -2426,6 +2426,13 @@ export class InboxService {
     if (/^\d{14,}$/.test(normalized.replace(/\s+/g, ''))) {
       return null;
     }
+    // History sync do WhatsApp entrega "nome" que é só o número mascarado do contato
+    // ("+55∙∙∙∙∙∙∙∙∙84", "+55--------59") quando não há pushName público. Candidato sem
+    // NENHUMA letra (só dígitos, +, espaço e pontuação de máscara) é lixo de exibição —
+    // rejeita e deixa o fallback mostrar o telefone REAL do JID.
+    if (/^[+\d\s∙•·*.\-–—_()\\/]+$/.test(normalized)) {
+      return null;
+    }
     const candidateDigits = normalized.replace(/\D/g, '');
     const phoneDigits = String(phone || '').replace(/\D/g, '');
     if (candidateDigits && phoneDigits && candidateDigits === phoneDigits) {
