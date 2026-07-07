@@ -1740,11 +1740,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               const checked = selected.has(row.id);
               const revealed = tab === "carteira" && Boolean(row.phone);
               return (
-                <button
+                // Linha é um wrapper clicável, mas carrega botões reais de ação
+                // (Puxar/Ver mais/WhatsApp) — <button> não pode conter <button>
+                // (hydration error). div+role="button" preserva semântica/teclado
+                // sem aninhar. 07/07.
+                <div
                   key={row.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   className={"row-dense" + (isSel ? " row-dense--sel" : "")}
                   onClick={() => setSelLead(isSel ? null : row)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelLead(isSel ? null : row);
+                    }
+                  }}
                 >
                   <span className="row-dense__id">
                     {tab === "shelf" && (
@@ -1812,7 +1823,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       </button>
                     )}
                   </span>
-                </button>
+                </div>
               );
             })}
           </div>

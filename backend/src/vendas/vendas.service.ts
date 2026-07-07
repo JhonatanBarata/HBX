@@ -2595,9 +2595,18 @@ export class VendasService {
       this.incrementRanking(segmentCounts, lead.segment);
       this.incrementRanking(cityCounts, lead.city);
       const timeline = Array.isArray(lead.timelineEvents) ? lead.timelineEvents : [];
-      const called = Number(lead.attemptCount || 0) > 0 || timeline.some((event: any) => event.eventType === 'contact_made');
-      const replied = timeline.some((event: any) => ['reply_received', 'inbound_reply'].includes(String(event.eventType || ''))) || /respondeu|reply|retorno/i.test(String(lead.lastResult || ''));
+      const calledSignal = Number(lead.attemptCount || 0) > 0 || timeline.some((event: any) => event.eventType === 'contact_made');
+      const repliedSignal = timeline.some((event: any) => ['reply_received', 'inbound_reply'].includes(String(event.eventType || ''))) || /respondeu|reply|retorno/i.test(String(lead.lastResult || ''));
       const interested = String(lead.status || '') === 'qualificado' || /interess|qualific|positivo/i.test(String(lead.lastResult || ''));
+      // Funil MONOTONICO por construcao (bug real 07/07: "Taxa de conversao (7d)"
+      // batia 200% porque Interessados era contado independente de Chamados/
+      // Respostas). Quem chegou mais adiante no funil necessariamente passou pelas
+      // etapas anteriores — mesmo quando o evento de timeline da etapa intermediaria
+      // nunca foi gravado (ex.: cadastro assistido pula direto pra 'qualificado'
+      // sem contact_made/reply_received, vendas.service.ts ~L9285). Sem a cascata,
+      // Interessados podia superar Chamados/Respostas e a taxa passava de 100%.
+      const replied = repliedSignal || interested;
+      const called = calledSignal || replied;
       const refused = /sem interesse|recus|negative|negativo/i.test(String(lead.lastResult || ''));
       const blocked = /opt.?out|bloque|complaint/i.test(String(lead.lastResult || ''));
       if (called) cardsChamados += 1;

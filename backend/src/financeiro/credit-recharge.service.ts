@@ -8,6 +8,7 @@ import { CreditPackConfigService } from '../credits/credit-pack-config.service';
 import { computeDefaultExpiresAt } from '../credits/credit-pack-catalog';
 import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
+import { emitMasterEvent } from '../common/master-event';
 
 /**
  * CRÉDITOS S3-PARTE2 — recarga self-service da carteira via MercadoPago (cartão one-off).
@@ -219,15 +220,35 @@ export class CreditRechargeService {
 
     // Pagamento APROVADO daqui pra baixo. Crédito + receita, ambos idempotentes:
     // 1) Lote no ledger (usageKey = identidade do pagamento → retry não dobra crédito).
-    const grant = await this.wallet.grant(companyId, pack.credits, {
-      kind: 'recharge',
-      grantType: 'paid',
-      expiresAt,
-      sourceRef: paymentId,
-      usageKey: `mp:${paymentId}`,
-      createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
-      metadata: { packKey: pack.key, price: amount, idempotencyKey },
-    });
+    // INTEGRIDADE DE DINHEIRO: o cartão JÁ foi cobrado no MP. Se o grant falhar aqui
+    // (erro de banco), o cliente pagou e NÃO recebeu crédito. Não há como estornar
+    // silenciosamente, então: (a) alerta o master (visível na janela Pagamentos do /master
+    // via MasterEvent action_required) pra reconciliação manual; (b) rethrow com erro claro —
+    // o retry do cliente converge porque o grant é idempotente por `mp:<paymentId>` (não
+    // cobra 2x no MP: a mesma X-Idempotency-Key devolve o mesmo pagamento).
+    let grant: { entryId: string; amount: number; alreadyProcessed: boolean };
+    try {
+      grant = await this.wallet.grant(companyId, pack.credits, {
+        kind: 'recharge',
+        grantType: 'paid',
+        expiresAt,
+        sourceRef: paymentId,
+        usageKey: `mp:${paymentId}`,
+        createdByUserId: Math.trunc(Number(user?.id || 0)) || null,
+        metadata: { packKey: pack.key, price: amount, idempotencyKey },
+      });
+    } catch (error: any) {
+      await this.alertRechargeOrphan(companyId, {
+        stage: 'grant',
+        paymentId,
+        amount,
+        packKey: pack.key,
+        credits: pack.credits,
+        mock,
+        error: String(error?.message || error),
+      });
+      throw error;
+    }
 
     // 2) Receita NA COMPRA (regime de caixa) — S5: o fiscal (Livro Caixa/DAS) SÓ enxerga
     //    receita que está no MasterBillingLedgerEntry (entryGroup 'revenue') LIGADA à
@@ -289,7 +310,21 @@ export class CreditRechargeService {
           });
         });
       } catch (error: any) {
-        if (error?.code !== 'P2002') throw error;
+        if (error?.code !== 'P2002') {
+          // Crédito JÁ entrou (grant acima), mas a receita/charge fiscal falhou: "receita
+          // invisível". Alerta o master pra reconciliar o fiscal e rethrow (o retry recria a
+          // charge — o bloco é escopado por externalReference @unique, não duplica).
+          await this.alertRechargeOrphan(companyId, {
+            stage: 'charge',
+            paymentId,
+            amount,
+            packKey: pack.key,
+            credits: pack.credits,
+            mock,
+            error: String(error?.message || error),
+          });
+          throw error;
+        }
         // Corrida de retry: outro processo já gravou a MESMA cobrança+ledger — ok, segue.
       }
     }
@@ -303,5 +338,51 @@ export class CreditRechargeService {
       mock,
       expiresAt,
     };
+  }
+
+  /**
+   * Pagamento aprovado no MP mas o pós-cobrança falhou (grant ou charge fiscal): o cliente
+   * pagou e algo ficou pela metade. Emite um MasterEvent `action_required` (aparece na janela
+   * Pagamentos do /master) + log de erro alto, pra reconciliação manual. Best-effort PURO —
+   * o emitMasterEvent nunca lança (contrato), e aqui blindamos de novo: alertar NUNCA pode
+   * mascarar/atrapalhar o rethrow do erro original que trouxe a gente até aqui.
+   */
+  private async alertRechargeOrphan(
+    companyId: number,
+    detail: {
+      stage: 'grant' | 'charge';
+      paymentId: string;
+      amount: number;
+      packKey: string;
+      credits: number;
+      mock: boolean;
+      error: string;
+    },
+  ): Promise<void> {
+    this.logger.error(
+      `credit_recharge_orphan_payment stage=${detail.stage} company=${companyId} ` +
+        `paymentId=${detail.paymentId} amount=${detail.amount} pack=${detail.packKey} ` +
+        `mock=${detail.mock} error=${detail.error}`,
+    );
+    try {
+      await emitMasterEvent(this.prisma, {
+        type: 'credit.recharge_orphan',
+        severity: 'action_required',
+        companyId,
+        // dedup por pagamento: um mesmo paymentId órfão não metralha a trilha do master.
+        dedupKey: `credit-recharge-orphan:${detail.paymentId}`,
+        payload: {
+          state: detail.stage,
+          paymentId: detail.paymentId,
+          amount: detail.amount,
+          packKey: detail.packKey,
+          credits: detail.credits,
+          mock: detail.mock,
+          error: detail.error,
+        },
+      });
+    } catch {
+      // emitMasterEvent já é best-effort; guarda extra pra alerta jamais engolir/trocar o erro real.
+    }
   }
 }

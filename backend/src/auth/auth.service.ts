@@ -3,7 +3,6 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
-  NotFoundException,
   OnModuleInit,
   ServiceUnavailableException,
   Logger,
@@ -47,10 +46,32 @@ import {
   serializeProvisioningLedger,
 } from '../master-provisioning/tenant-provisioning.pipeline';
 
+// FIX-SEG (07/07) anti-enumeração/anti-timing no login: quando o usuário NÃO
+// existe, rodamos um bcrypt.compare descartável contra este hash constante (de
+// uma senha aleatória) só pra nivelar o tempo de resposta com o caminho de
+// "senha errada". Sem isso, "não existe" respondia na hora e "senha incorreta"
+// gastava o custo do bcrypt → dava pra enumerar contas válidas pelo relógio.
+const DUMMY_BCRYPT_HASH = '$2a$10$Z5odsAC5lWgj5GYLv8fiy.8.xqaBujYYXk7Khufb8pSqG7JWLUoEK';
+
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
   private readonly sessionTtlMs = SESSION_IDLE_TTL_MS;
+
+  // FIX-SEG (07/07) OTP WhatsApp: store server-side do desafio. O código NUNCA
+  // mais viaja no token. Antes o `ch = sha256(code)` ia DENTRO do JWT devolvido
+  // ao cliente → dava pra rodar sha256 de 000000..999999 (1M hashes, segundos)
+  // e quebrar o código OFFLINE, sem chutar no endpoint (rate-limit não protegia).
+  // Agora o token carrega só um `cid` opaco e o hash do código vive AQUI, na
+  // memória do servidor, com teto de tentativas.
+  // TRADEOFF: memória perde estado no restart do container e não é compartilhada
+  // entre instâncias — aceitável p/ OTP de 10min (basta pedir novo código; o app
+  // roda em container único). Evita migration/risco de boot. Se um dia virar
+  // multi-instância, migrar p/ tabela/cache.
+  private readonly whatsappChallenges = new Map<
+    string,
+    { userId: number; phone: string; codeHash: string; attempts: number; expiresAt: number }
+  >();
 
   constructor(
     private usersService: UsersService,
@@ -1261,12 +1282,16 @@ export class AuthService implements OnModuleInit {
 
     const user: any = await this.usersService.findByLoginIdentifier(normalized);
     if (!user) {
-      throw new NotFoundException('Usuário inexistente');
+      // Anti-enumeração + anti-timing: nivela o tempo com um bcrypt.compare
+      // descartável e devolve a MESMA mensagem genérica do caminho de senha
+      // errada — "não existe" e "senha incorreta" ficam indistinguíveis.
+      await bcrypt.compare(pass, DUMMY_BCRYPT_HASH);
+      throw new UnauthorizedException('Usuário ou senha inválidos');
     }
 
-    if (user.isActive === false) {
-      throw new UnauthorizedException('Usuário temporáriamente desativado - Contate seu Administrador');
-    }
+    // isActive movido pra DEPOIS da prova de senha (ver logo abaixo do
+    // bcrypt.compare): checar aqui vazava a existência da conta a quem nem
+    // sabia a senha.
 
     // Confirmacao de e-mail pendente e fato do USUARIO (token vivo, sem
     // confirmacao) — nao um estado da empresa (PR-002 C.1).
@@ -1310,7 +1335,15 @@ export class AuthService implements OnModuleInit {
 
     const match = await bcrypt.compare(pass, user.password);
     if (!match) {
-      throw new UnauthorizedException('Senha incorreta');
+      // Mesma mensagem genérica do caminho "não existe" (anti-enumeração).
+      throw new UnauthorizedException('Usuário ou senha inválidos');
+    }
+
+    // isActive só é revelado DEPOIS da prova de senha (decisão W1 07/07): quem
+    // provou posse pode saber que a conta está desativada; quem não provou não
+    // consegue distinguir "desativada" de "não existe".
+    if (user.isActive === false) {
+      throw new UnauthorizedException('Usuário temporáriamente desativado - Contate seu Administrador');
     }
 
     const companyId = Number(user.companyId || 0);
@@ -1974,27 +2007,52 @@ export class AuthService implements OnModuleInit {
   // desafio vive num JWT efêmero (carrega só o HASH do código, nunca o código).
   // GUARDRAIL: disparar WhatsApp real é ação LIVE — mock-first (dev: código no
   // log/preview), envio live GATED (LIVE_WHATSAPP_CONFIRM_TODO). Não disparo só.
-  private buildWhatsappConfirmChallengeToken(input: { userId: number; phone: string; codeHash: string }) {
+  private buildWhatsappConfirmChallengeToken(input: { userId: number; challengeId: string }) {
+    // O token carrega SÓ um ponteiro opaco (`cid`) pro desafio guardado no
+    // servidor — nunca o hash do código nem o telefone (era o furo que deixava
+    // o OTP quebrável offline).
     return this.jwtService.sign(
-      { sub: Number(input.userId), phone: input.phone, ch: input.codeHash, purpose: 'whatsapp_confirm' },
+      { sub: Number(input.userId), cid: input.challengeId, purpose: 'whatsapp_confirm' },
       { expiresIn: '10m' },
     );
   }
 
-  private verifyWhatsappConfirmChallengeToken(token: string): { userId: number; phone: string; codeHash: string } {
+  private verifyWhatsappConfirmChallengeToken(token: string): { userId: number; challengeId: string } {
     const raw = String(token || '').trim();
     if (!raw) {
       throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Desafio de confirmação inválido.' });
     }
     try {
-      const payload = this.jwtService.verify(raw) as { sub?: unknown; phone?: unknown; ch?: unknown; purpose?: unknown };
+      const payload = this.jwtService.verify(raw) as { sub?: unknown; cid?: unknown; purpose?: unknown };
       const userId = Number(payload?.sub);
-      if (payload?.purpose !== 'whatsapp_confirm' || !Number.isInteger(userId) || userId <= 0 || !payload?.ch || !payload?.phone) {
+      const challengeId = String(payload?.cid || '');
+      if (payload?.purpose !== 'whatsapp_confirm' || !Number.isInteger(userId) || userId <= 0 || !challengeId) {
         throw new Error('invalid whatsapp challenge');
       }
-      return { userId, phone: String(payload.phone), codeHash: String(payload.ch) };
+      return { userId, challengeId };
     } catch {
       throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_EXPIRED', message: 'Código expirado. Peça um novo código.' });
+    }
+  }
+
+  // Limpeza oportunista dos desafios de WhatsApp expirados (varre e deleta).
+  // Chamada no start/confirm — sem timer, custo zero com o Map vazio.
+  private sweepExpiredWhatsappChallenges() {
+    const now = Date.now();
+    for (const [id, entry] of this.whatsappChallenges) {
+      if (entry.expiresAt <= now) this.whatsappChallenges.delete(id);
+    }
+  }
+
+  // Comparação em tempo constante de dois hashes hex de mesmo tamanho (sha256).
+  // Evita side-channel por tempo no confronto do código; cai pra === se por
+  // algum motivo os tamanhos diferirem (não deveria — sha256 é sempre 64 hex).
+  private timingSafeEqualHex(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    try {
+      return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+    } catch {
+      return a === b;
     }
   }
 
@@ -2033,8 +2091,20 @@ export class AuthService implements OnModuleInit {
     if (user.companyId) {
       await TrialUsage.ensureTrialPhoneAvailableTx(this.prisma, Number(user.companyId), phone, 'reserve');
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    const challengeToken = this.buildWhatsappConfirmChallengeToken({ userId, phone, codeHash: this.sha256(code) });
+    // Código de 6 dígitos com RNG CRIPTOGRÁFICO (era Math.random(), previsível).
+    const code = String(crypto.randomInt(100000, 1000000));
+    this.sweepExpiredWhatsappChallenges();
+    // O desafio (hash do código + telefone + teto de tentativas) fica no servidor;
+    // o cliente só leva o `challengeId` opaco embrulhado no token.
+    const challengeId = crypto.randomUUID();
+    this.whatsappChallenges.set(challengeId, {
+      userId,
+      phone,
+      codeHash: this.sha256(code),
+      attempts: 0,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10min — mesma janela do JWT
+    });
+    const challengeToken = this.buildWhatsappConfirmChallengeToken({ userId, challengeId });
     const dispatch = await this.dispatchWhatsappConfirmationCode({ phone, code });
     return {
       ok: true,
@@ -2051,11 +2121,30 @@ export class AuthService implements OnModuleInit {
   }
 
   async confirmWhatsappCode(challengeToken: string, rawCode: string, opts?: { userAgent?: string; ip?: string }) {
-    const { userId, phone, codeHash } = this.verifyWhatsappConfirmChallengeToken(challengeToken);
-    const code = String(rawCode || '').replace(/\D/g, '').slice(0, 6);
-    if (!code || this.sha256(code) !== codeHash) {
+    const { userId, challengeId } = this.verifyWhatsappConfirmChallengeToken(challengeToken);
+    this.sweepExpiredWhatsappChallenges();
+    const challenge = this.whatsappChallenges.get(challengeId);
+    // Não existe (restart do container / uso único já consumido) ou já expirou →
+    // peça um novo código.
+    if (!challenge || challenge.userId !== userId || challenge.expiresAt <= Date.now()) {
+      if (challenge) this.whatsappChallenges.delete(challengeId);
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_EXPIRED', message: 'Código expirado. Peça um novo código.' });
+    }
+    // Trava anti-brute: a partir do 6º palpite (attempts já em 5) apaga o desafio
+    // e corta — força pedir um código novo em vez de deixar chutar à vontade.
+    if (challenge.attempts >= 5) {
+      this.whatsappChallenges.delete(challengeId);
       throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_CODE_INVALID', message: 'Código incorreto. Confira e tente novamente.' });
     }
+    const code = String(rawCode || '').replace(/\D/g, '').slice(0, 6);
+    if (!code || !this.timingSafeEqualHex(this.sha256(code), challenge.codeHash)) {
+      challenge.attempts += 1;
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_CODE_INVALID', message: 'Código incorreto. Confira e tente novamente.' });
+    }
+    // Acertou → uso único: apaga o desafio antes de finalizar (o telefone segue
+    // vindo do store, nunca do cliente).
+    this.whatsappChallenges.delete(challengeId);
+    const phone = challenge.phone;
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {

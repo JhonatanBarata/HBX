@@ -130,6 +130,10 @@ export const ICONS: Record<string, string[]> = {
   // NÚCLEO-CRM N6 — módulo "Logística": caminhão de entrega. A chave PRECISA
   // existir (nav id sem entrada em ICONS derruba a Sidebar — P0 do "assistente").
   logistica: ["M3 6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9H3z", "M14 9h3.6a1 1 0 0 1 .8.4l2.4 3.1a1 1 0 0 1 .2.6V15h-7z", "M7.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z", "M17.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z"],
+  // Logística → "Clientes" (roteiro do dia): 1 pessoa (distinto de contatos=2
+  // pessoas e empresas=prédio). A chave PRECISA existir — nav id sem ICONS
+  // derruba a Sidebar (P0 do "assistente").
+  clientes: ["M12 12.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M5.5 20a6.5 6.5 0 0 1 13 0"],
   // LEADS-FINAL/02 — toggle Linhas|Cards da lista densa: 3 linhas empilhadas
   // (lista) vs. grade 2x2 (cards). Reutilizável por qualquer lista com 2 vistas.
   list: ["M4 6h16", "M4 12h16", "M4 18h16"],
@@ -323,6 +327,12 @@ export const NAV_LINKS = [
   // Kill-switch, não paywall (null nos gates abaixo). Rótulo exibido virou
   // "Entregas" (pedido do dono, 07/07) — id/href/gate seguem "logistica".
   { id: "logistica", label: "Entregas", href: "/logistica", group: "Logística" },
+  // Logística → "Clientes" (07/07, pedido do dono): a MESMA gestão de clientes de
+  // entrega que já vive na aba Contatos (view "Só clientes" + drawer Produtos/forma
+  // de pagamento/extrato), agora acessível direto da seção Logística no desktop.
+  // Reusa ContatosClient em modo clientesOnly (rota /logistica/clientes). Kill-switch
+  // (gates null abaixo), mesmo grupo que "Entregas" pra não repetir a guia.
+  { id: "clientes", label: "Clientes", href: "/logistica/clientes", group: "Logística" },
   // Sem guia — fica solta no fim da lista, sem rótulo de seção acima.
   { id: "config", label: "Configurações", href: "/configuracoes", group: null as string | null },
 ];
@@ -644,6 +654,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   produtos: null,
   // NÚCLEO-CRM N6: Logística = kill-switch, NÃO paywall → sem gate de plano.
   logistica: null,
+  // Logística → Clientes: mesma gestão de clientes de entrega (Contatos), sem paywall.
+  clientes: null,
   bot: null,
   assistente: null,
   relat: "vendas",
@@ -676,6 +688,8 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // NÚCLEO-CRM N6: sem gate por usuário/plano (null) — a aba nasce ligada. Se
   // no futuro o master ligar o kill-switch por empresa, trocar para "logistica".
   logistica: null,
+  // Logística → Clientes: sem gate por usuário/plano (null) — nasce ligada, igual Contatos.
+  clientes: null,
   bot: null,
   assistente: null,
   relat: "vendas",

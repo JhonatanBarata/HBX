@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
+import { EntregaSkinGate } from "./entrega-skin-gate";
+
 // ================================================================
 // SHELL DO APP DE ENTREGA (LOGISTICA-MOBILE M1)
 // Rota FORA do grupo (app): NÃO renderiza AppShell/Sidebar/MobileTabBar
@@ -40,5 +42,10 @@ export const viewport: Viewport = {
 };
 
 export default function EntregaLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <div data-skin="entrega">{children}</div>;
+  return (
+    <div data-skin="entrega">
+      <EntregaSkinGate />
+      {children}
+    </div>
+  );
 }

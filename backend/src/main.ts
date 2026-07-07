@@ -4,6 +4,7 @@ import type { Server } from 'http';
 import type { Socket } from 'net';
 import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter';
@@ -36,36 +37,26 @@ function buildAllowedOrigins() {
 /**
  * Controla quais origens Firebase Hosting passam no CORS.
  *
- * Modo RESTRITO (preferencial): se CORS_ALLOWED_FIREBASE_ORIGINS estiver preenchido,
- * aceita SOMENTE as origens exatas listadas nessa variável (ex.:
- * "https://guinchorioclarosp.web.app,https://madeireira-78732.web.app").
+ * SEGURO POR PADRÃO (07/07): sem CORS_ALLOWED_FIREBASE_ORIGINS, NENHUMA origem *.web.app /
+ * *.firebaseapp.com é liberada. O curinga antigo (qualquer *.web.app com credenciais) foi
+ * removido — os projetos Firebase de cliente não vingaram (decisão do dono 07/07), então não
+ * há site legítimo pra proteger e o curinga só abria superfície pra origem arbitrária.
  *
- * Modo FALLBACK (retrocompatível): se a variável não estiver configurada,
- * mantém o comportamento anterior (qualquer *.web.app / *.firebaseapp.com),
- * evitando quebrar clientes em produção antes de o env ser preenchido.
- *
- * Para fechar de verdade: sete CORS_ALLOWED_FIREBASE_ORIGINS no backend .env da VPS
- * com as origens exatas de cada cliente.
+ * Se um dia voltar a existir site de cliente no Firebase: sete CORS_ALLOWED_FIREBASE_ORIGINS no
+ * backend .env da VPS com as origens EXATAS (ex.: "https://cliente.web.app") — só elas passam.
  */
-const _allowedFirebaseOrigins: Set<string> | null = (() => {
+const _allowedFirebaseOrigins: Set<string> = (() => {
   const raw = String(process.env.CORS_ALLOWED_FIREBASE_ORIGINS || '').trim();
-  if (!raw) return null; // fallback mode
   const origins = raw
     .split(',')
     .map((o) => o.trim().replace(/\/$/, ''))
     .filter(Boolean);
-  return origins.length ? new Set(origins) : null;
+  return new Set(origins);
 })();
 
-const _firebaseOriginFallbackRegex = /^https:\/\/[a-z0-9-]+\.(web\.app|firebaseapp\.com)$/i;
-
 function isAllowedFirebaseOrigin(origin: string): boolean {
-  if (_allowedFirebaseOrigins !== null) {
-    // Modo restrito: apenas origens explicitamente permitidas
-    return _allowedFirebaseOrigins.has(origin);
-  }
-  // Modo fallback: comportamento original (qualquer *.web.app / *.firebaseapp.com)
-  return _firebaseOriginFallbackRegex.test(origin);
+  // Só origens explicitamente listadas no env. Lista vazia = nada liberado (sem curinga).
+  return _allowedFirebaseOrigins.has(origin);
 }
 
 function isWebscrapingProxyPath(url: string | undefined) {
@@ -137,6 +128,24 @@ async function bootstrap() {
   assertJwtSecretStrength();
   warnIfIntegrationSecretKeyMissing();
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  // Helmet — headers de segurança baratos e seguros (nosniff, X-Frame-Options,
+  // Referrer-Policy, HSTS em HTTPS/producao, remove X-Powered-By, etc.).
+  // Aplicado ANTES do CORS manual pra valer em toda resposta. Escopo estreito:
+  // NAO mexemos no CORS nem no proxy do webscraping aqui.
+  // Politicas DESLIGADAS de proposito (senao quebram o ServeStaticModule que
+  // serve assets em '/', o proxy de webscraping e o front em dominio separado):
+  //  - contentSecurityPolicy: CSP fica p/ depois, precisa de allowlist real de
+  //    origens de script/estilo antes de ligar.
+  //  - crossOriginResourcePolicy (CORP): o CORS ja e tratado a parte; o CORP do
+  //    helmet colide com assets consumidos cross-origin.
+  //  - crossOriginEmbedderPolicy (COEP): idem, quebraria recursos cross-origin.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   const allowedOrigins = buildAllowedOrigins();
   app.use((req: Request, res: Response, next: () => void) => {
     const origin = normalizeOrigin(req.headers.origin as string | undefined);

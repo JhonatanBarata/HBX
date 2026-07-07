@@ -769,3 +769,53 @@ test('login no-beco: e-mail pendente + senha ERRADA → genérico (anti-enumera�
     },
   );
 });
+
+// ── FIX-SEG (07/07): login não vaza existência de usuário ────────────────────
+function buildAuthServiceForCredCheck(userSnapshot: any) {
+  const usersService = {
+    findByLoginIdentifier: async () => userSnapshot,
+  };
+  const jwtService = { sign: () => 'signed', verify: () => ({}) };
+  return new AuthService(usersService as any, jwtService as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+}
+
+test('SEGURANCA: usuário inexistente e senha errada retornam o MESMO 401 genérico (anti-enumeração)', async () => {
+  const passwordHash = await bcrypt.hash('Segredo123!', 4);
+
+  // (a) usuário inexistente — antes era NotFound('Usuário inexistente') (vazava
+  // que a conta não existe + respondia mais rápido por não rodar bcrypt).
+  const svcMissing = buildAuthServiceForCredCheck(null);
+  let missingErr: any;
+  await assert.rejects(
+    () => svcMissing.loginWithUsername('naoexiste@cliente.test', 'qualquer-senha'),
+    (err: any) => { missingErr = err; return true; },
+  );
+
+  // (b) usuário existe, senha errada — antes era 'Senha incorreta' (mensagem
+  // distinta → dava pra enumerar login válido comparando as respostas).
+  const svcWrongPass = buildAuthServiceForCredCheck({
+    id: 9,
+    username: 'dono',
+    email: 'dono@cliente.test',
+    password: passwordHash,
+    role: 'ADMIN',
+    isSystemMaster: false,
+    isActive: true,
+    companyId: 77,
+    emailConfirmedAt: new Date(),
+    emailConfirmationToken: null,
+    company: { companyKind: 'tenant', status: 'trial', isActive: true },
+  });
+  let wrongErr: any;
+  await assert.rejects(
+    () => svcWrongPass.loginWithUsername('dono@cliente.test', 'senha-errada'),
+    (err: any) => { wrongErr = err; return true; },
+  );
+
+  // MESMO status HTTP e MESMA resposta — os dois caminhos ficam indistinguíveis.
+  assert.equal(missingErr.getStatus(), 401);
+  assert.equal(wrongErr.getStatus(), 401);
+  assert.equal(missingErr.getResponse().message, 'Usuário ou senha inválidos');
+  assert.equal(wrongErr.getResponse().message, 'Usuário ou senha inválidos');
+  assert.deepEqual(missingErr.getResponse(), wrongErr.getResponse());
+});

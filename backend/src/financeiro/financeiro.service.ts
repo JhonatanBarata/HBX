@@ -2306,6 +2306,15 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const externalReference = String(provider.external_reference || '').trim() || null;
     const chargeId = String(metadata.financeiro_charge_id || metadata.charge_id || '').trim();
 
+    // Defense-in-depth (espelha o guard do hbx-recovery.syncMercadoPagoPayment): o company_id
+    // vem da QUERY do webhook (atacável). Se o metadata do próprio pagamento no MP aponta OUTRA
+    // empresa, é pagamento de outro tenant — não processa. A busca do charge já é escopada por
+    // companyId, mas este corte é explícito e barato contra tentativa de cruzar tenant.
+    const metaCompanyId = Number((metadata as any).company_id || (metadata as any).companyId || 0);
+    if (metaCompanyId && metaCompanyId !== companyId) {
+      return { updated: false, status, reason: 'tenant_mismatch' };
+    }
+
     let charge = await this.prisma.financeiroCharge.findFirst({
       where: { companyId, mpPaymentId: String(paymentId) },
     });

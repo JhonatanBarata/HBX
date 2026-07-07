@@ -796,10 +796,12 @@ function NovoClienteModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   );
 }
 
-export function ContatosClient() {
+// `clientesOnly` (Logística → Clientes): abre travado na view "Clientes" e some
+// com o toggle "Só clientes" — a MESMA tela, reusada pela rota /logistica/clientes.
+export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolean } = {}) {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
-  const [onlyClientes, setOnlyClientes] = useState(false);
+  const [onlyClientes, setOnlyClientes] = useState(clientesOnly);
   const [contatos, setContatos] = useState<ContatoListResponse>(null);
   const [clientes, setClientes] = useState<ClienteListResponse>(null);
   const [loading, setLoading] = useState(true);
@@ -886,10 +888,12 @@ export function ContatosClient() {
             <button className="btn-teal" type="submit">
               <I d={ICONS.search} size={13} /> Buscar
             </button>
-            <label className="ctt-toggle ctt-toggle--inline">
-              <input type="checkbox" checked={onlyClientes} onChange={(e) => toggleOnly(e.target.checked)} />
-              <span>Só clientes</span>
-            </label>
+            {!clientesOnly && (
+              <label className="ctt-toggle ctt-toggle--inline">
+                <input type="checkbox" checked={onlyClientes} onChange={(e) => toggleOnly(e.target.checked)} />
+                <span>Só clientes</span>
+              </label>
+            )}
             <button type="button" className="btn-ghost ctt-new" onClick={() => setShowNovo(true)}>
               <I d={ICONS.plus} size={13} /> Novo contato/cliente
             </button>

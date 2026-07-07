@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 
 // JWT fake: sign = base64(JSON), verify = JSON.parse. Suficiente pra exercitar o
@@ -10,10 +9,6 @@ function fakeJwt() {
     sign: (payload: any) => 'jwt.' + Buffer.from(JSON.stringify(payload)).toString('base64'),
     verify: (token: string) => JSON.parse(Buffer.from(String(token).replace(/^jwt\./, ''), 'base64').toString('utf8')),
   };
-}
-
-function sha256(input: string) {
-  return crypto.createHash('sha256').update(input).digest('hex');
 }
 
 function buildService(userSnapshot: any) {
@@ -63,13 +58,38 @@ test('F6 start: já confirmado → não gera código (alreadyConfirmed)', async 
   assert.equal(r.challengeToken, undefined);
 });
 
-test('F6 confirm: código ERRADO → 409/400 WHATSAPP_CONFIRM_CODE_INVALID', async () => {
+test('F6 confirm: código ERRADO → WHATSAPP_CONFIRM_CODE_INVALID (fluxo real start→confirm)', async () => {
+  // Fluxo REAL: o desafio vive no store server-side (por-instância). Precisamos
+  // dar o start (que grava o desafio) e o confirm na MESMA instância de service.
   const { service, jwt } = buildService({ id: 9, email: 'novo@cliente.test', emailConfirmedAt: null, companyId: 77 });
-  const challengeToken = jwt.sign({ sub: 9, phone: '19999990000', ch: sha256('123456'), purpose: 'whatsapp_confirm' });
+  const pollToken = jwt.sign({ sub: 9, purpose: 'email_confirmation_poll' });
+  const start: any = await service.startWhatsappConfirmation(pollToken, '19999990000');
 
   await assert.rejects(
-    () => service.confirmWhatsappCode(challengeToken, '000000'),
+    () => service.confirmWhatsappCode(start.challengeToken, '000000'),
     (err: any) => { assert.equal(err.getResponse().code, 'WHATSAPP_CONFIRM_CODE_INVALID'); return true; },
+  );
+});
+
+test('F6 confirm: 6 tentativas erradas → bloqueio (desafio apagado vira EXPIRED)', async () => {
+  const { service, jwt } = buildService({ id: 9, email: 'novo@cliente.test', emailConfirmedAt: null, companyId: 77 });
+  const pollToken = jwt.sign({ sub: 9, purpose: 'email_confirmation_poll' });
+  const start: any = await service.startWhatsappConfirmation(pollToken, '19999990000');
+  const wrong = start.previewCode === '000000' ? '111111' : '000000'; // garante código errado
+
+  // 5 primeiras erradas incrementam attempts; a 6ª bate na trava anti-brute e
+  // apaga o desafio — todas ainda respondem CODE_INVALID.
+  for (let i = 0; i < 6; i++) {
+    await assert.rejects(
+      () => service.confirmWhatsappCode(start.challengeToken, wrong),
+      (err: any) => { assert.equal(err.getResponse().code, 'WHATSAPP_CONFIRM_CODE_INVALID'); return true; },
+    );
+  }
+  // Como o desafio foi apagado no bloqueio, a próxima tentativa (mesmo com o
+  // código certo) já não acha o desafio → EXPIRED (pedir código novo).
+  await assert.rejects(
+    () => service.confirmWhatsappCode(start.challengeToken, start.previewCode),
+    (err: any) => { assert.equal(err.getResponse().code, 'WHATSAPP_CONFIRM_EXPIRED'); return true; },
   );
 });
 

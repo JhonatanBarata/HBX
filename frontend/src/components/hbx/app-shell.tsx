@@ -44,6 +44,10 @@ const META: Record<string, Meta> = {
   "/contatos": { active: "contatos", title: "Contatos", crumbs: crumb("Contatos") },
   "/produtos": { active: "produtos", title: "Produtos", crumbs: crumb("Produtos") },
   "/logistica": { active: "logistica", title: "Logística", crumbs: crumb("Logística") },
+  // Logística → Clientes (07/07): reusa a gestão de clientes de Contatos (modo
+  // clientesOnly). Match é EXATO aqui, então a sub-rota precisa da própria linha
+  // pra o item "Clientes" acender na sidebar (sem isso cairia no active:"" mudo).
+  "/logistica/clientes": { active: "clientes", title: "Clientes", crumbs: crumb("Clientes", "Logística") },
   "/bot": { active: "bot", title: "Bot", crumbs: crumb("Construtor", "Bot") },
   "/assistente": { active: "assistente", title: "Assistente IA", crumbs: crumb("Assistente IA") },
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
