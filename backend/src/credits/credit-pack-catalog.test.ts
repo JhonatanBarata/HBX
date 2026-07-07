@@ -127,22 +127,23 @@ test('override com valor invalido (nao numerico/negativo) e ignorado, mantem a b
 
 // ─── CRÉDITOS A3 — lote grátis de boas-vindas (config global) ───────────────────────────────────
 
-test('lote de boas-vindas: sem override usa os defaults de código (30 créditos / 30 dias)', () => {
-  assert.equal(getWelcomeCreditsDefault(), 30);
+test('lote de boas-vindas: sem override usa os defaults de código (50 créditos / 30 dias)', () => {
+  // 50 créditos = default cravado pelo dono 06/07 (DEFAULT_WELCOME_CREDITS); validade segue 30d.
+  assert.equal(getWelcomeCreditsDefault(), 50);
   assert.equal(getWelcomeExpiryDaysDefault(), 30);
 });
 
 test('lote de boas-vindas: override do master GANHA da base (quantidade e validade)', () => {
-  applyWelcomeCreditsOverride(50);
+  applyWelcomeCreditsOverride(80);
   applyWelcomeExpiryDaysOverride(60);
-  assert.equal(getWelcomeCreditsDefault(), 50);
+  assert.equal(getWelcomeCreditsDefault(), 80);
   assert.equal(getWelcomeExpiryDaysDefault(), 60);
 });
 
 test('lote de boas-vindas: override invalido (<=0/NaN) e ignorado, mantem o default de codigo', () => {
   applyWelcomeCreditsOverride(NaN);
   applyWelcomeExpiryDaysOverride(-10);
-  assert.equal(getWelcomeCreditsDefault(), 30);
+  assert.equal(getWelcomeCreditsDefault(), 50);
   assert.equal(getWelcomeExpiryDaysDefault(), 30);
 });
 
@@ -163,6 +164,6 @@ test('clearCreditPackOverrides tambem limpa os overrides do lote de boas-vindas'
   applyWelcomeCreditsOverride(99);
   applyWelcomeExpiryDaysOverride(99);
   clearCreditPackOverrides();
-  assert.equal(getWelcomeCreditsDefault(), 30);
+  assert.equal(getWelcomeCreditsDefault(), 50);
   assert.equal(getWelcomeExpiryDaysDefault(), 30);
 });

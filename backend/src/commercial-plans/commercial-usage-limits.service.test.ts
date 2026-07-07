@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ConflictException } from '@nestjs/common';
 import { CommercialUsageLimitsService } from './commercial-usage-limits.service';
 
 function buildTeamPolicyMock(input: Record<string, any> = {}) {
@@ -490,6 +491,9 @@ function buildShadowCredits() {
       // está ligada. Provado à parte em credits.service.test.ts.
       assertAndDebitLeadDelivery: async () => ({ applied: false, debited: 0 }),
       refundLeadDelivery: async () => ({ refunded: 0 }),
+      // FRONTEIRA 07/07: default não-conta-de-crédito (empresa paga) — só relevante quando a
+      // cota de plano estoura; os testes de shadow usam master (snapshot ilimitado) e nunca chegam lá.
+      isCreditsAccountCompany: async () => false,
     } as any,
   };
 }
@@ -552,4 +556,96 @@ test('shadow-debit: sem CreditsService injetado (undefined) NÃO quebra recordCa
   await assert.doesNotReject(() =>
     service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'abc-123' }),
   );
+});
+
+// ─── FRONTEIRA cota-de-plano × crédito (decisão do dono 07/07) ──────────────────────────────────
+// Conta de CRÉDITO (cortesia, modelo grátis) NÃO tem cota de plano; o teto real é o saldo de
+// crédito, checado no débito por-lead (enforceLeadDeliveryDebit). Aqui provamos, no ponto de
+// integração (recordCardCommercialUseOnce), que:
+//   (A) cota de plano ESGOTADA não barra a baixa da conta de crédito — o crédito é quem decide —
+//       e o shadow-log de "limite de plano" é PULADO (não confunde a telemetria da conta grátis);
+//   (B) o gate de crédito BARRA (fail-closed) mesmo com cota de plano SOBRANDO.
+// Empresa PAGA (não-conta-de-crédito) segue com o shadow-log normal (coberto pelo teste R5 acima).
+
+function buildFrontierPrismaMock(input: { cardsExhausted: boolean }) {
+  const logs: Array<Record<string, any>> = [];
+  const prisma = {
+    company: {
+      // hbx_lite (cota 880/mês) — plano concreto pra a cota ter um teto finito a estourar.
+      findUnique: async () => ({ selectedPlanKey: 'hbx_lite', timezone: 'America/Sao_Paulo', companyKind: 'tenant' }),
+    },
+    user: {
+      // NÃO-master: getUsageSnapshot roda a cota real de plano (não o snapshot ilimitado).
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER' }),
+      count: async () => 1,
+    },
+    userTeamPolicy: { findUnique: async () => null },
+    authSession: { findFirst: async () => null },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      create: async ({ data }: any) => { logs.push(data); return { id: `log-${logs.length}`, ...data }; },
+      // findFirst = dedup do recordCardCommercialUseOnce: sem log anterior -> null -> segue a baixa.
+      findFirst: async () => null,
+      // Cota de plano ESGOTADA = muitos CARD_SUCCESS no mês; refunds/e-mail/enriquecimento = 0.
+      count: async (args: any) => {
+        const types = args?.where?.eventType?.in || [];
+        if (input.cardsExhausted && types.includes('radar_card_claimed')) return 999999;
+        return 0;
+      },
+    },
+  };
+  return { prisma, logs };
+}
+
+test('FRONTEIRA: conta de crédito com cota de plano ESGOTADA ainda puxa (crédito decide) e o shadow-log de limite é PULADO', async () => {
+  const { prisma, logs } = buildFrontierPrismaMock({ cardsExhausted: true });
+  const debitCalls: Array<Record<string, any>> = [];
+  const credits = {
+    isCreditsAccountCompany: async () => true, // é conta de crédito (cortesia)
+    assertAndDebitLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
+      debitCalls.push({ companyId, userId, ...i });
+      return { applied: true, debited: 1 }; // saldo cobriu -> baixa liberada
+    },
+    recordShadowDebit: async () => {},
+    refundLeadDelivery: async () => ({ refunded: 0 }),
+  } as any;
+  const service = new CommercialUsageLimitsService(prisma as any, credits);
+
+  const result = await service.recordCardCommercialUseOnce(1, 7, {
+    source: 'radar_contact_click', usageKey: 'radar:ct-1', radarLeadId: 'ct-1',
+  });
+
+  assert.equal(result.debited, true);
+  // Débito de crédito FOI o gate consultado (com a chave canônica do lead).
+  assert.equal(debitCalls.length, 1);
+  assert.equal(debitCalls[0].leadId, 'radar:ct-1');
+  // Cota de plano estourada NÃO gerou ruído: nenhum card_import_limit_shadow p/ conta de crédito.
+  assert.equal(logs.some((l) => l.eventType === 'card_import_limit_shadow'), false);
+  // Mas a telemetria que NÃO bloqueia segue: tentativa + baixa registradas.
+  assert.equal(logs.some((l) => l.eventType === 'card_import_attempt'), true);
+  assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), true);
+});
+
+test('FRONTEIRA: gate de crédito BARRA a baixa (fail-closed) mesmo com cota de plano SOBRANDO', async () => {
+  const { prisma, logs } = buildFrontierPrismaMock({ cardsExhausted: false }); // cota de plano livre
+  const credits = {
+    isCreditsAccountCompany: async () => true,
+    // Sem saldo -> o gate real (CreditsService) lança ConflictException fail-closed.
+    assertAndDebitLeadDelivery: async () => {
+      throw new ConflictException({ ok: false, code: 'CREDIT_BALANCE_EXHAUSTED', message: 'Saldo de créditos esgotado.' });
+    },
+    recordShadowDebit: async () => {},
+    refundLeadDelivery: async () => ({ refunded: 0 }),
+  } as any;
+  const service = new CommercialUsageLimitsService(prisma as any, credits);
+
+  await assert.rejects(
+    () => service.recordCardCommercialUseOnce(1, 7, { source: 'radar_contact_click', usageKey: 'radar:ct-2', radarLeadId: 'ct-2' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_BALANCE_EXHAUSTED');
+      return true;
+    },
+  );
+  // Fail-closed: a baixa PAROU antes de logar sucesso — nenhum card_commercial_used gravado.
+  assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), false);
 });

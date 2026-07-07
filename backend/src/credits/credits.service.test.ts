@@ -235,6 +235,12 @@ function createFakePrisma(companyIds: number[] = [1]) {
     const row = companies.find((item) => item.id === companyId);
     if (row) row.creditsEnforceEnabled = enabled;
   };
+  // Cortesia (modelo grátis): permite semear status/courtesyEndsAt/companyKind na company
+  // in-memory pra exercitar o atalho de débito real por default (07/07).
+  client.__setCompanyFields = (companyId: number, patch: Record<string, any>) => {
+    const row = companies.find((item) => item.id === companyId);
+    if (row) Object.assign(row, patch);
+  };
   client.__setUserTeamPolicy = (userId: number, patch: Record<string, any>) => {
     const existing = teamPolicies.find((item) => item.userId === userId);
     const base = {
@@ -576,13 +582,13 @@ test('recordShadowDebit: nunca lança (best-effort) mesmo com companyId/leadId/a
 
 // ─── CRÉDITOS A3 — grantWelcomeBatch: lote grátis de boas-vindas no signup ─────────────────────
 
-test('grantWelcomeBatch: concede o lote default (30 créditos/30d), kind+grantType promo', async () => {
+test('grantWelcomeBatch: concede o lote default (50 créditos/30d), kind+grantType promo', async () => {
   const { service, wallet } = buildService();
   const before = Date.now();
   await service.grantWelcomeBatch(1);
 
   const snapshot = await wallet.getWalletSnapshot(1);
-  assert.equal(snapshot.balance, 30);
+  assert.equal(snapshot.balance, 50);
   assert.equal(snapshot.lots.length, 1);
   assert.equal(snapshot.lots[0].grantType, 'promo');
   assert.ok(snapshot.lots[0].expiresAt);
@@ -597,7 +603,7 @@ test('grantWelcomeBatch: usageKey welcome:<companyId> — idempotente, 2x não d
   await service.grantWelcomeBatch(1);
 
   const snapshot = await wallet.getWalletSnapshot(1);
-  assert.equal(snapshot.balance, 30); // 1 lote só, não 3x
+  assert.equal(snapshot.balance, 50); // 1 lote só, não 3x
   assert.equal(snapshot.lots.length, 1);
 });
 
@@ -633,8 +639,8 @@ test('grantWelcomeBatch: empresas DIFERENTES recebem lotes INDEPENDENTES (usageK
   await service.grantWelcomeBatch(1);
   await service.grantWelcomeBatch(2);
 
-  assert.equal(await wallet.getBalance(1), 30);
-  assert.equal(await wallet.getBalance(2), 30);
+  assert.equal(await wallet.getBalance(1), 50);
+  assert.equal(await wallet.getBalance(2), 50);
 });
 
 // ─── R1 — gate REAL de enforcement (HBX_CREDITS_ENFORCE + Company.creditsEnforceEnabled) ───────
@@ -878,4 +884,52 @@ test('isEnforceActiveForCompany: true só quando AMBAS estão ON', async () => {
   const { service, fake } = buildService();
   fake.__setCompanyEnforce(1, true);
   assert.equal(await service.isEnforceActiveForCompany(1), true);
+});
+
+// ─── Cortesia (modelo grátis) — débito real LIGADO por default (decisão do dono 07/07) ─────────
+// Conta courtesy NÃO tem cota de plano; o teto real é o saldo de crédito. Por isso o débito real
+// nasce ligado assim que HBX_CREDITS_ENABLED está ON — sem depender do cutover HBX_CREDITS_ENFORCE
+// (que é só pra migrar empresas PAGAS). Empresa paga segue na cota do plano.
+
+test('cortesia (status=courtesy, sem prazo): débito real LIGADO por default, SEM HBX_CREDITS_ENFORCE', async () => {
+  // credits ENABLED (beforeEach); enforce env OFF; empresa NÃO optou (creditsEnforceEnabled=false).
+  const { service, wallet, fake } = buildService();
+  fake.__setCompanyFields(1, { status: 'courtesy', courtesyEndsAt: null, isActive: true });
+  assert.equal(await service.isEnforceActiveForCompany(1), true);
+
+  await wallet.grant(1, 3, { kind: 'promo', grantType: 'promo' });
+  const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-ct', actionKey: 'lead_delivery' });
+  assert.equal(result.applied, true);
+  assert.equal(result.debited, 1);
+  assert.equal(await wallet.getBalance(1), 2); // saldo de crédito CAIU de verdade
+});
+
+test('empresa PAGA (status=active) NÃO entra no débito de crédito por default (segue na cota do plano)', async () => {
+  const { service, fake } = buildService();
+  fake.__setCompanyFields(1, { status: 'active', isActive: true });
+  // enforce env OFF + empresa não optou -> gate legado OFF; active != courtesy -> sem atalho.
+  assert.equal(await service.isEnforceActiveForCompany(1), false);
+});
+
+test('cortesia VENCIDA (courtesyEndsAt no passado) NÃO liga o débito por default (voltou a cobrar)', async () => {
+  const { service, fake } = buildService();
+  fake.__setCompanyFields(1, { status: 'courtesy', courtesyEndsAt: new Date(Date.now() - 86400000), isActive: true });
+  // cortesia vencida -> access state = overdue, não exempt/manual -> sem atalho de cortesia.
+  assert.equal(await service.isEnforceActiveForCompany(1), false);
+});
+
+// ─── isCreditsAccountCompany — método público reusável (fronteira cota-de-plano × crédito) ──────
+test('isCreditsAccountCompany: true p/ cortesia vigente; false p/ paga; false com módulo OFF', async () => {
+  const { service, fake } = buildService();
+
+  fake.__setCompanyFields(1, { status: 'courtesy', courtesyEndsAt: null });
+  assert.equal(await service.isCreditsAccountCompany(1), true);
+
+  fake.__setCompanyFields(1, { status: 'active', courtesyEndsAt: null });
+  assert.equal(await service.isCreditsAccountCompany(1), false);
+
+  // Módulo de crédito OFF -> nunca é conta de crédito, independe do status.
+  fake.__setCompanyFields(1, { status: 'courtesy', courtesyEndsAt: null });
+  delete process.env.HBX_CREDITS_ENABLED;
+  assert.equal(await service.isCreditsAccountCompany(1), false);
 });

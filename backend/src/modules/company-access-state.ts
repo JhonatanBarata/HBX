@@ -140,6 +140,16 @@ export function normalizeStoredCompanyStatus(value: unknown): StoredCompanyStatu
     : null;
 }
 
+// Cortesia = modelo GRÁTIS de crédito (decisão do dono 07/07): a conta NÃO tem cota de
+// plano; o teto real é o saldo de crédito. As duas leituras de Company.status='courtesy'
+// ainda vigente são `exempt` (cortesia sem prazo, ex.: tenant interno) e `manual` (cortesia
+// com prazo não vencido). platform_infra e overdue (cortesia VENCIDA) ficam de fora. Predicado
+// ÚNICO pra o backend não re-derivar esse critério em cada módulo (credits.service /
+// commercial-plans.service / commercial-usage-limits).
+export function isCourtesyCreditsAccessState(state: CompanyAccessStateKey): boolean {
+  return state === 'exempt' || state === 'manual';
+}
+
 // Projecao do estado de leitura (11 visoes) para o vocabulario persistido
 // (6 estados). 'unknown' e platform_infra retornam null: nao ha o que gravar.
 export function storedCompanyStatusFromAccessState(

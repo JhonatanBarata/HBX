@@ -33,7 +33,8 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   const lite = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.LITE);
   assert.equal(lite?.title, 'HBX List');
   assert.equal(lite?.monthlyPrice, 49.00);
-  assert.equal(lite?.status, 'available');
+  // Decisão do dono 07/07: vitrine oferta só o Enterprise → List/Lead/Pro nascem 'paused'.
+  assert.equal(lite?.status, 'paused');
   assert.equal(lite?.trialDays, 0);
   assert.equal(lite?.includedUsers, 1);
   assert.equal(lite?.extraUserMonthlyPrice, 0);
@@ -68,6 +69,8 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
 
   const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
   assert.equal(melhor?.title, 'Implantação');
+  // Enterprise (Implantação) é o ÚNICO ofertado publicamente por default → 'available'.
+  assert.equal(melhor?.status, 'available');
   assert.equal(melhor?.monthlyPrice, 445.90);
   assert.equal((melhor as { priceFrom?: boolean })?.priceFrom, true);
   assert.equal(melhor?.trialDays, 0);
@@ -85,7 +88,9 @@ test('Self-Checkout (F2): overlay editável reflete nos getters e na vitrine', (
   try {
     // Base intacta antes de qualquer override.
     assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PADRAO), 99.00);
-    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.PADRAO), false);
+    // Default de oferta pública (07/07): List/Lead/Pro nascem pausados; só o Enterprise oferta.
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.PADRAO), true);
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.MELHOR), false);
 
     applyCommercialCatalogOverrides([
       {
@@ -123,11 +128,18 @@ test('Self-Checkout (F2): overlay editável reflete nos getters e na vitrine', (
     // Plano sem override mantém a base.
     assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PRO), 249.00);
 
+    // Override do master REABRE um plano pausado por default (status:'available' ganha do default).
+    applyCommercialCatalogOverrides([{ planKey: COMMERCIAL_PLAN_KEYS.PADRAO, override: { status: 'available' } }]);
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.PADRAO), false);
+    const reopened = buildCommercialPlansCatalog({ includeHidden: true }).find(p => p.key === COMMERCIAL_PLAN_KEYS.PADRAO);
+    assert.equal(reopened?.status, 'available');
+
     // Limpar volta tudo à base de código (fallback seguro).
     clearCommercialCatalogOverrides();
     assert.equal(getCommercialPlanMonthlyPrice(COMMERCIAL_PLAN_KEYS.PADRAO), 99.00);
     assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.PADRAO), 'HBX Lead Plus');
-    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.LITE), false);
+    // Sem override, LITE volta ao default PAUSADO (só o Enterprise é ofertado publicamente).
+    assert.equal(isCommercialPlanPaused(COMMERCIAL_PLAN_KEYS.LITE), true);
   } finally {
     clearCommercialCatalogOverrides();
   }

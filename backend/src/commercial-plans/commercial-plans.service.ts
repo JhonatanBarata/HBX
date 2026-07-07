@@ -34,7 +34,8 @@ import {
 } from './commercial-plan-catalog';
 // R4 (FASE 2 — REMOÇÃO): seat-billing.util não é mais consumido aqui — assento
 // grátis, computeCompanyCommercialAmount não soma mais custo por cabeça.
-import { resolveCompanyAccessState } from '../modules/company-access-state';
+import { resolveCompanyAccessState, isCourtesyCreditsAccessState } from '../modules/company-access-state';
+import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { MasterAlertService } from '../master-alert/master-alert.service';
 import { MailService } from '../mail/mail.service';
 
@@ -71,6 +72,11 @@ type CommercialCurrentState = {
   tier: CommercialPlanTier;
   canSeeLeadIntelligence: boolean;
   canSeeCompanyData: boolean;
+  // Modelo de cobrança da conta (decisão do dono 07/07, decisão C): true = conta de CRÉDITO
+  // (cortesia/modelo grátis com HBX_CREDITS_ENABLED). O front troca o card de plano ("HBX Lead
+  // Plus / Leads do mês x/2.200") por saldo de crédito. NEUTRO (não é valor financeiro em R$):
+  // sobrevive para o card da sidebar, que só é audiência de cobrança (não-vendedor).
+  creditsAccount: boolean;
 };
 
 type CommercialBillingBreakdown = {
@@ -348,6 +354,12 @@ export class CommercialPlansService {
     const canSeeLeadIntelligence = tier !== 'list';
     const canSeeCompanyData = tier === 'full';
 
+    // Conta de CRÉDITO (modelo grátis): cortesia (exempt/manual) com o módulo de crédito ON.
+    // O limite dela é o saldo de crédito, não a cota do plano — o front usa isto para trocar o
+    // card de plano por saldo (decisão do dono 07/07). platform_infra nunca é conta de crédito.
+    const creditsAccount = !platformInfra && isCreditsFeatureEnabled() &&
+      isCourtesyCreditsAccessState(companyAccess.state);
+
     return {
       planKey,
       entitlements,
@@ -382,6 +394,7 @@ export class CommercialPlansService {
       tier,
       canSeeLeadIntelligence,
       canSeeCompanyData,
+      creditsAccount,
     };
   }
 
@@ -436,13 +449,20 @@ export class CommercialPlansService {
 
   private async buildPayload(company: any, user?: any) {
     const canSelectPlan = user ? this.canSelectPlans(user) : false;
-    const plans = buildCommercialPlansCatalog().filter((plan) => !plan.hidden).map((plan) => canSelectPlan
-      ? plan
-      : {
-          ...plan,
-          monthlyPrice: null,
-          legalCopy: null,
-        });
+    // Self-checkout logado (decisão do dono 07/07): planos 'paused' (List/Lead/Pro por default no
+    // modelo de crédito) saem da vitrine — não são ofertados nem contratáveis. O MASTER
+    // (isSystemMaster) continua vendo tudo, pra reabrir via override. O plano ATUAL da empresa é
+    // exibido à parte (buildCurrentState), então filtrar a lista de OFERTA não esconde o vigente.
+    const isMaster = Boolean(user?.isSystemMaster);
+    const plans = buildCommercialPlansCatalog()
+      .filter((plan) => !plan.hidden && (isMaster || (plan as { status?: string }).status !== 'paused'))
+      .map((plan) => canSelectPlan
+        ? plan
+        : {
+            ...plan,
+            monthlyPrice: null,
+            legalCopy: null,
+          });
     const current = await this.buildCurrentState(company);
     return {
       current: this.presentCurrentStateForUser(current, canSelectPlan),

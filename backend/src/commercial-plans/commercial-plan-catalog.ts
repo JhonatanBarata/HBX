@@ -118,11 +118,29 @@ export function getCommercialCatalogOverride(planKey: unknown): CommercialPlanOv
   return COMMERCIAL_CATALOG_OVERRIDES.get(normalizeCommercialPlanKey(planKey)) || null;
 }
 
+// Decisão do dono 07/07 (modelo de crédito): a vitrine pública oferta SÓ o plano topo
+// (Enterprise = hbx_melhor / "Implantação"). List/Lead/Pro saem da oferta pública por
+// DEFAULT de código — NÃO são apagados (contas e billing existentes seguem intactos;
+// migration destrutiva só depois de 1 ciclo limpo, ver PAGAMENTOS.md), apenas nascem
+// 'paused' na vitrine e barrados no self-checkout. O master reabre qualquer um via
+// override de banco (status:'available'), que ganha do default.
+export const PUBLICLY_OFFERED_PLAN_KEYS: ReadonlySet<ActiveCommercialPlanKey> = new Set([
+  COMMERCIAL_PLAN_KEYS.MELHOR,
+]);
+
+function defaultCommercialPlanStatus(planKey: ActiveCommercialPlanKey): 'available' | 'paused' {
+  return PUBLICLY_OFFERED_PLAN_KEYS.has(planKey) ? 'available' : 'paused';
+}
+
 // Plano pausado (Self-Checkout): card embaçado/inclicável na vitrine e checkout
 // barrado. Implantação (contactOnly) nunca passa pelo self-checkout, então pausa
-// nela é inócua, mas o estado é respeitado igual.
+// nela é inócua, mas o estado é respeitado igual. Override do master ganha em qualquer
+// direção (pausar OU reabrir); sem override, vale o default de oferta pública acima.
 export function isCommercialPlanPaused(planKey: unknown): boolean {
-  return getCommercialCatalogOverride(planKey)?.status === 'paused';
+  const key = normalizeCommercialPlanKey(planKey);
+  const override = getCommercialCatalogOverride(key);
+  if (override?.status) return override.status === 'paused';
+  return defaultCommercialPlanStatus(key) === 'paused';
 }
 
 export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
@@ -564,7 +582,9 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       includedUsers: override?.includedUsers ?? plan.includedUsers,
       extraUserMonthlyPrice: override?.extraUserMonthly ?? plan.extraUserMonthlyPrice,
       trialDays: override?.trialDays ?? plan.trialDays,
-      status: override?.status === 'paused' ? 'paused' : plan.status,
+      // Default de oferta pública (só Enterprise nasce 'available') a menos que o master
+      // reabra/pause por override. Ignora o literal `plan.status` da base (sempre 'available').
+      status: override?.status ?? defaultCommercialPlanStatus(plan.key),
       observation: override?.observation ?? plan.description,
     };
   });

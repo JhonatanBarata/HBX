@@ -14,7 +14,12 @@ export class CommercialPlansPublicController {
   @Throttle({ default: { limit: 30, ttl: 60 } })
   getPublicCatalog() {
     const plans = buildCommercialPlansCatalog()
-      .filter((plan) => !plan.hidden)
+      // Decisão do dono 07/07 (modelo de crédito): a vitrine pública oferta SÓ o Enterprise
+      // (Implantação). List/Lead/Pro nascem 'paused' por default no catálogo — aqui saem da
+      // resposta pública INTEIRA (não é mais só "card embaçado": não aparecem). O master reabre
+      // qualquer um via override (status:'available'), que volta a passar neste filtro. O painel
+      // do master usa outra rota (/modules/master/plan/:key/modules) — continua vendo tudo.
+      .filter((plan) => !plan.hidden && (plan as { status?: string }).status !== 'paused')
       .map((plan) => ({
         key: plan.key,
         title: plan.title,

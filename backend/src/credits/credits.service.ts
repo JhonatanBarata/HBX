@@ -12,6 +12,7 @@ import {
 import { isCreditsEnforceEnabled, isCreditsFeatureEnabled, isCreditsShadowEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { loadUserTeamPolicyRuntime, resolveTeamPolicyStoredLimit } from '../team/team-policy-persistence';
+import { resolveCompanyAccessState, isCourtesyCreditsAccessState } from '../modules/company-access-state';
 
 // CRÉDITOS S3-PARTE1 — camada de orquestração entre o ledger (S1, CreditWalletService) e o
 // catálogo de pacotes (credit-pack-catalog.ts). Tudo aqui respeita HBX_CREDITS_ENABLED
@@ -339,14 +340,84 @@ export class CreditsService {
    * enforcement INTEIRO desligado (o caller decide se ainda quer disparar o shadow).
    */
   async isEnforceActiveForCompany(companyId: number): Promise<boolean> {
-    if (!isCreditsEnforceEnabled()) return false;
     const companyIdNum = Number(companyId);
     if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return false;
     const company = await this.prisma.company.findUnique({
       where: { id: companyIdNum },
-      select: { creditsEnforceEnabled: true },
+      select: {
+        creditsEnforceEnabled: true,
+        status: true,
+        courtesyEndsAt: true,
+        companyKind: true,
+        slug: true,
+      },
     }).catch(() => null);
+    if (!company) return false;
+
+    // Modelo GRÁTIS (cortesia) — decisão do dono 07/07 (decisão A): a conta NÃO tem cota de
+    // plano; o teto REAL é o saldo de crédito. Por isso o débito real nasce LIGADO por default
+    // em código assim que o módulo de crédito está ON (HBX_CREDITS_ENABLED) — cortesia NÃO
+    // depende do cutover global `HBX_CREDITS_ENFORCE`, que existe pra migrar empresas PAGAS do
+    // plano pro crédito. Empresa paga (status active/paying) segue na cota do plano até o dono
+    // decidir a migração.
+    if (isCreditsFeatureEnabled() && this.isCourtesyCreditsCompany(company)) return true;
+
+    // Caminho legado do cutover por-empresa (gate 2 chaves R1): empresa paga já migrada.
+    if (!isCreditsEnforceEnabled()) return false;
     return Boolean((company as any)?.creditsEnforceEnabled);
+  }
+
+  // Cortesia (modelo grátis) = access state exempt/manual (Company.status='courtesy' não
+  // vencida), nunca platform_infra. Fonte única: resolveCompanyAccessState (mesmo motor do
+  // resto do backend) + predicado isCourtesyCreditsAccessState, sem re-derivar status cru.
+  private isCourtesyCreditsCompany(company: {
+    status?: string | null;
+    courtesyEndsAt?: Date | null;
+    companyKind?: string | null;
+    slug?: string | null;
+  }): boolean {
+    return isCourtesyCreditsAccessState(resolveCompanyAccessState(company as any).state);
+  }
+
+  /**
+   * Método PÚBLICO reusável (decisão do dono 07/07): "esta empresa é uma conta de CRÉDITO
+   * (modelo grátis/cortesia)?". Verdadeiro só com o módulo de crédito ON (HBX_CREDITS_ENABLED)
+   * E a empresa em cortesia vigente (exempt/manual). Existe pra outros serviços perguntarem
+   * SEM duplicar o critério exempt/manual — hoje consumido pelo CommercialUsageLimitsService
+   * (fronteira cota-de-plano × crédito). Best-effort: empresa inexistente/erro → false (nunca
+   * trata como conta de crédito por engano, nunca quebra o fluxo de venda).
+   */
+  async isCreditsAccountCompany(companyId: number): Promise<boolean> {
+    if (!isCreditsFeatureEnabled()) return false;
+    const companyIdNum = Number(companyId);
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return false;
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyIdNum },
+      select: { status: true, courtesyEndsAt: true, companyKind: true, slug: true },
+    }).catch(() => null);
+    if (!company) return false;
+    return this.isCourtesyCreditsCompany(company);
+  }
+
+  // Master (isSystemMaster) operando um tenant é god-mode em TODA a superfície de cota
+  // (buildUnlimitedSnapshot no CommercialUsageLimitsService) — não consome o crédito do
+  // tenant. Protege o fluxo do dono no tenant interno de cortesia sem depender do crédito
+  // interno já ter sido concedido. O admin/USERMASTER do tenant NÃO é master → é debitado.
+  private async isActingUserSystemMaster(userId: number | null): Promise<boolean> {
+    const userIdNum = Number(userId || 0);
+    if (!userIdNum) return false;
+    // try/catch (não só .catch): protege contra ambiente sem o model `user` no client
+    // (fakes de teste) — o acesso a `.findUnique` de undefined lançaria SÍNCRONO. Falha =
+    // trata como não-master (nunca isenta débito por erro, nunca quebra o fluxo de venda).
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userIdNum },
+        select: { isSystemMaster: true },
+      });
+      return Boolean(user?.isSystemMaster);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -447,6 +518,9 @@ export class CreditsService {
 
     const enforceActive = await this.isEnforceActiveForCompany(companyIdNum);
     if (!enforceActive) return { applied: false, debited: 0 };
+
+    // Master god-mode nunca queima o crédito do tenant que opera (ver isActingUserSystemMaster).
+    if (await this.isActingUserSystemMaster(userId)) return { applied: false, debited: 0 };
 
     const actionKey = String(input?.actionKey || '').trim() || 'lead_delivery';
     const leadId = String(input?.leadId ?? '').trim();

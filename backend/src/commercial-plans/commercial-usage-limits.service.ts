@@ -920,13 +920,24 @@ export class CommercialUsageLimitsService {
     const monthlyBlocked = snapshot.cards.remaining <= 0 || userBlocked;
     const dailyBlocked = Number(snapshot.cards.dailyRemaining || 0) <= 0;
     if (monthlyBlocked || dailyBlocked) {
-      await this.log(companyId, Number(userId || 0) || null, 'card_import_limit_shadow', 'usage_limit', {
-        reason: userBlocked
-          ? 'monthly_user_card_limit_reached'
-          : monthlyBlocked
-            ? 'monthly_card_limit_reached'
-            : 'daily_card_safety_limit_reached',
-      });
+      // FRONTEIRA cota-de-plano × crédito (decisão do dono 07/07): conta de CRÉDITO (cortesia,
+      // modelo grátis) NÃO tem cota de plano — o teto real é o saldo, checado no débito por-lead
+      // (enforceLeadDeliveryDebit logo abaixo no fluxo). Registrar `card_import_limit_shadow`
+      // ("limite de plano atingido") pra ela seria RUÍDO/mentira. Só consultamos o CreditsService
+      // AQUI (caminho frio: a cota de plano já teria "estourado") — custo zero no caminho normal.
+      // Reusa o método público isCreditsAccountCompany (sem duplicar o critério exempt/manual).
+      const isCreditAccount = this.creditsService && typeof this.creditsService.isCreditsAccountCompany === 'function'
+        ? await this.creditsService.isCreditsAccountCompany(companyId).catch(() => false)
+        : false;
+      if (!isCreditAccount) {
+        await this.log(companyId, Number(userId || 0) || null, 'card_import_limit_shadow', 'usage_limit', {
+          reason: userBlocked
+            ? 'monthly_user_card_limit_reached'
+            : monthlyBlocked
+              ? 'monthly_card_limit_reached'
+              : 'daily_card_safety_limit_reached',
+        });
+      }
     }
     await this.log(companyId, Number(userId || 0) || null, 'card_import_attempt', 'usage_limit');
     return snapshot;
