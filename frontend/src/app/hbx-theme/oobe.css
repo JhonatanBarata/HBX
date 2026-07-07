@@ -1,0 +1,641 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   OOBE — Primeira configuração do HBX (casca ISOLADA, 07/07).
+   Mundo próprio, como marketing.css: paleta PRÓPRIA dark constante (mock do
+   GPT), independente de pele/claro-escuro do app. A pele do sistema NÃO entra
+   aqui; este arquivo está na lista de exceções do check-pele (mundo-site).
+   Base = casca do GPT (oobe-shell split: trilho lateral + palco) + transições
+   estilo Windows 11: painel sai antes do próximo entrar, e os filhos do painel
+   entram em CASCATA (kicker → título → texto → cards) com curva decelerate.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.hbx-oobe {
+  /* paleta própria do OOBE (mock aprovado) — não usa tokens da pele */
+  --oobe-bg-0: #06101f;
+  --oobe-bg-1: #081b34;
+  --oobe-bg-2: #0d315a;
+  --oobe-text: #eef7ff;
+  --oobe-muted: #a8bdd4;
+  --oobe-soft: #d8eaff;
+  --oobe-line: rgba(255, 255, 255, 0.14);
+  --oobe-line-strong: rgba(255, 255, 255, 0.24);
+  --oobe-card: rgba(9, 22, 42, 0.62);
+  --oobe-card-2: rgba(255, 255, 255, 0.075);
+  --oobe-brand: #77c8ff;
+  --oobe-brand-2: #9af0ff;
+  --oobe-success: #80f4bf;
+  --oobe-warning: #ffce7c;
+  --oobe-danger: #ff8b8b;
+  --oobe-shadow: 0 34px 110px rgba(0, 0, 0, 0.42);
+  --oobe-radius: 28px;
+  --oobe-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow: hidden auto;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  color: var(--oobe-text);
+  background:
+    radial-gradient(circle at 18% 20%, rgba(119, 200, 255, 0.32), transparent 34%),
+    radial-gradient(circle at 85% 18%, rgba(154, 240, 255, 0.13), transparent 30%),
+    radial-gradient(circle at 65% 83%, rgba(63, 122, 255, 0.16), transparent 38%),
+    linear-gradient(135deg, var(--oobe-bg-0), var(--oobe-bg-1) 52%, var(--oobe-bg-2));
+  animation: oobe-fade-in 0.5s var(--oobe-ease) both;
+}
+@keyframes oobe-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.hbx-oobe::before {
+  content: "";
+  position: absolute;
+  inset: -14%;
+  background:
+    linear-gradient(115deg, transparent 0 31%, rgba(255, 255, 255, 0.055) 32%, transparent 44% 100%),
+    linear-gradient(20deg, transparent 0 54%, rgba(119, 200, 255, 0.08) 55%, transparent 68% 100%);
+  filter: blur(1px);
+  transform: translate3d(0, 0, 0);
+  animation: oobe-drift 18s var(--oobe-ease) infinite alternate;
+  z-index: -3;
+}
+.hbx-oobe::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 48%, rgba(0, 0, 0, 0.34) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 25% 75%, rgba(0, 0, 0, 0.28));
+  pointer-events: none;
+  z-index: -1;
+}
+.oobe-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.038) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
+  background-size: 72px 72px;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black, transparent 70%);
+  mask-image: radial-gradient(circle at 50% 50%, black, transparent 70%);
+  opacity: 0.55;
+  z-index: -2;
+}
+.oobe-noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.11;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+
+/* ── Shell: trilho lateral + palco ─────────────────────────────────────────── */
+.oobe-shell {
+  width: min(1120px, calc(100vw - 64px));
+  height: min(700px, calc(100vh - 64px));
+  display: grid;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(430px, 1.18fr);
+  border: 1px solid var(--oobe-line);
+  border-radius: var(--oobe-radius);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.035));
+  box-shadow: var(--oobe-shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(1.18);
+  backdrop-filter: blur(28px) saturate(1.18);
+  overflow: hidden;
+  position: relative;
+  animation: oobe-shell-in 0.7s var(--oobe-ease) both;
+}
+@keyframes oobe-shell-in {
+  from { opacity: 0; transform: translateY(26px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.oobe-shell::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(var(--oobe-radius) - 1px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.oobe-side {
+  position: relative;
+  padding: 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  border-right: 1px solid var(--oobe-line);
+  background:
+    radial-gradient(circle at 28% 20%, rgba(119, 200, 255, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.24));
+  overflow: hidden;
+}
+.oobe-side::after {
+  content: "";
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  left: -130px;
+  bottom: -150px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 38px rgba(255, 255, 255, 0.025), 0 0 90px rgba(119, 200, 255, 0.18);
+}
+
+.oobe-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  letter-spacing: -0.03em;
+  position: relative;
+  z-index: 2;
+}
+.oobe-brand-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(119, 200, 255, 0.95), rgba(154, 240, 255, 0.42));
+  color: #06101f;
+  box-shadow: 0 14px 48px rgba(119, 200, 255, 0.28);
+  font-weight: 950;
+}
+.oobe-brand strong { font-size: 1.18rem; }
+.oobe-brand span { display: block; color: var(--oobe-muted); font-size: 0.75rem; margin-top: 2px; letter-spacing: 0.01em; }
+
+.oobe-side-copy { max-width: 310px; position: relative; z-index: 2; }
+.oobe-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 999px;
+  color: var(--oobe-soft);
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  margin-bottom: 18px;
+}
+.oobe-kicker i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--oobe-success);
+  box-shadow: 0 0 18px var(--oobe-success);
+}
+.oobe-side h1 {
+  margin: 0;
+  font-size: clamp(2.35rem, 4.4vw, 4.7rem);
+  line-height: 0.92;
+  letter-spacing: -0.065em;
+  font-weight: 850;
+}
+.oobe-side p {
+  margin: 18px 0 0;
+  color: var(--oobe-muted);
+  line-height: 1.65;
+  font-size: 0.92rem;
+}
+/* O texto lateral acompanha o passo: remonta (key) e entra com o mesmo respiro. */
+.oobe-side-copy > h1 { animation: oobe-child-in 0.6s var(--oobe-ease) both 0.08s; }
+.oobe-side-copy > p { animation: oobe-child-in 0.6s var(--oobe-ease) both 0.18s; }
+
+.oobe-progress { position: relative; z-index: 2; display: grid; gap: 10px; }
+.oobe-progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--oobe-muted);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+.oobe-progress-bar { height: 6px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, 0.085); }
+.oobe-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--oobe-brand), var(--oobe-brand-2));
+  box-shadow: 0 0 24px rgba(119, 200, 255, 0.45);
+  transition: width 0.55s var(--oobe-ease);
+}
+
+/* ── Palco ─────────────────────────────────────────────────────────────────── */
+.oobe-main {
+  padding: 34px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 22px;
+  background: rgba(4, 11, 22, 0.34);
+  position: relative;
+  min-height: 0;
+}
+.oobe-topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 38px; }
+.oobe-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--oobe-muted);
+  font-size: 0.76rem;
+  font-weight: 720;
+}
+.oobe-status span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--oobe-success);
+  box-shadow: 0 0 18px var(--oobe-success);
+  animation: oobe-pulse 1.7s ease-in-out infinite;
+}
+.oobe-skip {
+  appearance: none;
+  border: 1px solid var(--oobe-line);
+  color: var(--oobe-soft);
+  background: rgba(255, 255, 255, 0.055);
+  border-radius: 999px;
+  padding: 9px 13px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  transition: transform 0.18s var(--oobe-ease), background 0.18s var(--oobe-ease), border-color 0.18s var(--oobe-ease);
+}
+.oobe-skip:hover { transform: translateY(-1px); background: rgba(255, 255, 255, 0.095); border-color: var(--oobe-line-strong); }
+.oobe-skip:disabled { opacity: 0.5; pointer-events: none; }
+
+.oobe-stage { position: relative; display: grid; align-items: center; min-height: 0; }
+
+/* ── Painel: transição Windows 11 ──────────────────────────────────────────────
+   Entrada: o painel sobe suave E os filhos entram em cascata (delays nth-child).
+   Saída: "uma coisa sai pra outra entrar" — .is-leaving desce/apaga rápido, e só
+   então o próximo remonta e roda a cascata. ─────────────────────────────────── */
+.oobe-panel {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: center;
+  min-height: 100%;
+  gap: 20px;
+  opacity: 0;
+  transform: translateY(16px) scale(0.985);
+  animation: oobe-enter 0.52s var(--oobe-ease) forwards;
+  min-width: 0;
+}
+.oobe-panel.is-leaving {
+  animation: oobe-leave 0.24s var(--oobe-ease) forwards;
+}
+@keyframes oobe-enter { to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes oobe-leave {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-14px) scale(0.99); }
+}
+/* Cascata dos filhos (kicker → título → texto → conteúdo → rodapé) */
+.oobe-panel > * { animation: oobe-child-in 0.55s var(--oobe-ease) both; }
+.oobe-panel > *:nth-child(1) { animation-delay: 0.06s; }
+.oobe-panel > *:nth-child(2) { animation-delay: 0.14s; }
+.oobe-panel > *:nth-child(3) { animation-delay: 0.22s; }
+.oobe-panel > *:nth-child(4) { animation-delay: 0.3s; }
+.oobe-panel > *:nth-child(5) { animation-delay: 0.38s; }
+.oobe-panel > *:nth-child(n+6) { animation-delay: 0.46s; }
+.oobe-panel.is-leaving > * { animation: none; }
+@keyframes oobe-child-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.oobe-step-label {
+  color: var(--oobe-brand-2);
+  font-size: 0.76rem;
+  font-weight: 860;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.oobe-title {
+  margin: 0;
+  max-width: 720px;
+  font-size: clamp(1.7rem, 3.4vw, 3.1rem);
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+  font-weight: 840;
+}
+.oobe-copy {
+  margin: 0;
+  color: var(--oobe-muted);
+  max-width: 620px;
+  line-height: 1.65;
+  font-size: 0.98rem;
+}
+
+/* ── Cards de escolha ──────────────────────────────────────────────────────── */
+.oobe-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 8px;
+}
+.oobe-choices--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.oobe-card {
+  position: relative;
+  min-height: 170px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--oobe-line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.092), rgba(255, 255, 255, 0.038));
+  color: var(--oobe-text);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  font: inherit;
+  transition: transform 0.22s var(--oobe-ease), border-color 0.22s var(--oobe-ease), background 0.22s var(--oobe-ease), box-shadow 0.22s var(--oobe-ease);
+}
+.oobe-card::before {
+  content: "";
+  position: absolute;
+  inset: auto -40px -70px auto;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: rgba(119, 200, 255, 0.12);
+  filter: blur(6px);
+  transition: opacity 0.22s var(--oobe-ease), transform 0.22s var(--oobe-ease);
+  opacity: 0.55;
+}
+.oobe-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(154, 240, 255, 0.42);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.052));
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22);
+}
+.oobe-card.is-selected {
+  border-color: rgba(154, 240, 255, 0.68);
+  box-shadow: 0 0 0 1px rgba(154, 240, 255, 0.24), 0 24px 70px rgba(119, 200, 255, 0.18);
+}
+.oobe-card:disabled { opacity: 0.55; cursor: progress; }
+.oobe-card-ico {
+  width: 42px;
+  height: 42px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  color: var(--oobe-bg-0);
+  background: linear-gradient(135deg, var(--oobe-brand), var(--oobe-brand-2));
+  margin-bottom: 16px;
+  font-weight: 900;
+  box-shadow: 0 12px 34px rgba(119, 200, 255, 0.2);
+}
+.oobe-card strong { display: block; font-size: 1.02rem; letter-spacing: -0.02em; }
+.oobe-card small { display: block; margin-top: 8px; color: var(--oobe-muted); line-height: 1.5; font-size: 0.78rem; }
+
+/* ── Campos ────────────────────────────────────────────────────────────────── */
+.oobe-field { display: grid; gap: 10px; max-width: 560px; }
+.oobe-field label { font-size: 0.78rem; color: var(--oobe-soft); font-weight: 800; }
+.oobe-input-row { display: flex; gap: 10px; }
+.oobe-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--oobe-line);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--oobe-text);
+  padding: 14px 15px;
+  outline: none;
+  font: inherit;
+}
+.oobe-input::placeholder { color: rgba(168, 189, 212, 0.55); }
+.oobe-input:focus { border-color: rgba(154, 240, 255, 0.55); box-shadow: 0 0 0 3px rgba(119, 200, 255, 0.11); }
+
+.oobe-chips { display: flex; flex-wrap: wrap; gap: 10px; max-width: 620px; }
+.oobe-chip {
+  border: 1px solid var(--oobe-line);
+  border-radius: 999px;
+  padding: 10px 13px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--oobe-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  transition: all 0.18s var(--oobe-ease);
+}
+.oobe-chip:hover, .oobe-chip.is-on {
+  background: rgba(119, 200, 255, 0.16);
+  border-color: rgba(154, 240, 255, 0.42);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.oobe-chip:disabled { opacity: 0.5; pointer-events: none; }
+
+/* ── Prévia / vitrine de empresas do ramo (mantém a isca, no visual da casca) ── */
+.oobe-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 660px; }
+.oobe-mini {
+  border: 1px solid var(--oobe-line);
+  border-radius: 20px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.055);
+  min-height: 116px;
+}
+.oobe-mini b { display: block; font-size: 0.92rem; }
+.oobe-mini span { display: block; color: var(--oobe-muted); font-size: 0.76rem; line-height: 1.5; margin-top: 8px; }
+
+.oobe-vitrine { display: grid; gap: 10px; animation: oobe-child-in 0.55s var(--oobe-ease) both; }
+.oobe-vitrine-counter { margin: 0; display: flex; align-items: baseline; gap: 7px; color: var(--oobe-muted); font-size: 0.8rem; }
+.oobe-vitrine-counter strong { color: var(--oobe-text); font-size: 1.1rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.oobe-vitrine-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 132px; overflow: hidden; }
+.oobe-vitrine-card {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--oobe-line);
+  background: rgba(255, 255, 255, 0.05);
+  animation: oobe-child-in 0.4s var(--oobe-ease) backwards;
+}
+.oobe-vitrine-card b { font-size: 0.76rem; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oobe-vitrine-card i { font-style: normal; font-size: 0.66rem; color: var(--oobe-muted); }
+.oobe-vitrine-card u { text-decoration: none; font-size: 0.66rem; color: var(--oobe-muted); filter: blur(2.5px); user-select: none; }
+.oobe-searching { color: var(--oobe-brand-2); font-size: 0.78rem; font-weight: 750; animation: oobe-pulse 1.7s ease-in-out infinite; }
+
+/* ── Rodapé do painel ──────────────────────────────────────────────────────── */
+.oobe-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--oobe-line);
+  padding-top: 20px;
+  margin-top: 4px;
+}
+.oobe-help { color: var(--oobe-muted); font-size: 0.78rem; line-height: 1.4; }
+.oobe-help.is-error { color: var(--oobe-danger); font-weight: 700; }
+.oobe-actions { display: flex; align-items: center; gap: 10px; }
+.oobe-btn {
+  appearance: none;
+  border: 1px solid var(--oobe-line);
+  border-radius: 999px;
+  min-height: 44px;
+  padding: 0 18px;
+  cursor: pointer;
+  color: var(--oobe-text);
+  background: rgba(255, 255, 255, 0.068);
+  transition: transform 0.18s var(--oobe-ease), background 0.18s var(--oobe-ease), border-color 0.18s var(--oobe-ease), box-shadow 0.18s var(--oobe-ease);
+  font: inherit;
+  font-weight: 780;
+}
+.oobe-btn:hover { transform: translateY(-1px); background: rgba(255, 255, 255, 0.105); border-color: var(--oobe-line-strong); }
+.oobe-btn--primary {
+  color: #06101f;
+  background: linear-gradient(135deg, var(--oobe-brand), var(--oobe-brand-2));
+  border-color: transparent;
+  box-shadow: 0 12px 34px rgba(119, 200, 255, 0.22);
+}
+.oobe-btn--primary:hover {
+  background: linear-gradient(135deg, var(--oobe-brand-2), var(--oobe-brand));
+  box-shadow: 0 16px 44px rgba(119, 200, 255, 0.3);
+}
+.oobe-btn[disabled] { opacity: 0.45; pointer-events: none; }
+
+/* ── Toast ─────────────────────────────────────────────────────────────────── */
+.oobe-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(18px);
+  opacity: 0;
+  pointer-events: none;
+  border: 1px solid rgba(128, 244, 191, 0.26);
+  background: rgba(7, 32, 24, 0.72);
+  color: #dfffee;
+  border-radius: 999px;
+  padding: 10px 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+  transition: opacity 0.25s var(--oobe-ease), transform 0.25s var(--oobe-ease);
+  z-index: 8;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+.oobe-toast.is-on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── Boot cinematográfico (Tutorial): mesma identidade, tela inteira ───────── */
+.oobe-boot {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 32px;
+  overflow: hidden;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  color: #eef7ff;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(119, 200, 255, 0.22), transparent 42%),
+    radial-gradient(circle at 14% 90%, rgba(63, 122, 255, 0.14), transparent 40%),
+    linear-gradient(135deg, #06101f, #081b34 52%, #0d315a);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.oobe-boot.is-gone { opacity: 0; pointer-events: none; }
+.oobe-boot-stage { position: relative; display: grid; gap: 16px; justify-items: center; text-align: center; }
+.oobe-boot-stage > * { animation: oobe-child-in 0.65s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.oobe-boot-stage > *:nth-child(1) { animation-delay: 0.05s; }
+.oobe-boot-stage > *:nth-child(2) { animation-delay: 0.16s; }
+.oobe-boot-stage > *:nth-child(3) { animation-delay: 0.28s; }
+.oobe-boot-stage > *:nth-child(4) { animation-delay: 0.4s; }
+.oobe-boot-stage > *:nth-child(5) { animation-delay: 0.52s; }
+.oobe-boot-title {
+  margin: 6px 0 0;
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  font-size: clamp(2rem, 5vw, 3.6rem);
+}
+.oobe-boot-sub { margin: 0; font-size: 0.92rem; line-height: 1.6; color: #a8bdd4; max-width: 46ch; }
+/* Loader de pontinhos orbitando (o clássico do Windows). */
+.oobe-boot-dots { position: relative; width: 36px; height: 36px; margin-top: 6px; }
+.oobe-boot-dots i { position: absolute; inset: 0; opacity: 0; animation: oobe-orbit 5.2s linear infinite; }
+.oobe-boot-dots i::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(50% - 2.5px);
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #9af0ff;
+  box-shadow: 0 0 12px rgba(154, 240, 255, 0.8);
+}
+.oobe-boot-dots i:nth-child(2) { animation-delay: 0.22s; }
+.oobe-boot-dots i:nth-child(3) { animation-delay: 0.44s; }
+.oobe-boot-dots i:nth-child(4) { animation-delay: 0.66s; }
+.oobe-boot-dots i:nth-child(5) { animation-delay: 0.88s; }
+@keyframes oobe-orbit {
+  0% { transform: rotate(225deg); opacity: 1; animation-timing-function: ease-out; }
+  7% { transform: rotate(345deg); animation-timing-function: linear; }
+  30% { transform: rotate(455deg); animation-timing-function: ease-in-out; }
+  39% { transform: rotate(690deg); animation-timing-function: linear; }
+  70% { transform: rotate(815deg); opacity: 1; animation-timing-function: ease-out; }
+  75% { transform: rotate(945deg); opacity: 1; }
+  76% { transform: rotate(945deg); opacity: 0; }
+  100% { transform: rotate(945deg); opacity: 0; }
+}
+.oobe-boot-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 12px; width: min(380px, 90vw); text-align: left; }
+.oobe-boot-step {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.35;
+  font-size: 0.92rem;
+  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.oobe-boot-step.is-loading, .oobe-boot-step.is-done { opacity: 1; }
+.oobe-boot-ic { display: grid; place-items: center; width: 26px; height: 26px; color: #77c8ff; }
+.oobe-boot-step.is-done .oobe-boot-ic { color: #80f4bf; }
+.oobe-boot-spin {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(119, 200, 255, 0.25);
+  border-top-color: #9af0ff;
+  animation: oobe-spin 0.7s linear infinite;
+}
+@keyframes oobe-spin { to { transform: rotate(360deg); } }
+.oobe-boot-state { font-size: 0.68rem; color: #a8bdd4; letter-spacing: 0.04em; }
+.oobe-boot-step.is-done .oobe-boot-state { color: #80f4bf; }
+
+/* ── Animações ambientes ───────────────────────────────────────────────────── */
+@keyframes oobe-drift {
+  from { transform: translate3d(-2%, 0, 0) rotate(-1deg); }
+  to { transform: translate3d(2%, 1%, 0) rotate(1deg); }
+}
+@keyframes oobe-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+
+/* ── Responsivo ────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .hbx-oobe { align-items: start; padding: 18px; }
+  .oobe-shell { width: 100%; height: auto; min-height: calc(100dvh - 36px); grid-template-columns: 1fr; }
+  .oobe-side { min-height: 240px; border-right: 0; border-bottom: 1px solid var(--oobe-line); }
+  .oobe-main { min-height: 560px; }
+  .oobe-choices, .oobe-choices--2, .oobe-preview { grid-template-columns: 1fr; }
+  .oobe-card { min-height: 0; }
+}
+@media (max-height: 760px) {
+  .oobe-shell { height: min(660px, calc(100vh - 32px)); }
+  .oobe-side, .oobe-main { padding: 24px; }
+  .oobe-panel { gap: 14px; }
+  .oobe-card { min-height: 140px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hbx-oobe, .hbx-oobe::before, .oobe-shell, .oobe-panel, .oobe-panel > *,
+  .oobe-side-copy > h1, .oobe-side-copy > p, .oobe-status span, .oobe-searching,
+  .oobe-vitrine, .oobe-vitrine-card, .oobe-boot-stage > *, .oobe-boot-dots i, .oobe-boot-spin {
+    animation: none !important;
+  }
+  .oobe-panel { opacity: 1; transform: none; }
+  .oobe-progress-fill, .oobe-toast, .oobe-card, .oobe-btn, .oobe-chip, .oobe-skip { transition: none; }
+}

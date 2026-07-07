@@ -16,6 +16,9 @@
 @import "./hbx-theme/errors.css";
 @import "./hbx-theme/screens.css";
 @import "./hbx-theme/marketing.css";
+/* OOBE — primeira configuração: casca ISOLADA dark (mundo próprio, tipo
+   marketing.css). A pele do sistema NÃO entra lá; hex próprio permitido. */
+@import "./hbx-theme/oobe.css";
 @import "./hbx-theme/transitions.css";
 
 /* CASCA MOBILE (MOBILE-CASCA/W1) — a moldura única do celular (topo + slot +

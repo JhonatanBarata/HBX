@@ -507,9 +507,10 @@
    CASCA LOADING — carregamento padrão da casca (ordem do dono 06/07,
    revisão 06/07 "carrega-zera"/"claro horrível"/"nem aparece direito").
    Marca HBX no centro + anel multi-cor (gradiente cônico). Determinado
-   (prop value) ENCHE de 0→100% de verdade; indeterminado faz uma VARREDURA
-   ÚNICA que sobe e SEGURA em ~90% (nunca reseta pra 0 — sem loop, como
-   nprogress). Acabamento 3D: glow, sombra interna, borda — hub sempre com
+   (prop value) ENCHE de 0→100% de verdade; indeterminado faz um LOOP contínuo
+   que fecha 0→360deg de verdade e recicla (fix 07/07: a varredura única
+   anterior segurava a ~98% pra sempre e nunca fechava o círculo — lia como
+   travado). Acabamento 3D: glow, sombra interna, borda — hub sempre com
    contraste real sobre o canvas (claro e dark). Cores SÓ por token
    (--casca-ring-* nascem no skeleton, a pele veste). É O loading de tela/ação
    da casca; skeleton de linhas continua valendo só dentro de listas.
@@ -616,7 +617,10 @@
 }
 .casca-loading__chevron {
   color: var(--hbx-brand-strong);
-  filter: drop-shadow(0 1px 1px var(--casca-ring-glow));
+  /* relevo fino + glow restrito por cima (ordem do dono 07/07: "mais glowing, não muito") */
+  filter:
+    drop-shadow(0 1px 1px var(--casca-ring-glow))
+    drop-shadow(0 0 7px color-mix(in srgb, var(--hbx-brand-strong) 45%, transparent));
 }
 .casca-loading__mark strong {
   font-family: "Sora", var(--font-display);
@@ -630,8 +634,11 @@
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  /* relevo: leve sombra pra dar o "cravado em metal" */
-  text-shadow: 0 1px 0 var(--casca-ring-glow);
+  /* relevo: leve sombra pra dar o "cravado em metal" + glow restrito por cima
+     (ordem do dono 07/07: "mais glowing, não muito" — 2ª camada só, sutil) */
+  text-shadow:
+    0 1px 0 var(--casca-ring-glow),
+    0 0 11px color-mix(in srgb, var(--hbx-brand-strong) 40%, transparent);
 }
 .casca-loading__pct {
   font-family: var(--font-mono);
@@ -645,18 +652,16 @@
   color: var(--text-muted);
 }
 
-/* modo INDETERMINADO (ordem do dono 06/07: "decida — tempo certo OU se comporta
-   como ferramenta de loading de verdade, tipo nprogress do YouTube"): VARREDURA
-   ÚNICA, monotônica, nunca reseta pra 0 ("carrega-zera" morreu). Sobe rápido a
-   ~90% e daí em diante faz um CREEP bem lento até ~98% — nunca fecha 100% sozinho
-   (quem fecha é o React trocando pro conteúdo real). Achado 07/07 ("trava sem
-   fechar os 100"): a versão anterior ficava 100% ESTÁTICA depois de 1.6s — se a
-   tela real demorasse mais que isso (comum em dev), a tela inteira congelava por
-   vários segundos e lia como quebrada. Agora sempre tem algo se movendo (creep do
-   anel + respiro contínuo do hub), sem nunca resetar/logar. A MARCA NUNCA GIRA —
-   nada aqui roda `transform:rotate`. */
+/* modo INDETERMINADO (fix 07/07 — queixa do dono: "continua sem carregar inteiro,
+   ele só vai até uns 80%, não fecha o círculo!"). A versão anterior era uma
+   varredura ÚNICA que segurava (forwards) a ~98% pra sempre — nunca fechava e lia
+   como travado. Agora é um LOOP contínuo de verdade: enche 0→360deg (fecha o
+   círculo por completo), segura fechado um instante e recicla pro início — como
+   um spinner/progress de verdade, sempre em movimento, nunca mais parece
+   congelado. A MARCA NUNCA GIRA — nada aqui roda `transform:rotate`; só
+   --casca-fill (ângulo do preenchimento da rosca) anima. */
 .casca-loading__ring.is-indeterminate::after {
-  animation: casca-ring-fill-sweep 14s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: casca-ring-fill-sweep 2.4s var(--casca-motion-ease) infinite;
 }
 /* respiro no hub: embalo inicial (0→1.6s) + respiração contínua e sutil
    enquanto a espera real continuar (nunca para de vez — isso que "travava"). */
@@ -667,8 +672,9 @@
 }
 @keyframes casca-ring-fill-sweep {
   0%   { --casca-fill: 0deg; }
-  11%  { --casca-fill: 324deg; } /* ~90% em ~1.6s — mesma sensação de sempre */
-  100% { --casca-fill: 352deg; } /* ~98% — creep quase imperceptível se a espera esticar */
+  62%  { --casca-fill: 342deg; } /* sobe rápido, quase fechando — mesma sensação de sempre */
+  80%  { --casca-fill: 360deg; } /* fecha o círculo por completo, de verdade */
+  100% { --casca-fill: 360deg; } /* segura fechado até reciclar pro 0% do próximo loop */
 }
 @keyframes casca-hub-breathe {
   0%   { transform: scale(0.985); }
@@ -709,7 +715,7 @@
     animation-duration: 0.01s !important;
   }
   .casca-loading__ring.is-indeterminate {
-    --casca-fill: 324deg;
+    --casca-fill: 360deg; /* reduced-motion: anel fechado e estático, sem animação */
   }
   .casca-loading__ring.is-indeterminate::after,
   .casca-loading__ring.is-indeterminate .casca-loading__hub {

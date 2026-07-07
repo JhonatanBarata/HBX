@@ -1084,3 +1084,82 @@
 }
 
 /* /entrega agora monta a raiz .casca central; não há casca paralela. */
+
+/* ============================================================
+   GLOW/HUD — pedido do dono 07/07: aplicar os brilhos/glows do mockup HUD
+   (mesma técnica usada em theme-hbx-cyber.css) nas 4 telas do Rota/Entrega
+   (Hoje, Clientes, Produtos, Ajustes). NÃO troca a identidade funcional do
+   app (verde = entrega, alto contraste no sol continua no claro — Lei da
+   seção 2 do PLANO Logística) — só adiciona glass/halo/glow em cima do que
+   já existe. Zero classe nova: só reforça as classes ent-star e casca-tab já existentes.
+   Claro = brilho discreto (nao pode cegar sol); escuro = a "foto" cheia.
+   ============================================================ */
+
+/* ---- CLARO: halo discreto atrás do herói + glow nos cards (mantém contraste) ---- */
+[data-skin="entrega"] .ent-stop-card,
+[data-skin="entrega"] .ent-stats,
+[data-skin="entrega"] .ent-card,
+[data-skin="entrega"] .ent-row,
+[data-skin="entrega"] .ent-progress {
+  box-shadow: var(--ent-shadow-sm), 0 0 0 1px color-mix(in srgb, var(--ent-brand) 8%, transparent), 0 10px 30px -18px color-mix(in srgb, var(--ent-accent) 40%, transparent);
+}
+[data-skin="entrega"] .ent-btn--primary {
+  box-shadow: var(--ent-shadow-sm), 0 10px 26px -10px color-mix(in srgb, var(--ent-brand) 55%, transparent);
+}
+[data-skin="entrega"] .ent-stat-num.is-ok {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--ent-success) 35%, transparent);
+}
+[data-skin="entrega"] .casca-tab.is-on {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ent-brand) 45%, transparent));
+}
+[data-skin="entrega"] .ent-empty-icon {
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--ent-accent) 30%, transparent));
+}
+
+/* ---- ESCURO: a "foto" cheia — halo ambiente + vidro + glow forte (a estrela) ---- */
+[data-theme-mode="dark"] [data-skin="entrega"] {
+  background:
+    radial-gradient(circle at 10% -4%, color-mix(in srgb, var(--ent-brand) 22%, transparent), transparent 30%),
+    radial-gradient(circle at 100% 70%, color-mix(in srgb, var(--ent-accent) 18%, transparent), transparent 32%),
+    var(--ent-canvas);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .casca-top,
+[data-theme-mode="dark"] [data-skin="entrega"] .casca-tabbar {
+  background: color-mix(in srgb, var(--ent-surface) 70%, transparent);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-stop-card,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-stats,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-card,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-row,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-progress,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-input,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-toggle {
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--ent-accent) 10%, transparent), transparent 55%),
+    var(--ent-surface);
+  box-shadow: var(--ent-shadow-sm), inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent), 0 0 0 1px color-mix(in srgb, var(--ent-brand) 16%, transparent), 0 16px 40px -20px color-mix(in srgb, var(--ent-accent) 45%, transparent);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-btn--primary {
+  box-shadow: var(--ent-shadow-sm), 0 0 0 1px color-mix(in srgb, var(--ent-brand-strong) 40%, transparent), 0 16px 36px -10px color-mix(in srgb, var(--ent-brand) 70%, transparent);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-row-idx,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-stop-badge {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--ent-brand) 40%, transparent);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-stat-num.is-ok {
+  text-shadow: 0 0 18px color-mix(in srgb, var(--ent-success) 60%, transparent);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-empty-icon {
+  filter: drop-shadow(0 0 20px color-mix(in srgb, var(--ent-accent) 55%, transparent));
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .casca-tab.is-on {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--ent-brand) 65%, transparent));
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-switch.is-on {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ent-brand) 55%, transparent);
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-input:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ent-brand) 35%, transparent), 0 0 16px color-mix(in srgb, var(--ent-accent) 40%, transparent);
+}

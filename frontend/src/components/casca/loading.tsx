@@ -16,6 +16,14 @@
 // atraso montado; telas que resolvem antes disso nunca chegam a piscar o
 // loader na tela.
 //
+// BOOT (07/07): o atraso acima é ÓTIMO pra trocas de tela in-app (não afoga a
+// UI com loader em navegação rápida) mas é o OPOSTO do que o 1º carregamento
+// da casca precisa — ali o loader É a marca "carregando" que substitui a
+// sidebar desktop/tela crua (mobile-shell.tsx, layout.tsx) e tem que aparecer
+// JÁ, inclusive no HTML do servidor (senão o CSS pré-hidratação não tem o que
+// revelar). `immediate` pula o atraso: só usar no boot inicial, nunca em
+// trocas de tela normais (ali o atraso segue sendo o certo).
+//
 // É o loading de TELA/AÇÃO da casca; skeleton de linhas continua valendo só
 // dentro de listas. Usado nas trocas de rota da casca (MobileShell) e
 // exportado pra W2–W6. Cores 100% por token (--casca-ring-* no skeleton, a
@@ -48,6 +56,7 @@ export function CascaLoading({
   value,
   caption,
   overlay = false,
+  immediate = false,
 }: {
   /** 0–100 = progresso real (mostra %). undefined = indeterminado (varredura única, segura em ~90%). */
   value?: number;
@@ -55,6 +64,10 @@ export function CascaLoading({
   caption?: string;
   /** true = camada semitransparente sobre a tela; false = tela cheia da casca. */
   overlay?: boolean;
+  /** true = pula o atraso anti-flash (aparece já no 1º render, inclusive no
+   * SSR). Só pro BOOT inicial da casca (mobile-shell.tsx) — trocas de tela
+   * normais continuam com o atraso (evita flash em navegação rápida). */
+  immediate?: boolean;
 }) {
   const determinate = typeof value === "number" && Number.isFinite(value);
   const pct = determinate ? Math.max(0, Math.min(100, Math.round(value as number))) : 0;
@@ -63,11 +76,14 @@ export function CascaLoading({
 
   // Anti-flash: só decide "pode aparecer" depois do atraso. Se a tela some
   // antes disso (unmount), o timeout nunca dispara e o loader nunca piscou.
-  const [canAppear, setCanAppear] = React.useState(false);
+  // `immediate` pula tudo isso (mesmo valor no server e no client — nenhum
+  // risco de mismatch, é só um prop estático, não lê nada do browser).
+  const [canAppear, setCanAppear] = React.useState(immediate);
   React.useEffect(() => {
+    if (immediate) return;
     const timer = window.setTimeout(() => setCanAppear(true), CASCA_LOADING_APPEAR_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [immediate]);
   if (!canAppear) return null;
 
   return (

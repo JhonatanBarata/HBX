@@ -55,5 +55,5 @@
   --casca-text-body: 0.88rem;    /* 14px — corpo de linha de lista */
   --casca-text-sub: 0.75rem;     /* ~12px — subtítulo/meta de linha */
   --casca-text-pct: 0.8rem;      /* ~13px — % no centro do loading */
-  --casca-loading-mark: 1.5rem;  /* ~24px — wordmark HBX no loading */
+  --casca-loading-mark: 1.62rem; /* ~26px — wordmark HBX no loading (aumentada o pouco, 07/07) */
 }

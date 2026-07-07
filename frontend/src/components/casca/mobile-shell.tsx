@@ -4,7 +4,9 @@
 // MOBILE-CASCA/W1 — MobileShell: a MOLDURA única do celular.
 //
 // Quando NÃO é mobile → devolve `children` PURO (desktop 100% intocado — a
-// casca nunca monta, nenhuma classe .casca-* entra no DOM do desktop).
+// casca nunca monta, nenhuma classe .casca-* entra no DOM do desktop) + um
+// overlay estático de boot que fica sempre invisível de verdade (ver BOOT
+// abaixo — é CSS puro, não pesa nada visual/comportamental no desktop real).
 //
 // Quando é mobile e a rota é do grupo (app):
 //   topo 1 linha (título) + SLOT de conteúdo (registry rota→tela, com transição
@@ -20,7 +22,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
-import { useCascaMobile } from "@/lib/casca-mobile";
+import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY, useCascaMobile } from "@/lib/casca-mobile";
 import { dismissCascaToast } from "@/lib/casca-toast";
 
 import { CascaFallback } from "./fallback";
@@ -210,6 +212,38 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const router = useRouter();
 
+  // BOOT (07/07, queixa do dono: reload no celular piscava a sidebar desktop
+  // antes da casca aparecer) — o gate de verdade é por CSS puro e roda ANTES
+  // do 1º paint (script + <style> em layout.tsx, mesmo padrão do THEME_BOOT,
+  // lendo matchMedia direto — não espera o React hidratar; ver nota BOOT em
+  // casca-mobile.ts). Este efeito só MANTÉM <html data-casca-boot> em
+  // sincronia depois do boot inicial (resize/rotate). Lê matchMedia FRESCO
+  // (não o `isMobile` deste render): durante a correção pós-hidratação esse
+  // efeito roda 1 volta ANTES do isMobile virar true (efeito passivo do
+  // useSyncExternalStore roda depois do nosso, useCascaMobile é chamado
+  // primeiro) — se confiasse no `isMobile` capturado aqui, reabriria a janela
+  // de flash que o CSS pré-hidratação já fechou.
+  useEffect(() => {
+    const real = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia(CASCA_MOBILE_QUERY).matches
+      : isMobile;
+    document.documentElement.setAttribute(CASCA_BOOT_ATTR, real ? "mobile" : "desktop");
+  }, [isMobile]);
+
+  // 1º paint mobile depois que isMobile confirma (ordem do dono: "colocar
+  // sempre o carregando primeiro HBX") — o commit em que a casca nasce NUNCA
+  // mostra a tela real crua; 1 frame depois libera pra tela de verdade. Não
+  // reseta por navegação (troca de rota usa a transição normal do
+  // CascaStage/casca-view, não o loader cheio de novo). requestAnimationFrame
+  // (não setState direto no corpo do efeito — react-hooks/set-state-in-effect)
+  // garante que o loader pintou pelo menos 1 frame antes de trocar.
+  const [booted, setBooted] = useState(false);
+  useEffect(() => {
+    if (!isMobile || booted) return;
+    const raf = requestAnimationFrame(() => setBooted(true));
+    return () => cancelAnimationFrame(raf);
+  }, [isMobile, booted]);
+
   // Redirect mobile /dashboard → /vendas (a aba inicial do celular é Vendas).
   useEffect(() => {
     if (isMobile && pathname === "/dashboard") router.replace("/vendas");
@@ -225,8 +259,20 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
     }
   }, [pathname]);
 
-  // DESKTOP (e SSR): children puro. A casca não existe fora do celular.
-  if (!isMobile) return <>{children}</>;
+  // DESKTOP (e SSR, e a 1ª passada de hidratação no celular — coberta pelo CSS
+  // de boot, não por este `if`): children puro + o overlay estático de boot.
+  // No desktop de VERDADE o overlay fica sempre invisível (CSS só mostra sob
+  // html[data-casca-boot="mobile"]) — zero mudança visual, zero timer (a
+  // CascaLoading com `immediate` não agenda nada). A casca nunca monta fora do
+  // celular — LEI: desktop 100% intocado.
+  if (!isMobile) {
+    return (
+      <>
+        <div className="casca-boot-loading"><CascaLoading immediate /></div>
+        {children}
+      </>
+    );
+  }
 
   // Enquanto o redirect do /dashboard não resolve, evita piscar o fallback.
   const redirecting = pathname === "/dashboard";
@@ -236,8 +282,8 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
       <div className="casca-top">
         <h1 className="casca-top__title">{titleFor(pathname)}</h1>
       </div>
-      {redirecting ? (
-        <div className="casca-stage"><CascaLoading /></div>
+      {(!booted || redirecting) ? (
+        <div className="casca-stage"><CascaLoading immediate={!booted} /></div>
       ) : (
         <CascaStage pathname={pathname} />
       )}

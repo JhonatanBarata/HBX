@@ -4,6 +4,10 @@ import "./globals.css";
 
 import { ThemeAttributes } from "@/components/hbx/theme-attributes";
 import { GlobalErrorHost } from "@/components/hbx/error-popup";
+// SERVER Component: importa as constantes SÓ do -const (sem React). Importar de
+// @/lib/casca-mobile puxaria o hook useSyncExternalStore (client) pro bundle do
+// servidor → 500 em toda rota (Next recusa hook client em Server Component).
+import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY } from "@/lib/casca-mobile-const";
 
 export const metadata: Metadata = {
   title: "HBX System",
@@ -32,6 +36,24 @@ export const viewport: Viewport = {
 // "html puro" — agora É o login (tokens + robô do tema), herda data-theme/mode.
 const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var P=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele");if(P.indexOf(k)<0){k="aurora";}h.setAttribute("data-theme",k);var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
+// Boot da CASCA MOBILE antes da pintura (07/07, queixa do dono: reload no
+// celular piscava a sidebar desktop antes da moldura mobile aparecer) —
+// mesmo padrão do THEME_BOOT acima: síncrono, roda no <head> ANTES do <body>
+// ser parseado, então quando ".app-shell-root" (a sidebar desktop — o SSR
+// sempre assume desktop) e ".casca-boot-loading" (o loader HBX) chegam no
+// DOM, o CSS logo abaixo já sabe se é celular — zero espera pela hidratação
+// do React (é ela, passiva, que causava o flash: ver nota BOOT em
+// casca-mobile.ts). MobileShell mantém isto em sincronia depois (resize).
+const CASCA_BOOT = `(function(){try{var h=document.documentElement;h.setAttribute(${JSON.stringify(CASCA_BOOT_ATTR)},window.matchMedia(${JSON.stringify(CASCA_MOBILE_QUERY)}).matches?"mobile":"desktop");}catch(e){}})();`;
+
+// Companheiro de CSS do boot acima — só display/position/z-index, nenhuma cor
+// (isso é da pele, mora em theme-*.css) — não conta pro fiscal check-pele
+// (R1/R2 miram cor, R4 mira propriedade visual em style inline de TSX; nada
+// disso aparece aqui). ".app-shell-root" é a marca só-de-CSS que app-shell.tsx
+// põe na sidebar desktop; /master tem o PRÓPRIO ".app" (chrome à parte, fora
+// da MobileShell) que este seletor NUNCA toca, de propósito.
+const CASCA_BOOT_CSS = `.casca-boot-loading{position:fixed;inset:0;z-index:10000;display:none}html[${CASCA_BOOT_ATTR}="mobile"] .casca-boot-loading{display:block}html[${CASCA_BOOT_ATTR}="mobile"] .app-shell-root{display:none}`;
+
 // PWA (ordem do dono 14/06: "Responsivo + PWA"). Substitui o kill-switch antigo:
 // (1) APAGA todos os caches do navegador a cada load — defesa contra o PWA velho
 //     "hbx-pwa-v1", que cacheava páginas e ressuscitava telas (o SW novo é
@@ -54,8 +76,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=IBM+Plex+Mono:wght@400;500;600;700&family=Sora:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Lora:wght@500;600;700&display=swap"
         />
+        <style dangerouslySetInnerHTML={{ __html: CASCA_BOOT_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SW_REGISTER }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+        <script dangerouslySetInnerHTML={{ __html: CASCA_BOOT }} />
       </head>
       <body>
         <ThemeAttributes />

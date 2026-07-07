@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { BloqueioGate } from "@/components/hbx/bloqueio-gate";
-import { BoasVindasGate } from "@/components/hbx/boas-vindas-gate";
+import { OobeGate } from "@/components/hbx/oobe-gate";
 import { useCurrentUser } from "@/components/hbx/shell";
 import { clearToken, getToken } from "@/lib/api";
 
@@ -35,12 +35,13 @@ export function AuthGate() {
     }
   }, [user, router]);
 
-  // O bloqueio (paywall) vem antes; o portão de boas-vindas (senha 1º acesso)
-  // é renderizado por último para pintar POR CIMA quando os dois coincidirem.
+  // O bloqueio (paywall) vem antes; o portão OOBE (primeiro acesso: senha →
+  // ramo → modo → tutorial) é renderizado por último para pintar POR CIMA
+  // quando os dois coincidirem.
   return (
     <>
       <BloqueioGate />
-      <BoasVindasGate />
+      <OobeGate />
     </>
   );
 }

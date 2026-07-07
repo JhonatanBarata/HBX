@@ -68,9 +68,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // CASCA MOBILE (MOBILE-CASCA/W1): no celular a MobileShell substitui TODO o
   // chrome desktop pela moldura própria (topo/tab bar) + registry de telas. No
   // desktop ela devolve `children` puro — o shell abaixo fica 100% intocado.
+  //
+  // BOOT (07/07): "app-shell-root" é só um HOOK de CSS (zero estilo próprio,
+  // não mexe em nada que kit.css já faz com ".app") — o <style> pré-hidratação
+  // em layout.tsx usa ele pra esconder ESTA sidebar num reload mobile antes do
+  // React sequer hidratar. Precisa ser uma classe A MAIS (não trocar ".app"
+  // pela nova) porque /master tem o SEU PRÓPRIO ".app" (master/page.client.tsx,
+  // chrome à parte, fora da MobileShell) que não pode ser afetado.
   return (
     <MobileShell>
-      <div className="app" data-rail={rail}>
+      <div className="app app-shell-root" data-rail={rail}>
         <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
         <div className="main">
           <Topbar title={meta.title} crumbs={meta.crumbs} />

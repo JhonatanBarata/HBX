@@ -8,11 +8,11 @@
 
 import { useState } from "react";
 
-import { BootSplash } from "@/components/hbx/boot-splash";
+import { OobeBoot } from "@/components/hbx/oobe-gate";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 
 export function TutorialClient() {
   const [booted, setBooted] = useState(false);
   function onBooted() { setBooted(true); startTutorialCoach(); }
-  return <>{!booted && <BootSplash onDone={onBooted} />}</>;
+  return <>{!booted && <OobeBoot onDone={onBooted} />}</>;
 }

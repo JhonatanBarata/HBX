@@ -104,6 +104,9 @@
   não se copia para dentro de tela nem de TSX (vira token/classe).
 - Mundo-site (visual próprio, fora do fiscal): `hbx-theme/marketing.css`,
   `src/app/page.client.tsx` (landing) e `src/app/trabalhe-conosco/`.
+- OOBE (07/07): `hbx-theme/oobe.css` — casca ISOLADA do primeiro acesso
+  (`components/hbx/oobe-gate.tsx`), paleta própria dark constante (mock
+  aprovado pelo dono), padrão mundo-site: NUNCA vestir com a pele do app.
 - `public/sw.js` é kill-switch permanente do PWA antigo — não remover; não
   registrar service worker novo sem ordem do dono.
 - Webfonts via `<link>` no `src/app/layout.tsx` (nunca `@import` em CSS — o
