@@ -1591,7 +1591,13 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 /* Stage — preenche o modehost do TOPO (a barra fica POR CIMA). 2 camadas
    SOBREPOSTAS (a casca) em crossfade + sobe/escala. */
 .vnd-stage { position: absolute; inset: 0; }
-.vnd-layer { position: absolute; inset: 0; display: flex; opacity: 0; pointer-events: none; }
+.vnd-layer { position: absolute; inset: 0; display: flex; opacity: 0; pointer-events: none;
+  /* Card de detalhe (aside.ctx) do mesmo tamanho do Atendimento (345px, .a-content) —
+     sem isso herda --context-width (248px), estreito demais pro cockpit de vendas.
+     Cobre funil E o Radar embutido (vnd-layer--buscar > .leads-page usa a MESMA
+     .content genérica), por cascata da custom property. */
+  --context-width: 345px;
+}
 .vnd-layer.is-on { opacity: 1; pointer-events: auto; }
 .vnd-layer > .content { flex: 1; min-width: 0; }
 .vnd-layer--buscar { flex-direction: column; }
@@ -1895,11 +1901,20 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-console { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; }
 .radar-console--mini { padding: 8px 14px 10px; border-bottom: 1px solid var(--border-hairline); }
 
-.radar-disc-wrap { position: relative; width: 100%; aspect-ratio: 1; max-width: 220px; margin: 0 auto;
-  /* fundo escuro do disco — cena-instrumento, ÚNICA exceção de cor "própria"; valor via token */
-  background: var(--radar-base);
+/* 06/07 noite: réplica fiel do mock aprovado pelo dono ao vivo ("quero
+   exatamente igual") — disco-sonar com um "scope" circular (62% do disco,
+   via mask-image) contendo grade+sweep+blips, e uma moldura escura em volta
+   só de vinheta/brilho. Cores só via --radar-* (skeleton.css) + color-mix;
+   nenhum hex fora de #fff/#000 (neutros isentos pelo check-pele). */
+.radar-disc-wrap {
+  position: relative; width: 100%; aspect-ratio: 1; max-width: 220px; margin: 0 auto;
+  background:
+    radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--radar-sweep) 10%, transparent) 0%, transparent 70%),
+    linear-gradient(145deg, var(--radar-base), color-mix(in srgb, var(--radar-base) 82%, black 18%));
   border-radius: 999px;
-  overflow: hidden;
+  /* SEM overflow:hidden aqui (07/07) — quem recorta é .radarScopeClip por
+     dentro; o wrapper fica aberto pra o rótulo do blip poder vazar pra fora
+     do círculo sem ser cortado no meio da palavra. */
 }
 .radar-disc-wrap--mini { max-width: 64px; margin: 0; border-radius: 12px; aspect-ratio: 1; }
 
@@ -1907,130 +1922,199 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .radar-disc-wrap *,
 .radar-disc-wrap--mini * { position: absolute; display: block; box-sizing: border-box; min-width: 0; min-height: 0; }
 
-/* Disco central (84% do wrapper) */
-.radarMotionDisc {
-  left: 50%; top: 50%; width: 84%; aspect-ratio: 1;
-  overflow: hidden; border-radius: 999px;
-  transform: translate(-50%,-50%);
+/* 07/07: recorte físico (overflow:hidden) mora AQUI, não mais no wrapper —
+   assim o rótulo dos blips (fora deste clip) pode "vazar" pra fora do
+   círculo sem ficar cortado no meio da palavra (achado do dono). Ocupa
+   exatamente o mesmo espaço do wrapper, então as % de top/left continuam
+   valendo 1:1 pros elementos de dentro E de fora do clip. */
+.radarScopeClip { inset: 0; border-radius: 999px; overflow: hidden; }
+
+/* Grade do scope (crosshair + anéis concêntricos), recortada num círculo de
+   62% — deixa uma borda de "moldura" escura em volta, igual ao mock. */
+.radarScopeGrid {
+  inset: 0; border-radius: 999px;
+  background:
+    repeating-radial-gradient(circle, transparent 0 12.2%, var(--radar-ring) 12.5% 12.9%, transparent 13.2%),
+    linear-gradient(90deg, transparent calc(50% - 0.5px), var(--radar-axis) 50%, transparent calc(50% + 0.5px)),
+    linear-gradient(0deg, transparent calc(50% - 0.5px), var(--radar-axis) 50%, transparent calc(50% + 0.5px));
+  mask-image: radial-gradient(circle, #000 0 62%, transparent 63%);
+  -webkit-mask-image: radial-gradient(circle, #000 0 62%, transparent 63%);
 }
 
-/* Círculos / anéis */
-.radarMotionCircle {
+/* Brilho central + leve vinheta na moldura externa */
+.radarScopeGlow {
+  inset: 0; border-radius: 999px; pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--radar-glow) 45%, transparent) 0%, transparent 13%),
+    radial-gradient(circle at 50% 50%, transparent 0 62%, color-mix(in srgb, var(--radar-sweep) 16%, transparent) 63% 100%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+}
+
+/* Textura fina (ruído) só dentro do scope — dá acabamento "instrumento" */
+.radarNoise {
+  inset: 0; pointer-events: none; opacity: 0.14;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--hbx-brand-contrast) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--hbx-brand-contrast) 4%, transparent) 1px, transparent 1px);
+  background-size: 7px 7px;
+  mask-image: radial-gradient(circle, #000 0 62%, transparent 63%);
+  -webkit-mask-image: radial-gradient(circle, #000 0 62%, transparent 63%);
+}
+
+/* Trilhas estáticas — linhas finas que respiram (dão profundidade de "sinais
+   fracos" ao fundo, atrás do sweep). Ângulo vem inline (JSX), por instância. */
+.radarTrack {
+  left: 50%; top: 50%; width: 46%; height: 1px;
+  transform-origin: 0 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--radar-sweep) 10%, transparent), color-mix(in srgb, var(--radar-sweep) 32%, transparent), transparent);
+  opacity: 0.5;
+  animation: radarTrackFade 5.8s ease-in-out infinite;
+}
+
+/* Anéis de "ping" expandindo do centro (sonar) */
+.radarPulseRing {
+  left: 50%; top: 50%; width: 18%; height: 18%;
+  border: 1px solid color-mix(in srgb, var(--radar-sweep) 34%, transparent);
   border-radius: 999px;
-  border: 1px solid var(--radar-ring);
-}
-.radarMotionCircle[data-ring="outer"] { inset: 0; }
-.radarMotionCircle[data-ring="one"]   { inset: 6%;  border-width: 2px; }
-.radarMotionCircle[data-ring="two"]   { inset: 18%; border-width: 2px; }
-.radarMotionCircle[data-ring="three"] { inset: 32%; border-width: 2px; }
-.radarMotionCircle[data-ring="four"]  { inset: 46%; border-width: 2px; }
-
-/* Eixos */
-.radarMotionAxis[data-axis="vertical"]   { left: 50%; top: 0; width: 2px; height: 100%; background: var(--radar-axis); transform: translateX(-50%); }
-.radarMotionAxis[data-axis="horizontal"] { left: 0; top: 50%; width: 100%; height: 2px; background: var(--radar-axis); transform: translateY(-50%); }
-
-/* Sweep + trail + core */
-.radarMotionSweep { inset: 0; border-radius: 999px; transform-origin: center; animation: radarMotionSweepSpin 3.4s linear infinite; }
-.radarMotionTrail,
-.radarMotionCore { left: 50%; top: 50%; width: 50%; height: 50%; overflow: hidden; transform-origin: top left; }
-.radarMotionTrail {
-  background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, var(--radar-trail) 34deg, transparent 96deg);
-  filter: blur(8px);
-  transform: rotate(-14deg);
-  animation: radarMotionTrailFade 3.4s ease-in-out infinite;
-}
-.radarMotionCore {
-  background: conic-gradient(from 45deg at 0% 0%, var(--radar-sweep) 0deg, color-mix(in srgb, var(--radar-sweep) 60%, transparent) 16deg, color-mix(in srgb, var(--radar-sweep) 20%, transparent) 30deg, transparent 44deg);
-  filter: drop-shadow(0 0 8px var(--radar-glow));
+  opacity: 0;
+  animation: radarPingOut 2.7s ease-out infinite;
 }
 
-/* Anéis girando */
-.radarMotionRing {
-  inset: 2%; border-radius: 999px;
-  border: 1px dashed var(--radar-ring);
+/* Ponteiro (sweep) — cunha com borda brilhante + agulha fina, cauda longa,
+   tudo recortado no mesmo círculo de 62% do scope. Elemento mais destacado
+   do disco, como pedido ("ponteiro muito mais destacado"). */
+.radarSweep2 {
+  inset: 0; border-radius: 999px;
+  background: conic-gradient(from -36deg,
+    transparent 0deg,
+    transparent 288deg,
+    color-mix(in srgb, var(--radar-sweep) 8%, transparent) 304deg,
+    color-mix(in srgb, var(--radar-sweep) 55%, transparent) 333deg,
+    color-mix(in srgb, var(--radar-sweep) 96%, transparent) 356deg,
+    transparent 360deg);
+  mask-image: radial-gradient(circle, #000 0 62%, transparent 63%);
+  -webkit-mask-image: radial-gradient(circle, #000 0 62%, transparent 63%);
+  filter: drop-shadow(0 0 12px var(--radar-glow));
   transform-origin: center;
-  animation: radarMotionRingSpin 18s linear infinite;
+  animation: radarSweepSpin2 3.2s linear infinite;
 }
-.radarMotionRingReverse {
-  inset: 10%; border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--radar-ring) 60%, transparent);
-  transform-origin: center;
-  animation: radarMotionRingSpinReverse 26s linear infinite;
-}
-
-/* Blips */
-.radarMotionBlip {
-  width: 12px; height: 12px; border-radius: 999px;
-  background: var(--radar-blip);
-  box-shadow: 0 0 16px var(--radar-glow);
-  transform: translate(-50%,-50%) scale(0.82);
-  animation: radarMotionPulse 1.8s ease-in-out infinite;
-}
-.radarMotionBlip i {
-  left: 50%; top: 50%; width: 12px; height: 12px;
-  border: 2px solid var(--radar-ring);
-  border-radius: 999px;
-  transform: translate(-50%,-50%) scale(0.45);
-  animation: radarMotionRipple 3.4s ease-out infinite;
+.radarSweepNeedle {
+  left: 50%; top: 50%; width: 1px; height: 46%;
+  transform-origin: 0 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--radar-sweep) 96%, transparent), transparent);
+  box-shadow: 0 0 12px var(--radar-glow);
 }
 
-/* Glow central */
-.radarMotionGlow {
-  left: 50%; top: 50%; width: 20px; height: 20px;
+/* Núcleo — agulha de bússola vintage (07/07: substitui a bolinha lisa de
+   antes, pedido do dono; um pouco menor que a bolinha era: 11% vs 15%). SVG
+   com fill/stroke só via token — nada de hex fora de #fff/#000. */
+.radarCompass {
+  left: 50%; top: 50%; width: 11%; height: 11%;
+  transform: translate(-50%,-50%) rotate(-6deg);
+  filter: drop-shadow(0 0 10px var(--radar-glow));
+  animation: radarCompassWobble 3.6s ease-in-out infinite;
+}
+.radarCompassSvg { width: 100%; height: 100%; display: block; }
+.radarCompassRing {
+  fill: color-mix(in srgb, var(--radar-base) 55%, transparent);
+  stroke: color-mix(in srgb, var(--radar-sweep) 55%, transparent);
+  stroke-width: 3;
+}
+.radarCompassTicks line {
+  stroke: color-mix(in srgb, var(--radar-sweep) 60%, transparent);
+  stroke-width: 3; stroke-linecap: round;
+}
+.radarCompassNeedleN { fill: var(--radar-blip); }
+.radarCompassNeedleS { fill: color-mix(in srgb, var(--radar-ring) 90%, transparent); }
+.radarCompassPivot {
+  fill: color-mix(in srgb, var(--hbx-brand-strong) 100%, white 30%);
+  stroke: color-mix(in srgb, var(--radar-base) 80%, transparent);
+  stroke-width: 1.5;
+}
+
+/* Blips (empresas achadas — puro enfeite, sem número/nome real por trás) */
+.radarBlip2 {
   border-radius: 999px;
   background: var(--radar-blip);
-  box-shadow: 0 0 22px var(--radar-glow);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--radar-sweep) 10%, transparent), 0 0 16px var(--radar-glow);
   transform: translate(-50%,-50%);
-  animation: radarMotionCenterPulse 1.4s ease-in-out infinite;
+  opacity: 0.8;
+  animation: radarBlipFloat 3.8s ease-in-out infinite, radarBlipFlash 3.2s linear infinite;
 }
-
-/* ── Estado pausado: âmbar/warning ──────────────────────────────────────── */
-.radar-disc-wrap--pausado .radarMotionBlip  { background: var(--radar-pause); box-shadow: 0 0 16px var(--radar-pause); animation-duration: 3.2s; }
-.radar-disc-wrap--pausado .radarMotionGlow  { background: var(--radar-pause); box-shadow: 0 0 22px var(--radar-pause); animation-duration: 3.2s; }
-.radar-disc-wrap--pausado .radarMotionCore  { background: conic-gradient(from 45deg at 0% 0%, var(--radar-pause) 0deg, transparent 44deg); }
-.radar-disc-wrap--pausado .radarMotionTrail { background: conic-gradient(from 45deg at 0% 0%, transparent 0deg, color-mix(in srgb, var(--radar-pause) 30%, transparent) 34deg, transparent 96deg); }
-.radar-disc-wrap--pausado .radarMotionSweep { animation-duration: 8s; }
-
-/* ── Estado parado: animações mortas, tudo neutro ───────────────────────── */
-.radar-disc-wrap--parado .radarMotionSweep,
-.radar-disc-wrap--parado .radarMotionTrail,
-.radar-disc-wrap--parado .radarMotionRing,
-.radar-disc-wrap--parado .radarMotionRingReverse { animation: none; }
-.radar-disc-wrap--parado .radarMotionBlip  { animation: none; background: var(--text-muted); box-shadow: none; opacity: 0.4; }
-.radar-disc-wrap--parado .radarMotionGlow  { animation: none; background: var(--text-muted); box-shadow: none; opacity: 0.3; }
-.radar-disc-wrap--parado .radarMotionCore  { background: conic-gradient(from 45deg at 0% 0%, color-mix(in srgb, var(--text-muted) 40%, transparent) 0deg, transparent 44deg); filter: none; }
+.radarBlip2--hot {
+  background: color-mix(in srgb, var(--hbx-brand-strong) 100%, white 20%);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--radar-sweep) 14%, transparent), 0 0 22px var(--radar-glow);
+}
+.radarBlip2Ripple {
+  inset: -9px; border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--radar-sweep) 24%, transparent);
+  opacity: 0;
+  animation: radarBlipPing 2.5s ease-out infinite;
+}
+/* Rótulo de categoria do sinal (genérico — "lead quente"/"telefone"/"e-mail";
+   nunca nome de empresa específica, isso seria dado fabricado) */
+.radarBlip2Label {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 7px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--radar-sweep) 22%, transparent);
+  background: color-mix(in srgb, var(--radar-base) 70%, transparent);
+  color: var(--hbx-brand-contrast);
+  font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0; transform: translateY(4px);
+  animation: radarBlipLabelReveal 8s ease-in-out infinite;
+  backdrop-filter: blur(10px);
+  z-index: 7;
+}
+/* 07/07: blip da metade direita do disco ancora o rótulo pelo lado direito
+   (texto cresce pra dentro/esquerda) — nunca estoura a borda, sem cortar. */
+.radarBlip2Label--flip { flex-direction: row-reverse; }
+.radarBlip2Label::before {
+  content: ""; width: 5px; height: 5px; border-radius: 999px;
+  background: var(--radar-glow); box-shadow: 0 0 10px var(--radar-glow);
+}
 
 /* ── Keyframes do radar ─────────────────────────────────────────────────── */
-@keyframes radarMotionSweepSpin   { to { transform: rotate(360deg); } }
-@keyframes radarMotionRingSpin    { to { transform: rotate(360deg); } }
-@keyframes radarMotionRingSpinReverse { to { transform: rotate(-360deg); } }
-@keyframes radarMotionPulse {
-  0%, 100% { transform: translate(-50%,-50%) scale(0.82); opacity: 0.55; }
-  50%       { transform: translate(-50%,-50%) scale(1.18); opacity: 1; }
+@keyframes radarSweepSpin2 { to { transform: rotate(360deg); } }
+@keyframes radarCompassWobble {
+  0%, 100% { transform: translate(-50%,-50%) rotate(-6deg); }
+  50%       { transform: translate(-50%,-50%) rotate(6deg); }
 }
-@keyframes radarMotionCenterPulse {
-  0%, 100% { transform: translate(-50%,-50%) scale(0.9); opacity: 0.75; }
-  50%       { transform: translate(-50%,-50%) scale(1.16); opacity: 1; }
+@keyframes radarPingOut {
+  0%        { opacity: 0.55; transform: translate(-50%,-50%) scale(0.55); }
+  75%, 100% { opacity: 0;    transform: translate(-50%,-50%) scale(3.35); }
 }
-@keyframes radarMotionRipple {
-  0%,42% { transform: translate(-50%,-50%) scale(0.45); opacity: 0; }
-  52%    { opacity: 0.8; }
-  100%   { transform: translate(-50%,-50%) scale(4.2); opacity: 0; }
+@keyframes radarBlipFloat {
+  0%, 100% { transform: translate(-50%,-50%) scale(0.95); }
+  50%       { transform: translate(calc(-50% + 2px), calc(-50% - 2px)) scale(1.08); }
 }
-@keyframes radarMotionTrailFade {
-  0%, 100% { opacity: 0.92; }
-  50%       { opacity: 0.68; }
+@keyframes radarBlipFlash {
+  0%, 58%, 100% { opacity: 0.32; }
+  61%, 74%       { opacity: 1; }
+}
+@keyframes radarBlipPing {
+  0%         { opacity: 0.7; transform: scale(0.45); }
+  80%, 100%  { opacity: 0;   transform: scale(1.8); }
+}
+@keyframes radarBlipLabelReveal {
+  0%, 50%, 100% { opacity: 0; transform: translateY(4px); }
+  58%, 72%       { opacity: 1; transform: translateY(0); }
+}
+@keyframes radarTrackFade {
+  0%, 100% { opacity: 0.16; }
+  50%       { opacity: 0.66; }
 }
 
 /* prefers-reduced-motion: para todas as animações do radar */
 @media (prefers-reduced-motion: reduce) {
-  .radarMotionSweep,
-  .radarMotionTrail,
-  .radarMotionBlip,
-  .radarMotionBlip i,
-  .radarMotionGlow,
-  .radarMotionRing,
-  .radarMotionRingReverse { animation: none !important; }
+  .radarSweep2,
+  .radarPulseRing,
+  .radarTrack,
+  .radarBlip2,
+  .radarBlip2Ripple,
+  .radarBlip2Label,
+  .radarCompass { animation: none !important; }
 }
 
 /* ── Radar console: estado label + filtros ───────────────────────────────── */
@@ -2118,9 +2202,18 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    148px + os paddings acumulados (.ctx/.radar-console/.radar-hero) isso
    cortava na borda direita (achado do dono, "está torto"). Agora usa min()
    pra nunca passar da largura que sobrou dentro do card. */
+/* 06/07 noite: pedido do dono ao vivo — disco maior, ponteiro/rastro mais
+   fortes. Tentativa de tilt 3D (rotateX) foi REVERTIDA — dono achou pior
+   (achatou o disco numa elipse esquisita e sumiu com o ponteiro). Fica
+   flat/circular, só maior e mais brilhante. */
 .radar-hero__disc {
-  flex: 0 0 auto; width: min(148px, 100%); aspect-ratio: 1; height: auto;
-  filter: drop-shadow(0 10px 24px color-mix(in srgb, var(--hbx-brand-strong) 22%, transparent));
+  flex: 0 0 auto; width: min(240px, 100%); aspect-ratio: 1; height: auto;
+  filter: drop-shadow(0 18px 34px color-mix(in srgb, var(--hbx-brand-strong) 30%, transparent));
+}
+.radar-hero__disc .radar-disc-wrap {
+  box-shadow:
+    0 20px 40px -14px color-mix(in srgb, var(--hbx-brand-strong) 45%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand-strong) 20%, transparent);
 }
 .radar-hero__copy { min-width: 0; display: grid; gap: 2px; justify-items: center; text-align: center; }
 .radar-hero__eyebrow { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--hbx-brand-strong); }
@@ -2422,38 +2515,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   .tabs .tab.tab--pop { animation: none !important; }
 }
 
-/* ── P7: Pulso mais forte em operationalState=funcionando ─────────────────── */
-/* Sweep mais rápido quando funcionando */
-.radar-disc-wrap--funcionando .radarMotionSweep {
-  animation-duration: 1.9s;
-}
-/* Trail mais forte */
-.radar-disc-wrap--funcionando .radarMotionTrail {
-  animation-duration: 1.9s;
-  filter: blur(6px);
-}
-/* Anel pulsante extra (ondulação) */
-.radar-disc-wrap--funcionando .radarMotionRing {
-  animation-duration: 9s;
-  animation-name: radarMotionRingPulse;
-}
-@keyframes radarMotionRingPulse {
-  0%   { transform: rotate(0deg) scale(1);    opacity: 0.8; }
-  25%  { transform: rotate(90deg) scale(1.05); opacity: 1; }
-  50%  { transform: rotate(180deg) scale(1);   opacity: 0.8; }
-  75%  { transform: rotate(270deg) scale(1.05); opacity: 1; }
-  100% { transform: rotate(360deg) scale(1);   opacity: 0.8; }
-}
-/* Disco "respira" (escala sutil) */
-.radar-disc-wrap--funcionando .radarMotionGlow {
-  animation-duration: 0.85s;
-  box-shadow: 0 0 32px var(--radar-glow);
-}
-/* Blips mais rápidos e vivos */
-.radar-disc-wrap--funcionando .radarMotionBlip {
-  animation-duration: 1.1s;
-  box-shadow: 0 0 22px var(--radar-glow);
-}
 /* Banner .radar2-live: borda pulsante quando funcionando */
 .radar2-live--funcionando {
   box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-brand-strong) 35%, transparent);
@@ -2464,11 +2525,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   50%       { box-shadow: 0 0 0 5px transparent; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .radar-disc-wrap--funcionando .radarMotionSweep { animation-duration: 3.4s; }
-  .radar-disc-wrap--funcionando .radarMotionTrail { animation-duration: 3.4s; filter: blur(8px); }
-  .radar-disc-wrap--funcionando .radarMotionRing  { animation-name: radarMotionRingSpin; animation-duration: 18s; }
-  .radar-disc-wrap--funcionando .radarMotionGlow  { animation-duration: 1.4s; box-shadow: 0 0 22px var(--radar-glow); }
-  .radar-disc-wrap--funcionando .radarMotionBlip  { animation-duration: 1.8s; }
   .radar2-live--funcionando { animation: none; box-shadow: none; }
 }
 
