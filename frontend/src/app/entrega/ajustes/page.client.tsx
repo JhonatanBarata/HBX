@@ -13,10 +13,12 @@
 // Toda cor/forma vive em entrega.css (.ent-* / A4); zero hex/inline (5 Leis).
 // ================================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
 import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFullscreen } from "@/components/casca";
+import { subscribeToThemeMode } from "@/components/hbx/shell";
+import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { clearToken } from "@/lib/api";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
@@ -90,6 +92,17 @@ export function EntregaAjustes() {
   // lazy init lê o estado real 1x (mesmo padrão de TemaSection, W5), sem
   // useEffect supérfluo.
   const [fsAtivo, setFsAtivo] = useState(() => isFullscreenActive());
+  // FIX3 (dono 06/07): "o Rota não compartilha o modo claro/escuro" — este
+  // toggle usa a MESMA setThemeMode/subscribeToThemeMode do Mais do
+  // dashboard (theme-attributes.tsx), o MESMO data-theme-mode global no
+  // <html> — nunca um 2º estado. entrega.css agora lê [data-theme-mode="dark"]
+  // (era @media prefers-color-scheme, cego ao toggle do app).
+  const modeAttr = useSyncExternalStore(
+    subscribeToThemeMode,
+    () => (typeof document !== "undefined" ? document.documentElement.getAttribute("data-theme-mode") : null),
+    () => null,
+  );
+  const escuro = modeAttr === "dark";
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -152,6 +165,10 @@ export function EntregaAjustes() {
     const ativo = await toggleCascaFullscreen();
     setFsAtivo(ativo);
   }, []);
+
+  const onToggleModo = useCallback(() => {
+    applyThemeSoft(() => setThemeMode(escuro ? "light" : "dark"));
+  }, [escuro]);
 
   return (
     <EntregaScaffold
@@ -264,21 +281,28 @@ export function EntregaAjustes() {
 
         {erro ? <div className="ent-erro">{erro}</div> : null}
 
-        {/* ── TELA CHEIA (LEI nº3 — toggle também aqui, além da oferta no
-            "Iniciar rota") ─────────────────────────────────────────────── */}
+        {/* ── TELA (LEI nº3 fullscreen + FIX3 modo claro/escuro compartilhado
+            com o dashboard — MESMO estado, nunca 2 toggles independentes) ── */}
+        <div className="ent-field-label ent-section">Tela</div>
+        <button
+          type="button"
+          className="ent-toggle"
+          onClick={onToggleModo}
+          aria-pressed={escuro}
+        >
+          <span className="ent-toggle-label">Modo escuro</span>
+          <span className={`ent-switch${escuro ? " is-on" : ""}`} aria-hidden="true" />
+        </button>
         {isFullscreenSupported() ? (
-          <>
-            <div className="ent-field-label ent-section">Tela</div>
-            <button
-              type="button"
-              className="ent-toggle"
-              onClick={() => void onToggleFullscreen()}
-              aria-pressed={fsAtivo}
-            >
-              <span className="ent-toggle-label">Tela cheia</span>
-              <span className={`ent-switch${fsAtivo ? " is-on" : ""}`} aria-hidden="true" />
-            </button>
-          </>
+          <button
+            type="button"
+            className="ent-toggle"
+            onClick={() => void onToggleFullscreen()}
+            aria-pressed={fsAtivo}
+          >
+            <span className="ent-toggle-label">Tela cheia</span>
+            <span className={`ent-switch${fsAtivo ? " is-on" : ""}`} aria-hidden="true" />
+          </button>
         ) : null}
 
         {/* ── INSTALAR APP ─────────────────────────────────────────────── */}

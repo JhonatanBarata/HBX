@@ -13,12 +13,56 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-import { Av, I, ICONS, subscribeToThemeMode } from "@/components/hbx/shell";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { Av, I, ICONS, type SignalState, subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken } from "@/lib/api";
+import { getInitialGeoState, hasStoredGeo, subscribeGeoUpdated, toggleGeoRadar } from "@/lib/geo-radar";
 
 import { CascaSheet, toggleCascaFullscreen } from "../index";
 import { companyName, displayName, fmtWhen, type MasterNotice, useMaisCurrentUser } from "./mais-types";
+
+// ---------------------------------------------------------------
+// Localização: MESMO mecanismo/estado do pin "Usar minha localização no
+// Radar" do desktop (shell.tsx ~linha 1467, geoState/toggleGeo) — reusado via
+// lib/geo-radar.ts (fonte única, nunca duplicar a lógica). Linha 52px com os
+// 3 estados visíveis (ativo verde-marca / aguardando amarelo / inativo cinza).
+// ---------------------------------------------------------------
+function LocalizacaoRow() {
+  const [geoState, setGeoState] = useState<SignalState>(getInitialGeoState());
+
+  // Pós-montagem: acende se já havia localização salva (mesmo padrão do
+  // desktop — requestAnimationFrame, não no corpo do effect).
+  useEffect(() => {
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return;
+      if (hasStoredGeo()) setGeoState("active");
+    });
+    return () => { cancelled = true; cancelAnimationFrame(id); };
+  }, []);
+
+  // Se outra tela (ex.: Buscar em Vendas) também mexer no estado global,
+  // esta linha reflete sem precisar de 2ª lógica.
+  useEffect(() => subscribeGeoUpdated(() => {
+    setGeoState(hasStoredGeo() ? "active" : "off");
+  }), []);
+
+  const label = geoState === "active" ? "Ativa" : geoState === "error" ? "Aguardando…" : "Desligada";
+
+  return (
+    <button
+      type="button"
+      className="mais-m__row"
+      onClick={() => toggleGeoRadar(geoState, setGeoState)}
+      aria-pressed={geoState === "active"}
+    >
+      <span className="mais-m__row-ico"><I d={ICONS.mapin} size={17} /></span>
+      <span className="mais-m__row-label">Localização no Radar</span>
+      <span className={"tag" + (geoState === "active" ? " teal" : geoState === "error" ? " warn" : "")}>{label}</span>
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------
 // Sub-sheet: Notificações (lê o mesmo /vendas/master-notices que o sino do
@@ -89,10 +133,16 @@ export function TemaSection() {
     () => null,
   );
   const isDark = modeAttr === "dark";
+  const modeKey = isDark ? "dark" : "light";
   // lazy init: leitura síncrona do atributo já aplicado no <html> (boot inline
   // do layout.tsx já rodou antes da hidratação) — sem useEffect, sem
   // set-state-in-effect. Troca local (escolherPele) já mantém o state em dia.
   const [pele, setPele] = useState<string>(() => (typeof document !== "undefined" ? getActivePele() : DEFAULT_PELE));
+
+  // Seleção ativa = SEMPRE Glass Pill deslizante (Lei nº2, docs/Rules/FRONTEND.md)
+  // — mesmo par hook+componente que Conversas (conversas-lista.tsx) já usa.
+  const modeGp = useGlassPill<HTMLButtonElement>(modeKey);
+  const peleGp = useGlassPill<HTMLButtonElement>(pele, PELES.length);
 
   function flipMode(next: "light" | "dark") {
     if ((next === "dark") === isDark) return;
@@ -108,15 +158,24 @@ export function TemaSection() {
     <div className="mais-m__tema">
       <div className="mais-m__tema-row">
         <span className="mais-m__tema-label">Modo</span>
-        <div className="casca-segment mais-m__mode-seg">
+        <div className="casca-segment mais-m__mode-seg glass-pill-track" role="tablist" aria-label="Modo claro ou escuro">
+          <GlassPill {...modeGp} />
           <button
-            className={"casca-segment__item" + (!isDark ? " is-on" : "")}
+            type="button"
+            role="tab"
+            aria-selected={!isDark}
+            ref={modeGp.itemRef("light")}
+            className={"casca-segment__item glass-pill-item" + (!isDark ? " is-on" : "")}
             onClick={() => flipMode("light")}
           >
             <I d={ICONS.sun} size={13} /> Claro
           </button>
           <button
-            className={"casca-segment__item" + (isDark ? " is-on" : "")}
+            type="button"
+            role="tab"
+            aria-selected={isDark}
+            ref={modeGp.itemRef("dark")}
+            className={"casca-segment__item glass-pill-item" + (isDark ? " is-on" : "")}
             onClick={() => flipMode("dark")}
           >
             <I d={ICONS.moon} size={13} /> Escuro
@@ -125,11 +184,16 @@ export function TemaSection() {
       </div>
       <div className="mais-m__tema-row">
         <span className="mais-m__tema-label">Pele</span>
-        <div className="mais-m__pele-chips">
+        <div className="mais-m__pele-chips glass-pill-track" role="tablist" aria-label="Pele">
+          <GlassPill {...peleGp} />
           {PELES.map(p => (
             <button
+              type="button"
+              role="tab"
+              aria-selected={pele === p.key}
               key={p.key}
-              className={"mais-m__pele-chip" + (pele === p.key ? " is-on" : "")}
+              ref={peleGp.itemRef(p.key)}
+              className={"mais-m__pele-chip glass-pill-item" + (pele === p.key ? " is-on" : "")}
               onClick={() => escolherPele(p.key)}
             >
               {p.label}
@@ -214,11 +278,13 @@ export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
           <TemaSection />
 
-          <button className="mais-m__row mais-m__fs" onClick={alternarTelaCheia}>
+          <button type="button" className="mais-m__row mais-m__fs" onClick={alternarTelaCheia}>
             <span className="mais-m__row-ico"><I d={ICONS.grid} size={17} /></span>
             <span className="mais-m__row-label">Tela cheia</span>
             <span className={"mais-m__fs-sw" + (fsOn ? " is-on" : "")} aria-hidden="true" />
           </button>
+
+          <LocalizacaoRow />
 
           <button className="mais-m__row is-danger mais-m__sair" onClick={() => setSairConfirm(true)}>
             <span className="mais-m__row-ico"><I d={ICONS.x} size={17} /></span>

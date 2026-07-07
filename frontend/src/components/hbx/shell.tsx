@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
@@ -1101,10 +1102,12 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     ? [botActivation.types.atendimento, botActivation.types.recovery, botActivation.types.prospeccao]
         .map(t => t.blocked).find(Boolean) || null
     : null;
-  // Localização: estado inicial SEMPRE "off" pra casar com o HTML do servidor
-  // (evita mismatch de hidratação). O valor salvo no localStorage é lido só
-  // APÓS a montagem (efeito abaixo) — nunca no 1º render do cliente.
-  const [geoState, setGeoState] = useState<SignalState>("off");
+  // Localização: fonte ÚNICA em lib/geo-radar.ts (MOBILE-CASCA/FIX3) — o
+  // mobile (folha Mais) usa exatamente a mesma toggleGeoRadar/subscribeGeoUpdated,
+  // nunca uma 2ª lógica. Estado inicial SEMPRE "off" pra casar com o HTML do
+  // servidor (evita mismatch de hidratação); o valor salvo no localStorage é
+  // lido só APÓS a montagem (efeito abaixo) — nunca no 1º render do cliente.
+  const [geoState, setGeoState] = useState<SignalState>(getInitialGeoState());
 
   // Pós-montagem: se há localização salva, acende o sinal. O setState vai dentro
   // de requestAnimationFrame (callback, não no corpo do effect) — respeita a
@@ -1113,43 +1116,13 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     let cancelled = false;
     const id = requestAnimationFrame(() => {
       if (cancelled) return;
-      try {
-        const stored = localStorage.getItem("hbx:geo");
-        if (stored) {
-          const p = JSON.parse(stored);
-          if (p?.lat && p?.lng) setGeoState("active");
-        }
-      } catch { /* sem storage */ }
+      if (hasStoredGeo()) setGeoState("active");
     });
     return () => { cancelled = true; cancelAnimationFrame(id); };
   }, []);
 
   function toggleGeo() {
-    if (geoState === "active") {
-      // desligar
-      try { localStorage.removeItem("hbx:geo"); } catch { /* sem storage */ }
-      setGeoState("off");
-      window.dispatchEvent(new CustomEvent("hbx:geo-updated", { detail: null }));
-      return;
-    }
-    if (!navigator.geolocation) {
-      setGeoState("error");
-      return;
-    }
-    setGeoState("error"); // amarelo enquanto aguarda
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const payload = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        try { localStorage.setItem("hbx:geo", JSON.stringify(payload)); } catch { /* sem storage */ }
-        setGeoState("active");
-        window.dispatchEvent(new CustomEvent("hbx:geo-updated", { detail: payload }));
-      },
-      () => {
-        setGeoState("off");
-        try { localStorage.removeItem("hbx:geo"); } catch { /* sem storage */ }
-      },
-      { timeout: 10_000 }
-    );
+    toggleGeoRadar(geoState, setGeoState);
   }
   const [bellOpen, setBellOpen] = useState(false);
   // logoff também pelo avatar (pedido do dono: o "⋮" da sidebar estava escondido)
