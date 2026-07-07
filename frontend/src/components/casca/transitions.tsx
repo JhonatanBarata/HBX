@@ -187,7 +187,6 @@ export function CascaSheet({
 }) {
   const { mounted, leaving, handleAnimEnd } = useCascaExitGate(open);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dragStartY = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -213,19 +212,6 @@ export function CascaSheet({
     } else {
       sheetRef.current?.style.setProperty("--casca-drag", "0px"); // volta pro lugar
     }
-  }, [onClose]);
-
-  useEffect(() => {
-    const button = closeButtonRef.current;
-    if (!button) return;
-
-    const handleClick = (event: MouseEvent) => {
-      event.preventDefault();
-      onClose();
-    };
-
-    button.addEventListener("click", handleClick);
-    return () => button.removeEventListener("click", handleClick);
   }, [onClose]);
 
   if (!mounted) return null;
@@ -255,7 +241,7 @@ export function CascaSheet({
           {title ? (
             <div className="casca-sheet__head">
               <h2 className="casca-sheet__title">{title}</h2>
-              <button ref={closeButtonRef} type="button" className="casca-sheet__close" aria-label="Fechar">
+              <button type="button" className="casca-sheet__close" onClick={onClose} aria-label="Fechar">
                 <I d={ICONS.x} size={18} />
               </button>
             </div>
