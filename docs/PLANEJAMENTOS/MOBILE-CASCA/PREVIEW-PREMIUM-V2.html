@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>HBX Mobile Premium Preview</title>
+  <style>
+    :root {
+      --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #eef3f8;
+      --phone: #f7f9fd;
+      --surface: rgba(255, 255, 255, .86);
+      --surface-strong: #ffffff;
+      --surface-soft: #f1f5fb;
+      --line: rgba(29, 43, 72, .11);
+      --line-strong: rgba(29, 43, 72, .17);
+      --text: #121a2b;
+      --muted: #687491;
+      --faint: #9aa5bb;
+      --brand: #087f94;
+      --brand-2: #1957d2;
+      --brand-soft: rgba(8, 127, 148, .12);
+      --brand-ring: rgba(8, 127, 148, .22);
+      --purple: #6e45d8;
+      --warning: #c98412;
+      --ok: #0b9d6a;
+      --danger: #d94a65;
+      --shadow: 0 22px 70px rgba(22, 32, 54, .16);
+      --shadow-soft: 0 12px 35px rgba(22, 32, 54, .10);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+      --top: 50px;
+      --nav: 58px;
+      --ease: cubic-bezier(.2, .75, .2, 1);
+    }
+
+    [data-theme="ember"] {
+      --phone: #fff8f2;
+      --surface: rgba(255, 255, 255, .84);
+      --surface-soft: #fff1e3;
+      --brand: #bb5f14;
+      --brand-2: #8b43d8;
+      --brand-soft: rgba(187, 95, 20, .12);
+      --brand-ring: rgba(187, 95, 20, .22);
+    }
+
+    [data-theme="noir"] {
+      --bg: #101625;
+      --phone: #111827;
+      --surface: rgba(27, 37, 57, .84);
+      --surface-strong: #172033;
+      --surface-soft: #0f1728;
+      --line: rgba(255,255,255,.09);
+      --line-strong: rgba(255,255,255,.14);
+      --text: #f6f8ff;
+      --muted: #a9b3ca;
+      --faint: #74809a;
+      --brand: #35c0d3;
+      --brand-2: #7f8cff;
+      --brand-soft: rgba(53, 192, 211, .13);
+      --brand-ring: rgba(53, 192, 211, .28);
+      --shadow: 0 24px 80px rgba(0,0,0,.36);
+      --shadow-soft: 0 12px 35px rgba(0,0,0,.24);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background:
+        radial-gradient(circle at 20% 8%, rgba(25, 87, 210, .16), transparent 30%),
+        radial-gradient(circle at 80% 0%, rgba(8, 127, 148, .18), transparent 26%),
+        linear-gradient(135deg, #dfe8f3, var(--bg));
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .preview-frame {
+      width: min(100vw, 960px);
+      height: min(100vh, 920px);
+      display: grid;
+      grid-template-columns: minmax(310px, 390px) minmax(300px, 420px);
+      gap: 28px;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .brief {
+      align-self: center;
+      max-width: 420px;
+      padding: 26px;
+      border: 1px solid rgba(255,255,255,.34);
+      border-radius: 30px;
+      background: rgba(255,255,255,.42);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 24px 80px rgba(20, 30, 54, .12);
+    }
+    [data-theme="noir"] .brief { background: rgba(20, 27, 42, .58); }
+    .brief h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -.04em; }
+    .brief p { margin: 0; color: var(--muted); line-height: 1.55; font-size: 14px; }
+    .brief .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+    .brief .note {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .brief .note b { display: block; margin-bottom: 4px; color: var(--text); font-size: 13px; }
+
+    .device {
+      width: 390px;
+      height: 844px;
+      border-radius: 44px;
+      padding: 10px;
+      background: linear-gradient(145deg, rgba(255,255,255,.6), rgba(20,31,55,.2));
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.5);
+      position: relative;
+    }
+    .device::before {
+      content: "";
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      width: 78px;
+      height: 5px;
+      border-radius: 99px;
+      transform: translateX(-50%);
+      background: rgba(85, 105, 140, .28);
+      z-index: 5;
+    }
+
+    .app {
+      height: 100%;
+      border-radius: 36px;
+      overflow: hidden;
+      position: relative;
+      display: grid;
+      grid-template-rows: var(--top) 1fr var(--nav);
+      background:
+        radial-gradient(circle at 16% -5%, var(--brand-soft), transparent 28%),
+        linear-gradient(180deg, rgba(255,255,255,.52), transparent 150px),
+        var(--phone);
+      border: 1px solid var(--line-strong);
+      isolation: isolate;
+    }
+
+    .topbar {
+      height: var(--top);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 86%, transparent);
+      backdrop-filter: blur(18px);
+      z-index: 3;
+    }
+    .brandmark {
+      width: 28px; height: 28px;
+      display: grid; place-items: center;
+      border-radius: 11px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      font-weight: 900;
+      font-size: 12px;
+      letter-spacing: -.04em;
+      box-shadow: 0 10px 24px var(--brand-ring);
+    }
+    .top-title { min-width: 0; flex: 1; }
+    .top-title b { display: block; font-size: 15px; letter-spacing: -.03em; line-height: 1.05; }
+    .top-title span { display: block; color: var(--muted); font-size: 10px; font-weight: 700; margin-top: 2px; }
+    .icon-btn {
+      width: 32px; height: 32px;
+      display: grid; place-items: center;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 14px;
+      cursor: pointer;
+      transition: transform .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease);
+    }
+    .icon-btn:active { transform: scale(.94); }
+    .icon-btn.primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; border-color: transparent; }
+
+    .stage {
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    .screen {
+      height: 100%;
+      overflow-y: auto;
+      padding: 12px 14px 18px;
+      animation: enter .34s var(--ease) both;
+      scrollbar-width: none;
+    }
+    .screen::-webkit-scrollbar { display: none; }
+    @keyframes enter { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+
+    .nav {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border-top: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      backdrop-filter: blur(18px);
+      z-index: 3;
+    }
+    .tab {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 3px;
+      font: inherit;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      position: relative;
+      transition: color .18s var(--ease), transform .18s var(--ease);
+    }
+    .tab svg { width: 20px; height: 20px; stroke-width: 1.8; }
+    .tab.is-active { color: var(--brand); }
+    .tab.is-active::before {
+      content: "";
+      position: absolute;
+      top: 6px;
+      width: 22px;
+      height: 3px;
+      border-radius: 99px;
+      background: currentColor;
+      opacity: .85;
+    }
+    .tab:active { transform: scale(.94); }
+
+    .command-card, .card, .lead-row, .company-row, .chat-head, .message-box, .more-panel, .route-card {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px);
+    }
+    .command-card {
+      border-radius: var(--radius-xl);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .between { justify-content: space-between; }
+    .stack { display: grid; gap: 10px; }
+
+    .segment {
+      height: 32px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      padding: 3px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      min-width: 132px;
+    }
+    .segment button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 850;
+      cursor: pointer;
+      transition: .2s var(--ease);
+    }
+    .segment button.is-on {
+      color: var(--text);
+      background: var(--surface-strong);
+      box-shadow: 0 7px 18px rgba(22, 32, 54, .10);
+    }
+
+    .search-pill {
+      height: 36px;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .search-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .stats-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 760;
+      letter-spacing: -.01em;
+      white-space: nowrap;
+    }
+    .stats-line b { color: var(--text); }
+    .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--faint); opacity: .6; }
+
+    .cta {
+      height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 13px 28px var(--brand-ring);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .card {
+      border-radius: var(--radius-lg);
+      padding: 14px;
+    }
+    .card h3, .card p { margin: 0; }
+    .card h3 { font-size: 13px; letter-spacing: -.02em; }
+    .card p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .big-number { margin-top: 10px; font-size: 28px; font-weight: 900; letter-spacing: -.06em; }
+    .small-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: var(--brand-soft);
+      color: var(--brand);
+      font-size: 10px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .ring {
+      width: 74px; height: 74px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      background: conic-gradient(var(--brand) 0 72%, rgba(122,132,158,.18) 72% 100%);
+      position: relative;
+      margin: 6px auto 0;
+    }
+    .ring::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--surface-strong); }
+    .ring b { position: relative; font-size: 18px; letter-spacing: -.05em; }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 10px 3px 8px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .section-title span:last-child { color: var(--brand); letter-spacing: 0; text-transform: none; }
+
+    .lead-row, .company-row {
+      min-height: 64px;
+      border-radius: 20px;
+      padding: 10px 11px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: transform .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease);
+    }
+    .lead-row:active, .company-row:active { transform: scale(.985); }
+    .avatar {
+      width: 38px; height: 38px;
+      border-radius: 15px;
+      flex: 0 0 auto;
+      display: grid; place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--purple), var(--brand-2));
+      font-weight: 900;
+      font-size: 12px;
+      letter-spacing: -.02em;
+    }
+    .avatar.teal { background: linear-gradient(135deg, var(--brand), #22a786); }
+    .main { min-width: 0; flex: 1; }
+    .name {
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: -.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .meta {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .amount {
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 950;
+      margin-right: 4px;
+      white-space: nowrap;
+    }
+    .arrow { color: var(--muted); }
+
+    .livebar {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 10px 0 12px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--brand-soft), rgba(255,255,255,.12));
+      color: var(--brand);
+      border: 1px solid var(--brand-ring);
+      font-size: 11px;
+      font-weight: 850;
+    }
+    .pulse {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--brand);
+      box-shadow: 0 0 0 0 var(--brand-ring);
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse { 70% { box-shadow: 0 0 0 12px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+    .chat-head {
+      border-radius: 24px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .message-box {
+      min-height: 600px;
+      border-radius: 26px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      background:
+        radial-gradient(circle at 20% 0%, var(--brand-soft), transparent 26%),
+        var(--surface);
+    }
+    .bubble {
+      max-width: 78%;
+      padding: 10px 12px;
+      border-radius: 18px;
+      font-size: 13px;
+      line-height: 1.35;
+      box-shadow: 0 8px 20px rgba(22,32,54,.08);
+    }
+    .bubble.me { margin-left: auto; color: #fff; background: linear-gradient(135deg, var(--brand-2), #1059c8); border-bottom-right-radius: 7px; }
+    .bubble.them { background: var(--surface-strong); border: 1px solid var(--line); border-bottom-left-radius: 7px; }
+    .time { display: block; margin-top: 5px; opacity: .72; font-size: 9.5px; font-weight: 800; text-align: right; }
+    .composer {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 42px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: var(--surface-strong);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .more-panel {
+      border-radius: 30px 30px 0 0;
+      padding: 18px 16px 22px;
+      background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
+    }
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .menu-list { margin-top: 12px; display: grid; gap: 7px; }
+    .menu-item {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 9px;
+      border-radius: 17px;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .menu-item:hover { background: var(--surface-soft); }
+    .theme-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+    .theme-chip {
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+      color: var(--muted);
+      border-radius: 999px;
+      height: 34px;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 850;
+      cursor: pointer;
+    }
+    .theme-chip.is-on { color: var(--brand); border-color: var(--brand-ring); background: var(--brand-soft); }
+
+    .sheet-veil {
+      position: absolute;
+      inset: 0;
+      background: rgba(13, 20, 33, .18);
+      z-index: 10;
+      display: grid;
+      align-items: end;
+      animation: fade .18s var(--ease) both;
+      backdrop-filter: blur(2px);
+    }
+    .sheet {
+      max-height: 90%;
+      overflow-y: auto;
+      border-radius: 30px 30px 0 0;
+      border: 1px solid var(--line-strong);
+      background: var(--surface-strong);
+      box-shadow: 0 -20px 60px rgba(18, 26, 43, .22);
+      padding: 8px 16px 18px;
+      animation: sheet .28s var(--ease) both;
+    }
+    .handle { width: 42px; height: 4px; border-radius: 99px; background: var(--line-strong); margin: 0 auto 14px; }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes sheet { from { transform: translateY(20%); } to { transform: none; } }
+
+    .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .detail-title h2 { margin: 0; font-size: 18px; letter-spacing: -.04em; line-height: 1.1; }
+    .detail-title p { margin: 5px 0 0; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+    .action-grid button {
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface-soft);
+      color: var(--text);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 850;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      cursor: pointer;
+    }
+    .field {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      gap: 10px;
+      align-items: center;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .field span { color: var(--muted); font-weight: 760; }
+    .field b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .route-card {
+      border-radius: 26px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .map {
+      height: 238px;
+      border-radius: 24px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(8,127,148,.20), transparent 35%),
+        repeating-linear-gradient(0deg, transparent 0 30px, rgba(90,105,135,.10) 30px 31px),
+        repeating-linear-gradient(90deg, transparent 0 30px, rgba(90,105,135,.10) 30px 31px),
+        var(--surface-soft);
+    }
+    .route-line {
+      position: absolute;
+      inset: 30px 44px;
+      border: 3px solid var(--brand);
+      border-left-color: transparent;
+      border-bottom-color: transparent;
+      border-radius: 48% 52% 46% 54%;
+      transform: rotate(18deg);
+      opacity: .72;
+    }
+    .pin {
+      position: absolute;
+      width: 20px; height: 20px;
+      border-radius: 50% 50% 50% 0;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      transform: rotate(-45deg);
+      box-shadow: 0 10px 20px var(--brand-ring);
+    }
+    .pin::after { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: #fff; }
+    .pin.a { left: 54px; top: 66px; }
+    .pin.b { right: 70px; top: 128px; }
+    .pin.c { left: 170px; bottom: 40px; }
+
+    .config-card { border-radius: 24px; background: var(--surface); border: 1px solid var(--line); padding: 12px; margin-bottom: 10px; }
+    .toggle {
+      width: 46px; height: 26px; border-radius: 99px; padding: 3px; background: var(--brand-soft); border: 1px solid var(--brand-ring);
+    }
+    .toggle::before { content: ""; display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--brand); margin-left: 18px; }
+
+    svg { display: block; }
+
+    @media (max-width: 760px) {
+      body { display: block; background: var(--phone); overflow: hidden; }
+      .preview-frame { width: 100vw; height: 100vh; padding: 0; display: block; }
+      .brief { display: none; }
+      .device { width: 100vw; height: 100vh; padding: 0; border-radius: 0; box-shadow: none; }
+      .device::before { display: none; }
+      .app { border-radius: 0; border: 0; }
+    }
+  </style>
+</head>
+<body data-theme="aurora">
+  <main class="preview-frame">
+    <section class="device" aria-label="Preview mobile HBX">
+      <div class="app">
+        <header class="topbar">
+          <div class="brandmark">HBX</div>
+          <div class="top-title">
+            <b id="topTitle">Vendas</b>
+            <span id="topSub">pipeline premium · mobile</span>
+          </div>
+          <button class="icon-btn" data-action="themeCycle" aria-label="Trocar tema"></button>
+          <button class="icon-btn primary" data-action="openSheet" data-sheet="quick" aria-label="Ação rápida"></button>
+        </header>
+        <section class="stage" id="stage"></section>
+        <nav class="nav" id="nav"></nav>
+        <div id="sheetHost"></div>
+      </div>
+    </section>
+
+    <aside class="brief">
+      <h2>HBX Mobile — proposta premium</h2>
+      <p>Preview clicável em HTML/CSS/JS puro. A ideia é manter a casca única do app, reduzir ruído visual e transformar Vendas, Conversas, Empresas, Rota e Mais em fluxos claros de celular.</p>
+      <div class="grid">
+        <div class="note"><b>Menos planilha</b>Cards com hierarquia, respiro e ações claras.</div>
+        <div class="note"><b>Mais app</b>Bottom sheets, nav fixa, transições e cromo curto.</div>
+        <div class="note"><b>Banco/fintech</b>Superfícies limpas, bordas finas, KPI direto.</div>
+        <div class="note"><b>Pronto para portar</b>Tokens CSS e componentes repetíveis.</div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const state = {
+      screen: 'vendas',
+      mode: 'funil',
+      theme: 'aurora',
+      selectedLead: 'solar',
+      sheet: null
+    };
+
+    const tabs = [
+      ['vendas', 'Vendas', 'vendas'],
+      ['conversas', 'Conversas', 'atend'],
+      ['empresas', 'Empresas', 'empresas'],
+      ['rota', 'Rota', 'rota'],
+      ['mais', 'Mais', 'config']
+    ];
+
+    const titles = {
+      vendas: ['Vendas', 'pipeline premium · mobile'],
+      conversas: ['Conversas', 'WhatsApp comercial · takeover'],
+      empresas: ['Empresas', 'clientes e prospects'],
+      rota: ['Rota', 'agenda externa · logística'],
+      config: ['Configurações', 'conta, equipe e aparência']
+    };
+
+    const leads = [
+      { id:'solar', av:'PS', name:'Praça São Lourenço Restaurante', meta:'restaurantes · São Paulo/SP', stage:'Novo lead', score:71, value:'R$ 0', email:'contato@pracasaolourenco.com.br', phone:'(11) 99204-0838' },
+      { id:'acl', av:'AC', name:'ACL Montenegro/Pareci Novo', meta:'energia solar · Pareci Novo/RS', stage:'Em conversa', score:62, value:'R$ 0', email:'comercial@aclenergia.com.br', phone:'(51) 99728-1190' },
+      { id:'agro', av:'AV', name:'Agropecuária Vista Alegre', meta:'agronegócio · Caiuá/SP', stage:'Lead', score:58, value:'R$ 0', email:'vendas@vistaalegre.com.br', phone:'(18) 99140-8892' }
+    ];
+
+    const radar = [
+      ['FA', 'Fumagali Advogados', 'advogados · Esperança Nova/PR'],
+      ['CS', 'Calcule sua economia', 'energia solar · Campo Bom/RS'],
+      ['SE', 'Sistema instalado em Viamão', 'energia solar · Viamão/RS'],
+      ['QS', 'Quality Soluções', 'energia solar · Porto Alegre/RS'],
+      ['AP', 'Amigão Pet Shop', 'pet shops · Tangará da Serra/MT']
+    ];
+
+    const companies = [
+      ['AV', 'AGROPECUARIA VISTA ALEGRE', 'Caiuá/SP · radar', 'LEAD'],
+      ['AU', 'ASSOCIACAO UNIAO AGROPECUARIA', 'Caiuá/SP · radar', 'LEAD'],
+      ['SL', 'Solar Prime Energia', 'Rio Claro/SP · cliente', 'CLIENTE']
+    ];
+
+    const iconPath = {
+      vendas: ['M7 17l4-6 3 3 4-7', 'M3 3v18h18'],
+      atend: ['M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2', 'M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z', 'M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z'],
+      empresas: ['M3 21h18', 'M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16', 'M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1'],
+      rota: ['M3 7h4l3 10h4l3-10h4', 'M5 21h14', 'M7 7l4-4 6 6'],
+      config: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', 'M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.1-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1c.6.5 1.3.9 2.1 1.2L10 21h4l.5-2.7a7 7 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z'],
+      search: ['M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z', 'm21 21-4.3-4.3'],
+      filter: ['M4 5h16l-6.5 7.5V19l-3 2v-8.5z'],
+      bolt: ['M13 2 4 14h6l-1 8 9-12h-6l1-8Z'],
+      plus: ['M12 5v14M5 12h14'],
+      moon: ['M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z'],
+      phone: ['M5 4h4l1.5 4.5L8 10a13 13 0 0 0 6 6l1.5-2.5L20 15v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z'],
+      mail: ['M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z', 'm3.5 7 8.5 6 8.5-6'],
+      close: ['M18 6 6 18', 'M6 6l12 12'],
+      arrow: ['M5 12h14', 'm13 6 6 6-6 6'],
+      sun: ['M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z', 'M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4']
+    };
+
+    function icon(name, size = 20) {
+      const paths = iconPath[name] || iconPath.vendas;
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${paths.map(d => `<path d="${d}"></path>`).join('')}</svg>`;
+    }
+
+    function segment() {
+      return `<div class="segment" role="tablist">
+        <button class="${state.mode === 'funil' ? 'is-on' : ''}" data-action="mode" data-mode="funil">Funil</button>
+        <button class="${state.mode === 'buscar' ? 'is-on' : ''}" data-action="mode" data-mode="buscar">Buscar</button>
+      </div>`;
+    }
+
+    function leadRow(item, teal = false) {
+      return `<article class="lead-row row" data-action="details" data-id="${item.id}">
+        <div class="avatar ${teal ? 'teal' : ''}">${item.av}</div>
+        <div class="main">
+          <div class="name">${item.name}</div>
+          <div class="meta">${item.meta} · ${item.stage}</div>
+        </div>
+        <div class="amount">${item.value}</div>
+        <div class="arrow">${icon('arrow', 17)}</div>
+      </article>`;
+    }
+
+    function renderVendas() {
+      if (state.mode === 'buscar') return renderBuscar();
+      return `<div class="screen">
+        <div class="command-card">
+          <div class="row between">
+            ${segment()}
+            <div class="row" style="gap:8px">
+              <button class="icon-btn" data-action="mode" data-mode="buscar" aria-label="Buscar">${icon('search', 16)}</button>
+              <button class="icon-btn" data-action="openSheet" data-sheet="filters" aria-label="Filtros">${icon('filter', 16)}</button>
+              <button class="icon-btn primary" data-action="openSheet" data-sheet="quick" aria-label="Adicionar">${icon('plus', 16)}</button>
+            </div>
+          </div>
+          <div class="stats-line"><b>Hoje 2</b><span class="dot"></span>Atrasados 1<span class="dot"></span>Fechados 0</div>
+        </div>
+
+        <div class="hero">
+          <div class="card">
+            <span class="small-tag">${icon('bolt', 13)} Operação pronta</span>
+            <div class="big-number">3 leads</div>
+            <p>Fila curta, ação óbvia. Cada card abre ficha completa em bottom sheet.</p>
+          </div>
+          <div class="card" style="text-align:center">
+            <h3>Score médio</h3>
+            <div class="ring"><b>71</b></div>
+          </div>
+        </div>
+
+        <div class="section-title"><span>Hoje · 2</span><span>ver filtro</span></div>
+        ${leads.slice(0,2).map((x,i) => leadRow(x, i === 0)).join('')}
+        <div class="section-title"><span>Atrasados · 1</span><span>prioridade</span></div>
+        ${leadRow(leads[2])}
+      </div>`;
+    }
+
+    function renderBuscar() {
+      return `<div class="screen">
+        <div class="command-card">
+          <div class="row">
+            ${segment()}
+            <div class="search-pill">${icon('search', 15)}<span>Cidade, segmento…</span></div>
+            <button class="icon-btn" data-action="openSheet" data-sheet="filters">${icon('filter', 16)}</button>
+          </div>
+          <div class="row between" style="margin-top:10px">
+            <div class="stats-line" style="margin:0"><b>Brasil 28.092.085</b><span class="dot"></span>Disponíveis 24<span class="dot"></span>Mês 5/5.000</div>
+            <button class="cta">${icon('bolt', 14)}Buscar</button>
+          </div>
+        </div>
+        <div class="livebar"><span class="pulse"></span> Radar pronto para buscar leads com e-mail público</div>
+        <div class="section-title"><span>Vitrine de leads</span><span>24 achados</span></div>
+        ${radar.map((r, idx) => leadRow({id:'solar', av:r[0], name:r[1], meta:r[2], stage:'Radar', value:'→'}, idx % 2 === 1)).join('')}
+      </div>`;
+    }
+
+    function renderConversas() {
+      return `<div class="screen">
+        <div class="chat-head row">
+          <div class="avatar teal">DS</div>
+          <div class="main">
+            <div class="name">Dione Subda de Jesus</div>
+            <div class="meta">+55 19 3041-897 · resposta sugerida ligada</div>
+          </div>
+          <button class="icon-btn">${icon('phone', 16)}</button>
+        </div>
+        <div class="message-box">
+          <div class="bubble me">Olá, pessoal da Top Solar. Vocês têm estrutura para absorver mais fechamentos de projetos solares este mês?<span class="time">14:44 ✓✓</span></div>
+          <div class="bubble them">Olá, recebemos seu contato. Mais breve possível vamos responder você.<span class="time">14:44</span></div>
+          <div class="bubble me">Olá, boa tarde, tudo bem?<span class="time">16:05 ✓✓</span></div>
+          <div class="bubble them">Boa tarde, tudo bem.<span class="time">17:27</span></div>
+          <div class="bubble me">Boa tarde<span class="time">14:11 ✓</span></div>
+          <div class="bubble me">Tudo bem?<span class="time">14:11 ✓</span></div>
+          <div class="composer">${icon('mail', 16)} Mensagem <span style="margin-left:auto">${icon('plus', 16)}</span></div>
+        </div>
+      </div>`;
+    }
+
+    function renderEmpresas() {
+      return `<div class="screen">
+        <div class="command-card">
+          <div class="row">
+            <div class="search-pill">${icon('search', 15)}<span>Nome, CNPJ ou cidade…</span></div>
+            <button class="cta">${icon('plus', 14)}Nova</button>
+          </div>
+          <div class="stats-line"><b>2 empresas</b><span class="dot"></span>0 clientes<span class="dot"></span>radar ativo</div>
+        </div>
+        <div class="section-title"><span>Recentes</span><span>abrir todos</span></div>
+        ${companies.map((c, i) => `<article class="company-row row" data-action="details" data-id="solar">
+          <div class="avatar ${i === 0 ? 'teal' : ''}">${c[0]}</div>
+          <div class="main"><div class="name">${c[1]}</div><div class="meta">${c[2]}</div></div>
+          <span class="small-tag">${c[3]}</span>
+          <div class="arrow">${icon('arrow', 17)}</div>
+        </article>`).join('')}
+      </div>`;
+    }
+
+    function renderRota() {
+      return `<div class="screen">
+        <div class="route-card">
+          <div class="row between" style="margin-bottom:12px">
+            <div><div class="name">Rota de hoje</div><div class="meta">4 paradas · 37 km · melhor ordem</div></div>
+            <span class="small-tag">ao vivo</span>
+          </div>
+          <div class="map"><div class="route-line"></div><div class="pin a"></div><div class="pin b"></div><div class="pin c"></div></div>
+        </div>
+        <div class="section-title"><span>Próximas visitas</span><span>otimizar</span></div>
+        ${['Top Solar Energia · 14:30', 'Praça São Lourenço · 15:20', 'ACL Montenegro · 16:40'].map((txt, i) => `<article class="lead-row row"><div class="avatar ${i===0?'teal':''}">${i+1}</div><div class="main"><div class="name">${txt.split(' · ')[0]}</div><div class="meta">${txt.split(' · ')[1]} · rota comercial</div></div><div class="arrow">${icon('arrow',17)}</div></article>`).join('')}
+      </div>`;
+    }
+
+    function renderConfig() {
+      return `<div class="screen">
+        <div class="section-title"><span>Conta</span><span></span></div>
+        ${['Perfil · jhonatan@hbxsystem.com.br', 'Conexão WhatsApp · status e conectar/desconectar', 'Membros · lista de leitura', 'Modo e pele · visual do app'].map((txt, i) => `<div class="config-card row"><div class="avatar ${i===1?'teal':''}">${['J','WA','ME','UI'][i]}</div><div class="main"><div class="name">${txt.split(' · ')[0]}</div><div class="meta">${txt.split(' · ')[1]}</div></div><div class="arrow">${icon('arrow',17)}</div></div>`).join('')}
+        <div class="section-title"><span>Aparência</span><span>tokens</span></div>
+        <div class="config-card">
+          <div class="row between"><div><div class="name">Tela cheia</div><div class="meta">remove moldura do navegador no mobile real</div></div><div class="toggle"></div></div>
+          <div class="theme-row">
+            <button class="theme-chip ${state.theme==='aurora'?'is-on':''}" data-action="theme" data-theme="aurora">Aurora</button>
+            <button class="theme-chip ${state.theme==='ember'?'is-on':''}" data-action="theme" data-theme="ember">Ember</button>
+            <button class="theme-chip ${state.theme==='noir'?'is-on':''}" data-action="theme" data-theme="noir">Noir</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderSheet() {
+      if (!state.sheet) return '';
+      if (state.sheet === 'more') return moreSheet();
+      if (state.sheet === 'filters') return filterSheet();
+      if (state.sheet === 'quick') return quickSheet();
+      if (state.sheet === 'details') return detailSheet();
+      return '';
+    }
+
+    function wrapSheet(content) {
+      return `<div class="sheet-veil" data-action="closeSheet"><section class="sheet" onclick="event.stopPropagation()"><div class="handle"></div>${content}</section></div>`;
+    }
+
+    function moreSheet() {
+      return wrapSheet(`<div class="profile">
+        <div class="avatar">J</div><div class="main"><div class="name">Jhonatan</div><div class="meta">HBX · operação mobile</div></div>
+        <button class="icon-btn" data-action="closeSheet">${icon('close', 16)}</button>
+      </div>
+      <div class="menu-list">
+        <div class="menu-item">${icon('mail', 18)} Notificações <span style="margin-left:auto">${icon('arrow',16)}</span></div>
+        <div class="menu-item">${icon('vendas', 18)} Relatórios <span style="margin-left:auto">${icon('arrow',16)}</span></div>
+        <div class="menu-item">${icon('atend', 18)} Tutorial <span style="margin-left:auto">${icon('arrow',16)}</span></div>
+        <div class="menu-item" data-action="tab" data-screen="config">${icon('config', 18)} Configurações <span style="margin-left:auto">${icon('arrow',16)}</span></div>
+      </div>
+      <div class="theme-row">
+        <button class="theme-chip ${state.theme==='aurora'?'is-on':''}" data-action="theme" data-theme="aurora">Aurora</button>
+        <button class="theme-chip ${state.theme==='ember'?'is-on':''}" data-action="theme" data-theme="ember">Ember</button>
+        <button class="theme-chip ${state.theme==='noir'?'is-on':''}" data-action="theme" data-theme="noir">Noir</button>
+      </div>`);
+    }
+
+    function filterSheet() {
+      return wrapSheet(`<div class="detail-head"><div class="detail-title"><h2>Filtros do Radar</h2><p>Escolha cidade, segmento e qualidade mínima.</p></div><button class="icon-btn" data-action="closeSheet">${icon('close',16)}</button></div>
+      ${['Cidade · Rio Claro/SP', 'Segmento · Energia solar', 'Somente com e-mail · Ativado', 'Score mínimo · 60/100'].map(x => `<div class="field"><span>${x.split(' · ')[0]}</span><b>${x.split(' · ')[1]}</b></div>`).join('')}
+      <button class="cta" style="width:100%;justify-content:center;margin-top:14px">${icon('bolt',14)}Aplicar e buscar</button>`);
+    }
+
+    function quickSheet() {
+      return wrapSheet(`<div class="detail-head"><div class="detail-title"><h2>Ação rápida</h2><p>Entrada curta, sem tela pesada.</p></div><button class="icon-btn" data-action="closeSheet">${icon('close',16)}</button></div>
+      <div class="action-grid">
+        <button>${icon('plus',16)}Lead</button><button>${icon('atend',16)}Conversa</button><button>${icon('rota',16)}Rota</button>
+      </div>
+      <div class="livebar"><span class="pulse"></span> Sugestão: ligar para o lead com score mais alto.</div>`);
+    }
+
+    function detailSheet() {
+      const item = leads.find(x => x.id === state.selectedLead) || leads[0];
+      return wrapSheet(`<div class="detail-head"><div class="detail-title"><h2>${item.name}</h2><p>${item.meta}</p></div><button class="icon-btn" data-action="closeSheet">${icon('close',16)}</button></div>
+        <div class="row" style="gap:16px;margin-bottom:12px">
+          <div class="avatar teal" style="width:58px;height:58px;border-radius:22px;font-size:18px">${item.av}</div>
+          <div class="main"><span class="small-tag">${item.stage}</span><div class="meta" style="margin-top:8px">Score de oportunidade</div></div>
+          <div class="ring" style="width:68px;height:68px"><b>${item.score}</b></div>
+        </div>
+        <div class="field"><span>Telefone</span><b>${item.phone}</b></div>
+        <div class="field"><span>E-mail</span><b>${item.email}</b></div>
+        <div class="field"><span>Valor</span><b>${item.value}</b></div>
+        <div class="action-grid"><button>${icon('atend',16)}WhatsApp</button><button>${icon('mail',16)}E-mail</button><button>${icon('phone',16)}Ligar</button></div>`);
+    }
+
+    function renderNav() {
+      return tabs.map(([key, label, ic]) => {
+        const active = key === 'mais' ? state.sheet === 'more' || state.screen === 'config' : state.screen === key;
+        const attr = key === 'mais' ? 'data-action="openSheet" data-sheet="more"' : `data-action="tab" data-screen="${key}"`;
+        return `<button class="tab ${active ? 'is-active' : ''}" ${attr}>${icon(ic, 20)}<span>${label}</span></button>`;
+      }).join('');
+    }
+
+    function render() {
+      document.body.dataset.theme = state.theme;
+      const screenTitle = titles[state.screen] || titles.vendas;
+      document.getElementById('topTitle').textContent = screenTitle[0];
+      document.getElementById('topSub').textContent = screenTitle[1];
+      document.querySelector('[data-action="themeCycle"]').innerHTML = state.theme === 'noir' ? icon('sun', 16) : icon('moon', 16);
+      document.querySelector('[data-action="openSheet"][data-sheet="quick"]').innerHTML = icon('plus', 16);
+
+      const screens = { vendas: renderVendas, conversas: renderConversas, empresas: renderEmpresas, rota: renderRota, config: renderConfig };
+      document.getElementById('stage').innerHTML = (screens[state.screen] || renderVendas)();
+      document.getElementById('nav').innerHTML = renderNav();
+      document.getElementById('sheetHost').innerHTML = renderSheet();
+    }
+
+    document.addEventListener('click', (event) => {
+      const el = event.target.closest('[data-action]');
+      if (!el) return;
+      const action = el.dataset.action;
+      if (action === 'tab') {
+        state.screen = el.dataset.screen;
+        state.sheet = null;
+      }
+      if (action === 'mode') {
+        state.mode = el.dataset.mode;
+        state.screen = 'vendas';
+      }
+      if (action === 'openSheet') state.sheet = el.dataset.sheet;
+      if (action === 'closeSheet') state.sheet = null;
+      if (action === 'details') {
+        state.selectedLead = el.dataset.id;
+        state.sheet = 'details';
+      }
+      if (action === 'theme') state.theme = el.dataset.theme;
+      if (action === 'themeCycle') {
+        state.theme = state.theme === 'aurora' ? 'ember' : state.theme === 'ember' ? 'noir' : 'aurora';
+      }
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
