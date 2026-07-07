@@ -39,12 +39,13 @@ export const CASCA_TABS: Tab[] = [
   { key: "atend", label: "Conversas", href: "/atendimento", icon: "atend", navId: "atend" },
   { key: "empresas", label: "Empresas", href: "/empresas", icon: "empresas", navId: "empresas" },
   // Rota = módulo Logística (app /entrega). Gate = navId "logistica" (mesmo do
-  // desktop). href /entrega (skin própria, W6).
+  // desktop). href /entrega (skin própria, W6). NÃO é destino de swipe (é
+  // OUTRO app/casca própria — entrada só pelo toque; mobile-shell filtra).
   { key: "rota", label: "Rota", href: "/entrega", icon: "logistica", navId: "logistica" },
   // "Mais" nunca é gated — é a folha de tudo que não coube nas 4 abas. href
   // fica só como fallback de acessibilidade/SSR; o clique é interceptado (abre
   // sheet) antes de navegar de verdade. NÃO é destino de swipe (mobile-shell
-  // filtra por tab.key !== "mais").
+  // filtra por key "mais"/"rota").
   { key: "mais", label: "Mais", href: "/configuracoes", icon: "config" },
 ];
 const TABS = CASCA_TABS;

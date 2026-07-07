@@ -50,13 +50,14 @@ function titleFor(pathname: string): string {
 }
 
 // ============================================================
-// FIX5 — SWIPE horizontal entre ABAS (Vendas ↔ Conversas ↔ Empresas ↔ Rota).
+// FIX5 — SWIPE horizontal entre ABAS do app central (Vendas ↔ Conversas ↔
+// Empresas).
 //
 // Fonte única da ordem: CASCA_TABS (tab-bar.tsx) filtrado por
 // isCascaTabVisible (mesmo gate isModuleVisible da tab bar — zero duplicação).
-// "Mais" NUNCA é destino de swipe (abre sheet, não é aba-tela); o ciclo para
-// na última tela visível — swipe não empurra pro /entrega (entra só pelo toque
-// no ícone Rota, que é "outro app/casca própria").
+// "Mais" NUNCA é destino de swipe (abre sheet, não é aba-tela) e "Rota"
+// TAMBÉM não (é OUTRO app, /entrega, casca própria — regra do dono: entrada
+// só pelo toque deliberado no ícone); o ciclo para na última tela central.
 //
 // Limiares: dispara só com |dx| ≥ SWIPE_MIN_PX (~64px) E ângulo claramente
 // horizontal (|dx| > 2×|dy|) — nunca rouba o scroll vertical da lista. Solto
@@ -90,12 +91,18 @@ function isHorizontalScrollAncestor(el: Element | null): boolean {
   return false;
 }
 
-/** Ordem visível das abas-tela (exclui "mais", que não é destino de swipe). */
+/**
+ * Ordem visível das abas-tela DO APP CENTRAL (exclui "mais", que abre sheet,
+ * e "rota", que é outro app /entrega com casca própria — entrada só pelo
+ * toque no ícone; o ciclo de swipe para na última tela central).
+ */
 function useSwipeableTabHrefs(): string[] {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
-  return CASCA_TABS.filter((t) => t.key !== "mais" && isCascaTabVisible(t, ent, user, mods)).map((t) => t.href);
+  return CASCA_TABS
+    .filter((t) => t.key !== "mais" && t.key !== "rota" && isCascaTabVisible(t, ent, user, mods))
+    .map((t) => t.href);
 }
 
 function useModuleSwipe(pathname: string) {
