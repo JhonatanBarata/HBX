@@ -18,7 +18,8 @@ import {
   MASTER_WHATSAPP_ENGINE_COMPANY_NAME,
   MASTER_WHATSAPP_ENGINE_COMPANY_SLUG,
 } from './master-whatsapp-company.constants';
-import { COMPANY_KIND_PLATFORM_INFRA } from '../common/company-kind';
+import { COMPANY_KIND_PLATFORM_INFRA, isPlatformInfraCompany } from '../common/company-kind';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import {
   buildProvisioningLedger,
   seedTenantDefaultProductsTx,
@@ -50,6 +51,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     private readonly mail: MailService,
     private readonly conversations: ConversationsService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
   async onModuleInit() {
@@ -1453,6 +1455,19 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.company.delete({ where: { id } });
     });
 
+    // Caso company-26 (07/07): a cascata acima apaga o banco do APP, mas o MOTOR webwhats é
+    // outro banco — sem este wipe a instância continua viva (chip conectado), invisível a
+    // qualquer painel e ressuscitada pelo auto-connect a cada restart. Best-effort pós-commit:
+    // a empresa já não existe; falha aqui não desfaz a exclusão, só exige limpeza manual.
+    try {
+      const wipe = await this.webwhatsBridge.wipeMotorInstance(id);
+      this.logger.warn(`hard-delete company=${id}: motor wipe logout=${wipe.loggedOut} delete=${wipe.deleted}`);
+    } catch (error) {
+      this.logger.error(
+        `hard-delete company=${id}: falha ao derrubar instancias no MOTOR — risco de instancia fantasma; limpar via DELETE /instance/logout+delete (company-${id} e company-${id}-user-*). ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     return {
       success: true,
       deletedCompany: {
@@ -1490,28 +1505,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       }
 
       const scheduledCompanyIds = Array.from(scheduledByCompanyId.keys());
-      if (scheduledCompanyIds.length) {
-        const restoredCompanies = await this.prisma.company.findMany({
-          where: {
-            id: { in: scheduledCompanyIds },
-            users: { some: {} },
-          },
-          select: { id: true },
-        });
-
-        const restoredIds = new Set(restoredCompanies.map((company) => Number(company.id)));
-        if (restoredIds.size > 0) {
-          await this.prisma.deletionRecord.deleteMany({
-            where: {
-              id: {
-                in: scheduledRows
-                  .filter((row) => restoredIds.has(Number(row.entityId || 0)))
-                  .map((row) => Number(row.id)),
-              },
-            },
-          });
-        }
-      }
 
       const orphanCompanies = await this.prisma.company.findMany({
         where: {
@@ -1523,13 +1516,64 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           status: true,
           isActive: true,
           deactivatedAt: true,
+          companyKind: true,
         },
       });
+
+      // Caso company-26 (07/07): "sem usuários" NÃO significa lixo. A empresa de infra da
+      // plataforma (WhatsApp do Master, companyKind=platform_infra) não tem usuários POR
+      // DESIGN, e empresa com chip WhatsApp ativo está viva. O cleanup deletou a empresa
+      // do chip do master e deixou instância fantasma no motor. Protegidas: nunca agendar,
+      // nunca executar, e desagendar/reativar se já estiverem na fila.
+      const protectionCandidateIds = Array.from(
+        new Set([...scheduledCompanyIds, ...orphanCompanies.map((company) => Number(company.id || 0))].filter(Boolean)),
+      );
+      const activeChipRows = protectionCandidateIds.length
+        ? await this.prisma.whatsAppConnectionSession.findMany({
+            where: { companyId: { in: protectionCandidateIds }, status: 'active' },
+            select: { companyId: true },
+          })
+        : [];
+      const companyIdsWithActiveChip = new Set(activeChipRows.map((row) => Number(row.companyId)));
+
+      if (scheduledCompanyIds.length) {
+        const scheduledCompanies = await this.prisma.company.findMany({
+          where: { id: { in: scheduledCompanyIds } },
+          select: { id: true, status: true, isActive: true, companyKind: true, users: { select: { id: true }, take: 1 } },
+        });
+
+        for (const company of scheduledCompanies) {
+          const companyId = Number(company.id || 0);
+          if (!companyId) continue;
+          const protectedByUsers = company.users.length > 0;
+          const protectedByKind = isPlatformInfraCompany(company);
+          const protectedByChip = companyIdsWithActiveChip.has(companyId);
+          if (!protectedByUsers && !protectedByKind && !protectedByChip) continue;
+
+          const scheduled = scheduledByCompanyId.get(companyId);
+          if (!scheduled) continue;
+          await this.prisma.deletionRecord.deleteMany({ where: { id: scheduled.id } });
+          scheduledByCompanyId.delete(companyId);
+
+          // O agendamento suspendeu a empresa; desfaz o estado que ELE deixou (módulos
+          // desabilitados ficam a cargo do painel — não dá pra saber quais estavam ligados).
+          if (company.status === 'suspended' && company.isActive === false) {
+            await this.prisma.company.update({
+              where: { id: companyId },
+              data: { status: 'active', statusChangedAt: new Date(), isActive: true, deactivatedAt: null },
+            });
+          }
+          this.logger.warn(
+            `Orphan cleanup: agendamento cancelado company=${companyId} (users=${protectedByUsers} infra=${protectedByKind} chip=${protectedByChip})`,
+          );
+        }
+      }
 
       const graceCutoff = new Date(Date.now() - this.orphanCompanyGraceDays() * 24 * 60 * 60 * 1000);
       for (const company of orphanCompanies) {
         const companyId = Number(company.id || 0);
         if (!companyId) continue;
+        if (isPlatformInfraCompany(company) || companyIdsWithActiveChip.has(companyId)) continue;
 
         const scheduled = scheduledByCompanyId.get(companyId);
         if (!scheduled) {

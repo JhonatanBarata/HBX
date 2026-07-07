@@ -22,7 +22,7 @@ test('getOrCreateMasterWhatsAppEngineCompany creates only technical platform_inf
       },
     }),
   };
-  const service = new CompaniesService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+  const service = new CompaniesService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any);
 
   const company = await service.getOrCreateMasterWhatsAppEngineCompany();
 
