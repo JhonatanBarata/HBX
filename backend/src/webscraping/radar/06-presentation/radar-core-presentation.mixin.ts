@@ -2626,9 +2626,32 @@ export class RadarCorePresentationMixin {
   // multi-telefones capturados. 1 request por lote; degrada p/ [] se o motor não estiver no ar.
   protected async radarCheckWhatsappNumbers(
     numbers: Array<string | null | undefined>,
+    requesterCompanyId?: number,
   ) {
+    if (!this.webwhatsBridge) return [];
+    // Regra do dono (07/07): o check usa o chip da PRÓPRIA empresa solicitante quando ela tem
+    // sessão ativa — distribui o volume pela frota e tira o chip do master do papel de
+    // verificador único da plataforma. Sem sessão ativa (ou falha na chamada) cai pro engine
+    // do master, o comportamento de sempre. A checagem prévia no banco evita abrir o disjuntor
+    // GLOBAL do zap-check por causa de empresa que simplesmente não tem chip conectado.
+    const requesterId = Number(requesterCompanyId || 0) || null;
+    if (requesterId) {
+      const hasActiveSession = await (this.prisma as any).whatsAppConnectionSession
+        .findFirst({
+          where: { companyId: requesterId, provider: 'webwhats', status: 'active' },
+          select: { id: true },
+        })
+        .catch(() => null);
+      if (hasActiveSession) {
+        try {
+          return await this.webwhatsBridge.checkWhatsappNumbers(requesterId, numbers);
+        } catch {
+          /* sessão caiu entre o SELECT e o check → segue pro engine do master */
+        }
+      }
+    }
     const engineId = await this.resolveRadarWhatsappEngineCompanyId();
-    if (!engineId || !this.webwhatsBridge) return [];
+    if (!engineId) return [];
     return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers);
   }
 
@@ -2666,6 +2689,7 @@ export class RadarCorePresentationMixin {
     try {
       const lookupResults = await this.radarCheckWhatsappNumbers(
         safeItems.map((item) => item?.phoneDigits || item?.phone || null),
+        Number(context?.companyId || 0) || undefined,
       );
       const byPhone = new Map<string, boolean>();
       for (const result of lookupResults || []) {
