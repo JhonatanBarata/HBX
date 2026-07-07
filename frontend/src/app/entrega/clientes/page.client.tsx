@@ -76,21 +76,41 @@ const DIAS_SEMANA: Array<{ n: number; label: string }> = [
   { n: 7, label: "Dom" },
 ];
 
+/** Máscara de telefone BR formando AO VIVO enquanto digita: "(85) 90000-0000". */
+function fmtTelefone(v: string): string {
+  const d = v.replace(/\D+/g, "").slice(0, 11);
+  if (d.length === 0) return "";
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
 export function EntregaClientes() {
   const [view, setView] = useState<View>({ tela: "lista" });
+  // Bump ao salvar → a lista re-busca sozinha (não precisa recarregar a página).
+  const [reloadKey, setReloadKey] = useState(0);
+  const fechar = useCallback((mudou?: boolean) => {
+    setView({ tela: "lista" });
+    if (mudou) setReloadKey((k) => k + 1);
+  }, []);
 
   return (
     <EntregaScaffold title="Clientes">
-      <ClienteLista onNovo={() => setView({ tela: "editor", id: null })} onAbrir={(id) => setView({ tela: "editor", id })} />
+      <ClienteLista
+        reloadKey={reloadKey}
+        onNovo={() => setView({ tela: "editor", id: null })}
+        onAbrir={(id) => setView({ tela: "editor", id })}
+      />
 
       {/* MOBILE-CASCA/W6 — o editor empilha por CIMA da lista com IR/VOLTAR
           (CascaView), nunca troca de tela seco. */}
       {view.tela === "editor" ? (
         <CascaView
           title={view.id ? "Editar cliente" : "Novo cliente"}
-          onClose={() => setView({ tela: "lista" })}
+          onClose={() => fechar(false)}
         >
-          <ClienteEditor id={view.id} onSair={() => setView({ tela: "lista" })} />
+          <ClienteEditor id={view.id} onSair={fechar} />
         </CascaView>
       ) : null}
     </EntregaScaffold>
@@ -98,7 +118,7 @@ export function EntregaClientes() {
 }
 
 // ── LISTA + BUSCA ────────────────────────────────────────────────────────────
-function ClienteLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (id: string) => void }) {
+function ClienteLista({ reloadKey, onNovo, onAbrir }: { reloadKey: number; onNovo: () => void; onAbrir: (id: string) => void }) {
   const [busca, setBusca] = useState("");
   const [itens, setItens] = useState<ClienteListItem[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -115,10 +135,11 @@ function ClienteLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (id: s
   }, []);
 
   // Busca com debounce simples (300ms) — não martela o backend a cada tecla.
+  // `reloadKey` na dependência: ao voltar de um cadastro salvo, re-busca sozinha.
   useEffect(() => {
     const t = setTimeout(() => void carregar(busca), busca ? 300 : 0);
     return () => clearTimeout(t);
-  }, [busca, carregar]);
+  }, [busca, carregar, reloadKey]);
 
   return (
     <>
@@ -180,7 +201,7 @@ function ClienteLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (id: s
 }
 
 // ── EDITOR (criar / editar) — 1 coluna, app-like ─────────────────────────────
-function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }) {
+function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boolean) => void }) {
   const editando = id != null;
   const [carregando, setCarregando] = useState<boolean>(editando);
   const [salvando, setSalvando] = useState(false);
@@ -231,8 +252,8 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
         const [c, cps] = await Promise.all([getCliente(id), listClienteProdutos(id)]);
         if (!vivo) return;
         setNome(c.name || "");
-        setWhatsapp(c.whatsapp || "");
-        setWhatsappOriginal(c.whatsapp || "");
+        setWhatsapp(fmtTelefone(c.whatsapp || ""));
+        setWhatsappOriginal(fmtTelefone(c.whatsapp || ""));
         // O backend guarda o endereço como um texto só (rua, nº - bairro). Na
         // edição ele volta inteiro pro campo "Endereço"; número/bairro ficam
         // vazios e só se preenchem se o usuário refizer a busca por CEP/GPS.
@@ -382,7 +403,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
         await salvarFinanceiro(contaId, financeiro);
       }
 
-      onSair();
+      onSair(true);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao salvar");
       setSalvando(false);
@@ -410,7 +431,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
 
         <label className="ent-field">
           <span className="ent-field-label">WhatsApp</span>
-          <input className="ent-input" type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(85) 90000-0000" />
+          <input className="ent-input" type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(fmtTelefone(e.target.value))} placeholder="(85) 90000-0000" />
         </label>
 
         {/* CEP — a porta de entrada: digitou 8 dígitos, o endereço se preenche. */}
