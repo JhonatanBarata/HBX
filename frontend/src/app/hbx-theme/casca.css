@@ -497,9 +497,13 @@
 }
 
 /* ============================================================
-   CASCA LOADING — carregamento padrão da casca (ordem do dono 06/07).
-   Marca HBX no centro + anel multi-cor (gradiente cônico) que ENCHE de 0→100%.
-   Acabamento 3D: glow suave, sombra interna, brilho. Cores SÓ por token
+   CASCA LOADING — carregamento padrão da casca (ordem do dono 06/07,
+   revisão 06/07 "carrega-zera"/"claro horrível"/"nem aparece direito").
+   Marca HBX no centro + anel multi-cor (gradiente cônico). Determinado
+   (prop value) ENCHE de 0→100% de verdade; indeterminado faz uma VARREDURA
+   ÚNICA que sobe e SEGURA em ~90% (nunca reseta pra 0 — sem loop, como
+   nprogress). Acabamento 3D: glow, sombra interna, borda — hub sempre com
+   contraste real sobre o canvas (claro e dark). Cores SÓ por token
    (--casca-ring-* nascem no skeleton, a pele veste). É O loading de tela/ação
    da casca; skeleton de linhas continua valendo só dentro de listas.
    ============================================================ */
@@ -572,7 +576,10 @@
     inset 0 1px 2px var(--casca-ring-glow),
     inset 0 -1px 3px var(--casca-ring-track);
 }
-/* miolo elevado (disco) onde a marca fica — dá profundidade */
+/* miolo elevado (disco) onde a marca fica — dá profundidade. Não depende só de
+   --shadow-sm (no esqueleto cru ele é transparente): a borda + o par
+   glow/track (sempre vivos, claro e dark) garantem o "descolar" do canvas
+   mesmo antes da pele vestir sombra de verdade. */
 .casca-loading__hub {
   position: relative;
   z-index: 1;
@@ -584,8 +591,13 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: var(--surface-card);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--casca-ring-track);
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface-card));
+  border: 1px solid var(--border-hairline);
+  box-shadow:
+    var(--shadow-sm),
+    0 6px 16px -8px var(--casca-ring-glow),
+    inset 0 1px 0 var(--casca-ring-track),
+    inset 0 -6px 10px -8px var(--casca-ring-track);
 }
 /* WORDMARK = logotipo, não texto default (ordem do dono): fonte geométrica
    bold (Sora, já no layout.tsx), tracking apertado, chevron » em destaque
@@ -626,25 +638,28 @@
   color: var(--text-muted);
 }
 
-/* modo INDETERMINADO: a MARCA NUNCA GIRA — só o preenchimento do anel enche em
-   loop (0→100%, easing) e o hub dá um pulso sutil de escala ao completar, com
-   ~1s de respiro antes de recomeçar. Nada nesta regra roda `transform:rotate`. */
+/* modo INDETERMINADO (ordem do dono 06/07: "decida — tempo certo OU se comporta
+   como ferramenta de loading de verdade, tipo nprogress do YouTube"): VARREDURA
+   ÚNICA, monotônica, nunca reseta pra 0 ("carrega-zera" morreu). Sobe rápido,
+   desacelera (ease-out) e SEGURA em ~90% esperando a tela terminar — quem some
+   o loader é o React (troca pro conteúdo real), nunca uma animação em loop.
+   A MARCA NUNCA GIRA — nada aqui roda `transform:rotate`. */
 .casca-loading__ring.is-indeterminate::after {
-  animation: casca-ring-fill-loop 2.6s var(--casca-motion-ease) infinite;
+  animation: casca-ring-fill-sweep 1.6s var(--casca-motion-ease) both;
+  animation-fill-mode: forwards;
 }
+/* respiro único e sutil no hub ao "pegar embalo" — não é loop infinito */
 .casca-loading__ring.is-indeterminate .casca-loading__hub {
-  animation: casca-hub-breathe 2.6s var(--casca-motion-ease) infinite;
+  animation: casca-hub-breathe 1.6s var(--casca-motion-ease) both;
 }
-@keyframes casca-ring-fill-loop {
+@keyframes casca-ring-fill-sweep {
   0%   { --casca-fill: 0deg; }
-  62%  { --casca-fill: 360deg; }
-  77%  { --casca-fill: 360deg; }
-  100% { --casca-fill: 360deg; }
+  100% { --casca-fill: 324deg; } /* ~90% — segura ali, nunca volta a 0 */
 }
 @keyframes casca-hub-breathe {
-  0%, 58%  { transform: scale(1); }
-  62%      { transform: scale(1.045); }
-  70%, 100% { transform: scale(1); }
+  0%   { transform: scale(0.985); }
+  55%  { transform: scale(1.03); }
+  100% { transform: scale(1); }
 }
 /* @property deixa o --casca-fill interpolar de verdade (sem pulo) no progresso */
 @property --casca-fill {
@@ -659,14 +674,24 @@
 
 /* ---------- acessibilidade ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .casca-view--enter, .casca-view--leave,
-  .casca-sheet, .casca-sheet.is-leaving,
-  .casca-sheet-veil, .casca-sheet-veil.is-leaving,
-  .casca-toast, .casca-toast.is-leaving {
+  /* ENTRADA: sem lifecycle dependente do fim da animação — pode ficar parada. */
+  .casca-view--enter,
+  .casca-sheet, .casca-sheet-veil, .casca-toast {
     animation: none !important;
   }
+  /* SAÍDA: o fecho (useCascaExitGate / CascaView) só desmonta no `animationend`
+     da própria camada saindo. Zerar a animação aqui impediria o evento de
+     disparar e a folha travaria aberta pra sempre sob reduced-motion (bug ao
+     vivo, dono, 06/07). Mantemos a keyframe de saída mas quase-instantânea:
+     sem movimento perceptível, `animationend` dispara e o fecho completa. */
+  .casca-view--leave,
+  .casca-sheet.is-leaving,
+  .casca-sheet-veil.is-leaving,
+  .casca-toast.is-leaving {
+    animation-duration: 0.01s !important;
+  }
   .casca-loading__ring.is-indeterminate {
-    --casca-fill: 300deg;
+    --casca-fill: 324deg;
   }
   .casca-loading__ring.is-indeterminate::after,
   .casca-loading__ring.is-indeterminate .casca-loading__hub {

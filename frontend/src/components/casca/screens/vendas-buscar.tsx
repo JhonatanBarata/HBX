@@ -13,11 +13,30 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { apiFetch } from "@/lib/api";
+import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS } from "@/lib/brazil-cities";
+import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
 
 import { CascaLoading } from "../loading";
 import { CascaSheet } from "../transitions";
+import { CascaPickerSheet, type CascaPickerGroup } from "./casca-picker-sheet";
 import { NegocioSheet } from "./negocio-sheet";
 import { ModoSegment, type Modo } from "./vendas";
+
+// Cidade: seletor em cascata (UF → cidade). O state `city` COMMITADO continua
+// sendo só o nome da cidade — a UF é estado local do controle, só pra saber
+// qual lista mostrar (contrato de busca/loadList intocado).
+const UF_GROUPS: CascaPickerGroup[] = [{ label: "", options: BRAZIL_UF_OPTIONS.map((o) => ({ value: o.value, label: o.label })) }];
+
+function cityGroupsForUf(uf: string | null): CascaPickerGroup[] {
+  if (!uf) return [];
+  const cities = BRAZIL_CITIES_BY_UF[uf] || [];
+  return [{ label: "", options: cities.map((c) => ({ value: c, label: c })) }];
+}
+
+const SEGMENT_GROUPS: CascaPickerGroup[] = RADAR_SEGMENT_CATEGORIES.map((c) => ({
+  label: c.label,
+  options: c.segments.map((s) => ({ value: s, label: s })),
+}));
 
 type LeadsResponse = {
   items: RadarLead[];
@@ -57,6 +76,14 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("");
   const [filtrosOpen, setFiltrosOpen] = useState(false);
+
+  // Controle do picker de Cidade em cascata: `cityUf` é só estado LOCAL (não
+  // vai pro contrato de busca) — decide qual lista de cidades mostrar. `ufPickerOpen`
+  // e `cityPickerOpen` abrem sheets aninhadas por cima da folha Filtros.
+  const [cityUf, setCityUf] = useState<string | null>(null);
+  const [ufPickerOpen, setUfPickerOpen] = useState(false);
+  const [cityPickerOpen, setCityPickerOpen] = useState(false);
+  const [segmentPickerOpen, setSegmentPickerOpen] = useState(false);
 
   const [items, setItems] = useState<RadarLead[]>([]);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
@@ -306,9 +333,29 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
       >
         <div className="vnd-m__filters">
           <label className="vnd-m__filter-label">Cidade</label>
-          <input className="field-dark" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Ex.: Curitiba" />
+          <button
+            type="button"
+            className="casca-picker-field"
+            onClick={() => setUfPickerOpen(true)}
+          >
+            <span className={city ? "" : "casca-picker-field__placeholder"}>
+              {city ? (cityUf ? `${city}/${cityUf}` : city) : "Escolha o estado e a cidade"}
+            </span>
+            <I d={ICONS.arrow} size={14} />
+          </button>
+
           <label className="vnd-m__filter-label">Segmento</label>
-          <input className="field-dark" value={segment} onChange={(e) => setSegment(e.target.value)} placeholder="Ex.: Clínica odontológica" />
+          <button
+            type="button"
+            className="casca-picker-field"
+            onClick={() => setSegmentPickerOpen(true)}
+          >
+            <span className={segment ? "" : "casca-picker-field__placeholder"}>
+              {segment || "Escolha ou digite um segmento"}
+            </span>
+            <I d={ICONS.arrow} size={14} />
+          </button>
+
           <button
             type="button"
             className="btn-teal vnd-m__filter-apply"
@@ -318,6 +365,41 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
           </button>
         </div>
       </CascaSheet>
+
+      {/* Cidade — cascata: primeiro UF, depois cidade daquela UF. `city` commitado
+          continua string simples (nome da cidade); `cityUf` só decide a lista. */}
+      <CascaPickerSheet
+        open={ufPickerOpen}
+        title="Estado"
+        groups={UF_GROUPS}
+        value={cityUf || ""}
+        onSelect={(uf) => { setCityUf(uf); setUfPickerOpen(false); setCityPickerOpen(true); }}
+        onClose={() => setUfPickerOpen(false)}
+        searchPlaceholder="Buscar estado…"
+      />
+      <CascaPickerSheet
+        open={cityPickerOpen}
+        title={cityUf ? `Cidade — ${cityUf}` : "Cidade"}
+        groups={cityGroupsForUf(cityUf)}
+        value={city}
+        onSelect={(c) => setCity(c)}
+        onClose={() => setCityPickerOpen(false)}
+        searchPlaceholder="Buscar cidade…"
+      />
+
+      {/* Segmento — agrupado por categoria, com digitar livre (nicho fora da
+          lista precisa poder confirmar o texto digitado). */}
+      <CascaPickerSheet
+        open={segmentPickerOpen}
+        title="Segmento"
+        groups={SEGMENT_GROUPS}
+        value={segment}
+        onSelect={(s) => setSegment(s)}
+        onClose={() => setSegmentPickerOpen(false)}
+        allowFreeText
+        searchPlaceholder="Buscar ou digitar segmento…"
+        freeTextLabel="Usar"
+      />
     </div>
   );
 }

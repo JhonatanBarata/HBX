@@ -19,9 +19,17 @@
 //   • <CascaSheet>      — bottom sheet central (handle + arrastar-pra-fechar).
 // ============================================================
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
+
+// Fallback do fecho: maior duração de motion usada nas camadas da casca
+// (--casca-motion-dur = 220ms hoje) + buffer generoso. Blinda contra
+// `animationend` que não dispara (reduced-motion mal pego por algum caminho,
+// aba em background, keyframe removida etc.) — sem isso a folha trava aberta
+// pra sempre (bug ao vivo, dono, 06/07). Puramente uma rede de segurança: o
+// caminho normal continua sendo o `animationend`, que cancela este timer.
+const CASCA_EXIT_FALLBACK_MS = 500;
 
 // ---------------------------------------------------------------
 // useCascaExitGate — o coração: abrir monta na hora (anima entrada); fechar
@@ -56,6 +64,16 @@ export function useCascaExitGate(open: boolean, onClosed?: () => void) {
     });
   }, [onClosed]);
 
+  // Rede de segurança: se `animationend` não vier (ver nota no topo do
+  // arquivo), o timeout força o mesmo desfecho. Roda só enquanto phase==="out";
+  // limpo no cleanup pra não disparar depois de já ter fechado por evento ou
+  // de o usuário ter reaberto.
+  useEffect(() => {
+    if (phase !== "out") return;
+    const timer = setTimeout(handleAnimEnd, CASCA_EXIT_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [phase, handleAnimEnd]);
+
   return { mounted: phase !== "gone", leaving: phase === "out", handleAnimEnd };
 }
 
@@ -82,6 +100,14 @@ export function CascaView({
   // segurar a saída quando `requestClose` roda.
   const [closing, setClosing] = useState(false);
   const requestClose = useCallback(() => setClosing(true), []);
+
+  // Mesma rede de segurança do gate: se o `onAnimationEnd` da própria camada
+  // não disparar, força o `onClose` depois do tempo de motion + buffer.
+  useEffect(() => {
+    if (!closing) return;
+    const timer = setTimeout(onClose, CASCA_EXIT_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [closing, onClose]);
 
   // fecho por gesto de voltar do browser/hardware seria plugado aqui (W7);
   // por ora só o botão/seta chama requestClose.

@@ -4653,6 +4653,97 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-m__filter-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
 .vnd-m__filter-apply { margin-top: var(--space-2); }
 
+/* ---------- campo-seletor (abre CascaPickerSheet) — mesma pele do field-dark,
+   mas é <button> (abre picker), não <input> de texto livre. ---------- */
+.casca-picker-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+  text-align: left;
+  cursor: pointer;
+}
+.casca-picker-field:active { opacity: 0.85; }
+.casca-picker-field__placeholder { color: var(--text-muted); }
+
+/* ---------- CascaPickerSheet — picker seletivo buscável (Cidade/Segmento em
+   Vendas→Buscar hoje; genérico pra qualquer lista simples ou agrupada). ---------- */
+.casca-picker { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; }
+.casca-picker__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-muted);
+}
+.casca-picker__search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--casca-text-body);
+  outline: none;
+}
+.casca-picker__freetext {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+  font-size: var(--casca-text-sub);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+.casca-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.casca-picker__group { display: flex; flex-direction: column; gap: var(--space-1); }
+.casca-picker__group-label {
+  padding: var(--space-2) var(--space-2) 0;
+  font-size: 0.68rem;
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.casca-picker__opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-body);
+  font-size: var(--casca-text-body);
+  text-align: left;
+  cursor: pointer;
+}
+.casca-picker__opt.is-on { color: var(--hbx-brand-strong); font-weight: var(--weight-bold); }
+.casca-picker__empty { margin: var(--space-2) 0; color: var(--text-muted); font-size: var(--casca-text-sub); }
+
 /* ============================================================
    MODO FOCO — takeover da casca (CascaView), 1 card por vez, swipe ←/→.
    Nasce de novo (W0 deletou o VendasModoFoco velho); layout mínimo digno.
@@ -4933,6 +5024,81 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .cvs-m__novo-submit { margin-top: var(--space-2); }
 .cvs-m__filter-label { font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--text-muted); }
 .cvs-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
+
+/* faixa de aviso acionável: agora é <button>, abre a folha de conexão por
+   código de pareamento (docs/Rules/WHATSAPP.md — motor só é tocado dentro da
+   folha, com poll limitado). Mesma moldura visual de .cvs-m__faixa, só troca
+   de <div role=status> pra <button> — reset nativo do <button> zerado aqui. */
+.cvs-m__faixa-btn {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+.cvs-m__faixa-btn:active { opacity: 0.85; }
+.cvs-m__faixa-cta {
+  flex: 0 0 auto;
+  font-size: var(--casca-text-label);
+  font-weight: var(--weight-bold);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   Folha "Conexão WhatsApp" (whatsapp-conectar-sheet.tsx) — reusa o fluxo
+   canônico (src/lib/whatsapp-connection-flow.ts), mesma lógica do modal
+   desktop (whatsapp-connect-modal.tsx). Código é o método PADRÃO no mobile
+   (sem câmera pra escanear a própria tela); QR fica secundário. Só classes
+   centrais (5 Leis) — zero hex/inline.
+   ============================================================ */
+.wa-conectar { display: flex; flex-direction: column; gap: var(--space-3); }
+.wa-conectar__status { display: flex; align-items: center; gap: var(--space-2); }
+.wa-conectar__phone { font-family: var(--font-mono); font-size: var(--casca-text-sub); color: var(--text-muted); }
+.wa-conectar__msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); line-height: var(--leading-body); }
+.wa-conectar__err { margin: 0; font-size: var(--casca-text-sub); font-weight: var(--weight-bold); color: var(--hbx-danger); }
+.wa-conectar__boot { margin: 0; font-size: var(--casca-text-sub); font-weight: var(--weight-bold); }
+.wa-conectar__boot.is-ok { color: var(--hbx-brand-strong); }
+.wa-conectar__boot.is-err { color: var(--hbx-danger); }
+.wa-conectar__lasterror { margin: 0; font-size: var(--casca-text-label); color: var(--hbx-danger); }
+
+.wa-conectar__seg { justify-self: start; }
+
+.wa-conectar__code, .wa-conectar__qr { display: flex; flex-direction: column; gap: var(--space-2); }
+.wa-conectar__codebox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.wa-conectar__codebig {
+  font-size: calc(var(--casca-text-title) * 1.6);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.2em;
+}
+.wa-conectar__center { text-align: center; }
+
+.wa-conectar__qrbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-strong);
+  background: var(--hbx-surface-soft);
+}
+.wa-conectar__qrimg {
+  width: 220px;
+  height: 220px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: var(--space-2);
+}
+
+.wa-conectar__connected { display: flex; flex-direction: column; gap: var(--space-3); }
+.wa-conectar__mono { font-family: var(--font-mono); font-size: var(--casca-text-label); }
 
 /* ============================================================
    CHAT — takeover da casca (CascaView monta isto dentro do stack layer;

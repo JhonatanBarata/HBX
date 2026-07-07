@@ -30,6 +30,7 @@ import {
   isNovaConversa,
   type InboxConversation,
 } from "./conversas-types";
+import { WhatsAppConectarSheet } from "./whatsapp-conectar-sheet";
 
 type Tab = "todas" | "naolidas" | "bot";
 // "meu"/"todos" — SÓ existe pra quem é admin/gestor do tenant (mesma fonte de
@@ -71,6 +72,11 @@ export function ConversasLista({
   // fallback /companies/me/whatsapp-modal/status via fetchWhatsAppModalStatus
   // — aqui só o health, mais leve; mesma fonte do selo do desktop).
   const [chipStatus, setChipStatus] = useState<string | null>(null);
+  // Folha de conexão (código de pareamento / QR) — aberta pela faixa de aviso
+  // quando o chip está desconectado/reconectando. onConnected recarrega
+  // conversas+health (reload bump abaixo).
+  const [conectarOpen, setConectarOpen] = useState(false);
+  const [reloadBump, setReloadBump] = useState(0);
 
   // Papel: MESMA fonte que o /atendimento desktop usa (useCurrentUser +
   // isTenantAdmin) — vendedor nunca vê o chip Todos|Meus, admin/gestor vê.
@@ -105,7 +111,7 @@ export function ConversasLista({
     void load();
     const t = setInterval(load, 10000);
     return () => { alive = false; clearInterval(t); };
-  }, []);
+  }, [reloadBump]);
 
   useEffect(() => {
     let alive = true;
@@ -121,7 +127,11 @@ export function ConversasLista({
     void loadHealth();
     const t = setInterval(loadHealth, 20000);
     return () => { alive = false; clearInterval(t); };
-  }, []);
+  }, [reloadBump]);
+
+  // Ao conectar pela folha: reconsulta conversas + health (mesmo padrão dos
+  // efeitos acima, só troca a dependência pra forçar o re-fetch imediato).
+  const handleConectado = () => setReloadBump(n => n + 1);
 
   if (loading) return <CascaLoading caption="Carregando conversas…" />;
 
@@ -147,12 +157,18 @@ export function ConversasLista({
   const chipFaixaMsg = chipStatus && !chipOk ? whatsappPillLabel(chipStatus) : null;
 
   return (
+    <>
     <div className="cvs-m__body">
       {chipFaixaMsg ? (
-        <div className="cvs-m__faixa" role="status">
+        <button
+          type="button"
+          className="cvs-m__faixa cvs-m__faixa-btn"
+          onClick={() => setConectarOpen(true)}
+        >
           <span className="cvs-m__faixa-dot" aria-hidden="true" />
           <span className="cvs-m__faixa-text">WhatsApp {chipFaixaMsg.toLowerCase()} — mensagens podem não sair.</span>
-        </div>
+          <span className="cvs-m__faixa-cta">Conectar</span>
+        </button>
       ) : null}
 
       {/* FIX4: painel de comando único (.casca-command, casca.css) — mesmo
@@ -248,5 +264,12 @@ export function ConversasLista({
         </div>
       )}
     </div>
+
+    <WhatsAppConectarSheet
+      open={conectarOpen}
+      onClose={() => setConectarOpen(false)}
+      onConnected={handleConectado}
+    />
+    </>
   );
 }

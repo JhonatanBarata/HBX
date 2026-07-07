@@ -8,7 +8,13 @@
 //   • Anel ao redor que ENCHE de 0→100%, multi-cor (gradiente cônico), com
 //     acabamento 3D (glow, sombra interna, brilho) — nada de spinner genérico.
 //   • 2 modos: PROGRESSO real (prop value 0–100, % no centro) e INDETERMINADO
-//     (enche em loop com easing quando a tela não sabe o progresso).
+//     (varredura ÚNICA que sobe e segura em ~90%, sem loop — ver casca.css).
+//
+// REVISÃO 06/07 (queixa do dono: "carrega-zera", "claro horrível", "nem
+// aparece direito"): o loop de reset morreu (agora é varredura única, CSS) e
+// aqui entra o ANTI-FLASH — o loader só é renderizado depois de um pequeno
+// atraso montado; telas que resolvem antes disso nunca chegam a piscar o
+// loader na tela.
 //
 // É o loading de TELA/AÇÃO da casca; skeleton de linhas continua valendo só
 // dentro de listas. Usado nas trocas de rota da casca (MobileShell) e
@@ -17,6 +23,11 @@
 // ============================================================
 
 import React from "react";
+
+// Atraso antes do loader aparecer (anti-flash). Trocas de tela que resolvem
+// mais rápido que isso nunca chegam a mostrar loader nenhum — "nem aparece
+// direito" virava um flash de 1 frame; agora só aparece se a espera for real.
+const CASCA_LOADING_APPEAR_DELAY_MS = 180;
 
 // Wordmark HBX = LOGOTIPO (não texto default, ordem do dono): duplo-chevron »
 // colorido (herda --hbx-brand-strong via .casca-loading__chevron) + "HBX" em
@@ -38,7 +49,7 @@ export function CascaLoading({
   caption,
   overlay = false,
 }: {
-  /** 0–100 = progresso real (mostra %). undefined = indeterminado (loop). */
+  /** 0–100 = progresso real (mostra %). undefined = indeterminado (varredura única, segura em ~90%). */
   value?: number;
   /** legenda curta opcional sob a marca (ex.: "Carregando vendas…"). */
   caption?: string;
@@ -49,6 +60,15 @@ export function CascaLoading({
   const pct = determinate ? Math.max(0, Math.min(100, Math.round(value as number))) : 0;
   // ângulo de preenchimento do anel (360deg = 100%)
   const fill = determinate ? `${(pct / 100) * 360}deg` : undefined;
+
+  // Anti-flash: só decide "pode aparecer" depois do atraso. Se a tela some
+  // antes disso (unmount), o timeout nunca dispara e o loader nunca piscou.
+  const [canAppear, setCanAppear] = React.useState(false);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setCanAppear(true), CASCA_LOADING_APPEAR_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+  if (!canAppear) return null;
 
   return (
     <div
