@@ -43,9 +43,16 @@
   --enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* derivados de vidro — recalculam sozinhos com pele/modo (5 Leis):
-     linha = tinta diluída; painel = superfície translúcida; flare = marca */
+     linha = tinta diluída; painel = superfície translúcida; flare = marca.
+     PERF (dono 07/07 "ficou pesado"): os painéis GRANDES (.side/.main) não
+     usam backdrop-filter — vidro deles é o par --mod-chrome-* mais OPACO
+     (a translucidez leve dá o efeito sem re-blur por frame); blur de vidro
+     de verdade fica só em superfície PEQUENA/transiente (modal/pop/sheet/
+     topo/dock mobile). GPU fraca (GTX 550 Ti) rasteriza blur em software. */
   --mod-line: color-mix(in srgb, var(--hbx-foreground) 14%, transparent);
   --mod-line-strong: color-mix(in srgb, var(--hbx-foreground) 24%, transparent);
+  --mod-chrome-hi: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
+  --mod-chrome-lo: color-mix(in srgb, var(--hbx-surface) 76%, transparent);
   --mod-glass-hi: color-mix(in srgb, var(--hbx-surface) 62%, transparent);
   --mod-glass-lo: color-mix(in srgb, var(--hbx-surface) 40%, transparent);
   --mod-glass-recessed: color-mix(in srgb, var(--hbx-surface-soft) 52%, transparent);
@@ -53,14 +60,11 @@
   --mod-glow: color-mix(in srgb, var(--hbx-brand-strong) 45%, transparent);
 }
 
-/* ---- Entrada de página (o app-page/hbx-page leem os tokens acima) ------- */
+/* ---- Entrada de página (o app-page/hbx-page leem os tokens acima) -------
+   PERF: blur de entrada 6px (10px em página inteira engasgava GPU fraca). */
 @keyframes hbx-enter-modern {
-  from { opacity: 0; transform: translate3d(26px, 0, 0) scale(0.99); filter: blur(10px); }
+  from { opacity: 0; transform: translate3d(26px, 0, 0) scale(0.99); filter: blur(6px); }
   to { opacity: 1; transform: none; filter: none; }
-}
-@keyframes casca-modern-grid {
-  from { background-position: 0 0; }
-  to { background-position: 0 300px; }
 }
 
 /* ============================================================
@@ -83,7 +87,10 @@
 /* .casca já é position:fixed (não sobrescrever com relative) */
 [data-casca="modern"] .casca { position: fixed; }
 
-/* grade em perspectiva (o "chão" do mockup) */
+/* grade em perspectiva (o "chão" do mockup).
+   PERF: ESTÁTICA de propósito — a animação de background-position do mockup
+   forçava re-raster do fundo a cada frame E re-blur de todo vidro por cima
+   (era ISSO que travava). Fundo parado = pinta 1x e vira textura. */
 [data-casca="modern"] .app::before,
 [data-casca="modern"] .casca::before {
   content: "";
@@ -98,7 +105,6 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 70%, transparent 92%);
   mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 70%, transparent 92%);
   opacity: 0.32;
-  animation: casca-modern-grid 26s linear infinite;
   pointer-events: none;
 }
 
