@@ -315,6 +315,16 @@ export type DetalhesNegocioProps = {
    * thread cheio (Atendimento) pode passar `showConversation={false}` para suprimir.
    */
   showConversation?: boolean;
+
+  /**
+   * Agenda embutida do lead (pedido do dono, item 2 da revisão — "mover
+   * agenda pra dentro do card já puxado"). Quando `true`, renderiza a lista de
+   * compromissos (Atividades) do lead + criação já vinculada, usando
+   * `/atividades/lead/:leadId` (endpoint que já existia, nunca consumido por
+   * nenhuma tela). Exige `detail.id` = id do VendasLead — por isso é opt-in
+   * (default `false`): Atendimento/Leads/casca continuam idênticos.
+   */
+  showAgenda?: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1046,6 +1056,248 @@ export function ConversationPanel({
   );
 }
 
+// ── AgendaLeadPanel — compromissos do LEAD embutidos na ficha (item 2 da
+// revisão do dono, 07/07): "mover agenda pra dentro do card já puxado". Não é
+// a agenda GLOBAL do vendedor (isso mora em /agenda, tela própria) — aqui é só
+// os compromissos DESTE lead, com criação já vinculada (sem digitar ID).
+// Endpoints já existiam prontos pra isso e nunca tinham sido consumidos por
+// nenhuma tela (comentário original do controller: "usado no detalhe do lead
+// — WORM-11"): GET /atividades/lead/:leadId, POST /atividades, POST
+// /atividades/:id/concluir (1 tap + resultado sim|nao|remarcar, igual à tela
+// /agenda), DELETE /atividades/:id. Zero endpoint novo.
+
+type DnAtividade = {
+  id: string;
+  leadId: string;
+  tipo: string;
+  titulo: string;
+  vencimento: string | null;
+  duracao: number | null;
+  diaInteiro: boolean;
+  realizadaEm: string | null;
+  resultado: string | null;
+  pendente: boolean;
+  atrasada: boolean;
+  criadaPor: string;
+};
+
+const AGENDA_TIPOS = ["ligacao", "reuniao", "visita", "mensagem"] as const;
+// Mesmo mapa de /agenda (TIPO_META) — ícone + rótulo por tipo de atividade.
+const AGENDA_TIPO_META: Record<string, { label: string; icon: keyof typeof ICONS }> = {
+  ligacao: { label: "Ligação", icon: "atend" },
+  reuniao: { label: "Reunião", icon: "users" },
+  visita: { label: "Visita", icon: "search" },
+  mensagem: { label: "Mensagem", icon: "msg" },
+};
+const AGENDA_RESULT_LABEL: Record<string, string> = {
+  sim: "Atendeu", nao: "Não atendeu", remarcar: "Remarcado", outro: "Outro",
+};
+
+// input datetime-local → ISO (mantém o fuso local do vendedor) — mesmo helper de /agenda.
+function localInputToIso(v: string): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function defaultVencInput(): string {
+  const d = new Date();
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function AgendaLeadPanel({ leadId }: { leadId: string }) {
+  const [items, setItems] = useState<DnAtividade[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const [novaOpen, setNovaOpen] = useState(false);
+  const [novaTitulo, setNovaTitulo] = useState("");
+  const [novaTipo, setNovaTipo] = useState<string>("ligacao");
+  const [novaVenc, setNovaVenc] = useState(defaultVencInput());
+  const [novaBusy, setNovaBusy] = useState(false);
+  const [novaError, setNovaError] = useState<string | null>(null);
+
+  const [concluindoId, setConcluindoId] = useState<string | null>(null);
+  const [remarcarInput, setRemarcarInput] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ ok?: boolean; atividades?: DnAtividade[] }>(
+        `/atividades/lead/${encodeURIComponent(leadId)}`,
+      );
+      setItems(Array.isArray(res?.atividades) ? res!.atividades! : []);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Não foi possível carregar a agenda deste lead.");
+      setItems(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [leadId]);
+
+  // IIFE async: load() só faz setState após o await (react-hooks/set-state-in-effect).
+  useEffect(() => { void (async () => { await load(); })(); }, [load]);
+
+  async function criar() {
+    if (novaBusy) return;
+    setNovaError(null);
+    const titulo = novaTitulo.trim();
+    const iso = localInputToIso(novaVenc);
+    if (!titulo) { setNovaError("Informe o título."); return; }
+    if (!iso) { setNovaError("Data inválida."); return; }
+    setNovaBusy(true);
+    try {
+      await apiFetch("/atividades", {
+        method: "POST",
+        body: JSON.stringify({ leadId, titulo, tipo: novaTipo, vencimento: iso }),
+      });
+      setNovaTitulo("");
+      setNovaTipo("ligacao");
+      setNovaVenc(defaultVencInput());
+      setNovaOpen(false);
+      setMsg("✓ Atividade criada.");
+      await load();
+    } catch (err) {
+      setNovaError(err instanceof Error ? err.message : "Não foi possível criar a atividade.");
+    } finally {
+      setNovaBusy(false);
+    }
+  }
+
+  async function concluir(item: DnAtividade, resultado: "sim" | "nao" | "remarcar") {
+    if (busyId) return;
+    if (resultado === "remarcar" && !remarcarInput) { setMsg("Escolha a nova data para remarcar."); return; }
+    setBusyId(item.id);
+    setMsg(null);
+    try {
+      const body: Record<string, unknown> = { resultado };
+      if (resultado === "remarcar") body.remarcarPara = localInputToIso(remarcarInput);
+      await apiFetch(`/atividades/${encodeURIComponent(item.id)}/concluir`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setConcluindoId(null);
+      setRemarcarInput("");
+      await load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível concluir.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remover(item: DnAtividade) {
+    if (busyId) return;
+    setBusyId(item.id);
+    setMsg(null);
+    try {
+      await apiFetch(`/atividades/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Não foi possível remover.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const pendentes = (items || [])
+    .filter(a => a.pendente)
+    .sort((a, b) => String(a.vencimento || "").localeCompare(String(b.vencimento || "")));
+  const concluidas = (items || [])
+    .filter(a => !a.pendente)
+    .sort((a, b) => String(b.realizadaEm || "").localeCompare(String(a.realizadaEm || "")));
+
+  function renderItem(item: DnAtividade, done: boolean) {
+    const meta = AGENDA_TIPO_META[item.tipo] || AGENDA_TIPO_META.ligacao;
+    const aberto = concluindoId === item.id;
+    return (
+      <div key={item.id} className={"dn-agenda__item" + (item.atrasada ? " is-late" : "") + (done ? " is-done" : "")}>
+        <div className="dn-agenda__item-top">
+          <span className="dn-agenda__item-tipo"><I d={ICONS[meta.icon]} size={11} /> {meta.label}</span>
+          <span className="dn-agenda__item-when">{fmtDateTime(done ? item.realizadaEm : item.vencimento)}</span>
+          {item.atrasada && <span className="tag red">Atrasada</span>}
+          {done && item.resultado && <span className="tag teal">{AGENDA_RESULT_LABEL[item.resultado] || item.resultado}</span>}
+        </div>
+        <span className="dn-agenda__item-title">{item.titulo}</span>
+        {!done && (aberto ? (
+          <div className="dn-agenda__concluir">
+            <div className="dn-agenda__concluir-btns">
+              <button type="button" className="btn-result btn-result--ok" onClick={() => concluir(item, "sim")} disabled={busyId === item.id}>Sim</button>
+              <button type="button" className="btn-result btn-result--cold" onClick={() => concluir(item, "nao")} disabled={busyId === item.id}>Não</button>
+              <button type="button" className="btn-result" onClick={() => concluir(item, "remarcar")} disabled={busyId === item.id}>Remarcar</button>
+            </div>
+            <div className="dn-agenda__remarcar">
+              <input type="datetime-local" className="field-dark" value={remarcarInput} onChange={e => setRemarcarInput(e.target.value)} aria-label="Nova data" />
+              <button type="button" className="btn-ghost btn-xs" onClick={() => { setConcluindoId(null); setRemarcarInput(""); }} disabled={busyId === item.id}>Cancelar</button>
+            </div>
+          </div>
+        ) : (
+          <div className="dn-agenda__item-acts">
+            <button type="button" className="btn-teal btn-xs" onClick={() => { setConcluindoId(item.id); setRemarcarInput(""); setMsg(null); }} disabled={busyId === item.id}>
+              <I d={ICONS.check} size={11} /> Concluir
+            </button>
+            <button type="button" className="btn-ghost btn-xs danger" onClick={() => remover(item)} disabled={busyId === item.id}>Remover</button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dn-agenda">
+      <div className="dn-agenda__head">
+        <span className="dn-section-head"><I d={ICONS.clock} size={11} /> Agenda</span>
+        <button type="button" className="dn-agenda__add" onClick={() => setNovaOpen(o => !o)}>
+          {novaOpen ? "Cancelar" : "+ Atividade"}
+        </button>
+      </div>
+
+      {novaOpen && (
+        <div className="dn-agenda__form">
+          <div className="dn-agenda__form-row">
+            <select className="field-dark" value={novaTipo} onChange={e => setNovaTipo(e.target.value)} aria-label="Tipo de atividade">
+              {AGENDA_TIPOS.map(t => <option key={t} value={t}>{AGENDA_TIPO_META[t].label}</option>)}
+            </select>
+            <input type="datetime-local" className="field-dark" value={novaVenc} onChange={e => setNovaVenc(e.target.value)} aria-label="Vencimento" />
+          </div>
+          <input className="field-dark" maxLength={160} placeholder="Título (ex.: Ligar para fechar)" value={novaTitulo} onChange={e => setNovaTitulo(e.target.value)} />
+          {novaError && <span className="ctx-msg err">{novaError}</span>}
+          <button type="button" className="btn-teal btn-xs" onClick={() => void criar()} disabled={novaBusy}>
+            {novaBusy ? "Criando…" : "Criar atividade"}
+          </button>
+        </div>
+      )}
+
+      {msg && <span className={"ctx-msg " + (msg.startsWith("✓") ? "ok" : "err")}>{msg}</span>}
+
+      {loading ? (
+        <span className="dn-skel dn-skel-md dn-skel-w60" />
+      ) : loadError ? (
+        <p className="muted-note">{loadError}</p>
+      ) : pendentes.length === 0 && concluidas.length === 0 ? (
+        <p className="muted-note">Nenhum compromisso ainda.</p>
+      ) : (
+        <>
+          {pendentes.length > 0 && <div className="dn-agenda__list">{pendentes.map(item => renderItem(item, false))}</div>}
+          {concluidas.length > 0 && (
+            <>
+              <button type="button" className="dn-history-toggle" onClick={() => setShowDone(o => !o)}>
+                {showDone ? "Ocultar concluídas" : `Ver concluídas (${concluidas.length})`}
+              </button>
+              {showDone && <div className="dn-agenda__list">{concluidas.map(item => renderItem(item, true))}</div>}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 export function DetalhesNegocio({
@@ -1074,6 +1326,7 @@ export function DetalhesNegocio({
   historyLabel = "Histórico",
   kvExtra,
   showConversation = true,
+  showAgenda = false,
   onDelete,
   // compat props not used in render (kept for API compat)
   waPhone: _waPhone,
@@ -1945,6 +2198,14 @@ export function DetalhesNegocio({
           {showConversation && !loading && n.phone && (
             <div className="dn-zone dn-zone--convo">
               <ConversationPanel key={n.phone} phone={n.phone} name={n.name} />
+            </div>
+          )}
+
+          {/* ── Agenda do lead embutida (item 2 da revisão, 07/07) ──────
+              Compromissos deste card + criação já vinculada, sem sair da ficha. */}
+          {showAgenda && !loading && (
+            <div className="dn-zone dn-zone--agenda">
+              <AgendaLeadPanel key={n.id} leadId={n.id} />
             </div>
           )}
 

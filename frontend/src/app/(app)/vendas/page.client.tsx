@@ -1292,6 +1292,7 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
+                showAgenda
                 crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.id]} /> : undefined}
                 onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
