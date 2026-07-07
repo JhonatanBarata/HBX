@@ -1,64 +1,68 @@
 /* ============================================================
-   DESIGN SYSTEM ENTREGA — pele mobile ISOLADA do app do entregador
+   DESIGN SYSTEM ENTREGA — camada mobile do app do entregador
    docs/PLANEJAMENTOS/LOGISTICA-MOBILE/PLANO.md · seções 2 / 2b / M1
 
-   POR QUE UM ARQUIVO À PARTE (decisão do dono 04/07):
-   As peles do dashboard (aurora/ember/rose/cyber) são desktop-first e
-   ficam ruins no celular. O app de entrega NÃO usa nenhuma delas. Tudo
-   aqui é escopado em [data-skin="entrega"] — as peles velhas NÃO vazam
-   pra dentro (imune até ao PeleSwitch, que troca [data-theme] no <html>).
+   COR AGORA VEM DO TEMA (ordem do dono 07/07 noite: "injetar a casca e
+   temas novos nas telas da logística — elas têm cores próprias e não
+   acompanham os temas. Refatore TUDO"): os tokens --ent-* deixaram de
+   ser uma paleta verde própria e viraram ALIASES do contrato --hbx-* da
+   pele ativa. Trocou o tema no seletor (Aurora/Ember/Rosé/HBX Mod) →
+   Rota/Clientes/Produtos/Ajustes acompanham, claro e escuro automáticos
+   (data-theme/data-theme-mode vivem no <html>, herdados aqui). A casca
+   MODERN também entra de graça: o /entrega monta a raiz .casca central
+   (EntregaScaffold) e casca-modern.css a veste. Isto SUBSTITUI a decisão
+   de 04/07 ("pele isolada, imune ao PeleSwitch") — não reintroduzir hex
+   próprio aqui.
 
-   AS 5 LEIS continuam: este é um arquivo de TOKEN/pele (o único lugar
-   onde a Lei permite hex). check-pele reconhece 'entrega.css' na lista
-   de arquivos-de-pele isentos (CSS_ALLOWED). TSX do app fica limpo:
-   só usa as classes .ent-* e as CSS vars daqui.
+   AS 5 LEIS continuam: TSX do app fica limpo (só classes .ent-* e as
+   CSS vars daqui); estrutura/métrica local segue nos tokens abaixo.
 
    Mobile-first COMPACTO (dono 07/07: "letra IMENSA, reduz em TODAS as
    telas do /entrega"): tipo base 15px, títulos 19/22, número 25px, grade
    de 8, radius 11-18, alvos 44/50, cards full-bleed, transições 180-240ms
-   com curva spring, safe-area. Claro de ALTO CONTRASTE por default + escuro
-   automático à noite. NÃO reinflar a escala — a densidade veio de pedido
-   direto do dono; o "entregador no sol" se resolve por CONTRASTE, não tamanho.
+   com curva spring, safe-area. NÃO reinflar a escala.
    ============================================================ */
 
-/* ---------- TOKENS · claro alto contraste (default) ---------- */
+/* ---------- TOKENS · aliases do contrato de pele (claro E escuro:
+   os --hbx-* já trocam sozinhos com [data-theme]/[data-theme-mode]) ---------- */
 [data-skin="entrega"] {
-  /* Cor: marca / ações (verde entrega, alto contraste no sol) */
-  --ent-brand: #0F7A3D;
-  --ent-brand-strong: #0A5C2D;
-  --ent-brand-soft: #E4F5EA;
-  --ent-on-brand: #FFFFFF;
-  --ent-accent: #0B6BCB;
+  /* Cor: marca / ações (par primary→action-ink = mesmo contrato de
+     contraste do .btn-teal de cada pele) */
+  --ent-brand: var(--hbx-primary);
+  --ent-brand-strong: var(--hbx-brand-strong);
+  --ent-brand-soft: var(--hbx-brand-soft);
+  --ent-on-brand: var(--hbx-action-ink);
+  --ent-accent: var(--hbx-secondary);
 
   /* Cor: status */
-  --ent-success: #0F7A3D;
-  --ent-warning: #B45309;
-  --ent-danger: #C2213A;
-  --ent-info: #0B6BCB;
+  --ent-success: var(--hbx-success);
+  --ent-warning: var(--hbx-warning);
+  --ent-danger: var(--hbx-danger);
+  --ent-info: var(--hbx-info);
 
   /* Cor: superfícies */
-  --ent-canvas: #F4F6F8;
-  --ent-surface: #FFFFFF;
-  --ent-surface-soft: #EEF1F4;
-  --ent-surface-raised: #FFFFFF;
-  --ent-overlay: rgba(9, 18, 28, 0.52);
+  --ent-canvas: var(--hbx-background);
+  --ent-surface: var(--hbx-surface);
+  --ent-surface-soft: var(--hbx-surface-soft);
+  --ent-surface-raised: var(--hbx-surface-raised);
+  --ent-overlay: var(--hbx-overlay);
 
   /* Cor: texto / linhas */
-  --ent-ink: #0C1420;
-  --ent-ink-soft: #3A4656;
-  --ent-ink-muted: #6B7684;
-  --ent-hairline: #DCE2E8;
-  --ent-line-strong: #C2CAD3;
+  --ent-ink: var(--hbx-foreground);
+  --ent-ink-soft: var(--hbx-foreground-soft);
+  --ent-ink-muted: var(--hbx-muted);
+  --ent-hairline: var(--border-hairline);
+  --ent-line-strong: var(--border-strong);
 
-  /* Chips */
-  --ent-chip-surface: #EEF1F4;
-  --ent-chip-ink: #26313F;
-  --ent-chip-on-surface: #D5EAF9;
-  --ent-chip-on-ink: #0B4E86;
+  /* Chips (ligado = par soft/strong da marca da pele) */
+  --ent-chip-surface: var(--hbx-surface-soft);
+  --ent-chip-ink: var(--hbx-foreground-soft);
+  --ent-chip-on-surface: var(--hbx-brand-soft);
+  --ent-chip-on-ink: var(--hbx-brand-strong);
 
-  /* Fonte (herda os webfonts já carregados no layout raiz) */
-  --ent-font: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
-  --ent-font-num: "Sora", "Plus Jakarta Sans", system-ui, sans-serif;
+  /* Fonte = a da pele (mesmos webfonts do layout raiz) */
+  --ent-font: var(--font-body, "Plus Jakarta Sans", system-ui, sans-serif);
+  --ent-font-num: var(--font-display, "Sora", system-ui, sans-serif);
 
   /* Tipo (mobile-first COMPACTO — dono 07/07 mandou reduzir em todo /entrega) */
   --ent-text: 15px;
@@ -107,43 +111,12 @@
   --ent-safe-right: env(safe-area-inset-right, 0px);
 }
 
-/* ---------- TOKENS · escuro (MOBILE-CASCA/FIX3, 06/07) ----------
-   ANTES: @media (prefers-color-scheme: dark) — dependia do SO/navegador,
-   totalmente cego ao toggle claro/escuro do app (o Rota "não compartilhava o
-   modo", bug apontado pelo dono). AGORA: [data-theme-mode="dark"], o MESMO
-   atributo global que setThemeMode (theme-attributes.tsx) escreve no <html> —
-   herdado aqui porque [data-skin="entrega"] vive dentro do MESMO <html>. Um
-   estado só, compartilhado entre o toggle do Mais (dashboard) e o de Ajustes
-   do /entrega (EntregaAjustes) — nenhum dos dois lê preferência de sistema. */
+/* ---------- ESCURO ----------
+   A paleta escura própria FOI REMOVIDA (07/07 noite): as cores agora são
+   aliases --hbx-* e trocam sozinhas com [data-theme-mode="dark"] no <html>
+   (MOBILE-CASCA/FIX3 já tinha unificado o toggle). Só a PROFUNDIDADE fica
+   local — sombra mais funda no escuro é métrica de cena, não cor de tema. */
 [data-theme-mode="dark"] [data-skin="entrega"] {
-    --ent-brand: #2FBF6B;
-    --ent-brand-strong: #23A257;
-    --ent-brand-soft: #123021;
-    --ent-on-brand: #04140A;
-    --ent-accent: #4AA3F0;
-
-    --ent-success: #2FBF6B;
-    --ent-warning: #F0A742;
-    --ent-danger: #F26D82;
-    --ent-info: #4AA3F0;
-
-    --ent-canvas: #0B1017;
-    --ent-surface: #131A24;
-    --ent-surface-soft: #1B2431;
-    --ent-surface-raised: #182130;
-    --ent-overlay: rgba(2, 6, 12, 0.66);
-
-    --ent-ink: #F1F5F9;
-    --ent-ink-soft: #C4CDD8;
-    --ent-ink-muted: #8B96A4;
-    --ent-hairline: #263140;
-    --ent-line-strong: #35435400;
-
-    --ent-chip-surface: #1B2431;
-    --ent-chip-ink: #D5DEE8;
-    --ent-chip-on-surface: #123048;
-    --ent-chip-on-ink: #8FD0FF;
-
     --ent-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
     --ent-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
     --ent-shadow-lg: 0 -14px 40px rgba(0, 0, 0, 0.6);
@@ -422,7 +395,8 @@
 }
 [data-skin="entrega"] .ent-btn:active { transform: translateY(1px) scale(0.99); }
 [data-skin="entrega"] .ent-btn--primary {
-  background: linear-gradient(140deg, var(--ent-brand), var(--ent-brand-strong));
+  /* mesmo par do .btn-teal na casca modern (primary→secondary + action-ink) */
+  background: linear-gradient(135deg, var(--ent-brand), var(--ent-accent));
   color: var(--ent-on-brand);
   box-shadow: var(--ent-shadow-sm);
 }
@@ -446,7 +420,9 @@
   gap: var(--ent-3);
   padding: var(--ent-4);
   padding-bottom: calc(var(--ent-4) + var(--ent-safe-bottom));
-  background: linear-gradient(180deg, transparent, var(--ent-canvas) 30%);
+  /* véu translúcido (não cor chapada): o fundo infinito da casca modern
+     continua aparecendo atrás da barra de ação */
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--ent-canvas) 88%, transparent) 30%);
 }
 
 /* ============================================================
@@ -1060,74 +1036,18 @@
 }
 
 /* ============================================================
-   MOBILE-CASCA/W6 — RE-VESTIMENTO da CASCA CENTRAL (regra nº5 do dono:
-   "Rota é OUTRO aplicativo — pode ter outra cor, mas é o MESMO ideal e
-   MESMA casca"). /entrega passa a montar as MESMAS classes estruturais
-   .casca-top/.casca-tabbar/.casca-tab/.casca-stage/.casca-view/
-   .casca-sheet e .casca-loading que o restante do app usa (mobile-shell.tsx,
-   transitions.tsx, loading.tsx) — ZERO CSS novo de estrutura aqui, só os
-   TOKENS de cor que essas classes consomem, redirecionados pros valores
-   --ent-* que já existem (claro alto-contraste + escuro automático,
-   seção acima). É a definição literal de "outra cor, mesma casca": a
-   MESMA árvore de classes, vestida por um dicionário de cores diferente.
+   CASCA CENTRAL no /entrega — DESDE 07/07 noite, SEM dicionário próprio:
+   o re-mapeamento verde (W6) foi REMOVIDO junto com a paleta isolada. A
+   raiz .casca/.casca-top/.casca-tabbar/.casca-sheet/.casca-loading que o
+   EntregaScaffold monta consome os tokens GLOBAIS da pele ativa e é
+   vestida pela casca MODERN (casca-modern.css) igual ao resto do app —
+   fundo infinito, topo/dock de vidro e pílula gradiente inclusos.
    ============================================================ */
-[data-skin="entrega"] {
-  /* Superfícies que a casca central usa (topo, canvas, cards, sheet, recesso) */
-  --surface-canvas: var(--ent-canvas);
-  --surface-card: var(--ent-surface);
-  --surface-recessed: var(--ent-surface-soft);
-  --hbx-header-surface: var(--ent-surface);
-  --hbx-nav-surface: var(--ent-surface);
-  --hbx-overlay: var(--ent-overlay);
-
-  /* Texto */
-  --text-strong: var(--ent-ink);
-  --text-body: var(--ent-ink-soft);
-  --text-muted: var(--ent-ink-muted);
-
-  /* Marca (título ativo da tab bar, ação do topo) = verde do entregador */
-  --hbx-brand-strong: var(--ent-brand);
-  --hbx-action-ink: var(--ent-on-brand);
-
-  /* Bordas / sombras */
-  --border-hairline: var(--ent-hairline);
-  --border-strong: var(--ent-line-strong);
-  --shadow-sm: var(--ent-shadow-sm);
-  --shadow-lg: var(--ent-shadow-lg);
-
-  /* CascaLoading — o anel/marca vestem o verde do entregador (nunca o
-     espectro roxo→platina do dashboard: aqui é "outro aplicativo"). */
-  --casca-ring-1: var(--ent-brand);
-  --casca-ring-2: var(--ent-brand-strong);
-  --casca-ring-3: var(--ent-accent);
-  --casca-ring-4: var(--ent-brand);
-  --casca-ring-5: var(--ent-brand-strong);
-  --casca-ring-track: var(--ent-surface-soft);
-  --casca-ring-glow: color-mix(in srgb, var(--ent-brand) 35%, transparent);
-  --casca-mark-1: var(--ent-ink);
-  --casca-mark-2: var(--ent-ink-soft);
-  --casca-mark-3: var(--ent-ink-muted);
-}
-
-/* A casca central (.casca / .casca-top / .casca-tabbar / .casca-sheet) usa
-   var(--font-body)/var(--font-display) do dashboard — aqui a fonte é a do
-   entregador (Plus Jakarta/Sora), então redeclaramos SÓ dentro do escopo,
-   sem duplicar layout (a métrica de altura/spacing continua a mesma dos
-   tokens --casca-* globais, ISTO é o que garante "mesma casca"). */
-[data-skin="entrega"] .casca,
-[data-skin="entrega"] .casca-top,
-[data-skin="entrega"] .casca-tabbar,
-[data-skin="entrega"] .casca-sheet {
-  font-family: var(--ent-font);
-}
 [data-skin="entrega"] .casca-top__title,
 [data-skin="entrega"] .casca-sheet__title {
-  font-family: var(--ent-font-num);
-  /* dono 07/07: título das telas também estava grande — alinha à escala compacta */
+  /* dono 07/07: título das telas também estava grande — escala compacta */
   font-size: var(--ent-title);
 }
-
-/* /entrega agora monta a raiz .casca central; não há casca paralela. */
 
 /* ============================================================
    GLOW/HUD — pedido do dono 07/07: aplicar os brilhos/glows do mockup HUD
@@ -1160,19 +1080,11 @@
   filter: drop-shadow(0 0 12px color-mix(in srgb, var(--ent-accent) 30%, transparent));
 }
 
-/* ---- ESCURO: a "foto" cheia — halo ambiente + vidro + glow forte (a estrela) ---- */
-[data-theme-mode="dark"] [data-skin="entrega"] {
-  background:
-    radial-gradient(circle at 10% -4%, color-mix(in srgb, var(--ent-brand) 22%, transparent), transparent 30%),
-    radial-gradient(circle at 100% 70%, color-mix(in srgb, var(--ent-accent) 18%, transparent), transparent 32%),
-    var(--ent-canvas);
-}
-[data-theme-mode="dark"] [data-skin="entrega"] .casca-top,
-[data-theme-mode="dark"] [data-skin="entrega"] .casca-tabbar {
-  background: color-mix(in srgb, var(--ent-surface) 70%, transparent);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-}
+/* ---- ESCURO: glow forte nos cards (a estrela) ----
+   O halo de fundo e o vidro do topo/dock SAÍRAM daqui (07/07 noite): o
+   fundo infinito + chrome de vidro agora vêm da casca MODERN
+   (casca-modern.css), que também obedece a receita de perf — blur
+   persistente em painel grande travava a GPU fraca do dono. */
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-stop-card,
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-stats,
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-card,
@@ -1182,7 +1094,7 @@
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-toggle {
   background:
     radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--ent-accent) 10%, transparent), transparent 55%),
-    var(--ent-surface);
+    linear-gradient(180deg, var(--mod-glass-hi, var(--ent-surface)), var(--mod-glass-lo, var(--ent-surface)));
   box-shadow: var(--ent-shadow-sm), inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent), 0 0 0 1px color-mix(in srgb, var(--ent-brand) 16%, transparent), 0 16px 40px -20px color-mix(in srgb, var(--ent-accent) 45%, transparent);
 }
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-btn--primary {
@@ -1206,4 +1118,25 @@
 }
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-input:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ent-brand) 35%, transparent), 0 0 16px color-mix(in srgb, var(--ent-accent) 40%, transparent);
+}
+
+/* ============================================================
+   VIDRO MODERN nos cartões (dono 07/07 noite, "injetar a casca e temas
+   novos na logística") — mesma receita do dashboard: os --mod-* nascem em
+   casca-modern.css no <html> [data-casca="modern"] e são herdados aqui;
+   translucidez leve sobre o fundo infinito, SEM backdrop-filter (receita
+   de perf da GPU fraca). Fallback = superfície sólida da pele.
+   ============================================================ */
+[data-skin="entrega"] .ent-stop-card,
+[data-skin="entrega"] .ent-stats,
+[data-skin="entrega"] .ent-card,
+[data-skin="entrega"] .ent-row,
+[data-skin="entrega"] .ent-progress {
+  background: linear-gradient(180deg, var(--mod-glass-hi, var(--ent-surface)), var(--mod-glass-lo, var(--ent-surface)));
+  border-color: var(--mod-line, var(--ent-hairline));
+}
+[data-skin="entrega"] .ent-input,
+[data-skin="entrega"] .ent-search,
+[data-skin="entrega"] .ent-toggle {
+  background: var(--mod-glass-recessed, var(--ent-surface-soft));
 }
