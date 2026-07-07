@@ -279,7 +279,14 @@
   background: var(--hbx-overlay);
   animation: casca-veil-in var(--casca-motion-dur) var(--casca-motion-ease) both;
 }
-.casca-sheet-veil.is-leaving { animation: casca-veil-out var(--casca-motion-dur) var(--casca-motion-ease) both; }
+/* FIX (bug ao vivo, dono, 07/07): faltava pointer-events:none aqui — o
+   CascaView já tinha (casca-view--leave, linha 245), o CascaSheet não. Sem
+   isso, o veil saindo (opacity indo a 0 via keyframe) continuava 100%
+   clicável e cobrindo a tela inteira até o unmount (220ms, ou até 500ms no
+   fallback) — qualquer toque nessa janela invisível-mas-presente engolia o
+   clique em vez de chegar no X/conteúdo por baixo, sensação de "não fecha
+   nada". */
+.casca-sheet-veil.is-leaving { animation: casca-veil-out var(--casca-motion-dur) var(--casca-motion-ease) both; pointer-events: none; }
 @keyframes casca-veil-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes casca-veil-out { from { opacity: 1; } to { opacity: 0; } }
 
