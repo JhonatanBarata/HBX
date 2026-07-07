@@ -174,8 +174,9 @@
 .casca .vnd-m__row,
 .casca .emp-m__row {
   min-height: 66px;
-  gap: 10px;
-  padding: 10px 11px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
   border: 1px solid var(--casca-premium-line);
   border-radius: var(--casca-premium-radius-lg);
   background: var(--casca-premium-surface);
@@ -183,6 +184,12 @@
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   transition: transform var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
+}
+
+/* Vendas ganha 2 linhas de nome (fix corte "Praça São Lourenço Restau…") —
+   respiro extra só aqui, Empresas (1 linha) mantém a altura original. */
+.casca .vnd-m__row {
+  min-height: 74px;
 }
 
 .casca .vnd-m__row:active,
@@ -194,7 +201,7 @@
 .casca .vnd-m__row .avatar,
 .casca .emp-m__ico {
   flex: 0 0 auto;
-  border-radius: 15px;
+  border-radius: 16px;
   background: linear-gradient(135deg, var(--hbx-brand-strong), color-mix(in srgb, var(--hbx-brand-strong) 54%, var(--hbx-secondary, var(--hbx-brand))));
   color: var(--hbx-action-ink);
   box-shadow: 0 10px 20px color-mix(in srgb, var(--hbx-brand-strong) 18%, transparent);
@@ -202,7 +209,7 @@
 
 .casca .vnd-m__row-name,
 .casca .emp-m__row-name {
-  font-weight: 820;
+  font-weight: 640;
   letter-spacing: 0;
 }
 
@@ -212,8 +219,31 @@
 }
 
 .casca .vnd-m__row-value {
-  font-weight: 850;
+  font-weight: 700;
   white-space: nowrap;
+}
+
+/* "R$ 0" não deve competir visualmente com o nome (era ele empurrando o
+   corte) — tom discreto quando o valor é zero/vazio (marcado via
+   data-zero pelo TSX, evita seletor de texto que não existe em CSS). */
+.casca .vnd-m__row-value:empty,
+.casca .vnd-m__row-value[data-zero="true"] {
+  color: var(--text-muted);
+  font-weight: 620;
+}
+
+/* Seta à direita: indicador discreto de navegação, nunca preto forte. */
+.casca .vnd-m__row-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+/* Ícones de canal subiram de sm(14px)→md(16px) — mais espaço entre os 6 pra
+   não amontoar, e mais respiro abaixo do subtítulo. */
+.casca .vnd-m__row-canais {
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .casca .vnd-m__row-tag,

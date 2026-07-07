@@ -78,6 +78,11 @@ function canalStateMobile(card: VendasLeadMobile, canal: Canal): "active" | "mis
   }
 }
 
+function rowValueLabel(card: VendasLeadMobile, canViewValues: boolean): string {
+  if (!canViewValues) return "";
+  return vendasLeadValueLabel(card, true) || "R$ 0";
+}
+
 function CanaisMiniRow({ card }: { card: VendasLeadMobile }) {
   return (
     <span className="vnd-m__row-canais" aria-label="Canais do lead">
@@ -86,7 +91,7 @@ function CanaisMiniRow({ card }: { card: VendasLeadMobile }) {
         const cls = st === "active" ? "chan-ico--on" : st === "missing" ? "chan-ico--missing" : "chan-ico--off";
         return (
           <span key={canal} className={cls}>
-            <CanalIcon canal={canal} size="sm" />
+            <CanalIcon canal={canal} size="md" />
           </span>
         );
       })}
@@ -284,14 +289,14 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
                 {items.map(card => (
                   <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>
-                    <Av name={card.name || "?"} size={38} />
+                    <Av name={card.name || "?"} size={42} />
                     <span className="vnd-m__row-main">
-                      <span className="vnd-m__row-name">{card.name || "Sem nome"}</span>
+                      <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
                       <span className="vnd-m__row-sub">{card.statusLabel} · {fmtWhenMobile(card.returnAt)}</span>
                       <CanaisMiniRow card={card} />
                     </span>
-                    <span className="vnd-m__row-value">{canViewValues ? (vendasLeadValueLabel(card, true) || "R$ 0") : ""}</span>
-                    <I d={ICONS.arrow} size={16} />
+                    <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
+                    <span className="vnd-m__row-chevron"><I d={ICONS.arrow} size={16} /></span>
                   </button>
                 ))}
               </div>
@@ -308,14 +313,14 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
                 {items.map(card => (
                   <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>
-                    <Av name={card.name || "?"} size={38} />
+                    <Av name={card.name || "?"} size={42} />
                     <span className="vnd-m__row-main">
-                      <span className="vnd-m__row-name">{card.name || "Sem nome"}</span>
+                      <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
                       <span className="vnd-m__row-sub">{card.city || "—"}{card.state ? `/${card.state}` : ""}</span>
                       <CanaisMiniRow card={card} />
                     </span>
-                    <span className="vnd-m__row-value">{canViewValues ? (vendasLeadValueLabel(card, true) || "R$ 0") : ""}</span>
-                    <I d={ICONS.arrow} size={16} />
+                    <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
+                    <span className="vnd-m__row-chevron"><I d={ICONS.arrow} size={16} /></span>
                   </button>
                 ))}
               </div>

@@ -172,7 +172,7 @@ export function CascaView({
 //   <CascaSheet open={open} title="Detalhe" onClose={() => setOpen(false)}>…</CascaSheet>
 // `open=false` dispara a saída animada e só então desmonta (via gate).
 // ---------------------------------------------------------------
-const DRAG_CLOSE_PX = 96; // arrastar mais que isto pra baixo = fecha
+const DRAG_CLOSE_PX = 60; // arrastar mais que isto pra baixo = fecha
 
 export function CascaSheet({
   open,
@@ -191,6 +191,9 @@ export function CascaSheet({
   const [dragging, setDragging] = useState(false);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // arraste pode começar no tracinho OU na barra de título — mas NUNCA
+    // sequestra o toque no X (deixa o clique do botão fechar rodar normal).
+    if ((e.target as HTMLElement).closest?.(".casca-sheet__close")) return;
     dragStartY.current = e.clientY;
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -214,13 +217,31 @@ export function CascaSheet({
     }
   }, [onClose]);
 
+  // handlers de arraste-pra-fechar reusados no tracinho E na barra de título
+  // (área de pega generosa — o dono só quer que "arrastar pra baixo" feche).
+  const dragHandlers = {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endDrag,
+    onPointerCancel: endDrag,
+  };
+
+  // Esc fecha (teclado físico no mobile/desktop) — caminho de fecho extra,
+  // independente de clique/arraste.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!mounted) return null;
 
   return (
     <CascaPortal>
       <div
         className={"casca-sheet-veil" + (leaving ? " is-leaving" : "")}
-        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        onClick={(e) => { if (!sheetRef.current || !sheetRef.current.contains(e.target as Node)) onClose(); }}
         onAnimationEnd={(e) => { if (e.target === e.currentTarget) handleAnimEnd(); }}
       >
         <div
@@ -229,17 +250,11 @@ export function CascaSheet({
           role="dialog"
           aria-modal="true"
         >
-          <div
-            className="casca-sheet__grip"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-          >
+          <div className="casca-sheet__grip" {...dragHandlers}>
             <span className="casca-sheet__handle" aria-hidden="true" />
           </div>
           {title ? (
-            <div className="casca-sheet__head">
+            <div className="casca-sheet__head" {...dragHandlers}>
               <h2 className="casca-sheet__title">{title}</h2>
               <button type="button" className="casca-sheet__close" onClick={onClose} aria-label="Fechar">
                 <I d={ICONS.x} size={18} />

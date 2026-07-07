@@ -39,6 +39,13 @@ export function NegocioSheet({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // MOBILE-ONLY (pedido do dono 07/07): no celular, clicar no WhatsApp NÃO dispara
+  // o wa.me direto — pergunta antes se abre no WhatsApp do aparelho (externo) ou no
+  // Atendimento HBX (interno). O desktop segue com a preferência única de sempre
+  // (useWaOpenMode nas páginas de Vendas/Leads), então esta escolha vive só aqui.
+  const [waChoice, setWaChoice] = useState(false);
+  // Fecha a escolha ao fechar a folha, pra não reabrir "aberta" no próximo lead.
+  useEffect(() => { if (!open) setWaChoice(false); }, [open]);
 
   // Segura o último detalhe durante a animação de saída: o pai zera `sel` no
   // clique de fechar, então `detail` vira null no mesmo frame em que a folha
@@ -99,13 +106,24 @@ export function NegocioSheet({
     <CascaSheet open={open && Boolean(detail)} title={shown?.name || "Detalhe"} onClose={onClose}>
       {shown ? (
         <div className="vnd-m__sheet vnd-m__sheet--lead-detail">
-          <DetalhesNegocio detail={shown} title="Detalhes" showConversation={showConversation} />
+          <DetalhesNegocio
+            detail={shown}
+            title="Detalhes"
+            showConversation={showConversation}
+            onWaOpenExternal={waLink ? () => setWaChoice(true) : undefined}
+          />
 
           <div className="vnd-m__sheet-acts">
             {waLink ? (
-              <a className="vnd-m__act vnd-m__act--wa" href={waLink} target="_blank" rel="noopener noreferrer">
+              <button
+                type="button"
+                className="vnd-m__act vnd-m__act--wa"
+                onClick={() => setWaChoice(true)}
+                aria-haspopup="true"
+                aria-expanded={waChoice}
+              >
                 <I d={ICONS.atend} size={16} /> WhatsApp
-              </a>
+              </button>
             ) : (
               <button type="button" className="vnd-m__act" disabled>
                 <I d={ICONS.atend} size={16} /> WhatsApp
@@ -129,6 +147,34 @@ export function NegocioSheet({
               </button>
             ) : null}
           </div>
+
+          {waChoice && waLink ? (
+            <div className="vnd-m__wa-choice" role="group" aria-label="Onde abrir o WhatsApp">
+              <p className="vnd-m__wa-choice-q">Abrir o WhatsApp onde?</p>
+              <div className="vnd-m__wa-choice-opts">
+                <a
+                  className="vnd-m__act vnd-m__act--wa"
+                  href={waLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setWaChoice(false)}
+                >
+                  <I d={ICONS.atend} size={16} /> No aparelho
+                </a>
+                <button
+                  type="button"
+                  className="vnd-m__act"
+                  onClick={() => { setWaChoice(false); void abrirConversaInterna(); }}
+                  disabled={!shown.phone || busy}
+                >
+                  <I d={ICONS.msg} size={16} /> Atendimento HBX
+                </button>
+              </div>
+              <button type="button" className="vnd-m__wa-choice-cancel" onClick={() => setWaChoice(false)}>
+                Cancelar
+              </button>
+            </div>
+          ) : null}
 
           {msg ? <p className="vnd-m__sheet-msg">{msg}</p> : null}
         </div>

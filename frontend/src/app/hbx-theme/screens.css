@@ -4640,18 +4640,29 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .vnd-m__row-name {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   min-width: 0;
   font-size: var(--casca-text-body);
   font-weight: var(--weight-semibold);
   color: var(--text-strong);
-  white-space: nowrap;
+}
+/* Texto do nome isolado num wrapper próprio: line-clamp de 2 linhas resolve o
+   corte feio de nomes longos ("Praça São Lourenço Restau…") sem brigar com o
+   badge "novo" (que fica fora do clamp, alinhado no topo). */
+.vnd-m__row-name-txt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  min-width: 0;
+  line-height: 1.28;
+  word-break: break-word;
 }
 .vnd-m__row-tag {
   flex: 0 0 auto;
+  margin-top: 1px;
   padding: 1px 6px;
   border-radius: var(--radius-pill);
   background: var(--hbx-brand-strong);
@@ -4672,6 +4683,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   font-size: var(--casca-text-sub);
   font-weight: var(--weight-bold);
   color: var(--text-strong);
+  text-align: right;
 }
 /* 6 ícones de canal dentro do lead da lista — mesma tri-cor do card grande
    (chan-ico--on colorido / --missing/--off cinza). Só layout aqui. */
@@ -4679,7 +4691,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: 3px;
+  margin-top: 5px;
 }
 .vnd-m__row-canais > span { display: inline-flex; }
 
@@ -4800,6 +4812,35 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-m__act--wa { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
 .vnd-m__act--primary { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
 .vnd-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
+
+/* ---------- escolher onde abrir o WhatsApp (MOBILE): externo × interno ---------- */
+.vnd-m__wa-choice {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+}
+.vnd-m__wa-choice-q {
+  margin: 0;
+  font-size: var(--casca-text-sub);
+  font-weight: var(--weight-bold);
+  color: var(--text-muted);
+}
+.vnd-m__wa-choice-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.vnd-m__wa-choice-cancel {
+  justify-self: center;
+  border: none;
+  background: none;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--casca-text-sub);
+  color: var(--text-muted);
+  cursor: pointer;
+}
 
 /* ---------- ações do sheet "Novo lead" (vive num CascaSheet) ---------- */
 .vnd-m__novo-acts { display: flex; justify-content: flex-end; gap: var(--space-2); }
