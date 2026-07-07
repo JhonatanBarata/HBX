@@ -9,6 +9,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { CanalIcon, type Canal } from "@/components/hbx/canal-icon";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -32,6 +33,66 @@ import {
 } from "./vendas-types";
 
 type Vista = "lista" | "quadro";
+
+// Fileira compacta dos 6 canais dentro do lead da lista — MESMA tri-cor do
+// DetalhesNegocio (getCanalState): acende só quando o dado foi de fato achado
+// ("active"), fica cinza quando ausente ("missing") ou ainda não verificado
+// ("unverified"). Espelha o card grande, sem duplicar o visual (classes centrais
+// chan-ico--on/off/missing).
+const CANAIS_MINI: Canal[] = ["whatsapp", "telefone", "email", "instagram", "facebook", "site"];
+
+function canalStateMobile(card: VendasLeadMobile, canal: Canal): "active" | "missing" | "unverified" {
+  const li = card.leadIntelligence;
+  switch (canal) {
+    case "whatsapp": {
+      if (!card.phone) return "missing";
+      const ws = li?.whatsappStatus;
+      if (ws === "confirmed") return "active";
+      if (ws === "missing" || ws === "invalid") return "missing";
+      return "unverified";
+    }
+    case "telefone":
+      return card.phone ? "active" : "missing";
+    case "email": {
+      if (card.email) return "active";
+      const es = li?.emailStatus;
+      if (es === "confirmed" || es === "probable") return "active";
+      if (es === "missing" || es === "invalid") return "missing";
+      return "unverified";
+    }
+    case "instagram":
+      if (li?.instagramUrl) return "active";
+      return li ? "missing" : "unverified";
+    case "facebook":
+      if (li?.facebookUrl) return "active";
+      return li ? "missing" : "unverified";
+    case "site": {
+      if (card.website) return "active";
+      const ws2 = li?.websiteStatus;
+      if (ws2 === "confirmed" || ws2 === "present") return "active";
+      if (ws2 === "none") return "missing";
+      return "unverified";
+    }
+    default:
+      return "unverified";
+  }
+}
+
+function CanaisMiniRow({ card }: { card: VendasLeadMobile }) {
+  return (
+    <span className="vnd-m__row-canais" aria-label="Canais do lead">
+      {CANAIS_MINI.map(canal => {
+        const st = canalStateMobile(card, canal);
+        const cls = st === "active" ? "chan-ico--on" : st === "missing" ? "chan-ico--missing" : "chan-ico--off";
+        return (
+          <span key={canal} className={cls}>
+            <CanalIcon canal={canal} size="sm" />
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 function fmtWhenMobile(iso: string | null): string {
   if (!iso) return "—";
@@ -227,6 +288,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                     <span className="vnd-m__row-main">
                       <span className="vnd-m__row-name">{card.name || "Sem nome"}</span>
                       <span className="vnd-m__row-sub">{card.statusLabel} · {fmtWhenMobile(card.returnAt)}</span>
+                      <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value">{canViewValues ? (vendasLeadValueLabel(card, true) || "R$ 0") : ""}</span>
                     <I d={ICONS.arrow} size={16} />
@@ -250,6 +312,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                     <span className="vnd-m__row-main">
                       <span className="vnd-m__row-name">{card.name || "Sem nome"}</span>
                       <span className="vnd-m__row-sub">{card.city || "—"}{card.state ? `/${card.state}` : ""}</span>
+                      <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value">{canViewValues ? (vendasLeadValueLabel(card, true) || "R$ 0") : ""}</span>
                     <I d={ICONS.arrow} size={16} />
