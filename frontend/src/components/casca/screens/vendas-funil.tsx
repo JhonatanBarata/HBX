@@ -129,28 +129,32 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
 
   return (
     <div className="vnd-m__body">
-      <div className="vnd-m__toolbar">
-        <ModoSegment modo={modo} onChange={onModoChange} />
-        {/* Lista|Quadro — mesma Lei nº2: Glass Pill, não background instantâneo. */}
-        <div className="casca-segment vnd-m__mini-segment glass-pill-track" role="tablist" aria-label="Visualização">
-          <GlassPill {...vistaGp} />
-          <button type="button" role="tab" ref={vistaGp.itemRef("lista")} aria-selected={vista === "lista"} className={"casca-segment__item glass-pill-item" + (vista === "lista" ? " is-on" : "")} onClick={() => setVista("lista")}>
-            <I d={ICONS.list} size={14} />
+      {/* FIX4: painel de comando único (.casca-command, casca.css) — mesma
+          moldura do modo Buscar, simétrico. Linha 1 = toolbar, linha 2 = stats. */}
+      <div className="casca-command">
+        <div className="vnd-m__toolbar">
+          <ModoSegment modo={modo} onChange={onModoChange} />
+          {/* Lista|Quadro — mesma Lei nº2: Glass Pill, não background instantâneo. */}
+          <div className="casca-segment vnd-m__mini-segment glass-pill-track" role="tablist" aria-label="Visualização">
+            <GlassPill {...vistaGp} />
+            <button type="button" role="tab" ref={vistaGp.itemRef("lista")} aria-selected={vista === "lista"} className={"casca-segment__item glass-pill-item" + (vista === "lista" ? " is-on" : "")} onClick={() => setVista("lista")}>
+              <I d={ICONS.list} size={14} />
+            </button>
+            <button type="button" role="tab" ref={vistaGp.itemRef("quadro")} aria-selected={vista === "quadro"} className={"casca-segment__item glass-pill-item" + (vista === "quadro" ? " is-on" : "")} onClick={() => setVista("quadro")}>
+              <I d={ICONS.grid} size={14} />
+            </button>
+          </div>
+          <button type="button" className="vnd-m__tool-btn" onClick={() => setFoco(true)} disabled={empty} title="Modo foco" aria-label="Modo foco">
+            <I d={ICONS.bolt} size={16} />
           </button>
-          <button type="button" role="tab" ref={vistaGp.itemRef("quadro")} aria-selected={vista === "quadro"} className={"casca-segment__item glass-pill-item" + (vista === "quadro" ? " is-on" : "")} onClick={() => setVista("quadro")}>
-            <I d={ICONS.grid} size={14} />
+          <button type="button" className="vnd-m__tool-btn vnd-m__tool-btn--primary" onClick={() => setNovoOpen(true)} title="Novo negócio" aria-label="Novo negócio">
+            <I d={ICONS.plus} size={16} />
           </button>
         </div>
-        <button type="button" className="vnd-m__tool-btn" onClick={() => setFoco(true)} disabled={empty} title="Modo foco" aria-label="Modo foco">
-          <I d={ICONS.bolt} size={16} />
-        </button>
-        <button type="button" className="vnd-m__tool-btn vnd-m__tool-btn--primary" onClick={() => setNovoOpen(true)} title="Novo negócio" aria-label="Novo negócio">
-          <I d={ICONS.plus} size={16} />
-        </button>
-      </div>
 
-      <div className="vnd-m__stats">
-        {board?.summary.total ?? 0} no funil · {board?.summary.overdue ?? 0} atrasados · {board?.summary.closed ?? 0} fechados
+        <div className="vnd-m__stats">
+          {board?.summary.total ?? 0} no funil · {board?.summary.overdue ?? 0} atrasados · {board?.summary.closed ?? 0} fechados
+        </div>
       </div>
 
       {empty ? (

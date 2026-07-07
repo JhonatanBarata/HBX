@@ -73,28 +73,32 @@ export function EmpresasLista({
 
   return (
     <div className="emp-m__body">
-      <div className="emp-m__head">
-        <h2 className="emp-m__title">Empresas</h2>
-        <button type="button" className="emp-m__nova" onClick={onNova}>
-          <I d={ICONS.plus} size={14} /> Nova
-        </button>
-      </div>
+      {/* FIX4: painel de comando único (.casca-command, casca.css) — mesmo
+          contrato visual de Vendas/Conversas. Reprova do dono: título
+          "Empresas" duplicado (MobileShell já mostra no topo da casca — o
+          cabeçalho interno foi removido, igual ao caso do W3/Conversas);
+          "+ Nova" migrou pra dentro do painel, ao lado da busca. Linha 1 =
+          busca+"+ Nova"; linha 2 = stats. */}
+      <div className="casca-command">
+        <form className="emp-m__searchbar" onSubmit={submitSearch}>
+          <div className="emp-m__searchfield">
+            <I d={ICONS.search} size={14} />
+            <input
+              className="emp-m__searchinput"
+              placeholder="Nome, CNPJ ou cidade…"
+              value={buscaInput}
+              onChange={(e) => setBuscaInput(e.target.value)}
+            />
+          </div>
+          <button type="button" className="emp-m__nova" onClick={onNova}>
+            <I d={ICONS.plus} size={14} /> Nova
+          </button>
+        </form>
 
-      <form className="emp-m__searchbar" onSubmit={submitSearch}>
-        <div className="emp-m__searchfield">
-          <I d={ICONS.search} size={14} />
-          <input
-            className="emp-m__searchinput"
-            placeholder="Nome, CNPJ ou cidade…"
-            value={buscaInput}
-            onChange={(e) => setBuscaInput(e.target.value)}
-          />
+        <div className="emp-m__stats">
+          {total} {total === 1 ? "empresa" : "empresas"} · {totalClientes} {totalClientes === 1 ? "cliente" : "clientes"}
+          {loading ? " · carregando…" : ""}
         </div>
-      </form>
-
-      <div className="emp-m__stats">
-        {total} {total === 1 ? "empresa" : "empresas"} · {totalClientes} {totalClientes === 1 ? "cliente" : "clientes"}
-        {loading ? " · carregando…" : ""}
       </div>
 
       {error ? (

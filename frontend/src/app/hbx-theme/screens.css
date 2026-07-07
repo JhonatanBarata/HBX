@@ -4462,7 +4462,7 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    alinhado NA linha de stats, não solto (spec do print). */
 .vnd-m__searchcta {
   flex: 0 0 auto;
-  height: 30px;
+  height: 28px;
   padding: 0 var(--space-3);
   display: inline-flex;
   align-items: center;

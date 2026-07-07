@@ -155,49 +155,55 @@ export function ConversasLista({
         </div>
       ) : null}
 
-      <div className="cvs-m__searchbar">
-        <div className="cvs-m__searchfield">
-          <I d={ICONS.search} size={14} />
-          <input
-            className="cvs-m__searchinput"
-            placeholder="Buscar conversa…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-        </div>
-        <button type="button" className="cvs-m__tool-btn" onClick={onNova} aria-label="Nova conversa">
-          <I d={ICONS.plus} size={18} />
-        </button>
-      </div>
-
-      <div className="cvs-m__chips glass-pill-track" role="tablist" aria-label="Filtro">
-        <span className={"cvs-m__dot" + (chipOk ? " is-ok" : " is-down")} aria-hidden="true" title={chipOk ? "WhatsApp conectado" : "WhatsApp com problema"} />
-        <GlassPill {...tabGp} />
-        <button type="button" role="tab" ref={tabGp.itemRef("todas")} aria-selected={tab === "todas"} className={"cvs-m__chip glass-pill-item" + (tab === "todas" ? " is-on" : "")} onClick={() => setTab("todas")}>
-          Todas
-        </button>
-        <button type="button" role="tab" ref={tabGp.itemRef("naolidas")} aria-selected={tab === "naolidas"} className={"cvs-m__chip glass-pill-item" + (tab === "naolidas" ? " is-on" : "")} onClick={() => setTab("naolidas")}>
-          Não lidas{naoLidas.length > 0 ? ` · ${naoLidas.length}` : ""}
-        </button>
-        <button type="button" role="tab" ref={tabGp.itemRef("bot")} aria-selected={tab === "bot"} className={"cvs-m__chip glass-pill-item" + (tab === "bot" ? " is-on" : "")} onClick={() => setTab("bot")}>
-          Bot{bots.length > 0 ? ` · ${bots.length}` : ""}
-        </button>
-      </div>
-
-      {/* V2 — seletor do admin: gate igual desktop (isTenantAdmin, mesma fonte
-          de papel do /atendimento). Vendedor não vê — segue só nas dele.
-          Filtro client-side por assignedUserId, zero endpoint novo. */}
-      {souAdmin ? (
-        <div className="cvs-m__chips glass-pill-track" role="tablist" aria-label="Escopo">
-          <GlassPill {...escopoGp} />
-          <button type="button" role="tab" ref={escopoGp.itemRef("todos")} aria-selected={escopo === "todos"} className={"cvs-m__chip glass-pill-item" + (escopo === "todos" ? " is-on" : "")} onClick={() => setEscopo("todos")}>
-            Todos
-          </button>
-          <button type="button" role="tab" ref={escopoGp.itemRef("meu")} aria-selected={escopo === "meu"} className={"cvs-m__chip glass-pill-item" + (escopo === "meu" ? " is-on" : "")} onClick={() => setEscopo("meu")}>
-            Meus
+      {/* FIX4: painel de comando único (.casca-command, casca.css) — mesmo
+          contrato visual de Vendas/Empresas. Linha 1 = busca+"+"; linha 2 =
+          chips Todas|Não lidas|Bot; linha 3 (só admin) = Todos|Meus. O
+          pontinho de status do chip fica na faixa de estado ACIMA/fora do
+          painel (.cvs-m__faixa-dot), não mais órfão junto do chip "Todas". */}
+      <div className="casca-command">
+        <div className="cvs-m__searchbar">
+          <div className="cvs-m__searchfield">
+            <I d={ICONS.search} size={14} />
+            <input
+              className="cvs-m__searchinput"
+              placeholder="Buscar conversa…"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+          </div>
+          <button type="button" className="casca-command__btn" onClick={onNova} aria-label="Nova conversa">
+            <I d={ICONS.plus} size={18} />
           </button>
         </div>
-      ) : null}
+
+        <div className="cvs-m__chips glass-pill-track" role="tablist" aria-label="Filtro">
+          <GlassPill {...tabGp} />
+          <button type="button" role="tab" ref={tabGp.itemRef("todas")} aria-selected={tab === "todas"} className={"cvs-m__chip glass-pill-item" + (tab === "todas" ? " is-on" : "")} onClick={() => setTab("todas")}>
+            Todas
+          </button>
+          <button type="button" role="tab" ref={tabGp.itemRef("naolidas")} aria-selected={tab === "naolidas"} className={"cvs-m__chip glass-pill-item" + (tab === "naolidas" ? " is-on" : "")} onClick={() => setTab("naolidas")}>
+            Não lidas{naoLidas.length > 0 ? ` · ${naoLidas.length}` : ""}
+          </button>
+          <button type="button" role="tab" ref={tabGp.itemRef("bot")} aria-selected={tab === "bot"} className={"cvs-m__chip glass-pill-item" + (tab === "bot" ? " is-on" : "")} onClick={() => setTab("bot")}>
+            Bot{bots.length > 0 ? ` · ${bots.length}` : ""}
+          </button>
+        </div>
+
+        {/* V2 — seletor do admin: gate igual desktop (isTenantAdmin, mesma fonte
+            de papel do /atendimento). Vendedor não vê — segue só nas dele.
+            Filtro client-side por assignedUserId, zero endpoint novo. */}
+        {souAdmin ? (
+          <div className="cvs-m__chips glass-pill-track" role="tablist" aria-label="Escopo">
+            <GlassPill {...escopoGp} />
+            <button type="button" role="tab" ref={escopoGp.itemRef("todos")} aria-selected={escopo === "todos"} className={"cvs-m__chip glass-pill-item" + (escopo === "todos" ? " is-on" : "")} onClick={() => setEscopo("todos")}>
+              Todos
+            </button>
+            <button type="button" role="tab" ref={escopoGp.itemRef("meu")} aria-selected={escopo === "meu"} className={"cvs-m__chip glass-pill-item" + (escopo === "meu" ? " is-on" : "")} onClick={() => setEscopo("meu")}>
+              Meus
+            </button>
+          </div>
+        ) : null}
+      </div>
 
       {loadError ? <p className="cvs-m__err">{loadError}</p> : null}
 

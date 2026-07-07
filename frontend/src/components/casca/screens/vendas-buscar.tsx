@@ -207,22 +207,44 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
 
   if (loading) return <CascaLoading caption="Carregando Radar…" />;
 
+  const filtroAtivo = Boolean(city.trim() || segment.trim());
+
   return (
     <div className="vnd-m__body">
-      <div className="vnd-m__searchbar">
-        <ModoSegment modo={modo} onChange={onModoChange} />
-        <div className="vnd-m__searchfield">
-          <I d={ICONS.search} size={15} />
-          <input
-            className="vnd-m__searchinput"
-            placeholder="Cidade, segmento…"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-          />
+      {/* FIX4: painel de comando único (.casca-command, casca.css) — mesma
+          moldura do modo Funil, simétrico. Linha 1 = segmented+campo+filtro,
+          linha 2 = stats+CTA (ou a faixa viva quando há busca rodando). */}
+      <div className="casca-command">
+        <div className="vnd-m__searchbar">
+          <ModoSegment modo={modo} onChange={onModoChange} />
+          <div className="vnd-m__searchfield">
+            <I d={ICONS.search} size={15} />
+            <input
+              className="vnd-m__searchinput"
+              placeholder="Cidade, segmento…"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+            />
+          </div>
+          <button type="button" className="casca-command__btn" onClick={() => setFiltrosOpen(true)} aria-label="Filtros">
+            <I d={ICONS.filter} size={16} />
+            {filtroAtivo ? <span className="casca-command__btn-dot" aria-hidden="true" /> : null}
+          </button>
         </div>
-        <button type="button" className="vnd-m__tool-btn" onClick={() => setFiltrosOpen(true)} aria-label="Filtros">
-          <I d={ICONS.filter} size={16} />
-        </button>
+
+        {/* stats+CTA sempre no painel (linha 3 da spec) — a faixa viva de
+            busca rodando é estado TRANSITÓRIO e fica FORA/abaixo do card
+            (spec FIX4), não substitui a linha dentro dele. */}
+        <div className="vnd-m__statsrow">
+          <span className="vnd-m__stats">
+            Brasil {fmtInt(totalBrasil)} · Disponíveis {fmtInt(items.length)} · {cotaLabel} {cotaValue}
+          </span>
+          {!runActive ? (
+            <button type="button" className="vnd-m__searchcta" onClick={executarBusca} disabled={runBusy}>
+              <I d={ICONS.bolt} size={14} /> {runBusy ? "Iniciando…" : "Buscar"}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {runActive ? (
@@ -236,16 +258,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
             <I d={ICONS.x} size={13} />
           </button>
         </div>
-      ) : (
-        <div className="vnd-m__statsrow">
-          <span className="vnd-m__stats">
-            Brasil {fmtInt(totalBrasil)} · Disponíveis {fmtInt(items.length)} · {cotaLabel} {cotaValue}
-          </span>
-          <button type="button" className="vnd-m__searchcta" onClick={executarBusca} disabled={runBusy}>
-            <I d={ICONS.bolt} size={14} /> {runBusy ? "Iniciando…" : "Buscar"}
-          </button>
-        </div>
-      )}
+      ) : null}
 
       {searchMsg ? <p className="vnd-m__sheet-msg">{searchMsg}</p> : null}
       {loadError ? <p className="vnd-m__sheet-msg">{loadError}</p> : null}
