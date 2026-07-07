@@ -7,12 +7,14 @@
    estrutura REAL do app (shell desktop .app/.side/.main e casca
    mobile .casca/.casca-top/.casca-tabbar). Zero DOM novo.
 
-   COMO LIGA: pele com sufixo Mod (theme-attributes.tsx) escreve
-   <html data-casca="modern"> por cima do data-theme da COR base.
-   Por isso este arquivo NÃO tem cor própria: TODA cor nasce de
-   var(--hbx-*) + color-mix com os neutros #fff/#000 (fiscal
-   check-pele passa) — Aurora Mod, Ember Mod, Rosé Mod e Tema HBX
-   Mod saem de graça da mesma folha, claro e escuro automáticos.
+   COMO LIGA: toda pele do seletor é "<Nome> Mod" (theme-attributes.tsx)
+   e escreve <html data-casca="modern"> por cima do data-theme da COR
+   base — desde a aprovação do dono (07/07 noite) esta é a ÚNICA casca;
+   as opções clássicas saíram do seletor. Este arquivo NÃO tem cor
+   própria: TODA cor nasce de var(--hbx-*) + color-mix com os neutros
+   #fff/#000 (fiscal check-pele passa) — Aurora Mod, Ember Mod, Rosé Mod
+   e Tema HBX Mod saem de graça da mesma folha, claro e escuro
+   automáticos.
 
    Importada DEPOIS das peles (globals.css): em empate de
    especificidade, a casca vence a camada de vestir da pele.

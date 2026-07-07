@@ -81,14 +81,18 @@
    funcionalidade = UMA tela, UM DOM, UMA escrita. Cores instaladas: aurora
    (padrão), ember, rose, hbx-cyber. `skeleton.css` é a BASE de tokens
    (contrato neutro que as peles vestem) — NÃO é uma opção do seletor.
-   - **CASCAS (dono 07/07 — a regra de casca ÚNICA foi REMOVIDA):** existem
-     2 padrões de casca, CLÁSSICA (default) e MODERN (`casca-modern.css`,
-     fundo infinito + vidro). A casca é escolhida pela PELE: entrada com
+   - **CASCAS (dono 07/07; aprovação na mesma noite: "remover temas e
+     cascas antigas, ficou perfeito os 4 novos"):** a casca MODERN
+     (`casca-modern.css`, fundo infinito + vidro) é a ÚNICA selecionável —
+     o seletor tem só os 4 temas "<Nome> Mod" e o visual clássico saiu do
+     seletor (kit.css/casca.css seguem como ESTRUTURA base que a casca
+     veste). Mecânica (genérica, serve pra casca futura): entrada com
      `casca: "modern"` no `PELES` aplica `data-casca="modern"` no `<html>`
-     por cima do `data-theme` da COR base (`base:`) — são os 4 temas
-     "<Nome> Mod" (8 opções no seletor = 4 cores × 2 cascas). Casca NÃO é
-     pele: veste o MESMO DOM (shell desktop + casca mobile) e deriva TODA
-     cor de token (`var(--hbx-*)` + color-mix com #fff/#000) — por isso
+     por cima do `data-theme` da COR base (`base:`); chave clássica salva
+     em localStorage migra pra variante Mod da mesma cor (registry + boot
+     do layout.tsx, manter em sincronia). Casca NÃO é pele: veste o MESMO
+     DOM (shell desktop + casca mobile) e deriva TODA cor de token
+     (`var(--hbx-*)` + color-mix com #fff/#000) — por isso
      `casca-modern.css` NÃO é isenta do check-pele e uma folha serve às 4
      cores. Continua valendo: UMA tela, UM DOM, UMA escrita — casca nova
      nunca duplica tela nem cria navegação própria.
@@ -102,11 +106,12 @@
    reprovado).
 
 ### Estado atual e exceções registradas
-- Peles de COR instaladas (aurora padrão, ember, rose, hbx-cyber) vestem o
-  contrato neutro de tokens; criar/refatorar pele é trabalho autorizado (ver
+- Peles de COR instaladas (aurora, ember, rose, hbx-cyber) vestem o contrato
+  neutro de tokens; criar/refatorar pele é trabalho autorizado (ver
   PEDIDO-DE-PELE.md). `skeleton.css` é a base de tokens, não uma opção do
-  seletor. Seletor mostra 8 temas: as 4 cores + as 4 variantes "<Nome> Mod"
-  (mesma cor vestindo a casca MODERN — ver Lei nº3/CASCAS).
+  seletor. Seletor mostra SÓ os 4 temas "<Nome> Mod" (cor × casca MODERN —
+  ver Lei nº3/CASCAS; padrão = Aurora Mod). Os theme-<cor>.css seguem vivos
+  como fonte de tokens consumida via `base:` — não deletar.
 - **Pele noir REMOVIDA (dono 07/07, mesma ordem que criou a casca Modern):**
   theme-noir.css, a vitrine `.vnd-m__vitrine` (screens.css/vendas-funil.tsx)
   e o campo `mobileOnly` do PELES saíram juntos — não reintroduzir.

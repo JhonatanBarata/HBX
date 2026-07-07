@@ -31,12 +31,13 @@ export const viewport: Viewport = {
 
 // Boot de PELE antes da pintura (sem flash) — espelho de
 // components/hbx/theme-attributes.tsx (manter os dois em sincronia).
-// hbx:pele = uma das 8 opções: 4 cores (aurora|ember|rose|hbx-cyber) ×
-// 2 cascas — sufixo "-mod" liga a CASCA MODERN (data-casca="modern") por
-// cima do data-theme da COR base. hbx:mode = claro/escuro global automático.
-// 15/06: a landing "/" deixou de ser "html puro" — agora É o login (tokens +
-// robô do tema), herda data-theme/mode.
-const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var B=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele")||"aurora";var mod=/-mod$/.test(k);var base=mod?k.slice(0,-4):k;if(B.indexOf(base)<0){k="aurora";base="aurora";mod=false;}h.setAttribute("data-theme",base);h.setAttribute("data-pele",k);if(mod){h.setAttribute("data-casca","modern");}else{h.removeAttribute("data-casca");}var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
+// hbx:pele = uma das 4 opções "<cor>-mod" (aurora|ember|rose|hbx-cyber) —
+// a casca MODERN é a única (dono 07/07: cascas/temas clássicos removidos);
+// chave clássica salva de antes migra pra variante Mod da mesma cor.
+// hbx:mode = claro/escuro global automático. 15/06: a landing "/" deixou de
+// ser "html puro" — agora É o login (tokens + robô do tema), herda
+// data-theme/mode.
+const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var B=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele")||"aurora-mod";if(!/-mod$/.test(k)){k=k+"-mod";}var base=k.slice(0,-4);if(B.indexOf(base)<0){k="aurora-mod";base="aurora";}h.setAttribute("data-theme",base);h.setAttribute("data-pele",k);h.setAttribute("data-casca","modern");var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
 // Boot da CASCA MOBILE antes da pintura (07/07, queixa do dono: reload no
 // celular piscava a sidebar desktop antes da moldura mobile aparecer) —
