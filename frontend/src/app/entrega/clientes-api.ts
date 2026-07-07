@@ -85,6 +85,7 @@ export interface CriarClientePayload {
   endereco?: string;
   cidade?: string;
   uf?: string;
+  cep?: string;
   lat?: number;
   lng?: number;
   isCliente?: boolean;
@@ -107,6 +108,7 @@ export interface EditarClientePayload {
   endereco?: string;
   cidade?: string;
   uf?: string;
+  cep?: string;
   lat?: number;
   lng?: number;
 }

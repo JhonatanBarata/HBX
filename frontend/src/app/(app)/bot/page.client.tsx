@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { I, ICONS } from "@/components/hbx/shell";
+import { I, ICONS, useMyModules } from "@/components/hbx/shell";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotPhaseEditor } from "@/components/hbx/bot-phase-editor";
@@ -193,6 +193,16 @@ export function BotClient() {
   const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
   // ── Activation (pino + 3 chavinhas) ──────────────────────────────────────
+  // GET/PUT /bot/activation exigem o módulo 'bot' liberado para a empresa
+  // (@ModuleAccess('bot') no backend — 'bot' não vem em NENHUM plano padrão,
+  // só entra via post-it do master). O Topbar já sabe disso e só chama o mesmo
+  // endpoint quando mods.byKey["bot"]?.accessible é true; esta tela chamava
+  // direto e martelava 403 em toda visita de empresa sem o módulo liberado.
+  // Mesmo gate aqui — sem módulo liberado, a tela fica no estado padrão
+  // (armed:false → "Aguardando ativação do Suporte"), que é visualmente
+  // idêntico ao que já aparecia antes (a resposta 403 nunca era usada).
+  const mods = useMyModules();
+  const botAccessible = mods.loaded && Boolean(mods.byKey["bot"]?.accessible);
   const [activation, setActivation] = useState<ActivationState | null>(null);
   const [actBusy, setActBusy] = useState(false);
   const [actMsg, setActMsg] = useState<string | null>(null);
@@ -211,14 +221,20 @@ export function BotClient() {
   };
 
   // setState só em callback assíncrono (regra react-hooks/set-state-in-effect).
+  // Sem módulo liberado (post-it do master ausente), nem tenta — devolveria 403.
   const loadActivation = useCallback(() => {
+    if (!botAccessible) return;
     apiFetch<ActivationState>("/bot/activation")
       .then(data => { if (data) setActivation(data); })
       .catch(() => { /* backend indisponível — mantém estado padrão, tela não quebra */ });
-  }, []);
+  }, [botAccessible]);
 
   async function toggleType(tipo: BotTypeName, live: boolean) {
     if (actBusy) return;
+    if (!botAccessible) {
+      setActMsg("Bot não liberado para esta empresa. Acione o Suporte.");
+      return;
+    }
     setActBusy(true);
     setActMsg(null);
     try {
@@ -307,11 +323,18 @@ export function BotClient() {
       .finally(() => { setCfgBusy(false); });
   }
 
-  // Carregar ativação + config inicial na montagem
+  // Config inicial (Atendimento) na montagem — não depende do módulo 'bot'.
+  useEffect(() => {
+    initCfgTipo("atendimento");
+  }, [initCfgTipo]);
+
+  // Ativação (pino): loadActivation já se auto-guarda em botAccessible; este
+  // efeito dispara de novo quando useMyModules termina de carregar (identidade
+  // de loadActivation muda com botAccessible), então roda exatamente 1x
+  // "de verdade" assim que soubermos se o módulo está liberado.
   useEffect(() => {
     loadActivation();
-    initCfgTipo("atendimento");
-  }, [loadActivation, initCfgTipo]);
+  }, [loadActivation]);
 
 
   // Trocar tipo → recarregar config. Prospecção NÃO usa o endpoint de bot-config

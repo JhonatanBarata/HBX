@@ -4,20 +4,37 @@
 // LOGÍSTICA-MOBILE A3 — aba "Clientes" do app (skin entrega, cara de app).
 //  · Lista de clientes em cards grandes + busca + estado vazio honesto.
 //  · "Novo cliente" / tocar num card → EDITOR (1 coluna, app-like):
-//      nome · WhatsApp · endereço · "Salvar local daqui" (GPS→lat/lng) ·
-//      forma de pagamento (aberto|mensal|na_hora|pendura) + contabilizar ·
-//      produtos do cliente (catálogo + qtd + frequência).
+//      nome · WhatsApp · ENDEREÇO INTELIGENTE · forma de pagamento
+//      (aberto|mensal|na_hora|pendura) + contabilizar · produtos do cliente.
+//
+//  ENDEREÇO INTELIGENTE (07/07) — dois caminhos, ambos com minimapa e pino:
+//   1) Digita o CEP → ViaCEP preenche rua/bairro/cidade/UF e o app pede
+//      SÓ o número; Nominatim solta o pino no mapa.
+//   2) "Usar este local" → GPS + reverse-geocode preenchem o endereço de onde
+//      você está e o app pergunta se o número está certo.
+//  O endereço-texto vira lat/lng SEMPRE (não só no GPS) — some o buraco antigo
+//  em que só o "Salvar local daqui" gerava coordenada. Geo helpers: ../geo.ts
+//  (ViaCEP + Nominatim + iframe OSM, zero chave / zero custo).
+//
 //  Reusa 100% os endpoints prontos (nucleo/logistica) — ver clientes-api.ts.
 //  ZERO jargão ERP, ZERO texto explicativo em parágrafo (Lei do plano).
 // ================================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CascaLoading, CascaView } from "@/components/casca";
 
 import { EntregaScaffold } from "../EntregaScaffold";
 import { I, ICON_PATHS } from "../icons";
 import { getPosicaoUma } from "../entrega-hooks";
+import {
+  buscarCep,
+  formatarCep,
+  geocodar,
+  mapaEmbedUrl,
+  reverseGeocodar,
+  soDigitos,
+} from "../geo";
 import {
   type ClienteListItem,
   type ClienteProduto,
@@ -172,11 +189,18 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
   // Campos do cadastro (o dado da conta + contato principal).
   const [nome, setNome] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
-  const [endereco, setEndereco] = useState("");
+  // Endereço estruturado (o `endereco` do backend é composto na hora de salvar).
+  const [cep, setCep] = useState("");
+  const [logradouro, setLogradouro] = useState("");
+  const [numero, setNumero] = useState("");
+  const [bairro, setBairro] = useState("");
   const [cidade, setCidade] = useState("");
   const [uf, setUf] = useState("");
   const [coord, setCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [capturandoGps, setCapturandoGps] = useState(false);
+  const [cepStatus, setCepStatus] = useState<"idle" | "buscando" | "ok" | "erro">("idle");
+  const [confirmarNumero, setConfirmarNumero] = useState(false); // fluxo GPS: "o número está certo?"
+  const numeroRef = useRef<HTMLInputElement>(null);
 
   // Contrato financeiro.
   const [forma, setForma] = useState<FormaPagamento>("aberto");
@@ -209,7 +233,11 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
         setNome(c.name || "");
         setWhatsapp(c.whatsapp || "");
         setWhatsappOriginal(c.whatsapp || "");
-        setEndereco(c.endereco || "");
+        // O backend guarda o endereço como um texto só (rua, nº - bairro). Na
+        // edição ele volta inteiro pro campo "Endereço"; número/bairro ficam
+        // vazios e só se preenchem se o usuário refizer a busca por CEP/GPS.
+        setCep(formatarCep(c.cep || ""));
+        setLogradouro(c.endereco || "");
         setCidade(c.cidade || "");
         setUf(c.uf || "");
         setCoord(typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng } : null);
@@ -230,12 +258,72 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
     };
   }, [editando, id]);
 
-  const salvarLocal = useCallback(async () => {
+  // Compõe o endereço-texto do backend a partir das partes ("Rua X, 123 - Centro").
+  const comporEndereco = useCallback(() => {
+    const ruaNum = [logradouro.trim(), numero.trim()].filter(Boolean).join(", ");
+    return [ruaNum, bairro.trim()].filter(Boolean).join(" - ").slice(0, 240);
+  }, [logradouro, numero, bairro]);
+
+  // CAMINHO 1 — CEP: ViaCEP preenche rua/bairro/cidade/UF; Nominatim solta o
+  // pino aproximado (refina quando o número chega). Falha degrada gracioso.
+  const resolverCep = useCallback(async (cepValor: string) => {
+    setCepStatus("buscando");
+    const end = await buscarCep(cepValor);
+    if (!end) {
+      setCepStatus("erro");
+      return;
+    }
+    setLogradouro(end.logradouro);
+    setBairro(end.bairro);
+    setCidade(end.cidade);
+    setUf(end.uf);
+    setCepStatus("ok");
+    setConfirmarNumero(false);
+    numeroRef.current?.focus();
+    const q = [end.logradouro, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(", ");
+    const pt = await geocodar(q);
+    if (pt) setCoord(pt);
+  }, []);
+
+  const onCepChange = useCallback(
+    (v: string) => {
+      const f = formatarCep(v);
+      setCep(f);
+      if (soDigitos(f).length === 8) void resolverCep(f);
+      else setCepStatus("idle");
+    },
+    [resolverCep],
+  );
+
+  // Ao sair do campo Número, refina o pino com o endereço completo.
+  const refinarPino = useCallback(async () => {
+    if (!logradouro.trim() || !cidade.trim()) return;
+    const rua = `${logradouro.trim()}${numero.trim() ? `, ${numero.trim()}` : ""}`;
+    const q = [rua, bairro.trim(), cidade.trim(), uf.trim()].filter(Boolean).join(", ");
+    const pt = await geocodar(q);
+    if (pt) setCoord(pt);
+  }, [logradouro, numero, bairro, cidade, uf]);
+
+  // CAMINHO 2 — "Usar este local": GPS + reverse-geocode preenchem o endereço
+  // de onde o usuário está; depois pede confirmação do número.
+  const usarEsteLocal = useCallback(async () => {
     setCapturandoGps(true);
     setErro(null);
     try {
       const pos = await getPosicaoUma();
       setCoord(pos);
+      const end = await reverseGeocodar(pos);
+      if (end) {
+        if (end.cep) setCep(formatarCep(end.cep));
+        if (end.logradouro) setLogradouro(end.logradouro);
+        if (end.numero) setNumero(end.numero);
+        if (end.bairro) setBairro(end.bairro);
+        if (end.cidade) setCidade(end.cidade);
+        if (end.uf) setUf(end.uf);
+        setCepStatus(end.cep ? "ok" : "idle");
+      }
+      setConfirmarNumero(true);
+      numeroRef.current?.focus();
     } catch {
       setErro("Não consegui pegar o local. Ative o GPS e tente de novo.");
     } finally {
@@ -259,23 +347,28 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
         ...(forma === "mensal" && diaNum ? { diaFechamento: diaNum } : {}),
       } as const;
 
+      const enderecoFinal = comporEndereco();
+      const cepFinal = cep.trim() || undefined;
+
       let contaId = id;
       if (!editando) {
         const criada = await criarCliente({
           nome: nome.trim(),
           whatsapp: whatsapp.trim() || undefined,
-          endereco: endereco.trim() || undefined,
+          endereco: enderecoFinal || undefined,
           cidade: cidade.trim() || undefined,
           uf: uf.trim() || undefined,
+          cep: cepFinal,
           ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
         });
         contaId = criada.contaId;
       } else if (id) {
         await editarCliente(id, {
           nome: nome.trim(),
-          endereco: endereco.trim(),
+          endereco: enderecoFinal,
           cidade: cidade.trim(),
           uf: uf.trim(),
+          cep: cepFinal,
           ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
         });
         // Telefone do principal: só bate no endpoint se mudou e há um principal.
@@ -296,7 +389,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
     }
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId,
-    endereco, cidade, uf, coord, forma, metodo, diaFechamento, contabilizar, onSair,
+    comporEndereco, cep, cidade, uf, coord, forma, metodo, diaFechamento, contabilizar, onSair,
   ]);
 
   if (carregando) {
@@ -320,10 +413,56 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
           <input className="ent-input" type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="(85) 90000-0000" />
         </label>
 
+        {/* CEP — a porta de entrada: digitou 8 dígitos, o endereço se preenche. */}
+        <label className="ent-field">
+          <span className="ent-field-label">CEP</span>
+          <input
+            className="ent-input"
+            type="text"
+            inputMode="numeric"
+            value={cep}
+            onChange={(e) => onCepChange(e.target.value)}
+            placeholder="00000-000"
+            maxLength={9}
+          />
+          {cepStatus === "buscando" ? (
+            <span className="ent-hint">Buscando endereço…</span>
+          ) : cepStatus === "erro" ? (
+            <span className="ent-erro">CEP não encontrado — preencha à mão</span>
+          ) : null}
+        </label>
+
         <label className="ent-field">
           <span className="ent-field-label">Endereço</span>
-          <input className="ent-input" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, número, bairro" />
+          <input className="ent-input" value={logradouro} onChange={(e) => setLogradouro(e.target.value)} placeholder="Rua / Avenida" />
         </label>
+
+        <div className="ent-field-row">
+          <label className="ent-field ent-field--num">
+            <span className="ent-field-label">Número</span>
+            <input
+              ref={numeroRef}
+              className={`ent-input${confirmarNumero ? " is-confirm" : ""}`}
+              type="text"
+              inputMode="numeric"
+              value={numero}
+              onChange={(e) => setNumero(e.target.value)}
+              onBlur={() => void refinarPino()}
+              placeholder="123"
+            />
+          </label>
+          <label className="ent-field ent-field--grow">
+            <span className="ent-field-label">Bairro</span>
+            <input className="ent-input" value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Centro" />
+          </label>
+        </div>
+
+        {confirmarNumero ? (
+          <div className="ent-confirm">
+            <I d={ICON_PATHS.nav} size={18} />
+            <span>Local encontrado. O número está certo?</span>
+          </div>
+        ) : null}
 
         <div className="ent-field-row">
           <label className="ent-field ent-field--grow">
@@ -339,12 +478,19 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: () => void }
         <button
           type="button"
           className={`ent-btn ent-btn--secondary${coord ? " is-on" : ""}`}
-          onClick={() => void salvarLocal()}
+          onClick={() => void usarEsteLocal()}
           disabled={capturandoGps}
         >
           <I d={ICON_PATHS.nav} size={20} />
-          {capturandoGps ? "Pegando local…" : coord ? "Local salvo ✓" : "Salvar local daqui"}
+          {capturandoGps ? "Pegando local…" : "Usar este local"}
         </button>
+
+        {/* Minimapa — pino do endereço (CEP geocodificado OU GPS). */}
+        {coord ? (
+          <div className="ent-map">
+            <iframe title="Mapa do endereço" src={mapaEmbedUrl(coord)} loading="lazy" />
+          </div>
+        ) : null}
 
         {/* FORMA DE PAGAMENTO */}
         <div className="ent-field-label ent-section">Forma de pagamento</div>

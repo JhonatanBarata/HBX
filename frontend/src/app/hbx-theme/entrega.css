@@ -800,6 +800,46 @@
 }
 [data-skin="entrega"] .ent-field--grow { flex: 1 1 auto; min-width: 0; }
 [data-skin="entrega"] .ent-field--uf { flex: 0 0 84px; }
+[data-skin="entrega"] .ent-field--num { flex: 0 0 104px; }
+
+/* ---------- ENDEREÇO INTELIGENTE (CEP + GPS) — banner + minimapa ---------- */
+/* Número destacado quando o GPS pediu confirmação ("o número está certo?"). */
+[data-skin="entrega"] .ent-input.is-confirm {
+  border-color: var(--ent-brand);
+  box-shadow: 0 0 0 3px var(--ent-brand-soft);
+}
+/* Banner de 1 linha pedindo confirmação do número (fluxo "Usar este local"). */
+[data-skin="entrega"] .ent-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-2);
+  padding: var(--ent-3) var(--ent-4);
+  background: var(--ent-brand-soft);
+  border: 1px solid color-mix(in srgb, var(--ent-brand) 30%, var(--ent-hairline));
+  border-radius: var(--ent-radius-sm);
+  color: var(--ent-brand-strong);
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+}
+/* Minimapa — cartão com o iframe do OpenStreetMap (pino do endereço).
+   `flex: 0 0 auto` + altura no wrapper: dentro do .ent-form (flex-column) um
+   item com overflow:hidden ganha min-size 0 e COLAPSARIA (só as bordas
+   sobrariam) — a altura tem de morar no wrapper, o iframe herda 100%. */
+[data-skin="entrega"] .ent-map {
+  flex: 0 0 auto;
+  height: 172px;
+  overflow: hidden;
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-sm);
+  background: var(--ent-surface-soft);
+}
+[data-skin="entrega"] .ent-map iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
 
 /* ---------- TOGGLE (Entra na contabilidade) ---------- */
 [data-skin="entrega"] .ent-toggle {
