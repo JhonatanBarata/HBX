@@ -1767,7 +1767,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    "detalhes, tela de carregando, loading do HBX". Mesma técnica das outras
    frentes desta sessão (entrega.css GLOW/HUD, theme-hbx-cyber.css): 1 camada
    de box-shadow/filter em color-mix(token)/var(--soft-ring), nunca hex — por
-   isso funciona igual em QUALQUER pele (aurora/ember/rose/noir/hbx-cyber),
+   isso funciona igual em QUALQUER pele (aurora/ember/rose/hbx-cyber),
    automaticamente. Restrito: 1 camada de brilho por elemento, sem "show de
    luz". Classes compartilhadas (dn-*) — vale pro card no desktop E na folha
    mobile (negocio-sheet.tsx reusa o mesmo <DetalhesNegocio>). ── */

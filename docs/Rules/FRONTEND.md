@@ -78,9 +78,20 @@
    entrada no `PELES` (theme-attributes.tsx). Como encomendar a uma IA:
    **docs/Rules/PEDIDO-DE-PELE.md**. Julgamento: tela-prova **/dev/pele**.
    Tema NUNCA muda escrita, estrutura, menu ou navegação — uma
-   funcionalidade = UMA tela, UM DOM, UMA escrita. Instaladas: aurora
-   (padrão), ember, rose. `skeleton.css` é a BASE de tokens (contrato
-   neutro que as peles vestem) — NÃO é uma opção do seletor.
+   funcionalidade = UMA tela, UM DOM, UMA escrita. Cores instaladas: aurora
+   (padrão), ember, rose, hbx-cyber. `skeleton.css` é a BASE de tokens
+   (contrato neutro que as peles vestem) — NÃO é uma opção do seletor.
+   - **CASCAS (dono 07/07 — a regra de casca ÚNICA foi REMOVIDA):** existem
+     2 padrões de casca, CLÁSSICA (default) e MODERN (`casca-modern.css`,
+     fundo infinito + vidro). A casca é escolhida pela PELE: entrada com
+     `casca: "modern"` no `PELES` aplica `data-casca="modern"` no `<html>`
+     por cima do `data-theme` da COR base (`base:`) — são os 4 temas
+     "<Nome> Mod" (8 opções no seletor = 4 cores × 2 cascas). Casca NÃO é
+     pele: veste o MESMO DOM (shell desktop + casca mobile) e deriva TODA
+     cor de token (`var(--hbx-*)` + color-mix com #fff/#000) — por isso
+     `casca-modern.css` NÃO é isenta do check-pele e uma folha serve às 4
+     cores. Continua valendo: UMA tela, UM DOM, UMA escrita — casca nova
+     nunca duplica tela nem cria navegação própria.
 4. **Tela é PROIBIDA de ter visual próprio.** Nenhuma cor, borda, sombra,
    fonte ou radius dentro de TSX — só classe central/utility/token. Inline
    `style` é tolerado SOMENTE para layout (display/gap/padding/width…).
@@ -91,15 +102,14 @@
    reprovado).
 
 ### Estado atual e exceções registradas
-- Peles instaladas (aurora padrão, ember, rose) vestem o contrato neutro de
-  tokens; criar/refatorar pele é trabalho autorizado (ver PEDIDO-DE-PELE.md).
-  `skeleton.css` é a base de tokens, não uma opção do seletor.
-- **Pele noir (dono 07/07, exceção à Lei nº3):** resgate P&B da tela mobile
-  antiga de Vendas (commit 53ca499d). A "vitrine" (`.vnd-m__vitrine`,
-  vendas-funil.tsx) vive SEMPRE no DOM e é revelada só sob
-  `[data-theme="noir"]` (estrutura em screens.css, vestir em theme-noir.css)
-  — o DOM é um só, a pele decide visibilidade. `mobileOnly` no PELES esconde
-  a pele do seletor desktop (PeleSwitch); na casca aparece normal.
+- Peles de COR instaladas (aurora padrão, ember, rose, hbx-cyber) vestem o
+  contrato neutro de tokens; criar/refatorar pele é trabalho autorizado (ver
+  PEDIDO-DE-PELE.md). `skeleton.css` é a base de tokens, não uma opção do
+  seletor. Seletor mostra 8 temas: as 4 cores + as 4 variantes "<Nome> Mod"
+  (mesma cor vestindo a casca MODERN — ver Lei nº3/CASCAS).
+- **Pele noir REMOVIDA (dono 07/07, mesma ordem que criou a casca Modern):**
+  theme-noir.css, a vitrine `.vnd-m__vitrine` (screens.css/vendas-funil.tsx)
+  e o campo `mobileOnly` do PELES saíram juntos — não reintroduzir.
 - `docs/TEMAS` é REFERÊNCIA de estrutura/escrita das telas — o visual de lá
   não se copia para dentro de tela nem de TSX (vira token/classe).
 - Mundo-site (visual próprio, fora do fiscal): `hbx-theme/marketing.css`,

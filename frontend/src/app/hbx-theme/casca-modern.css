@@ -1,0 +1,298 @@
+/* ============================================================
+   HBX — CASCA MODERN (2º padrão de casca, dono 07/07/2026)
+   Desktop + mobile na MESMA linguagem: fundo infinito (grade em
+   perspectiva + aurora + anéis + névoa), painéis de vidro flutuando
+   com canto generoso, pílula gradiente na navegação ativa e entrada
+   de página com blur — o mockup "HBX Shell Preview" vestindo a
+   estrutura REAL do app (shell desktop .app/.side/.main e casca
+   mobile .casca/.casca-top/.casca-tabbar). Zero DOM novo.
+
+   COMO LIGA: pele com sufixo Mod (theme-attributes.tsx) escreve
+   <html data-casca="modern"> por cima do data-theme da COR base.
+   Por isso este arquivo NÃO tem cor própria: TODA cor nasce de
+   var(--hbx-*) + color-mix com os neutros #fff/#000 (fiscal
+   check-pele passa) — Aurora Mod, Ember Mod, Rosé Mod e Tema HBX
+   Mod saem de graça da mesma folha, claro e escuro automáticos.
+
+   Importada DEPOIS das peles (globals.css): em empate de
+   especificidade, a casca vence a camada de vestir da pele.
+   ============================================================ */
+
+/* ---- Tokens da casca (geometria, vidro, movimento) ----------------------
+   [data-casca="modern"][data-theme] = mesmo elemento (html) e mesma
+   especificidade dos blocos de pele; este arquivo importa por último,
+   então vence o empate — inclusive contra os --radius-* das peles. */
+[data-casca="modern"][data-theme] {
+  /* geometria: canto generoso do mockup (hero 28/30, cards 22/24) */
+  --radius-xs: 10px;
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 30px;
+
+  /* vidro mais profundo que qualquer pele clássica */
+  --blur-chrome: 24px;
+  --blur-glass: 18px;
+
+  /* movimento: curva do mockup (ease-out longa) + entrada com blur */
+  --motion-base: 340ms cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-slow: 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --enter-name: hbx-enter-modern;
+  --enter-duration: 560ms;
+  --enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* derivados de vidro — recalculam sozinhos com pele/modo (5 Leis):
+     linha = tinta diluída; painel = superfície translúcida; flare = marca */
+  --mod-line: color-mix(in srgb, var(--hbx-foreground) 14%, transparent);
+  --mod-line-strong: color-mix(in srgb, var(--hbx-foreground) 24%, transparent);
+  --mod-glass-hi: color-mix(in srgb, var(--hbx-surface) 62%, transparent);
+  --mod-glass-lo: color-mix(in srgb, var(--hbx-surface) 40%, transparent);
+  --mod-glass-recessed: color-mix(in srgb, var(--hbx-surface-soft) 52%, transparent);
+  --mod-flare: color-mix(in srgb, var(--hbx-brand) 14%, transparent);
+  --mod-glow: color-mix(in srgb, var(--hbx-brand-strong) 45%, transparent);
+}
+
+/* ---- Entrada de página (o app-page/hbx-page leem os tokens acima) ------- */
+@keyframes hbx-enter-modern {
+  from { opacity: 0; transform: translate3d(26px, 0, 0) scale(0.99); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes casca-modern-grid {
+  from { background-position: 0 0; }
+  to { background-position: 0 300px; }
+}
+
+/* ============================================================
+   FUNDO INFINITO — compartilhado desktop (.app) × mobile (.casca).
+   3 camadas: canvas (gradiente profundo + focos de marca), grade em
+   perspectiva animada (::before) e anéis + aurora + névoa (::after).
+   Pseudo em z-index:-1 dentro de contexto isolado: fica ACIMA do
+   fundo do container e ABAIXO de todo conteúdo.
+   ============================================================ */
+[data-casca="modern"] .app,
+[data-casca="modern"] .casca {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 42% 14%, color-mix(in srgb, var(--hbx-brand) 20%, transparent), transparent 30%),
+    radial-gradient(circle at 8% 22%, color-mix(in srgb, var(--hbx-secondary) 12%, transparent), transparent 24%),
+    radial-gradient(circle at 92% 84%, color-mix(in srgb, var(--hbx-accent) 13%, transparent), transparent 26%),
+    linear-gradient(135deg, var(--hbx-background-alt), var(--hbx-background) 47%, color-mix(in srgb, var(--hbx-brand) 22%, var(--hbx-background)));
+}
+/* .casca já é position:fixed (não sobrescrever com relative) */
+[data-casca="modern"] .casca { position: fixed; }
+
+/* grade em perspectiva (o "chão" do mockup) */
+[data-casca="modern"] .app::before,
+[data-casca="modern"] .casca::before {
+  content: "";
+  position: absolute;
+  inset: -14% -18% 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, transparent 0 49.7%, color-mix(in srgb, var(--hbx-secondary) 24%, transparent) 50%, transparent 50.3%),
+    linear-gradient(0deg, transparent 0 49.7%, color-mix(in srgb, var(--hbx-brand) 15%, transparent) 50%, transparent 50.3%);
+  background-size: 150px 150px;
+  transform: perspective(1000px) rotateX(64deg) translateY(30%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 70%, transparent 92%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 70%, transparent 92%);
+  opacity: 0.32;
+  animation: casca-modern-grid 26s linear infinite;
+  pointer-events: none;
+}
+
+/* anéis concêntricos + aurora + névoa/vinheta */
+[data-casca="modern"] .app::after,
+[data-casca="modern"] .casca::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--hbx-foreground) 5%, transparent) 0 1px, transparent 1px 36px),
+    radial-gradient(ellipse at 22% 24%, color-mix(in srgb, var(--hbx-brand) 15%, transparent), transparent 36%),
+    radial-gradient(ellipse at 80% 58%, color-mix(in srgb, var(--hbx-secondary) 9%, transparent), transparent 30%),
+    radial-gradient(circle at 50% 46%, transparent 0 42%, color-mix(in srgb, var(--hbx-shadow) 12%, transparent) 78%, color-mix(in srgb, var(--hbx-shadow) 26%, transparent));
+  pointer-events: none;
+}
+
+/* ============================================================
+   DESKTOP — o shell vira painéis de vidro flutuando sobre o fundo.
+   Mesmo DOM de sempre: .app > .side + .main(.topbar + .app-page).
+   ============================================================ */
+[data-casca="modern"] .app {
+  padding: 14px;
+  gap: 14px;
+}
+
+/* rail de vidro */
+[data-casca="modern"] .side {
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at 14% 6%, var(--mod-flare), transparent 32%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  -webkit-backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+/* moldura principal de vidro (topbar + conteúdo vivem dentro) */
+[data-casca="modern"] .main {
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  -webkit-backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-casca="modern"] .topbar {
+  background: transparent;
+  border-bottom: 1px solid var(--mod-line);
+}
+
+/* navegação: item respira no hover; ativo = pílula gradiente da pele
+   (o par primary→secondary é o MESMO contrato de contraste do .btn-teal
+   de cada pele — o --hbx-action-ink garante a tinta certa por cima). */
+[data-casca="modern"] .nav-item:hover { transform: translateX(2px); }
+[data-casca="modern"] .side .glass-pill__glass,
+[data-casca="modern"] .side .nav-pill__glass {
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 38%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  border: 1px solid color-mix(in srgb, #fff 25%, transparent);
+  box-shadow: 0 14px 34px -16px var(--mod-glow);
+}
+[data-casca="modern"] .side .nav-item.active,
+[data-casca="modern"] .side .nav-item.active:hover { color: var(--hbx-action-ink); }
+
+/* cromo do topo: busca e botões redondos em vidro */
+[data-casca="modern"] .search {
+  border-color: var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+[data-casca="modern"] .round-btn {
+  border: 1px solid var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+[data-casca="modern"] .round-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--mod-line-strong);
+  background: var(--mod-glass-hi);
+}
+
+/* cartões e painéis: vidro com flare de marca no canto (sem backdrop-filter
+   aqui de propósito — já flutuam sobre o vidro do .main; só translucidez) */
+[data-casca="modern"] .panel,
+[data-casca="modern"] .kpi,
+[data-casca="modern"] .plan-card,
+[data-casca="modern"] .user-card {
+  border-color: var(--mod-line);
+  background:
+    radial-gradient(circle at 100% 0%, var(--mod-flare), transparent 42%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+/* controles: ação primária vira gradiente; campos/ghost em vidro raso */
+[data-casca="modern"] .btn-teal {
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  box-shadow: 0 14px 30px -18px var(--mod-glow);
+}
+[data-casca="modern"] .btn-teal:hover {
+  background: linear-gradient(135deg, var(--hbx-brand-strong), var(--hbx-secondary));
+}
+[data-casca="modern"] .btn-ghost,
+[data-casca="modern"] .field-dark,
+[data-casca="modern"] .select-dark {
+  border-color: var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+
+/* overlays: o vidro escuro do mockup (coach/modal) — aqui SIM backdrop,
+   é a camada que flutua sobre a tela inteira */
+[data-casca="modern"] .hbx-modal,
+[data-casca="modern"] .hbx-pop,
+[data-casca="modern"] .hbx-drawer {
+  border-color: var(--mod-line-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 92%, transparent), color-mix(in srgb, var(--hbx-surface) 82%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* ============================================================
+   MOBILE — topo e dock FLUTUAM (margem + canto + vidro), navegação
+   ativa vira pílula gradiente; conteúdo continua o mesmo DOM.
+   ============================================================ */
+[data-casca="modern"] .casca-top {
+  margin: var(--space-2) var(--space-3) 0;
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  -webkit-backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+
+/* dock: barra vira ilha (o safe-bottom sai do padding e vira margem) */
+[data-casca="modern"] .casca-tabbar {
+  height: auto;
+  min-height: var(--casca-tabbar-h);
+  margin: var(--space-2) var(--space-3) calc(var(--casca-safe-bottom) + var(--space-2));
+  padding: 5px;
+  gap: 4px;
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--hbx-background-alt) 76%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  backdrop-filter: blur(var(--blur-chrome)) saturate(1.08);
+  box-shadow: 0 18px 44px -20px color-mix(in srgb, var(--hbx-shadow) 55%, transparent), var(--shadow-inset);
+}
+[data-casca="modern"] .casca-tab {
+  border-radius: calc(var(--radius-xl) - 8px);
+}
+[data-casca="modern"] .casca-tab.is-on {
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 35%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  color: var(--hbx-action-ink);
+  box-shadow: 0 12px 30px -14px var(--mod-glow);
+}
+/* o tracinho indicador da casca clássica sai — a pílula já marca o ativo */
+[data-casca="modern"] .casca-tab.is-on::before { content: none; }
+
+/* painel de comando e linhas de lista: vidro sobre o fundo infinito */
+[data-casca="modern"] .casca-command {
+  border-color: var(--mod-line);
+  background:
+    radial-gradient(circle at 12% 0%, var(--mod-flare), transparent 44%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-casca="modern"] .vnd-m__row,
+[data-casca="modern"] .emp-m__row,
+[data-casca="modern"] .mais-m__row {
+  border-color: var(--mod-line);
+  background: linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+}
+[data-casca="modern"] .casca-segment {
+  border: 1px solid var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+
+/* folha (bottom sheet): vidro profundo, como o coach do mockup */
+[data-casca="modern"] .casca-sheet {
+  border-color: var(--mod-line-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 94%, transparent), color-mix(in srgb, var(--hbx-surface) 84%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* ---- acessibilidade ------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  [data-casca="modern"] .app::before,
+  [data-casca="modern"] .casca::before { animation: none; }
+  [data-casca="modern"] .nav-item:hover,
+  [data-casca="modern"] .round-btn:hover { transform: none; }
+}

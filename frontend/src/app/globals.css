@@ -76,7 +76,14 @@
 @import "./hbx-theme/theme-ember.css";
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
-@import "./hbx-theme/theme-noir.css";
+
+/* CASCA MODERN — o 2º padrão de casca (desktop + mobile), escopo
+   [data-casca="modern"]. NÃO é pele: veste a MESMA estrutura (shell/casca)
+   com fundo infinito + vidro + transições, derivando TODA cor dos tokens da
+   pele ativa (por isso funciona em Aurora/Ember/Rosé/HBX Mod sem duplicar
+   tokens). Importada DEPOIS das peles de propósito: em empate de
+   especificidade a casca vence a camada de vestir da pele. */
+@import "./hbx-theme/casca-modern.css";
 
 /* Design System ENTREGA (LOGISTICA-MOBILE M1) — pele mobile do app do
    entregador, TODA escopada em [data-skin="entrega"]. Não vaza pro

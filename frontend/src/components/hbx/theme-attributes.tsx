@@ -11,20 +11,36 @@ import { useEffect } from "react";
 // Modo claro/escuro é GLOBAL e automático (hbx:mode →
 // data-theme-mode na escada de tokens; telas não sabem do dark).
 // Boot inline do layout.tsx espelha esta lógica — manter em sincronia.
+//
+// CASCAS (dono 07/07): existem 2 padrões de casca — a CLÁSSICA (default)
+// e a MODERN (fundo infinito + vidro, casca-modern.css). A casca é
+// escolhida pela pele: entrada com `casca: "modern"` aplica
+// data-casca="modern" no <html> por cima do data-theme da COR base
+// (`base`) — os 4 temas "<Nome> Mod" reusam os tokens da pele de cor,
+// nada de token duplicado. Sem `casca` = casca clássica (sem atributo).
 // ================================================================
 
-// Peles selecionáveis. skeleton.css continua sendo a BASE de tokens (o
-// contrato neutro que toda pele veste) — só não é uma opção do seletor.
-// mobileOnly: pele pensada pra casca (celular) — o seletor desktop
-// (PeleSwitch, shell.tsx) a esconde; o da casca (TemaSection) mostra tudo.
-export const PELES: ReadonlyArray<{ key: string; label: string; mobileOnly?: boolean }> = [
+export type Pele = {
+  key: string;
+  label: string;
+  /** pele de COR cujos tokens este tema usa (default: a própria key) */
+  base?: string;
+  /** padrão de casca; ausente = casca clássica */
+  casca?: "modern";
+};
+
+// Peles selecionáveis (8 = 4 cores × 2 cascas). skeleton.css continua sendo
+// a BASE de tokens (o contrato neutro que toda pele veste) — só não é uma
+// opção do seletor.
+export const PELES: ReadonlyArray<Pele> = [
   { key: "aurora", label: "Aurora" },
   { key: "ember", label: "Ember" },
   { key: "rose", label: "Rosé" },
   { key: "hbx-cyber", label: "Tema HBX" },
-  // Noir (dono 07/07): resgate P&B da tela mobile antiga de Vendas (53ca499d)
-  // vestindo a casca — tokens + vitrine em theme-noir.css/screens.css.
-  { key: "noir", label: "Noir", mobileOnly: true },
+  { key: "aurora-mod", label: "Aurora Mod", base: "aurora", casca: "modern" },
+  { key: "ember-mod", label: "Ember Mod", base: "ember", casca: "modern" },
+  { key: "rose-mod", label: "Rosé Mod", base: "rose", casca: "modern" },
+  { key: "hbx-cyber-mod", label: "Tema HBX Mod", base: "hbx-cyber", casca: "modern" },
 ];
 
 // Pele padrão quando não há preferência salva (mantém o boot do layout.tsx
@@ -35,8 +51,13 @@ const PELE_KEY = "hbx:pele";
 const MODE_KEY = "hbx:mode";
 
 function applyPele(html: HTMLElement, key: string | null) {
-  const valid = PELES.some(p => p.key === key) ? String(key) : DEFAULT_PELE;
-  html.setAttribute("data-theme", valid);
+  const pele = PELES.find(p => p.key === key) ?? PELES.find(p => p.key === DEFAULT_PELE)!;
+  // data-theme = pele de COR (tokens); data-pele = a escolha do usuário
+  // (o seletor destaca por ela); data-casca = padrão de casca (modern).
+  html.setAttribute("data-theme", pele.base ?? pele.key);
+  html.setAttribute("data-pele", pele.key);
+  if (pele.casca === "modern") html.setAttribute("data-casca", "modern");
+  else html.removeAttribute("data-casca");
 }
 
 export function applyThemeForPath(_pathname: string) {
@@ -70,7 +91,8 @@ export function setAppTheme(key: string) {
 }
 
 export function getActivePele(): string {
-  return document.documentElement.getAttribute("data-theme") || DEFAULT_PELE;
+  const html = document.documentElement;
+  return html.getAttribute("data-pele") || html.getAttribute("data-theme") || DEFAULT_PELE;
 }
 
 // Escrita ÚNICA do modo claro/escuro.

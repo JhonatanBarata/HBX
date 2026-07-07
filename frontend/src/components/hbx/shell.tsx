@@ -979,8 +979,7 @@ export function PeleSwitch() {
       </button>
       {open && (
         <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 150, padding: 6, display: "grid", gap: 2 }}>
-          {/* pele mobileOnly (ex.: noir) não é opção no desktop — só na casca */}
-          {PELES.filter(p => !p.mobileOnly).map(p => (
+          {PELES.map(p => (
             <button key={p.key} className={"nav-item" + (p.key === ativa ? " active" : "")} style={{ minHeight: 32 }}
               onClick={() => { setAppTheme(p.key); setOpen(false); }}>
               {p.label}
