@@ -297,19 +297,25 @@
   animation: casca-sheet-in var(--casca-motion-dur) var(--casca-motion-ease) both;
   /* deslocamento em tempo real durante o arraste (JS seta --casca-drag) */
   transform: translateY(var(--casca-drag, 0px));
-  touch-action: none;
 }
 .casca-sheet.is-dragging { animation: none; transition: none; }
 .casca-sheet.is-leaving { animation: casca-sheet-out var(--casca-motion-dur) var(--casca-motion-ease) both; }
 @keyframes casca-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes casca-sheet-out { from { transform: translateY(var(--casca-drag, 0px)); } to { transform: translateY(100%); } }
 
+/* FIX3 (bug ao vivo, dono): touch-action:none vivia no .casca-sheet INTEIRO —
+   matava o toque nativo de TODO filho (inputs de sheet de filtro bugavam ao
+   editar no celular real). Os handlers de arrastar-pra-fechar são só do
+   ponteiro (onPointerDown/Move/Up/Cancel) no __grip — o CSS que trava o
+   scroll/gesto do navegador só precisa estar no __grip, nunca no container
+   que hospeda inputs/campos de formulário. */
 .casca-sheet__grip {
   flex: 0 0 auto;
   padding: var(--space-2) 0 var(--space-1);
   display: grid;
   place-items: center;
   cursor: grab;
+  touch-action: none;
 }
 .casca-sheet__handle {
   width: var(--casca-handle-w);
@@ -425,6 +431,62 @@
   background: transparent;
   color: var(--text-strong);
   box-shadow: none;
+}
+
+/* ---------- CARD DE COMANDO (FIX4, reprova do dono 06/07: "cara de linha de
+   planilha") — moldura central única do topo, reusada por Vendas/Conversas/
+   Empresas. Cara de PAINEL real da pele (mesmo contrato de .panel do kit:
+   surface-card + hairline + radius-panel + shadow-lip), não "linha solta
+   flutuando no canvas". Só a MOLDURA vive aqui — o layout fino de cada linha
+   fica no bloco vnd-m__ / cvs-m__ / emp-m__ de cada tela (Lei nº2: visual
+   repetido vira classe central; especializações continuam por tela). */
+.casca-command {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-1) var(--space-3) 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-panel);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-lip), var(--shadow-xs);
+}
+/* linha genérica dentro do card (segmented/campo/stats/cta na mesma fileira) */
+.casca-command__row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* botão quadrado 32px de ação do painel (filtro etc.) — moldura própria,
+   nunca ícone pelado boiando dentro do card. */
+.casca-command__btn {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  cursor: pointer;
+  transition: transform var(--motion-fast), background var(--motion-fast);
+}
+.casca-command__btn:active { transform: scale(0.94); background: var(--surface-canvas); }
+/* pontinho de badge — filtro ativo (cidade/segmento etc.), nunca cor solta:
+   herda a marca da pele ativa. */
+.casca-command__btn-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--hbx-brand-strong);
+  box-shadow: 0 0 0 2px var(--surface-recessed);
 }
 
 /* ============================================================
@@ -603,4 +665,25 @@
   .casca-loading__ring.is-indeterminate .casca-loading__hub {
     animation: none !important;
   }
+}
+
+/* ============================================================
+   FIX5 — SWIPE entre MÓDULOS (Vendas ↔ Conversas ↔ Empresas ↔ Rota)
+   Gesto no próprio .casca-stage (mobile-shell.tsx). Durante o arrasto, o
+   palco acompanha o dedo via --casca-swipe-drag (translateX barato, sem
+   re-layout — só transform). Soltar aquém do limiar (65px, JS decide) volta
+   ao lugar: a classe .is-snapping liga a `transition` só nesse instante (via
+   onTransitionEnd o JS a remove), então o arrasto ao vivo continua 1:1 com o
+   dedo (sem lag) e só o "retorno" ganha easing.
+   ============================================================ */
+.casca-stage {
+  transform: translateX(var(--casca-swipe-drag, 0px));
+  touch-action: pan-y; /* horizontal fica pro gesto JS; vertical é scroll normal da lista */
+}
+.casca-stage.is-snapping {
+  transition: transform var(--motion-base);
+}
+@media (prefers-reduced-motion: reduce) {
+  .casca-stage { transform: none !important; }
+  .casca-stage.is-snapping { transition: none !important; }
 }

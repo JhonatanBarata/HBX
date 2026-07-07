@@ -29,10 +29,12 @@ import {
 
 import { MaisSheet } from "./screens/mais-sheet";
 
-type Tab = { key: string; label: string; href: string; icon: string; navId?: string };
+export type Tab = { key: string; label: string; href: string; icon: string; navId?: string };
 
 // navId (quando existe) = a chave do gate isModuleVisible (mesmo do desktop).
-const TABS: Tab[] = [
+// Exportado (FIX5): fonte ÚNICA da ordem das abas — o swipe do mobile-shell
+// consome CASCA_TABS + isCascaTabVisible, sem duplicar a lista.
+export const CASCA_TABS: Tab[] = [
   { key: "vendas", label: "Vendas", href: "/vendas", icon: "vendas", navId: "vendas" },
   { key: "atend", label: "Conversas", href: "/atendimento", icon: "atend", navId: "atend" },
   { key: "empresas", label: "Empresas", href: "/empresas", icon: "empresas", navId: "empresas" },
@@ -41,9 +43,11 @@ const TABS: Tab[] = [
   { key: "rota", label: "Rota", href: "/entrega", icon: "logistica", navId: "logistica" },
   // "Mais" nunca é gated — é a folha de tudo que não coube nas 4 abas. href
   // fica só como fallback de acessibilidade/SSR; o clique é interceptado (abre
-  // sheet) antes de navegar de verdade.
+  // sheet) antes de navegar de verdade. NÃO é destino de swipe (mobile-shell
+  // filtra por tab.key !== "mais").
   { key: "mais", label: "Mais", href: "/configuracoes", icon: "config" },
 ];
+const TABS = CASCA_TABS;
 
 function isTabActive(tab: Tab, pathname: string): boolean {
   if (tab.href === "/entrega") return pathname === "/entrega" || pathname.startsWith("/entrega/");
@@ -57,6 +61,17 @@ function isTabActive(tab: Tab, pathname: string): boolean {
   return pathname === tab.href;
 }
 
+// Mesmo gate usado no filtro abaixo — exportado pro swipe (mobile-shell) filtrar
+// a MESMA lista visível, sem duplicar a regra `isModuleVisible`.
+export function isCascaTabVisible(
+  tab: Tab,
+  ent: ReturnType<typeof useEntitlements>,
+  user: ReturnType<typeof useCurrentUser>,
+  mods: ReturnType<typeof useMyModules>,
+): boolean {
+  return tab.navId ? isModuleVisible(tab.navId, ent, user, mods) : true;
+}
+
 export function CascaTabBar() {
   const pathname = usePathname() || "";
   const user = useCurrentUser();
@@ -64,7 +79,7 @@ export function CascaTabBar() {
   const mods = useMyModules();
   const [maisOpen, setMaisOpen] = useState(false);
 
-  const visible = TABS.filter((t) => (t.navId ? isModuleVisible(t.navId, ent, user, mods) : true));
+  const visible = TABS.filter((t) => isCascaTabVisible(t, ent, user, mods));
 
   return (
     <>

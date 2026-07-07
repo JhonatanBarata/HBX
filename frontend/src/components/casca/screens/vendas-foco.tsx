@@ -98,6 +98,7 @@ export function VendasFocoMobile({
       <div className="vnd-foco">
         <div
           className="vnd-foco__card"
+          data-swipe-opt-out="true"
           style={{ transform: `translateX(${dragX}px)` }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}

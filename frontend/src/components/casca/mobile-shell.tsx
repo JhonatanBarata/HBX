@@ -17,14 +17,15 @@
 // ============================================================
 
 import { usePathname, useRouter } from "next/navigation";
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import { useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { useCascaMobile } from "@/lib/casca-mobile";
 import { dismissCascaToast } from "@/lib/casca-toast";
 
 import { CascaFallback } from "./fallback";
 import { CascaLoading } from "./loading";
-import { CascaTabBar } from "./tab-bar";
+import { CASCA_TABS, CascaTabBar, isCascaTabVisible } from "./tab-bar";
 import { CascaToastHost } from "./toast-host";
 import { CASCA_TITLES, renderCascaScreen } from "./registry";
 
@@ -48,12 +49,148 @@ function titleFor(pathname: string): string {
   return CASCA_TITLES[pathname] || TITLE_FALLBACK[pathname] || "HBX";
 }
 
+// ============================================================
+// FIX5 — SWIPE horizontal entre ABAS (Vendas ↔ Conversas ↔ Empresas ↔ Rota).
+//
+// Fonte única da ordem: CASCA_TABS (tab-bar.tsx) filtrado por
+// isCascaTabVisible (mesmo gate isModuleVisible da tab bar — zero duplicação).
+// "Mais" NUNCA é destino de swipe (abre sheet, não é aba-tela); o ciclo para
+// na última tela visível — swipe não empurra pro /entrega (entra só pelo toque
+// no ícone Rota, que é "outro app/casca própria").
+//
+// Limiares: dispara só com |dx| ≥ SWIPE_MIN_PX (~64px) E ângulo claramente
+// horizontal (|dx| > 2×|dy|) — nunca rouba o scroll vertical da lista. Solto
+// aquém do limiar → volta ao lugar (a própria troca de `drag` para 0 anima via
+// transition do CSS, sem key remount).
+//
+// Bloqueios: (1) uma camada empilhada (CascaView) ou sheet (CascaSheet) aberta
+// por cima — checado via querySelector nos containers fixos delas; (2) alvo do
+// gesto dentro de elemento com scroll/gesto horizontal próprio — checado por
+// closest("[data-swipe-opt-out]") OU por um ancestral scrollável em X
+// (scrollWidth > clientWidth), ex.: o carrossel de cards do modo foco.
+// ============================================================
+const SWIPE_MIN_PX = 64;
+
+function hasOverlayOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  return !!document.querySelector(".casca-stack-layer, .casca-sheet-veil");
+}
+
+function isHorizontalScrollAncestor(el: Element | null): boolean {
+  let node: Element | null = el;
+  while (node && node !== document.body) {
+    if (node.hasAttribute?.("data-swipe-opt-out")) return true;
+    if (node instanceof HTMLElement) {
+      const style = window.getComputedStyle(node);
+      const scrollsX = (style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth + 1;
+      if (scrollsX) return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+/** Ordem visível das abas-tela (exclui "mais", que não é destino de swipe). */
+function useSwipeableTabHrefs(): string[] {
+  const user = useCurrentUser();
+  const ent = useEntitlements();
+  const mods = useMyModules();
+  return CASCA_TABS.filter((t) => t.key !== "mais" && isCascaTabVisible(t, ent, user, mods)).map((t) => t.href);
+}
+
+function useModuleSwipe(pathname: string) {
+  const router = useRouter();
+  const hrefs = useSwipeableTabHrefs();
+  const [drag, setDrag] = useState(0); // px de deslocamento em tempo real (feedback)
+  const [snapping, setSnapping] = useState(false); // true = voltando ao lugar (transição)
+  const start = useRef<{ x: number; y: number; el: Element | null } | null>(null);
+  const active = useRef(false); // já decidiu que é gesto horizontal (não é mais scroll vertical)
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.buttons !== 1) return;
+    start.current = { x: e.clientX, y: e.clientY, el: e.target as Element };
+    active.current = false;
+    setSnapping(false);
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!start.current) return;
+    const dx = e.clientX - start.current.x;
+    const dy = e.clientY - start.current.y;
+    if (!active.current) {
+      // ainda indeciso: só assume horizontal quando o ângulo é claro E já
+      // moveu o suficiente pra não ser ruído de toque.
+      if (Math.abs(dx) < 12) return;
+      if (Math.abs(dx) <= Math.abs(dy) * 2) return; // ambíguo/vertical → deixa o scroll da lista agir
+      if (hasOverlayOpen() || isHorizontalScrollAncestor(start.current.el)) {
+        start.current = null; // opt-out: nunca mais decide neste gesto
+        return;
+      }
+      active.current = true;
+    }
+    setDrag(dx);
+  }, []);
+
+  const endSwipe = useCallback(() => {
+    if (!start.current || !active.current) {
+      start.current = null;
+      active.current = false;
+      return;
+    }
+    const dx = drag;
+    start.current = null;
+    active.current = false;
+
+    const idx = hrefs.indexOf(pathname);
+    if (Math.abs(dx) >= SWIPE_MIN_PX && idx !== -1) {
+      if (dx < 0 && idx < hrefs.length - 1) {
+        setDrag(0);
+        router.push(hrefs[idx + 1]); // esquerda = próxima aba (IR)
+        return;
+      }
+      if (dx > 0 && idx > 0) {
+        setDrag(0);
+        router.push(hrefs[idx - 1]); // direita = anterior (VOLTAR)
+        return;
+      }
+    }
+    // aquém do limiar (ou ponta do ciclo) → volta ao lugar com transição
+    setSnapping(true);
+    setDrag(0);
+  }, [drag, hrefs, pathname, router]);
+
+  return {
+    drag,
+    snapping,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endSwipe,
+    onPointerCancel: endSwipe,
+    onTransitionEnd: () => setSnapping(false),
+  };
+}
+
 // Palco animado: remonta a cada troca de rota (key=pathname) e toca a transição
 // IR (desliza da direita). O VOLTAR de sub-telas é do CascaView (sub-camada).
+// FIX5: pointer handlers no próprio palco resolvem o swipe entre abas — o
+// deslocamento (--casca-swipe-drag) dá o feedback barato (translateX via CSS,
+// sem re-layout); soltar dispara router.push (a MobileShell reage ao pathname
+// e a transição IR/VOLTAR de tela cuida do resto) ou volta ao lugar (classe
+// is-snapping, transition do CSS).
 function CascaStage({ pathname }: { pathname: string }) {
   const screen = renderCascaScreen(pathname);
+  const swipe = useModuleSwipe(pathname);
+  const style = swipe.drag !== 0 ? ({ "--casca-swipe-drag": `${swipe.drag}px` } as React.CSSProperties) : undefined;
   return (
-    <div className="casca-stage">
+    <div
+      className={"casca-stage" + (swipe.snapping ? " is-snapping" : "")}
+      style={style}
+      onPointerDown={swipe.onPointerDown}
+      onPointerMove={swipe.onPointerMove}
+      onPointerUp={swipe.onPointerUp}
+      onPointerCancel={swipe.onPointerCancel}
+      onTransitionEnd={swipe.onTransitionEnd}
+    >
       <div className="casca-view casca-view--enter" key={pathname}>
         {screen ?? <CascaFallback title={titleFor(pathname)} />}
       </div>
