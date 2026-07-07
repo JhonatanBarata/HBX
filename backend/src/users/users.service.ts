@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { unlink } from 'fs/promises';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import type { User } from '@prisma/client';
 import {
   isBillableUserSeatSnapshot,
@@ -32,7 +33,12 @@ type UserMutationGuardOptions = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
+  ) {}
+
+  private readonly logger = new Logger(UsersService.name);
 
   // RBAC Sprint 1: gate de gestao de usuarios da empresa (team.users.*). Fica
   // no service (reutilizavel/testavel) e e chamado pelos endpoints de empresa
@@ -1108,6 +1114,26 @@ export class UsersService {
     );
     const sellerOnboardingCleanup = await this.collectSellerOnboardingCleanup(userId);
     await this.deleteSellerOnboardingFiles(sellerOnboardingCleanup.attachmentPaths);
+
+    // Chip do vendedor (caso Gabrielo, 07/07): captura as instâncias WhatsApp do usuário
+    // ANTES do delete — a FK da sessão é SET NULL e deixaria "chip de ninguém" ativo no
+    // painel, e a instância do motor viraria fantasma imortal (mesma família da company-26).
+    const whatsappTenantKeys = new Set<string>();
+    if (target?.companyId) {
+      whatsappTenantKeys.add(`company-${Number(target.companyId)}-user-${Number(userId)}`);
+    }
+    try {
+      const activeWhatsappSessions = await this.prisma.whatsAppConnectionSession.findMany({
+        where: { userId, status: 'active' },
+        select: { tenantKey: true },
+      });
+      for (const session of activeWhatsappSessions || []) {
+        const key = String(session?.tenantKey || '').trim();
+        if (key) whatsappTenantKeys.add(key);
+      }
+    } catch {
+      /* best-effort: o fallback determinístico acima já cobre o tenantKey do usuário */
+    }
     const hasWebsiteAdminEntryToken = await this.prisma.hasTable('WebsiteAdminEntryToken');
     const hasMasterBillingLedgerEntry = await this.prisma.hasTable('MasterBillingLedgerEntry');
 
@@ -1128,6 +1154,12 @@ export class UsersService {
       });
 
       await tx.authSession.deleteMany({ where: { userId } });
+      // Fecha a sessão WhatsApp do usuário no backend ANTES do delete — sem isto a FK
+      // SET NULL deixa a sessão 'active' sem dono e o painel Equipe mostra chip órfão.
+      await tx.whatsAppConnectionSession.updateMany({
+        where: { userId, status: 'active' },
+        data: { status: 'disconnected', disconnectedAt: deletedAt, wipedAt: deletedAt, motorState: 'close' },
+      });
       await tx.passwordReset.deleteMany({ where: { userId } });
       await tx.masterNoticeAck.deleteMany({ where: { userId } });
 
@@ -1324,6 +1356,20 @@ export class UsersService {
         eventType: 'billable_user_count_changed',
         source: 'user_delete',
       });
+    }
+
+    // Derruba as instâncias do usuário no MOTOR (best-effort, pós-commit — só derruba chip
+    // de usuário que realmente morreu). Sem isto a instância continua open com creds e o
+    // auto-connect a ressuscita a cada restart (fantasma-vendedor, família da company-26).
+    for (const tenantKey of whatsappTenantKeys) {
+      try {
+        const wipe = await this.webwhatsBridge.wipeMotorInstanceByTenantKey(tenantKey);
+        this.logger.warn(`hard-delete user=${userId}: motor wipe ${tenantKey} logout=${wipe.loggedOut} delete=${wipe.deleted}`);
+      } catch (error) {
+        this.logger.error(
+          `hard-delete user=${userId}: falha ao derrubar ${tenantKey} no MOTOR — risco de instancia fantasma (limpar via DELETE /instance/logout+delete). ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
   }
 }

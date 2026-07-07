@@ -1465,30 +1465,46 @@ export class WebwhatsBridgeService {
     }
 
     for (const name of instanceNames) {
-      try {
-        await this.request<any>({
-          method: 'DELETE',
-          path: `/instance/logout/${encodeURIComponent(name)}`,
-          purpose: 'logout da instancia (wipe)',
-        });
-        loggedOut = true;
-      } catch (error) {
-        this.logger.warn(`wipe motor: logout falhou para ${name}: ${String((error as any)?.message || error)}`);
-      }
-      try {
-        await this.request<any>({
-          method: 'DELETE',
-          path: `/instance/delete/${encodeURIComponent(name)}`,
-          purpose: 'delete da instancia (wipe)',
-        });
-        deleted = true;
-      } catch (error) {
-        this.logger.warn(`wipe motor: delete falhou para ${name}: ${String((error as any)?.message || error)}`);
-      }
+      const wiped = await this.wipeMotorInstanceByTenantKey(name);
+      loggedOut = loggedOut || wiped.loggedOut;
+      deleted = deleted || wiped.deleted;
     }
 
     this.logger.warn(`wipe motor company=${companyId}: instances=${instanceNames.join(',') || '(nenhuma)'} logout=${loggedOut} delete=${deleted}`);
     return { loggedOut, deleted, recreated: false };
+  }
+
+  // Derruba UMA instância específica no MOTOR (logout + delete), sem tocar nas irmãs da
+  // company. Caso vendedor deletado (07/07): o hardDeleteUser precisa matar SÓ o
+  // company-{id}-user-{userId} — o wipeMotorInstance derrubaria a frota inteira da empresa.
+  // Best-effort: motor indisponível/instância inexistente viram warn, nunca lançam.
+  public async wipeMotorInstanceByTenantKey(tenantKey: string): Promise<{ loggedOut: boolean; deleted: boolean }> {
+    const config = this.readConfig();
+    const name = this.normalizeOptionalString(tenantKey);
+    if (!config.available || !name) return { loggedOut: false, deleted: false };
+    let loggedOut = false;
+    let deleted = false;
+    try {
+      await this.request<any>({
+        method: 'DELETE',
+        path: `/instance/logout/${encodeURIComponent(name)}`,
+        purpose: 'logout da instancia (wipe)',
+      });
+      loggedOut = true;
+    } catch (error) {
+      this.logger.warn(`wipe motor: logout falhou para ${name}: ${String((error as any)?.message || error)}`);
+    }
+    try {
+      await this.request<any>({
+        method: 'DELETE',
+        path: `/instance/delete/${encodeURIComponent(name)}`,
+        purpose: 'delete da instancia (wipe)',
+      });
+      deleted = true;
+    } catch (error) {
+      this.logger.warn(`wipe motor: delete falhou para ${name}: ${String((error as any)?.message || error)}`);
+    }
+    return { loggedOut, deleted };
   }
 
   private readConfig(): WebwhatsConfig {

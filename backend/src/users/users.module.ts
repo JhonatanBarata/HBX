@@ -6,10 +6,11 @@ import { UsersService } from './users.service';
 import { GerencialModule } from '../gerencial/gerencial.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { UsersController } from './users.controller';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 
 @Module({
   imports: [PrismaModule, MasterContextModule, forwardRef(() => ModulesAccessModule), MailModule, GerencialModule],
-  providers: [UsersService],
+  providers: [UsersService, WebwhatsBridgeService],
   controllers: [UsersController],
   exports: [UsersService],
 })

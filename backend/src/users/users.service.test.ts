@@ -145,7 +145,10 @@ function createUsersService(input: { users: FakeUser[]; companyKind?: string }) 
     },
   });
 
-  return { service: new UsersService(prisma as any), state };
+  const webwhatsBridgeStub = {
+    wipeMotorInstanceByTenantKey: async () => ({ loggedOut: false, deleted: false }),
+  };
+  return { service: new UsersService(prisma as any, webwhatsBridgeStub as any), state };
 }
 
 function activeAdmin(id: number, overrides: Partial<FakeUser> = {}): FakeUser {
