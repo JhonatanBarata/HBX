@@ -241,6 +241,15 @@ async function gotoAutenticado(page: Page, rota: string) {
   await primeSession(page);
   await page.goto(rota, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(600);
+  // Race conhecida (comentário acima): às vezes o 1º getToken() do
+  // EntregaScaffold/AuthGate ainda não via o localStorage recém-setado e
+  // manda de volta pro /login antes dos mocks assentarem de vez. Se caiu lá,
+  // repriming (o localStorage do origin já existe) resolve — 1 retry basta.
+  if (page.url().endsWith("/login")) {
+    await primeSession(page);
+    await page.goto(rota, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(600);
+  }
 }
 
 // ---------- suite ----------
@@ -318,6 +327,20 @@ test.describe("APPIFICAÇÃO A6 — app /entrega no viewport iPhone", () => {
   // whitelist mobile hoje.
   test('folha "Mais" da casca abre com a whitelist curada (W5)', async ({ page }) => {
     await setupMocks(page);
+    // setupMocks() só tem o catch-all **/vendas/** (shape genérico); a tela
+    // VendasMobile (casca) espera o shape real de GET /vendas/board
+    // (summary/blocks) — registrado DEPOIS pra vencer o catch-all (Playwright
+    // resolve rotas em LIFO).
+    await page.route("**/hbx/api/vendas/board", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          summary: { total: 0, today: 0, overdue: 0, scheduled: 0, closed: 0 },
+          blocks: { today: [], overdue: [], scheduled: [], closed: [] },
+        }),
+      });
+    });
     await gotoAutenticado(page, "/vendas");
 
     const tabbar = page.locator("nav.casca-tabbar");

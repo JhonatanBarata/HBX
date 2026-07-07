@@ -3124,6 +3124,32 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   }
   .scene-top .site-brand { font-size: 1.45rem; }
 
+  /* pele-allow: Portal v3.0 (arte full-bleed, escura) e telas internas com
+     mundo herdado — a faixa branca sólida do topo/nav ficava "chapada" por
+     cima da foto (reprova do dono 06/07, "essa faixa branca em cima e
+     embaixo é a arte final?"). Sobre arte escura, topo e nav viram VIDRO
+     escuro translúcido — mesmo par cor/blur do .portal-back/.world-chip já
+     aprovados (rgba(8,12,20,x) + backdrop-filter, mesma categoria "cena
+     pública em evolução" do bloco pele-allow do Portal mais abaixo neste
+     arquivo) — integra com a arte em vez de cortar a página; a marca »HBX
+     continua legível (branco). Fora do Portal (esteira/módulos/planos, sem
+     foto full-bleed) mantém o fundo sólido normal acima. */
+  .scene:has(.portal) .scene-top,
+  .scene:has(.scene-view.world) .scene-top {
+    background: rgba(8, 12, 20, .42);
+    border-bottom-color: rgba(255, 255, 255, .14);
+    -webkit-backdrop-filter: blur(var(--blur-glass));
+    backdrop-filter: blur(var(--blur-glass));
+  }
+  .scene:has(.portal) .scene-nav,
+  .scene:has(.scene-view.world) .scene-nav {
+    background: rgba(8, 12, 20, .42);
+    border-top-color: rgba(255, 255, 255, .14);
+    -webkit-backdrop-filter: blur(var(--blur-glass));
+    backdrop-filter: blur(var(--blur-glass));
+  }
+  /* pele-allow-end */
+
   /* ── Hero: flex coluna, ocupa a altura disponível, distribui tudo na tela ── */
   .scene-hero {
     display: flex;
@@ -3472,6 +3498,29 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   .portal.is-chosen.chose-autonomo  .portal-side--corp{ flex: 0 0 0%; }
   .portal-copy__list{ grid-template-columns: 1fr; gap: 8px; }
   .portal-copy__title{ font-size: clamp(1.9rem,8vw,2.4rem); }
+
+  /* Corte de texto (dono 06/07, 2ª rodada): cartão vira só título + botão —
+     some eyebrow ("PARA EMPRESAS"/"PARA VENDEDOR AUTÔNOMO") e o parágrafo de
+     promessa; título+botão centralizados no cartão (antes alinhados à
+     esquerda/direita); título um pouco maior (só um pouquinho — anti-placona,
+     LEI nº6). Desktop INTOCADO (fora deste @media). */
+  .portal-side__kicker,
+  .portal-side__promise{ display: none; }
+  .portal-side__label{
+    text-align: center; justify-items: center; display: grid; gap: 10px;
+  }
+  .portal-side--auto .portal-side__label{ text-align: center; justify-items: center; }
+  .portal-side__title{ font-size: clamp(2.3rem, 9vw, 2.9rem); }
+  .portal-side__cue{
+    margin-top: 0; align-self: center;
+  }
+  .portal-side--auto .portal-side__cue{ flex-direction: row; align-self: center; }
+  /* Label curto SÓ no mobile ("Sou Vendedor"); desktop mostra o texto cheio. */
+  .portal-side__cue-full{ display: none; }
+  .portal-side__cue-short{ display: inline; }
+}
+@media (min-width: 761px){
+  .portal-side__cue-short{ display: none; }
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -4322,25 +4371,20 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   -webkit-overflow-scrolling: touch;
 }
 
-/* ---------- toolbar compacta: ModoSegment (Funil|Buscar) + Lista|Quadro +
-   foco + "+ Novo" — orçamento de cromo ≤140px, padding vertical mínimo.
-   FIX2/V1 (reprova do dono: "parece planilha do excel" — cromo sem hierarquia):
-   o grupo INTEIRO ganha um painel de vidro leve (mesma linguagem de
-   surface-card + hairline + sombra baixa do resto do kit) em vez de flutuar
-   pelado direto no canvas — mata a cara de linha solta de planilha. */
+/* ---------- FIX4: painel de comando único (.casca-command, casca.css) ----
+   A moldura (surface-card+hairline+radius-panel+shadow-lip) mora na classe
+   central; aqui só o LAYOUT FINO de cada linha dentro do card (reprova do
+   dono 06/07: "continua feio, cria um painelzinho bem feito, siga o tema" —
+   o card de vidro solto do FIX2/V1 virou 1 painel único, sem margin/padding/
+   moldura própria por linha — quem monta a moldura agora é .casca-command).
+   .vnd-m__toolbar = linha 1 do modo FUNIL (segmented + Lista|Quadro + foco +
+   Novo). .vnd-m__searchbar = linha 1 do modo BUSCAR (segmented + campo +
+   filtro). Os dois vivem DENTRO do MESMO .casca-command — simétricos. */
 .vnd-m__toolbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-1) var(--space-3) 0;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 8%, transparent), transparent 60%),
-    var(--surface-card);
-  border: 1px solid var(--border-hairline);
-  box-shadow: var(--shadow-xs);
 }
 .vnd-m__mini-segment { width: 64px; flex: 0 0 auto; }
 .vnd-m__tool-btn {
@@ -4361,12 +4405,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .vnd-m__tool-btn--primary { margin-left: auto; background: var(--hbx-brand-strong); border-color: transparent; color: var(--hbx-action-ink); }
 
 /* ---------- stats 1 linha micro ----------
-   No Funil é bloco isolado (padding próprio); no Buscar vive DENTRO de
-   .vnd-m__statsrow (lado a lado com o CTA "Buscar") — economiza uma linha
-   inteira de cromo (orçamento ≤140px). */
+   No Funil é a linha 2 do card (bloco próprio, sem padding lateral — já
+   herda o padding do .casca-command); no Buscar vive DENTRO de
+   .vnd-m__statsrow (lado a lado com o CTA "Buscar"). */
 .vnd-m__stats {
   flex: 0 0 auto;
-  padding: 0 var(--space-4) var(--space-1);
   font-size: var(--casca-text-stat);
   font-weight: var(--weight-semibold);
   color: var(--text-muted);
@@ -4377,40 +4420,27 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-4);
-  height: var(--casca-segment-h);
 }
 .vnd-m__statsrow .vnd-m__stats {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ---------- barra de busca (campo 36px + botão filtro) — cromo compacto:
-   só padding lateral + respiro mínimo (o campo de 36px é a altura real). */
-/* FIX2/V1: mesmo painel de vidro leve do .vnd-m__toolbar — o modo Buscar
-   funde o ModoSegment aqui (orçamento ≤140px), então ganha a MESMA hierarquia. */
+/* ---------- linha 1 do modo BUSCAR: segmented + campo full-width 38px +
+   botão de filtro 32px (.casca-command__btn, central) ---------- */
 .vnd-m__searchbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-1) var(--space-3) 0;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 8%, transparent), transparent 60%),
-    var(--surface-card);
-  border: 1px solid var(--border-hairline);
-  box-shadow: var(--shadow-xs);
 }
 .vnd-m__searchfield {
   flex: 1 1 auto;
   min-width: 0;
-  height: var(--field-height);
+  height: 38px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -4428,9 +4458,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   font-size: var(--casca-text-body);
 }
 .vnd-m__searchinput:focus { outline: none; }
+/* CTA "Buscar" compacto: 30px, pill, cor forte da marca ATIVA + raio —
+   alinhado NA linha de stats, não solto (spec do print). */
 .vnd-m__searchcta {
   flex: 0 0 auto;
-  height: var(--casca-segment-h);
+  height: 30px;
   padding: 0 var(--space-3);
   display: inline-flex;
   align-items: center;
@@ -4679,8 +4711,10 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 /* pontinho de status do chip: verde=open / vermelho=caído (LEITURA do que o
    front já consome — /inbox/whatsapp-health; zero lógica de conexão nova).
-   Vive na faixa de chips de filtro (o título "Conversas" já é o MobileShell
-   quem mostra no topo da casca — sem cabeçalho próprio aqui). */
+   FIX4 (reprova do dono: "pontinho vermelho órfão à esquerda de Todas" — o
+   pontinho de STATUS pertence à faixa de estado .cvs-m__faixa-dot, não ao
+   chip de filtro): removido daqui. .cvs-m__dot/.is-ok seguem existindo só
+   como classes utilitárias (não usadas nos chips desde o FIX4). */
 .cvs-m__dot {
   flex: 0 0 auto;
   width: 8px;
@@ -4728,12 +4762,13 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   text-overflow: ellipsis;
 }
 
+/* FIX4: linha 1 do painel de comando (.casca-command, casca.css) — sem
+   padding/margin próprios, o card já dá a moldura+respiro. */
 .cvs-m__searchbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-4);
 }
 .cvs-m__searchfield {
   flex: 1 1 auto;
@@ -4757,15 +4792,16 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .cvs-m__searchinput:focus { outline: none; }
 
-/* chips finos 11px (Todas · Não lidas·n · Bot·n) — filtro 1 toque. O pontinho
-   de status do chip (era cabeçalho próprio, removido — MobileShell já mostra
-   o título "Conversas" no topo da casca) entra aqui como 1º item da faixa. */
+/* chips finos 11px (Todas · Não lidas·n · Bot·n) — filtro 1 toque. FIX4: linha
+   2 (e linha 3, escopo Todos|Meus, só admin) do painel de comando — sem
+   padding/margin próprios, o card já dá moldura+respiro. O pontinho de status
+   NÃO mora mais aqui (reprova do dono: "pontinho vermelho órfão à esquerda de
+   Todas" — pertence à faixa de estado .cvs-m__faixa, fora/acima do painel). */
 .cvs-m__chips {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-4) var(--space-2);
   /* FIX2/V2 (Lei nº2): chip ativo é Glass Pill deslizante — vidro nasce
      redondo igual ao chip, não o --radius-sm default do menu lateral. */
   --glass-pill-radius: var(--radius-pill);
@@ -5146,23 +5182,10 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-.emp-m__head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4) var(--space-1);
-}
-.emp-m__title {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--casca-text-title);
-  font-weight: var(--weight-bold);
-  color: var(--text-strong);
-}
-/* botão compacto 28px "+ Nova" (régua W4 — nunca botão-cartaz) */
+/* FIX4 (reprova do dono: título "Empresas" duplicado — MobileShell já mostra
+   no topo da casca): .emp-m__head/.emp-m__title removidos, cabeçalho interno
+   não existe mais. "+ Nova" migrou pra dentro do painel de comando, ao lado
+   da busca — botão compacto 28px (régua W4 — nunca botão-cartaz). */
 .emp-m__nova {
   flex: 0 0 auto;
   height: var(--casca-segment-h);
@@ -5181,10 +5204,13 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .emp-m__nova:active { transform: scale(0.96); }
 
-/* busca 36px (--field-height) */
-.emp-m__searchbar { flex: 0 0 auto; padding: var(--space-1) var(--space-4); }
+/* FIX4: linha 1 do painel de comando (.casca-command, casca.css) — sem
+   padding/margin próprios, o card já dá a moldura+respiro. Busca 38px. */
+.emp-m__searchbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-2); }
 .emp-m__searchfield {
-  height: var(--field-height);
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 38px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -5203,10 +5229,10 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 }
 .emp-m__searchinput:focus { outline: none; }
 
-/* stats 1 linha micro 11px: "{n} empresas · {n} clientes" */
+/* stats 1 linha micro 11px: "{n} empresas · {n} clientes" — FIX4: linha 2 do
+   painel, sem padding lateral próprio (o card já dá). */
 .emp-m__stats {
   flex: 0 0 auto;
-  padding: 0 var(--space-4) var(--space-1);
   font-size: var(--casca-text-stat);
   font-weight: var(--weight-semibold);
   color: var(--text-muted);
@@ -5473,6 +5499,9 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   cursor: pointer;
 }
 .mais-m__pele-chip.is-on { border-color: var(--hbx-brand-strong); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand-strong) 14%, transparent); }
+/* Glass Pill (Lei nº2): o vidro por trás já dá fundo+sombra — o chip ativo só
+   troca a cor do texto/borda (senão duplicaria: chip sólido + vidro por cima). */
+.glass-pill-track .mais-m__pele-chip.is-on { background: transparent; }
 
 /* Tela cheia: linha com switch próprio (toggle visual, sem <input>) */
 .mais-m__fs { border-bottom: 1px solid var(--border-hairline); }

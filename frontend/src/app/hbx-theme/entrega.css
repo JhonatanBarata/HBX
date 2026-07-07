@@ -106,9 +106,15 @@
   --ent-safe-right: env(safe-area-inset-right, 0px);
 }
 
-/* ---------- TOKENS · escuro automático (noite) ---------- */
-@media (prefers-color-scheme: dark) {
-  [data-skin="entrega"] {
+/* ---------- TOKENS · escuro (MOBILE-CASCA/FIX3, 06/07) ----------
+   ANTES: @media (prefers-color-scheme: dark) — dependia do SO/navegador,
+   totalmente cego ao toggle claro/escuro do app (o Rota "não compartilhava o
+   modo", bug apontado pelo dono). AGORA: [data-theme-mode="dark"], o MESMO
+   atributo global que setThemeMode (theme-attributes.tsx) escreve no <html> —
+   herdado aqui porque [data-skin="entrega"] vive dentro do MESMO <html>. Um
+   estado só, compartilhado entre o toggle do Mais (dashboard) e o de Ajustes
+   do /entrega (EntregaAjustes) — nenhum dos dois lê preferência de sistema. */
+[data-theme-mode="dark"] [data-skin="entrega"] {
     --ent-brand: #2FBF6B;
     --ent-brand-strong: #23A257;
     --ent-brand-soft: #123021;
@@ -141,7 +147,6 @@
     --ent-shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
     --ent-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
     --ent-shadow-lg: 0 -14px 40px rgba(0, 0, 0, 0.6);
-  }
 }
 
 /* ---------- CASCA DO APP ---------- */
@@ -750,73 +755,15 @@
 }
 
 /* ============================================================
-   A2 — TAB BAR PRÓPRIA DO APP (Rota · Clientes · Produtos · Ajustes).
-   Fixa no rodapé, safe-area, alvo >=52px, item ativo = cor da marca.
-   NÃO é a MobileTabBar do dashboard — é a barra do skin entrega.
+   A2 — TAB BAR PRÓPRIA DO APP: REMOVIDA no MOBILE-CASCA/W6 (resíduo morto
+   confirmado no W7 QA, 06/07). O app /entrega foi re-vestido na casca
+   central (EntregaScaffold usa .casca-tabbar/.casca-tab de casca.css, ver
+   EntregaTabBar.tsx) — .ent-tabbar/.ent-tab/.ent-tab-label e a regra
+   .ent-app.has-tabbar não são mais usados em NENHUM JSX (grep confirmado).
+   `--ent-tabbar-h` também caiu com eles (só o token de altura, sem consumidor
+   restante). A9-RESULTADO/W6-RESULTADO documentam o re-vestimento; este
+   bloco só não tinha sido varrido ainda.
    ============================================================ */
-[data-skin="entrega"] {
-  /* altura útil das abas (sem contar a safe-area do gesto) */
-  --ent-tabbar-h: 64px;
-}
-[data-skin="entrega"] .ent-tabbar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 30;
-  display: flex;
-  align-items: stretch;
-  justify-content: space-around;
-  gap: var(--ent-1);
-  max-width: 560px;
-  margin: 0 auto;
-  padding: var(--ent-1) var(--ent-2) calc(var(--ent-1) + var(--ent-safe-bottom));
-  background: var(--ent-surface);
-  border-top: 1px solid var(--ent-hairline);
-  box-shadow: var(--ent-shadow-lg);
-}
-[data-skin="entrega"] .ent-tab {
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: var(--ent-tap);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: var(--ent-1) var(--ent-1);
-  border-radius: var(--ent-radius-sm);
-  text-decoration: none;
-  color: var(--ent-ink-muted);
-  font-family: var(--ent-font);
-  font-size: var(--ent-text-xs);
-  font-weight: 700;
-  transition: color var(--ent-motion-fast), background var(--ent-motion-fast), transform var(--ent-motion-fast);
-}
-[data-skin="entrega"] .ent-tab:active { transform: scale(0.94); }
-[data-skin="entrega"] .ent-tab.is-on {
-  color: var(--ent-brand);
-  background: var(--ent-brand-soft);
-}
-[data-skin="entrega"] .ent-tab-label {
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: -0.01em;
-}
-
-/* Conteúdo não pode ficar embaixo da tab bar fixa: reserva espaço no fim do
-   scroll. Aplica em qualquer .ent-app que monte a barra (home + cascas). */
-[data-skin="entrega"] .ent-app.has-tabbar {
-  padding-bottom: calc(var(--ent-tabbar-h) + var(--ent-safe-bottom));
-}
-/* A barra de ação (Iniciar rota / Cheguei) é sticky no rodapé — sobe pra ficar
-   ACIMA da tab bar quando ela existe (não pode cobrir o botão principal). */
-[data-skin="entrega"] .ent-app.has-tabbar .ent-actionbar {
-  bottom: calc(var(--ent-tabbar-h) + var(--ent-safe-bottom));
-  padding-bottom: var(--ent-4);
-}
 
 /* ============================================================
    A3 — CLIENTES (lista/busca/cards) + EDITOR (form 1 coluna app-like).

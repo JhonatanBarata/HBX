@@ -394,7 +394,7 @@ export function MarketingClient() {
   // PORTAL v3.0 — mesmo esqueleto (achar → atender → cobrar), pele por público
   type PortalEntry = {
     label: string; img: string; kicker: string; shortTitle: string; promise: string;
-    ideal: string[]; enterLabel: string;
+    ideal: string[]; enterLabel: string; enterLabelMobile?: string;
     title: string; sub: string; bullets: string[];
     primary: { label: string; go: () => void };
     secondary: { label: string; go: () => void };
@@ -422,6 +422,7 @@ export function MarketingClient() {
       promise: "Leads acionáveis e lista organizada pra prospectar sem garimpar empresa por empresa.",
       ideal: ["Vendedor independente e representante", "Prestador que prospecta sozinho", "Quem quer começar no List ou Lead"],
       enterLabel: "Sou vendedor autônomo",
+      enterLabelMobile: "Sou vendedor",
       title: "Pare de procurar cliente no escuro.",
       sub: "O HBX entrega listas e leads acionáveis pra você abordar com mais velocidade, contexto e organização.",
       bullets: ["Empresas reais organizadas em cards", "Telefone, cidade, segmento e site", "Score e mensagem pronta no Lead", "Retorno e histórico pra não perder a hora"],
@@ -509,7 +510,18 @@ export function MarketingClient() {
                     <span className="portal-side__ideal">
                       {c.ideal.map((it) => <span key={it} className="portal-side__ideal-item">{it}</span>)}
                     </span>
-                    <span className="portal-side__cue">{c.enterLabel}<Ic paths={CHEVRON} /></span>
+                    <span className="portal-side__cue">
+                      {/* Mobile pede label curto (dono 06/07: "Sou Vendedor" em vez de
+                          "Sou vendedor autônomo") — CSS não troca texto, então os 2
+                          spans coexistem no DOM e a media query decide qual mostra. */}
+                      {c.enterLabelMobile ? (
+                        <>
+                          <span className="portal-side__cue-full">{c.enterLabel}</span>
+                          <span className="portal-side__cue-short">{c.enterLabelMobile}</span>
+                        </>
+                      ) : c.enterLabel}
+                      <Ic paths={CHEVRON} />
+                    </span>
                   </span>
                 </button>
               );
