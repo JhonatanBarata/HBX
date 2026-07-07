@@ -16,6 +16,7 @@ import { EmailTemplateService } from '../mail/email-template.service';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
+import { SESSION_IDLE_TTL_MS } from './session-ttl';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
@@ -49,7 +50,7 @@ import {
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
-  private readonly sessionTtlMs = 15 * 60 * 1000;
+  private readonly sessionTtlMs = SESSION_IDLE_TTL_MS;
 
   constructor(
     private usersService: UsersService,
@@ -1339,52 +1340,14 @@ export class AuthService implements OnModuleInit {
       });
     }
 
-    if (!opts?.forceSession && !this.isLocalMockSignupFlow() && user.currentSessionId) {
-      const activeSession = await this.prisma.authSession.findFirst({
-        where: {
-          id: user.currentSessionId,
-          userId: user.id,
-          revokedAt: null,
-          expiresAt: { gt: new Date() },
-        },
-        select: {
-          id: true,
-          createdAt: true,
-          lastSeenAt: true,
-          expiresAt: true,
-          userAgent: true,
-          ipHash: true,
-        },
-      });
-
-      if (activeSession) {
-        const requestUserAgent = this.normalizeUserAgent(opts?.userAgent);
-        const requestIpHash = this.hashIp(opts?.ip);
-        const sameUserAgent = Boolean(requestUserAgent && activeSession.userAgent && activeSession.userAgent === requestUserAgent);
-        const sameIpHash = Boolean(requestIpHash && activeSession.ipHash && activeSession.ipHash === requestIpHash);
-        const userAgentCompatible = !requestUserAgent || !activeSession.userAgent || sameUserAgent;
-        const ipHashCompatible = !requestIpHash || !activeSession.ipHash || sameIpHash;
-        const sameClient =
-          (sameUserAgent || sameIpHash) &&
-          userAgentCompatible &&
-          ipHashCompatible;
-        if (sameClient) {
-          return this.login(user, { companyId: companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
-        }
-        throw new ConflictException({
-          code: 'SESSION_ALREADY_ACTIVE',
-          message: 'Já existe uma sessão ativa para este usuário.',
-          forceAvailable: true,
-          activeSession: {
-            createdAt: activeSession.createdAt,
-            lastSeenAt: activeSession.lastSeenAt,
-            expiresAt: activeSession.expiresAt,
-            userAgent: activeSession.userAgent,
-          },
-        });
-      }
-    }
-
+    // Login único SEM aviso (decisão do dono 07/07/2026, junto com a janela de 30d
+    // em session-ttl.ts): logar sempre substitui a sessão anterior — o login() revoga
+    // todas as sessões vivas na mesma transação (replaced_by_login) e o jwt.strategy
+    // derruba o aparelho antigo na próxima request. Com a janela longa, a sessão
+    // abandonada não expira mais "sozinha em 15min", então o antigo 409
+    // SESSION_ALREADY_ACTIVE viraria atrito em TODA troca de aparelho (estilo
+    // Mercado Livre: entra direto). O campo forceSession do DTO segue aceito por
+    // compatibilidade, agora sem efeito.
     return this.login(user, { companyId: companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
   }
 

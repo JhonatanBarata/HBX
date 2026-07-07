@@ -200,7 +200,10 @@ test('bootstrap do System Master preserva sessao ativa quando usuario ja esta co
   }
 });
 
-test('login do System Master substitui a propria sessao ativa no mesmo cliente', async () => {
+// Login único sem aviso (07/07/2026): logar substitui a sessão anterior DIRETO,
+// mesmo vindo de outro aparelho — sem consultar a sessão ativa nem 409
+// SESSION_ALREADY_ACTIVE (o 409 virava atrito com a janela de 30d do session-ttl.ts).
+test('login do System Master substitui a sessao ativa direto, sem consulta nem 409', async () => {
   const password = await bcrypt.hash('master-secret', 4);
   const authSessionFinds: any[] = [];
   const revokedSessions: any[] = [];
@@ -275,11 +278,12 @@ test('login do System Master substitui a propria sessao ativa no mesmo cliente',
   process.env.SYSTEM_MASTER_USERNAME = 'OutroMaster';
   try {
     service = new AuthService(usersService as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
-    const result = await service.loginWithUsername('Jhonatan', 'master-secret', { userAgent: 'Local Browser', ip: '127.0.0.1' });
+    // Outro cliente (userAgent/IP diferentes da sessão viva) — antes caía no 409.
+    const result = await service.loginWithUsername('Jhonatan', 'master-secret', { userAgent: 'Outro Browser', ip: '10.0.0.9' });
 
     assert.equal(result.next, '/master');
     assert.equal(result.access_token, 'signed-token');
-    assert.equal(authSessionFinds.length, 1);
+    assert.equal(authSessionFinds.length, 0);
     assert.equal(revokedSessions.length, 1);
     assert.equal(createdSessions.length, 1);
     assert.equal(signedPayloads[0].sid, 'sessao_nova');

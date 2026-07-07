@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UsersService } from '../users/users.service';
 import { MasterContextService } from '../master-context/master-context.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SESSION_IDLE_TTL_MS } from './session-ttl';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -100,7 +101,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             },
             data: {
               lastSeenAt: now,
-              expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+              // Slide da janela deslizante — mesma constante do login (session-ttl.ts).
+              expiresAt: new Date(now.getTime() + SESSION_IDLE_TTL_MS),
             },
           });
         }

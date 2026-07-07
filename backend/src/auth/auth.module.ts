@@ -12,6 +12,7 @@ import { MasterContextModule } from '../master-context/master-context.module';
 import { ThemePreferencesService } from './theme-preferences.service';
 import { CommissionsModule } from '../commissions/commissions.module';
 import { CreditsModule } from '../credits/credits.module';
+import { SESSION_IDLE_TTL_DAYS } from './session-ttl';
 
 const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 
@@ -19,7 +20,9 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 // pra conceder o lote grátis de boas-vindas no nascimento da empresa self-service.
 // CreditsModule só depende de PrismaModule (@Global) — sem ciclo.
 @Module({
-  imports: [UsersModule, MailModule, MasterContextModule, CommissionsModule, CreditsModule, JwtModule.register({ secret: jwtSecret, signOptions: { expiresIn: '1d' } })],
+  // expiresIn segue a janela única de sessão (session-ttl.ts) — teto absoluto do
+  // access_token; tokens de propósito (poll de e-mail, WhatsApp) têm validade própria.
+  imports: [UsersModule, MailModule, MasterContextModule, CommissionsModule, CreditsModule, JwtModule.register({ secret: jwtSecret, signOptions: { expiresIn: `${SESSION_IDLE_TTL_DAYS}d` } })],
   providers: [AuthService, JwtStrategy, RolesGuard, ThemePreferencesService],
   controllers: [AuthController, ProfileController, InternalController, OnboardingController],
   exports: [AuthService],
