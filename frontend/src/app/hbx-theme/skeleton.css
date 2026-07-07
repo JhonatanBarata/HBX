@@ -172,10 +172,13 @@
   --casca-ring-5: #E7E9EC;                    /* platina (fim do espectro) */
   --casca-ring-track: rgba(0, 0, 0, 0.08);   /* sulco de fundo do anel */
   --casca-ring-glow: rgba(0, 0, 0, 0.16);    /* halo suave ao redor */
-  /* platina metálica do wordmark (gradiente do texto, background-clip:text) */
-  --casca-mark-1: #F4F5F7;
-  --casca-mark-2: #C7CBD1;
-  --casca-mark-3: #E7E9EC;
+  /* tinta escura do wordmark no CLARO (contraste real sobre canvas claro —
+     era a mesma platina quase-branca do dark aqui, "HBX" sumia no claro,
+     achado 07/07 "contraste bagunçado"). Vira platina de novo só no dark
+     (override abaixo em [data-theme-mode="dark"]). */
+  --casca-mark-1: #1A1A1A;
+  --casca-mark-2: #4D4D4D;
+  --casca-mark-3: #2E2E2E;
 
   /* ---- Acentos da landing (site público, mundo próprio — marketing.css) -- */
   --hbx-mint: #6EF2D8;

@@ -33,7 +33,8 @@ html, body { margin: 0; }
 .app[data-rail="min"] .logo strong,
 .app[data-rail="min"] .plan-card,
 .app[data-rail="min"] .user-card small,
-.app[data-rail="min"] .user-card strong { display: none; }
+.app[data-rail="min"] .user-card strong,
+.app[data-rail="min"] .nav-group-label { display: none; }
 .app[data-rail="min"] .logo { justify-content: center; padding-left: 0; padding-right: 0; }
 .app[data-rail="min"] .user-card { justify-content: center; }
 .app[data-rail="min"] .rail-toggle { margin-left: auto; margin-right: auto; }
@@ -46,6 +47,12 @@ html, body { margin: 0; }
    posição em vez de piscar — site → login → sistema parece a mesma página. */
 .logo { display: flex; align-items: center; gap: 8px; padding: 2px 10px 18px; view-transition-name: hbx-brand; }
 .logo strong { font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); }
+/* Rótulo de guia/seção do menu (pedido do dono 07/07 — agrupar módulos por
+   intenção: Informações/Comunicação/Cadastros/Facilidades/Logística).
+   Estrutural só: tamanho+espaçamento próprios, cor vem de --text-muted (mesmo
+   token do resto do kit, nunca hex solto). Primeiro grupo não empurra a logo. */
+.nav-group-label { padding: 10px 11px 2px; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.nav-group-label:first-child { padding-top: 2px; }
 .nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.86rem; font-weight: 600; cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
 .nav-item__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* hover = mesma linguagem de vidro (não mais um retângulo chapado): brilho no
@@ -442,6 +449,32 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-convo__composer textarea { flex: 1 1 auto; resize: none; }
 .dn-convo__load { padding: 22px; text-align: center; font-size: 0.74rem; color: var(--text-muted); }
 .dn-convo__ai-armhint { padding: 6px 12px; font-size: 0.66rem; color: var(--text-muted); border-top: 1px solid var(--border-hairline); }
+
+/* ─── Agenda do lead embutida na ficha (item 2 da revisão do dono, 07/07) ────
+   Compromissos (Atividades) DESTE card — não confundir com a agenda GLOBAL
+   do vendedor (tela /agenda). Reusa .dn-section-head/.field-dark/.btn-result/
+   .tag/.ctx-msg/.dn-history-toggle já existentes — só a estrutura é nova. */
+.dn-agenda { display: grid; gap: 10px; }
+.dn-agenda__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dn-agenda__head .dn-section-head { border-bottom: none; padding: 0; width: auto; }
+.dn-agenda__add { border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--hbx-brand-strong); font-family: var(--font-body); font-size: 0.66rem; font-weight: 700; padding: 4px 10px; border-radius: var(--radius-xs); cursor: pointer; transition: background var(--motion-fast); }
+.dn-agenda__add:hover { background: var(--hbx-surface-raised); }
+.dn-agenda__form { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); }
+.dn-agenda__form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dn-agenda__list { display: grid; gap: 8px; }
+.dn-agenda__item { display: grid; gap: 5px; padding: 9px 11px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); animation: dn-row-in 0.24s ease both; }
+.dn-agenda__item.is-late { border-color: color-mix(in srgb, var(--hbx-danger) 35%, transparent); background: color-mix(in srgb, var(--hbx-danger) 6%, transparent); }
+.dn-agenda__item.is-done { opacity: 0.72; }
+.dn-agenda__item-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dn-agenda__item-tipo { display: inline-flex; align-items: center; gap: 5px; font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+.dn-agenda__item-when { margin-left: auto; font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700; color: var(--text-muted); }
+.dn-agenda__item.is-late .dn-agenda__item-when { color: var(--hbx-danger); }
+.dn-agenda__item-title { font-size: 0.78rem; font-weight: 600; color: var(--text-strong); }
+.dn-agenda__item-acts { display: flex; gap: 8px; }
+.dn-agenda__concluir { display: grid; gap: 8px; }
+.dn-agenda__concluir-btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.dn-agenda__remarcar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.dn-agenda__remarcar input { flex: 1 1 auto; min-width: 0; }
 
 /* nota discreta de estado vazio (substitui style inline repetido — 5 Leis, 15/06) */
 .muted-note { margin: 12px 0; font-size: 0.74rem; color: var(--text-muted); }
@@ -1497,6 +1530,11 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 /* WORM-11: banda central da conversa embutida (entre "quem é" e "o que fazer"). */
 .dn-zone--convo {
+  padding-top: 4px;
+}
+
+/* Agenda do lead embutida (item 2 da revisão, 07/07) — mesma banda da conversa. */
+.dn-zone--agenda {
   padding-top: 4px;
 }
 

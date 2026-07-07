@@ -283,43 +283,48 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
   );
 }
 
+// Guias da sidebar (pedido do dono, 07/07): agrupa os módulos por intenção em
+// vez de lista solta. "group" só pinta o rótulo da seção — id/href/gate de
+// cada item continuam os mesmos, zero mudança de rota ou permissão.
 export const NAV_LINKS = [
-  { id: "dash", label: "Dashboard", href: "/dashboard" },
+  { id: "dash", label: "Dashboard", href: "/dashboard", group: "Informações" },
+  { id: "relat", label: "Relatórios", href: "/relatorios", group: "Informações" },
   // 2 LUGARES, não 3 ilhas (27/06, ordem do dono). O vendedor tem 2 modos: CAÇAR
   // (achar empresa → trabalhar → fechar = um movimento só) e ATENDER (responder
   // quem chama no WhatsApp). Então: VENDAS = o funil inteiro (o Radar/"Buscar
   // empresas" é a boca dele, acessado de DENTRO de Vendas, por isso /leads saiu do
   // menu) e CONVERSAS = a caixa. "Fechados" não é tela, é a última etapa do funil.
-  { id: "vendas", label: "Vendas", href: "/vendas" },
+  { id: "vendas", label: "Vendas", href: "/vendas", group: "Comunicação" },
   // WORM-12: agenda do vendedor ("o que eu faço hoje") — dentro da superfície Vendas.
-  { id: "agenda", label: "Agenda", href: "/agenda" },
-  // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
-  { id: "automacao", label: "Automações", href: "/automacoes" },
-  { id: "atend", label: "Conversas", href: "/atendimento" },
+  { id: "agenda", label: "Agenda", href: "/agenda", group: "Comunicação" },
+  { id: "atend", label: "Conversas", href: "/atendimento", group: "Comunicação" },
+  // Website (WEBSITE-KIT Sprint 1): tela ocasional, só no menu. Gate fail-closed
+  // via /modules/me — some quando o módulo não está liberado pro usuário/empresa.
+  { id: "website", label: "Website", href: "/dashboard/website", group: "Comunicação" },
   // NÚCLEO-CRM N3: janela "Empresas" — as contas PJ da espinha de cadastro
   // (puxadas do Radar). Read-only nesta fase. Kill-switch, não paywall: nasce
   // VISÍVEL por default (NAV_ENTITLEMENT/NAV_MODULE_KEY = null abaixo).
-  { id: "empresas", label: "Empresas", href: "/empresas" },
+  { id: "empresas", label: "Empresas", href: "/empresas", group: "Cadastros" },
   // NÚCLEO-CRM N4: janela "Contatos" — as pessoas da espinha (dono, comprador,
   // quem recebe) + criar cliente MANUAL + a view "Clientes" (papel). Mesma base
   // das Empresas, recorte por pessoa/papel. Kill-switch, não paywall (null).
-  { id: "contatos", label: "Contatos", href: "/contatos" },
+  { id: "contatos", label: "Contatos", href: "/contatos", group: "Cadastros" },
   // NÚCLEO-CRM N5: catálogo "Produtos" — o que o vendedor vende/entrega (galão
   // 20L etc.), com unidade/preço + flag Logística. Kill-switch, não paywall (null).
-  { id: "produtos", label: "Produtos", href: "/produtos" },
-  // NÚCLEO-CRM N6: módulo "Logística" — app de entrega (rota do dia, navegar,
-  // confirmar com GPS). WhatsApp/cobrança atrás de flag OFF no backend.
-  // Kill-switch, não paywall (null nos gates abaixo).
-  { id: "logistica", label: "Logística", href: "/logistica" },
-  { id: "bot", label: "Bot", href: "/bot" },
+  { id: "produtos", label: "Produtos", href: "/produtos", group: "Cadastros" },
   // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
-  { id: "assistente", label: "Assistente IA", href: "/assistente" },
-  { id: "relat", label: "Relatórios", href: "/relatorios" },
-  // Website (WEBSITE-KIT Sprint 1): tela ocasional, só no menu. Gate fail-closed
-  // via /modules/me — some quando o módulo não está liberado pro usuário/empresa.
-  { id: "website", label: "Website", href: "/dashboard/website" },
-  { id: "config", label: "Configurações", href: "/configuracoes" },
+  { id: "assistente", label: "Assistente IA", href: "/assistente", group: "Facilidades" },
+  // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
+  { id: "automacao", label: "Automações", href: "/automacoes", group: "Facilidades" },
+  { id: "bot", label: "Bot", href: "/bot", group: "Facilidades" },
+  // NÚCLEO-CRM N6: módulo "Logística" — app de entrega (rota do dia, navegar,
+  // confirmar com GPS). WhatsApp/cobrança atrás de flag OFF no backend.
+  // Kill-switch, não paywall (null nos gates abaixo). Rótulo exibido virou
+  // "Entregas" (pedido do dono, 07/07) — id/href/gate seguem "logistica".
+  { id: "logistica", label: "Entregas", href: "/logistica", group: "Logística" },
+  // Sem guia — fica solta no fim da lista, sem rótulo de seção acima.
+  { id: "config", label: "Configurações", href: "/configuracoes", group: null as string | null },
 ];
 
 // ---------------------------------------------------------------
@@ -430,6 +435,9 @@ type PlanMe = {
     tier?: 'list' | 'lead' | 'full' | null;
     canSeeLeadIntelligence?: boolean | null;
     canSeeCompanyData?: boolean | null;
+    // Conta de crédito (modelo grátis/cortesia): o card da sidebar mostra saldo de
+    // crédito no lugar da cota de plano ("Leads do mês x/2.200"). Ver decisão C, 07/07.
+    creditsAccount?: boolean | null;
   };
   plans?: Array<{ key: string; title?: string | null; monthlyPrice?: number | null }>;
 } | null;
@@ -505,10 +513,10 @@ export function useEntitlements() {
 // Resumo do plano para o card da sidebar (GET /commercial-plans/me). Título vem
 // do catálogo da própria resposta (sem hardcode — PAGAMENTOS.md). Trial/estado o
 // backend já esconde de vendedor; mesmo assim o card só renderiza para não-vendedor.
-export type PlanSummary = { loaded: boolean; title: string | null; isTrial: boolean; trialDays: number | null; accessLabel: string | null };
+export type PlanSummary = { loaded: boolean; title: string | null; isTrial: boolean; trialDays: number | null; accessLabel: string | null; creditsAccount: boolean };
 
 export function usePlanSummary(): PlanSummary {
-  const [state, setState] = useState<PlanSummary>({ loaded: false, title: null, isTrial: false, trialDays: null, accessLabel: null });
+  const [state, setState] = useState<PlanSummary>({ loaded: false, title: null, isTrial: false, trialDays: null, accessLabel: null, creditsAccount: false });
   useEffect(() => {
     let alive = true;
     if (!getToken()) return;
@@ -522,11 +530,37 @@ export function usePlanSummary(): PlanSummary {
         isTrial: Boolean(cur.isTrial),
         trialDays: cur.trialRemainingDays ?? null,
         accessLabel: cur.accessStateLabel || null,
+        creditsAccount: Boolean(cur.creditsAccount),
       });
     });
     return () => { alive = false; };
   }, []);
   return state;
+}
+
+// Saldo de crédito para o card da sidebar (conta de crédito/modelo grátis). Mesmo
+// endpoint role-gated da tela Créditos (/credits/me): audiência de cobrança recebe
+// { balance, lots[] }; audiência neutra recebe { leadsDisponiveis }. "total" = soma
+// dos lotes ativos concedidos; "restante" = saldo. Só busca quando enabled.
+export type CreditsSummary = { restante: number; total: number | null } | null;
+export function useCreditsSummary(enabled: boolean): CreditsSummary {
+  const [summary, setSummary] = useState<CreditsSummary>(null);
+  useEffect(() => {
+    if (!enabled || !getToken()) return;
+    let alive = true;
+    apiFetch<{ balance?: number; leadsDisponiveis?: number; lots?: Array<{ amount?: number; remaining?: number }> }>("/credits/me")
+      .then(res => {
+        if (!alive) return;
+        const restante = typeof res?.balance === "number" ? res.balance : (res?.leadsDisponiveis ?? 0);
+        const total = Array.isArray(res?.lots)
+          ? res!.lots!.reduce((sum, l) => sum + (Number(l?.amount) || 0), 0)
+          : null;
+        setSummary({ restante, total: total && total > 0 ? total : null });
+      })
+      .catch(() => { /* carteira indisponível: card cai no fallback silencioso */ });
+    return () => { alive = false; };
+  }, [enabled]);
+  return summary;
 }
 
 // Consumo de leads do mês para o medidor da sidebar (WORM-17). Mesmo endpoint que o
@@ -694,6 +728,13 @@ function abrirPlanoECobranca(router: ReturnType<typeof useRouter>) {
   router.push("/configuracoes");
 }
 
+// Conta de crédito (modelo grátis): o card leva à seção "Créditos" de Configurações
+// (carteira + recarga), o único destino de cobrança do contratante no modelo de crédito.
+function abrirCreditos(router: ReturnType<typeof useRouter>) {
+  try { sessionStorage.setItem("hbx:config-sec", "Créditos"); } catch { /* sem storage */ }
+  router.push("/configuracoes");
+}
+
 // ── Radar state poll (leve: ~8s) — tinge o item "Leads" no menu global ──────
 // Consulta /webscraping/radar/search-runs/latest e extrai operationalState.
 // Roda em QUALQUER tela (persistente no shell). Para quando o componente desmonta.
@@ -778,8 +819,13 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
   // precisa re-medir quando o rail colapsa/expande (a largura do item muda).
   const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey, rail);
-  // Cota do PLANO da empresa (Leads do mês) — todo mundo menos o vendedor comum.
-  const cardUsage = useCardUsage(Boolean(user) && !isCompanySeller(user));
+  // Conta de crédito (modelo grátis/cortesia): o card mostra SALDO de crédito no lugar da
+  // cota de plano — decisão do dono 07/07 (a conta grátis não comprou 2.200 leads/mês).
+  const creditsMode = Boolean(plan.creditsAccount) && Boolean(user) && !isCompanySeller(user);
+  // Cota do PLANO da empresa (Leads do mês) — todo mundo menos o vendedor comum, e só quando
+  // NÃO é conta de crédito (a conta de crédito não tem cota de plano).
+  const cardUsage = useCardUsage(Boolean(user) && !isCompanySeller(user) && !creditsMode);
+  const creditsSummary = useCreditsSummary(creditsMode);
   const radarNavState = useRadarNavState();
   // Vendedor (role USER) NUNCA vê plano/cobrança (PAGAMENTOS.md). O backend já
   // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura
@@ -814,28 +860,52 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         </button>
       )}
       <GlassPill {...gp} />
-      {visible.map(n => {
+      {visible.map((n, i) => {
         let cls = "nav-item" + (n.id === active ? " active" : "");
         // Tinge "Vendas" com a cor do estado do radar — o Radar é a boca do funil,
         // então o funil "acende" quando está sendo abastecido (27/06; era no "leads",
         // que saiu do menu).
         if (n.id === "vendas" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
         if (n.id === "vendas" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
+        // Rótulo de seção (guia): só quando o grupo muda em relação ao item
+        // anterior VISÍVEL — se o gate escondeu tudo de um grupo, o rótulo
+        // some junto (nunca sobra guia vazia).
+        const showGroupLabel = Boolean(n.group) && n.group !== visible[i - 1]?.group;
         return (
-          <Link key={n.id} ref={gp.itemRef(n.id)} className={cls} href={n.href} data-tut={"nav-" + n.id} title={rail === "min" ? n.label : undefined}>
-            <I d={ICONS[n.id]} />
-            <span className="nav-item__label">{n.label}</span>
-          </Link>
+          <React.Fragment key={n.id}>
+            {showGroupLabel && <div className="nav-group-label">{n.group}</div>}
+            <Link ref={gp.itemRef(n.id)} className={cls} href={n.href} data-tut={"nav-" + n.id} title={rail === "min" ? n.label : undefined}>
+              <I d={ICONS[n.id]} />
+              <span className="nav-item__label">{n.label}</span>
+            </Link>
+          </React.Fragment>
         );
       })}
       <div className="side-bottom">
         {!isSeller && (
           <div className="plan-card">
             <div>
-              <strong>{plan.title || "Seu plano"}</strong>
+              <strong>{creditsMode ? "Créditos" : (plan.title || "Seu plano")}</strong>
               {planSub && <><br /><small>{planSub}</small></>}
             </div>
-            {cardUsage && (() => {
+            {creditsMode && creditsSummary && (() => {
+              // Medidor de crédito: consumo dentro dos lotes ATIVOS ("total concedido ativo").
+              const total = creditsSummary.total;
+              const restante = creditsSummary.restante;
+              const used = total != null ? Math.max(0, total - restante) : 0;
+              const pct = total && total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+              const danger = restante <= 0;
+              return (
+                <div className={"plan-card__meter" + (danger ? " is-danger" : "")}>
+                  <div className="plan-card__meter-top">
+                    <span className="plan-card__meter-lbl">Créditos</span>
+                    <span className="plan-card__meter-val">{restante.toLocaleString("pt-BR")}{total != null ? ` / ${total.toLocaleString("pt-BR")}` : ""}</span>
+                  </div>
+                  {total != null && <div className="plan-card__bar"><div className="plan-card__bar-fill" style={{ width: `${pct}%` }} /></div>}
+                </div>
+              );
+            })()}
+            {!creditsMode && cardUsage && (() => {
               const pct = Math.min(100, Math.round((cardUsage.used / cardUsage.limit) * 100));
               const danger = cardUsage.remaining <= 0;
               return (
@@ -848,7 +918,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
                 </div>
               );
             })()}
-            <button className={showUpgrade ? "plan-card__upgrade" : undefined} onClick={() => abrirPlanoECobranca(router)}>{showUpgrade ? "Assinar agora" : "Gerenciar plano"}</button>
+            <button className={showUpgrade ? "plan-card__upgrade" : undefined} onClick={() => (creditsMode ? abrirCreditos(router) : abrirPlanoECobranca(router))}>{creditsMode ? "Ver créditos" : (showUpgrade ? "Assinar agora" : "Gerenciar plano")}</button>
           </div>
         )}
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o

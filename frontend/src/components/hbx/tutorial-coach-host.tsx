@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 
 import { TutorialCoach } from "@/components/hbx/tutorial-coach";
 import {
+  NAV_LINKS,
   currentUserDisplayName,
   isModuleVisible,
   useCurrentUser,
@@ -19,6 +20,7 @@ import {
   useMyModules,
 } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { setAiBotInterest } from "@/lib/onboarding";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { getWaOpenMode } from "@/lib/wa-open-mode";
 import { buildCoachSteps, buildModuleTour, type CoachAudience, type CoachRole } from "@/lib/tutorial-coach-steps";
@@ -31,6 +33,17 @@ import {
 
 const SUPPORT_PHONE = "5519997024884";
 const SUPPORT_MSG = "Estou com dúvidas na tela /leads";
+
+// As âncoras da sidebar ([data-tut="nav-*"]) só existem (e só têm tamanho) na
+// casca desktop. Sem elas (casca mobile), o tour monta os mesmos passos sem
+// holofote — o coach não fica 4s esperando alvo que nunca aparece.
+function hasVisibleNavAnchors(): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.querySelector('[data-tut^="nav-"]');
+  if (!el) return false;
+  const r = (el as HTMLElement).getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
 
 export function TutorialCoachHost() {
   const router = useRouter();
@@ -52,19 +65,41 @@ export function TutorialCoachHost() {
         ? "seller"
         : "manager";
 
+  // Lista REAL de módulos visíveis, na ordem da sidebar (fonte única NAV_LINKS
+  // + isModuleVisible — a mesma régua fail-closed do menu).
+  const visibleModules = NAV_LINKS
+    .filter(n => isModuleVisible(n.id, ent, user, mods))
+    .map(n => n.id);
+
   const audience: CoachAudience = {
     role: coachRole,
-    hasLeads: isModuleVisible("leads", ent, user, mods),
-    hasVendas: isModuleVisible("vendas", ent, user, mods),
-    hasAtendimento: isModuleVisible("atend", ent, user, mods),
-    hasRelatorios: isModuleVisible("relat", ent, user, mods),
+    visibleModules,
+    navTargets: hasVisibleNavAnchors(),
   };
 
   const steps = tourId ? buildModuleTour(tourId, audience) : buildCoachSteps(audience);
 
+  // Fecho do tour COMPLETO (1º acesso) = o momento real de marcar o tutorial no
+  // backend (concluiu OU pulou). O portão não marca mais ao lançar — se a pessoa
+  // fechar o navegador no meio, o tutorial re-oferece no próximo login.
+  async function markTutorialDoneBestEffort() {
+    try {
+      await apiFetch("/profile/tutorial-done", { method: "POST", body: JSON.stringify({}) });
+    } catch { /* best-effort: o portão re-oferece no próximo login */ }
+  }
+
   function finish() {
     try { localStorage.setItem("hbx:tutorial-visto", "1"); } catch { /* sem storage */ }
+    // Tour de módulo ("Como usar") não mexe no flag de 1º acesso.
+    if (!tourId) void markTutorialDoneBestEffort();
     stopTutorialCoach();
+  }
+
+  // Pergunta IA/Bot: SÓ grava o carimbo ai_bot_interest:yes|no e o tour segue —
+  // não abre tela nenhuma (ordem do dono 07/07).
+  async function handleChoice(choice: "ai-bot", value: "yes" | "no") {
+    if (choice !== "ai-bot") return;
+    await setAiBotInterest(value);
   }
 
   async function handleSupport() {
@@ -118,6 +153,7 @@ export function TutorialCoachHost() {
       onSkip={finish}
       onAskHelp={askHelp}
       onSupport={handleSupport}
+      onChoice={handleChoice}
       exitTo={tourId ? null : "/dashboard"}
     />
   );

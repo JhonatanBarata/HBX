@@ -695,8 +695,14 @@ export class OnboardingController {
   }
 
   // Carimbos de configuração do onboarding (NÃO são marcos do checklist): a escolha
-  // solo|time do admin no 1º login. Idempotente; o portão do front decide o ramo.
-  private static readonly ONBOARDING_CONFIG_EVENTS = ['admin_mode:solo', 'admin_mode:team'] as const;
+  // solo|time do admin no 1º login + o interesse em configurar IA/Bot perguntado no
+  // tutorial (07/07). Idempotentes; não entram no checklist nem celebram conquista.
+  private static readonly ONBOARDING_CONFIG_EVENTS = [
+    'admin_mode:solo',
+    'admin_mode:team',
+    'ai_bot_interest:yes',
+    'ai_bot_interest:no',
+  ] as const;
 
   // Carimba um marco (idempotente). Devolve firstTime + se o marco é milestone —
   // o front decide disparar a conquista só na 1ª vez de um marco celebrável. Aceita
@@ -726,7 +732,11 @@ export class OnboardingController {
     // Grava SÓ quando ainda não definido (1º login, sem chip) — nunca sobrescreve uma
     // escolha já feita. Gravar o campo NÃO desconecta chip (a troca-com-desconexão mora
     // no painel /atendimento); por isso é seguro aqui. Best-effort: jamais derruba o carimbo.
-    if (isConfigEvent && kind === 'admin') {
+    // SÓ os carimbos admin_mode:* definem o modelo de atendimento — os demais
+    // carimbos de config (ex.: ai_bot_interest:*) não têm nada a ver com chip e
+    // NÃO podem encostar em whatsappAttendanceMode.
+    const isAdminModeEvent = event === 'admin_mode:solo' || event === 'admin_mode:team';
+    if (isAdminModeEvent && kind === 'admin') {
       const companyId = Number((user as any)?.companyId || 0);
       if (companyId) {
         const desiredMode = event === 'admin_mode:solo' ? 'individual' : 'shared';

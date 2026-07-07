@@ -208,17 +208,60 @@ body { min-height: 100vh; }
   .login-console { animation: none; transition: none; }
 }
 
-/* ---------- Splash de boot do tutorial (apresentaçãozinha estilo Windows) ----------
-   Cada linha "carrega" e vira "done" em sequência; some revelando o tutorial.
+/* ---------- Splash de boot do tutorial (abertura cinematográfica estilo Windows) ----------
+   Tela cheia com bloom de luz, "Bem-vindo ao HBX" grande, loader de pontinhos
+   orbitando (o clássico do Windows) e linhas de status que "carregam" e viram
+   "done" em sequência; some num fade revelando o tutorial.
    Estrutura/token central (Lei 4/5) — sem cor literal. ---------- */
-.boot-splash { position: fixed; inset: 0; z-index: 80; display: grid; place-content: center; justify-items: center; gap: 30px; padding: 32px;
-  background: radial-gradient(60% 50% at 50% 38%, color-mix(in srgb, var(--login-accent) 14%, transparent), transparent 70%), linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
-  transition: opacity 0.6s var(--ease-out-quint); }
+.boot-splash { --oobe-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  position: fixed; inset: 0; z-index: 80; display: grid; place-content: center; justify-items: center; padding: 32px; overflow: hidden;
+  background:
+    radial-gradient(56% 46% at 50% 34%, color-mix(in srgb, var(--login-accent) 18%, transparent), transparent 72%),
+    radial-gradient(40% 34% at 14% 90%, color-mix(in srgb, var(--hbx-secondary) 10%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--hbx-background) 0%, var(--hbx-background-alt) 100%);
+  transition: opacity 0.7s var(--ease-out-quint); }
 .boot-splash.is-gone { opacity: 0; pointer-events: none; }
+.boot-glow { position: absolute; inset: -22%; pointer-events: none;
+  background: radial-gradient(30% 26% at 50% 40%, color-mix(in srgb, var(--login-accent) 16%, transparent), transparent 70%);
+  animation: boot-glow-drift 12s var(--oobe-ease) infinite alternate; }
+@keyframes boot-glow-drift {
+  from { transform: translate3d(-2%, -1%, 0) scale(1); opacity: 0.7; }
+  to { transform: translate3d(2%, 2%, 0) scale(1.08); opacity: 1; } }
+.boot-stage { position: relative; display: grid; gap: 16px; justify-items: center; text-align: center; }
+/* Cascata Win11: cada bloco entra deslizando de baixo, em sequência. */
+.boot-stage > * { animation: oobe-rise 0.65s var(--oobe-ease) both; }
+.boot-stage > *:nth-child(1) { animation-delay: 0.05s; }
+.boot-stage > *:nth-child(2) { animation-delay: 0.16s; }
+.boot-stage > *:nth-child(3) { animation-delay: 0.28s; }
+.boot-stage > *:nth-child(4) { animation-delay: 0.4s; }
+.boot-stage > *:nth-child(5) { animation-delay: 0.52s; }
+@keyframes oobe-rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
 .boot-brand { display: inline-flex; align-items: center; gap: 12px; color: var(--hbx-brand-strong); font-family: var(--font-display); }
-.boot-brand strong { font-size: 1.8rem; font-weight: 800; color: var(--text-strong); letter-spacing: 0.01em; }
-.boot-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; width: min(360px, 90vw); }
-.boot-step { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 12px; opacity: 0.4; transition: opacity 0.4s var(--ease-out-quint); }
+.boot-brand strong { font-size: 1.5rem; font-weight: 800; color: var(--text-strong); letter-spacing: 0.01em; }
+.boot-title { margin: 6px 0 0; font-family: var(--font-display); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05;
+  font-size: clamp(2rem, 5vw, 3.4rem); color: var(--text-strong); }
+.boot-subtitle { margin: 0; font-size: 0.92rem; line-height: 1.6; color: var(--text-muted); max-width: 46ch; }
+/* Loader de pontinhos orbitando (Windows): 5 pontos girando com easing desigual
+   e delays escalonados — eles se juntam e se espalham como no boot original. */
+.boot-dots { position: relative; width: 36px; height: 36px; margin-top: 6px; }
+.boot-dots i { position: absolute; inset: 0; opacity: 0; animation: boot-orbit 5.2s linear infinite; }
+.boot-dots i::after { content: ""; position: absolute; top: 0; left: calc(50% - 2.5px); width: 5px; height: 5px;
+  border-radius: var(--radius-pill); background: var(--hbx-brand-strong); }
+.boot-dots i:nth-child(2) { animation-delay: 0.22s; }
+.boot-dots i:nth-child(3) { animation-delay: 0.44s; }
+.boot-dots i:nth-child(4) { animation-delay: 0.66s; }
+.boot-dots i:nth-child(5) { animation-delay: 0.88s; }
+@keyframes boot-orbit {
+  0% { transform: rotate(225deg); opacity: 1; animation-timing-function: ease-out; }
+  7% { transform: rotate(345deg); animation-timing-function: linear; }
+  30% { transform: rotate(455deg); animation-timing-function: ease-in-out; }
+  39% { transform: rotate(690deg); animation-timing-function: linear; }
+  70% { transform: rotate(815deg); opacity: 1; animation-timing-function: ease-out; }
+  75% { transform: rotate(945deg); opacity: 1; }
+  76% { transform: rotate(945deg); opacity: 0; }
+  100% { transform: rotate(945deg); opacity: 0; } }
+.boot-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 12px; width: min(380px, 90vw); text-align: left; }
+.boot-step { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 12px; opacity: 0.35; transition: opacity 0.4s var(--ease-out-quint); }
 .boot-step.is-loading, .boot-step.is-done { opacity: 1; }
 .boot-ic { display: grid; place-items: center; width: 26px; height: 26px; color: var(--hbx-brand-strong); }
 .boot-step.is-done .boot-ic { color: var(--hbx-success); }
@@ -227,7 +270,9 @@ body { min-height: 100vh; }
 .boot-label { font-size: 0.92rem; font-weight: 600; color: var(--text-body); }
 .boot-state { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
 .boot-step.is-done .boot-state { color: var(--hbx-success); }
-@media (prefers-reduced-motion: reduce) { .boot-spin { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .boot-spin, .boot-glow, .boot-stage > * { animation: none; }
+  .boot-dots { display: none; } }
 
 /* ---------- Coachmark do tutorial (tour guiado estilo jogo) ----------
    Buraco de luz no alvo real + balão de texto. Estrutura/token central
@@ -318,6 +363,13 @@ body { min-height: 100vh; }
 .tut-help-btn:disabled { cursor: default; opacity: 0.75; }
 .tut-final__note { font-size: 0.72rem; color: var(--hbx-success); }
 .tut-btn--support { background: var(--hbx-success); box-shadow: 0 6px 18px color-mix(in srgb, var(--hbx-success) 45%, transparent); margin-right: auto; }
+
+/* Passo-pergunta do tutorial (IA/Bot): decisão em dois botões dentro do balão. */
+.tut-choice__row { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 6px; }
+.tut-btn--ghost { background: transparent; color: var(--hbx-brand-strong);
+  border: 1px solid color-mix(in srgb, var(--login-accent) 42%, transparent); box-shadow: none; }
+.tut-btn--ghost:hover { background: var(--hbx-brand-soft); filter: none; }
+.tut-btn:disabled { opacity: 0.6; cursor: progress; transform: none; filter: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .tut-spot { animation: none; } .tut-hint__dot { animation: none; } .tut-caret { animation: none; }
@@ -751,6 +803,131 @@ html, body { height: 100%; }
 .bv-branch-tx strong { font-size: 0.92rem; color: var(--text-strong); }
 .bv-branch-tx small { font-size: 0.76rem; line-height: 1.5; color: var(--text-muted); }
 .bv-branch-go { flex: 0 0 auto; font-size: 1.1rem; font-weight: 800; color: var(--hbx-brand-strong); }
+
+/* ============================================================
+   OOBE — casca cinematográfica do primeiro acesso (estilo Windows 11, 07/07).
+   O portão INTEIRO (senha → ramo → modo → tutorial) roda aqui: tela cheia,
+   bloom de luz da pele, painel CENTRAL único, tipografia grande e transições
+   em cascata ("uma coisa sai pra outra entrar" + stagger nos filhos — é o
+   stagger + easing decelerate que dá o clima Windows 11).
+   Só tokens/color-mix (Lei 1/4/5); movimento respeita reduced-motion.
+   ============================================================ */
+.bv-oobe { --oobe-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  position: fixed; inset: 0; z-index: 80;
+  display: grid; grid-template-rows: 1fr auto; overflow-y: auto; overflow-x: hidden;
+  background:
+    radial-gradient(52% 44% at 50% 28%, color-mix(in srgb, var(--login-accent) 20%, transparent), transparent 72%),
+    radial-gradient(38% 32% at 12% 92%, color-mix(in srgb, var(--hbx-brand-strong) 11%, transparent), transparent 72%),
+    radial-gradient(34% 30% at 90% 84%, color-mix(in srgb, var(--hbx-secondary) 9%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--hbx-background), var(--hbx-background-alt));
+  animation: hbx-bv-fade var(--motion-slow) var(--ease-out-quint); }
+.bv-oobe__bloom { position: fixed; inset: -22%; pointer-events: none;
+  background: radial-gradient(30% 24% at 50% 32%, color-mix(in srgb, var(--login-accent) 13%, transparent), transparent 70%);
+  animation: boot-glow-drift 14s var(--oobe-ease) infinite alternate; }
+
+.bv-oobe__stage { place-self: center; width: min(760px, 94vw); padding: 46px 20px 22px;
+  display: grid; gap: 26px; justify-items: center; }
+/* Saída Win11: o painel atual desliza levemente pra cima e some; o próximo
+   remonta (key novo) e roda a cascata de entrada de novo. */
+.bv-oobe__stage.is-leaving { opacity: 0; transform: translateY(-16px) scale(0.99);
+  transition: opacity 0.22s var(--oobe-ease), transform 0.22s var(--oobe-ease); }
+
+.bv-oobe__head { display: grid; gap: 12px; justify-items: center; text-align: center; max-width: 58ch; }
+.bv-oobe__kicker { display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--login-accent) 26%, var(--border-hairline));
+  background: color-mix(in srgb, var(--login-accent) 9%, transparent);
+  color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; }
+.bv-oobe__title { margin: 0; font-family: var(--font-display); font-weight: 800; letter-spacing: -0.02em;
+  font-size: clamp(1.7rem, 4.2vw, 2.6rem); line-height: 1.08; color: var(--text-strong); }
+.bv-oobe__sub { margin: 0; font-size: 0.9rem; line-height: 1.6; color: var(--text-muted); max-width: 54ch; }
+
+.bv-oobe__content { width: min(560px, 100%); display: grid; gap: 15px; text-align: left; }
+.bv-oobe__content--wide { width: min(880px, 100%); justify-items: center; }
+
+/* Cascata Win11 de ENTRADA: kicker → título → texto → conteúdo, cada um
+   deslizando de baixo com fade, em sequência. */
+.bv-oobe__head > * { animation: oobe-rise 0.55s var(--oobe-ease) both; }
+.bv-oobe__head > *:nth-child(1) { animation-delay: 0.04s; }
+.bv-oobe__head > *:nth-child(2) { animation-delay: 0.12s; }
+.bv-oobe__head > *:nth-child(3) { animation-delay: 0.2s; }
+.bv-oobe__content > * { animation: oobe-rise 0.55s var(--oobe-ease) both; }
+.bv-oobe__content > *:nth-child(1) { animation-delay: 0.26s; }
+.bv-oobe__content > *:nth-child(2) { animation-delay: 0.33s; }
+.bv-oobe__content > *:nth-child(3) { animation-delay: 0.4s; }
+.bv-oobe__content > *:nth-child(4) { animation-delay: 0.47s; }
+.bv-oobe__content > *:nth-child(n+5) { animation-delay: 0.54s; }
+/* A vitrine do ramo entra quando os dados chegam — animação própria, mais larga. */
+.bv-oobe .vitrine-section { width: min(880px, 100%); animation: oobe-rise 0.55s var(--oobe-ease) both; }
+
+/* Rodapé ambiente: marca à esquerda, pontinhos de progresso à direita. */
+.bv-oobe__bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 22px 16px; }
+.bv-oobe__brand { display: inline-flex; align-items: center; gap: 8px; font-size: 0.74rem; color: var(--text-muted); }
+.bv-oobe__brand svg { color: var(--hbx-brand-strong); }
+.bv-oobe__brand strong { font-family: var(--font-display); font-weight: 800; color: var(--text-strong); letter-spacing: 0.01em; }
+.bv-oobe__brand em { font-style: normal; font-weight: 600; opacity: 0.85; }
+.bv-oobe__dots { display: inline-flex; align-items: center; gap: 7px; }
+.bv-oobe__dots i { width: 7px; height: 7px; border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 32%, transparent);
+  transition: background var(--motion-base), transform var(--motion-base); }
+.bv-oobe__dots i.is-on { background: var(--hbx-brand-strong); transform: scale(1.3); }
+.bv-oobe__dots i.is-done { background: color-mix(in srgb, var(--hbx-brand-strong) 55%, transparent); }
+
+/* Cards da escolha Tutorial / Simples / Pular. */
+.bv-choice { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; }
+.bv-oobe__content > .bv-choice { animation: none; } /* os cards têm cascata própria */
+.bv-choice-card { position: relative; display: grid; gap: 12px; align-content: start; justify-items: start; text-align: left;
+  min-height: 196px; padding: 18px; cursor: pointer; font: inherit; color: inherit; overflow: hidden;
+  border-radius: var(--radius-lg); border: 1px solid var(--border-hairline);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 94%, transparent), color-mix(in srgb, var(--hbx-surface-soft) 88%, transparent));
+  box-shadow: var(--shadow-xs);
+  -webkit-backdrop-filter: blur(var(--blur-glass)); backdrop-filter: blur(var(--blur-glass));
+  animation: oobe-rise 0.6s var(--oobe-ease) both;
+  transition: transform 0.22s var(--oobe-ease), border-color 0.22s var(--oobe-ease), box-shadow 0.22s var(--oobe-ease); }
+.bv-choice-card:nth-child(1) { animation-delay: 0.28s; }
+.bv-choice-card:nth-child(2) { animation-delay: 0.38s; }
+.bv-choice-card:nth-child(3) { animation-delay: 0.48s; }
+.bv-choice-card:hover:not(:disabled) { transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--login-accent) 46%, var(--border-hairline)); box-shadow: var(--shadow-md); }
+.bv-choice-card:disabled { opacity: 0.55; cursor: progress; }
+.bv-choice-card__icon { display: grid; place-items: center; width: 42px; height: 42px;
+  border-radius: var(--radius-md); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-size: 1.15rem; }
+.bv-choice-card__body { display: grid; gap: 6px; }
+.bv-choice-card__body strong { font-family: var(--font-display); font-size: 1rem; color: var(--text-strong); }
+.bv-choice-card__body small { font-size: 0.76rem; line-height: 1.55; color: var(--text-muted); }
+.bv-choice-card__action { margin-top: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 14px; border-radius: var(--radius-pill); font-size: 0.76rem; font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--login-accent) 32%, var(--border-hairline));
+  color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--login-accent) 8%, transparent);
+  transition: background var(--motion-fast), border-color var(--motion-fast); }
+.bv-choice-card:hover:not(:disabled) .bv-choice-card__action { background: color-mix(in srgb, var(--login-accent) 14%, transparent); }
+.bv-choice-card.is-primary { border-color: color-mix(in srgb, var(--login-accent) 42%, var(--border-hairline));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--login-accent) 13%, var(--hbx-surface)), color-mix(in srgb, var(--login-accent) 5%, var(--hbx-surface-soft)));
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--login-accent) 20%, transparent); }
+.bv-oobe .bv-choice-card.is-primary .bv-choice-card__action { color: var(--hbx-action-ink);
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary)); border-color: transparent;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--login-accent) 34%, transparent); }
+
+@media (max-width: 860px) {
+  .bv-choice { grid-template-columns: 1fr; }
+  .bv-choice-card { min-height: 0; }
+  .bv-oobe__stage { padding-top: 30px; }
+}
+/* Zero-scroll em telas baixas (régua do FRONTEND.md): compacta espaçamento,
+   nunca o conteúdo. */
+@media (max-height: 900px) {
+  .bv-oobe__stage { padding-top: 22px; gap: 18px; }
+  .bv-oobe__title { font-size: clamp(1.45rem, 3.6vw, 2.1rem); }
+  .bv-oobe__content { gap: 12px; }
+  .bv-choice-card { min-height: 168px; padding: 15px; }
+  .bv-oobe__bar { padding-bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bv-oobe, .bv-oobe__bloom, .bv-oobe__head > *, .bv-oobe__content > *, .bv-choice-card,
+  .bv-oobe .vitrine-section { animation: none; }
+  .bv-oobe__stage.is-leaving { transition: none; }
+}
 
 /* Troca de plano: faixa antes→depois + detalhe do destino reusando o UI da landing. */
 .bv-card--plan { width: min(680px, 100%); }

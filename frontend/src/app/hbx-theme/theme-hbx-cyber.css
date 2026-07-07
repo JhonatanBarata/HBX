@@ -22,6 +22,11 @@
   --hbx-action-ink: #F4F9FF; --hbx-avatar-from: #1565E0; --hbx-avatar-to: #0EA5E9;
   --font-display: "Sora", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* anel do CascaLoading — azul→ciano→teal→âmbar→PLATINA (ordem do dono: fim
+     platina, sem vermelho/rosa). Wordmark = tinta (platina quase-branca some no claro). */
+  --casca-ring-1: #1565E0; --casca-ring-2: #0EA5E9; --casca-ring-3: #0FB981; --casca-ring-4: #D97706; --casca-ring-5: #E7E9EC;
+  --casca-ring-track: rgba(21,101,224,0.12); --casca-ring-glow: rgba(14,165,233,0.35);
+  --casca-mark-1: var(--hbx-foreground); --casca-mark-2: var(--hbx-foreground-soft); --casca-mark-3: var(--hbx-foreground);
   --radius-xs: 6px; --radius-sm: 10px; --radius-md: 14px; --radius-lg: 18px; --radius-xl: 24px;
   --shadow-xs: 0 10px 22px -16px rgba(10,42,94,0.3); --shadow-sm: 0 18px 40px -22px rgba(10,42,94,0.35);
   --shadow-md: 0 26px 60px -28px rgba(10,42,94,0.42); --shadow-lg: 0 40px 86px -34px rgba(10,42,94,0.5);
@@ -48,6 +53,11 @@
   --hbx-action-ink: #EAF4FF; --hbx-avatar-from: #2E8BFF; --hbx-avatar-to: #36C6FF;
   --shadow-inset: inset 0 1px 0 rgba(120,170,255,0.09);
   --panel-glow: rgba(46,139,255,0.22); --hero-glow: rgba(54,198,255,0.22); --soft-ring: rgba(46,139,255,0.28);
+  /* anel do CascaLoading no escuro — a MESMA foto: azul-elétrico→ciano→teal→
+     âmbar→platina. Wordmark platina metálica (tinta clara do claro sumiria aqui). */
+  --casca-ring-1: #2E8BFF; --casca-ring-2: #36C6FF; --casca-ring-3: #22D3A0; --casca-ring-4: #FBBF24; --casca-ring-5: #E7E9EC;
+  --casca-ring-track: rgba(46,139,255,0.16); --casca-ring-glow: rgba(54,198,255,0.42);
+  --casca-mark-1: #F4F5F7; --casca-mark-2: #C7CBD1; --casca-mark-3: #E7E9EC;
 }
 
 /* ---- Bloco B · CAMADA DE VESTIR (vidro azul + glow) ---- */
@@ -101,6 +111,39 @@
 /* ---- LOGIN saiu da pele: agora é UNIVERSAL (ordem do dono 14/06) e vive em
    screens.css (robô transmux + cor que cicla via --login-accent) + skeleton.css
    (os 5 tons). A pele NÃO veste mais o login. ---- */
+
+/* ---- Bloco B · CASCA (mobile) — mesma "foto" azul/vidro do desktop, vestindo
+   as classes estruturais de casca.css (MOBILE-CASCA/W1). Zero classe nova,
+   zero elemento novo — só glow/vidro por cima do que já existe. A estrela
+   continua sendo o ESCURO; no claro o toque é discreto ("versão limpa"). */
+[data-theme="hbx-cyber"] .casca-top {
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+}
+[data-theme="hbx-cyber"] .casca-tabbar {
+  -webkit-backdrop-filter: blur(var(--blur-chrome)); backdrop-filter: blur(var(--blur-chrome));
+}
+[data-theme="hbx-cyber"] .casca-tab.is-on {
+  filter: drop-shadow(0 0 6px var(--soft-ring));
+}
+[data-theme="hbx-cyber"] .casca-command {
+  box-shadow: var(--shadow-lip), var(--shadow-xs), inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 12%, transparent);
+}
+[data-theme="hbx-cyber"] .casca-command__btn-dot {
+  box-shadow: 0 0 0 2px var(--surface-recessed), 0 0 6px var(--soft-ring);
+}
+[data-theme="hbx-cyber"] .casca-sheet {
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 10%, transparent);
+}
+/* halo ambiente atrás do conteúdo (a "vinheta" azul da foto) — pseudo-elemento
+   no palco, ATRÁS das telas (.casca-view fica opaca por cima), então não
+   interfere em leitura/scroll; só respira nas bordas quando a tela tem
+   transparência (topo/tab bar já usam blur acima). Só no escuro (a foto). */
+[data-theme="hbx-cyber"][data-theme-mode="dark"] .casca {
+  background:
+    radial-gradient(circle at 15% 0%, color-mix(in srgb, var(--hbx-brand) 20%, transparent), transparent 32%),
+    radial-gradient(circle at 100% 78%, color-mix(in srgb, var(--hbx-secondary) 14%, transparent), transparent 30%),
+    var(--surface-canvas);
+}
 
 /* ---- Bloco C · MOVIMENTO & ÍCONE ---- */
 [data-theme="hbx-cyber"] {

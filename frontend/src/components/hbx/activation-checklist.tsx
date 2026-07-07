@@ -32,7 +32,10 @@ type Checklist = {
   steps: Step[];
 };
 
-const COLLAPSE_KEY = "hbx:ac-collapsed";
+// Exportada: o portão de boas-vindas (modo "Simples") força o checklist a nascer
+// EXPANDIDO ("0") — a promessa daquele modo é "entrar direto e seguir o checklist".
+export const AC_COLLAPSE_KEY = "hbx:ac-collapsed";
+const COLLAPSE_KEY = AC_COLLAPSE_KEY;
 
 export function ActivationChecklist() {
   const router = useRouter();
@@ -83,7 +86,7 @@ export function ActivationChecklist() {
 
   if (collapsed) {
     return (
-      <button className="ac-pill" onClick={() => setCollapsedPersist(false)} aria-label="Abrir primeiros passos">
+      <button className="ac-pill" data-tut="ac-checklist" onClick={() => setCollapsedPersist(false)} aria-label="Abrir primeiros passos">
         <span className="ac-pill-ring" style={{ ["--ac-pct" as string]: pct }} aria-hidden="true">
           <i>{done}/{total}</i>
         </span>
@@ -93,7 +96,7 @@ export function ActivationChecklist() {
   }
 
   return (
-    <aside className="ac-card" aria-label="Seus primeiros passos">
+    <aside className="ac-card" data-tut="ac-checklist" aria-label="Seus primeiros passos">
       <header className="ac-head">
         <div className="ac-head-txt">
           <strong>Seus primeiros passos</strong>

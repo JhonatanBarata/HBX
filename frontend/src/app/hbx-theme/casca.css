@@ -647,26 +647,37 @@
 
 /* modo INDETERMINADO (ordem do dono 06/07: "decida — tempo certo OU se comporta
    como ferramenta de loading de verdade, tipo nprogress do YouTube"): VARREDURA
-   ÚNICA, monotônica, nunca reseta pra 0 ("carrega-zera" morreu). Sobe rápido,
-   desacelera (ease-out) e SEGURA em ~90% esperando a tela terminar — quem some
-   o loader é o React (troca pro conteúdo real), nunca uma animação em loop.
-   A MARCA NUNCA GIRA — nada aqui roda `transform:rotate`. */
+   ÚNICA, monotônica, nunca reseta pra 0 ("carrega-zera" morreu). Sobe rápido a
+   ~90% e daí em diante faz um CREEP bem lento até ~98% — nunca fecha 100% sozinho
+   (quem fecha é o React trocando pro conteúdo real). Achado 07/07 ("trava sem
+   fechar os 100"): a versão anterior ficava 100% ESTÁTICA depois de 1.6s — se a
+   tela real demorasse mais que isso (comum em dev), a tela inteira congelava por
+   vários segundos e lia como quebrada. Agora sempre tem algo se movendo (creep do
+   anel + respiro contínuo do hub), sem nunca resetar/logar. A MARCA NUNCA GIRA —
+   nada aqui roda `transform:rotate`. */
 .casca-loading__ring.is-indeterminate::after {
-  animation: casca-ring-fill-sweep 1.6s var(--casca-motion-ease) both;
-  animation-fill-mode: forwards;
+  animation: casca-ring-fill-sweep 14s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
-/* respiro único e sutil no hub ao "pegar embalo" — não é loop infinito */
+/* respiro no hub: embalo inicial (0→1.6s) + respiração contínua e sutil
+   enquanto a espera real continuar (nunca para de vez — isso que "travava"). */
 .casca-loading__ring.is-indeterminate .casca-loading__hub {
-  animation: casca-hub-breathe 1.6s var(--casca-motion-ease) both;
+  animation:
+    casca-hub-breathe 1.6s var(--casca-motion-ease) both,
+    casca-hub-idle-pulse 2.6s ease-in-out 1.6s infinite;
 }
 @keyframes casca-ring-fill-sweep {
   0%   { --casca-fill: 0deg; }
-  100% { --casca-fill: 324deg; } /* ~90% — segura ali, nunca volta a 0 */
+  11%  { --casca-fill: 324deg; } /* ~90% em ~1.6s — mesma sensação de sempre */
+  100% { --casca-fill: 352deg; } /* ~98% — creep quase imperceptível se a espera esticar */
 }
 @keyframes casca-hub-breathe {
   0%   { transform: scale(0.985); }
   55%  { transform: scale(1.03); }
   100% { transform: scale(1); }
+}
+@keyframes casca-hub-idle-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.012); }
 }
 /* @property deixa o --casca-fill interpolar de verdade (sem pulo) no progresso */
 @property --casca-fill {

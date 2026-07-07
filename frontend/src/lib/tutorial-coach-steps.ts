@@ -1,173 +1,177 @@
-// Fonte ÚNICA dos passos do tour guiado (coachmark). Por cargo/plano, raso
-// (ordem do dono 14/06): Vendedor = Leads → Vendas → Atendimento; Gerente = +
-// cadastrar clientes; Dono = + planos. Os TEMAS entram logo no começo ("as
-// patifarias"). Dashboard/Relatórios = resumo que escreve sozinho (typewriter).
-// Fim = "ver planos avançados? / ficou dúvida?". Tudo nasce daqui.
+// Fonte ÚNICA dos passos do tour guiado (coachmark). Tour completo (1º acesso,
+// 07/07): segue a ORDEM REAL da sidebar (NAV_LINKS) — Dashboard → Vendas →
+// Agenda → Automações → Conversas → Empresas → Contatos → Produtos → Logística
+// → Bot → Assistente IA → (pergunta IA/Bot) → Relatórios → Website →
+// Configurações → checklist → fim. Módulo que o usuário NÃO vê (plano/cargo)
+// não vira passo. Os passos de módulo NÃO navegam (o holofote desliza item a
+// item na sidebar — trocar de rota a cada passo deixava o tour instável, com
+// tela carregando atrás do balão); só Dashboard e checklist ancoram na rota.
 
 import type { CoachStep } from "@/components/hbx/tutorial-coach";
 
 export type CoachRole = "seller" | "manager" | "owner";
 
+// Audiência do tour: papel + a lista REAL de módulos visíveis na sidebar (ids
+// do NAV_LINKS do shell) — evita duplicar a regra de visibilidade em booleans.
+// navTargets=false (ex.: casca mobile sem sidebar desktop) monta os MESMOS
+// passos sem âncora de destaque — o coach não fica esperando alvo inexistente.
 export type CoachAudience = {
   role: CoachRole;
-  hasLeads: boolean;
-  hasVendas: boolean;
-  hasAtendimento: boolean;
-  hasRelatorios: boolean;
+  visibleModules: string[];
+  navTargets: boolean;
 };
 
 const DEFAULT_AUDIENCE: CoachAudience = {
   role: "seller",
-  hasLeads: true,
-  hasVendas: true,
-  hasAtendimento: false,
-  hasRelatorios: true,
+  visibleModules: ["dash", "vendas", "atend", "relat", "config"],
+  navTargets: true,
 };
+
+// Catálogo dos passos por módulo, na ordem canônica da sidebar (NAV_LINKS).
+// id = id do NAV_LINKS (o alvo do holofote é [data-tut="nav-<id>"]).
+const MODULE_STEPS: Array<{ id: string; title: string; body: string }> = [
+  {
+    id: "dash",
+    title: "Seu painel de controle",
+    body: "O Dashboard mostra o que está acontecendo hoje: oportunidades, retornos, conversas, vendas e sinais importantes da operação.",
+  },
+  {
+    id: "vendas",
+    title: "O centro da operação",
+    body: "Em Vendas ficam o Radar, os leads puxados e o funil. É daqui que a empresa sai da prospecção e vira negociação.",
+  },
+  {
+    id: "agenda",
+    title: "O que precisa acontecer hoje",
+    body: "A Agenda organiza retornos, tarefas e próximos contatos. Ela evita que lead quente esfrie por esquecimento.",
+  },
+  {
+    id: "automacao",
+    title: "Rotinas trabalhando por você",
+    body: "Automações servem para criar cadências, lembretes e ações repetidas sem depender de memória manual.",
+  },
+  {
+    id: "atend",
+    title: "Atendimento conectado ao WhatsApp",
+    body: "Em Conversas você conecta o WhatsApp, responde clientes e acompanha o histórico do lead no mesmo lugar.",
+  },
+  {
+    id: "empresas",
+    title: "A base das contas",
+    body: "Empresas guarda os negócios encontrados ou cadastrados. É a visão limpa das contas que sua operação pode trabalhar.",
+  },
+  {
+    id: "contatos",
+    title: "As pessoas por trás das empresas",
+    body: "Contatos organiza donos, compradores, responsáveis e pessoas ligadas às empresas. Venda B2B depende de falar com a pessoa certa.",
+  },
+  {
+    id: "produtos",
+    title: "O que sua equipe vende",
+    body: "Produtos define o catálogo que aparece no fechamento, nas propostas e na rotina comercial.",
+  },
+  {
+    id: "logistica",
+    title: "Quando vender também exige entregar",
+    body: "Logística organiza rotas, entregas e confirmação de atendimento quando sua operação precisa sair do comercial e chegar na rua.",
+  },
+  {
+    id: "bot",
+    title: "Bot para atendimento automático",
+    body: "O Bot ajuda a responder, qualificar e conduzir conversas repetitivas. Ele não substitui a venda; ele tira peso do caminho.",
+  },
+  {
+    id: "assistente",
+    title: "Assistente IA da operação",
+    body: "O Assistente IA ajuda a testar mensagens, orientar respostas e acelerar tarefas sem mexer no WhatsApp real antes da sua aprovação.",
+  },
+  {
+    id: "relat",
+    title: "Os números da operação",
+    body: "Relatórios mostram evolução, conversão, desempenho e gargalos. É aqui que o dono entende o que deve ajustar.",
+  },
+  {
+    id: "website",
+    title: "Sua presença pública",
+    body: "Website é a área para preparar presença digital e páginas ligadas à operação, quando esse módulo estiver liberado.",
+  },
+  {
+    id: "config",
+    title: "O controle da empresa",
+    body: "Configurações guarda equipe, plano, módulos, preferências e ajustes da conta. O usuário comum vê menos; o dono controla mais.",
+  },
+];
 
 export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachStep[] {
   const a: CoachAudience = { ...DEFAULT_AUDIENCE, ...audience };
+  const visible = new Set(a.visibleModules);
   const steps: CoachStep[] = [];
 
-  // 1) Boas-vindas + os TEMAS já de cara.
+  // 1) Abertura.
   steps.push({
     id: "welcome",
-    title: "Essa é a sua casa.",
-    body: "Vou te mostrar onde fica cada coisa — rapidinho e no clique. Começando pelas frescuras: dá pra deixar o sistema com a sua cara.",
+    title: "Vamos montar sua operação.",
+    body: "Vou te mostrar a HBX na ordem em que ela funciona: encontrar empresas, trabalhar oportunidades, atender conversas e acompanhar os resultados.",
     gate: "next",
-    cta: "Bora",
-  });
-  steps.push({
-    id: "pele",
-    target: '[data-tut="pele"]',
-    title: "Troque a cor do sistema",
-    body: "Aqui em cima você muda a PELE — a cor e o clima de tudo. Clique pra abrir e escolher a que te agrada; quando gostar, toque em Próximo.",
-    gate: "next",
-  });
-  steps.push({
-    id: "theme-mode",
-    target: '[data-tut="theme-mode"]',
-    title: "Claro ou escuro",
-    body: "Este botão escurece ou clareia o sistema inteiro. Experimente à vontade — ele lembra da sua escolha. Toque em Próximo quando quiser seguir.",
-    gate: "next",
+    cta: "Começar",
   });
 
-  // 2) Tour pelo coração do sistema (clique-a-clique nos importantes).
-  // Radar/"Buscar empresas" não tem mais item de menu próprio (27/06): "Leads"
-  // saiu do NAV_LINKS e virou o modo "Buscar empresas" DENTRO de Vendas. Por
-  // isso este passo não tem alvo de clique (nav-leads não existe mais) — é
-  // central (gate: next) e a rota /leads redireciona sozinha pro Vendas em
-  // modo buscar (ver leads/redirect.client.tsx).
-  if (a.hasLeads) {
-    steps.push({
-      id: "go-leads",
-      title: "Seus Leads",
-      body: "É aqui que as oportunidades chegam: dentro de Vendas, no modo Buscar empresas. Vou te mostrar.",
-      gate: "next",
-    });
-    steps.push({
-      id: "leads-screen",
-      route: "/leads",
-      title: "A sua prateleira de oportunidades",
-      body: "Mire estado, cidade e segmento, ligue o motor e a prateleira enche de empresas novas. Selecione e PUXE pra sua carteira — o contato libera na hora.",
-      gate: "next",
-    });
-  }
-
-  if (a.hasVendas) {
-    steps.push({
-      id: "go-vendas",
-      target: '[data-tut="nav-vendas"]',
-      title: "Suas Vendas",
-      body: "O funil onde a venda anda até fechar. Clique em Vendas.",
-      gate: "click",
-    });
-    steps.push({
-      id: "vendas-screen",
-      route: "/vendas",
-      title: "A esteira de vendas",
-      body: "Arraste o card pelas etapas, registre o resultado da ligação, agende retornos e acompanhe a oportunidade até o fechamento.",
-      gate: "next",
-    });
-    if (a.role !== "seller") {
+  // 2) Módulos na ordem REAL da sidebar — só os que o usuário vê. O Dashboard
+  // é o passo "limpo" (sem escurecer, texto que se escreve sozinho, na própria
+  // rota); os demais só destacam o item real do menu — SEM navegar.
+  for (const def of MODULE_STEPS) {
+    if (!visible.has(def.id)) continue;
+    if (def.id === "dash") {
       steps.push({
-        id: "vendas-cadastrar",
-        route: "/vendas",
-        title: "Cadastrar o cliente",
-        body: "Quando a venda fecha, é no card de Vendas que o cliente vira cadastro de verdade — sem digitar tudo de novo. É assim que sua base cresce limpa.",
+        id: "mod-dash",
+        route: "/dashboard",
+        title: def.title,
+        body: def.body,
+        typewriter: true,
+        plain: true,
         gate: "next",
       });
+      continue;
     }
-  }
-
-  // 3) Atendimento — se ligado, mostra; se não, mostra que existe (QR ou Meta).
-  if (a.hasAtendimento) {
     steps.push({
-      id: "go-atendimento",
-      target: '[data-tut="nav-atend"]',
-      title: "Seu Atendimento",
-      body: "As conversas de WhatsApp dos seus leads chegam aqui. Clique em Atendimento.",
-      gate: "click",
-    });
-    steps.push({
-      id: "atendimento-screen",
-      route: "/atendimento",
-      title: "Tudo num lugar só",
-      body: "Lê e responde as conversas, manda áudio, anexa, marca etapa e cria tarefas — sem sair do sistema.",
-      gate: "next",
-    });
-    // TODO (modelo de atendimento): quando o plano "lead+" tiver um step de onboarding
-    // definido, adicionar aqui um card explicando os 2 modelos (Compartilhado e Individual)
-    // e como chegar no painel: /atendimento → botão "Modelo" no cabeçalho da lista.
-    // Exemplo de step: { id: "atendimento-modelo", title: "Compartilhado ou Individual?",
-    //   body: "...", gate: "next", route: "/atendimento" }
-    // Aguardando definição do fluxo de onboarding do plano "lead+" para plugar aqui.
-  } else {
-    steps.push({
-      id: "atendimento-off",
-      title: "Atendimento por WhatsApp",
-      body: "Quando você ligar o Atendimento, as conversas dos leads caem direto aqui. Dá pra conectar pelo QR Code (como o WhatsApp Web) ou oficialmente pela Meta.",
-      image: "/meta.webp",
+      id: "mod-" + def.id,
+      target: a.navTargets ? `[data-tut="nav-${def.id}"]` : undefined,
+      title: def.title,
+      body: def.body,
       gate: "next",
     });
   }
 
-  // 4) Dashboard e Relatórios — resumo que escreve sozinho (sem clique-a-clique).
+  // 4) Pergunta IA/Bot — logo depois do último módulo de IA visível (Assistente
+  // IA; senão Bot). Sem módulo de IA visível, a pergunta não existe.
+  const aiAnchor = Math.max(
+    steps.findIndex(s => s.id === "mod-assistente"),
+    steps.findIndex(s => s.id === "mod-bot"),
+  );
+  if (aiAnchor >= 0) {
+    steps.splice(aiAnchor + 1, 0, {
+      id: "ai-bot-choice",
+      choice: "ai-bot",
+      title: "Quer configurar IA e Bot agora?",
+      body: "Você pode configurar agora ou deixar para depois. A HBX salva sua escolha e continua o tutorial.",
+    });
+  }
+
+  // 5) Checklist de ativação — o bastão passa do tutorial pro checklist real.
   steps.push({
-    id: "dashboard-summary",
+    id: "checklist",
     route: "/dashboard",
-    title: "Seu panorama",
-    body: "O Dashboard é o seu raio-x do dia: quantos leads entraram, quanto está em negociação, o que vence hoje e como anda a conversão. Bate o olho e já sabe pra onde correr.",
-    typewriter: true,
-    plain: true,
+    target: '[data-tut="ac-checklist"]',
+    title: "Agora siga seus primeiros passos",
+    body: "O tutorial termina aqui, mas a ativação continua pelo checklist. Ele mostra exatamente o próximo passo real para sua conta sair do zero.",
     gate: "next",
   });
-  if (a.hasRelatorios) {
-    steps.push({
-      id: "relatorios-summary",
-      route: "/relatorios",
-      title: "Os números no tempo",
-      body: "Os Relatórios mostram a evolução: vendas por período, desempenho por etapa e por pessoa. É aqui que você enxerga o que está dando certo e dobra a aposta.",
-      typewriter: true,
-      plain: true,
-      gate: "next",
-    });
-  }
-
-  // 5) Extra do dono: planos.
-  if (a.role === "owner") {
-    steps.push({
-      id: "owner-planos",
-      title: "Você é o dono",
-      body: "Além de tudo isso, em Configurações → Planos você cria e edita os planos e preços que a sua operação usa. O controle é seu.",
-      gate: "next",
-    });
-  }
 
   // 6) Fim — suporte e fechar.
   steps.push({
     id: "final",
-    title: "Prontinho! 🎉",
-    body: "Agora vc já sabe o básico do HBX, ficou mais alguma dúvida?",
+    title: "HBX pronto para começar.",
+    body: "Você já sabe onde cada coisa mora. Agora é puxar o primeiro lead, conectar o atendimento e colocar a operação para girar.",
     final: true,
   });
 

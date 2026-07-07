@@ -19,7 +19,7 @@
 //   • <CascaSheet>      — bottom sheet central (handle + arrastar-pra-fechar).
 // ============================================================
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { I, ICONS } from "@/components/hbx/shell";
@@ -55,46 +55,72 @@ function CascaPortal({ children }: { children: React.ReactNode }) {
 // useCascaExitGate — o coração: abrir monta na hora (anima entrada); fechar
 // NÃO desmonta na hora — marca `leaving`, espera a animação e só então some.
 // `open` é o desejo do chamador; `mounted` é o que deve estar no DOM.
+//
+// `phase` é a máquina: "in" (montado/entrando), "out" (saindo, ainda no DOM),
+// "gone" (desmontado). `lastOpen` guarda o último `open` reconciliado.
+//
+// BUG CORRIGIDO (07/07, ao vivo: "abre e não fecha"): antes eram DOIS useState
+// (phase + lastOpen) atualizados DURANTE o render. Em certas ordens de flush do
+// React o `setLastOpen(false)` grudava mas o `setPhase("out")` irmão se PERDIA
+// — a folha ficava `open=false` mas `phase="in"`, presa aberta pra sempre
+// (reproduzido no fiber: openProp=false, lastOpen=false, phase="in"). A cura é
+// um ÚNICO estado atômico via useReducer: `phase` e `lastOpen` andam JUNTOS num
+// só dispatch, então nunca divergem. Continua "adjust state while rendering"
+// (padrão oficial) — sem useEffect no caminho de abrir/fechar, sem flicker.
 // ---------------------------------------------------------------
-export function useCascaExitGate(open: boolean, onClosed?: () => void) {
-  // `phase` é a máquina: "in" (montado/entrando), "out" (saindo, ainda no DOM),
-  // "gone" (desmontado). `lastOpen` guarda o último `open` renderizado EM STATE
-  // (não em ref — o lint reprova ref no render). Quando `open` diverge de
-  // `lastOpen` reconciliamos DURANTE o render (padrão oficial do React "adjust
-  // state while rendering") — sem useEffect, sem o cascading-render reprovado.
-  const [phase, setPhase] = useState<"in" | "out" | "gone">(open ? "in" : "gone");
-  const [lastOpen, setLastOpen] = useState(open);
+type GatePhase = "in" | "out" | "gone";
+interface GateState { phase: GatePhase; lastOpen: boolean }
+type GateAction = { type: "sync"; open: boolean } | { type: "gone" };
 
-  if (open !== lastOpen) {
-    setLastOpen(open);
-    if (open) setPhase("in");                      // abriu → monta e anima entrada
-    else if (phase !== "gone") setPhase("out");    // fechou → anima saída, segura o DOM
+function gateReducer(state: GateState, action: GateAction): GateState {
+  switch (action.type) {
+    case "sync":
+      // abriu → monta e anima entrada; fechou → anima saída (segura o DOM),
+      // a menos que já tenha sumido.
+      if (action.open) return { phase: "in", lastOpen: true };
+      return { phase: state.phase === "gone" ? "gone" : "out", lastOpen: false };
+    case "gone":
+      // só desmonta de fato quando estava SAINDO (o animationend da entrada
+      // também chama isto — aí é no-op).
+      return state.phase === "out" ? { phase: "gone", lastOpen: state.lastOpen } : state;
+    default:
+      return state;
+  }
+}
+
+export function useCascaExitGate(open: boolean, onClosed?: () => void) {
+  const [state, dispatch] = useReducer(
+    gateReducer,
+    open,
+    (o: boolean): GateState => ({ phase: o ? "in" : "gone", lastOpen: o }),
+  );
+
+  // Reconcilia DURANTE o render: um único dispatch atômico (nunca dois setState
+  // que possam se separar num flush).
+  if (open !== state.lastOpen) {
+    dispatch({ type: "sync", open });
   }
 
-  // fim da animação de saída → desmonta de vez e avisa o chamador. `onClosed`
-  // entra como dep: se o chamador passar inline, o useCallback recria (barato);
-  // se passar estável, fica estável. Sem ref no render (o lint reprova).
+  // fim da animação de saída → desmonta de vez e avisa o chamador. Guarda por
+  // `state.phase` (dep) pra ignorar o animationend da ENTRADA, que também cai
+  // aqui. `onClosed` inline recria o callback (barato); estável fica estável.
   const handleAnimEnd = useCallback(() => {
-    setPhase((p) => {
-      if (p === "out") {
-        onClosed?.();
-        return "gone";
-      }
-      return p;
-    });
-  }, [onClosed]);
+    if (state.phase !== "out") return;
+    onClosed?.();
+    dispatch({ type: "gone" });
+  }, [state.phase, onClosed]);
 
   // Rede de segurança: se `animationend` não vier (ver nota no topo do
   // arquivo), o timeout força o mesmo desfecho. Roda só enquanto phase==="out";
   // limpo no cleanup pra não disparar depois de já ter fechado por evento ou
   // de o usuário ter reaberto.
   useEffect(() => {
-    if (phase !== "out") return;
+    if (state.phase !== "out") return;
     const timer = setTimeout(handleAnimEnd, CASCA_EXIT_FALLBACK_MS);
     return () => clearTimeout(timer);
-  }, [phase, handleAnimEnd]);
+  }, [state.phase, handleAnimEnd]);
 
-  return { mounted: phase !== "gone", leaving: phase === "out", handleAnimEnd };
+  return { mounted: state.phase !== "gone", leaving: state.phase === "out", handleAnimEnd };
 }
 
 // ---------------------------------------------------------------

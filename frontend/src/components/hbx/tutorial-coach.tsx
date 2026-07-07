@@ -40,6 +40,9 @@ export type CoachStep = {
   image?: string;
   // passo final: tela de planos + "ficou dúvida".
   final?: boolean;
+  // passo-pergunta com decisão real (ex.: "configurar IA/Bot agora?"). Renderiza
+  // dois botões (sim/depois) e chama onChoice antes de avançar.
+  choice?: "ai-bot";
 };
 
 type Rect = { top: number; left: number; width: number; height: number } | null;
@@ -79,6 +82,7 @@ export function TutorialCoach({
   onSkip,
   onAskHelp,
   onSupport,
+  onChoice,
   exitTo = "/dashboard",
 }: {
   steps: CoachStep[];
@@ -87,6 +91,9 @@ export function TutorialCoach({
   onAskHelp?: () => Promise<void>;
   // Botão "Suporte" verde no passo 0: abre WhatsApp do suporte no modo escolhido pelo usuário.
   onSupport?: () => void;
+  // Decisão real de um passo-pergunta (step.choice): o host salva a escolha
+  // (ex.: ai_bot_interest) antes de o coach avançar.
+  onChoice?: (choice: "ai-bot", value: "yes" | "no") => Promise<void> | void;
   // Pra onde mandar ao Pular/Finalizar. Tour completo (1º acesso) = "/dashboard".
   // Tour de UM módulo = null → fica na própria tela (a pessoa pediu "como usar
   // ESTA tela"; jogar pro dashboard seria estranho).
@@ -99,6 +106,7 @@ export function TutorialCoach({
   const [missing, setMissing] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [help, setHelp] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [choiceBusy, setChoiceBusy] = useState<"yes" | "no" | null>(null);
   const rafRef = useRef<number | null>(null);
   // Altura REAL do balão (medida), pra travar a posição dentro da viewport. O corte
   // embaixo vinha de estimar a altura num número fixo — texto maior estourava.
@@ -209,6 +217,16 @@ export function TutorialCoach({
     try { await onAskHelp(); setHelp("sent"); }
     catch { setHelp("error"); }
   }
+
+  // Passo-pergunta (step.choice): salva a decisão via host e só então avança.
+  // Best-effort: falha de rede não trava o tour.
+  async function pick(value: "yes" | "no") {
+    if (!step.choice || choiceBusy) return;
+    setChoiceBusy(value);
+    try { await onChoice?.(step.choice, value); } catch { /* escolha é best-effort */ }
+    setChoiceBusy(null);
+    advance();
+  }
   function closeFinal() { if (exitTo) router.push(exitTo); onDone?.(); }
 
   const PAD = 8;
@@ -278,7 +296,16 @@ export function TutorialCoach({
           {step.typewriter ? <Typewriter key={step.id} text={step.body} /> : step.body}
         </p>
 
-        {step.final ? (
+        {step.choice ? (
+          <div className="tut-choice__row">
+            <button className="tut-btn" onClick={() => pick("yes")} type="button" disabled={choiceBusy !== null}>
+              {choiceBusy === "yes" ? "Salvando…" : "Configurar agora"}
+            </button>
+            <button className="tut-btn tut-btn--ghost" onClick={() => pick("no")} type="button" disabled={choiceBusy !== null}>
+              {choiceBusy === "no" ? "Salvando…" : "Depois"}
+            </button>
+          </div>
+        ) : step.final ? (
           <div className="tut-final">
             <div className="tut-final__row">
               <button

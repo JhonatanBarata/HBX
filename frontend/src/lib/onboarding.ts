@@ -27,8 +27,13 @@ export type OnboardingEvent =
   | "first_seller_released";
 
 // Carimbos de configuração do onboarding (NÃO são marcos celebráveis): a escolha
-// solo|time do admin no 1º login. Aceitos pelo POST /onboarding/event.
-export type OnboardingConfigEvent = "admin_mode:solo" | "admin_mode:team";
+// solo|time do admin no 1º login + o interesse em configurar IA/Bot perguntado
+// no tutorial. Aceitos pelo POST /onboarding/event.
+export type OnboardingConfigEvent =
+  | "admin_mode:solo"
+  | "admin_mode:team"
+  | "ai_bot_interest:yes"
+  | "ai_bot_interest:no";
 
 // Texto da celebração por marco. Tom: vitória concreta e adulta — sem cara de
 // joguinho. O backend confirma se é milestone; aqui mora a copy.
@@ -94,6 +99,21 @@ export async function stampOnboardingEvent(event: OnboardingEvent): Promise<void
     }
   } catch {
     /* best-effort: o checklist deriva o estado real no próximo GET */
+  }
+}
+
+// Grava o interesse em configurar IA/Bot perguntado no tutorial (07/07). Carimbo
+// de configuração puro: não celebra, não entra no checklist. Devolve true se subiu.
+export async function setAiBotInterest(value: "yes" | "no"): Promise<boolean> {
+  try {
+    await apiFetch("/onboarding/event", {
+      method: "POST",
+      body: JSON.stringify({ event: `ai_bot_interest:${value}` }),
+    });
+    bumpChecklist();
+    return true;
+  } catch {
+    return false;
   }
 }
 

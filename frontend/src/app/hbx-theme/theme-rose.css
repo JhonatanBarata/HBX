@@ -26,7 +26,8 @@
      SEM rosa/vermelho mesmo na pele rosé). Wordmark = platina metálica. */
   --casca-ring-1: #A855F7; --casca-ring-2: #8B5CF6; --casca-ring-3: #7C3AED; --casca-ring-4: #B7BBC0; --casca-ring-5: #E7E9EC;
   --casca-ring-track: rgba(168,85,247,0.12); --casca-ring-glow: rgba(168,85,247,0.35);
-  --casca-mark-1: #F4F5F7; --casca-mark-2: #C7CBD1; --casca-mark-3: #E7E9EC;
+  /* tinta (não platina) no claro — platina quase-branca sumia sobre o rosé claro (07/07) */
+  --casca-mark-1: var(--hbx-foreground); --casca-mark-2: var(--hbx-foreground-soft); --casca-mark-3: var(--hbx-foreground);
   --radius-xs: 10px; --radius-sm: 14px; --radius-md: 18px; --radius-lg: 22px; --radius-xl: 30px;
   --shadow-xs: 0 10px 24px -18px rgba(74,14,44,0.25); --shadow-sm: 0 16px 40px -22px rgba(74,14,44,0.28);
   --shadow-md: 0 26px 60px -28px rgba(74,14,44,0.34); --shadow-lg: 0 40px 84px -32px rgba(74,14,44,0.4);
@@ -53,6 +54,8 @@
   --border-hairline: #4C1D39; --border-strong: #713057; --ring-brand: rgba(244,114,182,0.28);
   --hbx-action-ink: #2A0A1C; --hbx-avatar-from: #F472B6; --hbx-avatar-to: #C4B5FD;
   --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.08);
+  /* platina metálica de volta no escuro — a tinta do claro sumiria aqui */
+  --casca-mark-1: #F4F5F7; --casca-mark-2: #C7CBD1; --casca-mark-3: #E7E9EC;
 }
 
 /* ---- Bloco B · CAMADA DE VESTIR (suave e arredondada) ---- */
