@@ -9,7 +9,7 @@
 // negócio ainda é um lead do Radar).
 
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
@@ -37,16 +37,27 @@ export function NegocioSheet({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Segura o último detalhe durante a animação de saída: o pai zera `sel` no
+  // clique de fechar, então `detail` vira null NO MESMO frame em que a folha
+  // começa a descer. Sem isto o corpo esvazia e a folha ENCOLHE pro tamanho do
+  // cabeçalho — como translateY(100%) da saída é relativo à própria altura, ela
+  // desce só uns 60px e "colapsa" (a queixa "abaixa um pouco e trava"). Mantendo
+  // o conteúdo, a saída desliza a folha inteira. Quem controla o fecho continua
+  // sendo o `detail` real (via `open` abaixo), não este cache.
+  const lastDetail = useRef<NegocioDetail | null>(detail);
+  if (detail) lastDetail.current = detail;
+  const shown = detail ?? lastDetail.current;
+
   async function abrirConversaInterna() {
-    if (!detail?.phone || busy) return;
+    if (!shown?.phone || busy) return;
     setBusy(true);
     setMsg(null);
     try {
       const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
         method: "POST",
         body: JSON.stringify({
-          phone: detail.phone.trim(),
-          ...(detail.name ? { name: detail.name.trim() } : {}),
+          phone: shown.phone.trim(),
+          ...(shown.name ? { name: shown.name.trim() } : {}),
         }),
       });
       if (res?.id != null) {
@@ -61,11 +72,11 @@ export function NegocioSheet({
   }
 
   async function puxarProFunil() {
-    if (!detail?.id || busy) return;
+    if (!shown?.id || busy) return;
     setBusy(true);
     setMsg(null);
     try {
-      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(detail.id)}/send-to-vendas`, {
+      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(shown.id)}/send-to-vendas`, {
         method: "POST",
         body: JSON.stringify({}),
       });
@@ -78,14 +89,14 @@ export function NegocioSheet({
     }
   }
 
-  const waLink = detail ? buildWaLink(detail.phone, { text: buildWaMessage({ name: detail.name, segment: detail.segment, city: detail.city }) }) : null;
-  const telHref = detail?.phone ? `tel:${detail.phone.replace(/[^\d+]/g, "")}` : null;
+  const waLink = shown ? buildWaLink(shown.phone, { text: buildWaMessage({ name: shown.name, segment: shown.segment, city: shown.city }) }) : null;
+  const telHref = shown?.phone ? `tel:${shown.phone.replace(/[^\d+]/g, "")}` : null;
 
   return (
-    <CascaSheet open={open && Boolean(detail)} title={detail?.name || "Detalhe"} onClose={onClose}>
-      {detail ? (
+    <CascaSheet open={open && Boolean(detail)} title={shown?.name || "Detalhe"} onClose={onClose}>
+      {shown ? (
         <div className="vnd-m__sheet">
-          <DetalhesNegocio detail={detail} title="Detalhes" showConversation={false} />
+          <DetalhesNegocio detail={shown} title="Detalhes" showConversation={false} />
 
           <div className="vnd-m__sheet-acts">
             {waLink ? (
@@ -97,7 +108,7 @@ export function NegocioSheet({
                 <I d={ICONS.atend} size={16} /> WhatsApp
               </button>
             )}
-            <button type="button" className="vnd-m__act" onClick={abrirConversaInterna} disabled={!detail.phone || busy}>
+            <button type="button" className="vnd-m__act" onClick={abrirConversaInterna} disabled={!shown.phone || busy}>
               <I d={ICONS.msg} size={16} /> Conversar
             </button>
             {telHref ? (

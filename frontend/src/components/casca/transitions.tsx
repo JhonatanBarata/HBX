@@ -20,6 +20,7 @@
 // ============================================================
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { I, ICONS } from "@/components/hbx/shell";
 
@@ -30,6 +31,25 @@ import { I, ICONS } from "@/components/hbx/shell";
 // pra sempre (bug ao vivo, dono, 06/07). Puramente uma rede de segurança: o
 // caminho normal continua sendo o `animationend`, que cancela este timer.
 const CASCA_EXIT_FALLBACK_MS = 500;
+
+// ---------------------------------------------------------------
+// CascaPortal — os overlays da casca (veil do CascaSheet, camada do CascaView)
+// são `position: fixed` e PRECISAM ancorar na viewport. Só que o `.casca-stage`
+// ganhou `transform: translateX(...)` (FIX5 swipe entre módulos — casca.css) e
+// esse transform vale SEMPRE (fallback 0px). Um ancestral com transform vira o
+// bloco de contenção de todo `position:fixed` filho: o veil/sheet deixava de
+// cobrir a viewport, passava a se ancorar no palco E era RECORTADO pelo
+// `overflow:hidden` do palco — a folha abria presa e a saída "descia só um
+// pouco e travava" (bug ao vivo, dono, 07/07: "tudo que clico abre e não
+// fecha"). Portalar pro <body> tira os overlays de baixo do transform e devolve
+// o comportamento de viewport. A pele vive em <html> (documentElement), então o
+// <body> herda data-theme/tokens — nada de pele perdida. A casca é client-only
+// (MobileShell devolve children puro no SSR/desktop), então document existe;
+// o guard só blinda ambientes sem DOM.
+function CascaPortal({ children }: { children: React.ReactNode }) {
+  if (typeof document === "undefined") return <>{children}</>;
+  return createPortal(children, document.body);
+}
 
 // ---------------------------------------------------------------
 // useCascaExitGate — o coração: abrir monta na hora (anima entrada); fechar
@@ -121,25 +141,27 @@ export function CascaView({
     "casca-view " + (closing ? "casca-view--leave is-back" : "casca-view--enter");
 
   return (
-    <div className="casca-stack-layer" role="dialog" aria-modal="true">
-      <div
-        className={cls}
-        onAnimationEnd={(e) => {
-          // só reage à animação da PRÓPRIA camada, não de filhos
-          if (e.target !== e.currentTarget) return;
-          if (closing) onClose();
-        }}
-      >
-        <div className="casca-top">
-          <button className="casca-top__back" onClick={requestClose} aria-label="Voltar">
-            <I d={ICONS.back} size={18} />
-          </button>
-          {title ? <h1 className="casca-top__title">{title}</h1> : <span className="casca-top__title" />}
-          {actions ? <div className="casca-top__actions">{actions}</div> : null}
+    <CascaPortal>
+      <div className="casca-stack-layer" role="dialog" aria-modal="true">
+        <div
+          className={cls}
+          onAnimationEnd={(e) => {
+            // só reage à animação da PRÓPRIA camada, não de filhos
+            if (e.target !== e.currentTarget) return;
+            if (closing) onClose();
+          }}
+        >
+          <div className="casca-top">
+            <button className="casca-top__back" onClick={requestClose} aria-label="Voltar">
+              <I d={ICONS.back} size={18} />
+            </button>
+            {title ? <h1 className="casca-top__title">{title}</h1> : <span className="casca-top__title" />}
+            {actions ? <div className="casca-top__actions">{actions}</div> : null}
+          </div>
+          {children}
         </div>
-        {children}
       </div>
-    </div>
+    </CascaPortal>
   );
 }
 
@@ -195,36 +217,38 @@ export function CascaSheet({
   if (!mounted) return null;
 
   return (
-    <div
-      className={"casca-sheet-veil" + (leaving ? " is-leaving" : "")}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onAnimationEnd={(e) => { if (e.target === e.currentTarget) handleAnimEnd(); }}
-    >
+    <CascaPortal>
       <div
-        ref={sheetRef}
-        className={"casca-sheet" + (leaving ? " is-leaving" : "") + (dragging ? " is-dragging" : "")}
-        role="dialog"
-        aria-modal="true"
+        className={"casca-sheet-veil" + (leaving ? " is-leaving" : "")}
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        onAnimationEnd={(e) => { if (e.target === e.currentTarget) handleAnimEnd(); }}
       >
         <div
-          className="casca-sheet__grip"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+          ref={sheetRef}
+          className={"casca-sheet" + (leaving ? " is-leaving" : "") + (dragging ? " is-dragging" : "")}
+          role="dialog"
+          aria-modal="true"
         >
-          <span className="casca-sheet__handle" aria-hidden="true" />
-        </div>
-        {title ? (
-          <div className="casca-sheet__head">
-            <h2 className="casca-sheet__title">{title}</h2>
-            <button className="casca-sheet__close" onClick={onClose} aria-label="Fechar">
-              <I d={ICONS.x} size={18} />
-            </button>
+          <div
+            className="casca-sheet__grip"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            <span className="casca-sheet__handle" aria-hidden="true" />
           </div>
-        ) : null}
-        <div className="casca-sheet__body">{children}</div>
+          {title ? (
+            <div className="casca-sheet__head">
+              <h2 className="casca-sheet__title">{title}</h2>
+              <button className="casca-sheet__close" onClick={onClose} aria-label="Fechar">
+                <I d={ICONS.x} size={18} />
+              </button>
+            </div>
+          ) : null}
+          <div className="casca-sheet__body">{children}</div>
+        </div>
       </div>
-    </div>
+    </CascaPortal>
   );
 }
