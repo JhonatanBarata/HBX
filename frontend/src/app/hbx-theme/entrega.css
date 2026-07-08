@@ -1064,7 +1064,8 @@
 [data-skin="entrega"] .ent-stats,
 [data-skin="entrega"] .ent-card,
 [data-skin="entrega"] .ent-row,
-[data-skin="entrega"] .ent-progress {
+[data-skin="entrega"] .ent-progress,
+[data-skin="entrega"] .ent-map-rota {
   box-shadow: var(--ent-shadow-sm), 0 0 0 1px color-mix(in srgb, var(--ent-brand) 8%, transparent), 0 10px 30px -18px color-mix(in srgb, var(--ent-accent) 40%, transparent);
 }
 [data-skin="entrega"] .ent-btn--primary {
@@ -1090,6 +1091,7 @@
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-card,
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-row,
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-progress,
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-map-rota,
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-input,
 [data-theme-mode="dark"] [data-skin="entrega"] .ent-toggle {
   background:
@@ -1299,3 +1301,147 @@
    agora — central + logística. Componente: components/casca/hbx-mark.tsx;
    visual: casca-modern.css (.hbx-mark-viva) — nada de versão própria aqui
    (dono 07/07: "é a mesma casca"). */
+
+/* ============================================================
+   B2 (07/07) — MAPA EMBUTIDO DA ROTA (MapLibre GL + OpenFreeMap, R$0).
+   Painel compacto acima do carrossel: pinos numerados + linha até as
+   paradas + bolinha do entregador ao vivo. Progressivo: o componente
+   (RotaMapa.tsx) só MONTA este DOM quando há coordenada válida — sem rede/
+   tiles fora do ar, o `<div className="ent-map-rota">` nem chega a existir
+   (nada aqui precisa tratar "vazio", já chega vazio pelo React).
+   ============================================================ */
+[data-skin="entrega"] .ent-map-rota {
+  position: relative;
+  flex-shrink: 0; /* .casca-view é flex column; sem isto o painel era ESPREMIDO
+    abaixo da própria altura pra caber sem rolar (flex-shrink:1 é o default) —
+    a rolagem já existe no container (.casca-view overflow-y:auto), é ela que
+    deve resolver o excesso, não o mapa encolher. */
+  margin: 0 var(--ent-4) var(--ent-4);
+  height: clamp(160px, 30dvh, 260px);
+  border-radius: var(--ent-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-sm);
+  background: var(--ent-surface-soft);
+  transition: height var(--ent-motion-slow);
+}
+[data-skin="entrega"] .ent-map-rota.is-expanded {
+  height: clamp(260px, 48dvh, 440px);
+}
+[data-skin="entrega"] .ent-map-rota__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Nó criado NA MÃO (RotaMapa.tsx) pelo efeito que monta o MapLibre — filho
+   descartável do canvas host, recriado do zero a cada execução do efeito
+   (StrictMode dev roda mount→cleanup→mount 2×; ver comentário no .tsx). */
+[data-skin="entrega"] .ent-map-rota__gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Toggle expandir/recolher — canto, ícone só (Lei nº1: zero texto). Vidro SEM
+   backdrop-filter (perf: blur só em overlay transiente, não em chrome fixo —
+   mesma receita da casca modern pra GPU fraca). */
+[data-skin="entrega"] .ent-map-rota__toggle {
+  position: absolute;
+  top: var(--ent-2);
+  right: var(--ent-2);
+  z-index: 2;
+  width: var(--ent-tap);
+  height: var(--ent-tap);
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-pill);
+  border: 1px solid var(--ent-hairline);
+  background: color-mix(in srgb, var(--ent-surface) 78%, transparent);
+  color: var(--ent-ink);
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-map-rota__toggle:active { transform: scale(0.92); }
+[data-skin="entrega"] .ent-map-rota__toggle-icon {
+  display: inline-block;
+  font-size: var(--ent-title);
+  font-weight: 700;
+  line-height: 1;
+  transform: rotate(90deg);
+  transition: transform var(--ent-motion);
+}
+[data-skin="entrega"] .ent-map-rota.is-expanded .ent-map-rota__toggle-icon {
+  transform: rotate(-90deg);
+}
+
+/* Pino numerado (parada aberta). Badge circular — mapa denso pede alvo
+   compacto (mesma exceção pragmática do .ent-dot já existente nesta folha);
+   tocar é um atalho, swipe/dots continuam a via primária e acessível. */
+[data-skin="entrega"] .ent-map-rota__pin {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-brand);
+  color: var(--ent-on-brand);
+  border: 2px solid var(--ent-surface);
+  box-shadow: var(--ent-shadow-sm);
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-map-rota__pin-num {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text-sm);
+  font-weight: 800;
+  line-height: 1;
+}
+[data-skin="entrega"] .ent-map-rota__pin.is-current {
+  background: var(--ent-brand-strong);
+  transform: scale(1.25);
+  box-shadow: var(--ent-shadow), 0 0 0 4px color-mix(in srgb, var(--ent-brand) 30%, transparent);
+}
+
+/* Bolinha do entregador ao vivo — ping suave (respeita prefers-reduced-motion
+   via a regra global already existente nesta folha: zera duration em [data-skin="entrega"] *). */
+[data-skin="entrega"] .ent-map-rota__you {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-info);
+  border: 2px solid var(--ent-surface);
+  box-shadow: var(--ent-shadow-sm);
+}
+[data-skin="entrega"] .ent-map-rota__you::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-info);
+  opacity: 0.35;
+  animation: ent-map-rota-ping 1.8s ease-out infinite;
+}
+@keyframes ent-map-rota-ping {
+  0% { transform: scale(0.4); opacity: 0.45; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Atribuição © OpenStreetMap/OpenFreeMap — MANTIDA (obrigação de licença),
+   só restilizada compacta/translúcida no tom do app; a wordmark do MapLibre
+   (BSD, não-obrigatória — diferente do Mapbox) some pra não poluir. */
+[data-skin="entrega"] .ent-map-rota .maplibregl-ctrl-logo { display: none; }
+[data-skin="entrega"] .ent-map-rota .maplibregl-ctrl-bottom-right { z-index: 1; }
+[data-skin="entrega"] .ent-map-rota .maplibregl-ctrl-attrib {
+  background: color-mix(in srgb, var(--ent-surface) 80%, transparent);
+  color: var(--ent-ink-muted);
+  font-size: var(--ent-text-xs);
+  border-radius: var(--ent-radius-sm) 0 0 0;
+  padding: 1px 6px;
+}
+[data-skin="entrega"] .ent-map-rota .maplibregl-ctrl-attrib a { color: var(--ent-ink-muted); }
+[data-skin="entrega"] .ent-map-rota .maplibregl-ctrl-attrib-button {
+  background-color: color-mix(in srgb, var(--ent-surface) 80%, transparent);
+}

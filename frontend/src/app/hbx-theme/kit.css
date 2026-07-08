@@ -27,10 +27,23 @@ html, body { margin: 0; }
 .app[data-rail="min"] { grid-template-columns: var(--rail-width-min) 1fr; }
 
 /* ---------- Sidebar ---------- */
-.side { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow-y: auto; }
+/* .side = só a MOLDURA (fundo/borda/raio) com overflow:hidden — quem rola é o
+   filho .side-scroll. Motivo (bug achado 07/07): o Chrome NÃO recorta o
+   scrollbar customizado (::-webkit-scrollbar) no border-radius do MESMO
+   elemento que rola — só overflow-x:hidden não bastou, a barra continuava
+   vazando reta pelos cantos arredondados da casca modern (30px). Um wrapper
+   que rola por dentro de um pai overflow:hidden é recortado igual qualquer
+   outro conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */
+.side { position: relative; display: flex; flex-direction: column; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow: hidden; }
+.side-scroll { position: relative; flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* Barrinha fina na cor da marca (pedido do dono 07/07) em vez do cinza/bege
+   genérico do scrollbar global — só na sidebar, escopo próprio. */
+.side-scroll::-webkit-scrollbar { width: 5px; }
+.side-scroll::-webkit-scrollbar-track { background: transparent; }
+.side-scroll::-webkit-scrollbar-thumb { background: var(--hbx-brand); border-radius: 999px; }
 /* Rail colapsado: nav vira coluna de ícones — esconde texto (label vira title/
    tooltip via TSX), centraliza ícone, aperta padding. Zero visual novo, só layout. */
-.app[data-rail="min"] .side { padding-left: 8px; padding-right: 8px; }
+.app[data-rail="min"] .side-scroll { padding-left: 8px; padding-right: 8px; }
 .app[data-rail="min"] .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
 .app[data-rail="min"] .nav-item span.nav-item__label { max-width: 0; opacity: 0; }
 .app[data-rail="min"] .logo strong { max-width: 0; opacity: 0; }

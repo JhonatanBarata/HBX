@@ -107,19 +107,30 @@ export interface GeofenceAlvo {
   raioM: number;
 }
 
+/** B2 — última posição lida pelo watcher do geofence (pro mapa embutido). */
+export interface PosicaoAoVivo {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}
+
 /**
  * Geofence FOREGROUND: observa a posição e, ao entrar no raio do alvo, chama
  * onChegada UMA vez por alvo (guarda por id — swipe para outra parada rearma).
- * Só roda enquanto `ativo`. Retorna nada; a limpeza é automática.
+ * Só roda enquanto `ativo`.
+ * B2 — também devolve a ÚLTIMA posição lida (`posicao`): o mapa embutido usa
+ * pra desenhar a bolinha do entregador ao vivo. ZERO watcher novo — é o MESMO
+ * watchPosition de sempre, só exposto pra quem quiser ler.
  */
 export function useGeofence(
   alvo: GeofenceAlvo | null,
   ativo: boolean,
   onChegada: (id: string) => void,
-): void {
+): { posicao: PosicaoAoVivo | null } {
   const disparadoRef = useRef<string | null>(null);
   const cbRef = useRef(onChegada);
   cbRef.current = onChegada;
+  const [posicao, setPosicao] = useState<PosicaoAoVivo | null>(null);
 
   useEffect(() => {
     if (!ativo || !alvo) return;
@@ -131,6 +142,11 @@ export function useGeofence(
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const atual = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setPosicao({
+          lat: atual.lat,
+          lng: atual.lng,
+          accuracy: typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : undefined,
+        });
         const dist = distanciaMetros(atual, { lat: alvo.lat, lng: alvo.lng });
         if (dist <= alvo.raioM && disparadoRef.current !== alvo.id) {
           disparadoRef.current = alvo.id;
@@ -145,6 +161,8 @@ export function useGeofence(
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, [alvo, ativo]);
+
+  return { posicao };
 }
 
 // ── M8 (offline-first) — fila de confirmações + sync com teto/backoff ──────────

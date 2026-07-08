@@ -84,6 +84,29 @@ function hasText(v: unknown): boolean {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+// Prévia do card: colapsa quebras de linha em espaço (texto com \n literal —
+// Enter digitado no editor da peça — já confunde o cálculo de wrap do
+// navegador) e corta num orçamento de caracteres calibrado pra nunca passar
+// de ~3 linhas na largura do nó (200px, 0.7rem). Isso é o que garante ZERO
+// vazamento sobre o rodapé "Pronto" com qualquer tamanho de texto: o
+// -webkit-line-clamp do CSS (bot-flow.css) é só reforço — em telas com DPI
+// fracionário o Chrome deixa a pintura da linha cortada vazar mesmo com a
+// caixa medindo certo (bug visto ao vivo no card Boas-vindas), então a
+// prévia não pode depender só do clamp do navegador.
+const PREVIEW_MAX_CHARS = 95;
+
+function previewText(v: unknown): string {
+  if (typeof v !== "string") return "";
+  const collapsed = v.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= PREVIEW_MAX_CHARS) return collapsed;
+  const cut = collapsed.slice(0, PREVIEW_MAX_CHARS);
+  const lastSpace = cut.lastIndexOf(" ");
+  // corta na última palavra inteira (evita partir palavra no meio); só aceita
+  // o corte por espaço se não jogar fora demais do orçamento.
+  const safeCut = lastSpace > PREVIEW_MAX_CHARS * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return safeCut.trimEnd() + "…";
+}
+
 // Botões de um nó (se a fase emite botões).
 function buttonsOf(config: BotConfigLike, def: PhaseDef): BotButton[] {
   if (!def.buttonsKey) return [];
@@ -233,7 +256,7 @@ export function BotFlowCanvas(props: BotFlowCanvasProps): React.ReactElement {
                 <strong>{def.label}</strong>
               </div>
               <div className={"bfc-node-body" + (hasText(msg) ? "" : " bfc-node-body--empty")}>
-                {hasText(msg) ? (msg as string) : "Sem mensagem ainda"}
+                {hasText(msg) ? previewText(msg) : "Sem mensagem ainda"}
               </div>
               <div className={"bfc-node-foot" + (lit ? " bfc-node-foot--lit" : "")}>
                 <span>{lit ? "Pronto" : "Vazio"}</span>

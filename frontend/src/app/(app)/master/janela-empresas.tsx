@@ -869,15 +869,32 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
   async function alternarModulo(key: string, enabled: boolean) {
     if (moduloBusy || selId == null) return;
+    const enabledAntes = detail?.company?.modules?.find(m => m.key === key)?.enabled;
     setModuloBusy(key);
     setModuloMsg(null);
+    setDetail(prev => prev?.company ? {
+      ...prev,
+      company: {
+        ...prev.company,
+        modules: (prev.company.modules || []).map(m => m.key === key ? { ...m, enabled } : m),
+      },
+    } : prev);
     try {
       await apiFetch(`/modules/master/company/${selId}`, {
         method: "PUT",
         body: JSON.stringify({ moduleKey: key, enabled }),
       });
-      await recarregarTudo();
+      await reload();
     } catch (err) {
+      if (enabledAntes != null) {
+        setDetail(prev => prev?.company ? {
+          ...prev,
+          company: {
+            ...prev.company,
+            modules: (prev.company.modules || []).map(m => m.key === key ? { ...m, enabled: enabledAntes } : m),
+          },
+        } : prev);
+      }
       setModuloMsg(err instanceof Error ? err.message : "Falha ao alterar o módulo.");
     } finally {
       setModuloBusy(null);
@@ -1009,11 +1026,25 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       </section>
 
       {selVisivel && (
-        <React.Fragment>
-          {detailError && <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{detailError}</div>}
-          {!detail && !detailError && <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando detalhe…</div>}
-          {c && (
-            <div id="detalhe-empresa" style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 14, alignItems: "start" }}>
+        <div className="hbx-veil master-company-detail-veil" onClick={e => { if (e.target === e.currentTarget) setSelId(null); }}>
+          <div className="hbx-modal master-company-detail-modal" role="dialog" aria-modal="true" aria-labelledby="master-company-detail-title">
+            <header className="master-company-detail-head">
+              <div className="master-company-detail-title">
+                <span>Empresa cliente</span>
+                <h2 id="master-company-detail-title">{c?.name || (selId != null ? `Empresa #${selId}` : "Detalhe da empresa")}</h2>
+              </div>
+              <div className="master-company-detail-actions">
+                {c && <span className={statusTagClass(c.status, c.isActive)}>{statusLabel(c.status)}</span>}
+                <button type="button" className="btn-ghost master-company-detail-close" onClick={() => setSelId(null)}>
+                  Fechar
+                </button>
+              </div>
+            </header>
+            <div className="master-company-detail-body">
+              {detailError && <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{detailError}</div>}
+              {!detail && !detailError && <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando detalhe…</div>}
+              {c && (
+                <div id="detalhe-empresa" className="master-company-detail-grid">
               <div style={{ display: "grid", gap: 14 }}>
                 <section className="panel">
                   <div className="panel-head">
@@ -1099,7 +1130,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     {(c.modules || []).map(m => (
                       <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem" }}>
                         <span style={{ fontWeight: 600 }}>{m.name}</span>
-                        <button className="btn-ghost" disabled={moduloBusy === m.key}
+                        <button type="button" className="btn-ghost" disabled={moduloBusy === m.key}
                           style={{ marginLeft: "auto", minHeight: 26, fontSize: "0.62rem", padding: "0 10px", ...(m.enabled ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
                           onClick={() => alternarModulo(m.key, !m.enabled)}>
                           {moduloBusy === m.key ? "…" : m.enabled ? "ON" : "OFF"}
@@ -1628,8 +1659,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 )}
               </section>
             </div>
-          )}
-        </React.Fragment>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {provOpen && (

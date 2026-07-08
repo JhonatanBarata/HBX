@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 
 import { CascaLoading, toggleCascaFullscreen } from "@/components/casca";
 import { getToken } from "@/lib/api";
@@ -24,8 +25,12 @@ import {
   type RotaItem,
   type RotaResult,
 } from "./entrega-api";
-import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock } from "./entrega-hooks";
+import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock, type PosicaoAoVivo } from "./entrega-hooks";
 import { getConfig } from "./gestao-api";
+
+// B2 — MapLibre só entra no bundle da rota /entrega (client-only: WebGL/
+// `navigator` não existem no server). Zero peso extra pro dashboard/demais rotas.
+const RotaMapa = dynamic(() => import("./RotaMapa").then((m) => m.RotaMapa), { ssr: false });
 
 // ================================================================
 // LOGÍSTICA-MOBILE M4 — O APP DO ENTREGADOR (as 3 telas reais).
@@ -123,7 +128,9 @@ export function EntregaHome() {
     setSheetAberta(true);
   }, []);
 
-  useGeofence(alvo, view === "rota" && !sheetAberta, onChegada);
+  // B2 — `posicaoEntregador` é a MESMA leitura do watchPosition do geofence
+  // (zero watcher novo): o mapa embutido usa pra desenhar a bolinha ao vivo.
+  const { posicao: posicaoEntregador } = useGeofence(alvo, view === "rota" && !sheetAberta, onChegada);
 
   // ── Iniciar rota (manda GPS de origem) ─────────────────────────────────────
   const onIniciar = useCallback(async () => {
@@ -327,6 +334,7 @@ export function EntregaHome() {
             buzz(14);
             setSheetAberta(true);
           }}
+          posicaoEntregador={posicaoEntregador}
         />
       )}
 
@@ -446,6 +454,7 @@ function ViewRota({
   onPointerUp,
   onDot,
   onChegar,
+  posicaoEntregador,
 }: {
   abertas: RotaItem[];
   indice: number;
@@ -459,6 +468,7 @@ function ViewRota({
   onPointerUp: () => void;
   onDot: (i: number) => void;
   onChegar: () => void;
+  posicaoEntregador: PosicaoAoVivo | null;
 }) {
   if (abertas.length === 0) {
     return (
@@ -491,6 +501,9 @@ function ViewRota({
           <div className="ent-progress-fill" style={{ width: `${pct}%` }} />
         </div>
       </section>
+
+      {/* B2 — visão geral no mapa (progressivo: some sozinho sem coordenada/rede/tiles). */}
+      <RotaMapa paradas={abertas} indiceAtual={indice} onSelecionarParada={onDot} posicaoEntregador={posicaoEntregador} />
 
       <div
         className="ent-carousel"

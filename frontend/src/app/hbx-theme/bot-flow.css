@@ -211,6 +211,17 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* backstop: o clamp acima já corta em 3 linhas, mas o max-height garante
+     que NENHUM texto vaze sobre o rodapé "Pronto" mesmo se o navegador
+     miscalcular o clamp (ex.: texto com quebra de linha literal). box-sizing
+     é border-box aqui → soma o padding-bottom (10px; top é 0) pro clip não
+     cortar a 3ª linha antes da hora. */
+  max-height: calc(1.45em * 3 + 10px);
+  /* contain:paint força um limite de pintura de verdade — em telas com DPI
+     fracionário o Chrome às vezes deixa a última linha do -webkit-line-clamp
+     "vazar" no paint mesmo com a altura calculada certa (bug visto ao vivo,
+     DPR 1.11). contain:paint garante que nada da peça pinta fora da caixa. */
+  contain: paint;
 }
 .bfc-node-body--empty {
   color: var(--text-muted);

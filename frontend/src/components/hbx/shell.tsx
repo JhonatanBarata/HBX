@@ -859,6 +859,13 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
 
   return (
     <aside className="side">
+      {/* wrapper que rola de verdade (07/07): o Chrome NÃO recorta o scrollbar
+          customizado (::-webkit-scrollbar) no border-radius do próprio elemento
+          que rola — a barra vazava reta pelos cantos arredondados da casca
+          modern. Com o scroll num filho SEM raio próprio, o .side (com
+          overflow:hidden + o raio) corta a barra igual corta qualquer outro
+          conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */}
+      <div className="side-scroll">
       <div className="side-head">
         <div className="logo">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
@@ -956,6 +963,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
             <small>Empresa</small>
           </div>
         </div>
+      </div>
       </div>
     </aside>
   );

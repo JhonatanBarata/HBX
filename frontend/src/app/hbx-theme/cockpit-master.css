@@ -273,3 +273,96 @@
 
 /* Célula de tabela em estado vazio/carregando (texto esmaecido). */
 .ckm-muted-cell { color: var(--text-muted); }
+
+/* Detalhe de empresa no /master: sai do fluxo da página e vira modal operacional. */
+.master-company-detail-veil {
+  align-items: center;
+  justify-items: center;
+}
+.master-company-detail-modal {
+  width: min(1180px, calc(100vw - 32px));
+  max-height: min(90dvh, 860px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+.master-company-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--hbx-surface-raised) 72%, var(--hbx-surface));
+}
+.master-company-detail-title {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.master-company-detail-title span {
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.master-company-detail-title h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.master-company-detail-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.master-company-detail-close {
+  min-height: 32px;
+  font-size: 0.68rem;
+}
+.master-company-detail-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  background: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
+}
+.master-company-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.9fr) minmax(0, 1.6fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 920px) {
+  .master-company-detail-veil {
+    padding: 12px;
+  }
+  .master-company-detail-modal {
+    width: min(100%, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+  }
+  .master-company-detail-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .master-company-detail-title h2 {
+    white-space: normal;
+  }
+  .master-company-detail-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .master-company-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

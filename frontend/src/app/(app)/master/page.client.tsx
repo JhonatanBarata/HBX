@@ -279,13 +279,17 @@ export function MasterClient() {
   return (
     <div className="app">
       <aside className="side">
+      {/* .side virou só moldura (overflow:hidden) — quem rola é .side-scroll,
+          ver kit.css. Sem o wrapper aqui o padding/gap do menu some (foram
+          movidos pra .side-scroll) e a lista de janelas para de rolar. */}
+      <div className="side-scroll">
         <div className="logo">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
           <strong>HBX</strong>
           <span className="tag teal" style={{ marginLeft: 6 }}>Master</span>
         </div>
         {JANELAS.map(j => (
-          <button key={j.id} className={"nav-item" + (j.id === janela ? " active" : "")}
+          <button key={j.id} type="button" className={"nav-item" + (j.id === janela ? " active" : "")}
             style={{ width: "100%", border: "none", background: j.id === janela ? undefined : "transparent", textAlign: "left", cursor: "pointer", font: "inherit" }}
             onClick={() => setJanela(j.id)}>
             <I d={ICONS[j.icon]} />
@@ -298,7 +302,7 @@ export function MasterClient() {
           </button>
         ))}
         <div className="side-bottom">
-          <button className="nav-item" style={{ width: "100%", border: "none", background: "transparent", textAlign: "left", cursor: "pointer", font: "inherit" }}
+          <button type="button" className="nav-item" style={{ width: "100%", border: "none", background: "transparent", textAlign: "left", cursor: "pointer", font: "inherit" }}
             onClick={() => router.push("/dashboard")}>
             <I d={ICONS.dash} />
             Voltar ao app
@@ -316,6 +320,7 @@ export function MasterClient() {
             )}
           </div>
         </div>
+      </div>
       </aside>
 
       <div className="main">
