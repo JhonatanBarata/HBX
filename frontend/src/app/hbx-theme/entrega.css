@@ -842,6 +842,10 @@
   font-weight: 700;
   color: var(--ent-ink);
 }
+[data-skin="entrega"] .ent-toggle[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
 [data-skin="entrega"] .ent-switch {
   flex: 0 0 auto;
   position: relative;
@@ -1004,6 +1008,33 @@
   color: var(--ent-ink);
   font-weight: 600;
   white-space: pre-wrap;
+}
+
+/* ---------- CÓDIGO DE VINCULAÇÃO WHATSAPP ---------- */
+[data-skin="entrega"] .ent-link-code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  padding: var(--ent-3);
+  background: var(--ent-surface-soft);
+  border: 1px solid var(--ent-hairline);
+  border-radius: var(--ent-radius);
+}
+[data-skin="entrega"] .ent-code-box {
+  display: grid;
+  justify-items: center;
+  gap: var(--ent-2);
+  padding: var(--ent-3);
+  background: var(--ent-surface);
+  border: 1px solid var(--ent-hairline);
+  border-radius: var(--ent-radius-sm);
+}
+[data-skin="entrega"] .ent-code {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  color: var(--ent-ink);
+  letter-spacing: 0;
 }
 
 /* ---------- INSTALAR APP (QR local + copiar) ---------- */

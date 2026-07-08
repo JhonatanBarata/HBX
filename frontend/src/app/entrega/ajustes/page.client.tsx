@@ -19,7 +19,9 @@ import { useRouter } from "next/navigation";
 import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFullscreen } from "@/components/casca";
 import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
-import { clearToken } from "@/lib/api";
+import { apiFetch, clearToken } from "@/lib/api";
+import { fetchWhatsAppModalStatus, requestWhatsAppPairingCode } from "@/lib/whatsapp-connection-flow";
+import type { WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
 import { EntregaScaffold } from "../EntregaScaffold";
@@ -47,6 +49,18 @@ const PREVIEW_VARS = {
   itens: "2× Galão 20L, 1× Água com gás",
   qtd: "3",
   produto: "Galão 20L",
+};
+
+const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
+
+type WhatsAppCenterPayload = {
+  center?: {
+    status?: "NOT_CONNECTED" | "QR" | "OFFICIAL" | "ATTENTION" | string;
+    official?: {
+      connected?: boolean;
+      displayNumber?: string | null;
+    };
+  };
 };
 
 // Saudação por horário LOCAL — MESMA regra do backend (5–11 Bom dia · 12–17 Boa tarde · resto Boa noite).
@@ -84,6 +98,10 @@ export function EntregaAjustes() {
   const [cfg, setCfg] = useState<LogisticaConfig | null>(null);
   const [template, setTemplate] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const [waVerificando, setWaVerificando] = useState(false);
+  const [waPronto, setWaPronto] = useState(false);
+  const [waMsg, setWaMsg] = useState("Verificando WhatsApp…");
+  const [waSessionId, setWaSessionId] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -118,6 +136,41 @@ export function EntregaAjustes() {
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  const carregarWhatsApp = useCallback(async () => {
+    setWaVerificando(true);
+    try {
+      const [modalResult, centerResult] = await Promise.allSettled([
+        fetchWhatsAppModalStatus(),
+        apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center"),
+      ]);
+      const modal = modalResult.status === "fulfilled" ? modalResult.value : null;
+      const center = centerResult.status === "fulfilled" ? centerResult.value?.center : null;
+      const whatsOn = modal?.status === "connected";
+      const metaOn = Boolean(center?.official?.connected) || String(center?.status || "").toUpperCase() === "OFFICIAL";
+      const pronto = whatsOn || metaOn;
+      setWaPronto(pronto);
+      setWaSessionId(modal?.data?.tenantKey || "");
+      if (whatsOn) {
+        setWaMsg(modal?.data?.phone ? `WhatsApp conectado: ${modal.data.phone}` : "WhatsApp conectado");
+      } else if (metaOn) {
+        setWaMsg(center?.official?.displayNumber ? `Meta conectada: ${center.official.displayNumber}` : "Meta oficial conectada");
+      } else {
+        setWaMsg("Conecte o WhatsApp ou a Meta para ligar o aviso de entrega.");
+      }
+    } catch {
+      setWaPronto(false);
+      setWaSessionId("");
+      setWaMsg("Não foi possível verificar WhatsApp/Meta agora.");
+    } finally {
+      setWaVerificando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void carregarWhatsApp(), 0);
+    return () => window.clearTimeout(timer);
+  }, [carregarWhatsApp]);
 
   // Patch de 1 campo/toggle direto (sempre via /config). Feedback "salvo" some sozinho.
   const patch = useCallback(async (partial: Partial<LogisticaConfig>) => {
@@ -189,13 +242,22 @@ export function EntregaAjustes() {
             <button
               type="button"
               className="ent-toggle"
-              onClick={() => void patch({ avisoWhatsEnabled: !cfg.avisoWhatsEnabled })}
+              onClick={() => {
+                if (!waPronto) return;
+                void patch({ avisoWhatsEnabled: !cfg.avisoWhatsEnabled });
+              }}
               aria-pressed={cfg.avisoWhatsEnabled}
-              disabled={salvando}
+              disabled={salvando || waVerificando || !waPronto}
+              title={waPronto ? undefined : "Conecte o WhatsApp ou a Meta para ativar este aviso"}
             >
               <span className="ent-toggle-label">Avisar o cliente na entrega</span>
               <span className={`ent-switch${cfg.avisoWhatsEnabled ? " is-on" : ""}`} aria-hidden="true" />
             </button>
+            <div className="ent-hint">{waVerificando ? "Verificando WhatsApp/Meta…" : waMsg}</div>
+            <CodigoVinculacaoWhatsApp
+              sessionId={waSessionId}
+              onGenerated={carregarWhatsApp}
+            />
 
             <div className="ent-chips">
               {VARS.map((v) => (
@@ -387,6 +449,75 @@ function FecharMesBtn() {
       </button>
       {msg ? <div className="ent-hint">{msg}</div> : null}
     </>
+  );
+}
+
+// ── CÓDIGO DE VINCULAÇÃO WHATSAPP ────────────────────────────────────────────
+function CodigoVinculacaoWhatsApp({ sessionId, onGenerated }: {
+  sessionId: string;
+  onGenerated: () => void | Promise<void>;
+}) {
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const phoneOk = PAIRING_PHONE_RE.test(phone.trim());
+
+  const gerar = useCallback(async () => {
+    if (busy) return;
+    if (!sessionId) {
+      setMsg("Sessão WhatsApp ainda não carregou. Atualize a tela e tente de novo.");
+      return;
+    }
+    if (!phoneOk) {
+      setMsg("Informe o telefone com DDI, ex.: +5519999999999.");
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    setPairing(null);
+    try {
+      const res = await requestWhatsAppPairingCode(sessionId, phone.trim());
+      setPairing(res);
+      setMsg(res.code ? "Código criado. Digite no WhatsApp do celular." : res.message || "Não foi possível criar o código.");
+      await onGenerated();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao criar o código.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, onGenerated, phone, phoneOk, sessionId]);
+
+  return (
+    <div className="ent-link-code">
+      <label className="ent-field">
+        <span className="ent-field-label">Telefone do WhatsApp</span>
+        <input
+          className="ent-input"
+          type="tel"
+          inputMode="tel"
+          placeholder="+5519999999999"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          aria-label="Telefone para criar código de vinculação do WhatsApp"
+        />
+      </label>
+      {pairing?.code ? (
+        <div className="ent-code-box">
+          <span className="ent-code">{pairing.code}</span>
+          <span className="ent-hint">Válido por {pairing.expiresInSeconds}s</span>
+        </div>
+      ) : null}
+      {msg ? <div className={pairing?.code ? "ent-hint" : "ent-erro"}>{msg}</div> : null}
+      <button
+        type="button"
+        className="ent-btn ent-btn--secondary"
+        onClick={() => void gerar()}
+        disabled={busy || !sessionId || !phoneOk}
+      >
+        {busy ? "Criando…" : pairing?.code ? "Criar novo código de vinculação" : "Criar código de vinculação"}
+      </button>
+    </div>
   );
 }
 
