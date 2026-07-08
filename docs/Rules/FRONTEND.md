@@ -176,6 +176,32 @@ altura da viewport com `@media (max-height: …)` + `clamp(vh, vh, px)`:
 - Dado sem contrato no backend mostra "—" ou fica visual com nota — nunca
   número fake ao lado de dado real.
 
+## Máscaras BR — telefone, CPF, data (resolver SEMPRE no front)
+
+Telefone, CPF e data são **formatados no front** — o usuário nunca digita nem
+lê dígito cru. Vale pra input (auto-formata enquanto digita) e pra exibição
+(formata o que vem do backend). O backend recebe/guarda só dígitos
+(`replace(/\D/g,"")` — data em ISO); a máscara é camada de tela.
+
+- **Telefone** → `(DD)NNNNN-NNNN`, **sem espaço** depois do `)`.
+  Ex.: `19997024884` → `(19)99702-4884`. Com 1 dígito a menos (fixo/8),
+  os **4 últimos ficam sempre depois do traço** e o resto vai antes:
+  `1997024884` → `(19)9702-4884`.
+- **CPF** → `000.000.000-00`. Ex.: `40032304854` → `400.323.048-54`.
+- **Data** → sempre com `/`: `DD/MM/AAAA`, `DD/MM/AA` ou `DD/MM` (a barra entra
+  sozinha enquanto digita — nunca dígito colado).
+
+**Uma fonte só (Lei nº2 — visual/lógica de tela nasce central).** Hoje isso
+está espalhado e divergente: `fmtPhone`/`fmtTelefone`/`prettyPhone`
+reimplementados em `(app)/empresas`, `entrega/clientes`, `(app)/atendimento`,
+`casca/screens/empresas-ficha`+`empresas-types`, `whatsapp-connect-modal`,
+`casca/whatsapp-conectar-sheet`… — vários ainda com espaço depois do `)`
+(formato errado). O destino é UM helper central em `frontend/src/lib/format.ts`
+(`formatPhoneBR`, `formatCpf`, `formatDateBR` + os `only-digits`/`parse`) que
+todas as telas consomem; regex de máscara solto em TSX é proibido. Ao tocar
+numa tela que formata um desses, **migra pro central** em vez de copiar mais
+uma variação.
+
 ## Rotas
 
 - Uma rota canônica por funcionalidade; alias só redireciona.

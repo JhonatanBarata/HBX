@@ -768,7 +768,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (segment) params.set("segment", segment);
     if (city) params.set("city", city);
     if (uf) params.set("state", uf);
-    if (which === "shelf" && alcance) params.set("radius", alcance);
+    if (which === "shelf" && alcance) params.set("radiusKm", alcance);
     // Filtro estilo CNPJ Biz (tem-site/tem-WhatsApp) — só na prateleira (vitrine),
     // igual ao resto do bloco B3. Params já existem no DTO do backend
     // (noWebsite/withWebsite/likelyWhatsapp); só não estavam expostos na UI.

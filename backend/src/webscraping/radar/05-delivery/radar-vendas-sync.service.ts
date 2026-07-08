@@ -65,6 +65,12 @@ export class RadarVendasSyncService {
     const message = String(error?.response?.message || error?.message || error || '').toLowerCase();
     return code.includes('limit')
       || code.includes('quota')
+      // CRÉDITOS — saldo esgotado / acesso pausado por crédito também PARA a auto-distribuição
+      // em lote (senão o loop tenta cada card da fila e falha um a um, sem sentido).
+      || code.includes('credit_balance_exhausted')
+      || code.includes('company_access_paused')
+      || message.includes('saldo de créditos')
+      || message.includes('saldo de creditos')
       || message.includes('limite diario')
       || message.includes('limite diário')
       || message.includes('limite mensal')

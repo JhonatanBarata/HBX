@@ -1024,6 +1024,51 @@ export class CommercialUsageLimitsService {
     });
   }
 
+  /**
+   * CRÉDITOS — reserva ATÔMICA: debita o crédito ANTES de qualquer gravação de card. É o MESMO
+   * choke real de `enforceLeadDeliveryDebit` (mesma usageKey canônica `enforce:lead_delivery:<key>`,
+   * idempotente pelo CreditWalletService), só que exposto pro caller debitar PRIMEIRO e gravar
+   * DEPOIS — assim o bloqueio por saldo esgotado sobe (ConflictException) sem deixar card órfão no
+   * Vendas (fix "entrega parcial + 409"). Fail-closed: sem saldo lança; gate OFF (2 chaves) devolve
+   * `applied:false` sem tocar o banco. `isBillingAudienceUser` decide a mensagem (dono → "Saldo de
+   * créditos esgotado"; vendedor/gerente → bloqueio neutro, LEI DO VENDEDOR).
+   */
+  async reserveLeadDeliveryCredit(
+    companyId: number,
+    userId: number | null,
+    input: { usageKey: string; isBillingAudienceUser?: boolean },
+  ): Promise<{ applied: boolean; debited: number }> {
+    if (!this.creditsService || typeof this.creditsService.assertAndDebitLeadDelivery !== 'function') {
+      return { applied: false, debited: 0 };
+    }
+    const usageKey = this.normalizeUsageKey(input?.usageKey || '');
+    if (!usageKey) return { applied: false, debited: 0 };
+    const result = await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
+      leadId: usageKey,
+      actionKey: 'lead_delivery',
+      isBillingAudienceUser: Boolean(input?.isBillingAudienceUser),
+    });
+    return { applied: Boolean(result?.applied), debited: Number(result?.debited || 0) };
+  }
+
+  /**
+   * CRÉDITOS — estorno da reserva acima quando a gravação do card falha DEPOIS do débito (mesma
+   * usageKey canônica). Best-effort e idempotente (o `CreditWalletService.refund` trava por
+   * `refund:<usageKey>`); no-op silencioso se o gate estiver OFF ou nada houver a reverter.
+   */
+  async releaseLeadDeliveryCredit(
+    companyId: number,
+    userId: number | null,
+    input: { usageKey: string },
+  ): Promise<void> {
+    if (!this.creditsService || typeof this.creditsService.refundLeadDelivery !== 'function') return;
+    const usageKey = this.normalizeUsageKey(input?.usageKey || '');
+    if (!usageKey) return;
+    await this.creditsService
+      .refundLeadDelivery(companyId, userId, { leadId: usageKey, actionKey: 'lead_delivery' })
+      .catch(() => undefined);
+  }
+
   async recordCardCommercialUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
     const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.radarLeadId);
     if (!usageKey) {

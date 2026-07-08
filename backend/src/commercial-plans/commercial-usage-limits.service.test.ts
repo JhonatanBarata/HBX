@@ -649,3 +649,69 @@ test('FRONTEIRA: gate de crédito BARRA a baixa (fail-closed) mesmo com cota de 
   // Fail-closed: a baixa PAROU antes de logar sucesso — nenhum card_commercial_used gravado.
   assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), false);
 });
+
+// ─── CRÉDITOS ATOMICIDADE: reserva ANTES de gravar + estorno (fix "entrega parcial + 409") ───────
+// reserveLeadDeliveryCredit debita ANTES de qualquer gravação de card, com a MESMA chave canônica
+// do choke real (idempotente), e propaga isBillingAudienceUser (mensagem do dono vs bloqueio
+// neutro). Sem saldo LANÇA aqui — nenhum card órfão. releaseLeadDeliveryCredit estorna na falha.
+
+test('reserveLeadDeliveryCredit: sem saldo LANÇA fail-closed (nada é gravado antes do débito)', async () => {
+  const credits = {
+    assertAndDebitLeadDelivery: async () => {
+      throw new ConflictException({ ok: false, code: 'CREDIT_BALANCE_EXHAUSTED', message: 'Saldo de créditos esgotado.' });
+    },
+    refundLeadDelivery: async () => ({ refunded: 0 }),
+  } as any;
+  const service = new CommercialUsageLimitsService({} as any, credits);
+  await assert.rejects(
+    () => service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-1', isBillingAudienceUser: true }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_BALANCE_EXHAUSTED');
+      return true;
+    },
+  );
+});
+
+test('reserveLeadDeliveryCredit: com saldo devolve {applied,debited} e propaga leadId canônico + audiência', async () => {
+  const calls: Array<Record<string, any>> = [];
+  const credits = {
+    assertAndDebitLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
+      calls.push({ companyId, userId, ...i });
+      return { applied: true, debited: 1, balanceAfter: 4 };
+    },
+    refundLeadDelivery: async () => ({ refunded: 0 }),
+  } as any;
+  const service = new CommercialUsageLimitsService({} as any, credits);
+  const result = await service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-2', isBillingAudienceUser: true });
+  assert.deepEqual(result, { applied: true, debited: 1 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].leadId, 'radar:ct-2'); // MESMA chave do débito downstream -> idempotente
+  assert.equal(calls[0].actionKey, 'lead_delivery');
+  assert.equal(calls[0].isBillingAudienceUser, true);
+});
+
+test('reserveLeadDeliveryCredit: sem CreditsService (gate indisponível) = no-op {applied:false}, NÃO lança', async () => {
+  const service = new CommercialUsageLimitsService({} as any); // sem 2º arg (opcional)
+  const result = await service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-3' });
+  assert.deepEqual(result, { applied: false, debited: 0 });
+});
+
+test('releaseLeadDeliveryCredit: estorna pela MESMA usageKey; sem CreditsService é no-op silencioso', async () => {
+  const refunds: Array<Record<string, any>> = [];
+  const credits = {
+    assertAndDebitLeadDelivery: async () => ({ applied: true, debited: 1 }),
+    refundLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
+      refunds.push({ companyId, userId, ...i });
+      return { refunded: 1 };
+    },
+  } as any;
+  const service = new CommercialUsageLimitsService({} as any, credits);
+  await service.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-2' });
+  assert.equal(refunds.length, 1);
+  assert.equal(refunds[0].leadId, 'radar:ct-2');
+  assert.equal(refunds[0].actionKey, 'lead_delivery');
+
+  // Sem CreditsService injetado: não lança, não faz nada.
+  const bare = new CommercialUsageLimitsService({} as any);
+  await assert.doesNotReject(() => bare.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-9' }));
+});

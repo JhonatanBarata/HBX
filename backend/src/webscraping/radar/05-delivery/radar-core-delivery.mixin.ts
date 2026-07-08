@@ -98,6 +98,7 @@ import {
   formatCityWithState,
 } from '../radar-core-method-imports';
 import { incrementAffinity } from '../../../users/segment-affinity.util';
+import { isBillingOwnerActor } from '../../../access/actor-kind';
 import {
   materializeNucleoFromRadarLead as materializeNucleoIngestaoFromRadarLead,
   nucleoIngestaoEnabled,
@@ -3343,6 +3344,39 @@ export class RadarCoreDeliveryMixin {
     if (!this.isCardDeliveryEligibleForVendas(deliveryClassification, leadRow, qualityV2)) {
       throw new BadRequestException('Card nao esta elegivel para Vendas neste modo de qualidade.');
     }
+    // CRÉDITOS — ATOMICIDADE (fix "entrega parcial + 409" / puxar com saldo 0). A ordem antiga era
+    // criar card → entregar → debitar → 409 sem desfazer, deixando card órfão no Vendas. Agora o
+    // débito acontece ANTES de qualquer gravação: sem saldo, o gate REAL sobe ConflictException
+    // AQUI (nenhum claim no Radar, nenhum card no Vendas), e o dono vê "Saldo de créditos esgotado"
+    // (isBillingOwnerActor decide a mensagem; vendedor/gerente seguem no bloqueio neutro). Gate OFF
+    // (2 chaves) = no-op transparente. O importWebscraping abaixo roda com debitOnImport:false — o
+    // débito e o teto de cards-em-mãos já foram resolvidos aqui, então NÃO há débito duplo nem
+    // dupla contagem do teto S4 do vendedor. Estorno atômico no catch se a gravação falhar depois.
+    const wantsCreditDebit = Boolean(options.debitOnImport);
+    const creditUsageKey = `radar:${leadRow.id}`;
+    let creditReserved = false;
+    if (wantsCreditDebit) {
+      // (1) Teto operacional de cards-em-mãos do vendedor (mesmo gate do importador em lote —
+      //     preservado aqui de propósito porque desligamos o debitOnImport downstream).
+      if (typeof this.commercialUsageLimits?.assertSellerActiveCardSlots === 'function') {
+        await this.commercialUsageLimits.assertSellerActiveCardSlots(
+          context.companyId,
+          assignedUserId || context.userId,
+        );
+      }
+      // (2) Débito REAL do crédito, fail-closed, ANTES da gravação.
+      if (typeof this.commercialUsageLimits?.reserveLeadDeliveryCredit === 'function') {
+        const reservation = await this.commercialUsageLimits.reserveLeadDeliveryCredit(
+          context.companyId,
+          context.userId,
+          { usageKey: creditUsageKey, isBillingAudienceUser: isBillingOwnerActor(user) },
+        );
+        creditReserved = Boolean(reservation?.applied) && Number(reservation?.debited || 0) > 0;
+      }
+    }
+
+    let imported: any = null;
+    try {
     await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
       companyStatus: 'in_attendance',
@@ -3356,11 +3390,13 @@ export class RadarCoreDeliveryMixin {
     });
 
     const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
-    const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
+    imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
       sourceHistoryId: `radar:${leadRow.id}`,
       assignedUserId: assignedUserId || undefined,
       skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
-      debitOnImport: Boolean(options.debitOnImport),
+      // Débito e teto de cards-em-mãos já resolvidos ANTES de gravar (bloco CRÉDITOS acima);
+      // aqui é sempre false pra não debitar nem contar o teto S4 em dobro. Estorno no catch.
+      debitOnImport: false,
       leads: [
         {
           sourceHistoryId: `radar:${leadRow.id}`,
@@ -3417,6 +3453,17 @@ export class RadarCoreDeliveryMixin {
         },
       ],
     } as any);
+    } catch (error) {
+      // Estorno atômico: a gravação falhou DEPOIS do débito — devolve o crédito reservado
+      // (best-effort, idempotente pela mesma usageKey). O caso "sem saldo" já barrou ANTES de
+      // gravar, então aqui só cai falha real de entrega (ex.: erro de banco), nunca saldo zero.
+      if (creditReserved && typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit === 'function') {
+        await this.commercialUsageLimits
+          .releaseLeadDeliveryCredit(context.companyId, context.userId, { usageKey: creditUsageKey })
+          .catch(() => undefined);
+      }
+      throw error;
+    }
     const vendasLeadId = imported?.leads?.[0]?.id || null;
     const now = new Date();
     const existingMetadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
