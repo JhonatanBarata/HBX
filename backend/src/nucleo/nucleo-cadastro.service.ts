@@ -650,6 +650,10 @@ export class NucleoCadastroService {
         cnpj: true,
         document: true,
         endereco: true,
+        // B3 — partes do endereço (número/bairro) pra o editor pré-preencher os
+        // campos próprios e a reedição parar de degradar o texto composto.
+        numero: true,
+        bairro: true,
         cidade: true,
         uf: true,
         cep: true,
@@ -686,6 +690,8 @@ export class NucleoCadastroService {
       cnpj: row.cnpj ?? null,
       document: row.document ?? null,
       endereco: row.endereco ?? null,
+      numero: row.numero ?? null,
+      bairro: row.bairro ?? null,
       cidade: row.cidade ?? null,
       uf: row.uf ?? null,
       cep: row.cep ?? null,
@@ -766,6 +772,8 @@ export class NucleoCadastroService {
           ...(phoneRaw !== undefined ? { phone: normalizeDigits(phoneRaw) || null, phoneNormalized } : {}),
           ...(input.email !== undefined ? { email: input.email || null } : {}),
           ...(input.endereco !== undefined ? { endereco: input.endereco || null } : {}),
+          ...(input.numero !== undefined ? { numero: input.numero || null } : {}),
+          ...(input.bairro !== undefined ? { bairro: input.bairro || null } : {}),
           ...(input.cidade !== undefined ? { cidade: input.cidade || null } : {}),
           ...(input.uf !== undefined ? { uf: (input.uf || '').toUpperCase() || null } : {}),
           ...(input.cep !== undefined ? { cep: input.cep || null } : {}),
@@ -792,6 +800,8 @@ export class NucleoCadastroService {
           phoneNormalized,
           email: input.email || null,
           endereco: input.endereco || null,
+          numero: input.numero || null,
+          bairro: input.bairro || null,
           cidade: input.cidade || null,
           uf: (input.uf || '').toUpperCase() || null,
           cep: input.cep || null,
@@ -901,6 +911,8 @@ export class NucleoCadastroService {
       data.phoneNormalized = normalizeDigits(input.phone) || null;
     }
     if (input.endereco !== undefined) data.endereco = input.endereco || null;
+    if (input.numero !== undefined) data.numero = input.numero || null;
+    if (input.bairro !== undefined) data.bairro = input.bairro || null;
     if (input.cidade !== undefined) data.cidade = input.cidade || null;
     if (input.uf !== undefined) data.uf = (input.uf || '').toUpperCase() || null;
     if (input.cep !== undefined) data.cep = input.cep || null;
@@ -1398,6 +1410,9 @@ export interface ClienteDetail {
   cnpj: string | null;
   document: string | null;
   endereco: string | null;
+  // B3 — partes do endereço (o texto composto `endereco` continua vindo tb).
+  numero: string | null;
+  bairro: string | null;
   cidade: string | null;
   uf: string | null;
   cep: string | null;
@@ -1473,6 +1488,9 @@ export interface CreateContaInput {
   document?: string | null;
   cnpj?: string | null;
   endereco?: string | null;
+  // B3 — partes do endereço (dupla escrita: o texto composto vem em `endereco`).
+  numero?: string | null;
+  bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;
   cep?: string | null;
@@ -1520,6 +1538,9 @@ export interface UpdateContaInput {
   email?: string | null;
   phone?: string | null;
   endereco?: string | null;
+  // B3 — partes do endereço (dupla escrita: o texto composto vem em `endereco`).
+  numero?: string | null;
+  bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;
   cep?: string | null;

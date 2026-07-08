@@ -171,10 +171,24 @@ const SYNC_INTERVAL_MS = 20_000; // varre a fila a cada 20s (NÃO é loop aperta
 export interface OfflineSync {
   pendentes: number; // total de itens ainda na fila (não sincronizados).
   precisamAtencao: number; // itens que estouraram o teto de tentativas.
+  // B3 (offline VISÍVEL) — ids das entregas com confirmação AINDA na fila (pending
+  // + needs_attention). A tela ESCONDE essas paradas do carrossel de abertas e as
+  // marca com ⇅ na lista "Hoje" (some a reconfirmação de uma parada já confirmada).
+  entregaIdsPendentes: Set<string>;
+  // B3 — contador que sobe quando o sync de FUNDO esvazia itens (enviados>0). A tela
+  // observa pra recarregar a rota (a parada some/vira "entregue" sem intervenção).
+  sincronizados: number;
   // Enfileira uma confirmação (gera a key) e tenta sincronizar já. Devolve a key usada.
   enqueueConfirmacao: (entregaId: string, payload: Omit<ConfirmarPayload, "idempotencyKey">) => Promise<string>;
   // Força uma passada de sync (ex.: quando a rota recarrega). Best-effort, não lança.
   syncNow: () => Promise<void>;
+}
+
+/** Igualdade de conjuntos (evita re-render/refiltro do carrossel quando nada muda). */
+function setsIguais(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
 }
 
 /**
@@ -186,22 +200,30 @@ export interface OfflineSync {
 export function useOfflineSync(): OfflineSync {
   const [pendentes, setPendentes] = useState(0);
   const [precisamAtencao, setPrecisamAtencao] = useState(0);
+  const [entregaIdsPendentes, setEntregaIdsPendentes] = useState<Set<string>>(() => new Set());
+  const [sincronizados, setSincronizados] = useState(0);
   const rodando = useRef(false); // evita 2 drains concorrentes (online + timer juntos).
 
   const refreshContagem = useCallback(async () => {
     const all = await listAll();
     setPendentes(all.length);
     setPrecisamAtencao(all.filter((i: PendenciaItem) => i.status === "needs_attention").length);
+    // B3 — mantém a MESMA referência quando o conjunto não mudou (não refiltra o
+    // carrossel à toa a cada varredura de 20s num aparelho fraco).
+    const proximo = new Set(all.map((i: PendenciaItem) => i.entregaId));
+    setEntregaIdsPendentes((prev) => (setsIguais(prev, proximo) ? prev : proximo));
   }, []);
 
   const syncNow = useCallback(async () => {
     if (rodando.current) return;
     rodando.current = true;
     try {
-      await drain(async (item: PendenciaItem) => {
+      const res = await drain(async (item: PendenciaItem) => {
         // Manda o idempotencyKey ao servidor — a idempotência dura mora lá.
         await confirmarEntrega(item.entregaId, { ...item.payload, idempotencyKey: item.idempotencyKey });
       });
+      // B3 — esvaziou item(ns) em background: sinaliza a tela pra recarregar a rota.
+      if (res && res.enviados > 0) setSincronizados((n) => n + res.enviados);
     } catch {
       /* drain já é best-effort; nunca deixa o timer/evento quebrar */
     } finally {
@@ -234,5 +256,5 @@ export function useOfflineSync(): OfflineSync {
     };
   }, [refreshContagem, syncNow]);
 
-  return { pendentes, precisamAtencao, enqueueConfirmacao, syncNow };
+  return { pendentes, precisamAtencao, entregaIdsPendentes, sincronizados, enqueueConfirmacao, syncNow };
 }

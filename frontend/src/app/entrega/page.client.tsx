@@ -44,7 +44,12 @@ const RotaMapa = dynamic(() => import("./RotaMapa").then((m) => m.RotaMapa), { s
 
 type View = "hoje" | "rota";
 
-const DATA_HOJE = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+// B3 (data VIVA) — a data NÃO pode ser constante de módulo: um PWA aberto da noite
+// pro dia seguinte mostraria "ontem" pra sempre. Vira função e é recalculada em
+// visibilitychange/foco (barato, sem interval agressivo).
+function formatarDataHoje(): string {
+  return new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+}
 const RAIO_CHEGADA_FALLBACK_M = 60; // default do LogisticaConfig (schema); só usado se GET /logistica/config falhar.
 const SWIPE_THRESHOLD_PX = 60;
 
@@ -52,6 +57,9 @@ export function EntregaHome() {
   const router = useRouter();
   const wakeLock = useWakeLock();
   const sync = useOfflineSync(); // M8 — fila offline + pendências no header.
+  // B3 (data VIVA) — recalcula em foco/visibilidade (só aparece pós-load; sem risco
+  // de mismatch de hidratação — o primeiro paint é o loading).
+  const [dataHoje, setDataHoje] = useState<string>(formatarDataHoje);
 
   const [rota, setRota] = useState<RotaResult | null>(null);
   // B1 — raio de chegada REAL do admin (Ajustes M5); 1× no mount, best-effort
@@ -76,6 +84,21 @@ export function EntregaHome() {
     if (!getToken()) router.replace("/login");
   }, [router]);
 
+  // B3 (data VIVA) — reavalia a data ao voltar o foco/visibilidade (o PWA que
+  // ficou aberto da noite pro dia mostra o dia certo ao voltar pro app).
+  useEffect(() => {
+    const atualizar = () => setDataHoje(formatarDataHoje());
+    const onVis = () => {
+      if (document.visibilityState === "visible") atualizar();
+    };
+    window.addEventListener("focus", atualizar);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", atualizar);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
   const carregar = useCallback(async () => {
     setLoading(true);
     setErro(null);
@@ -91,6 +114,13 @@ export function EntregaHome() {
 
   useEffect(() => { void (async () => { await carregar(); })(); }, [carregar]);
 
+  // B3 (offline VISÍVEL) — quando o sync de FUNDO esvazia a fila, recarrega a rota:
+  // a parada que estava só na fila (escondida do carrossel) vira "entregue" no
+  // servidor. Sem isso, ao sair da fila ela reapareceria como "agendada".
+  useEffect(() => {
+    if (sync.sincronizados > 0) void carregar();
+  }, [sync.sincronizados, carregar]);
+
   // B1 — lê o raio configurado 1× no mount; falha mantém o fallback (60m).
   useEffect(() => {
     void (async () => {
@@ -104,7 +134,14 @@ export function EntregaHome() {
   }, []);
 
   // Paradas abertas na ordem da rota (fonte do carrossel + progresso).
-  const abertas = useMemo(() => (rota ? paradasAbertas(rota) : []), [rota]);
+  // B3 (offline VISÍVEL) — as paradas com confirmação AINDA na fila somem do
+  // carrossel (o entregador não reconfirma o que já marcou); elas seguem na lista
+  // "Hoje" com a tag ⇅ (ver ViewHoje). Todo o resto (índice, geofence, dots)
+  // herda essa lista filtrada de graça.
+  const abertas = useMemo(
+    () => (rota ? paradasAbertas(rota).filter((p) => !sync.entregaIdsPendentes.has(p.id)) : []),
+    [rota, sync.entregaIdsPendentes],
+  );
   const totalDia = rota?.items.length ?? 0;
   const feitas = useMemo(() => (rota ? rota.items.filter((i) => i.status === "entregue").length : 0), [rota]);
   const termino = useMemo<string | null>(() => {
@@ -315,10 +352,12 @@ export function EntregaHome() {
       ) : view === "hoje" ? (
         <ViewHoje
           rota={rota}
+          data={dataHoje}
           feitas={feitas}
           total={totalDia}
           termino={termino}
           abertas={abertas}
+          pendentesIds={sync.entregaIdsPendentes}
           iniciando={iniciando}
           onIniciar={onIniciar}
           onGerou={carregar}
@@ -361,19 +400,23 @@ export function EntregaHome() {
 // ── TELA "Hoje" ────────────────────────────────────────────────────────────────
 function ViewHoje({
   rota,
+  data,
   feitas,
   total,
   termino,
   abertas,
+  pendentesIds,
   iniciando,
   onIniciar,
   onGerou,
 }: {
   rota: RotaResult | null;
+  data: string;
   feitas: number;
   total: number;
   termino: string | null;
   abertas: RotaItem[];
+  pendentesIds: Set<string>;
   iniciando: boolean;
   onIniciar: () => void;
   onGerou: () => void;
@@ -383,7 +426,7 @@ function ViewHoje({
   if (!rota || total === 0) {
     return (
       <>
-        <div className="ent-head-sub ent-head-sub--standalone">{DATA_HOJE}</div>
+        <div className="ent-head-sub ent-head-sub--standalone">{data}</div>
         <GestaoDia onGerou={onGerou} />
         <div className="ent-empty">
           <div className="ent-empty-icon" aria-hidden="true">
@@ -397,7 +440,7 @@ function ViewHoje({
   const pct = total > 0 ? Math.round((feitas / total) * 100) : 0;
   return (
     <>
-      <div className="ent-head-sub ent-head-sub--standalone">{DATA_HOJE}</div>
+      <div className="ent-head-sub ent-head-sub--standalone">{data}</div>
       <GestaoDia onGerou={onGerou} />
       <section className="ent-progress" aria-label="Progresso do dia">
         <div className="ent-progress-row">
@@ -417,6 +460,9 @@ function ViewHoje({
       <div className="ent-list">
         {rota.items.map((it, i) => {
           const done = it.status === "entregue" || it.status === "cancelada";
+          // B3 (offline VISÍVEL) — confirmação ainda na fila: ⇅ no lugar do ETA
+          // (o servidor ainda não sabe; ao drenar, vira ✓ sozinho).
+          const sincronizando = !done && pendentesIds.has(it.id);
           return (
             <div className={`ent-row${done ? " is-done" : ""}`} key={it.id}>
               <div className="ent-row-idx">{i + 1}</div>
@@ -424,8 +470,11 @@ function ViewHoje({
                 <div className="ent-row-name">{it.cliente.nome ?? "Cliente"}</div>
                 <div className="ent-row-sub">{resumoItens(it)}</div>
               </div>
-              <div className={`ent-row-tag${it.status === "entregue" ? " is-done" : ""}`}>
-                {it.status === "entregue" ? "✓" : it.status === "cancelada" ? "—" : hhmm(it.etaAt)}
+              <div
+                className={`ent-row-tag${it.status === "entregue" ? " is-done" : sincronizando ? " is-sync" : ""}`}
+                title={sincronizando ? "Aguardando sincronizar" : undefined}
+              >
+                {it.status === "entregue" ? "✓" : it.status === "cancelada" ? "—" : sincronizando ? "⇅" : hhmm(it.etaAt)}
               </div>
             </div>
           );

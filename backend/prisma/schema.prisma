@@ -905,6 +905,13 @@ model CustomerProfile {
   tipo                 String   @default("pf") // "pj" | "pf"
   cnpj                 String?  // só para tipo pj
   endereco             String?
+  // LOGÍSTICA-MOBILE B3 (08/07) — PARTES do endereço em coluna própria. Antes só
+  // existiam dentro do texto composto `endereco` ("Rua X, 123 - Centro"); ao reeditar
+  // a ficha, número/bairro voltavam vazios e o texto degradava ("… , 456"). DUPLA
+  // ESCRITA: `endereco` segue composto e gravado como hoje (rota/deep-link/telas
+  // antigas leem `endereco` inteiro) — estas são aditivas, opcionais, legado = null.
+  numero               String?
+  bairro               String?
   cidade               String?
   uf                   String?
   cep                  String?

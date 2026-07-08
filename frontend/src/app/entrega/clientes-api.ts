@@ -55,6 +55,9 @@ export interface ClienteDetail {
   cnpj: string | null;
   document: string | null;
   endereco: string | null;
+  // B3 — partes do endereço em coluna própria (o texto composto vem em `endereco`).
+  numero: string | null;
+  bairro: string | null;
   cidade: string | null;
   uf: string | null;
   cep: string | null;
@@ -86,6 +89,9 @@ export interface CriarClientePayload {
   tipo?: "pf" | "pj";
   whatsapp?: string;
   endereco?: string;
+  // B3 — partes do endereço (dupla escrita: `endereco` composto continua indo tb).
+  numero?: string;
+  bairro?: string;
   cidade?: string;
   uf?: string;
   cep?: string;
@@ -113,6 +119,9 @@ export function criarCliente(p: CriarClientePayload): Promise<ContaCriada> {
 export interface EditarClientePayload {
   nome?: string;
   endereco?: string;
+  // B3 — partes do endereço (dupla escrita: `endereco` composto continua indo tb).
+  numero?: string;
+  bairro?: string;
   cidade?: string;
   uf?: string;
   cep?: string;

@@ -495,6 +495,9 @@
   color: var(--ent-ink-muted);
 }
 [data-skin="entrega"] .ent-row-tag.is-done { color: var(--ent-success); }
+/* B3 (offline VISÍVEL) — parada com confirmação ainda na fila (⇅): mesma cor do
+   badge de pendências do topo (idioma visual único do "aguardando sincronizar"). */
+[data-skin="entrega"] .ent-row-tag.is-sync { color: var(--ent-accent); }
 
 /* ---------- CARROSSEL "Rota" (swipe ←/→) ---------- */
 [data-skin="entrega"] .ent-carousel { overflow: hidden; touch-action: pan-y; }

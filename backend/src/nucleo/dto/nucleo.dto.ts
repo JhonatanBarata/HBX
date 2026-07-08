@@ -64,6 +64,17 @@ export class CreateContaDto {
   @MaxLength(240)
   endereco?: string;
 
+  // LOGÍSTICA-MOBILE B3 (08/07) — partes do endereço (dupla escrita com `endereco`).
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  numero?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  bairro?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -141,6 +152,17 @@ export class UpdateContaDto {
   @IsString()
   @MaxLength(240)
   endereco?: string;
+
+  // LOGÍSTICA-MOBILE B3 (08/07) — partes do endereço (dupla escrita com `endereco`).
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  numero?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  bairro?: string;
 
   @IsOptional()
   @IsString()

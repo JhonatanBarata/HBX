@@ -79,6 +79,29 @@ const DIAS_SEMANA: Array<{ n: number; label: string }> = [
   { n: 7, label: "Dom" },
 ];
 
+/**
+ * B3 — separa o endereço-texto do backend nas partes do editor. É o INVERSO exato
+ * de `comporEndereco` ("Rua X, 123 - Centro"): quando o backend já traz número/bairro
+ * em coluna própria (registros novos), tira-os da ponta do texto pra o campo "Endereço"
+ * ficar SÓ com a rua — assim a reedição não reanexa o número (some a degradação).
+ * Sem as colunas (legado) → fallback ao comportamento atual (texto inteiro na rua).
+ */
+function separarEndereco(
+  enderecoTexto: string | null | undefined,
+  numeroCol: string | null | undefined,
+  bairroCol: string | null | undefined,
+): { logradouro: string; numero: string; bairro: string } {
+  const texto = (enderecoTexto ?? "").trim();
+  const numero = (numeroCol ?? "").trim();
+  const bairro = (bairroCol ?? "").trim();
+  // Legado (sem partes em coluna): mantém tudo no campo Endereço, como antes.
+  if (!numero && !bairro) return { logradouro: texto, numero: "", bairro: "" };
+  let rua = texto;
+  if (bairro && rua.endsWith(` - ${bairro}`)) rua = rua.slice(0, rua.length - ` - ${bairro}`.length);
+  if (numero && rua.endsWith(`, ${numero}`)) rua = rua.slice(0, rua.length - `, ${numero}`.length);
+  return { logradouro: rua.trim(), numero, bairro };
+}
+
 /** Máscara de telefone BR formando AO VIVO enquanto digita: "(85) 90000-0000". */
 function fmtTelefone(v: string): string {
   const d = v.replace(/\D+/g, "").slice(0, 11);
@@ -275,11 +298,14 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         setNome(c.name || "");
         setWhatsapp(fmtTelefone(c.whatsapp || ""));
         setWhatsappOriginal(fmtTelefone(c.whatsapp || ""));
-        // O backend guarda o endereço como um texto só (rua, nº - bairro). Na
-        // edição ele volta inteiro pro campo "Endereço"; número/bairro ficam
-        // vazios e só se preenchem se o usuário refizer a busca por CEP/GPS.
+        // B3 — o backend agora traz número/bairro em coluna própria (dupla escrita).
+        // Reconstrói os campos a partir das partes: a rua fica SÓ com o logradouro
+        // (não o texto composto inteiro), então reeditar não reanexa o número.
         setCep(formatarCep(c.cep || ""));
-        setLogradouro(c.endereco || "");
+        const partes = separarEndereco(c.endereco, c.numero, c.bairro);
+        setLogradouro(partes.logradouro);
+        setNumero(partes.numero);
+        setBairro(partes.bairro);
         setCidade(c.cidade || "");
         setUf(c.uf || "");
         setCoord(typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng } : null);
@@ -415,6 +441,9 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           nome: nome.trim(),
           whatsapp: whatsapp.trim() || undefined,
           endereco: enderecoFinal || undefined,
+          // B3 — dupla escrita: as partes vão junto do texto composto acima.
+          numero: numero.trim() || undefined,
+          bairro: bairro.trim() || undefined,
           cidade: cidade.trim() || undefined,
           uf: uf.trim() || undefined,
           cep: cepFinal,
@@ -426,6 +455,9 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         await editarCliente(id, {
           nome: nome.trim(),
           endereco: enderecoFinal,
+          // B3 — dupla escrita: manda as partes junto (trim vazio limpa a coluna).
+          numero: numero.trim(),
+          bairro: bairro.trim(),
           cidade: cidade.trim(),
           uf: uf.trim(),
           cep: cepFinal,
@@ -450,7 +482,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     }
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId,
-    comporEndereco, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
+    comporEndereco, numero, bairro, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
     limiteFiado, onSair,
   ]);
 
