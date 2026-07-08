@@ -75,7 +75,7 @@ function buildSeed(
 const VENDAS_ABERTURA =
   'Ola! Aqui e a [[Seu nome]], da [[nome da empresa]]. Vi que podemos te ajudar. Posso te explicar rapidinho?';
 const VENDAS_EXPLICA =
-  'Otimo! A gente ajuda empresas como a sua a [[nome da empresa]] com nossos servicos. Quer que eu te passe mais detalhes ou prefere agendar uma conversa?';
+  'Otimo! Aqui na [[nome da empresa]] a gente ajuda empresas como a sua com nossos servicos. Quer que eu te passe mais detalhes ou prefere agendar uma conversa?';
 const VENDAS_FECHA =
   'Perfeito! Vou reservar um horario pra gente conversar melhor. Qual o melhor dia e turno pra voce?';
 

@@ -1,24 +1,26 @@
 "use client";
 
 // WORM-14 — ASSISTENTE IA. A EXPERIENCIA de criar/testar um assistente sem
-// programar (o motor ja existe e e gratis: qwen2.5:7b local, mesmo pipeline do
-// bot). Tres momentos:
+// programar (o motor ja existe e e gratis: IA local via Ollama, mesmo pipeline
+// do bot). Tres momentos:
 //   1. WIZARD 3 passos: (a) nome + tom + preview de frase; (b) perfil
 //      Vendas x Suporte + produtos + empresa; (c) template Agil/Flexivel/Avancado.
-//   2. FLUXO EM LISTA vertical (v1, SEM canvas): passo -> condicao -> passo, com
+//   2. FLUXO EM TRILHO vertical (v1, SEM canvas): mensagem -> condicao, com
 //      EXEMPLOS editaveis por condicao ("frases que significam SIM" = few-shots).
-//   3. CHAT DE TESTE (sandbox "Teste sua IA"): roda o MESMO pipeline do bot SEM
+//   3. CELULAR DE TESTE ("Teste sua IA"): o MESMO <WhatsAppPreview> do bot —
+//      o dono conversa com o assistente como o cliente veria no WhatsApp, SEM
 //      tocar chip nenhum (zero WhatsApp). Numera o teste (Teste nº) como eles.
 // Contratos reais (todos sob /assistente, gate de modulo 'bot'):
 //   GET /assistente · GET /assistente/templates?perfil · POST /assistente
 //   POST /assistente/sandbox · POST /assistente/publish
 // Publicar no chip fica atras de flag (default OFF) — a tela mostra o estado.
-// Visual 100% em classe central (assistente.css) — zero hex/inline.
+// Visual 100% em classe central (assistente.css + whatsapp.css) — zero hex/inline.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
 import { apiFetch } from "@/lib/api";
 
 // ── Tipos (espelham o backend) ───────────────────────────────────────────────
@@ -33,7 +35,6 @@ type Assistente = {
 };
 type GetResponse = { ok?: boolean; publishEnabled?: boolean; assistente: Assistente | null } | null;
 type TemplateItem = { key: "agil" | "flexivel" | "avancado"; label: string; passos: number; condicoes: number; fluxo: Fluxo };
-type SandboxTurn = { role: "user" | "assistant"; content: string; source?: string; testNumber?: number };
 
 const TONS: { key: Tom; title: string; desc: string; frase: string }[] = [
   { key: "formal", title: "Formal", desc: "Respeitoso, sem gírias", frase: "Olá! Como posso ajudá-lo hoje? Fico à disposição para atendê-lo." },
@@ -44,8 +45,18 @@ const PERFIS: { key: Perfil; title: string; desc: string }[] = [
   { key: "vendas", title: "Vendas", desc: "Desperta interesse e conduz para o próximo passo" },
   { key: "suporte", title: "Suporte", desc: "Entende o problema e ajuda ou encaminha" },
 ];
+const TPL_ICONS: Record<TemplateItem["key"], string[]> = {
+  agil: ICONS.bolt,
+  flexivel: ICONS.arrow,
+  avancado: ICONS.crown,
+};
 
 function emptyFluxo(): Fluxo { return { entradaPassoId: null, passos: [], condicoes: [] }; }
+
+function nowTime(): string {
+  const d = new Date();
+  return d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
+}
 
 export function AssistenteClient() {
   const user = useCurrentUser();
@@ -79,10 +90,10 @@ export function AssistenteClient() {
   const empresaPadrao = user?.company?.name || "";
 
   return (
-    <div className="work">
+    <div className="work ia-work">
       <div className="ia-wrap">
         <div className="ia-head">
-          <span className="ia-head__badge"><I d={ICONS.bot} size={20} /></span>
+          <span className="ia-head__badge"><I d={ICONS.assistente} size={20} /></span>
           <div>
             <div className="ia-head__title">Assistente IA</div>
             <div className="ia-head__sub">Crie um assistente com nome e personalidade — e teste sem gastar chip.</div>
@@ -165,7 +176,7 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
   }
 
   return (
-    <div className="panel ia-form">
+    <div className="panel ia-form-panel">
       <div className="ia-steps">
         <GlassPill {...stepPill} />
         {[1, 2, 3].map((n, i) => (
@@ -201,8 +212,15 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
             </div>
           </div>
           <div className="ia-field">
-            <label className="field-label">Exemplo de frase nesse estilo</label>
-            <div className="ia-style-preview">{fraseExemplo}</div>
+            <label className="field-label">Como soa no WhatsApp</label>
+            <div className="ia-style-preview">
+              <div className="wa-msg wa-msg--in">
+                <div className="wa-bubble">
+                  <span className="wa-bubble__text">{fraseExemplo}</span>
+                  <span className="wa-bubble__meta"><span className="wa-bubble__time">{nowTime()}</span></span>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="ia-actions">
             {onCancel && <button className="btn-ghost" onClick={onCancel}>Cancelar</button>}
@@ -255,6 +273,7 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
             <GlassPill {...tplPill} />
             {templates.map((t) => (
               <button key={t.key} ref={tplPill.itemRef(t.key)} type="button" className={"ia-tpl-card" + (templateKey === t.key ? " is-on" : "")} onClick={() => setTemplateKey(t.key)}>
+                <span className="ia-tpl-card__icon"><I d={TPL_ICONS[t.key]} size={17} /></span>
                 <span className="ia-tpl-card__name">{t.label}</span>
                 <span className="ia-tpl-card__meta">{t.passos} mensagem{t.passos > 1 ? "s" : ""} · {t.condicoes} condiç{t.condicoes > 1 ? "ões" : "ão"}</span>
                 <span className="ia-tpl-card__desc">
@@ -279,7 +298,7 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
 }
 
 // ============================================================================
-// EDITOR — fluxo em lista + chat de teste
+// EDITOR — fluxo em trilho + celular de teste
 // ============================================================================
 function Editor({ assistente, publishEnabled, onRefazer, onSaved }: {
   assistente: Assistente;
@@ -364,15 +383,25 @@ function Editor({ assistente, publishEnabled, onRefazer, onSaved }: {
 
   return (
     <>
-      <div className="ia-actions">
-        <span className="hint">
-          {assistente.nome} · {assistente.perfil === "vendas" ? "Vendas" : "Suporte"} · {assistente.empresaNome || "empresa"}
+      <div className="ia-toolbar">
+        <span className="ia-toolbar__avatar">{(assistente.nome || "A").trim().charAt(0).toUpperCase()}</span>
+        <div className="ia-toolbar__id">
+          <span className="ia-toolbar__name">{assistente.nome}</span>
+          <span className="ia-toolbar__meta">
+            {assistente.perfil === "vendas" ? "Vendas" : "Suporte"} · {assistente.empresaNome || "empresa"}
+          </span>
+        </div>
+        <span className={"ia-pub-pill" + (published ? " is-on" : "")}>
+          <I d={published ? ICONS.check : ICONS.edit} size={11} />
+          {published ? "Publicado no chip" : "Rascunho"}
         </span>
-        <button className="btn-ghost btn-xs ia-spacer" onClick={onRefazer}>Refazer no assistente</button>
-        <button className="btn-ghost btn-xs" disabled={saving || !dirty} onClick={salvar}>{saving ? "Salvando…" : "Salvar fluxo"}</button>
-        <button className={"btn-teal btn-xs" + (published ? " danger" : "")} onClick={togglePublish}>
-          {published ? "Desativar no chip" : "Publicar no chip"}
-        </button>
+        <div className="ia-toolbar__actions">
+          <button className="btn-ghost btn-xs" onClick={onRefazer}>Refazer no assistente</button>
+          <button className="btn-ghost btn-xs" disabled={saving || !dirty} onClick={salvar}>{saving ? "Salvando…" : "Salvar fluxo"}</button>
+          <button className={"btn-teal btn-xs" + (published ? " danger" : "")} onClick={togglePublish}>
+            {published ? "Desativar no chip" : "Publicar no chip"}
+          </button>
+        </div>
       </div>
       {!publishEnabled && (
         <div className="auto-flag-note">
@@ -384,45 +413,57 @@ function Editor({ assistente, publishEnabled, onRefazer, onSaved }: {
 
       <div className="ia-split has-chat">
         <div className="ia-flow">
-          {fluxo.passos.map((p, i) => (
-            <React.Fragment key={p.id}>
-              {i > 0 && <div className="ia-connector"><I d={ICONS.arrow} size={16} /></div>}
-              <div className="ia-flow-node">
-                <div className="ia-flow-node__head">
-                  <span className="ia-flow-node__tag">Mensagem {i + 1}</span>
-                  <span className="ia-flow-node__title">para o cliente</span>
-                  <div className="ia-flow-node__actions">
-                    <button className="btn-ghost btn-xs danger" onClick={() => removePasso(p.id)} aria-label="Remover mensagem"><I d={ICONS.trash} size={13} /></button>
+          <div className="ia-rail">
+            <div className="ia-rail__sec">
+              <span className="ia-rail__sec-tag"><I d={ICONS.msg} size={12} /> Mensagens</span>
+              <span className="ia-rail__sec-sub">o que {assistente.nome} fala, na ordem</span>
+            </div>
+            {fluxo.passos.map((p, i) => (
+              <div key={p.id} className="ia-rail__item">
+                <span className="ia-rail__dot">{i + 1}</span>
+                <div className="ia-flow-node">
+                  <div className="ia-flow-node__head">
+                    <span className="ia-flow-node__tag">Mensagem {i + 1}</span>
+                    <span className="ia-flow-node__title">para o cliente</span>
+                    <div className="ia-flow-node__actions">
+                      <button className="btn-ghost btn-xs danger" onClick={() => removePasso(p.id)} aria-label="Remover mensagem"><I d={ICONS.trash} size={13} /></button>
+                    </div>
+                  </div>
+                  <div className="ia-flow-node__body">
+                    <textarea className="field-dark" rows={2} maxLength={1500} placeholder="Escreva a mensagem. Use [[Seu nome]] e [[nome da empresa]]."
+                      value={p.texto} onChange={(e) => updatePasso(p.id, e.target.value)} />
                   </div>
                 </div>
-                <div className="ia-flow-node__body">
-                  <textarea className="field-dark" rows={2} maxLength={1500} placeholder="Escreva a mensagem. Use [[Seu nome]] e [[nome da empresa]]."
-                    value={p.texto} onChange={(e) => updatePasso(p.id, e.target.value)} />
-                </div>
               </div>
-            </React.Fragment>
-          ))}
-          <div className="ia-actions">
-            <button className="btn-ghost btn-xs" onClick={addPasso}><I d={ICONS.plus} size={13} /> Mensagem</button>
+            ))}
+            <div className="ia-rail__item is-add">
+              <span className="ia-rail__dot is-add"><I d={ICONS.plus} size={12} /></span>
+              <button className="ia-rail__add" onClick={addPasso}>Adicionar mensagem</button>
+            </div>
           </div>
 
-          <div className="ia-flow-node__head">
-            <span className="ia-flow-node__tag is-cond">Condições</span>
-            <span className="ia-flow-node__title">como interpretar a resposta do cliente</span>
-          </div>
-          {fluxo.condicoes.map((c) => (
-            <CondicaoEditor
-              key={c.id}
-              cond={c}
-              passos={fluxo.passos}
-              onChange={(patch) => updateCond(c.id, patch)}
-              onRemove={() => removeCond(c.id)}
-              onAddExemplo={(frase) => addExemplo(c.id, frase)}
-              onRemoveExemplo={(frase) => removeExemplo(c.id, frase)}
-            />
-          ))}
-          <div className="ia-actions">
-            <button className="btn-ghost btn-xs" onClick={addCond}><I d={ICONS.plus} size={13} /> Condição</button>
+          <div className="ia-rail is-cond">
+            <div className="ia-rail__sec">
+              <span className="ia-rail__sec-tag is-cond"><I d={ICONS.filter} size={12} /> Condições</span>
+              <span className="ia-rail__sec-sub">como interpretar a resposta do cliente</span>
+            </div>
+            {fluxo.condicoes.map((c) => (
+              <div key={c.id} className="ia-rail__item">
+                <span className="ia-rail__dot is-cond"><I d={ICONS.reply} size={12} /></span>
+                <CondicaoEditor
+                  cond={c}
+                  passos={fluxo.passos}
+                  onChange={(patch) => updateCond(c.id, patch)}
+                  onRemove={() => removeCond(c.id)}
+                  onAddExemplo={(frase) => addExemplo(c.id, frase)}
+                  onRemoveExemplo={(frase) => removeExemplo(c.id, frase)}
+                />
+              </div>
+            ))}
+            <div className="ia-rail__item is-add">
+              <span className="ia-rail__dot is-add is-cond"><I d={ICONS.plus} size={12} /></span>
+              <button className="ia-rail__add" onClick={addCond}>Adicionar condição</button>
+            </div>
           </div>
         </div>
 
@@ -466,11 +507,11 @@ function CondicaoEditor({ cond, passos, onChange, onRemove, onAddExemplo, onRemo
               </span>
             ))}
           </div>
-          <div className="ia-chat__foot">
+          <div className="ia-fewshot-add">
             <input className="field-dark" value={draft} maxLength={200} placeholder='Ex.: "quero sim", "pode falar"'
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { onAddExemplo(draft); setDraft(""); } }} />
-            <button className="btn-ghost btn-xs" onClick={() => { onAddExemplo(draft); setDraft(""); }}><I d={ICONS.plus} size={13} /></button>
+            <button className="btn-ghost btn-xs" onClick={() => { onAddExemplo(draft); setDraft(""); }} aria-label="Adicionar exemplo"><I d={ICONS.plus} size={13} /></button>
           </div>
         </div>
         {passos.length > 1 && (
@@ -488,28 +529,43 @@ function CondicaoEditor({ cond, passos, onChange, onRemove, onAddExemplo, onRemo
 }
 
 // ============================================================================
-// SANDBOX CHAT — "Teste sua IA". NUNCA envia WhatsApp real (backend garante).
+// SANDBOX — "Teste sua IA" num celular WhatsApp fiel (<WhatsAppPreview>, o
+// mesmo do bot). NUNCA envia WhatsApp real (backend garante: dispatched=false).
 // ============================================================================
+const SOURCE_LABEL: Record<string, string> = {
+  ia: "respondido pela IA local",
+  roteiro: "abertura do roteiro (sem IA)",
+  fallback: "roteiro de reserva — IA indisponível",
+};
+
 function SandboxChat({ assistente, liveFluxo }: { assistente: Assistente; liveFluxo: Fluxo }) {
-  const [turns, setTurns] = useState<SandboxTurn[]>([]);
+  const [msgs, setMsgs] = useState<WAMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastTestNo, setLastTestNo] = useState<number | null>(null);
+  const [lastSource, setLastSource] = useState<{ source: string; ms: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [turns]);
+  const scrollDown = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = bodyRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, []);
 
   async function send() {
     const text = input.trim();
     if (!text || busy) return;
     setInput("");
-    const history = turns.map((t) => ({ role: t.role, content: t.content }));
-    setTurns((prev) => [...prev, { role: "user", content: text }]);
+    // Historico p/ o backend: só balões reais (sem notas de sistema).
+    const history = msgs
+      .filter((m) => !m.system)
+      .map((m) => ({ role: m.dir === "out" ? "user" : "assistant", content: m.text }));
+    setMsgs((prev) => [...prev, { dir: "out", text, time: nowTime(), status: "read" }]);
     setBusy(true);
+    scrollDown();
     try {
-      const res = await apiFetch<{ ok?: boolean; testNumber?: number; reply?: string; source?: string; dispatched?: boolean }>("/assistente/sandbox", {
+      const res = await apiFetch<{ ok?: boolean; testNumber?: number; reply?: string; source?: string; latencyMs?: number; dispatched?: boolean }>("/assistente/sandbox", {
         method: "POST",
         body: JSON.stringify({
           message: text,
@@ -522,42 +578,56 @@ function SandboxChat({ assistente, liveFluxo }: { assistente: Assistente; liveFl
         }),
       });
       setLastTestNo(res?.testNumber ?? null);
-      setTurns((prev) => [...prev, { role: "assistant", content: res?.reply || "…", source: res?.source, testNumber: res?.testNumber }]);
+      setLastSource(res?.source ? { source: res.source, ms: res.latencyMs ?? 0 } : null);
+      setMsgs((prev) => [...prev, { dir: "in", text: res?.reply || "…", time: nowTime() }]);
     } catch (e) {
-      setTurns((prev) => [...prev, { role: "assistant", content: e instanceof Error ? e.message : "Falhou.", source: "erro" }]);
+      setMsgs((prev) => [...prev, { dir: "in", system: true, tone: "red", text: e instanceof Error ? e.message : "Falhou." }]);
+      setLastSource(null);
     } finally {
       setBusy(false);
+      scrollDown();
     }
   }
 
+  const srcLabel = lastSource
+    ? (SOURCE_LABEL[lastSource.source] || lastSource.source) + (lastSource.source === "ia" && lastSource.ms > 0 ? ` · ${(lastSource.ms / 1000).toFixed(1)}s` : "")
+    : null;
+
   return (
-    <div className="ia-chat">
-      <div className="ia-chat__head">
-        <I d={ICONS.smile} size={16} />
-        <span className="ia-chat__title">Teste sua IA</span>
-        <span className="ia-chat__safe"><I d={ICONS.check} size={11} /> Sem chip</span>
+    <div className="ia-chat-dock">
+      <div className="ia-chat-dock__bar">
+        <I d={ICONS.smile} size={15} />
+        <span className="ia-chat-dock__title">Teste sua IA</span>
+        <span className="ia-chat-dock__no">{lastTestNo != null ? `Teste nº ${lastTestNo}` : ""}</span>
+        <span className="ia-chat-dock__safe"><I d={ICONS.check} size={11} /> Sem chip</span>
       </div>
-      <div className="ia-chat__test-no">
-        {lastTestNo != null ? `Teste nº ${lastTestNo}` : "Converse abaixo — nenhuma mensagem real é enviada."}
-      </div>
-      <div className="ia-chat__body" ref={bodyRef}>
-        {turns.length === 0 ? (
-          <div className="ia-chat__empty">Mande um "oi" para ver a {assistente.nome} responder.</div>
-        ) : (
-          turns.map((t, i) => (
-            <div key={i} className={"ia-msg " + (t.role === "user" ? "is-user" : "is-bot")}>
-              {t.content}
-              {t.role === "assistant" && t.source && t.source !== "erro" && (
-                <div className="ia-msg__meta">{t.source === "ia" ? "IA local" : t.source === "roteiro" ? "roteiro" : "fluxo"}</div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-      <div className="ia-chat__foot">
-        <input className="field-dark" value={input} placeholder="Escreva como um cliente…"
-          onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void send(); }} disabled={busy} />
-        <button className="btn-teal btn-xs" onClick={() => void send()} disabled={busy || !input.trim()}><I d={ICONS.send} size={14} /></button>
+
+      <WhatsAppPreview
+        className="ia-chat-phone"
+        messages={msgs}
+        typing={busy}
+        bodyRef={bodyRef}
+        header={{ name: assistente.nome, status: "online" }}
+        emptyHint={`Mande um "oi" para ver a ${assistente.nome} responder. Nenhuma mensagem sai para o WhatsApp.`}
+        footer={
+          <form className="wa-composer-row" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+            <input
+              className="field-dark wa-composer-input"
+              value={input}
+              placeholder="Escreva como um cliente…"
+              onChange={(e) => setInput(e.target.value)}
+              disabled={busy}
+              aria-label="Mensagem de teste"
+            />
+            <button type="submit" className="wa-send" disabled={busy || !input.trim()} aria-label="Enviar">
+              <I d={ICONS.send} size={16} />
+            </button>
+          </form>
+        }
+      />
+
+      <div className="ia-chat-dock__src">
+        {srcLabel ? <><I d={ICONS.bolt} size={11} /> {srcLabel}</> : "O teste roda a IA local — nada é enviado no WhatsApp."}
       </div>
     </div>
   );

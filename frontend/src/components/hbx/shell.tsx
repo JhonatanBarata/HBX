@@ -690,8 +690,11 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   logistica: null,
   // Logística → Clientes: sem gate por usuário/plano (null) — nasce ligada, igual Contatos.
   clientes: null,
-  bot: null,
-  assistente: null,
+  // Bot e Assistente IA usam o MESMO módulo 'bot' do backend (@ModuleAccess('bot'),
+  // defaultEnabled=false). Sem o gate aqui a sidebar mostrava os itens e a tela
+  // devolvia 403 "Módulo indisponível" — contra o fail-closed (sem acesso = some).
+  bot: "bot",
+  assistente: "bot",
   relat: "vendas",
   website: "website",
   config: null,

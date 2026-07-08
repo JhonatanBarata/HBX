@@ -19,8 +19,11 @@ html, body { margin: 0; }
    o conteúdo, por dentro. Toda tela "encaixa" na altura — sem barra de rolagem
    da página inteira. O antigo .app.app-viewport (Atendimento/Bot) virou o padrão.
    Largura da 1ª coluna = --rail-width (token de esqueleto, spacing.css); estado
-   colapsado (LEADS-FINAL/01, 06/07) troca só a variável — zero estilo novo aqui. */
-.app { display: grid; grid-template-columns: var(--rail-width) 1fr; height: 100dvh; overflow: hidden; transition: grid-template-columns var(--motion-base) var(--ease-out-quint); }
+   colapsado (LEADS-FINAL/01, 06/07) troca só a variável — zero estilo novo aqui.
+   overflow: clip (não hidden): hidden ainda deixa focus/scrollIntoView rolarem o
+   wrapper por scrollTop programático — a casca inteira "escorregava" ao focar
+   input fora da viewport (bug achado 07/07 no celular do Assistente IA). */
+.app { display: grid; grid-template-columns: var(--rail-width) 1fr; height: 100dvh; overflow: clip; transition: grid-template-columns var(--motion-base) var(--ease-out-quint); }
 .app[data-rail="min"] { grid-template-columns: var(--rail-width-min) 1fr; }
 
 /* ---------- Sidebar ---------- */
