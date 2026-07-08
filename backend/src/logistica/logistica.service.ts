@@ -434,6 +434,10 @@ export class LogisticaService {
       throw e;
     }
 
+    // B1 — realimenta a coordenada do cliente com o GPS de ouro da porta real
+    // (best-effort, FORA da tx do confirmar — mesmo padrão do persistirDesfecho).
+    await this.realimentarCoordenadaCliente(companyId, entrega.customerProfileId, { lat, lng, accuracy: gps.accuracy });
+
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.
     //
@@ -494,6 +498,39 @@ export class LogisticaService {
       });
     } catch (e: any) {
       this.logger.warn(`[logistica] persistirDesfecho entrega=${entregaId} falhou: ${String(e?.message || e)}`);
+    }
+  }
+
+  // ── B1 — GPS de ouro jogado fora: realimenta o cadastro do cliente ──────────
+  /**
+   * B1 (07/07) — o pino do cadastro nasce de geocode (CEP→Nominatim), impreciso
+   * no BR (número de casa raro no OSM) → o geofence quase nunca dispara certo.
+   * Ao confirmar com GPS PRECISO (accuracy<=60m), atualiza CustomerProfile.lat/lng
+   * + geoFonte='gps_entrega' — a porta CONVERGE a cada entrega (última vence).
+   * NUNCA sobrescreve uma coordenada marcada 'gps_cadastro' (o dono usou "Usar
+   * este local" no cadastro — decisão humana explícita, intocável). Best-effort
+   * FORA da transação do confirmar: falha aqui NUNCA reverte a entrega (mesmo
+   * padrão do persistirDesfecho).
+   */
+  private async realimentarCoordenadaCliente(
+    companyId: number,
+    customerProfileId: string,
+    gps: { lat: number | null; lng: number | null; accuracy?: number },
+  ): Promise<void> {
+    if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') return;
+    if (typeof gps.accuracy !== 'number' || !Number.isFinite(gps.accuracy) || gps.accuracy > 60) return;
+    try {
+      const conta = await this.prisma.customerProfile.findFirst({
+        where: { id: customerProfileId, companyId },
+        select: { geoFonte: true },
+      });
+      if (!conta || conta.geoFonte === 'gps_cadastro') return; // decisão humana intocável.
+      await this.prisma.customerProfile.update({
+        where: { id: customerProfileId },
+        data: { lat: gps.lat, lng: gps.lng, geoFonte: 'gps_entrega' },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[logistica] realimentarCoordenada cliente=${customerProfileId} falhou: ${String(e?.message || e)}`);
     }
   }
 
@@ -1485,6 +1522,9 @@ export interface RotaResult {
 export interface ConfirmarGps {
   lat?: number;
   lng?: number;
+  // B1 — precisão do GPS em metros (coords.accuracy). Só decide a realimentação
+  // da coordenada do cliente (accuracy<=60m); nunca bloqueia a confirmação.
+  accuracy?: number;
   receiptMethod?: string;
   itens?: Array<{ id: string; qtdEntregue: number }>;
   // M8 (offline-first) — chave de idempotência (uuid do celular). Se a MESMA key já

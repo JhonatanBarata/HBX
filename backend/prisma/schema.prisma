@@ -937,6 +937,12 @@ model CustomerProfile {
   // sem limite (comportamento atual). O app AVISA o entregador quando o saldo em
   // aberto estoura o teto — nunca bloqueia a entrega.
   limiteFiado          Float?
+  // LOGÍSTICA-MOBILE B1 (07/07) — origem da coordenada (lat/lng), pra nunca
+  // sobrescrever um pino bom com um ruim. "geocode" (CEP→Nominatim, impreciso no
+  // BR) | "gps_cadastro" (GPS do "Usar este local" no cadastro — o dono marcou
+  // manualmente, NUNCA sobrescrito) | "gps_entrega" (GPS de ouro da porta real,
+  // gravado pelo confirmar quando accuracy<=60m). null = legado (sem origem).
+  geoFonte             String?
   // LOGÍSTICA-MOBILE M5 (05/07) — toggle POR CLIENTE do aviso "entregue" no zap.
   // Soma com o global (LogisticaConfig.avisoWhatsEnabled): o N6 só dispara quando
   // ambos true. Default true = mantém o comportamento atual (aditivo/seguro).

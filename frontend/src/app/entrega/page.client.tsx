@@ -25,6 +25,7 @@ import {
   type RotaResult,
 } from "./entrega-api";
 import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock } from "./entrega-hooks";
+import { getConfig } from "./gestao-api";
 
 // ================================================================
 // LOGÍSTICA-MOBILE M4 — O APP DO ENTREGADOR (as 3 telas reais).
@@ -39,7 +40,7 @@ import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock } from ".
 type View = "hoje" | "rota";
 
 const DATA_HOJE = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
-const RAIO_CHEGADA_FALLBACK_M = 60; // default do LogisticaConfig (schema); geofence foreground.
+const RAIO_CHEGADA_FALLBACK_M = 60; // default do LogisticaConfig (schema); só usado se GET /logistica/config falhar.
 const SWIPE_THRESHOLD_PX = 60;
 
 export function EntregaHome() {
@@ -48,6 +49,10 @@ export function EntregaHome() {
   const sync = useOfflineSync(); // M8 — fila offline + pendências no header.
 
   const [rota, setRota] = useState<RotaResult | null>(null);
+  // B1 — raio de chegada REAL do admin (Ajustes M5); 1× no mount, best-effort
+  // (o Ajustes já edita LogisticaConfig.raioChegadaM — o app do entregador
+  // nunca lia esse valor antes, ficava com 60m hardcoded pra sempre).
+  const [raioChegadaM, setRaioChegadaM] = useState<number>(RAIO_CHEGADA_FALLBACK_M);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [view, setView] = useState<View>("hoje");
@@ -81,6 +86,18 @@ export function EntregaHome() {
 
   useEffect(() => { void (async () => { await carregar(); })(); }, [carregar]);
 
+  // B1 — lê o raio configurado 1× no mount; falha mantém o fallback (60m).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const cfg = await getConfig();
+        if (typeof cfg.raioChegadaM === "number" && cfg.raioChegadaM > 0) setRaioChegadaM(cfg.raioChegadaM);
+      } catch {
+        /* mantém o fallback — best-effort */
+      }
+    })();
+  }, []);
+
   // Paradas abertas na ordem da rota (fonte do carrossel + progresso).
   const abertas = useMemo(() => (rota ? paradasAbertas(rota) : []), [rota]);
   const totalDia = rota?.items.length ?? 0;
@@ -98,8 +115,8 @@ export function EntregaHome() {
     if (!paradaAtual || typeof paradaAtual.cliente.lat !== "number" || typeof paradaAtual.cliente.lng !== "number") {
       return null;
     }
-    return { id: paradaAtual.id, lat: paradaAtual.cliente.lat, lng: paradaAtual.cliente.lng, raioM: RAIO_CHEGADA_FALLBACK_M };
-  }, [paradaAtual]);
+    return { id: paradaAtual.id, lat: paradaAtual.cliente.lat, lng: paradaAtual.cliente.lng, raioM: raioChegadaM };
+  }, [paradaAtual, raioChegadaM]);
 
   const onChegada = useCallback(() => {
     buzz([24, 40, 24]);
@@ -176,7 +193,7 @@ export function EntregaHome() {
       if (!paradaAtual) return;
       setSubmitting(true);
       buzz([16, 20, 16]);
-      let gps: { lat: number; lng: number } | undefined;
+      let gps: { lat: number; lng: number; accuracy?: number } | undefined;
       try {
         gps = await getPosicaoUma();
       } catch {
@@ -190,6 +207,7 @@ export function EntregaHome() {
         await sync.enqueueConfirmacao(paradaAtual.id, {
           lat: gps?.lat,
           lng: gps?.lng,
+          accuracy: gps?.accuracy, // B1 — o backend só realimenta o cadastro se accuracy<=60m.
           receiptMethod: payload.receiptMethod,
           itens: payload.itens,
         });

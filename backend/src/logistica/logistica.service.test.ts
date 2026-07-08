@@ -34,6 +34,8 @@ function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
   const masterEvents: any[] = [];
+  // B1 — updates do CustomerProfile fora da tx (realimentação de coordenada).
+  const customerProfileUpdates: any[] = [];
   const prisma: any = {
     entrega: {
       findFirst: async () => entrega,
@@ -81,6 +83,15 @@ function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
     },
     customerProfile: {
       findFirst: async () => conta,
+      // B1 — realimentação de coordenada (fora da tx). Reflete lat/lng/geoFonte
+      // no MESMO objeto `conta` (pra um 2º confirmar ver o geoFonte atualizado).
+      update: async (args: any) => {
+        customerProfileUpdates.push(args.data);
+        if (args.data?.lat !== undefined) conta.lat = args.data.lat;
+        if (args.data?.lng !== undefined) conta.lng = args.data.lng;
+        if (args.data?.geoFonte !== undefined) conta.geoFonte = args.data.geoFonte;
+        return { id: conta.id, ...args.data };
+      },
     },
     contato: {
       findFirst: async () => null,
@@ -112,7 +123,7 @@ function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
     // mock não isola de verdade, mas prova que o serviço passa por $transaction).
     $transaction: async (fn: any) => fn(prisma),
   };
-  return { chargesCreated, entregaUpdates, masterEvents, prisma };
+  return { chargesCreated, entregaUpdates, masterEvents, customerProfileUpdates, prisma };
 }
 
 // LogisticaRotaService stub: o re-ETA pós-ação (M3) é aditivo/best-effort e não
@@ -255,6 +266,65 @@ test('confirmarEntrega: flag ON mas aviso OFF (global/cliente) → NÃO chama Wh
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── B1 — realimentação de coordenada (GPS de ouro da porta real) ─────────────
+test('B1 confirmar com GPS preciso: cliente geocode → atualiza lat/lng + geoFonte=gps_entrega', async () => {
+  const conta = {
+    id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+    formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true, geoFonte: 'geocode', lat: -4.0, lng: -38.0,
+  };
+  const { prisma, customerProfileUpdates } = buildPrismaMock(buildEntrega(), conta);
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 25 });
+
+  assert.equal(customerProfileUpdates.length, 1, 'GPS preciso (accuracy<=60) em cliente geocode deve realimentar');
+  assert.equal(customerProfileUpdates[0].lat, -4.9);
+  assert.equal(customerProfileUpdates[0].lng, -38.3);
+  assert.equal(customerProfileUpdates[0].geoFonte, 'gps_entrega');
+});
+
+test('B1 confirmar com GPS preciso: cliente gps_cadastro NUNCA é sobrescrito', async () => {
+  const conta = {
+    id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+    formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true, geoFonte: 'gps_cadastro', lat: -4.1, lng: -38.1,
+  };
+  const { prisma, customerProfileUpdates } = buildPrismaMock(buildEntrega(), conta);
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 10 });
+
+  assert.equal(customerProfileUpdates.length, 0, 'geoFonte=gps_cadastro é decisão humana intocável — nunca sobrescreve');
+  assert.equal(conta.lat, -4.1, 'coordenada do cadastro preservada');
+  assert.equal(conta.lng, -38.1);
+});
+
+test('B1 confirmar sem accuracy (ou accuracy > 60m) → NÃO realimenta a coordenada', async () => {
+  const conta = {
+    id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+    formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true, geoFonte: 'geocode',
+  };
+  const { prisma, customerProfileUpdates } = buildPrismaMock(buildEntrega(), conta);
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 }); // sem accuracy
+  assert.equal(customerProfileUpdates.length, 0, 'sem accuracy = GPS não confiável o bastante');
+
+  const conta2 = { ...conta, id: 'conta-1' };
+  const { prisma: prisma2, customerProfileUpdates: updates2 } = buildPrismaMock(buildEntrega(), conta2);
+  const service2 = new LogisticaService(prisma2, conversations, rota, config);
+  await service2.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 120 }); // impreciso
+  assert.equal(updates2.length, 0, 'accuracy > 60m não realimenta (impreciso demais)');
 });
 
 // ── R2 (a) — idempotência: confirmar 2× a MESMA entrega = 1 charge ────────────

@@ -78,6 +78,15 @@ export class ConfirmarEntregaDto {
   @Max(180)
   lng?: number;
 
+  // B1 (07/07) — precisão do GPS em metros (navigator.geolocation coords.accuracy).
+  // Usada SÓ pra decidir se este ponto é bom o bastante pra realimentar o cadastro
+  // do cliente (accuracy<=60m); nunca bloqueia a confirmação em si.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100000)
+  accuracy?: number;
+
   // M4 — pagamento condicional: método escolhido na folha de chegada. SÓ chega
   // quando o cliente é 'aberto' (chips visíveis) e o módulo financeiro está ON;
   // costumeiro/OFF nunca manda. Aceito e persistido (receiptMethod); a criação

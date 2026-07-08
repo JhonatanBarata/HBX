@@ -105,6 +105,9 @@ export interface PlanejarRotaResult {
 export interface ConfirmarPayload {
   lat?: number;
   lng?: number;
+  // B1 — precisão do GPS em metros (coords.accuracy). Decide se o backend usa
+  // este ponto pra realimentar o cadastro do cliente (accuracy<=60m).
+  accuracy?: number;
   receiptMethod?: ReceiptMethod;
   itens?: Array<{ id: string; qtdEntregue: number }>;
   // M8 (offline-first) — chave de idempotência (uuid). O servidor dedupe por ela:

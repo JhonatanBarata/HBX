@@ -76,15 +76,24 @@ export function useWakeLock() {
   return { enable, disable };
 }
 
-/** 1 leitura de GPS (Promise). Rejeita se indisponível/negado/timeout. */
-export function getPosicaoUma(): Promise<{ lat: number; lng: number }> {
+/**
+ * 1 leitura de GPS (Promise). Rejeita se indisponível/negado/timeout.
+ * B1 — devolve também `accuracy` (metros, coords.accuracy) pra quem consome
+ * decidir se o ponto é bom o bastante pra realimentar o cadastro do cliente.
+ */
+export function getPosicaoUma(): Promise<{ lat: number; lng: number; accuracy?: number }> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       reject(new Error("GPS indisponível"));
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) =>
+        resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : undefined,
+        }),
       (err) => reject(err),
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 },
     );

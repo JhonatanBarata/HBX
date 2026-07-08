@@ -88,6 +88,7 @@ export class LogisticaController {
     const res = await this.service.confirmarEntrega(companyId, id, {
       lat: dto?.lat,
       lng: dto?.lng,
+      accuracy: dto?.accuracy,
       receiptMethod: dto?.receiptMethod,
       itens: dto?.itens,
       idempotencyKey: dto?.idempotencyKey,

@@ -33,6 +33,9 @@ export type PendenciaStatus = "pending" | "needs_attention";
 export interface PendenciaPayload {
   lat?: number;
   lng?: number;
+  // B1 — precisão do GPS (metros); aditivo, não quebra itens já enfileirados
+  // (fica undefined nos itens antigos, o backend trata como "sem accuracy").
+  accuracy?: number;
   receiptMethod?: "pix" | "dinheiro" | "fiado";
   itens?: Array<{ id: string; qtdEntregue: number }>;
 }

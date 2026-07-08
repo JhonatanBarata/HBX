@@ -655,6 +655,9 @@ export class NucleoCadastroService {
         cep: true,
         lat: true,
         lng: true,
+        // B1 — a ficha devolve a origem do pino atual (o editor manda de volta no
+        // save, e o front decide se pisa nela ou não conforme o que o usuário fez).
+        geoFonte: true,
         phone: true,
         email: true,
         status: true,
@@ -688,6 +691,7 @@ export class NucleoCadastroService {
       cep: row.cep ?? null,
       lat: row.lat ?? null,
       lng: row.lng ?? null,
+      geoFonte: row.geoFonte ?? null,
       // telefone da ficha = do contato principal (fonte do fluxo do app); cai pro
       // phone da conta se o principal não tiver.
       whatsapp: principal?.whatsapp ?? principal?.phone ?? row.phone ?? null,
@@ -767,6 +771,7 @@ export class NucleoCadastroService {
           ...(input.cep !== undefined ? { cep: input.cep || null } : {}),
           ...(input.lat !== undefined ? { lat: input.lat } : {}),
           ...(input.lng !== undefined ? { lng: input.lng } : {}),
+          ...(input.geoFonte !== undefined ? { geoFonte: normalizeGeoFonteInput(input.geoFonte) } : {}),
           // papéis acumulativos: só LIGAM (nunca desligam um papel já marcado)
           ...(isCliente ? { isCliente: true } : {}),
           ...(isLead ? { isLead: true } : {}),
@@ -792,6 +797,7 @@ export class NucleoCadastroService {
           cep: input.cep || null,
           lat: input.lat ?? null,
           lng: input.lng ?? null,
+          geoFonte: normalizeGeoFonteInput(input.geoFonte),
           isCliente,
           isLead,
           isFornecedor,
@@ -900,6 +906,7 @@ export class NucleoCadastroService {
     if (input.cep !== undefined) data.cep = input.cep || null;
     if (input.lat !== undefined) data.lat = input.lat;
     if (input.lng !== undefined) data.lng = input.lng;
+    if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
     // Papéis no PATCH: aqui podem LIGAR e DESLIGAR (é edição explícita da conta).
     if (input.isCliente !== undefined) data.isCliente = Boolean(input.isCliente);
     if (input.isLead !== undefined) data.isLead = Boolean(input.isLead);
@@ -1227,6 +1234,13 @@ function normalizeDigits(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D+/g, '');
 }
 
+// LOGÍSTICA-MOBILE B1 (07/07) — só 'geocode' | 'gps_cadastro' passam pelo cadastro
+// (o front nunca manda outra coisa; o DTO também trava, isto é defesa em profundidade).
+// 'gps_entrega' é gravado SOMENTE pelo confirmarEntrega (LogisticaService) — nunca aqui.
+function normalizeGeoFonteInput(v: string | null | undefined): 'geocode' | 'gps_cadastro' | null {
+  return v === 'geocode' || v === 'gps_cadastro' ? v : null;
+}
+
 // Casa contato↔conversa pelo MESMO número, tolerando país (55) e o "9" de celular.
 // Devolve as chaves LOCAIS comparáveis (DDD+número): p.ex. "85999990000" e a
 // variante sem o 9 ("8599990000"). Interseção não-vazia entre dois conjuntos de
@@ -1389,6 +1403,8 @@ export interface ClienteDetail {
   cep: string | null;
   lat: number | null;
   lng: number | null;
+  // B1 — origem do pino atual (geocode | gps_cadastro | gps_entrega | null).
+  geoFonte: string | null;
   whatsapp: string | null;
   email: string | null;
   isLead: boolean;
@@ -1462,6 +1478,9 @@ export interface CreateContaInput {
   cep?: string | null;
   lat?: number | null;
   lng?: number | null;
+  // LOGÍSTICA-MOBILE B1 (07/07) — origem da coordenada. 'gps_entrega' é
+  // EXCLUSIVO do confirmarEntrega (LogisticaService); aqui só 'geocode' | 'gps_cadastro'.
+  geoFonte?: string | null;
   isCliente?: boolean;
   isLead?: boolean;
   isFornecedor?: boolean;
@@ -1506,6 +1525,8 @@ export interface UpdateContaInput {
   cep?: string | null;
   lat?: number | null;
   lng?: number | null;
+  // LOGÍSTICA-MOBILE B1 (07/07) — mesma regra do CreateContaInput acima.
+  geoFonte?: string | null;
   isCliente?: boolean;
   isLead?: boolean;
   isFornecedor?: boolean;

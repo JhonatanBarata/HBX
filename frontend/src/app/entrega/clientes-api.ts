@@ -60,6 +60,8 @@ export interface ClienteDetail {
   cep: string | null;
   lat: number | null;
   lng: number | null;
+  // B1 — origem do pino atual (geocode | gps_cadastro | gps_entrega | null).
+  geoFonte: string | null;
   whatsapp: string | null;
   email: string | null;
   isLead: boolean;
@@ -89,6 +91,10 @@ export interface CriarClientePayload {
   cep?: string;
   lat?: number;
   lng?: number;
+  // B1 — origem da coordenada acima: "geocode" (CEP→Nominatim) | "gps_cadastro"
+  // ("Usar este local"). Sem isso o confirmar da entrega nunca sabe se pode
+  // realimentar esse pino com o GPS de ouro da porta.
+  geoFonte?: "geocode" | "gps_cadastro";
   isCliente?: boolean;
 }
 export interface ContaCriada {
@@ -112,6 +118,8 @@ export interface EditarClientePayload {
   cep?: string;
   lat?: number;
   lng?: number;
+  // B1 — mesma regra do CriarClientePayload acima.
+  geoFonte?: "geocode" | "gps_cadastro";
 }
 
 export function editarCliente(id: string, p: EditarClientePayload): Promise<{ id: string }> {

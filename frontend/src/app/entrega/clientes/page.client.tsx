@@ -221,6 +221,10 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
   const [cidade, setCidade] = useState("");
   const [uf, setUf] = useState("");
   const [coord, setCoord] = useState<{ lat: number; lng: number } | null>(null);
+  // B1 — origem do pino atual: "geocode" (CEP) ou "gps_cadastro" ("Usar este
+  // local"). Vai junto no salvar pra o confirmar da entrega saber se pode
+  // realimentar esse pino depois (gps_cadastro NUNCA é sobrescrito).
+  const [coordFonte, setCoordFonte] = useState<"geocode" | "gps_cadastro" | null>(null);
   const [capturandoGps, setCapturandoGps] = useState(false);
   const [cepStatus, setCepStatus] = useState<"idle" | "buscando" | "ok" | "erro">("idle");
   const [confirmarNumero, setConfirmarNumero] = useState(false); // fluxo GPS: "o número está certo?"
@@ -279,6 +283,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         setCidade(c.cidade || "");
         setUf(c.uf || "");
         setCoord(typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng } : null);
+        setCoordFonte(c.geoFonte === "geocode" || c.geoFonte === "gps_cadastro" ? c.geoFonte : null);
         setForma((c.formaPagamento as FormaPagamento) || "aberto");
         setMetodo((c.metodoPadrao as MetodoPadrao) || "");
         setDiaFechamento(c.diaFechamento ? String(c.diaFechamento) : "");
@@ -321,7 +326,10 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     numeroRef.current?.focus();
     const q = [end.logradouro, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(", ");
     const pt = await geocodar(q);
-    if (pt) setCoord(pt);
+    if (pt) {
+      setCoord(pt);
+      setCoordFonte("geocode");
+    }
   }, []);
 
   const onCepChange = useCallback(
@@ -340,7 +348,10 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     const rua = `${logradouro.trim()}${numero.trim() ? `, ${numero.trim()}` : ""}`;
     const q = [rua, bairro.trim(), cidade.trim(), uf.trim()].filter(Boolean).join(", ");
     const pt = await geocodar(q);
-    if (pt) setCoord(pt);
+    if (pt) {
+      setCoord(pt);
+      setCoordFonte("geocode");
+    }
   }, [logradouro, numero, bairro, cidade, uf]);
 
   // CAMINHO 2 — "Usar este local": GPS + reverse-geocode preenchem o endereço
@@ -351,6 +362,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     try {
       const pos = await getPosicaoUma();
       setCoord(pos);
+      setCoordFonte("gps_cadastro"); // B1 — decisão humana explícita, o confirmar da entrega nunca sobrescreve.
       const end = await reverseGeocodar(pos);
       if (end) {
         if (end.cep) setCep(formatarCep(end.cep));
@@ -407,6 +419,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           uf: uf.trim() || undefined,
           cep: cepFinal,
           ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+          ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
         });
         contaId = criada.contaId;
       } else if (id) {
@@ -417,6 +430,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           uf: uf.trim(),
           cep: cepFinal,
           ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+          ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
         });
         // Telefone do principal: só bate no endpoint se mudou e há um principal.
         if (contatoPrincipalId && whatsapp.trim() !== whatsappOriginal.trim()) {
@@ -436,7 +450,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     }
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId,
-    comporEndereco, cep, cidade, uf, coord, forma, metodo, diaFechamento, contabilizar,
+    comporEndereco, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
     limiteFiado, onSair,
   ]);
 

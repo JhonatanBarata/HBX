@@ -87,6 +87,14 @@ export class CreateContaDto {
   @IsNumber()
   lng?: number;
 
+  // LOGÍSTICA-MOBILE B1 (07/07) — origem da coordenada acima (só o front decide;
+  // 'gps_entrega' é EXCLUSIVO do confirmar, nunca aceito aqui — o serviço ignora
+  // qualquer outro valor). 'geocode' (CEP) | 'gps_cadastro' ("Usar este local").
+  @IsOptional()
+  @IsString()
+  @IsIn(['geocode', 'gps_cadastro'])
+  geoFonte?: string;
+
   // Papéis — default: cadastro manual do vendedor nasce como CLIENTE (o pedido).
   @IsOptional()
   @IsBoolean()
@@ -156,6 +164,12 @@ export class UpdateContaDto {
   @IsOptional()
   @IsNumber()
   lng?: number;
+
+  // LOGÍSTICA-MOBILE B1 (07/07) — mesma regra do CreateContaDto acima.
+  @IsOptional()
+  @IsString()
+  @IsIn(['geocode', 'gps_cadastro'])
+  geoFonte?: string;
 
   @IsOptional()
   @IsBoolean()
