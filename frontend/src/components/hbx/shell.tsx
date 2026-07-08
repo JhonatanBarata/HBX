@@ -856,23 +856,31 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
 
   return (
     <aside className="side">
-      <div className="logo">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
-        <strong>HBX</strong>
+      <div className="side-head">
+        <div className="logo">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
+          <strong>HBX</strong>
+        </div>
+        {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
+            Botão central existente (round-btn) — zero visual novo. Fica ao lado
+            da marca (07/07): libera a linha inteira que sobrava abaixo do logo. */}
+        {onToggleRail && (
+          <button
+            type="button"
+            className="round-btn rail-toggle"
+            onClick={onToggleRail}
+            aria-label={rail === "min" ? "Expandir menu" : "Recolher menu"}
+            title={rail === "min" ? "Expandir menu" : "Recolher menu"}
+          >
+            {/* key={rail} força remount a cada clique (07/07): o ícone troca de
+                direção JÁ na primeira animation-frame, então o "blink" CSS
+                (encolhe → cresce) sempre nasce mostrando a seta nova. */}
+            <span className="rail-toggle__icon" key={rail}>
+              <I d={rail === "min" ? ICONS.railExpand : ICONS.railCollapse} size={16} />
+            </span>
+          </button>
+        )}
       </div>
-      {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
-          Botão central existente (round-btn) — zero visual novo. */}
-      {onToggleRail && (
-        <button
-          type="button"
-          className="round-btn rail-toggle"
-          onClick={onToggleRail}
-          aria-label={rail === "min" ? "Expandir menu" : "Recolher menu"}
-          title={rail === "min" ? "Expandir menu" : "Recolher menu"}
-        >
-          <I d={rail === "min" ? ICONS.railExpand : ICONS.railCollapse} size={16} />
-        </button>
-      )}
       <GlassPill {...gp} />
       {visible.map((n, i) => {
         let cls = "nav-item" + (n.id === active ? " active" : "");

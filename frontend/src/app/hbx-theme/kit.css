@@ -29,32 +29,48 @@ html, body { margin: 0; }
    tooltip via TSX), centraliza ícone, aperta padding. Zero visual novo, só layout. */
 .app[data-rail="min"] .side { padding-left: 8px; padding-right: 8px; }
 .app[data-rail="min"] .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
-.app[data-rail="min"] .nav-item span.nav-item__label { display: none; }
-.app[data-rail="min"] .logo strong,
-.app[data-rail="min"] .plan-card,
+.app[data-rail="min"] .nav-item span.nav-item__label { max-width: 0; opacity: 0; }
+.app[data-rail="min"] .logo strong { max-width: 0; opacity: 0; }
+.app[data-rail="min"] .nav-group-label { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+.app[data-rail="min"] .plan-card { max-height: 0; opacity: 0; padding: 0; border-width: 0; pointer-events: none; }
 .app[data-rail="min"] .user-card small,
-.app[data-rail="min"] .user-card strong,
-.app[data-rail="min"] .nav-group-label { display: none; }
+.app[data-rail="min"] .user-card strong { max-height: 0; opacity: 0; }
+.app[data-rail="min"] .side-head { flex-direction: column; gap: 6px; }
 .app[data-rail="min"] .logo { justify-content: center; padding-left: 0; padding-right: 0; }
 .app[data-rail="min"] .user-card { justify-content: center; }
 .app[data-rail="min"] .rail-toggle { margin-left: auto; margin-right: auto; }
+/* Cabeçalho da sidebar (07/07): logo + toggle do rail na MESMA linha — antes o
+   botão ficava numa linha própria abaixo da marca, empurrando o menu pra baixo
+   à toa. Colapsado (regra acima) volta a empilhar (ícone só, sem texto ao lado). */
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 6px 8px 10px; }
 /* Toggle do rail (LEADS-FINAL/01): botão redondo central (.round-btn), só a
-   posição é própria daqui — encosta na direita quando expandido, centraliza
-   quando colapsado (regra acima). */
-.rail-toggle { align-self: flex-end; margin: -6px 0 6px; flex: 0 0 auto; }
+   posição é própria daqui. */
+.rail-toggle { flex: 0 0 auto; }
+/* Blink do ícone ao clicar (07/07): em vez de trocar a seta na hora, encolhe
+   devagar até sumir e cresce devagar de volta já apontando pro lado novo —
+   key={rail} no TSX remonta o <span> a cada clique, disparando a animação. */
+.rail-toggle__icon { display: inline-flex; animation: hbx-rail-icon-blink var(--motion-base) var(--ease-out-quint); }
+@keyframes hbx-rail-icon-blink {
+  0% { transform: scale(1); opacity: 1; }
+  45% { transform: scale(0.1); opacity: 0.2; }
+  100% { transform: scale(1); opacity: 1; }
+}
 
 /* marca persistente entre rotas (View Transitions): a logo MORFA de
    posição em vez de piscar — site → login → sistema parece a mesma página. */
-.logo { display: flex; align-items: center; gap: 8px; padding: 2px 10px 18px; view-transition-name: hbx-brand; }
-.logo strong { font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); }
+.logo { display: flex; align-items: center; gap: 8px; padding: 0; view-transition-name: hbx-brand; }
+.logo strong { display: inline-block; max-width: 80px; overflow: hidden; white-space: nowrap; font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); transition: max-width var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
 /* Rótulo de guia/seção do menu (pedido do dono 07/07 — agrupar módulos por
    intenção: Informações/Comunicação/Cadastros/Facilidades/Logística).
    Estrutural só: tamanho+espaçamento próprios, cor vem de --text-muted (mesmo
    token do resto do kit, nunca hex solto). Primeiro grupo não empurra a logo. */
-.nav-group-label { padding: 10px 11px 2px; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.nav-group-label { max-height: 40px; padding: 10px 11px 2px; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow: hidden; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast), padding var(--motion-base) var(--ease-out-quint); }
 .nav-group-label:first-child { padding-top: 2px; }
-.nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.86rem; font-weight: 600; cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
-.nav-item__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Ida e volta do recolhe/expande (07/07): padding+gap animam junto com o rail
+   (mesma easing do grid-template-columns em .app) — sem isso os ícones "pulavam"
+   de posição no instante do toggle, em vez de deslizar. */
+.nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.86rem; font-weight: 600; cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast), padding var(--motion-base) var(--ease-out-quint), gap var(--motion-base) var(--ease-out-quint); }
+.nav-item__label { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: max-width var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
 /* hover = mesma linguagem de vidro (não mais um retângulo chapado): brilho no
    topo + leve elevação, some macio quando o mouse sai. No item já ATIVO o
    próprio vidro deslizante (.nav-pill) já cobre o recado — hover não soma em cima. */
@@ -131,7 +147,10 @@ html, body { margin: 0; }
   .nav-item:hover { transform: none; }
 }
 .side-bottom { margin-top: auto; display: grid; gap: 10px; }
-.plan-card { padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); display: grid; gap: 8px; }
+/* Ida e volta do recolhe/expande (07/07): cartão de créditos e nome do usuário
+   também animam (antes cortavam seco via display:none) — mesma linguagem do
+   menu acima, transição na barra inteira. */
+.plan-card { max-height: 240px; opacity: 1; overflow: hidden; padding: 12px; border-width: 1px; border-style: solid; border-radius: var(--radius-md); border-color: var(--border-hairline); background: var(--hbx-surface); display: grid; gap: 8px; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast), padding var(--motion-base) var(--ease-out-quint), border-width var(--motion-fast); }
 .plan-card strong { font-size: 0.8rem; }
 .plan-card small { font-size: 0.68rem; color: var(--text-muted); }
 .plan-card button { min-height: var(--control-height-sm); border-radius: var(--radius-xs); border: 1px solid var(--hbx-brand); background: transparent; color: var(--hbx-brand); font-family: var(--font-body); font-size: 0.74rem; font-weight: 700; cursor: pointer; }
@@ -147,8 +166,8 @@ html, body { margin: 0; }
 .plan-card__meter.is-danger .plan-card__bar-fill { background: var(--hbx-danger); }
 .plan-card__meter.is-danger .plan-card__meter-val { color: var(--hbx-danger); }
 .user-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); }
-.user-card strong { display: block; font-size: 0.78rem; }
-.user-card small { font-size: 0.66rem; color: var(--text-muted); }
+.user-card strong { display: block; max-height: 20px; overflow: hidden; opacity: 1; font-size: 0.78rem; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
+.user-card small { display: block; max-height: 16px; overflow: hidden; opacity: 1; font-size: 0.66rem; color: var(--text-muted); transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
 .user-card .dots { margin-left: auto; color: var(--text-muted); cursor: pointer; }
 
 .avatar { position: relative; display: inline-grid; place-items: center; border-radius: 999px; color: var(--hbx-brand-contrast); font-weight: 700; background: var(--hbx-avatar-from); flex: 0 0 auto; }

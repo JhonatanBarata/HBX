@@ -1135,8 +1135,10 @@
   background: linear-gradient(180deg, var(--mod-glass-hi, var(--ent-surface)), var(--mod-glass-lo, var(--ent-surface)));
   border-color: var(--mod-line, var(--ent-hairline));
 }
+/* .ent-search fica FORA daqui de propósito: é o WRAPPER com padding do
+   campo de busca (o input .ent-input dentro dele é quem veste o vidro) —
+   pintá-lo criava uma faixa borda-a-borda desalinhada da lista. */
 [data-skin="entrega"] .ent-input,
-[data-skin="entrega"] .ent-search,
 [data-skin="entrega"] .ent-toggle {
   background: var(--mod-glass-recessed, var(--ent-surface-soft));
 }
