@@ -254,6 +254,7 @@ export class BaileysStartupService extends ChannelStartupService {
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectCircuitOpen = false;
+  private pairingCodeRequested = false;
   // Momento do ultimo 'open' (ms). Usado pela reap "um numero = uma conexao" como desempate
   // deterministico: quem conectou por ULTIMO vence; o mais antigo cai e limpa.
   public lastConnectedAtMs: number | null = null;
@@ -432,8 +433,16 @@ export class BaileysStartupService extends ChannelStartupService {
       };
 
       if (this.phoneNumber) {
-        await delay(1000);
-        this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
+        // Pede o pairing code UMA VEZ por socket. O handler de `qr` re-dispara a cada rotacao
+        // (qrTimeout=45s); regenerar aqui invalida o codigo anterior — se o usuario digitar o antigo
+        // (comum no WhatsApp Business, cujo fluxo passa dos 45s) as creds do socket nao batem com o no
+        // `link_code_companion_reg` devolvido → campo undefined → `Invalid buffer` → close 428/515 → loop.
+        // Estavel entre rotacoes; regenerar so por nova tentativa (novo socket) ou acao do usuario.
+        if (!this.pairingCodeRequested) {
+          await delay(1000);
+          this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
+          this.pairingCodeRequested = true;
+        }
       } else {
         this.instance.qrcode.pairingCode = null;
       }
@@ -702,6 +711,7 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   private async createClient(number?: string): Promise<WASocket> {
+    this.pairingCodeRequested = false;
     this.instance.authState = await this.defineAuthState();
 
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
