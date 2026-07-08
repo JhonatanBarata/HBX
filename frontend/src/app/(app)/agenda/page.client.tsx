@@ -9,6 +9,7 @@
 // abre a pergunta "atendeu? sim / não / remarcar" (reusa .btn-result central).
 // Sem valor R$ nesta tela (LEI DO VENDEDOR não é acionada: atividade não tem preço).
 
+import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
@@ -18,6 +19,7 @@ import { apiFetch } from "@/lib/api";
 type Atividade = {
   id: string;
   leadId: string;
+  leadNome?: string | null;
   tipo: string;
   titulo: string;
   vencimento: string | null;
@@ -30,6 +32,10 @@ type Atividade = {
   atrasada: boolean;
   criadaPor: string;
 };
+
+// Picker de card (item D — modal "Nova atividade"): mesmo contrato do board de
+// /vendas (blocks → cards), achatado e reduzido só ao que o picker precisa.
+type CardOpcao = { id: string; name: string | null };
 
 type AgendaResponse = {
   ok?: boolean;
@@ -75,6 +81,7 @@ function defaultVencInput(): string {
 }
 
 export function AgendaClient() {
+  const router = useRouter();
   useCurrentUser();
   const [data, setData] = useState<AgendaResponse>(null);
   const [loading, setLoading] = useState(true);
@@ -91,11 +98,67 @@ export function AgendaClient() {
   // Nova atividade (modal simples).
   const [novaOpen, setNovaOpen] = useState(false);
   const [novaLeadId, setNovaLeadId] = useState("");
+  const [novaLeadNome, setNovaLeadNome] = useState<string | null>(null);
   const [novaTitulo, setNovaTitulo] = useState("");
   const [novaTipo, setNovaTipo] = useState<string>("ligacao");
   const [novaVenc, setNovaVenc] = useState<string>(defaultVencInput());
   const [novaBusy, setNovaBusy] = useState(false);
   const [novaError, setNovaError] = useState<string | null>(null);
+
+  // Picker de card (item D): busca o board 1x a cada abertura do modal — filtro
+  // de nome é client-side sobre a lista já carregada (sem round-trip por letra).
+  const [boardOpcoes, setBoardOpcoes] = useState<CardOpcao[]>([]);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardError, setBoardError] = useState<string | null>(null);
+  const [pickerBusca, setPickerBusca] = useState("");
+
+  const carregarCards = useCallback(() => {
+    setBoardLoading(true);
+    setBoardError(null);
+    return apiFetch<{ blocks?: Record<string, Array<{ id: string; name?: string | null }>> }>("/vendas/board")
+      .then((res) => {
+        const vistos = new Set<string>();
+        const opcoes: CardOpcao[] = [];
+        for (const lista of Object.values(res?.blocks || {})) {
+          for (const card of lista || []) {
+            if (!card?.id || vistos.has(card.id)) continue;
+            vistos.add(card.id);
+            opcoes.push({ id: card.id, name: card.name ?? null });
+          }
+        }
+        opcoes.sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" }));
+        setBoardOpcoes(opcoes);
+      })
+      .catch((err: unknown) => {
+        setBoardError(err instanceof Error ? err.message : "Não foi possível carregar os cards.");
+      })
+      .finally(() => setBoardLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!novaOpen) return;
+    // rAF: mesmo motivo do padrão hbx:vendas-modo (react-hooks/set-state-in-effect
+    // reprova setState síncrono no corpo do effect).
+    const id = requestAnimationFrame(() => { carregarCards(); });
+    return () => cancelAnimationFrame(id);
+  }, [novaOpen, carregarCards]);
+
+  const cardsFiltrados = useMemo(() => {
+    const q = pickerBusca.trim().toLowerCase();
+    if (!q) return boardOpcoes;
+    return boardOpcoes.filter((o) => (o.name || o.id).toLowerCase().includes(q));
+  }, [boardOpcoes, pickerBusca]);
+
+  function escolherCard(opcao: CardOpcao) {
+    setNovaLeadId(opcao.id);
+    setNovaLeadNome(opcao.name);
+    setPickerBusca("");
+  }
+
+  function trocarCard() {
+    setNovaLeadId("");
+    setNovaLeadNome(null);
+  }
 
   const load = useCallback((tipo: string) => {
     setLoading(true);
@@ -169,11 +232,18 @@ export function AgendaClient() {
     }
   }
 
+  // "Abrir card" (item B): deixa o focus pro /vendas consumir no loadBoard
+  // (mesmo mecanismo do "hbx:vendas-modo") e navega — a casca intercepta.
+  function abrirCard(leadId: string) {
+    try { sessionStorage.setItem("hbx:vendas-focus-lead", leadId); } catch { /* sem storage */ }
+    router.push("/vendas");
+  }
+
   async function criarNova() {
     if (novaBusy) return;
     setNovaError(null);
     const iso = localInputToIso(novaVenc);
-    if (!novaLeadId.trim()) return setNovaError("Informe o ID do card (lead).");
+    if (!novaLeadId.trim()) return setNovaError("Escolha o card.");
     if (!novaTitulo.trim()) return setNovaError("Informe o título da atividade.");
     if (!iso) return setNovaError("Vencimento inválido.");
     setNovaBusy(true);
@@ -189,9 +259,11 @@ export function AgendaClient() {
       });
       setNovaOpen(false);
       setNovaLeadId("");
+      setNovaLeadNome(null);
       setNovaTitulo("");
       setNovaTipo("ligacao");
       setNovaVenc(defaultVencInput());
+      setPickerBusca("");
       setMsg("✓ Atividade criada.");
       await load(tipoFilter);
     } catch (err) {
@@ -295,6 +367,9 @@ export function AgendaClient() {
                         <span style={{ fontSize: "0.7rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em" }}>{tipoLabel(a.tipo)}</span>
                       </span>
                       <strong style={{ fontSize: "0.85rem", color: "var(--text-strong)" }}>{a.titulo}</strong>
+                      {a.leadNome && (
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>· {a.leadNome}</span>
+                      )}
                       {a.criadaPor !== "user" && (
                         <span className="badge-win" style={{ fontSize: "0.56rem" }}>{a.criadaPor === "ia" ? "IA" : "Automação"}</span>
                       )}
@@ -308,6 +383,9 @@ export function AgendaClient() {
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="btn-teal btn-xs" onClick={() => { setConcluindo(a); setRemarcarInput(""); setMsg(null); }} disabled={busyId === a.id}>
                           <I d={ICONS.check} size={12} /> Concluir
+                        </button>
+                        <button className="btn-ghost btn-xs" onClick={() => abrirCard(a.leadId)} disabled={busyId === a.id}>
+                          <I d={ICONS.arrow} size={12} /> Abrir card
                         </button>
                         <button className="btn-ghost btn-xs danger" onClick={() => remover(a)} disabled={busyId === a.id}>
                           Remover
@@ -357,8 +435,67 @@ export function AgendaClient() {
             </h3>
             <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
               <div style={{ display: "grid", gap: 5 }}>
-                <label className="field-label" htmlFor="nova-lead">ID do card (lead)</label>
-                <input id="nova-lead" className="field-dark" value={novaLeadId} onChange={(e) => setNovaLeadId(e.target.value)} placeholder="Cole o ID do card" />
+                <label className="field-label" htmlFor="nova-lead-busca">Card (lead)</label>
+                {novaLeadId ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span className="badge-win" style={{ fontSize: "0.76rem" }}>
+                      {novaLeadNome || `${novaLeadId.slice(0, 8)}…`}
+                    </span>
+                    <button type="button" className="btn-ghost btn-xs" onClick={trocarCard}>Trocar</button>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <input
+                      id="nova-lead-busca"
+                      className="field-dark"
+                      value={pickerBusca}
+                      onChange={(e) => setPickerBusca(e.target.value)}
+                      placeholder="Buscar card pelo nome…"
+                    />
+                    {boardLoading && (
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando cards…</span>
+                    )}
+                    {!boardLoading && boardError && (
+                      <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{boardError}</span>
+                        <button type="button" className="btn-ghost btn-xs" onClick={carregarCards}>Tentar novamente</button>
+                      </div>
+                    )}
+                    {!boardLoading && !boardError && boardOpcoes.length === 0 && (
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Nenhum card no seu funil.</span>
+                    )}
+                    {!boardLoading && !boardError && boardOpcoes.length > 0 && (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 4,
+                          maxHeight: 260,
+                          overflowY: "auto",
+                          border: "1px solid var(--border-hairline)",
+                          borderRadius: "var(--radius-md)",
+                          padding: 6,
+                        }}
+                      >
+                        {cardsFiltrados.length === 0 && (
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", padding: "4px 6px" }}>
+                            Nenhum card encontrado.
+                          </span>
+                        )}
+                        {cardsFiltrados.map((opcao) => (
+                          <button
+                            key={opcao.id}
+                            type="button"
+                            className="btn-ghost btn-xs"
+                            style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
+                            onClick={() => escolherCard(opcao)}
+                          >
+                            {opcao.name || `${opcao.id.slice(0, 8)}…`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ display: "grid", gap: 5 }}>
                 <label className="field-label" htmlFor="nova-titulo">Título</label>

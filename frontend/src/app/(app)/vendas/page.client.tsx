@@ -460,18 +460,33 @@ export function VendasClient() {
     }
   }
 
+  // Foco vindo da Agenda ("Abrir card"): guarda o leadId a focar assim que o
+  // board tiver esse card (consumo único). boardRef espelha `board` de forma
+  // síncrona — só serve pra decidir, no efeito de leitura do sessionStorage
+  // abaixo, se o board já tinha chegado antes daquele rAF rodar.
+  const focusLeadRef = useRef<string | null>(null);
+  const boardRef = useRef<BoardResponse>(null);
+
   const loadBoard = useCallback(() => {
     const qs = teamFilter ? `?sellerId=${teamFilter}` : "";
     return apiFetch<BoardResponse>(`/vendas/board${qs}`)
       .then(res => {
         setBoard(res);
+        boardRef.current = res;
         setLoadError(null);
         // Auto-cura: filtro persistido que o backend rejeitou (vendedor desativado/
         // removido → selectedSellerId volta null) é limpo p/ não ficar fantasma.
         if (res?.team && teamFilter && res.team.selectedSellerId == null) applyTeamFilter(null);
         const todos = BLOCK_ORDER.map(b => res?.blocks?.[b.key] || []).flat();
+        // Foco da Agenda tem prioridade sobre a seleção anterior — consumo único:
+        // só limpa o ref quando o card é encontrado; se não existir no board
+        // (ex.: fora do filtro de vendedor), ignora silencioso e mantém o
+        // comportamento atual (preserva seleção ou cai no 1º card).
+        const focusId = focusLeadRef.current;
+        const focusCard = focusId ? todos.find(c => c.id === focusId) : null;
+        if (focusCard) focusLeadRef.current = null;
         // mantém a seleção, mas sempre com a versão FRESCA do card
-        setSel(prev => (prev && todos.find(c => c.id === prev.id)) || todos[0] || null);
+        setSel(prev => focusCard || (prev && todos.find(c => c.id === prev.id)) || todos[0] || null);
       })
       .catch((err: unknown) => {
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o board de Vendas.");
@@ -491,6 +506,30 @@ export function VendasClient() {
           setBuscarMounted(true);
           setModo("buscar");
         }
+      } catch { /* sem storage */ }
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Foco vindo da Agenda ("Abrir card"): mesmo padrão sessionStorage+rAF do modo
+  // buscar acima. O consumo pode acontecer aqui (se o board já tiver carregado
+  // antes deste rAF rodar) ou dentro do loadBoard (se o fetch ainda não tinha
+  // resolvido) — não assume qual chega primeiro.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      try {
+        const leadId = sessionStorage.getItem("hbx:vendas-focus-lead");
+        if (!leadId) return;
+        sessionStorage.removeItem("hbx:vendas-focus-lead");
+        const atual = boardRef.current;
+        if (atual) {
+          const todos = BLOCK_ORDER.map(b => atual.blocks?.[b.key] || []).flat();
+          const card = todos.find(c => c.id === leadId);
+          if (card) { setSel(card); return; }
+        }
+        // board ainda não carregou (ou o card não estava lá) — guarda pro
+        // loadBoard aplicar assim que o fetch resolver.
+        focusLeadRef.current = leadId;
       } catch { /* sem storage */ }
     });
     return () => cancelAnimationFrame(id);

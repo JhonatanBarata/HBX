@@ -14,6 +14,7 @@ function createPrisma(overrides: PrismaOverrides = {}) {
     vendasLead: {
       findFirst: async () => ({ id: 'lead-1', companyId: 7, assignedUserId: 42, createdByUserId: 42 }),
       updateMany: async () => ({ count: 1 }),
+      findMany: async () => [],
       ...(overrides.vendasLead || {}),
     },
     vendasLeadTimelineEvent: {
@@ -91,6 +92,44 @@ test('createFromAutomation recusa vencimento invalido', async () => {
     () => service.createFromAutomation({ leadId: 'lead-1', companyId: 7, titulo: 't', vencimento: 'nao-e-data' }),
     /vencimento invalido/i,
   );
+});
+
+// -------- listForUser: leadNome anexado via lookup em lote (ponte agenda↔vendas) --------
+
+test('listForUser anexa leadNome do vendasLead correspondente (e null quando o lead sumiu)', async () => {
+  const rowBase = {
+    companyId: 7, tipo: 'ligacao', duracao: null, responsavelId: 42,
+    realizadaEm: null, resultado: null, criadaPor: 'user', createdAt: new Date(), updatedAt: new Date(),
+  };
+  const prisma = createPrisma({
+    atividade: {
+      findMany: async () => [
+        { ...rowBase, id: 'ativ-1', leadId: 'lead-1', titulo: 'Ligar', vencimento: new Date(Date.now() + 3600_000) },
+        { ...rowBase, id: 'ativ-2', leadId: 'lead-sumiu', titulo: 'Ligar 2', vencimento: new Date(Date.now() + 3600_000) },
+      ],
+    },
+    vendasLead: {
+      findMany: async ({ where }: any) => {
+        assert.deepEqual([...where.id.in].sort(), ['lead-1', 'lead-sumiu'].sort(), 'lookup em lote com os leadId unicos das linhas');
+        assert.equal(where.companyId, 7);
+        return [{ id: 'lead-1', name: 'Padaria Bom Pao' }];
+      },
+    },
+  });
+  const service = new AtividadesService(prisma);
+  // resolveContext depende da cadeia inteira de RBAC (team-access-runtime); pra
+  // um teste focado no anexo de leadNome, substitui o metodo privado direto
+  // (mesmo espirito do bind em metodos privados usado nos testes de helpers
+  // abaixo) por um contexto de acesso já resolvido.
+  (service as any).resolveContext = async () => ({
+    companyId: 7, userId: 42, canViewCompanyCards: true, canViewOwnCards: true,
+  });
+
+  const result = await service.listForUser({});
+  const todos = [...result.atrasadas, ...result.hoje, ...result.semana];
+  const porId = new Map(todos.map((a: any) => [a.id, a]));
+  assert.equal(porId.get('ativ-1')?.leadNome, 'Padaria Bom Pao');
+  assert.equal(porId.get('ativ-2')?.leadNome, null, 'lead sumido do banco vira null, nao quebra');
 });
 
 // -------- Helpers puros (normalizacao / rotulo) --------

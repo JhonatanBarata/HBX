@@ -154,6 +154,17 @@ export class AtividadesService {
       take: 500,
     })) as AtividadeRow[];
 
+    // Nome do lead (agenda↔vendas, item A): lookup em lote — 1 query pra todas
+    // as linhas, nao 1 por atividade. Lead sumido do banco => null (nao quebra).
+    const leadIds = Array.from(new Set(rows.map((row) => row.leadId).filter(Boolean)));
+    const leadRows = leadIds.length
+      ? await this.prisma.vendasLead.findMany({
+          where: { id: { in: leadIds }, companyId: context.companyId },
+          select: { id: true, name: true },
+        })
+      : [];
+    const leadNomeMap = new Map<string, string | null>(leadRows.map((lead: { id: string; name: string | null }) => [lead.id, lead.name ?? null]));
+
     const now = new Date();
     const startToday = this.startOfDay(now);
     const endToday = this.endOfDay(now);
@@ -165,7 +176,7 @@ export class AtividadesService {
     const concluidas: any[] = [];
 
     for (const row of rows) {
-      const view = this.serialize(row, { canSeeOthers });
+      const view = { ...this.serialize(row, { canSeeOthers }), leadNome: leadNomeMap.get(row.leadId) ?? null };
       if (row.realizadaEm) {
         concluidas.push(view);
         continue;
