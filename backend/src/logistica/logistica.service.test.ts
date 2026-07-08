@@ -1064,13 +1064,15 @@ test('F2: novoItem cria EntregaItem com o preço do CATÁLOGO (servidor) e o cha
   else process.env.HBX_LOGISTICA_ENABLED = prev;
 });
 
-test('F2: ClienteProduto.precoAcordado VENCE o catálogo; entrega legada (sem item antes) SOMA ao valor escalar', async () => {
+test('F2: add avulso usa o preço de CATÁLOGO (não o precoAcordado); entrega legada (sem item antes) SOMA ao valor escalar', async () => {
   const prev = process.env.HBX_LOGISTICA_ENABLED;
   process.env.HBX_LOGISTICA_ENABLED = '1';
 
   // Entrega "avulsa" legada: valor escalar R$20, NENHUM EntregaItem ainda (agendada
-  // fora da recorrência M2). Ganha 1 produto novo agora: catálogo R$15, mas este
-  // cliente tem preço negociado R$9 (ClienteProduto.precoAcordado) — o negociado vence.
+  // fora da recorrência M2). Ganha 1 produto novo agora: catálogo R$15. O cliente até
+  // tem um precoAcordado R$9 pra esse produto, mas ele vale p/ o item PLANEJADO/
+  // recorrente — um add AVULSO na chegada usa o CATÁLOGO, o MESMO preço que o front
+  // mostra no QR Pix do ato (cobrança registrada == o que o cliente paga no QR).
   const { prisma, chargesCreated, entregaItemCreates } = buildPrismaMock(
     buildEntrega({ valor: 20 }),
     { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
@@ -1093,11 +1095,11 @@ test('F2: ClienteProduto.precoAcordado VENCE o catálogo; entrega legada (sem it
 
   assert.equal(res?.status, 'entregue');
   assert.equal(entregaItemCreates.length, 1);
-  assert.equal(entregaItemCreates[0].valorUnit, 9, 'precoAcordado do cliente vence o catálogo (15)');
+  assert.equal(entregaItemCreates[0].valorUnit, 15, 'add avulso usa o CATÁLOGO (15), ignora o precoAcordado (9)');
   assert.equal(chargesCreated.length, 1);
   // Legada (0 EntregaItem antes desta chamada) → SOMA ao valor escalar que já existia:
-  // 20 (legado) + 2×9 (novo) = 38 — NÃO substitui pelo valor do item isolado (18).
-  assert.equal(chargesCreated[0].amount, 38, 'entrega sem item prévio: valor SOMA ao legado, não substitui');
+  // 20 (legado) + 2×15 (novo) = 50 — NÃO substitui pelo valor do item isolado (30).
+  assert.equal(chargesCreated[0].amount, 50, 'entrega sem item prévio: valor SOMA ao legado, não substitui');
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;

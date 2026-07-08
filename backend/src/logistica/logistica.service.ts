@@ -414,9 +414,12 @@ export class LogisticaService {
         // confirmação (jaEntregue barra — reconfirmar não recria); o replay pela
         // MESMA idempotencyKey nem chega aqui (retorna ANTES da tx, lá em cima).
         // Preço SEMPRE do servidor (regra de ouro): resolve o Product COMPANY-SCOPED
-        // (produto de outro tenant/inexistente = ignora, best-effort) e, se houver
-        // ClienteProduto deste cliente+produto com precoAcordado, ele VENCE o
-        // catálogo — o payload do cliente NUNCA carrega preço (DTO nem aceita o campo).
+        // (produto de outro tenant/inexistente = ignora, best-effort). Usa o preço
+        // de CATÁLOGO — o MESMO que o front mostra no QR Pix do ato — pra a cobrança
+        // registrada ser IDÊNTICA ao que o cliente paga no QR (o precoAcordado do
+        // ClienteProduto vale p/ o item PLANEJADO/recorrente, que já vem com seu
+        // valorUnit gravado; um add avulso na chegada é preço de tabela). O payload
+        // do cliente NUNCA carrega preço (DTO nem aceita o campo).
         let itensNovosCriados = 0;
         if (!jaEntregue) {
           for (const novo of novosItensValidos) {
@@ -432,21 +435,13 @@ export class LogisticaService {
             }
             const precoCatalogo =
               typeof product.priceCents === 'number' ? product.priceCents / 100 : typeof product.price === 'number' ? product.price : 0;
-            const clienteProduto = await tx.clienteProduto.findFirst({
-              where: { companyId, customerProfileId: entrega.customerProfileId, productId: product.id },
-              select: { precoAcordado: true },
-            });
-            const precoFinal =
-              clienteProduto?.precoAcordado != null && Number.isFinite(Number(clienteProduto.precoAcordado))
-                ? Math.max(0, Number(clienteProduto.precoAcordado))
-                : Math.max(0, precoCatalogo);
             await tx.entregaItem.create({
               data: {
                 entregaId: entrega.id,
                 productId: product.id,
                 qtdPrevista: novo.qtd,
                 qtdEntregue: novo.qtd,
-                valorUnit: precoFinal,
+                valorUnit: Math.max(0, precoCatalogo),
               },
             });
             itensNovosCriados += 1;

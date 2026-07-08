@@ -21,8 +21,12 @@
    (após o `updateMany` dos itens existentes), para cada `novoItem`:
    - resolve `Product` **company-scoped** (`{ id: productId, companyId }` — produto de
      outro tenant/inexistente é **ignorado**, log de warn, sem quebrar o confirmar);
-   - preço = `priceCents/100` OU `price` do catálogo; se existir `ClienteProduto` deste
-     cliente+produto com `precoAcordado`, ele **vence** o catálogo;
+   - preço = `priceCents/100` OU `price` do **catálogo** — o MESMO que o front usa no QR
+     Pix do ato, pra a cobrança registrada ser IDÊNTICA ao que o cliente paga no QR.
+     (Revisão do Opus 08/07: a versão inicial do worker deixava o `precoAcordado` do
+     `ClienteProduto` vencer o catálogo, mas o front não conhece o negociado → o QR
+     mostraria um valor ≠ da cobrança. O negociado vale p/ o item PLANEJADO/recorrente,
+     que já vem com seu `valorUnit` gravado; add avulso na chegada = preço de tabela.);
    - cria `EntregaItem { entregaId, productId, qtdPrevista: qtd, qtdEntregue: qtd,
      valorUnit: <preço do servidor> }`.
    - A recomputação de valor do F1 (`Σ qtdEntregue×valorUnit`) passou a rodar também
@@ -38,10 +42,10 @@
   forbidNonWhitelisted`), qualquer preço que o cliente tentasse mandar seria **rejeitado
   na porta** (400), nem chega a ser lido pelo serviço.
 - O serviço nunca lê preço do `gps.novosItens` — só `productId`/`qtdEntregue`. O
-  `valorUnit` gravado no `EntregaItem` vem SEMPRE de `tx.product.findFirst` (company-
-  scoped) ou `tx.clienteProduto.findFirst` (precoAcordado, mesmo tenant+cliente+produto).
-- Provado por teste: `entregaItemCreates[0].valorUnit` bate com o catálogo/precoAcordado
-  do MOCK do "banco", nunca com o que o teste mandou no payload do confirmar.
+  `valorUnit` gravado no `EntregaItem` vem SEMPRE de `tx.product.findFirst` (catálogo,
+  company-scoped).
+- Provado por teste: `entregaItemCreates[0].valorUnit` bate com o catálogo do MOCK do
+  "banco" (ignora o `precoAcordado` presente), nunca com o payload do confirmar.
 
 ## Idempotência
 - Os `EntregaItem` novos nascem **dentro** da transação guardada da 1ª confirmação. O
@@ -60,8 +64,9 @@ injetável) + `entregaItem.create`/`count` (refletem no mesmo "banco" que `findM
 igual ao Prisma real dentro de uma tx interativa — read-your-writes).
 1. `F2: novoItem cria EntregaItem com o preço do CATÁLOGO (servidor) e o charge soma
    existente+novo` — existente 2×R$10 + novo 1×R$15 (catálogo) = charge R$35.
-2. `F2: ClienteProduto.precoAcordado VENCE o catálogo; entrega legada (sem item antes)
-   SOMA ao valor escalar` — precoAcordado R$9 vence catálogo R$15; legado R$20 + novo
+2. `F2: add avulso usa o preço de CATÁLOGO (não o precoAcordado); entrega legada (sem
+   item antes) SOMA ao valor escalar` — catálogo R$15 (ignora precoAcordado R$9);
+   legado R$20 + novo
    2×R$9 = charge R$38 (prova a fórmula aditiva, não a substitutiva).
 3. `F2: novoItem de produto de OUTRA empresa é ignorado (company-scoped)` — 0 itens
    criados, valor legado intocado.
