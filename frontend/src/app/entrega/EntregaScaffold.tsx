@@ -10,7 +10,7 @@
 // da tela — os componentes de conteúdo não repetem `<h1>`/título próprio.
 // ================================================================
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { CascaToastHost } from "@/components/casca";
@@ -18,6 +18,45 @@ import { getToken } from "@/lib/api";
 
 import { EntregaTabBar } from "./EntregaTabBar";
 import { I, ICON_PATHS } from "./icons";
+
+// Marca HBX viva no topo (dono 07/07 noite: sem repetir "Produtos"/"Ajustes" —
+// a tab bar já diz onde você está). O gradiente d'água anda sozinho no CSS
+// (.ent-hbx-mark strong); QUALQUER clique na página dá a "pulsada" com anel
+// de gota (classe is-splash — pointerdown no document, reinicia via reflow
+// pra cliques seguidos; a classe sai no animationend da GOTA, a animação
+// mais longa do par pulso+gota).
+function HbxMarkViva() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onDown = () => {
+      const el = ref.current;
+      if (!el) return;
+      el.classList.remove("is-splash");
+      void el.offsetWidth; // reinicia a animação mesmo clicando em sequência
+      el.classList.add("is-splash");
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
+  return (
+    <div
+      className="ent-hbx-mark"
+      ref={ref}
+      aria-hidden="true"
+      onAnimationEnd={(e) => {
+        // gota2 (o anel externo) é a animação mais longa do splash
+        if (e.animationName === "ent-hbx-gota2") e.currentTarget.classList.remove("is-splash");
+      }}
+    >
+      {/* wrapper interno: flutuação 3D contínua vive aqui (o container fica
+          com o transform de centralização + pulsada — sem brigar) */}
+      <span className="ent-hbx-mark__i">
+        <I d={ICON_PATHS.hbx} size={26} />
+        <strong>HBX</strong>
+      </span>
+    </div>
+  );
+}
 
 export function EntregaScaffold({
   title,
@@ -43,7 +82,9 @@ export function EntregaScaffold({
   return (
     <div className="casca">
       <div className="casca-top">
-        <h1 className="casca-top__title">{title}</h1>
+        {/* título sai do visual (ordem do dono) mas fica pra leitor de tela */}
+        <h1 className="casca-top__title ent-sr-only">{title}</h1>
+        <HbxMarkViva />
         {headerActions ? <div className="casca-top__actions">{headerActions}</div> : null}
       </div>
 
