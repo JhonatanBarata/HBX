@@ -77,7 +77,8 @@
    fundo do container e ABAIXO de todo conteúdo.
    ============================================================ */
 [data-casca="modern"] .app,
-[data-casca="modern"] .casca {
+[data-casca="modern"] .casca,
+[data-casca="modern"] .casca-stack-layer {
   position: relative;
   isolation: isolate;
   background:
@@ -86,15 +87,23 @@
     radial-gradient(circle at 92% 84%, color-mix(in srgb, var(--hbx-accent) 13%, transparent), transparent 26%),
     linear-gradient(135deg, var(--hbx-background-alt), var(--hbx-background) 47%, color-mix(in srgb, var(--hbx-brand) 22%, var(--hbx-background)));
 }
-/* .casca já é position:fixed (não sobrescrever com relative) */
-[data-casca="modern"] .casca { position: fixed; }
+/* .casca e a camada empilhada já são position:fixed (não sobrescrever) */
+[data-casca="modern"] .casca,
+[data-casca="modern"] .casca-stack-layer { position: fixed; }
+
+/* A TELA em si fica de vidro: o fundo infinito acima é quem pinta o canvas.
+   Sem isto o .casca-view (casca.css) pintava --surface-canvas OPACO por cima
+   e a tela inteira virava um chapadão claro (queixa do dono 07/07: "/empresas
+   está com fundo branco, pq?"). Mesma coisa pro loading de tela. */
+[data-casca="modern"] .casca-view { background: transparent; }
 
 /* grade em perspectiva (o "chão" do mockup).
    PERF: ESTÁTICA de propósito — a animação de background-position do mockup
    forçava re-raster do fundo a cada frame E re-blur de todo vidro por cima
    (era ISSO que travava). Fundo parado = pinta 1x e vira textura. */
 [data-casca="modern"] .app::before,
-[data-casca="modern"] .casca::before {
+[data-casca="modern"] .casca::before,
+[data-casca="modern"] .casca-stack-layer::before {
   content: "";
   position: absolute;
   inset: -14% -18% 0;
@@ -112,7 +121,8 @@
 
 /* anéis concêntricos + aurora + névoa/vinheta */
 [data-casca="modern"] .app::after,
-[data-casca="modern"] .casca::after {
+[data-casca="modern"] .casca::after,
+[data-casca="modern"] .casca-stack-layer::after {
   content: "";
   position: absolute;
   inset: 0;

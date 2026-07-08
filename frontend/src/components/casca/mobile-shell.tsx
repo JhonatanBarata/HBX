@@ -62,10 +62,13 @@ function titleFor(pathname: string): string {
 // TAMBÉM não (é OUTRO app, /entrega, casca própria — regra do dono: entrada
 // só pelo toque deliberado no ícone); o ciclo para na última tela central.
 //
-// Limiares: dispara só com |dx| ≥ SWIPE_MIN_PX (~64px) E ângulo claramente
-// horizontal (|dx| > 2×|dy|) — nunca rouba o scroll vertical da lista. Solto
-// aquém do limiar → volta ao lugar (a própria troca de `drag` para 0 anima via
-// transition do CSS, sem key remount).
+// Limiares (afrouxados 07/07, dono: "não está dando certo arrastar em todos"):
+// dispara com |dx| ≥ SWIPE_MIN_PX (~52px) E ângulo horizontal (|dx| > 1.4×|dy|
+// — o 2× antigo exigia gesto de régua e falhava no dedão real). Nunca rouba o
+// scroll vertical: a decisão só acontece depois de 10px E com o ângulo claro;
+// vertical/ambíguo deixa a lista rolar. Solto aquém do limiar → volta ao lugar
+// (is-snapping, transition CSS). Na PONTA do ciclo (primeira/última aba) o
+// arrasto vira borracha (0.35×) — o dedo sente que ali não tem próxima tela.
 //
 // Bloqueios: (1) uma camada empilhada (CascaView) ou sheet (CascaSheet) aberta
 // por cima — checado via querySelector nos containers fixos delas; (2) alvo do
@@ -73,7 +76,14 @@ function titleFor(pathname: string): string {
 // closest("[data-swipe-opt-out]") OU por um ancestral scrollável em X
 // (scrollWidth > clientWidth), ex.: o carrossel de cards do modo foco.
 // ============================================================
-const SWIPE_MIN_PX = 64;
+const SWIPE_MIN_PX = 52;
+const SWIPE_EDGE_DAMP = 0.35;
+
+// /leads é alias de /vendas (registry: mesma tela) — pro swipe e pra direção
+// da transição, conta como a aba Vendas.
+function normalizeTabPath(pathname: string): string {
+  return pathname === "/leads" ? "/vendas" : pathname;
+}
 
 function hasOverlayOpen(): boolean {
   if (typeof document === "undefined") return false;
@@ -108,13 +118,13 @@ function useSwipeableTabHrefs(): string[] {
     .map((t) => t.href);
 }
 
-function useModuleSwipe(pathname: string) {
+function useModuleSwipe(pathname: string, hrefs: string[]) {
   const router = useRouter();
-  const hrefs = useSwipeableTabHrefs();
   const [drag, setDrag] = useState(0); // px de deslocamento em tempo real (feedback)
   const [snapping, setSnapping] = useState(false); // true = voltando ao lugar (transição)
   const start = useRef<{ x: number; y: number; el: Element | null } | null>(null);
   const active = useRef(false); // já decidiu que é gesto horizontal (não é mais scroll vertical)
+  const idx = hrefs.indexOf(normalizeTabPath(pathname));
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.pointerType === "mouse" && e.buttons !== 1) return;
@@ -130,16 +140,18 @@ function useModuleSwipe(pathname: string) {
     if (!active.current) {
       // ainda indeciso: só assume horizontal quando o ângulo é claro E já
       // moveu o suficiente pra não ser ruído de toque.
-      if (Math.abs(dx) < 12) return;
-      if (Math.abs(dx) <= Math.abs(dy) * 2) return; // ambíguo/vertical → deixa o scroll da lista agir
+      if (Math.abs(dx) < 10) return;
+      if (Math.abs(dx) <= Math.abs(dy) * 1.4) return; // ambíguo/vertical → deixa o scroll da lista agir
       if (hasOverlayOpen() || isHorizontalScrollAncestor(start.current.el)) {
         start.current = null; // opt-out: nunca mais decide neste gesto
         return;
       }
       active.current = true;
     }
-    setDrag(dx);
-  }, []);
+    // PONTA do ciclo (ou rota fora das abas): borracha — anda 0.35× do dedo
+    const atEdge = idx === -1 || (dx > 0 && idx === 0) || (dx < 0 && idx === hrefs.length - 1);
+    setDrag(atEdge ? dx * SWIPE_EDGE_DAMP : dx);
+  }, [idx, hrefs.length]);
 
   const endSwipe = useCallback(() => {
     if (!start.current || !active.current) {
@@ -151,7 +163,6 @@ function useModuleSwipe(pathname: string) {
     start.current = null;
     active.current = false;
 
-    const idx = hrefs.indexOf(pathname);
     if (Math.abs(dx) >= SWIPE_MIN_PX && idx !== -1) {
       if (dx < 0 && idx < hrefs.length - 1) {
         setDrag(0);
@@ -167,7 +178,7 @@ function useModuleSwipe(pathname: string) {
     // aquém do limiar (ou ponta do ciclo) → volta ao lugar com transição
     setSnapping(true);
     setDrag(0);
-  }, [drag, hrefs, pathname, router]);
+  }, [drag, hrefs, idx, router]);
 
   return {
     drag,
@@ -180,16 +191,48 @@ function useModuleSwipe(pathname: string) {
   };
 }
 
-// Palco animado: remonta a cada troca de rota (key=pathname) e toca a transição
-// IR (desliza da direita). O VOLTAR de sub-telas é do CascaView (sub-camada).
+// Palco animado (REVISÃO 07/07, dono: "quero transição em TUDO... sem graça"):
+// a cada troca de rota o palco mantém a tela ANTERIOR viva por um ciclo de
+// animação (casca-view--leave) enquanto a nova entra (casca-view--enter) — o
+// par anda junto, nada some seco. A DIREÇÃO é real: destino à direita na ordem
+// das abas = IR (desliza ←); à esquerda = VOLTAR (desliza →, classe is-back).
+// A camada que sai preserva a instância React (key = pathname antigo), então
+// ela sai mostrando o estado que estava na tela — não remonta, não pisca
+// loader. animationend solta a camada; timeout de 600ms é o cinto de segurança
+// (aba em background não toca animação).
 // FIX5: pointer handlers no próprio palco resolvem o swipe entre abas — o
 // deslocamento (--casca-swipe-drag) dá o feedback barato (translateX via CSS,
-// sem re-layout); soltar dispara router.push (a MobileShell reage ao pathname
-// e a transição IR/VOLTAR de tela cuida do resto) ou volta ao lugar (classe
-// is-snapping, transition do CSS).
+// sem re-layout); soltar dispara router.push (a transição direcional acima
+// cuida do resto) ou volta ao lugar (classe is-snapping, transition do CSS).
 function CascaStage({ pathname }: { pathname: string }) {
-  const screen = renderCascaScreen(pathname);
-  const swipe = useModuleSwipe(pathname);
+  const hrefs = useSwipeableTabHrefs();
+  const swipe = useModuleSwipe(pathname, hrefs);
+
+  // cena = tela atual + (durante a transição) a anterior saindo + direção
+  const [scene, setScene] = useState<{ cur: string; prev: string | null; back: boolean }>(
+    { cur: pathname, prev: null, back: false },
+  );
+  if (scene.cur !== pathname) {
+    // derivação em render (padrão React de estado derivado de prop)
+    const from = hrefs.indexOf(normalizeTabPath(scene.cur));
+    const to = hrefs.indexOf(normalizeTabPath(pathname));
+    setScene({ cur: pathname, prev: scene.cur, back: from !== -1 && to !== -1 && to < from });
+  }
+  const clearPrev = useCallback(() => {
+    setScene((s) => (s.prev ? { ...s, prev: null } : s));
+  }, []);
+  // animationend BORBULHA — só solta a camada quando é a animação DELA
+  // (casca-view-out*), não a de um filho (linha de lista entrando etc.).
+  const onLeaveEnd = useCallback((e: React.AnimationEvent) => {
+    if (e.target === e.currentTarget) clearPrev();
+  }, [clearPrev]);
+  useEffect(() => {
+    if (!scene.prev) return;
+    const t = window.setTimeout(clearPrev, 600);
+    return () => window.clearTimeout(t);
+  }, [scene.prev, clearPrev]);
+
+  const dir = scene.back ? " is-back" : "";
   const style = swipe.drag !== 0 ? ({ "--casca-swipe-drag": `${swipe.drag}px` } as React.CSSProperties) : undefined;
   return (
     <div
@@ -201,8 +244,18 @@ function CascaStage({ pathname }: { pathname: string }) {
       onPointerCancel={swipe.onPointerCancel}
       onTransitionEnd={swipe.onTransitionEnd}
     >
-      <div className="casca-view casca-view--enter" key={pathname}>
-        {screen ?? <CascaFallback title={titleFor(pathname)} />}
+      {scene.prev ? (
+        <div
+          className={"casca-view casca-view--leave" + dir}
+          key={scene.prev}
+          aria-hidden
+          onAnimationEnd={onLeaveEnd}
+        >
+          {renderCascaScreen(scene.prev) ?? <CascaFallback title={titleFor(scene.prev)} />}
+        </div>
+      ) : null}
+      <div className={"casca-view casca-view--enter" + dir} key={scene.cur}>
+        {renderCascaScreen(pathname) ?? <CascaFallback title={titleFor(pathname)} />}
       </div>
     </div>
   );

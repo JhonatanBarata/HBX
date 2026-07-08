@@ -148,6 +148,10 @@
      curva se quiser, mas o default é seco e responsivo. */
   --casca-motion-dur: 220ms;
   --casca-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* troca de TELA (aba↔aba) respira mais que sheet/toast — deslize direcional
+     com profundidade (ver casca.css: casca-view-in/out) pede mais tempo pra
+     ler como movimento, não como piscada (dono 07/07: "sem graça"). */
+  --casca-view-dur: 320ms;
 
   /* ---- Estrutura de entrada de página (a pele troca os 3) --------------- */
   --enter-name: hbx-enter-fade;        /* keyframe (transitions.css)        */

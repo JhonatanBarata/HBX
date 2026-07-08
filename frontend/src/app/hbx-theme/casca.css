@@ -236,12 +236,18 @@
   flex: 1 1 auto;
 }
 
-/* --- TELA (slide horizontal) --- */
+/* --- TELA (slide horizontal com profundidade) ---
+   REVISÃO 07/07 (dono: "quero transição em TUDO... está sem graça"): o par
+   entra/sai agora anda JUNTO (o palco mantém a camada anterior viva com
+   --leave enquanto a nova entra — mobile-shell.tsx/CascaStage), com direção
+   real (IR desliza ← ; VOLTAR desliza →), deslize maior, leve escala e blur
+   de movimento (mesma família do hbx-enter-modern; blur baixo, celular
+   aguenta — a trava de GPU era o backdrop-filter full-screen do desktop). */
 .casca-view--enter {
-  animation: casca-view-in var(--casca-motion-dur) var(--casca-motion-ease) both;
+  animation: casca-view-in var(--casca-view-dur, var(--casca-motion-dur)) var(--casca-motion-ease) both;
 }
 .casca-view--leave {
-  animation: casca-view-out var(--casca-motion-dur) var(--casca-motion-ease) both;
+  animation: casca-view-out var(--casca-view-dur, var(--casca-motion-dur)) var(--casca-motion-ease) both;
   pointer-events: none;
 }
 /* VOLTAR: a camada que sai vai para a direita, a que entra vem da esquerda */
@@ -249,20 +255,22 @@
 .casca-view--leave.is-back { animation-name: casca-view-out-back; }
 
 @keyframes casca-view-in {
-  from { opacity: 0; transform: translateX(18%); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateX(34%) scale(0.98); filter: blur(5px); }
+  60% { filter: blur(0px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
 @keyframes casca-view-out {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateX(-12%); }
+  to { opacity: 0; transform: translateX(-26%) scale(0.98); filter: blur(4px); }
 }
 @keyframes casca-view-in-back {
-  from { opacity: 0; transform: translateX(-18%); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateX(-34%) scale(0.98); filter: blur(5px); }
+  60% { filter: blur(0px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
 @keyframes casca-view-out-back {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateX(12%); }
+  to { opacity: 0; transform: translateX(26%) scale(0.98); filter: blur(4px); }
 }
 
 /* ============================================================
@@ -524,7 +532,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-5);
-  background: var(--surface-canvas);
+  background: transparent;
 }
 /* variante "camada sobre tela" (overlay) — fundo semitransparente */
 .casca-loading.is-overlay {
