@@ -1,0 +1,153 @@
+/* ============================================================
+   Pop-up de aviso do Motor de disparo frio (Prospecção) — some
+   4 problemas que hoje só apareciam num badge inline: não
+   configurado, sem crédito, fila de leads vazia, erro genérico.
+   Molde estrutural = bot-terms.css (mesmo backdrop/superfície/
+   fechamento/tema). Lógica de quando aparece: lib/bot-alert.ts.
+   Z-index 71 (acima do gate de termos 70 e do tutofig 65).
+   ============================================================ */
+
+.bot-aviso {
+  position: fixed;
+  inset: 0;
+  z-index: 71;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background: var(--hbx-overlay);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: hbx-enter-fade 0.2s ease both;
+}
+
+.bot-aviso__dialog {
+  position: relative;
+  isolation: isolate; /* o fundo decorativo (z-index -1) nunca vaza pra fora do card */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-lg);
+  animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) both;
+}
+.bot-aviso__dialog:focus { outline: none; }
+
+/* ── Fundo decorativo (imagem) — BEM fraquinho, só textura.
+   Regra isolada de propósito: se o dono quiser tirar a imagem, basta apagar
+   este bloco `.bot-aviso__bg` (+ os 4 modificadores logo abaixo) — o resto
+   do pop-up (superfície, texto, botões) não depende dele em nada. ── */
+.bot-aviso__bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.06; /* claro: bem fraquinho, a letra tem que ganhar sempre */
+  pointer-events: none;
+}
+[data-theme-mode="dark"] .bot-aviso__bg {
+  opacity: 0.1; /* escuro aguenta um pouco mais sem brigar com o texto */
+}
+.bot-aviso__bg--error          { background-image: url("/bot-avisos/erro.png"); }
+.bot-aviso__bg--no_credit      { background-image: url("/bot-avisos/sem-credito.png"); }
+.bot-aviso__bg--not_configured { background-image: url("/bot-avisos/nao-configurado.png"); }
+.bot-aviso__bg--no_leads       { background-image: url("/bot-avisos/leads-vazios.png"); }
+
+/* Scrim entre a imagem e o conteúdo — reforça contraste sem apagar a textura. */
+.bot-aviso__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, var(--hbx-surface) 0%, color-mix(in srgb, var(--hbx-surface) 88%, transparent) 100%);
+  pointer-events: none;
+}
+
+/* ── Cabeçalho ── */
+.bot-aviso__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 4px;
+  flex: 0 0 auto;
+}
+.bot-aviso__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+}
+/* pele-allow */
+.bot-aviso__icon--danger  { background: color-mix(in srgb, var(--hbx-danger) 14%, transparent);  color: var(--hbx-danger); }
+.bot-aviso__icon--warning { background: color-mix(in srgb, var(--hbx-warning) 14%, transparent); color: var(--hbx-warning); }
+.bot-aviso__icon--info    { background: color-mix(in srgb, var(--hbx-info) 14%, transparent);    color: var(--hbx-info); }
+/* pele-allow-end */
+.bot-aviso__titles { flex: 1; min-width: 0; display: grid; gap: 2px; padding-top: 4px; }
+.bot-aviso__title {
+  font-size: 1.02rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  color: var(--text-strong);
+  line-height: 1.25;
+}
+.bot-aviso__close {
+  flex: 0 0 auto;
+  appearance: none;
+  cursor: pointer;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.bot-aviso__close:hover { background: var(--hbx-surface-raised); color: var(--text-strong); }
+
+/* ── Corpo ── */
+.bot-aviso__body {
+  padding: 8px 20px 20px;
+  display: grid;
+  gap: 8px;
+}
+.bot-aviso__message {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--text-body);
+}
+
+/* ── Rodapé: botões ── */
+.bot-aviso__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px 20px;
+}
+.bot-aviso__actions-cta { flex: 1; }
+.bot-aviso__actions-dismiss { flex: 0 0 auto; }
+
+/* ── Responsivo ── */
+@media (max-width: 480px) {
+  .bot-aviso { padding: 12px; }
+  .bot-aviso__dialog { max-height: 96vh; }
+  .bot-aviso__actions { flex-direction: column-reverse; }
+  .bot-aviso__actions-dismiss { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-aviso,
+  .bot-aviso__dialog { animation: none; transition: none; }
+}

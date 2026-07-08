@@ -19,8 +19,15 @@
 
    Mobile-first COMPACTO (dono 07/07: "letra IMENSA, reduz em TODAS as
    telas do /entrega"): tipo base 15px, títulos 19/22, número 25px, grade
-   de 8, radius 11-18, alvos 44/50, cards full-bleed, transições 180-240ms
+   de 8, radius 11-18, alvos 40/46, cards full-bleed, transições 180-240ms
    com curva spring, safe-area. NÃO reinflar a escala.
+
+   TASK 11b (08/07, dono: "botões grandes demais que sufocam tudo, espaça-
+   mentos gigantescos") — mais um nível de compactação: a escala de espaço
+   (--ent-1.._ent-10) e os alvos de toque (--ent-tap*) encolheram ~10-15%
+   NUM SÓ LUGAR (Lei nº1 — token central), cascateando pra .ent-btn/.ent-form/
+   .ent-section/margens entre blocos/chips sem tocar em cada regra. Alvo
+   ainda ~40px (dono aceitou), zero miniaturização de texto/ícone.
    ============================================================ */
 
 /* ---------- TOKENS · aliases do contrato de pele (claro E escuro:
@@ -74,15 +81,15 @@
   --ent-title-lg: 22px;
   --ent-num: 25px;
 
-  /* Grade de 8 */
+  /* Grade de 8 (TASK 11b 08/07: mais um nível compacto — ver nota no topo) */
   --ent-1: 4px;
-  --ent-2: 8px;
-  --ent-3: 12px;
-  --ent-4: 16px;
-  --ent-5: 20px;
-  --ent-6: 24px;
-  --ent-8: 32px;
-  --ent-10: 40px;
+  --ent-2: 7px;
+  --ent-3: 10px;
+  --ent-4: 14px;
+  --ent-5: 18px;
+  --ent-6: 22px;
+  --ent-8: 28px;
+  --ent-10: 36px;
 
   /* Forma (radius enxuto — cara de app, não de brinquedo) */
   --ent-radius: 14px;
@@ -90,9 +97,10 @@
   --ent-radius-lg: 18px;
   --ent-radius-pill: 999px;
 
-  /* Alvo de toque (dono 07/07: reduzido; ainda >=44px, tocável de 1 polegar) */
-  --ent-tap: 44px;
-  --ent-tap-lg: 50px;
+  /* Alvo de toque (TASK 11b 08/07: reduzido mais um nível; ainda ~40px,
+     tocável de 1 polegar — dono topou esse piso). */
+  --ent-tap: 40px;
+  --ent-tap-lg: 46px;
 
   /* Profundidade */
   --ent-shadow-sm: 0 2px 10px rgba(12, 20, 32, 0.08);
@@ -336,7 +344,7 @@
 [data-skin="entrega"] .ent-chip {
   position: relative;
   z-index: 1;
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   gap: var(--ent-2);
@@ -353,6 +361,28 @@
 [data-skin="entrega"] .ent-chip:active { transform: scale(0.96); }
 [data-skin="entrega"] .ent-chip.is-on {
   color: var(--ent-chip-on-ink);
+}
+/* ---------- CHIPS EM 1 LINHA SÓ (dias da semana / variáveis da mensagem) ----------
+   TASKS 4/6/7 — nowrap + flex:1 1 0 divide a largura em partes iguais entre os
+   chips (7 dias OU as 5 variáveis) pra caber numa única fileira no mobile;
+   overflow-x:auto é a rede de segurança se o viewport for muito estreito (o
+   alvo é caber os 7 sem precisar rolar). */
+[data-skin="entrega"] .ent-chips--fit {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+[data-skin="entrega"] .ent-chips--fit::-webkit-scrollbar { display: none; }
+[data-skin="entrega"] .ent-chips--fit .ent-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: var(--ent-1);
+  padding-right: var(--ent-1);
+  font-size: var(--ent-text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* linha de chips logo abaixo do stepper (recebimento na folha de chegada) */
 [data-skin="entrega"] .ent-stepper + .ent-chips { margin-top: var(--ent-4); }
@@ -410,6 +440,10 @@
 [data-skin="entrega"] .ent-btn--ghost {
   background: transparent;
   color: var(--ent-ink-soft);
+}
+/* TASK 8b — ação destrutiva (excluir de vez), combina com --ghost/--secondary. */
+[data-skin="entrega"] .ent-btn--danger {
+  color: var(--ent-danger);
 }
 [data-skin="entrega"] .ent-btn[disabled] { opacity: 0.5; cursor: default; }
 
@@ -754,6 +788,14 @@
   color: var(--ent-ink-muted);
   font-weight: 700;
 }
+/* TASK 8c — card arquivado/inativo nitidamente diferente do ativo: dim +
+   nome também muda pra cor muted (não só a palavra "Inativo" no subtítulo). */
+[data-skin="entrega"] .ent-card.is-off {
+  opacity: 0.5;
+}
+[data-skin="entrega"] .ent-card.is-off .ent-card-name {
+  color: var(--ent-ink-muted);
+}
 
 /* ---------- FORM (editor 1 coluna, rola entre header e action bar) ---------- */
 [data-skin="entrega"] .ent-form {
@@ -918,6 +960,34 @@
   color: var(--ent-ink-muted);
   font-weight: 600;
 }
+/* TASK 9 — ações da linha (Ativo/Pausado + "−" remover), lado a lado, compactas. */
+[data-skin="entrega"] .ent-prod-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--ent-2);
+}
+[data-skin="entrega"] .ent-prod-remove {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-sm);
+  border: 1px solid var(--ent-line-strong);
+  background: var(--ent-surface);
+  color: var(--ent-ink-muted);
+  font-size: var(--ent-title);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast), color var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-prod-remove:active {
+  transform: scale(0.92);
+  background: var(--ent-surface-soft);
+  color: var(--ent-danger);
+}
 [data-skin="entrega"] .ent-prod-add {
   display: flex;
   flex-direction: column;
@@ -948,6 +1018,19 @@
   font-weight: 700;
   color: var(--ent-brand-strong);
   text-align: center;
+}
+/* TASK 7 — conteúdo do pop-up "Gerar entregas" (dentro do CascaSheet: o corpo
+   da folha já tem padding/scroll próprios — aqui só o espaçamento vertical
+   entre a linha de dias / busca / lista / ação). */
+[data-skin="entrega"] .ent-gerar-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-gerar-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-2);
 }
 /* 3 stats do dia (Entregues · Recebido · A receber) — 0 / R$ 0,00, sem travessão. */
 [data-skin="entrega"] .ent-stats {
@@ -1382,11 +1465,23 @@
 [data-skin="entrega"] .ent-map-rota.is-expanded {
   height: clamp(260px, 48dvh, 440px);
 }
+/* TASK 11a — altura EXPLÍCITA (mesmo clamp do .ent-map-rota pai, calculado
+   aqui direto — NÃO herdado via height:100%/inset:0 de um ancestral flex).
+   Causa clássica do "mapa não aparece no iOS": o WebGL lê o tamanho do
+   container na hora de criar o mapa; se o ancestral flex ainda não tiver
+   resolvido a altura NAQUELE instante (Safari é mais propenso a essa corrida
+   que Chrome), o canvas nasce 0×0 e nunca recupera sozinho (o ResizeObserver
+   só dispara se o tamanho MUDAR depois — não muda se já "nasceu estável" em
+   0). Declarar a altura aqui, de forma independente, garante geometria certa
+   desde o primeiro layout. */
 [data-skin="entrega"] .ent-map-rota__canvas {
   position: absolute;
   inset: 0;
   width: 100%;
-  height: 100%;
+  height: clamp(160px, 30dvh, 260px);
+}
+[data-skin="entrega"] .ent-map-rota.is-expanded .ent-map-rota__canvas {
+  height: clamp(260px, 48dvh, 440px);
 }
 /* Nó criado NA MÃO (RotaMapa.tsx) pelo efeito que monta o MapLibre — filho
    descartável do canvas host, recriado do zero a cada execução do efeito

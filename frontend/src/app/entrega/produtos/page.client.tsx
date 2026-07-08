@@ -22,6 +22,7 @@ import {
   type UnidadeProduto,
   criarProduto,
   editarProduto,
+  excluirProduto,
   fmtPreco,
   inativarProduto,
   listProdutosTodos,
@@ -40,10 +41,18 @@ const UNIDADES: Array<{ v: UnidadeProduto; label: string }> = [
 
 export function EntregaProdutos() {
   const [view, setView] = useState<View>({ tela: "lista" });
+  // TASK 8a — bump ao sair do editor com alguma mudança → a lista re-busca
+  // sozinha (mesmo padrão de clientes/page.client.tsx).
+  const [reloadKey, setReloadKey] = useState(0);
+  const fechar = useCallback((mudou?: boolean) => {
+    setView({ tela: "lista" });
+    if (mudou) setReloadKey((k) => k + 1);
+  }, []);
 
   return (
     <EntregaScaffold title="Produtos">
       <ProdutoLista
+        reloadKey={reloadKey}
         onNovo={() => setView({ tela: "editor", item: null })}
         onAbrir={(item) => setView({ tela: "editor", item })}
       />
@@ -52,9 +61,9 @@ export function EntregaProdutos() {
       {view.tela === "editor" ? (
         <CascaView
           title={view.item ? "Editar produto" : "Novo produto"}
-          onClose={() => setView({ tela: "lista" })}
+          onClose={() => fechar(false)}
         >
-          <ProdutoEditor item={view.item} onSair={() => setView({ tela: "lista" })} />
+          <ProdutoEditor item={view.item} onSair={() => fechar(true)} />
         </CascaView>
       ) : null}
     </EntregaScaffold>
@@ -62,7 +71,15 @@ export function EntregaProdutos() {
 }
 
 // ── LISTA ────────────────────────────────────────────────────────────────────
-function ProdutoLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (p: ProdutoItem) => void }) {
+function ProdutoLista({
+  reloadKey,
+  onNovo,
+  onAbrir,
+}: {
+  reloadKey: number;
+  onNovo: () => void;
+  onAbrir: (p: ProdutoItem) => void;
+}) {
   const [itens, setItens] = useState<ProdutoItem[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -79,9 +96,11 @@ function ProdutoLista({ onNovo, onAbrir }: { onNovo: () => void; onAbrir: (p: Pr
     }
   }, []);
 
+  // TASK 8a — reloadKey na dependência: ao voltar do editor (criar/editar/
+  // excluir/inativar), re-busca sozinha.
   useEffect(() => {
     void carregar();
-  }, [carregar]);
+  }, [carregar, reloadKey]);
 
   return (
     <>
@@ -190,6 +209,24 @@ function ProdutoEditor({ item, onSair }: { item: ProdutoItem | null; onSair: () 
     }
   }, [item, arquivado, onSair]);
 
+  // TASK 8b — exclusão PERMANENTE (hard delete), separada do inativar/reativar
+  // (arquivar) acima, que continua existindo do jeito que estava.
+  const excluir = useCallback(async () => {
+    if (!item) return;
+    if (typeof window !== "undefined" && !window.confirm("Excluir o produto de vez? Ele é removido dos clientes que o usam.")) {
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    try {
+      await excluirProduto(item.id);
+      onSair();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Falha ao excluir");
+      setSalvando(false);
+    }
+  }, [item, onSair]);
+
   return (
     <>
       <div className="ent-form">
@@ -241,9 +278,14 @@ function ProdutoEditor({ item, onSair }: { item: ProdutoItem | null; onSair: () 
         </button>
 
         {editando ? (
-          <button type="button" className="ent-btn ent-btn--ghost" onClick={() => void alternarAtivo()} disabled={salvando}>
-            {arquivado ? "Reativar produto" : "Inativar produto"}
-          </button>
+          <>
+            <button type="button" className="ent-btn ent-btn--ghost" onClick={() => void alternarAtivo()} disabled={salvando}>
+              {arquivado ? "Reativar produto" : "Inativar produto"}
+            </button>
+            <button type="button" className="ent-btn ent-btn--ghost ent-btn--danger" onClick={() => void excluir()} disabled={salvando}>
+              Excluir produto
+            </button>
+          </>
         ) : null}
 
         {erro ? <div className="ent-erro">{erro}</div> : null}

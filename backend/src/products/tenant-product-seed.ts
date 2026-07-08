@@ -65,21 +65,12 @@ export type EnsureHbxTenantProductsResult = {
   products: EnsureTenantProductResult[];
 };
 
-const DEFAULT_TENANT_PRODUCT_INPUTS: TenantProductSeedInput[] = [
-  {
-    key: 'oferta-principal',
-    name: 'Oferta principal',
-    description: 'Produto ou servico principal da empresa.',
-    kind: 'tenant_product',
-    status: 'draft',
-    category: 'Comercial',
-    priceCents: 0,
-    currency: 'BRL',
-    saleMode: 'internal',
-    allowDiscount: false,
-    sortOrder: 10,
-  },
-];
+// TASK 8 (08/07) — REMOVIDO o seed default ("oferta-principal", que aparecia
+// pré-preenchido em toda conta nova — no app Entrega isso é visto como o
+// "Galão 20L" fantasma no catálogo). buildTenantProductSeeds(null, ...) agora
+// devolve LISTA VAZIA: conta nova nasce SEM produto algum. O caminho de
+// produtos EXPLÍCITOS (ex.: HBX_TENANT_PRODUCT_INPUTS abaixo, ou um catálogo
+// passado pelo master) continua intacto — só o DEFAULT (sem input) mudou.
 
 const HBX_TENANT_PRODUCT_INPUTS: TenantProductSeedInput[] = [
   {
@@ -206,7 +197,10 @@ export function buildTenantProductSeeds(
   const statusFallback = normalizeKey(options.defaultStatus, explicitProducts ? 'active' : 'draft', 40);
   const seen = new Set<string>();
 
-  return (explicitProducts ? products || [] : DEFAULT_TENANT_PRODUCT_INPUTS)
+  // TASK 8 — sem produtos EXPLÍCITOS, o default agora é LISTA VAZIA (conta nova
+  // nasce sem produto nenhum). Antes caía em DEFAULT_TENANT_PRODUCT_INPUTS
+  // ("Oferta principal" pré-criada em rascunho); removido de propósito.
+  return (explicitProducts ? products || [] : [])
     .map((product, index) => {
       const name = normalizeText(product?.name, 140);
       if (!name) return null;

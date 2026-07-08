@@ -291,7 +291,7 @@ export class ProfileController {
   // vendedor) define — vira filtro padrão do Radar/Leads.
   @Post('prospecting-segments')
   @UseGuards(JwtAuthGuard)
-  async saveProspectingSegments(@Req() req: any, @Body() body: { segments?: string[] }) {
+  async saveProspectingSegments(@Req() req: any, @Body() body: { segments?: string[]; estado?: string; cidade?: string }) {
     const user = await this.usersService.findById(req.user.id);
     if (!user) throw new BadRequestException('Usuario invalido');
     const role = String(user.role || '').trim().toUpperCase();
@@ -305,7 +305,15 @@ export class ProfileController {
     if (!segments.some((s) => String(s || '').trim())) {
       throw new BadRequestException('Escolha pelo menos um ramo.');
     }
-    const saved = await this.usersService.saveCompanyProspectingSegments(companyId, segments);
+    // estado/cidade são opcionais (tela do OOBE manda os dois, mesmo vazios; o
+    // editor de nicho de Configurações manda só segments) — só repassa location
+    // quando o body de fato fala deles, senão apagaria o que já estava salvo.
+    const hasLocation = typeof body?.estado === 'string' || typeof body?.cidade === 'string';
+    const saved = await this.usersService.saveCompanyProspectingSegments(
+      companyId,
+      segments,
+      hasLocation ? { estado: body?.estado, cidade: body?.cidade } : undefined,
+    );
     return { ok: true, prospectingSegments: saved };
   }
 

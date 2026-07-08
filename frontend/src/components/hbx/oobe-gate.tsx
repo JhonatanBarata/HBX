@@ -39,13 +39,14 @@ const RAMOS_SUGERIDOS = [
   "Imobiliárias", "Advocacia", "Contabilidade", "Pet shops", "Construção e reformas",
 ];
 
-type GateStep = "senha" | "ramo" | "modo" | "escolha";
+type GateStep = "senha" | "ramo" | "modo" | "caminho" | "escolha";
 
 // Texto do trilho lateral por passo (h1/p/status) — acompanha o palco.
 const SIDE_META: Record<GateStep, [string, string, string]> = {
   senha: ["Sua chave de entrada.", "Crie a senha definitiva — a temporária para de valer agora.", "Protegendo seu acesso"],
-  ramo: ["Comece pelo alvo.", "O Radar precisa entender que tipo de empresa vale a pena mostrar primeiro.", "Salvando ramo-alvo"],
-  modo: ["Defina o modelo.", "A operação solo e a operação com time têm primeiros passos diferentes.", "Ajustando atendimento"],
+  ramo: ["Comece pelo alvo.", "Escolha estado, cidade e ramo.", "Salvando informações"],
+  modo: ["Você vai operar sozinho ou com um time?", "", "Ajustando atendimento"],
+  caminho: ["Como você quer começar?", "", "Preparando primeiros passos"],
   escolha: ["Vamos montar sua operação.", "Escolha se quer uma configuração guiada, simples ou se prefere pular.", "Preparando primeiros passos"],
 };
 
@@ -83,7 +84,10 @@ export function OobeGate() {
             if (u.mustChangePassword) j.push("senha");
             if (u.ramoPending) j.push("ramo");
             if (u.adminOnboardingPending) j.push("modo");
-            if (u.tutorialPending) j.push("escolha");
+            // "caminho" é o passo REALMENTE exibido quando tutorialPending (ver
+            // stepKey abaixo) — nunca "escolha" (painel morto, inalcançável).
+            // Empurrar a chave certa aqui é o que mantém a contagem "Etapa X de N" certa.
+            if (u.tutorialPending) j.push("caminho");
             return j;
           });
         }
@@ -98,8 +102,8 @@ export function OobeGate() {
     const senha = Boolean(flags.mustChangePassword);
     const ramo = !senha && Boolean(flags.ramoPending);
     const modo = !senha && !ramo && Boolean(flags.adminOnboardingPending);
-    const escolha = !senha && !ramo && !modo && Boolean(flags.tutorialPending) && !tutorialLaunched;
-    stepKey = senha ? "senha" : ramo ? "ramo" : modo ? "modo" : escolha ? "escolha" : null;
+    const caminho = !senha && !ramo && !modo && Boolean(flags.tutorialPending) && !tutorialLaunched;
+    stepKey = senha ? "senha" : ramo ? "ramo" : modo ? "modo" : caminho ? "caminho" : null;
   }
 
   // Transição Win11 entre passos: o painel atual roda a saída (is-leaving) e só
@@ -135,10 +139,17 @@ export function OobeGate() {
 
   if (!shown) return null;
 
+  // Régua = só os passos REAIS da jornada (senha/ramo/modo/caminho, na ordem
+  // em que ficaram pendentes) — sem o painel morto "escolha" inflando o total.
   const regua = jornada && jornada.length ? jornada : [shown];
   const etapaIdx = Math.max(0, regua.indexOf(shown));
-  const pct = Math.round(((etapaIdx + 1) / regua.length) * 100);
-  const [sideTitle, sideCopy, statusText] = SIDE_META[shown];
+  const totalEtapas = regua.length;
+  const etapaAtual = etapaIdx + 1;
+  const pct = totalEtapas > 0 ? Math.round((etapaAtual / totalEtapas) * 100) : 0;
+  // Único texto "Etapa X de N" — usado no trilho lateral E no rodapé de cada
+  // painel (mesma fonte, sem duplicar a conta em dois lugares).
+  const stepLabel = `Etapa ${etapaAtual} de ${totalEtapas}`;
+  const [sideTitle, sideCopy, statusText] = SIDE_META[shown] || ["Preparando", "", ""];
   const panelClass = "oobe-panel" + (leaving ? " is-leaving" : "");
 
   return (
@@ -157,14 +168,13 @@ export function OobeGate() {
           </div>
 
           <div className="oobe-side-copy" key={shown}>
-            <div className="oobe-kicker"><i /><span>Ambiente seguro</span></div>
             <h1>{sideTitle}</h1>
             <p>{sideCopy}</p>
           </div>
 
           <div className="oobe-progress">
             <div className="oobe-progress-top">
-              <span>Etapa {etapaIdx + 1} de {regua.length}</span>
+              <span>{stepLabel}</span>
               <span>{pct}%</span>
             </div>
             <div className="oobe-progress-bar">
@@ -179,9 +189,19 @@ export function OobeGate() {
           </div>
 
           <div className="oobe-stage">
-            {shown === "senha" && <PainelSenha key="senha" className={panelClass} flags={flags} onResolved={carregar} />}
-            {shown === "ramo" && <PainelRamo key="ramo" className={panelClass} onResolved={carregar} />}
-            {shown === "modo" && <PainelModo key="modo" className={panelClass} onResolved={carregar} />}
+            {shown === "senha" && <PainelSenha key="senha" className={panelClass} flags={flags} stepLabel={stepLabel} onResolved={carregar} />}
+            {shown === "ramo" && <PainelRamo key="ramo" className={panelClass} stepLabel={stepLabel} onResolved={carregar} />}
+            {shown === "modo" && <PainelModo key="modo" className={panelClass} stepLabel={stepLabel} onResolved={carregar} />}
+            {shown === "caminho" && (
+              <PainelCaminho
+                key="caminho"
+                className={panelClass}
+                stepLabel={stepLabel}
+                onTutorial={() => setBooting(true)}
+                onResolved={carregar}
+                goDashboard={() => router.push("/dashboard")}
+              />
+            )}
             {shown === "escolha" && (
               <PainelEscolha
                 key="escolha"
@@ -199,7 +219,7 @@ export function OobeGate() {
 }
 
 /* ── Passo SENHA ───────────────────────────────────────────────────────────── */
-function PainelSenha({ className, flags, onResolved }: { className: string; flags: Flags; onResolved: () => void }) {
+function PainelSenha({ className, flags, stepLabel, onResolved }: { className: string; flags: Flags; stepLabel: string; onResolved: () => void }) {
   const [p1, setP1] = useState("");
   const [p2, setP2] = useState("");
   const [show, setShow] = useState(false);
@@ -224,7 +244,6 @@ function PainelSenha({ className, flags, onResolved }: { className: string; flag
 
   return (
     <form className={className} onSubmit={salvar}>
-      <div className="oobe-step-label">Primeiro acesso</div>
       <h2 className="oobe-title">Boas-vindas à HBX{primeiroNome(flags.name)}</h2>
       <p className="oobe-copy">
         Antes de começar, crie uma senha só sua. A senha temporária para de valer agora.
@@ -255,83 +274,33 @@ function PainelSenha({ className, flags, onResolved }: { className: string; flag
           </button>
         </div>
       </footer>
+      <div className="oobe-step-indicator">{stepLabel}</div>
     </form>
   );
 }
 
-/* ── Passo RAMO (prospecção) — chips + texto livre + vitrine de empresas ───── */
-type SegmentCard = { name: string; city: string; ddd: string; phoneMasked: string };
-
-function PainelRamo({ className, onResolved }: { className: string; onResolved: () => void }) {
+/* ── Passo RAMO (prospecção) — segmentos + estado + cidade, 1 tela sem scroll ── */
+function PainelRamo({ className, stepLabel, onResolved }: { className: string; stepLabel: string; onResolved: () => void }) {
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [livre, setLivre] = useState("");
+  const [estado, setEstado] = useState("");
+  const [cidade, setCidade] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [btnState, setBtnState] = useState<"normal" | "searching" | "ready">("normal");
-  const [vitrine, setVitrine] = useState<SegmentCard[]>([]);
-  const [count, setCount] = useState(0);
-
-  const cache = useRef<Map<string, { count: number; sample: SegmentCard[] }>>(new Map());
-  const fetching = useRef(new Set<string>());
-  const selRef = useRef<string[]>([]);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const todos = Array.from(new Set([...RAMOS_SUGERIDOS, ...selecionados]));
-
-  function recompute(sels: string[]) {
-    const items: SegmentCard[] = [];
-    let total = 0;
-    const seen = new Set<string>();
-    for (const s of sels) {
-      const d = cache.current.get(s);
-      if (!d) continue;
-      total += d.count;
-      for (const it of d.sample) {
-        const k = it.name.toLowerCase();
-        if (!seen.has(k)) { seen.add(k); items.push(it); }
-      }
-    }
-    setVitrine(items.slice(0, 8));
-    setCount(total);
-  }
-
-  function fetchSeg(seg: string) {
-    if (cache.current.has(seg)) { recompute(selRef.current); return; }
-    if (fetching.current.has(seg)) return;
-    fetching.current.add(seg);
-    apiFetch<{ count: number; sample: SegmentCard[] }>(`/onboarding/segment-preview?segment=${encodeURIComponent(seg)}`)
-      .then(d => { cache.current.set(seg, d || { count: 0, sample: [] }); })
-      .catch(() => { cache.current.set(seg, { count: 0, sample: [] }); })
-      .finally(() => { fetching.current.delete(seg); recompute(selRef.current); });
-  }
-
-  function armBtn() {
-    setBtnState(prev => {
-      if (prev !== "normal") return prev;
-      timer.current = setTimeout(() => setBtnState("ready"), 12000);
-      return "searching";
-    });
-  }
 
   function toggle(r: string) {
     const removendo = selecionados.includes(r);
     const sels = removendo ? selecionados.filter(x => x !== r) : [...selecionados, r];
     setSelecionados(sels);
-    selRef.current = sels;
-    if (!removendo) { fetchSeg(r); armBtn(); } else { recompute(sels); }
   }
 
   function addLivre() {
     const v = livre.trim();
     if (!v) return;
     if (!selecionados.includes(v)) {
-      const sels = [...selecionados, v];
-      setSelecionados(sels);
-      selRef.current = sels;
-      fetchSeg(v);
-      armBtn();
+      setSelecionados([...selecionados, v]);
     }
     setLivre("");
   }
@@ -339,23 +308,24 @@ function PainelRamo({ className, onResolved }: { className: string; onResolved: 
   async function salvar() {
     if (busy) return;
     const segments = selecionados.length ? selecionados : livre.trim() ? [livre.trim()] : [];
-    if (!segments.length) { setErr("Escolha pelo menos um ramo que você quer prospectar."); return; }
+    if (!segments.length) { setErr("Escolha pelo menos um ramo."); return; }
     setBusy(true);
     setErr(null);
     try {
-      await apiFetch("/profile/prospecting-segments", { method: "POST", body: JSON.stringify({ segments }) });
+      await apiFetch("/profile/prospecting-segments", {
+        method: "POST",
+        body: JSON.stringify({ segments, estado: estado.trim(), cidade: cidade.trim() }),
+      });
       onResolved();
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : "Não foi possível salvar o ramo.");
+      setErr(e2 instanceof Error ? e2.message : "Não foi possível salvar.");
       setBusy(false);
     }
   }
 
   return (
     <article className={className}>
-      <div className="oobe-step-label">Prospecção</div>
-      <h2 className="oobe-title">Que tipo de empresa você quer encontrar?</h2>
-      <p className="oobe-copy">Essa escolha alimenta o Radar inicial e faz o primeiro contato com o sistema parecer útil de verdade.</p>
+      <h2 className="oobe-title">Qual é seu ramo?</h2>
       <div className="oobe-chips">
         {todos.map(r => (
           <button type="button" key={r} className={"oobe-chip" + (selecionados.includes(r) ? " is-on" : "")}
@@ -365,46 +335,45 @@ function PainelRamo({ className, onResolved }: { className: string; onResolved: 
         ))}
       </div>
       <div className="oobe-field">
-        <label>Ou descreva seu ramo</label>
+        <label>Ou descreva</label>
         <div className="oobe-input-row">
-          <input className="oobe-input" maxLength={80} placeholder="Ex.: escolas de idiomas, marcenarias, distribuidoras"
+          <input className="oobe-input" maxLength={80} placeholder="Seu ramo"
             value={livre} disabled={busy} onChange={e => setLivre(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addLivre(); } }} />
-          <button className="oobe-btn" type="button" onClick={addLivre} disabled={busy || !livre.trim()}>Adicionar</button>
+          <button className="oobe-btn" type="button" onClick={addLivre} disabled={busy || !livre.trim()}>+</button>
         </div>
       </div>
-      {vitrine.length > 0 && (
-        <div className="oobe-vitrine">
-          <p className="oobe-vitrine-counter"><strong>{count.toLocaleString("pt-BR")}</strong> empresas do ramo na base</p>
-          <div className="oobe-vitrine-grid">
-            {vitrine.map(it => (
-              <div key={`${it.name}-${it.city}`} className="oobe-vitrine-card">
-                <b>{it.name}</b>
-                <i>{it.city}</i>
-                <u>{it.phoneMasked}</u>
-              </div>
-            ))}
+      <div className="oobe-row">
+        <div className="oobe-field">
+          <label>Estado</label>
+          <div className="oobe-input-row">
+            <input className="oobe-input oobe-input--uf" maxLength={2} placeholder="UF" value={estado} disabled={busy}
+              onChange={e => setEstado(e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2))} />
           </div>
         </div>
-      )}
+        <div className="oobe-field">
+          <label>Cidade</label>
+          <div className="oobe-input-row">
+            <input className="oobe-input" maxLength={80} placeholder="Sua cidade" value={cidade} disabled={busy}
+              onChange={e => setCidade(e.target.value)} />
+          </div>
+        </div>
+      </div>
       <footer className="oobe-bottom">
-        <div className={"oobe-help" + (err ? " is-error" : "")}>{err || "Isso fica salvo na sua empresa e vira o filtro inicial do Radar."}</div>
+        <div className={"oobe-help" + (err ? " is-error" : "")}>{err || ""}</div>
         <div className="oobe-actions">
-          {btnState === "searching" ? (
-            <span className="oobe-searching">Procurando empresas perto de você…</span>
-          ) : (
-            <button className="oobe-btn oobe-btn--primary" type="button" onClick={salvar} disabled={busy}>
-              {busy ? "Salvando…" : btnState === "ready" ? "Ver meu Radar →" : "Salvar e continuar"}
-            </button>
-          )}
+          <button className="oobe-btn oobe-btn--primary" type="button" onClick={salvar} disabled={busy}>
+            {busy ? "Salvando…" : "Continuar"}
+          </button>
         </div>
       </footer>
+      <div className="oobe-step-indicator">{stepLabel}</div>
     </article>
   );
 }
 
 /* ── Passo MODO (solo | time) — cards selecionáveis + Continuar ────────────── */
-function PainelModo({ className, onResolved }: { className: string; onResolved: () => void }) {
+function PainelModo({ className, stepLabel, onResolved }: { className: string; stepLabel: string; onResolved: () => void }) {
   const [sel, setSel] = useState<"solo" | "team">("solo");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -424,29 +393,81 @@ function PainelModo({ className, onResolved }: { className: string; onResolved: 
 
   return (
     <article className={className}>
-      <div className="oobe-step-label">Modelo de operação</div>
       <h2 className="oobe-title">Você vai operar sozinho ou com um time?</h2>
-      <p className="oobe-copy">Essa decisão ajusta o checklist, o atendimento do WhatsApp e os primeiros passos reais da conta.</p>
       <div className="oobe-choices oobe-choices--2">
         <button className={"oobe-card" + (sel === "solo" ? " is-selected" : "")} type="button" disabled={busy} onClick={() => setSel("solo")}>
           <span className="oobe-card-ico">1</span>
           <strong>Sozinho</strong>
-          <small>O dono prospecta, atende e fecha. Começa puxando o primeiro lead.</small>
         </button>
         <button className={"oobe-card" + (sel === "team" ? " is-selected" : "")} type="button" disabled={busy} onClick={() => setSel("team")}>
           <span className="oobe-card-ico">3</span>
           <strong>Com time</strong>
-          <small>Vendedores entram, conversas são distribuídas e o dono acompanha.</small>
         </button>
       </div>
       <footer className="oobe-bottom">
-        <div className={"oobe-help" + (err ? " is-error" : "")}>{err || "Você é o dono da conta — só você define isso. Dá pra mudar depois em Atendimento."}</div>
+        <div className={"oobe-help" + (err ? " is-error" : "")}>{err || ""}</div>
         <div className="oobe-actions">
           <button className="oobe-btn oobe-btn--primary" type="button" onClick={continuar} disabled={busy}>
             {busy ? "Salvando…" : "Continuar"}
           </button>
         </div>
       </footer>
+      <div className="oobe-step-indicator">{stepLabel}</div>
+    </article>
+  );
+}
+
+/* ── Passo CAMINHO (Passo a Passo | Direto Sistema) ────────────────────────── */
+function PainelCaminho({ className, stepLabel, onTutorial, onResolved, goDashboard }: {
+  className: string;
+  stepLabel: string;
+  onTutorial: () => void;
+  onResolved: () => void;
+  goDashboard: () => void;
+}) {
+  const [sel, setSel] = useState<"tutorial" | "simple">("tutorial");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function continuar() {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiFetch("/profile/tutorial-done", { method: "POST", body: JSON.stringify({ mode: sel }) });
+      if (sel === "simple") {
+        try { localStorage.setItem(AC_COLLAPSE_KEY, "0"); } catch { /* sem storage */ }
+      }
+      onResolved();
+      if (sel === "tutorial") { onTutorial(); } else { goDashboard(); }
+    } catch {
+      setErr("Não foi possível salvar agora. Tente novamente.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className={className}>
+      <h2 className="oobe-title">Como você quer começar?</h2>
+      <div className="oobe-choices oobe-choices--2">
+        <button className={"oobe-card" + (sel === "tutorial" ? " is-selected" : "")} type="button" disabled={busy} onClick={() => setSel("tutorial")}>
+          <span className="oobe-card-ico">▶</span>
+          <strong>Passo a Passo</strong>
+        </button>
+        <button className={"oobe-card" + (sel === "simple" ? " is-selected" : "")} type="button" disabled={busy} onClick={() => setSel("simple")}>
+          <span className="oobe-card-ico">→</span>
+          <strong>Direto Sistema</strong>
+        </button>
+      </div>
+      <footer className="oobe-bottom">
+        <div className={"oobe-help" + (err ? " is-error" : "")}>{err || ""}</div>
+        <div className="oobe-actions">
+          <button className="oobe-btn oobe-btn--primary" type="button" onClick={continuar} disabled={busy}>
+            {busy ? "Preparando…" : "Continuar"}
+          </button>
+        </div>
+      </footer>
+      <div className="oobe-step-indicator">{stepLabel}</div>
     </article>
   );
 }

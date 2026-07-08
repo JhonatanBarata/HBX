@@ -855,16 +855,30 @@ export class UsersService {
   // Ramo-alvo da empresa (primeiro acesso do dono, 14/06/2026): segmentos que a
   // empresa quer prospectar. Vira filtro padrão do Radar/Leads e desempata o que
   // cada empresa vê primeiro (a lagoa é compartilhada; o dedup é por empresa).
-  async saveCompanyProspectingSegments(companyId: number, segments: string[]): Promise<string[]> {
+  // Estado/cidade (OOBE 08/07): coletados na MESMA tela. `location` OMITIDO
+  // (undefined) preserva o que já estava salvo — o editor de nicho de
+  // Configurações só manda segments e não pode apagar estado/cidade à toa.
+  async saveCompanyProspectingSegments(
+    companyId: number,
+    segments: string[],
+    location?: { estado?: string | null; cidade?: string | null },
+  ): Promise<string[]> {
     const clean = Array.from(new Set(
       (Array.isArray(segments) ? segments : [])
         .map((s) => String(s || '').trim().replace(/\s+/g, ' '))
         .filter(Boolean)
         .map((s) => s.slice(0, 80)),
     )).slice(0, 12);
+    const data: any = { prospectingSegmentsJson: clean.length ? JSON.stringify(clean) : null };
+    if (location) {
+      const estado = String(location.estado || '').trim().toUpperCase().slice(0, 2);
+      const cidade = String(location.cidade || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+      data.prospectingEstado = estado || null;
+      data.prospectingCidade = cidade || null;
+    }
     await this.prisma.company.update({
       where: { id: companyId },
-      data: { prospectingSegmentsJson: clean.length ? JSON.stringify(clean) : null } as any,
+      data,
     });
     return clean;
   }

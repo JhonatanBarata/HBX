@@ -10,15 +10,18 @@
 // (--bot-phase-color). Estilo em hbx-theme/bot-prospeccao.css; o tutofig
 // (sobreposição de 3 colunas) em hbx-theme/bot-tutofig.css.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotTutofig } from "@/components/hbx/bot-tutofig";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
+import { BotAvisoModal } from "@/components/hbx/bot-aviso-modal";
 import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
 import { apiFetch } from "@/lib/api";
+import { deriveBotAlert, type BotAlertKind } from "@/lib/bot-alert";
 import {
   useProspectingConfig,
   isProspConfigComplete,
@@ -60,6 +63,22 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   // onSaved do pai (recarrega a ativação do bot) — dispara após salvar/ciclo.
   const onSavedRef = useRef(onSaved);
   useEffect(() => { onSavedRef.current = onSaved; });
+
+  // ── Pop-up de aviso do motor (sem crédito / não configurado / fila vazia / erro) ──
+  // Derivação pura do live/loadErr já carregado pelo poll de 10s — nenhuma chamada nova.
+  const router = useRouter();
+  const botAlert = useMemo(() => deriveBotAlert(live, loadErr), [live, loadErr]);
+  const currentAlertKind: BotAlertKind | null = botAlert?.kind ?? null;
+  const [dismissedAlertKind, setDismissedAlertKind] = useState<BotAlertKind | null>(null);
+  // "não re-incomodar": mesmo kind no próximo poll fica quieto; kind novo ou problema
+  // resolvido (null) libera o dispensado de novo. Guard por ref (transição real),
+  // não setState incondicional no corpo do effect (react-hooks/set-state-in-effect).
+  const prevAlertKindRef = useRef<BotAlertKind | null>(null);
+  useEffect(() => {
+    const prevKind = prevAlertKindRef.current;
+    prevAlertKindRef.current = currentAlertKind;
+    if (prevKind !== currentAlertKind) setDismissedAlertKind(null);
+  }, [currentAlertKind]);
 
   const helpers: ProspFieldHelpers = {
     numVal: cfg.numVal, boolVal: cfg.boolVal, strVal: cfg.strVal, listVal: cfg.listVal,
@@ -286,6 +305,17 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
             pendingStartRef.current = null;
           }}
           accepting={busy}
+        />
+      )}
+
+      {/* ── Pop-up de aviso do motor: sem crédito / não configurado / fila vazia / erro ── */}
+      {botAlert && botAlert.kind !== dismissedAlertKind && (
+        <BotAvisoModal
+          alert={botAlert}
+          onDismiss={() => setDismissedAlertKind(botAlert.kind)}
+          onConfigure={() => setTutofigOpen(true)}
+          onViewCredits={() => router.push("/configuracoes")}
+          onAdjustFilter={() => setOpenPiece("alvo")}
         />
       )}
     </div>

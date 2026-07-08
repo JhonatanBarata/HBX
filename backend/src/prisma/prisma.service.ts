@@ -97,6 +97,12 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
+    key: 'company-prospecting-location-columns',
+    method: 'ensureCompanyProspectingLocationColumns',
+    target: 'Company.prospectingEstado + Company.prospectingCidade (tela ramo do OOBE — 08/07)',
+    shouldBecomeMigration: true,
+  },
+  {
     key: 'plan-module-config-table',
     method: 'ensurePlanModuleConfigTable',
     target: 'PlanModuleConfig table (módulos padrões por plano — PR13062026007)',
@@ -541,6 +547,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('regua-cargo-access-columns', () => this.ensureReguaCargoAccessColumns());
     await this.runRuntimeSchemaEnsure('user-tutorial-onboarding-column', () => this.ensureTutorialOnboardingColumn());
     await this.runRuntimeSchemaEnsure('company-prospecting-segments-column', () => this.ensureCompanyProspectingSegmentsColumn());
+    await this.runRuntimeSchemaEnsure('company-prospecting-location-columns', () => this.ensureCompanyProspectingLocationColumns());
     await this.runRuntimeSchemaEnsure('plan-module-config-table', () => this.ensurePlanModuleConfigTable());
     await this.runRuntimeSchemaEnsure('vendas-automation-triagem-columns', () => this.ensureVendasAutomationTriagemColumns());
     await this.runRuntimeSchemaEnsure('user-sales-profile-columns', () => this.ensureUserSalesProfileColumns());
@@ -693,6 +700,20 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(`
       ALTER TABLE "Company"
       ADD COLUMN IF NOT EXISTS "prospectingSegmentsJson" TEXT
+    `);
+  }
+
+  // Estado (UF) + cidade coletados junto do ramo-alvo na tela do OOBE (08/07):
+  // mesmo padrão runtime-ensure da coluna de segments acima — colunas nullable
+  // simples, sem migration formal (schema.prisma fica intocado de propósito).
+  private async ensureCompanyProspectingLocationColumns() {
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "prospectingEstado" TEXT
+    `);
+    await this.$executeRawUnsafe(`
+      ALTER TABLE "Company"
+      ADD COLUMN IF NOT EXISTS "prospectingCidade" TEXT
     `);
   }
 

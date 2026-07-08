@@ -2544,14 +2544,20 @@ test('Fase B (c): ADMIN company mode inclui conversa só-Meta quando metaActive'
 
 function buildStartConversationService(opts: {
   checkWhatsappNumbers: (companyId: number, numbers: any[], selector?: any) => Promise<any[]>;
+  findFirst?: (input: any) => Promise<any>;
 }) {
   const created: Array<Record<string, any>> = [];
+  const updated: Array<Record<string, any>> = [];
   const logged: Array<Record<string, any>> = [];
   const { service } = createService({
     webwhatsBridge: { checkWhatsappNumbers: opts.checkWhatsappNumbers },
     prisma: {
       companyConversation: {
-        findFirst: async () => null,
+        findFirst: opts.findFirst || (async () => null),
+        update: async ({ where, data }: any) => {
+          updated.push({ where, data });
+          return { id: where.id, companyId: 7, channel: 'whatsapp', contact: data.contact, metadata: data.metadata, ...data };
+        },
         create: async ({ data }: any) => {
           created.push(data);
           return { id: 4242, ...data };
@@ -2570,7 +2576,7 @@ function buildStartConversationService(opts: {
     _companyId: number,
     id: number,
   ) => ({ id: String(id), messages: [] });
-  return { service, created, logged };
+  return { service, created, updated, logged };
 }
 
 test('startConversation usa o JID canônico do motor (resolve o "9 a mais")', async () => {
@@ -2601,6 +2607,73 @@ test('startConversation usa o JID canônico do motor (resolve o "9 a mais")', as
   const metadata = JSON.parse(created[0].metadata);
   assert.equal(metadata.whatsappRemoteJid, '555193572856@s.whatsapp.net');
   assert.equal(metadata.whatsappUnverified, undefined);
+});
+
+test('startConversation reaproveita rascunho manual sem sessão em vez de duplicar chat', async () => {
+  const orphan = {
+    id: 313,
+    companyId: 7,
+    channel: 'whatsapp',
+    whatsappConnectionSessionId: null,
+    sourcePhoneNormalized: null,
+    sourceTenantKey: null,
+    contact: '+5511999998888',
+    metadata: JSON.stringify({
+      sourceModule: 'atendimento_manual',
+      manualConversationStarted: true,
+      whatsappRemoteJid: '5511999998888@s.whatsapp.net',
+      whatsappName: 'HBX SUP',
+    }),
+    currentFlow: 'cobranca_recovery',
+    currentStep: 'novo',
+    flowResult: null,
+    botActive: false,
+    humanAssigned: true,
+    assignedUserId: 55,
+    lastInteractionAt: new Date('2026-07-08T10:00:00.000Z'),
+    lastMessageAt: new Date('2026-07-08T10:00:00.000Z'),
+    createdAt: new Date('2026-07-08T10:00:00.000Z'),
+    updatedAt: new Date('2026-07-08T10:00:00.000Z'),
+  };
+  let findCalls = 0;
+  const { service, created, updated } = buildStartConversationService({
+    checkWhatsappNumbers: async () => [
+      {
+        input: '5511999998888',
+        normalizedNumber: '5511999998888',
+        exists: true,
+        remoteJid: '5511999998888@s.whatsapp.net',
+        raw: null,
+      },
+    ],
+    findFirst: async ({ where }: any) => {
+      findCalls += 1;
+      return where?.whatsappConnectionSessionId === null ? orphan : null;
+    },
+  });
+  (service as any).resolveInboxWhatsappSessionScope = async () => ({
+    accessible: true,
+    reason: 'webwhats_active',
+    currentSessionId: 'session-7',
+    currentSession: {
+      id: 'session-7',
+      phoneNormalized: '5511999990000',
+      tenantKey: 'company-7-user-55',
+    },
+    mode: 'current',
+  });
+
+  await service.startConversation({ companyId: 7, id: 55 }, { phone: '5511999998888', name: 'HBX System' });
+
+  assert.equal(findCalls, 2);
+  assert.equal(created.length, 0, 'não deve criar segunda conversa para o mesmo número');
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0].where.id, 313);
+  assert.equal(updated[0].data.whatsappConnectionSessionId, 'session-7');
+  assert.equal(updated[0].data.sourcePhoneNormalized, '5511999990000');
+  const metadata = JSON.parse(updated[0].data.metadata);
+  assert.equal(metadata.whatsappName, 'HBX System');
+  assert.equal(metadata.whatsappRemoteJid, '5511999998888@s.whatsapp.net');
 });
 
 test('startConversation rejeita número sem WhatsApp e NÃO cria conversa', async () => {

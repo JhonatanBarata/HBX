@@ -161,13 +161,18 @@ export function enderecoCurto(c: RotaCliente): string {
   return partes.join(" — ") || "Sem endereço";
 }
 
-/** Deep-link de navegação: por coordenada (preciso) ou por endereço (fallback). */
+/**
+ * Deep-link de navegação: por coordenada (preciso) ou por endereço (fallback).
+ * TASK 10 — o fallback NÃO manda mais o nome do cliente na busca: o nome
+ * entrando na query fazia o Google Maps buscar "Dona Maria" como se fosse um
+ * lugar/estabelecimento em vez de resolver o endereço.
+ */
 export function mapsHref(c: RotaCliente): string {
   if (typeof c.lat === "number" && typeof c.lng === "number") {
     return `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}`;
   }
-  const q = [c.nome, c.endereco, c.cidade, c.uf].filter(Boolean).join(", ");
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(q || "")}`;
+  const q = [c.endereco, c.cidade, c.uf].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(q)}`;
 }
 
 /** Haversine em metros — geofence de chegada (foreground). */
@@ -200,4 +205,58 @@ export function paradasAbertas(r: RotaResult): RotaItem[] {
   return [...r.items]
     .filter((i) => i.status === "agendada" || i.status === "em_rota")
     .sort((a, b) => (a.rotaOrdem ?? 999) - (b.rotaOrdem ?? 999));
+}
+
+// ── dias da semana (convenção ISO 1=seg…7=dom) ───────────────────────────────
+// TASKS 4/6/7 — fonte ÚNICA do rótulo/ordem de exibição (Seg..Dom): Ajustes,
+// Clientes (ProdutosDoCliente) e o pop-up "Gerar entregas" (GestaoDia)
+// importam daqui em vez de reimplementar cada um o seu array.
+export const DIAS_SEMANA: Array<{ n: number; label: string }> = [
+  { n: 1, label: "Seg" },
+  { n: 2, label: "Ter" },
+  { n: 3, label: "Qua" },
+  { n: 4, label: "Qui" },
+  { n: 5, label: "Sex" },
+  { n: 6, label: "Sáb" },
+  { n: 7, label: "Dom" },
+];
+
+/** CSV ISO ("1,2,7") → Set de dias válidos (1..7). CSV vazio/null → Set vazio. */
+export function parseDiasTrabalho(csv: string | null | undefined): Set<number> {
+  const nums = String(csv ?? "")
+    .split(",")
+    .map((s) => Math.trunc(Number(s.trim())))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 7);
+  return new Set(nums);
+}
+
+/** DIAS_SEMANA filtrado pelo CSV de Ajustes — vazio/null (sem restrição) = os 7. */
+export function diasPermitidos(diasTrabalho: string | null | undefined): Array<{ n: number; label: string }> {
+  const set = parseDiasTrabalho(diasTrabalho);
+  return set.size > 0 ? DIAS_SEMANA.filter((d) => set.has(d.n)) : DIAS_SEMANA;
+}
+
+/** Dia da semana ISO (1=seg…7=dom) de uma data — converte o 0=dom do JS. */
+export function isoDiaSemana(d: Date): number {
+  const dow = d.getDay();
+  return dow === 0 ? 7 : dow;
+}
+
+/** "YYYY-MM-DD" LOCAL (nunca toISOString — foge do fuso horário do aparelho). */
+export function dataLocalISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+/**
+ * TASK 7 — data local (YYYY-MM-DD) do dia da semana ISO `w` (1..7) NA SEMANA
+ * CORRENTE, contando a partir de "hoje": offset = (dowHoje - w + 7) % 7; data =
+ * hoje - offset dias. w=hoje → hoje; w=segunda numa terça → ontem.
+ */
+export function dataLocalDoDiaSemana(w: number, hoje: Date = new Date()): string {
+  const offset = (isoDiaSemana(hoje) - w + 7) % 7;
+  const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - offset);
+  return dataLocalISO(d);
 }

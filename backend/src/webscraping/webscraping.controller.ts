@@ -456,42 +456,6 @@ class RadarPonteStatusDto {
   leadIds!: string[];
 }
 
-class RadarAutoDistributionRunDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-}
-
-class RadarTenantAutoDistributionDto {
-  @IsOptional()
-  @IsIn(['draft', 'active', 'paused'])
-  status?: 'draft' | 'active' | 'paused';
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(500)
-  targetStockPerSeller?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(500)
-  dailyLimitPerSeller?: number;
-
-  @IsOptional()
-  @IsArray()
-  territories?: Array<{
-    userId?: number;
-    cities?: Array<{ city?: string; state?: string }>;
-  }>;
-}
-
 // LEADS-FINAL 03 (06/07, docs/PLANEJAMENTOS/LEADS-FINAL/03-FILTROS-E-PESQUISAS-SALVAS.md) —
 // "os 6 filtros que importam" da gaveta nova. Whitelist EXPLICITA server-side (é input do
 // usuário, ver radar-count-filters.util.ts) — nunca aceita campo livre.
@@ -657,11 +621,6 @@ export class WebscrapingController {
   @Post('radar/ai-status')
   radarAiStatus(@Req() req: any, @Body() dto: RadarPonteStatusDto) {
     return this.webscrapingService.getRadarAiStatusForUser(req.user, dto?.leadIds || []);
-  }
-
-  @Get('radar/auto-distribution')
-  radarAutoDistributionRule(@Req() req: any) {
-    return this.webscrapingService.getRadarAutoDistributionRuleForUser(req.user);
   }
 
   @Post('radar/leads/:id/event')
@@ -847,21 +806,6 @@ export class MasterWebscrapingController {
   @Post('clean-junk')
   cleanJunk(@Req() req: any, @Body() body: { confirm?: boolean }) {
     return this.webscrapingService.cleanJunkMasterDatabaseCards(req.user, { confirm: body?.confirm === true });
-  }
-
-  @Get('radar-auto-distribution')
-  getRadarAutoDistribution(@Req() req: any) {
-    return this.webscrapingService.getRadarTenantAutoDistributionPanel(req.user);
-  }
-
-  @Put('radar-auto-distribution')
-  saveRadarAutoDistribution(@Req() req: any, @Body() dto: RadarTenantAutoDistributionDto) {
-    return this.webscrapingService.saveRadarTenantAutoDistributionPanel(req.user, dto || {});
-  }
-
-  @Post('radar-auto-distribution/run')
-  runRadarAutoDistribution(@Req() req: any, @Body() dto: RadarAutoDistributionRunDto) {
-    return this.webscrapingService.runRadarTenantDistributionForUser(req.user, dto || {});
   }
 
   // F0 (02/07): endpoints de fábrica de DESCOBERTA autônoma REMOVIDOS (factory-status,

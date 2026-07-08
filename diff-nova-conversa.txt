@@ -1,0 +1,260 @@
+diff --git a/backend/src/inbox/inbox.service.test.ts b/backend/src/inbox/inbox.service.test.ts
+index 1d358316..14661fec 100644
+--- a/backend/src/inbox/inbox.service.test.ts
++++ b/backend/src/inbox/inbox.service.test.ts
+@@ -2544,14 +2544,20 @@ test('Fase B (c): ADMIN company mode inclui conversa só-Meta quando metaActive'
+ 
+ function buildStartConversationService(opts: {
+   checkWhatsappNumbers: (companyId: number, numbers: any[], selector?: any) => Promise<any[]>;
++  findFirst?: (input: any) => Promise<any>;
+ }) {
+   const created: Array<Record<string, any>> = [];
++  const updated: Array<Record<string, any>> = [];
+   const logged: Array<Record<string, any>> = [];
+   const { service } = createService({
+     webwhatsBridge: { checkWhatsappNumbers: opts.checkWhatsappNumbers },
+     prisma: {
+       companyConversation: {
+-        findFirst: async () => null,
++        findFirst: opts.findFirst || (async () => null),
++        update: async ({ where, data }: any) => {
++          updated.push({ where, data });
++          return { id: where.id, companyId: 7, channel: 'whatsapp', contact: data.contact, metadata: data.metadata, ...data };
++        },
+         create: async ({ data }: any) => {
+           created.push(data);
+           return { id: 4242, ...data };
+@@ -2570,7 +2576,7 @@ function buildStartConversationService(opts: {
+     _companyId: number,
+     id: number,
+   ) => ({ id: String(id), messages: [] });
+-  return { service, created, logged };
++  return { service, created, updated, logged };
+ }
+ 
+ test('startConversation usa o JID canônico do motor (resolve o "9 a mais")', async () => {
+@@ -2603,6 +2609,73 @@ test('startConversation usa o JID canônico do motor (resolve o "9 a mais")', as
+   assert.equal(metadata.whatsappUnverified, undefined);
+ });
+ 
++test('startConversation reaproveita rascunho manual sem sessão em vez de duplicar chat', async () => {
++  const orphan = {
++    id: 313,
++    companyId: 7,
++    channel: 'whatsapp',
++    whatsappConnectionSessionId: null,
++    sourcePhoneNormalized: null,
++    sourceTenantKey: null,
++    contact: '+5511999998888',
++    metadata: JSON.stringify({
++      sourceModule: 'atendimento_manual',
++      manualConversationStarted: true,
++      whatsappRemoteJid: '5511999998888@s.whatsapp.net',
++      whatsappName: 'HBX SUP',
++    }),
++    currentFlow: 'cobranca_recovery',
++    currentStep: 'novo',
++    flowResult: null,
++    botActive: false,
++    humanAssigned: true,
++    assignedUserId: 55,
++    lastInteractionAt: new Date('2026-07-08T10:00:00.000Z'),
++    lastMessageAt: new Date('2026-07-08T10:00:00.000Z'),
++    createdAt: new Date('2026-07-08T10:00:00.000Z'),
++    updatedAt: new Date('2026-07-08T10:00:00.000Z'),
++  };
++  let findCalls = 0;
++  const { service, created, updated } = buildStartConversationService({
++    checkWhatsappNumbers: async () => [
++      {
++        input: '5511999998888',
++        normalizedNumber: '5511999998888',
++        exists: true,
++        remoteJid: '5511999998888@s.whatsapp.net',
++        raw: null,
++      },
++    ],
++    findFirst: async ({ where }: any) => {
++      findCalls += 1;
++      return where?.whatsappConnectionSessionId === null ? orphan : null;
++    },
++  });
++  (service as any).resolveInboxWhatsappSessionScope = async () => ({
++    accessible: true,
++    reason: 'webwhats_active',
++    currentSessionId: 'session-7',
++    currentSession: {
++      id: 'session-7',
++      phoneNormalized: '5511999990000',
++      tenantKey: 'company-7-user-55',
++    },
++    mode: 'current',
++  });
++
++  await service.startConversation({ companyId: 7, id: 55 }, { phone: '5511999998888', name: 'HBX System' });
++
++  assert.equal(findCalls, 2);
++  assert.equal(created.length, 0, 'não deve criar segunda conversa para o mesmo número');
++  assert.equal(updated.length, 1);
++  assert.equal(updated[0].where.id, 313);
++  assert.equal(updated[0].data.whatsappConnectionSessionId, 'session-7');
++  assert.equal(updated[0].data.sourcePhoneNormalized, '5511999990000');
++  const metadata = JSON.parse(updated[0].data.metadata);
++  assert.equal(metadata.whatsappName, 'HBX System');
++  assert.equal(metadata.whatsappRemoteJid, '5511999998888@s.whatsapp.net');
++});
++
+ test('startConversation rejeita número sem WhatsApp e NÃO cria conversa', async () => {
+   const { service, created } = buildStartConversationService({
+     checkWhatsappNumbers: async () => [
+diff --git a/backend/src/inbox/inbox.service.ts b/backend/src/inbox/inbox.service.ts
+index 1ff6997d..528633b3 100644
+--- a/backend/src/inbox/inbox.service.ts
++++ b/backend/src/inbox/inbox.service.ts
+@@ -4679,6 +4679,37 @@ export class InboxService {
+       },
+       orderBy: [{ updatedAt: 'desc' }],
+     });
++    if (!conversation && sessionScope.currentSessionId) {
++      conversation = await this.prisma.companyConversation.findFirst({
++        where: {
++          companyId,
++          channel: 'whatsapp',
++          whatsappConnectionSessionId: null,
++          OR: [
++            ...candidates.map((contact) => ({ contact })),
++            { metadata: { contains: canonicalRemoteJid } },
++            { metadata: { contains: normalized.remoteJid } },
++          ],
++          AND: [
++            {
++              OR: [
++                { metadata: { contains: '"sourceModule":"atendimento_manual"' } },
++                { metadata: { contains: '"manualConversationStarted":true' } },
++              ],
++            },
++            {
++              NOT: [
++                { flowResult: { in: ['local_deleted', 'manual_closed', 'blocked_manual'] } },
++                { metadata: { contains: '"inboxLocalDeleted":true' } },
++                { metadata: { contains: '"routeTarget":"excluidos"' } },
++                { metadata: { contains: '"queueTarget":"excluidos"' } },
++              ],
++            },
++          ],
++        },
++        orderBy: [{ updatedAt: 'desc' }],
++      });
++    }
+ 
+     if (conversation) {
+       const previousMetadata = this.parseConversationMetadata(conversation.metadata);
+@@ -4694,7 +4725,13 @@ export class InboxService {
+           humanAssigned: true,
+           assignedUserId: Number(user?.id || 0) || null,
+           lastInteractionAt: now,
+-          ...(sessionScope.currentSessionId ? { whatsappConnectionSessionId: sessionScope.currentSessionId } : {}),
++          ...(sessionScope.currentSessionId
++            ? {
++                whatsappConnectionSessionId: sessionScope.currentSessionId,
++                sourcePhoneNormalized: sessionScope.currentSession?.phoneNormalized || undefined,
++                sourceTenantKey: sessionScope.currentSession?.tenantKey || undefined,
++              }
++            : {}),
+         },
+       });
+     } else {
+@@ -4712,7 +4749,13 @@ export class InboxService {
+           lastInteractionAt: now,
+           lastMessageAt: now,
+           metadata: JSON.stringify(metadata),
+-          ...(sessionScope.currentSessionId ? { whatsappConnectionSessionId: sessionScope.currentSessionId } : {}),
++          ...(sessionScope.currentSessionId
++            ? {
++                whatsappConnectionSessionId: sessionScope.currentSessionId,
++                sourcePhoneNormalized: sessionScope.currentSession?.phoneNormalized || undefined,
++                sourceTenantKey: sessionScope.currentSession?.tenantKey || undefined,
++              }
++            : {}),
+         },
+       });
+     }
+diff --git a/backend/src/messaging/webwhats-bridge.service.test.ts b/backend/src/messaging/webwhats-bridge.service.test.ts
+index 6f522a62..566711d4 100644
+--- a/backend/src/messaging/webwhats-bridge.service.test.ts
++++ b/backend/src/messaging/webwhats-bridge.service.test.ts
+@@ -1549,6 +1549,61 @@ test('WebwhatsBridgeService reuses prospection stub without session before creat
+   );
+ });
+ 
++test('WebwhatsBridgeService reuses manual atendimento stub without session before creating duplicate chat', async () => {
++  const manualStub = {
++    id: 3191,
++    contact: '+5511999998888',
++    whatsappConnectionSessionId: null,
++    sourcePhoneNormalized: null,
++    sourceTenantKey: null,
++    metadata: JSON.stringify({
++      sourceModule: 'atendimento_manual',
++      manualConversationStarted: true,
++      whatsappRemoteJid: '5511999998888@s.whatsapp.net',
++      whatsappName: 'HBX SUP',
++    }),
++    currentFlow: 'cobranca_recovery',
++    currentStep: 'novo',
++    flowResult: null,
++    botActive: false,
++    humanAssigned: true,
++    assignedUserId: 55,
++    lastMessageAt: new Date('2026-07-08T15:42:00.000Z'),
++    lastInteractionAt: new Date('2026-07-08T15:42:00.000Z'),
++    createdAt: new Date('2026-07-08T15:42:00.000Z'),
++    updatedAt: new Date('2026-07-08T15:42:00.000Z'),
++  };
++  const findManyCalls: any[] = [];
++  const prisma = {
++    companyConversation: {
++      findMany: async (input: any) => {
++        findManyCalls.push(input);
++        return findManyCalls.length === 1 ? [] : [manualStub];
++      },
++    },
++  };
++  const service = new WebwhatsBridgeService(prisma as any) as any;
++  service.consolidateDuplicateConversations = async () => null;
++
++  const found = await service.findConversation(
++    73,
++    'session-current',
++    '5511999998888@s.whatsapp.net',
++    null,
++    '+5511999998888',
++  );
++
++  assert.equal(found?.id, 3191);
++  assert.equal(findManyCalls.length, 2);
++  assert.deepEqual(findManyCalls[0].where.whatsappConnectionSessionId, 'session-current');
++  assert.equal(findManyCalls[1].where.whatsappConnectionSessionId, undefined);
++  assert.ok(
++    findManyCalls[1].where.AND.some((item: any) =>
++      item.OR?.some((condition: any) => condition.metadata?.contains === '"manualConversationStarted":true'),
++    ),
++  );
++});
++
+ // isLocallyDeletedChatSuppressed foi removida (store-on-arrival — sem supressão).
+ // Os 4 testes abaixo foram excluídos junto com o método privado.
+ 
+diff --git a/backend/src/messaging/webwhats-bridge.service.ts b/backend/src/messaging/webwhats-bridge.service.ts
+index cd37acb9..c6a2acbe 100644
+--- a/backend/src/messaging/webwhats-bridge.service.ts
++++ b/backend/src/messaging/webwhats-bridge.service.ts
+@@ -3769,6 +3769,8 @@ export class WebwhatsBridgeService {
+                 { metadata: { contains: '"vendasAgendaQueue"' } },
+                 { metadata: { contains: '"queueTarget":"prospeccao"' } },
+                 { metadata: { contains: '"routeTarget":"prospeccao"' } },
++                { metadata: { contains: '"sourceModule":"atendimento_manual"' } },
++                { metadata: { contains: '"manualConversationStarted":true' } },
+               ],
+             },
+             {

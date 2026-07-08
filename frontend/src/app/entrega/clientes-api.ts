@@ -257,6 +257,15 @@ export function toggleClienteProduto(id: string, ativo: boolean): Promise<Client
   });
 }
 
+// TASK 9 — remove o vínculo produto×cliente de VEZ (o "-" da UI), diferente do
+// toggle acima (que só pausa com ativo=false). Hard delete no backend
+// (DELETE /logistica/cliente-produtos/:id); não toca entregas já geradas.
+export function excluirClienteProduto(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/logistica/cliente-produtos/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 // ── helpers de exibição ──────────────────────────────────────────────────────
 
 /** Endereço curto pro subtítulo do card (endereço — cidade/UF, sem sobra). */

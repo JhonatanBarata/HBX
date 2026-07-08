@@ -285,6 +285,32 @@ test('archiveProductForUser marks product archived instead of deleting', async (
   assert.equal(versions.length, 1);
 });
 
+test('deleteProductForUser (TASK 8) apaga de verdade — não sobra linha arquivada', async () => {
+  const { service, user, products } = buildHarness({
+    access: { 'products.edit': true },
+  });
+
+  const result = await service.deleteProductForUser(user, 1);
+
+  assert.deepEqual(result, { success: true });
+  assert.equal(products.length, 1, 'o produto 1 some de vez (hard delete, não archive)');
+  assert.equal(products.find((p: any) => p.id === 1), undefined);
+});
+
+test('deleteProductForUser exige products.edit e bloqueia cross-tenant', async () => {
+  const blocked = buildHarness({ access: { 'products.edit': false } });
+  await assert.rejects(
+    () => blocked.service.deleteProductForUser(blocked.user, 1),
+    ForbiddenException,
+  );
+
+  const allowed = buildHarness({ access: { 'products.edit': true } });
+  await assert.rejects(
+    () => allowed.service.deleteProductForUser(allowed.user, 2), // produto da empresa 2 (outro tenant)
+    ForbiddenException,
+  );
+});
+
 test('resolveSellableProductForUser requires products.sell and active tenant product', async () => {
   const blocked = buildHarness({
     access: { 'products.sell': false },

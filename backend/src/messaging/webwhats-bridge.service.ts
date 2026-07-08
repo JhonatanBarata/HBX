@@ -3769,6 +3769,8 @@ export class WebwhatsBridgeService {
                 { metadata: { contains: '"vendasAgendaQueue"' } },
                 { metadata: { contains: '"queueTarget":"prospeccao"' } },
                 { metadata: { contains: '"routeTarget":"prospeccao"' } },
+                { metadata: { contains: '"sourceModule":"atendimento_manual"' } },
+                { metadata: { contains: '"manualConversationStarted":true' } },
               ],
             },
             {

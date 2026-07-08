@@ -68,6 +68,9 @@
 @import "./hbx-theme/bot-tutofig.css";
 @import "./hbx-theme/bot-onboarding.css";
 @import "./hbx-theme/bot-terms.css";
+/* Pop-up de aviso do Motor de disparo frio (sem crédito / não configurado /
+   fila vazia / erro) — mesmo molde do gate de termos acima. */
+@import "./hbx-theme/bot-aviso.css";
 
 /* Peles instaladas (tokens + camada de vestir; sempre por último
    para sobrescreverem o esqueleto). Pele nova = 1 arquivo + 1 linha

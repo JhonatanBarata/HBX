@@ -4679,6 +4679,37 @@ export class InboxService {
       },
       orderBy: [{ updatedAt: 'desc' }],
     });
+    if (!conversation && sessionScope.currentSessionId) {
+      conversation = await this.prisma.companyConversation.findFirst({
+        where: {
+          companyId,
+          channel: 'whatsapp',
+          whatsappConnectionSessionId: null,
+          OR: [
+            ...candidates.map((contact) => ({ contact })),
+            { metadata: { contains: canonicalRemoteJid } },
+            { metadata: { contains: normalized.remoteJid } },
+          ],
+          AND: [
+            {
+              OR: [
+                { metadata: { contains: '"sourceModule":"atendimento_manual"' } },
+                { metadata: { contains: '"manualConversationStarted":true' } },
+              ],
+            },
+            {
+              NOT: [
+                { flowResult: { in: ['local_deleted', 'manual_closed', 'blocked_manual'] } },
+                { metadata: { contains: '"inboxLocalDeleted":true' } },
+                { metadata: { contains: '"routeTarget":"excluidos"' } },
+                { metadata: { contains: '"queueTarget":"excluidos"' } },
+              ],
+            },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+    }
 
     if (conversation) {
       const previousMetadata = this.parseConversationMetadata(conversation.metadata);
@@ -4694,7 +4725,13 @@ export class InboxService {
           humanAssigned: true,
           assignedUserId: Number(user?.id || 0) || null,
           lastInteractionAt: now,
-          ...(sessionScope.currentSessionId ? { whatsappConnectionSessionId: sessionScope.currentSessionId } : {}),
+          ...(sessionScope.currentSessionId
+            ? {
+                whatsappConnectionSessionId: sessionScope.currentSessionId,
+                sourcePhoneNormalized: sessionScope.currentSession?.phoneNormalized || undefined,
+                sourceTenantKey: sessionScope.currentSession?.tenantKey || undefined,
+              }
+            : {}),
         },
       });
     } else {
@@ -4712,7 +4749,13 @@ export class InboxService {
           lastInteractionAt: now,
           lastMessageAt: now,
           metadata: JSON.stringify(metadata),
-          ...(sessionScope.currentSessionId ? { whatsappConnectionSessionId: sessionScope.currentSessionId } : {}),
+          ...(sessionScope.currentSessionId
+            ? {
+                whatsappConnectionSessionId: sessionScope.currentSessionId,
+                sourcePhoneNormalized: sessionScope.currentSession?.phoneNormalized || undefined,
+                sourceTenantKey: sessionScope.currentSession?.tenantKey || undefined,
+              }
+            : {}),
         },
       });
     }

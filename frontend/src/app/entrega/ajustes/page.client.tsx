@@ -26,6 +26,7 @@ import { WhatsAppConectarSheet } from "@/components/casca/screens/whatsapp-conec
 import { toLocalDigits } from "@/lib/br-phone";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
+import { DIAS_SEMANA, parseDiasTrabalho } from "../entrega-api";
 import { EntregaScaffold } from "../EntregaScaffold";
 import {
   type LogisticaConfig,
@@ -213,6 +214,22 @@ export function EntregaAjustes() {
     }
   }, []);
 
+  // TASK 4a — dias de trabalho: Set derivado direto de cfg.diasTrabalho (o
+  // patch já devolve o cfg atualizado, então o chip reage sozinho — mesmo
+  // padrão do toggle "Gerar entregas do dia sozinho" logo abaixo).
+  const diasTrabalhoSet = useMemo(() => parseDiasTrabalho(cfg?.diasTrabalho), [cfg?.diasTrabalho]);
+
+  const toggleDiaTrabalho = useCallback(
+    (n: number) => {
+      const atual = parseDiasTrabalho(cfg?.diasTrabalho);
+      if (atual.has(n)) atual.delete(n);
+      else atual.add(n);
+      const csv = atual.size > 0 ? [...atual].sort((a, b) => a - b).join(",") : "";
+      void patch({ diasTrabalho: csv });
+    },
+    [cfg?.diasTrabalho, patch],
+  );
+
   // Insere {chave} na posição do cursor do textarea (ou no fim).
   const inserirVar = useCallback((key: string) => {
     const token = `{${key}}`;
@@ -286,7 +303,7 @@ export function EntregaAjustes() {
               onGenerated={carregarWhatsApp}
             />
 
-            <div className="ent-chips">
+            <div className="ent-chips ent-chips--fit">
               {VARS.map((v) => (
                 <button type="button" key={v.key} className="ent-chip" onClick={() => inserirVar(v.key)}>
                   {v.label}
@@ -361,6 +378,26 @@ export function EntregaAjustes() {
               <span className="ent-toggle-label">Gerar entregas do dia sozinho</span>
               <span className={`ent-switch${cfg.gerarDiaAutomatico ? " is-on" : ""}`} aria-hidden="true" />
             </button>
+
+            {/* ── TASK 4a — dias de trabalho (multiselect ISO 1..7, 1 linha) ── */}
+            <div className="ent-field-label ent-section">Dias de trabalho</div>
+            <div className="ent-chips ent-chips--fit">
+              {DIAS_SEMANA.map((d) => {
+                const on = diasTrabalhoSet.has(d.n);
+                return (
+                  <button
+                    type="button"
+                    key={d.n}
+                    className={`ent-chip${on ? " is-on" : ""}`}
+                    aria-pressed={on}
+                    onClick={() => toggleDiaTrabalho(d.n)}
+                    disabled={salvando}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* ── FECHAR MÊS ─────────────────────────────────────────────── */}
             <div className="ent-field-label ent-section">Cobrança</div>

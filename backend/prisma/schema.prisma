@@ -1087,7 +1087,11 @@ model ClienteProduto {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  @@unique([companyId, customerProfileId, productId])
+  // TASK 5 (08/07) — @@unique([companyId, customerProfileId, productId]) REMOVIDO
+  // de propósito: o dono quer poder vincular o MESMO produto 2× ao mesmo cliente
+  // (ex.: 1 galão na segunda, outro na sexta, vínculos separados). gerarDia()
+  // agora AGREGA todos os vínculos vencidos do cliente no dia (1 Entrega, N
+  // EntregaItem) — ver logistica-recorrencia.service.ts.
   @@index([companyId, ativo, proximaData])
   @@index([companyId, customerProfileId])
   @@index([companyId, productId])
@@ -1131,6 +1135,11 @@ model LogisticaConfig {
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
   gerarDiaAutomatico    Boolean  @default(false)
+  // TASK 4 (08/07) — dias da semana em que a empresa TRABALHA (CSV ISO "1,2,3,4,5,6,7",
+  // 1=segunda…7=domingo; mesma convenção de ClienteProduto.diasSemana). null = default
+  // (sem restrição configurada). Usado pelo pop-up "Gerar entregas" do app pra sugerir
+  // só os dias úteis do tenant — não filtra nem bloqueia o gerarDia em si.
+  diasTrabalho          String?
   // LOGÍSTICA F1 (07/07) — Pix DIRETO do tenant (BR Code EMV gerado no app, taxa
   // ZERO, sem MP). pixNome/pixCidade são exigidos pelo payload EMV (recebedor).
   // pixChave null = recurso desligado (nenhum QR aparece na entrega).

@@ -72,6 +72,10 @@ export class LogisticaConfigService {
     if (input.moduloFinanceiroAtivo !== undefined) data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
     if (input.moduloRecoveryAtivo !== undefined) data.moduloRecoveryAtivo = !!input.moduloRecoveryAtivo;
     if (input.gerarDiaAutomatico !== undefined) data.gerarDiaAutomatico = !!input.gerarDiaAutomatico;
+    // TASK 4 — dias de trabalho da empresa: CSV de inteiros 1..7 (ISO, 1=segunda…
+    // 7=domingo), dedupe+sort (mesma normalização de ClienteProduto.diasSemana).
+    // Vazio/sem dia válido → null (sem restrição configurada).
+    if (input.diasTrabalho !== undefined) data.diasTrabalho = normalizeDiasTrabalho(input.diasTrabalho);
     // F1 — Pix direto do tenant (BR Code no app). Vazio limpa (desliga o QR).
     // Nome/cidade entram no payload EMV: sem acento e nos tetos da especificação
     // (25/15) — normalizados AQUI pra o que está salvo ser o que o QR carrega.
@@ -213,6 +217,22 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   return Math.min(max, Math.max(min, n));
 }
 
+// TASK 4 — normaliza "dias de trabalho": CSV de inteiros 1..7 (ISO, 1=segunda…
+// 7=domingo), dedupe+sort (mesma regra de normalizeDiasSemana em
+// logistica-recorrencia.service.ts, duplicada aqui de propósito — arquivo
+// isolado, sem acoplar os dois serviços). Vazio/sem dia válido → null.
+function normalizeDiasTrabalho(raw: unknown): string | null {
+  const dias = Array.from(
+    new Set(
+      String(raw ?? '')
+        .split(',')
+        .map((s) => Math.trunc(Number(s.trim())))
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 7),
+    ),
+  ).sort((a, b) => a - b);
+  return dias.length > 0 ? dias.join(',') : null;
+}
+
 function serializeConfig(c: any): LogisticaConfigDTO {
   return {
     avisoWhatsEnabled: !!c.avisoWhatsEnabled,
@@ -224,6 +244,7 @@ function serializeConfig(c: any): LogisticaConfigDTO {
     moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
     moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
     gerarDiaAutomatico: !!c.gerarDiaAutomatico,
+    diasTrabalho: c.diasTrabalho ?? null,
     pixChave: c.pixChave ?? null,
     pixNome: c.pixNome ?? null,
     pixCidade: c.pixCidade ?? null,
@@ -241,6 +262,7 @@ export interface UpdateLogisticaConfigInput {
   moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
   gerarDiaAutomatico?: boolean;
+  diasTrabalho?: string | null;
   pixChave?: string | null;
   pixNome?: string | null;
   pixCidade?: string | null;
@@ -256,6 +278,7 @@ export interface LogisticaConfigDTO {
   moduloFinanceiroAtivo: boolean;
   moduloRecoveryAtivo: boolean;
   gerarDiaAutomatico: boolean;
+  diasTrabalho: string | null;
   pixChave: string | null;
   pixNome: string | null;
   pixCidade: string | null;

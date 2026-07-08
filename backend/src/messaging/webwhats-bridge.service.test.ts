@@ -1549,6 +1549,61 @@ test('WebwhatsBridgeService reuses prospection stub without session before creat
   );
 });
 
+test('WebwhatsBridgeService reuses manual atendimento stub without session before creating duplicate chat', async () => {
+  const manualStub = {
+    id: 3191,
+    contact: '+5511999998888',
+    whatsappConnectionSessionId: null,
+    sourcePhoneNormalized: null,
+    sourceTenantKey: null,
+    metadata: JSON.stringify({
+      sourceModule: 'atendimento_manual',
+      manualConversationStarted: true,
+      whatsappRemoteJid: '5511999998888@s.whatsapp.net',
+      whatsappName: 'HBX SUP',
+    }),
+    currentFlow: 'cobranca_recovery',
+    currentStep: 'novo',
+    flowResult: null,
+    botActive: false,
+    humanAssigned: true,
+    assignedUserId: 55,
+    lastMessageAt: new Date('2026-07-08T15:42:00.000Z'),
+    lastInteractionAt: new Date('2026-07-08T15:42:00.000Z'),
+    createdAt: new Date('2026-07-08T15:42:00.000Z'),
+    updatedAt: new Date('2026-07-08T15:42:00.000Z'),
+  };
+  const findManyCalls: any[] = [];
+  const prisma = {
+    companyConversation: {
+      findMany: async (input: any) => {
+        findManyCalls.push(input);
+        return findManyCalls.length === 1 ? [] : [manualStub];
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  service.consolidateDuplicateConversations = async () => null;
+
+  const found = await service.findConversation(
+    73,
+    'session-current',
+    '5511999998888@s.whatsapp.net',
+    null,
+    '+5511999998888',
+  );
+
+  assert.equal(found?.id, 3191);
+  assert.equal(findManyCalls.length, 2);
+  assert.deepEqual(findManyCalls[0].where.whatsappConnectionSessionId, 'session-current');
+  assert.equal(findManyCalls[1].where.whatsappConnectionSessionId, undefined);
+  assert.ok(
+    findManyCalls[1].where.AND.some((item: any) =>
+      item.OR?.some((condition: any) => condition.metadata?.contains === '"manualConversationStarted":true'),
+    ),
+  );
+});
+
 // isLocallyDeletedChatSuppressed foi removida (store-on-arrival — sem supressão).
 // Os 4 testes abaixo foram excluídos junto com o método privado.
 

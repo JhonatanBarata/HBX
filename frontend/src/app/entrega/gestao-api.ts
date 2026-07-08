@@ -24,8 +24,34 @@ export interface GerarDiaResult {
   candidatos: number;
 }
 
-export function gerarDia(): Promise<GerarDiaResult> {
-  return apiFetch<GerarDiaResult>("/logistica/gerar-dia", { method: "POST", body: JSON.stringify({}) });
+// TASK 7 — data agora é OPCIONAL: sem argumento gera hoje (comportamento antigo
+// preservado), com argumento gera o dia escolhido no pop-up "Gerar entregas".
+export function gerarDia(date?: string): Promise<GerarDiaResult> {
+  return apiFetch<GerarDiaResult>("/logistica/gerar-dia", { method: "POST", body: JSON.stringify({ date }) });
+}
+
+// ── Preview do dia (pop-up "Gerar entregas", read-only) ──────────────────────
+export interface DiaPreviewItem {
+  productId: number;
+  nome: string;
+  qtd: number;
+}
+
+export interface DiaPreviewCliente {
+  customerProfileId: string;
+  nome: string;
+  itens: DiaPreviewItem[];
+}
+
+export interface DiaPreview {
+  date: string;
+  clientes: DiaPreviewCliente[];
+}
+
+// READ-ONLY: não cria nada. Mostra quem cairia na rota daquele dia ANTES do
+// dono clicar "Começar Rota" (que chama gerarDia de verdade).
+export function getDiaPreview(date: string): Promise<DiaPreview> {
+  return apiFetch<DiaPreview>(`/logistica/dia-preview?date=${encodeURIComponent(date)}`);
 }
 
 // ── Resumo financeiro do dia ─────────────────────────────────────────────────
@@ -63,6 +89,9 @@ export interface LogisticaConfig {
   moduloFinanceiroAtivo: boolean;
   moduloRecoveryAtivo: boolean;
   gerarDiaAutomatico: boolean;
+  // TASK 4 — dias da semana em que a empresa trabalha. CSV ISO "1,2,3,4,5,6,7"
+  // (1=segunda…7=domingo); null = sem restrição configurada ainda.
+  diasTrabalho: string | null;
   // F1 — Pix direto do tenant (BR Code no app, taxa zero). Chave vazia = desligado.
   pixChave: string | null;
   pixNome: string | null;

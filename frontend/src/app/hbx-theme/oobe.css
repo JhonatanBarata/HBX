@@ -167,27 +167,6 @@
 .oobe-brand span { display: block; color: var(--oobe-muted); font-size: 0.75rem; margin-top: 2px; letter-spacing: 0.01em; }
 
 .oobe-side-copy { max-width: 310px; position: relative; z-index: 2; }
-.oobe-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 999px;
-  color: var(--oobe-soft);
-  background: rgba(255, 255, 255, 0.055);
-  font-size: 0.72rem;
-  font-weight: 760;
-  letter-spacing: 0.02em;
-  margin-bottom: 18px;
-}
-.oobe-kicker i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--oobe-success);
-  box-shadow: 0 0 18px var(--oobe-success);
-}
 .oobe-side h1 {
   margin: 0;
   font-size: clamp(2.35rem, 4.4vw, 4.7rem);
@@ -312,6 +291,15 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* Indicador único "Etapa X de N" — MESMA posição (fim do painel, depois do
+   rodapé) e MESMO estilo em toda tela do portão (senha/ramo/modo/caminho). */
+.oobe-step-indicator {
+  color: var(--oobe-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
 .oobe-title {
   margin: 0;
   max-width: 720px;
@@ -392,6 +380,9 @@
 .oobe-field { display: grid; gap: 10px; max-width: 560px; }
 .oobe-field label { font-size: 0.78rem; color: var(--oobe-soft); font-weight: 800; }
 .oobe-input-row { display: flex; gap: 10px; }
+/* Linha com 2 campos lado a lado (Estado + Cidade no passo Ramo) — coluna
+   estreita fixa pro UF, o resto pra cidade; mantém a tela sem crescer/rolar. */
+.oobe-row { display: grid; grid-template-columns: 104px 1fr; gap: 14px; max-width: 620px; }
 .oobe-input {
   flex: 1;
   min-width: 0;
@@ -405,8 +396,12 @@
 }
 .oobe-input::placeholder { color: rgba(168, 189, 212, 0.55); }
 .oobe-input:focus { border-color: rgba(154, 240, 255, 0.55); box-shadow: 0 0 0 3px rgba(119, 200, 255, 0.11); }
+.oobe-input--uf { text-align: center; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 800; }
 
-.oobe-chips { display: flex; flex-wrap: wrap; gap: 10px; max-width: 620px; }
+/* Nuvem de chips com altura travada ("wrap limitado"): não importa quantos
+   ramos a pessoa somar, a TELA não cresce nem rola — essa área ganha um
+   scroll próprio, pequeno, só se precisar. */
+.oobe-chips { display: flex; flex-wrap: wrap; gap: 10px; max-width: 620px; max-height: 100px; overflow-y: auto; }
 .oobe-chip {
   border: 1px solid var(--oobe-line);
   border-radius: 999px;
@@ -620,7 +615,7 @@
   .oobe-shell { width: 100%; height: auto; min-height: calc(100dvh - 36px); grid-template-columns: 1fr; }
   .oobe-side { min-height: 240px; border-right: 0; border-bottom: 1px solid var(--oobe-line); }
   .oobe-main { min-height: 560px; }
-  .oobe-choices, .oobe-choices--2, .oobe-preview { grid-template-columns: 1fr; }
+  .oobe-choices, .oobe-choices--2, .oobe-preview, .oobe-row { grid-template-columns: 1fr; }
   .oobe-card { min-height: 0; }
 }
 @media (max-height: 760px) {

@@ -140,32 +140,29 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     const proximaData =
       parseDateOrNull(input.proximaData) ?? (frequenciaDias || diasSemana ? startOfDay(new Date()) : null);
 
-    try {
-      const created = await this.prisma.clienteProduto.create({
-        data: {
-          companyId,
-          customerProfileId: conta.id,
-          productId: product.id,
-          qtdPadrao: Math.max(1, Math.trunc(Number(input.qtdPadrao) || 1)),
-          precoAcordado:
-            input.precoAcordado != null && Number.isFinite(Number(input.precoAcordado))
-              ? Math.max(0, Number(input.precoAcordado))
-              : null,
-          frequenciaDias,
-          diasSemana,
-          proximaData,
-          ativo: input.ativo !== false,
-        },
-        select: cpSelect,
-      });
-      return serializeClienteProduto(created);
-    } catch (e: any) {
-      // @@unique([companyId, customerProfileId, productId]) — já existe o vínculo.
-      if (String(e?.code) === 'P2002') {
-        throw new BadRequestException('Este produto já está vinculado a este cliente.');
-      }
-      throw e;
-    }
+    // TASK 5 (08/07) — @@unique([companyId, customerProfileId, productId]) foi
+    // REMOVIDO do schema: o mesmo produto pode ser vinculado 2× ao mesmo cliente
+    // (ex.: 1 galão na segunda, outro na sexta, vínculos separados). Sem índice
+    // único, este create() não estoura mais P2002 de duplicado — o vínculo
+    // repetido é intencional e permitido.
+    const created = await this.prisma.clienteProduto.create({
+      data: {
+        companyId,
+        customerProfileId: conta.id,
+        productId: product.id,
+        qtdPadrao: Math.max(1, Math.trunc(Number(input.qtdPadrao) || 1)),
+        precoAcordado:
+          input.precoAcordado != null && Number.isFinite(Number(input.precoAcordado))
+            ? Math.max(0, Number(input.precoAcordado))
+            : null,
+        frequenciaDias,
+        diasSemana,
+        proximaData,
+        ativo: input.ativo !== false,
+      },
+      select: cpSelect,
+    });
+    return serializeClienteProduto(created);
   }
 
   async update(companyId: number, id: string, input: UpdateClienteProdutoInput): Promise<ClienteProdutoDTO | null> {
@@ -206,6 +203,25 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
   }
 
   /**
+   * TASK 9 (08/07) — REMOVE o vínculo produto×cliente de VEZ (hard delete, o "-"
+   * da UI). Diferente do toggleAtivo (que só pausa, ativo=false): aqui o vínculo
+   * some do banco. company-scoped: só apaga se o id for desta empresa; senão
+   * devolve false (o controller vira 404). Não toca entregas já geradas — o
+   * gerarDia é que lê os vínculos vivos, então remover só impede recorrências
+   * FUTURAS. Sem efeito externo.
+   */
+  async remove(companyId: number, id: string): Promise<boolean> {
+    if (!companyId || !id) return false;
+    const existing = await this.prisma.clienteProduto.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: { id: true },
+    });
+    if (!existing) return false;
+    await this.prisma.clienteProduto.delete({ where: { id: existing.id } });
+    return true;
+  }
+
+  /**
    * Catálogo de produtos da empresa para o seletor da UI "Produtos do cliente".
    * Prioriza os marcados usaLogistica (item de entrega), mas devolve todos os
    * ativos para não travar o cadastro. Company-scoped.
@@ -230,20 +246,13 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
 
   // ── GERAR ENTREGAS DO DIA ────────────────────────────────────────────────────
   /**
-   * Materializa as entregas recorrentes vencidas do dia. IDEMPOTENTE por
-   * [companyId, customerProfileId, dia]: se já existe QUALQUER entrega do cliente
-   * naquele dia (gerada por recorrência OU agendada à mão), NÃO cria outra — e
-   * ainda assim avança proximaData do vínculo, pra não ficar "preso" no passado.
+   * Busca os vínculos ATIVOS candidatos do dia (proximaData vencida OU o dia bate
+   * no diasSemana) e AGRUPA por cliente os que realmente vencem HOJE (dueOnDay).
+   * Consulta única, reusada por `gerarDia` (que materializa) e `getDiaPreview`
+   * (que só lê — pop-up "Gerar entregas" do app). Traz `product.name` e
+   * `customerProfile.name` (só usados pelo preview; gerarDia ignora).
    */
-  async gerarDia(companyId: number, dateInput?: string): Promise<GerarDiaResult> {
-    if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
-    const dayEnd = endOfDay(dia);
-    const dow = isoDow(dia); // 1..7 (seg..dom)
-
-    // Vínculos ativos candidatos: proximaData vencida OU o dia bate no diasSemana.
-    // (diasSemana é string → filtra no JS; o índice [companyId,ativo,proximaData]
-    //  já corta o grosso.)
+  private async buscarVencidosPorCliente(companyId: number, dia: Date, dayEnd: Date, dow: number) {
     const vinculos = await this.prisma.clienteProduto.findMany({
       where: {
         companyId,
@@ -259,68 +268,104 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         frequenciaDias: true,
         diasSemana: true,
         proximaData: true,
-        product: { select: { id: true, price: true, priceCents: true } },
-        customerProfile: { select: { id: true, precoPadrao: true } },
+        product: { select: { id: true, name: true, price: true, priceCents: true } },
+        customerProfile: { select: { id: true, name: true, precoPadrao: true } },
       },
     });
+
+    // TASK 5 — um cliente pode ter VÁRIOS vínculos vencidos no MESMO dia
+    // (inclusive o MESMO produto 2×, ex. galão da segunda + galão da sexta que
+    // por acaso vencem juntos). Agrupar aqui é o que permite ao gerarDia criar
+    // 1 Entrega com N EntregaItem em vez de perder todos os vínculos menos o 1º.
+    const porCliente = new Map<string, typeof vinculos>();
+    for (const v of vinculos) {
+      if (!dueOnDay(v, dia, dow)) continue;
+      const arr = porCliente.get(v.customerProfileId);
+      if (arr) arr.push(v);
+      else porCliente.set(v.customerProfileId, [v]);
+    }
+    return { vinculos, porCliente };
+  }
+
+  /**
+   * Materializa as entregas recorrentes vencidas do dia. IDEMPOTENTE por
+   * [companyId, customerProfileId, dia]: se já existe QUALQUER entrega do cliente
+   * naquele dia (gerada por recorrência OU agendada à mão), NÃO cria outra — e
+   * ainda assim avança proximaData de CADA vínculo vencido, pra não ficar "preso"
+   * no passado.
+   *
+   * TASK 5 (08/07) — AGREGAÇÃO: antes, 1 Entrega por cliente/dia levava só o item
+   * do PRIMEIRO vínculo vencido e os demais eram SILENCIOSAMENTE PERDIDOS (o
+   * `existente` é por cliente+dia, não por vínculo). Agora agrupa TODOS os
+   * vínculos vencidos do cliente (via `buscarVencidosPorCliente`) e cria UMA
+   * Entrega com UM EntregaItem por vínculo — Entrega.quantidade/valor (legado,
+   * N6) viram a SOMA dos itens.
+   */
+  async gerarDia(companyId: number, dateInput?: string): Promise<GerarDiaResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
+    const dayEnd = endOfDay(dia);
+    const dow = isoDow(dia); // 1..7 (seg..dom)
+
+    const { vinculos, porCliente } = await this.buscarVencidosPorCliente(companyId, dia, dayEnd, dow);
 
     let criadas = 0;
     let puladas = 0;
     let avancados = 0;
 
-    for (const v of vinculos) {
-      const venceHoje = dueOnDay(v, dia, dow);
-      if (!venceHoje) continue;
-
+    for (const [customerProfileId, vencidos] of porCliente) {
       // Idempotência: já existe entrega do cliente NESTE dia? (qualquer origem)
       const existente = await this.prisma.entrega.findFirst({
         where: {
           companyId,
-          customerProfileId: v.customerProfileId,
+          customerProfileId,
           scheduledAt: { gte: dia, lte: dayEnd },
         },
         select: { id: true },
       });
 
-      const valorUnit = resolveValorUnit(v);
-      const qtd = Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1));
-
       if (existente) {
         puladas++;
       } else {
+        const itens = vencidos.map((v) => ({
+          productId: v.productId,
+          qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+          valorUnit: resolveValorUnit(v),
+        }));
+        const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
+        const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
+
         await this.prisma.entrega.create({
           data: {
             companyId,
-            customerProfileId: v.customerProfileId,
-            productId: v.productId,
-            quantidade: qtd, // backward-compat: escalar coerente com o item
-            valor: valorUnit * qtd, // idem
+            customerProfileId,
+            // productId escalar legado = o do 1º vínculo (backward-compat N6; o
+            // N6 real — montarVarsAviso/listRota — já prioriza `itens` sobre este
+            // campo quando `itens.length > 0`, que é sempre o caso aqui).
+            productId: vencidos[0].productId,
+            quantidade, // backward-compat: escalar coerente com a SOMA dos itens
+            valor, // idem
             status: 'agendada',
             scheduledAt: dia,
             cobrancaStatus: 'pendente',
-            itens: {
-              create: [
-                {
-                  productId: v.productId,
-                  qtdPrevista: qtd,
-                  valorUnit,
-                },
-              ],
-            },
+            itens: { create: itens },
           },
           select: { id: true },
         });
         criadas++;
       }
 
-      // Avança proximaData (mesmo quando pulou — não deixa o vínculo preso).
-      const proxima = nextProximaData(v, dia, dow);
-      if (proxima) {
-        await this.prisma.clienteProduto.update({
-          where: { id: v.id },
-          data: { proximaData: proxima },
-        });
-        avancados++;
+      // Avança proximaData de TODOS os vínculos vencidos (mesmo quando pulou —
+      // não deixa nenhum vínculo preso no passado).
+      for (const v of vencidos) {
+        const proxima = nextProximaData(v, dia, dow);
+        if (proxima) {
+          await this.prisma.clienteProduto.update({
+            where: { id: v.id },
+            data: { proximaData: proxima },
+          });
+          avancados++;
+        }
       }
     }
 
@@ -329,6 +374,41 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       `[logistica] gerar-dia ${dayISO} company=${companyId}: ${criadas} criada(s), ${puladas} pulada(s) (idempotência), ${avancados} vínculo(s) avançado(s).`,
     );
     return { date: dayISO, criadas, puladas, avancados, candidatos: vinculos.length };
+  }
+
+  // ── TASK 7 — PREVIEW do dia (pop-up "Gerar entregas") ───────────────────────
+  /**
+   * READ-ONLY: mesma regra de vencimento do gerarDia (dueOnDay), mas NÃO escreve
+   * nada (nem Entrega, nem proximaData). Devolve os vínculos vencidos AGRUPADOS
+   * por cliente, com nome do cliente/produto resolvidos, pro pop-up "Gerar
+   * entregas" mostrar quem cairia na rota ANTES do dono clicar "Começar Rota".
+   *
+   * Cada vínculo vencido vira 1 item da lista (NÃO funde vínculos do MESMO
+   * produto): é o espelho fiel do que `gerarDia` realmente materializa em
+   * EntregaItem — se o cliente tem 2 vínculos do mesmo produto vencendo hoje,
+   * o preview mostra 2 linhas (o front pode agrupar na exibição se quiser).
+   */
+  async getDiaPreview(companyId: number, dateInput?: string): Promise<DiaPreviewResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
+    const dayEnd = endOfDay(dia);
+    const dow = isoDow(dia);
+
+    const { porCliente } = await this.buscarVencidosPorCliente(companyId, dia, dayEnd, dow);
+
+    const clientes: DiaPreviewClienteDTO[] = Array.from(porCliente.entries()).map(
+      ([customerProfileId, vencidos]) => ({
+        customerProfileId,
+        nome: String(vencidos[0]?.customerProfile?.name ?? '').trim(),
+        itens: vencidos.map((v) => ({
+          productId: v.productId,
+          nome: String(v.product?.name ?? '').trim(),
+          qtd: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+        })),
+      }),
+    );
+
+    return { date: dia.toISOString().slice(0, 10), clientes };
   }
 }
 
@@ -518,6 +598,24 @@ export interface GerarDiaResult {
   puladas: number;
   avancados: number;
   candidatos: number;
+}
+
+// ── TASK 7 — preview do dia (pop-up "Gerar entregas") ────────────────────────
+export interface DiaPreviewItemDTO {
+  productId: number;
+  nome: string;
+  qtd: number;
+}
+
+export interface DiaPreviewClienteDTO {
+  customerProfileId: string;
+  nome: string;
+  itens: DiaPreviewItemDTO[];
+}
+
+export interface DiaPreviewResult {
+  date: string;
+  clientes: DiaPreviewClienteDTO[];
 }
 
 export interface ProdutoOptionDTO {

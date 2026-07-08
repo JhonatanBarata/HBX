@@ -22,8 +22,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { CascaLoading, CascaView } from "@/components/casca";
+import { CascaLoading, CascaView, showCascaToast } from "@/components/casca";
 
+import { diasPermitidos } from "../entrega-api";
 import { EntregaScaffold } from "../EntregaScaffold";
 import { I, ICON_PATHS } from "../icons";
 import { getPosicaoUma } from "../entrega-hooks";
@@ -35,7 +36,7 @@ import {
   reverseGeocodar,
   soDigitos,
 } from "../geo";
-import { fmtMoney, getConfig } from "../gestao-api";
+import { fmtMoney, getConfig, type LogisticaConfig } from "../gestao-api";
 import {
   type ClienteListItem,
   type ClienteProduto,
@@ -48,6 +49,7 @@ import {
   editarCliente,
   editarContatoPrincipal,
   enderecoCurtoCliente,
+  excluirClienteProduto,
   getExtrato,
   recorrenciaLabel,
   getCliente,
@@ -65,18 +67,6 @@ const FORMAS: Array<{ v: FormaPagamento; label: string }> = [
   { v: "na_hora", label: "Na hora" },
   { v: "mensal", label: "Mensal" },
   { v: "pendura", label: "Fiado" },
-];
-
-// Dias da semana na convenção ISO do backend (1=seg … 7=dom). Ordem de exibição
-// começa na segunda; o domingo (7) vai pro fim, como no calendário do dia a dia.
-const DIAS_SEMANA: Array<{ n: number; label: string }> = [
-  { n: 1, label: "Seg" },
-  { n: 2, label: "Ter" },
-  { n: 3, label: "Qua" },
-  { n: 4, label: "Qui" },
-  { n: 5, label: "Sex" },
-  { n: 6, label: "Sáb" },
-  { n: 7, label: "Dom" },
 ];
 
 /**
@@ -267,9 +257,14 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
   const [contatoPrincipalId, setContatoPrincipalId] = useState<string | null>(null);
   const [whatsappOriginal, setWhatsappOriginal] = useState("");
 
-  // Produtos do cliente (só no modo edição — precisa do id da conta).
+  // Produtos do cliente. TASK 5a — deixou de ser exclusivo do modo edição:
+  // em modo criar começa em [] e vira a LISTA LOCAL PENDENTE (ProdutosDoCliente
+  // guarda ali até o salvar() criar os vínculos de verdade).
   const [produtos, setProdutos] = useState<ClienteProduto[] | null>(editando ? null : []);
   const [catalogo, setCatalogo] = useState<ProdutoOption[]>([]);
+  // TASK 6a — dias de trabalho (Ajustes) pro filtro do multiselect de dias da
+  // semana em ProdutosDoCliente; lido sempre (cria OU edita).
+  const [diasTrabalho, setDiasTrabalho] = useState<string | null>(null);
 
   // Carrega a ficha (edição) + catálogo de produtos.
   useEffect(() => {
@@ -281,6 +276,16 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
       } catch {
         /* catálogo vazio não trava o cadastro */
       }
+      // TASK 6a — mesma chamada serve pro filtro de dias E (em modo edição, logo
+      // abaixo) pra decidir se busca o extrato — best-effort, falha aqui só
+      // significa "sem restrição de dias" (ProdutosDoCliente cai pros 7 dias).
+      let cfgAtual: LogisticaConfig | null = null;
+      try {
+        cfgAtual = await getConfig();
+        if (vivo) setDiasTrabalho(cfgAtual.diasTrabalho);
+      } catch {
+        /* sem config: segue sem restrição de dias */
+      }
       if (!editando || !id) return;
       try {
         // F1 — a seção Conta segue a LEI do módulo financeiro (OFF → dinheiro não
@@ -289,9 +294,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         const [c, cps, ext] = await Promise.all([
           getCliente(id),
           listClienteProdutos(id),
-          getConfig()
-            .then((cfg) => (cfg.moduloFinanceiroAtivo ? getExtrato(id) : null))
-            .catch(() => null),
+          cfgAtual?.moduloFinanceiroAtivo ? getExtrato(id).catch(() => null) : Promise.resolve(null),
         ]);
         if (!vivo) return;
         setExtrato(ext);
@@ -451,6 +454,29 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
         });
         contaId = criada.contaId;
+
+        // TASK 5a — produtos montados AINDA no cadastro (lista local pendente
+        // do ProdutosDoCliente): agora que a conta existe, cria os vínculos de
+        // verdade. Best-effort por item — um produto falhar NÃO desfaz o
+        // cliente recém-criado nem trava o fluxo (só avisa por toast).
+        if (produtos && produtos.length > 0) {
+          const resultados = await Promise.allSettled(
+            produtos.map((p) =>
+              criarClienteProduto({
+                customerProfileId: contaId!,
+                productId: p.productId,
+                qtdPadrao: p.qtdPadrao,
+                ...(p.diasSemana ? { diasSemana: p.diasSemana } : {}),
+                ...(!p.diasSemana && p.frequenciaDias ? { frequenciaDias: p.frequenciaDias } : {}),
+                ...(p.precoAcordado != null ? { precoAcordado: p.precoAcordado } : {}),
+              }),
+            ),
+          );
+          const falhas = resultados.filter((r) => r.status === "rejected").length;
+          if (falhas > 0) {
+            showCascaToast(`Cliente criado; ${falhas} de ${produtos.length} produto${produtos.length === 1 ? "" : "s"} não entrou`);
+          }
+        }
       } else if (id) {
         await editarCliente(id, {
           nome: nome.trim(),
@@ -483,7 +509,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId,
     comporEndereco, numero, bairro, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
-    limiteFiado, onSair,
+    limiteFiado, produtos, onSair,
   ]);
 
   if (carregando) {
@@ -576,7 +602,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           disabled={capturandoGps}
         >
           <I d={ICON_PATHS.nav} size={20} />
-          {capturandoGps ? "Pegando local…" : "Usar este local"}
+          {capturandoGps ? "Pegando local…" : "Localização Atual"}
         </button>
 
         {/* Minimapa — pino do endereço (CEP geocodificado OU GPS). */}
@@ -701,18 +727,16 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           </>
         ) : null}
 
-        {/* PRODUTOS DO CLIENTE */}
+        {/* PRODUTOS DO CLIENTE — TASK 5a: também no cadastro (lista pendente
+            local até o cliente existir de verdade). */}
         <div className="ent-field-label ent-section">Produtos</div>
-        {!editando ? (
-          <div className="ent-hint">Salve o cliente para adicionar produtos.</div>
-        ) : (
-          <ProdutosDoCliente
-            clienteId={id!}
-            catalogo={catalogo}
-            produtos={produtos ?? []}
-            onMudou={setProdutos}
-          />
-        )}
+        <ProdutosDoCliente
+          clienteId={editando ? id! : null}
+          catalogo={catalogo}
+          produtos={produtos ?? []}
+          diasTrabalho={diasTrabalho}
+          onMudou={setProdutos}
+        />
 
         {erro ? <div className="ent-erro">{erro}</div> : null}
       </div>
@@ -727,15 +751,22 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
 }
 
 // ── PRODUTOS DO CLIENTE (adicionar do catálogo + qtd + frequência) ───────────
+// TASK 5a — funciona em DOIS modos, mesma UI:
+//   clienteId = string (edição) → grava direto no backend a cada ação.
+//   clienteId = null   (cadastro) → guarda PENDENTE só na lista local; quem
+//     materializa os vínculos de verdade é o salvar() do ClienteEditor, depois
+//     que a conta passa a existir.
 function ProdutosDoCliente({
   clienteId,
   catalogo,
   produtos,
+  diasTrabalho,
   onMudou,
 }: {
-  clienteId: string;
+  clienteId: string | null;
   catalogo: ProdutoOption[];
   produtos: ClienteProduto[];
+  diasTrabalho: string | null;
   onMudou: (p: ClienteProduto[]) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -748,12 +779,12 @@ function ProdutosDoCliente({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Só produtos ainda não vinculados aparecem no seletor (evita o 400 de duplicado).
-  const disponiveis = useMemo(
-    () => catalogo.filter((c) => !produtos.some((p) => p.productId === c.id)),
-    [catalogo, produtos],
-  );
+  // TASK 6a — só os dias configurados em Ajustes entram no multiselect
+  // (vazio/null = sem restrição configurada, mostra os 7 de sempre).
+  const diasPermitidosLista = useMemo(() => diasPermitidos(diasTrabalho), [diasTrabalho]);
 
+  // TASK 5b — o backend não bloqueia mais produto repetido (o @@unique saiu):
+  // qualquer produto do catálogo fica sempre selecionável, inclusive já vinculado.
   const adicionar = useCallback(async () => {
     const pid = Number(productId);
     if (!pid) {
@@ -764,23 +795,40 @@ function ProdutosDoCliente({
     setErro(null);
     try {
       // Manda SÓ o modo escolhido: "semana" → diasSemana (ISO ordenado); senão,
-      // frequenciaDias. Nunca os dois (o payload só carrega a chave do modo ativo).
-      const recorrencia =
-        modo === "semana"
-          ? diasSemana.length > 0
-            ? { diasSemana: [...diasSemana].sort((a, b) => a - b).join(",") }
-            : {}
-          : freq.trim()
-            ? { frequenciaDias: Math.max(1, Number(freq)) }
-            : {};
-      const criado = await criarClienteProduto({
-        customerProfileId: clienteId,
-        productId: pid,
-        qtdPadrao: Math.max(1, Number(qtd) || 1),
-        ...recorrencia,
-        ...(preco.trim() ? { precoAcordado: Math.max(0, Number(preco.replace(",", "."))) } : {}),
-      });
-      onMudou([...produtos, criado]);
+      // frequenciaDias. Nunca os dois.
+      const diasSemanaCsv =
+        modo === "semana" && diasSemana.length > 0 ? [...diasSemana].sort((a, b) => a - b).join(",") : null;
+      const frequenciaNum = modo === "dias" && freq.trim() ? Math.max(1, Number(freq)) : null;
+      const precoNum = preco.trim() ? Math.max(0, Number(preco.replace(",", "."))) : null;
+      const qtdNum = Math.max(1, Number(qtd) || 1);
+
+      let novo: ClienteProduto;
+      if (!clienteId) {
+        // Modo CRIAR — pendente local, sem chamar o backend (a conta ainda não existe).
+        const cat = catalogo.find((c) => c.id === pid);
+        novo = {
+          id: `pend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          customerProfileId: "",
+          productId: pid,
+          qtdPadrao: qtdNum,
+          precoAcordado: precoNum,
+          frequenciaDias: frequenciaNum,
+          diasSemana: diasSemanaCsv,
+          proximaData: null,
+          ativo: true,
+          produto: cat ? { id: cat.id, nome: cat.nome, unidade: cat.unidade, precoCatalogo: cat.precoCatalogo } : null,
+        };
+      } else {
+        novo = await criarClienteProduto({
+          customerProfileId: clienteId,
+          productId: pid,
+          qtdPadrao: qtdNum,
+          ...(diasSemanaCsv ? { diasSemana: diasSemanaCsv } : {}),
+          ...(!diasSemanaCsv && frequenciaNum ? { frequenciaDias: frequenciaNum } : {}),
+          ...(precoNum != null ? { precoAcordado: precoNum } : {}),
+        });
+      }
+      onMudou([...produtos, novo]);
       setAddOpen(false);
       setProductId("");
       setQtd("1");
@@ -793,10 +841,15 @@ function ProdutosDoCliente({
     } finally {
       setSalvando(false);
     }
-  }, [clienteId, productId, qtd, modo, freq, diasSemana, preco, produtos, onMudou]);
+  }, [clienteId, productId, qtd, modo, freq, diasSemana, preco, produtos, catalogo, onMudou]);
 
   const alternar = useCallback(
     async (p: ClienteProduto) => {
+      // Pendente (modo criar) — só o flag local muda, nada de API ainda.
+      if (!clienteId) {
+        onMudou(produtos.map((x) => (x.id === p.id ? { ...x, ativo: !x.ativo } : x)));
+        return;
+      }
       try {
         const atualizado = await toggleClienteProduto(p.id, !p.ativo);
         onMudou(produtos.map((x) => (x.id === p.id ? atualizado : x)));
@@ -804,7 +857,26 @@ function ProdutosDoCliente({
         /* falha de toggle não derruba a ficha */
       }
     },
-    [produtos, onMudou],
+    [clienteId, produtos, onMudou],
+  );
+
+  // TASK 9 — "−" remove de vez. Pendente (modo criar) só sai da lista local;
+  // já vinculado (modo editar) apaga no backend antes de sumir da tela.
+  const remover = useCallback(
+    async (p: ClienteProduto) => {
+      if (typeof window !== "undefined" && !window.confirm("Remover este produto do cliente?")) return;
+      if (!clienteId) {
+        onMudou(produtos.filter((x) => x.id !== p.id));
+        return;
+      }
+      try {
+        await excluirClienteProduto(p.id);
+        onMudou(produtos.filter((x) => x.id !== p.id));
+      } catch {
+        /* falha ao excluir não derruba a ficha — o produto continua, tenta de novo */
+      }
+    },
+    [clienteId, produtos, onMudou],
   );
 
   return (
@@ -821,9 +893,14 @@ function ProdutosDoCliente({
                 {p.precoAcordado != null ? ` · R$ ${p.precoAcordado.toFixed(2)}` : ""}
               </div>
             </div>
-            <button type="button" className="ent-chip" onClick={() => void alternar(p)}>
-              {p.ativo ? "Ativo" : "Pausado"}
-            </button>
+            <div className="ent-prod-actions">
+              <button type="button" className="ent-chip" onClick={() => void alternar(p)}>
+                {p.ativo ? "Ativo" : "Pausado"}
+              </button>
+              <button type="button" className="ent-prod-remove" aria-label="Remover produto" onClick={() => void remover(p)}>
+                −
+              </button>
+            </div>
           </div>
         ))
       )}
@@ -834,7 +911,7 @@ function ProdutosDoCliente({
             <span className="ent-field-label">Produto</span>
             <select className="ent-input" value={productId} onChange={(e) => setProductId(e.target.value)}>
               <option value="">Escolher…</option>
-              {disponiveis.map((c) => (
+              {catalogo.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nome}
                 </option>
@@ -871,8 +948,8 @@ function ProdutosDoCliente({
               <input className="ent-input" type="number" inputMode="numeric" min={1} value={freq} onChange={(e) => setFreq(e.target.value)} placeholder="Avulso" />
             </label>
           ) : (
-            <div className="ent-chips">
-              {DIAS_SEMANA.map((d) => {
+            <div className="ent-chips ent-chips--fit">
+              {diasPermitidosLista.map((d) => {
                 const on = diasSemana.includes(d.n);
                 return (
                   <button
@@ -899,7 +976,7 @@ function ProdutosDoCliente({
           </label>
           {erro ? <div className="ent-erro">{erro}</div> : null}
           <div className="ent-sheet-actions">
-            <button type="button" className="ent-btn ent-btn--primary" onClick={() => void adicionar()} disabled={salvando || disponiveis.length === 0}>
+            <button type="button" className="ent-btn ent-btn--primary" onClick={() => void adicionar()} disabled={salvando}>
               {salvando ? "Adicionando…" : "Adicionar produto"}
             </button>
             <button type="button" className="ent-btn ent-btn--ghost" onClick={() => setAddOpen(false)}>
@@ -910,11 +987,11 @@ function ProdutosDoCliente({
       ) : (
         <button
           type="button"
-          className="ent-btn ent-btn--secondary"
+          className="ent-btn ent-btn--add"
           onClick={() => setAddOpen(true)}
-          disabled={disponiveis.length === 0}
+          disabled={catalogo.length === 0}
         >
-          {disponiveis.length === 0 ? "Todos os produtos já vinculados" : "Adicionar produto"}
+          ＋ Adicionar produto
         </button>
       )}
     </div>

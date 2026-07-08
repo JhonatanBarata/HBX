@@ -43,7 +43,9 @@ export type ProspCfg = {
   humanHandoffIntentKeywords: string[];
 };
 
-export type ProspCampaign = Partial<ProspCfg> & { id?: number; status?: string };
+// city/segment: alvo da campanha (Radar) — o backend devolve (serializeCampaign),
+// mas não fazem parte do DTO de mensageria (ProspCfg); aqui só pra leitura (deriveBotAlert).
+export type ProspCampaign = Partial<ProspCfg> & { id?: number; status?: string; city?: string | null; segment?: string | null };
 
 export type ProspLive = {
   status: string;
@@ -58,6 +60,10 @@ export type ProspLive = {
   nextAllowedSendAt?: string | null;
   cooldownActive?: boolean;
   nextEligibleLeadName?: string | null;
+  // fila de contatos agendados/pendentes (buildLiveStatus) — usado pelo pop-up de aviso
+  // pra detectar "fila vazia" sem reimplementar a soma de todayPending+overdue+future.
+  pendingJobs?: number;
+  lastError?: string | null;
 };
 
 // Defaults do motor (DEFAULT_* / scene) — usados só quando ainda não há campanha.

@@ -79,6 +79,14 @@ export function inativarProduto(id: number): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>(`/products/${id}`, { method: "DELETE" });
 }
 
+// TASK 8 — exclusão PERMANENTE (hard delete de verdade, não arquiva). Rota
+// separada do inativar acima; some com o produto e os vínculos de cliente
+// (ClienteProduto) junto — entregas já feitas continuam intactas, só perdem a
+// referência ao produto apagado.
+export function excluirProduto(id: number): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/products/${id}/permanent`, { method: "DELETE" });
+}
+
 // Reativar um produto arquivado (PATCH status=active) — o par do inativar.
 export function reativarProduto(id: number): Promise<ProdutoItem> {
   return apiFetch<ProdutoItem>(`/products/${id}`, {

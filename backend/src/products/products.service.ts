@@ -367,6 +367,25 @@ export class ProductsService {
     return { success: true };
   }
 
+  /**
+   * TASK 8 (08/07) — EXCLUSÃO PERMANENTE (hard delete), separada do arquivar
+   * (archiveProductForUser, que só marca status='archived'). Company-scoped
+   * (assertWritable já garante id pertence à empresa do usuário; assertCanEdit
+   * é a mesma política de equipe do resto das mutações de produto). As
+   * dependências resolvem sozinhas pelo schema: ClienteProduto tem
+   * onDelete:Cascade (some o vínculo junto) e Entrega/EntregaItem têm
+   * onDelete:SetNull (a entrega/item sobrevive, só perde a referência ao
+   * produto apagado) — nenhuma FK trava este delete.
+   */
+  async deleteProductForUser(user: any, id: number) {
+    const access = await this.resolveAccess(user);
+    this.assertCanEdit(access);
+
+    await this.assertWritable(access.companyId, id);
+    await this.prisma.product.delete({ where: { id } });
+    return { success: true };
+  }
+
   async resolveSellableProductForUser(user: any, id: number) {
     const access = await this.resolveAccess(user);
     if (!access.canSellProducts) {

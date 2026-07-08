@@ -62,7 +62,7 @@ test('seedTenantModulesTx com módulo input grava só a exceção explícita', a
   assert.deepEqual(result.resolvedModuleKeys, ['vendas']);
 });
 
-test('seedTenantDefaultProductsTx semeia a oferta-principal default (idêntica entre portas)', async () => {
+test('seedTenantDefaultProductsTx SEM produtos explícitos não cria nada (TASK 8)', async () => {
   const creates: any[] = [];
   const tx = {
     product: {
@@ -70,10 +70,27 @@ test('seedTenantDefaultProductsTx semeia a oferta-principal default (idêntica e
       create: async ({ data }: any) => { creates.push(data); return { id: creates.length }; },
     },
   };
+  // Seed default agora é vazio → nenhuma criação, nenhuma linha retornada.
   const result = await seedTenantDefaultProductsTx(tx as any, 5, { source: 'auth_signup' });
+  assert.deepEqual(result, []);
+  assert.equal(creates.length, 0);
+});
+
+test('seedTenantDefaultProductsTx COM produtos explícitos ainda semeia (caminho intacto)', async () => {
+  const creates: any[] = [];
+  const tx = {
+    product: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => { creates.push(data); return { id: creates.length }; },
+    },
+  };
+  const result = await seedTenantDefaultProductsTx(tx as any, 5, {
+    source: 'master_full',
+    products: [{ name: 'Água 500ml', price: 2 }],
+  });
   assert.equal(result.length, 1);
-  assert.equal(result[0].key, 'oferta-principal');
-  assert.equal(creates[0].status, 'draft');
+  assert.equal(creates.length, 1);
+  assert.equal(creates[0].name, 'Água 500ml');
   assert.equal(creates[0].companyId, 5);
 });
 

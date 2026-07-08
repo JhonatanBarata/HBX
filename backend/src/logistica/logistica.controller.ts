@@ -235,6 +235,19 @@ export class LogisticaController {
   }
 
   /**
+   * TASK 9 — REMOVE o vínculo produto×cliente de vez (o "-" da UI), diferente do
+   * PATCH ativo=false (que só pausa). company-scoped. Não toca entregas já
+   * geradas — só impede recorrências futuras.
+   */
+  @Delete('cliente-produtos/:id')
+  async deleteClienteProduto(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const ok = await this.recorrencia.remove(companyId, id);
+    if (!ok) throw new NotFoundException('Vínculo não encontrado');
+    return { success: true };
+  }
+
+  /**
    * Gera as entregas do dia a partir dos vínculos recorrentes vencidos.
    * IDEMPOTENTE por [cliente, dia]: rodar 2× no mesmo dia = 1 entrega/cliente.
    * Não dispara WhatsApp/cobrança (isso é só no confirmar, N6, atrás de flag).
@@ -243,6 +256,18 @@ export class LogisticaController {
   gerarDia(@Req() req: any, @Body() dto: GerarDiaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.recorrencia.gerarDia(companyId, dto?.date);
+  }
+
+  /**
+   * TASK 7 — preview READ-ONLY do dia (pop-up "Gerar entregas"): os vínculos
+   * vencidos agrupados por cliente, com nomes resolvidos, ANTES de materializar
+   * nada. Não cria Entrega nem avança proximaData — só o `gerar-dia`/"Começar
+   * Rota" faz isso. company-scoped.
+   */
+  @Get('dia-preview')
+  diaPreview(@Req() req: any, @Query('date') date?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recorrencia.getDiaPreview(companyId, date);
   }
 
   // ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ───────────────────────────────

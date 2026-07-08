@@ -25,14 +25,29 @@ function buildPrismaMock(vinculos: any[]) {
   // clona os vínculos p/ o update de proximaData ser observável sem mutar a fixture.
   const vinculosState = vinculos.map((v) => ({ ...v }));
 
+  const cpDeletes: string[] = [];
   const prisma: any = {
     clienteProduto: {
       findMany: async (_args: any) => vinculosState,
+      // findFirst company-scoped (usado por remove): só acha se id E companyId batem.
+      findFirst: async (args: any) => {
+        const w = args.where || {};
+        const row = vinculosState.find(
+          (v) => v.id === w.id && (w.companyId === undefined || v.companyId === w.companyId),
+        );
+        return row ? { id: row.id } : null;
+      },
       update: async (args: any) => {
         const row = vinculosState.find((v) => v.id === args.where.id);
         if (row) Object.assign(row, args.data);
         cpUpdates.push({ id: args.where.id, data: args.data });
         return row;
+      },
+      delete: async (args: any) => {
+        const idx = vinculosState.findIndex((v) => v.id === args.where.id);
+        if (idx >= 0) vinculosState.splice(idx, 1);
+        cpDeletes.push(args.where.id);
+        return { id: args.where.id };
       },
     },
     entrega: {
@@ -63,7 +78,7 @@ function buildPrismaMock(vinculos: any[]) {
     },
   };
 
-  return { prisma, entregas, cpUpdates, itensCriados, vinculosState };
+  return { prisma, entregas, cpUpdates, itensCriados, vinculosState, cpDeletes };
 }
 
 const svc = (prisma: any) => new LogisticaRecorrenciaService(prisma);
@@ -261,4 +276,229 @@ test('gerarDia: vínculo com proximaData futura não gera', async () => {
   const r = await svc(prisma).gerarDia(1, '2026-07-06');
   assert.equal(r.criadas, 0);
   assert.equal(entregas.length, 0);
+});
+
+// ── 4) TASK 5 (08/07) — agregação multi-vínculo (mesmo produto pode repetir) ──
+// Antes do fix, gerarDia criava 1 Entrega com o item do PRIMEIRO vínculo vencido
+// e PULAVA o resto (o `existente` é por cliente+dia, não por vínculo) — os demais
+// vínculos eram avançados mas o item deles NUNCA virava EntregaItem. Estes testes
+// prezam que TODOS os vínculos vencidos do cliente entram na mesma Entrega.
+
+test('gerarDia: agrega vínculos DIFERENTES do mesmo cliente vencendo no mesmo dia (1 entrega, N itens)', async () => {
+  const dia = '2026-07-06'; // segunda
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 2,
+      precoAcordado: 15,
+      frequenciaDias: null,
+      diasSemana: '1', // segunda
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 20, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-2',
+      customerProfileId: 'conta-1',
+      productId: 20,
+      qtdPadrao: 1,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '1', // segunda também
+      proximaData: null,
+      product: { id: 20, name: 'Água com gás', price: 8, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, itensCriados, cpUpdates } = buildPrismaMock(vinculos);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 1, '1 cliente = 1 entrega, mesmo com 2 vínculos vencidos');
+  assert.equal(entregas.length, 1);
+  assert.equal(itensCriados.length, 2, '2 vínculos vencidos = 2 EntregaItem (nenhum perdido)');
+  assert.deepEqual(
+    itensCriados.map((i) => i.productId).sort(),
+    [10, 20],
+  );
+  // Backward-compat: quantidade/valor = SOMA dos itens (2×15 + 1×8 = 38; qtd 2+1=3).
+  assert.equal(entregas[0].quantidade, 3);
+  assert.equal(entregas[0].valor, 38);
+  // Os DOIS vínculos avançam proximaData (nenhum fica preso).
+  assert.equal(r.avancados, 2);
+  assert.equal(cpUpdates.length, 2);
+});
+
+test('gerarDia: mesmo produto vinculado 2× no MESMO dia gera 2 EntregaItem separados (não funde)', async () => {
+  const dia = '2026-07-06'; // segunda
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10, // MESMO produto
+      qtdPadrao: 1,
+      precoAcordado: 10,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-2',
+      customerProfileId: 'conta-1',
+      productId: 10, // MESMO produto, outro vínculo (galão extra)
+      qtdPadrao: 1,
+      precoAcordado: 12,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, itensCriados } = buildPrismaMock(vinculos);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 1);
+  assert.equal(itensCriados.length, 2, 'os 2 vínculos do MESMO produto não se fundem em 1 item');
+  assert.deepEqual(itensCriados.map((i) => i.productId), [10, 10]);
+  assert.deepEqual(itensCriados.map((i) => i.valorUnit), [10, 12]);
+  assert.equal(entregas[0].quantidade, 2);
+  assert.equal(entregas[0].valor, 22); // 1×10 + 1×12
+});
+
+test('gerarDia: mesmo produto vinculado 2× em DIAS DIFERENTES — só o vínculo do dia vence', async () => {
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: 10,
+      frequenciaDias: null,
+      diasSemana: '1', // segunda
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-2',
+      customerProfileId: 'conta-1',
+      productId: 10, // mesmo produto, vínculo da SEXTA
+      qtdPadrao: 1,
+      precoAcordado: 12,
+      frequenciaDias: null,
+      diasSemana: '5', // sexta
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, itensCriados } = buildPrismaMock(vinculos);
+  // 2026-07-06 é segunda → só cp-1 vence; cp-2 (sexta) fica de fora.
+  const r = await svc(prisma).gerarDia(1, '2026-07-06');
+  assert.equal(r.criadas, 1);
+  assert.equal(itensCriados.length, 1);
+  assert.equal(itensCriados[0].productId, 10);
+  assert.equal(itensCriados[0].valorUnit, 10);
+  assert.equal(entregas[0].valor, 10);
+  // Só o vínculo vencido (cp-1) avança — cp-2 (sexta) fica intocado.
+  assert.equal(r.avancados, 1);
+});
+
+// ── 5) TASK 7 — preview READ-ONLY do dia (pop-up "Gerar entregas") ───────────
+test('getDiaPreview: agrupa por cliente, traz nomes e NÃO escreve nada (read-only)', async () => {
+  const dia = '2026-07-06'; // segunda
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 2,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 20, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-2',
+      customerProfileId: 'conta-2',
+      productId: 20,
+      qtdPadrao: 1,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '2', // terça — NÃO vence na segunda
+      proximaData: null,
+      product: { id: 20, name: 'Água com gás', price: 8, priceCents: null },
+      customerProfile: { id: 'conta-2', name: 'Seu João', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, cpUpdates } = buildPrismaMock(vinculos);
+  const preview = await svc(prisma).getDiaPreview(1, dia);
+
+  assert.equal(preview.date, '2026-07-06');
+  assert.equal(preview.clientes.length, 1, 'só conta-1 vence na segunda');
+  assert.equal(preview.clientes[0].customerProfileId, 'conta-1');
+  assert.equal(preview.clientes[0].nome, 'Dona Maria');
+  assert.deepEqual(preview.clientes[0].itens, [{ productId: 10, nome: 'Galão 20L', qtd: 2 }]);
+  // READ-ONLY de verdade: nenhuma Entrega criada, nenhum vínculo avançado.
+  assert.equal(entregas.length, 0);
+  assert.equal(cpUpdates.length, 0);
+});
+
+// ── 6) TASK 9 — remove (hard delete) do vínculo produto×cliente ──────────────
+test('remove: apaga o vínculo da própria empresa e devolve true', async () => {
+  const vinculos = [
+    {
+      id: 'cp-1',
+      companyId: 1,
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, cpDeletes, vinculosState } = buildPrismaMock(vinculos);
+  const ok = await svc(prisma).remove(1, 'cp-1');
+  assert.equal(ok, true);
+  assert.deepEqual(cpDeletes, ['cp-1']);
+  assert.equal(vinculosState.length, 0, 'o vínculo some de vez');
+});
+
+test('remove: vínculo de OUTRA empresa → false (company-scoped, não apaga)', async () => {
+  const vinculos = [
+    {
+      id: 'cp-1',
+      companyId: 1,
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: null,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, cpDeletes, vinculosState } = buildPrismaMock(vinculos);
+  // empresa 999 tenta apagar o vínculo da empresa 1 → não acha → false, nada apagado.
+  const ok = await svc(prisma).remove(999, 'cp-1');
+  assert.equal(ok, false);
+  assert.equal(cpDeletes.length, 0);
+  assert.equal(vinculosState.length, 1);
+});
+
+test('remove: id inexistente → false', async () => {
+  const { prisma } = buildPrismaMock([]);
+  assert.equal(await svc(prisma).remove(1, 'nao-existe'), false);
 });

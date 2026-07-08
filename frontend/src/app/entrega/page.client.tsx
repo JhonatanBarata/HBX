@@ -361,6 +361,7 @@ export function EntregaHome() {
           iniciando={iniciando}
           onIniciar={onIniciar}
           onGerou={carregar}
+          onComecarRota={onIniciar}
         />
       ) : (
         <ViewRota
@@ -409,6 +410,7 @@ function ViewHoje({
   iniciando,
   onIniciar,
   onGerou,
+  onComecarRota,
 }: {
   rota: RotaResult | null;
   data: string;
@@ -420,6 +422,7 @@ function ViewHoje({
   iniciando: boolean;
   onIniciar: () => void;
   onGerou: () => void;
+  onComecarRota: () => void;
 }) {
   // A4 — faixa de gestão do dia (gerar entregas + resumo) SEMPRE no topo, mesmo
   // sem entregas: é daqui que o dono do negócio materializa a rota do dia.
@@ -427,7 +430,7 @@ function ViewHoje({
     return (
       <>
         <div className="ent-head-sub ent-head-sub--standalone">{data}</div>
-        <GestaoDia onGerou={onGerou} />
+        <GestaoDia onGerou={onGerou} onComecarRota={onComecarRota} />
         <div className="ent-empty">
           <div className="ent-empty-icon" aria-hidden="true">
             ✓
@@ -441,7 +444,7 @@ function ViewHoje({
   return (
     <>
       <div className="ent-head-sub ent-head-sub--standalone">{data}</div>
-      <GestaoDia onGerou={onGerou} />
+      <GestaoDia onGerou={onGerou} onComecarRota={onComecarRota} />
       <section className="ent-progress" aria-label="Progresso do dia">
         <div className="ent-progress-row">
           <div className="ent-progress-count">

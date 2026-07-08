@@ -52,4 +52,16 @@ export class ProductsController {
   remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.productsService.archiveProductForUser(req.user, id);
   }
+
+  /**
+   * TASK 8 (08/07) — EXCLUSÃO PERMANENTE (hard delete), separada do DELETE
+   * ':id' acima (que arquiva/soft-delete). Rota própria pra não mudar o
+   * comportamento do endpoint existente (outros consumidores dependem do
+   * arquivar). ClienteProduto cai em cascata; Entrega/EntregaItem perdem só a
+   * referência (onDelete SetNull) — a entrega em si não é apagada.
+   */
+  @Delete(':id/permanent')
+  removePermanent(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.productsService.deleteProductForUser(req.user, id);
+  }
 }

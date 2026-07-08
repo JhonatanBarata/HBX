@@ -70,9 +70,9 @@ test('buildProvisioningPlan defaults modules from selected plan and validates ad
   assert.ok(plan.modules.some((moduleItem) => moduleItem.key === 'vendas'));
   assert.equal(plan.modules.some((moduleItem) => moduleItem.key === 'gerencial'), false);
   assert.equal(plan.admin, null);
-  assert.equal(plan.products[0].key, 'oferta-principal');
-  assert.equal(plan.products[0].kind, 'tenant_product');
-  assert.equal(plan.products[0].status, 'draft');
+  // TASK 8 (08/07): sem produtos EXPLÍCITOS, o plano nasce SEM produto default
+  // (antes semeava "oferta-principal" em rascunho). Conta nova = catálogo vazio.
+  assert.equal(plan.products.length, 0);
 
   assert.throws(
     () => service.buildProvisioningPlan({ companyName: 'Cliente Tres', admin: { email: '' } }),
@@ -218,7 +218,7 @@ test('provisionTenant WITH explicit modules writes CompanyModule (exceção do m
   assert.equal(moduleUpserts.length, 2);
 });
 
-test('backfillTenantProducts dry-run reports products that would be created', async () => {
+test('backfillTenantProducts dry-run: sem seed default, não há produto a criar (TASK 8)', async () => {
   const service = new MasterProvisioningService({
     company: {
       findMany: async () => [{ id: 10, name: 'Tenant sem catalogo' }],
@@ -232,10 +232,12 @@ test('backfillTenantProducts dry-run reports products that would be created', as
 
   assert.equal(result.ok, true);
   assert.equal(result.dryRun, true);
+  // A empresa ainda é varrida (companyCount=1), mas o seed default agora é VAZIO
+  // → nada seria criado. (O backfill só teria efeito com produtos explícitos.)
   assert.equal(result.companyCount, 1);
   assert.equal(result.createdCount, 0);
-  assert.equal(result.wouldCreateCount, 1);
-  assert.equal(result.rows[0].products[0].key, 'oferta-principal');
+  assert.equal(result.wouldCreateCount, 0);
+  assert.equal(result.rows[0].products.length, 0);
 });
 
 test('seedHbxTenantProducts dry-run reports HBX tenant products without creating them', async () => {

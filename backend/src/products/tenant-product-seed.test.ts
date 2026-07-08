@@ -7,12 +7,21 @@ import {
   ensureHbxTenantProductsTx,
 } from './tenant-product-seed';
 
-test('buildTenantProductSeeds creates tenant_product as default product kind', () => {
-  const seeds = buildTenantProductSeeds();
+test('buildTenantProductSeeds default is EMPTY (TASK 8: conta nova nasce sem produto)', () => {
+  // Antes o default semeava 1 produto "oferta-principal"; agora, sem produtos
+  // EXPLÍCITOS, a lista é vazia — conta nova nasce com catálogo limpo.
+  assert.deepEqual(buildTenantProductSeeds(), []);
+  assert.deepEqual(buildTenantProductSeeds(null), []);
+  assert.deepEqual(buildTenantProductSeeds([]), []);
+});
+
+test('buildTenantProductSeeds still builds EXPLICIT products (caminho explícito intacto)', () => {
+  const seeds = buildTenantProductSeeds([{ name: 'Galão 20L', price: 12.5 }]);
 
   assert.equal(seeds.length, 1);
-  assert.equal(seeds[0].key, 'oferta-principal');
+  assert.equal(seeds[0].name, 'Galão 20L');
   assert.equal(seeds[0].kind, 'tenant_product');
+  assert.equal(seeds[0].priceCents, 1250);
 });
 
 test('buildHbxTenantProductSeeds creates HBX plans as platform_plan tenant data', () => {
