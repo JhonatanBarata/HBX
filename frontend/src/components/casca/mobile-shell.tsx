@@ -26,6 +26,7 @@ import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY, useCascaMobile } from "@/
 import { dismissCascaToast } from "@/lib/casca-toast";
 
 import { CascaFallback } from "./fallback";
+import { HbxMarkViva } from "./hbx-mark";
 import { CascaLoading } from "./loading";
 import { CASCA_TABS, CascaTabBar, isCascaTabVisible } from "./tab-bar";
 import { CascaToastHost } from "./toast-host";
@@ -280,7 +281,10 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="casca">
       <div className="casca-top">
-        <h1 className="casca-top__title">{titleFor(pathname)}</h1>
+        {/* marca »HBX viva no lugar do título (dono 07/07: a tab bar já diz
+            onde você está); o título fica só pra leitor de tela */}
+        <h1 className="casca-top__title hbx-sr-only">{titleFor(pathname)}</h1>
+        <HbxMarkViva />
       </div>
       {(!booted || redirecting) ? (
         <div className="casca-stage"><CascaLoading immediate={!booted} /></div>
