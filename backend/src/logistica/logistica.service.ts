@@ -83,7 +83,11 @@ export class LogisticaService {
           { scheduledAt: null, status: { in: ['agendada', 'em_rota'] } },
         ],
       },
-      orderBy: [{ status: 'asc' }, { scheduledAt: 'asc' }, { createdAt: 'asc' }],
+      // FIX rota (07/07): ordena pela rotaOrdem do planejador (NN+2-opt) primeiro —
+      // é a ordem que o entregador tem de seguir. Sem isso a lista voltava em ordem
+      // de INSERÇÃO (bagunçada no mapa) e os cards ficavam todos "Parada 1" (o app
+      // ordena/numera por rotaOrdem, que nunca chegava). NULLs por último (Postgres).
+      orderBy: [{ rotaOrdem: 'asc' }, { status: 'asc' }, { scheduledAt: 'asc' }, { createdAt: 'asc' }],
       take: 300,
       select: {
         id: true,
@@ -96,6 +100,10 @@ export class LogisticaService {
         deliveredLng: true,
         cobrancaStatus: true,
         notes: true,
+        // FIX rota (07/07): a ordem/ETA planejados PRECISAM voltar pro app — sem
+        // eles o carrossel numera tudo "Parada 1" e ignora o 2-opt (bagunça).
+        rotaOrdem: true,
+        etaAt: true,
         customerProfile: {
           select: {
             id: true,
@@ -184,6 +192,10 @@ export class LogisticaService {
         deliveredLng: r.deliveredLng ?? null,
         cobrancaStatus: r.cobrancaStatus,
         notes: r.notes ?? null,
+        // FIX rota (07/07): devolve a ordem/ETA planejados (o app ordena o carrossel
+        // e numera "Parada N" por rotaOrdem; o término lê etaAt da última parada).
+        rotaOrdem: r.rotaOrdem ?? null,
+        etaAt: r.etaAt ? r.etaAt.toISOString() : null,
         cliente: {
           id: r.customerProfile.id,
           nome: r.customerProfile.name ?? null,

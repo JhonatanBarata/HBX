@@ -168,7 +168,9 @@ export function RotaMapa({ paradas, indiceAtual, onSelecionarParada, posicaoEntr
       pinEl.className = "ent-map-rota__pin" + (i === indiceAtual ? " is-current" : "");
       const num = document.createElement("span");
       num.className = "ent-map-rota__pin-num";
-      num.textContent = String((p.rotaOrdem ?? i) + 1);
+      // FIX rota: numeração SEQUENCIAL pela posição (paradas já vem ordenado por
+      // rotaOrdem do backend). i é o índice na lista de abertas = a sequência real.
+      num.textContent = String(i + 1);
       pinEl.appendChild(num);
       pinEl.addEventListener("click", () => onSelecionarRef.current(i));
       const marker = new maplibregl.Marker({ element: pinEl, anchor: "center" }).setLngLat([lng, lat]).addTo(map);

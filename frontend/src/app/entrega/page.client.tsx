@@ -513,10 +513,13 @@ function ViewRota({
         onPointerCancel={onPointerUp}
       >
         <div className={`ent-track${dragging ? " is-dragging" : ""}`} style={trackStyle}>
-          {abertas.map((p) => (
+          {abertas.map((p, i) => (
             <div className="ent-slide" key={p.id}>
               <article className="ent-stop-card">
-                <span className="ent-stop-badge">Parada {(p.rotaOrdem ?? 0) + 1}</span>
+                {/* FIX rota: numeração SEQUENCIAL pela posição na rota (abertas já
+                    vem ordenado por rotaOrdem do backend) — antes usava rotaOrdem
+                    que nunca chegava e deixava TODO card como "Parada 1". */}
+                <span className="ent-stop-badge">Parada {i + 1}</span>
                 <div className="ent-stop-name">{p.cliente.nome ?? "Cliente"}</div>
                 <div className="ent-stop-addr">{enderecoCurto(p.cliente)}</div>
                 <div className="ent-stop-items">
