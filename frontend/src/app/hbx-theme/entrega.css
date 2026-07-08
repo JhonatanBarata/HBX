@@ -172,6 +172,7 @@
 
 /* ---------- PROGRESSO (X/N + previsão) ---------- */
 [data-skin="entrega"] .ent-progress {
+  flex: 0 0 auto;
   margin: 0 var(--ent-4) var(--ent-4);
   padding: var(--ent-4) var(--ent-5);
   background: var(--ent-surface);
@@ -357,6 +358,7 @@
 [data-skin="entrega"] .ent-stepper + .ent-chips { margin-top: var(--ent-4); }
 /* dots de posição do swipe (X de N) */
 [data-skin="entrega"] .ent-dots {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -413,6 +415,7 @@
 
 /* ---------- BARRA DE AÇÃO INFERIOR (1 polegar) ---------- */
 [data-skin="entrega"] .ent-actionbar {
+  flex: 0 0 auto;
   margin-top: auto;
   position: sticky;
   bottom: 0;
@@ -500,7 +503,11 @@
 [data-skin="entrega"] .ent-row-tag.is-sync { color: var(--ent-accent); }
 
 /* ---------- CARROSSEL "Rota" (swipe ←/→) ---------- */
-[data-skin="entrega"] .ent-carousel { overflow: hidden; touch-action: pan-y; }
+[data-skin="entrega"] .ent-carousel {
+  flex: 0 0 auto;
+  overflow: hidden;
+  touch-action: pan-y;
+}
 [data-skin="entrega"] .ent-track {
   display: flex;
   transition: transform var(--ent-motion-slow);
@@ -1035,6 +1042,19 @@
   font-weight: 800;
   color: var(--ent-ink);
   letter-spacing: 0;
+}
+[data-skin="entrega"] .ent-link-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-link-qr {
+  display: block;
+  width: min(220px, 100%);
+  height: auto;
+  padding: var(--ent-2);
+  background: #fff;
+  border-radius: var(--ent-radius-sm);
 }
 
 /* ---------- INSTALAR APP (QR local + copiar) ---------- */

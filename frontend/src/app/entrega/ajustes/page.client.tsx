@@ -20,8 +20,8 @@ import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFul
 import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken } from "@/lib/api";
-import { fetchWhatsAppModalStatus, requestWhatsAppPairingCode } from "@/lib/whatsapp-connection-flow";
-import type { WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
+import { fetchWhatsAppModalQr, fetchWhatsAppModalStatus, requestWhatsAppPairingCode, startWhatsAppModalSession } from "@/lib/whatsapp-connection-flow";
+import type { WhatsAppModalPayload, WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
 import { EntregaScaffold } from "../EntregaScaffold";
@@ -54,6 +54,9 @@ const PREVIEW_VARS = {
 const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
 
 type WhatsAppCenterPayload = {
+  company?: {
+    contactPhone?: string | null;
+  };
   center?: {
     status?: "NOT_CONNECTED" | "QR" | "OFFICIAL" | "ATTENTION" | string;
     official?: {
@@ -62,6 +65,19 @@ type WhatsAppCenterPayload = {
     };
   };
 };
+
+function normalizePairingPhone(raw: string | null | undefined): string {
+  const source = String(raw || "").trim();
+  if (!source) return "";
+  const jidMatch = source.match(/^\+?(\d{8,15})(?:@(?:s\.whatsapp\.net|c\.us))?$/i);
+  const digits = (jidMatch ? jidMatch[1] : source.replace(/\D/g, "")).slice(0, 15);
+  if (!digits) return "";
+  if (source.startsWith("+")) return `+${digits}`;
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) return `+${digits}`;
+  if (digits.length === 10 || digits.length === 11) return `+55${digits}`;
+  if (digits.length >= 8) return `+${digits}`;
+  return "";
+}
 
 // Saudação por horário LOCAL — MESMA regra do backend (5–11 Bom dia · 12–17 Boa tarde · resto Boa noite).
 function saudacaoPorHorario(now: Date): string {
@@ -102,6 +118,7 @@ export function EntregaAjustes() {
   const [waPronto, setWaPronto] = useState(false);
   const [waMsg, setWaMsg] = useState("Verificando WhatsApp…");
   const [waSessionId, setWaSessionId] = useState("");
+  const [waDefaultPhone, setWaDefaultPhone] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -145,12 +162,18 @@ export function EntregaAjustes() {
         apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center"),
       ]);
       const modal = modalResult.status === "fulfilled" ? modalResult.value : null;
-      const center = centerResult.status === "fulfilled" ? centerResult.value?.center : null;
+      const centerPayload = centerResult.status === "fulfilled" ? centerResult.value : null;
+      const center = centerPayload?.center || null;
       const whatsOn = modal?.status === "connected";
       const metaOn = Boolean(center?.official?.connected) || String(center?.status || "").toUpperCase() === "OFFICIAL";
       const pronto = whatsOn || metaOn;
+      const defaultPhone =
+        normalizePairingPhone(modal?.data?.phone) ||
+        normalizePairingPhone(center?.official?.displayNumber) ||
+        normalizePairingPhone(centerPayload?.company?.contactPhone);
       setWaPronto(pronto);
       setWaSessionId(modal?.data?.tenantKey || "");
+      setWaDefaultPhone(defaultPhone);
       if (whatsOn) {
         setWaMsg(modal?.data?.phone ? `WhatsApp conectado: ${modal.data.phone}` : "WhatsApp conectado");
       } else if (metaOn) {
@@ -161,6 +184,7 @@ export function EntregaAjustes() {
     } catch {
       setWaPronto(false);
       setWaSessionId("");
+      setWaDefaultPhone("");
       setWaMsg("Não foi possível verificar WhatsApp/Meta agora.");
     } finally {
       setWaVerificando(false);
@@ -256,6 +280,7 @@ export function EntregaAjustes() {
             <div className="ent-hint">{waVerificando ? "Verificando WhatsApp/Meta…" : waMsg}</div>
             <CodigoVinculacaoWhatsApp
               sessionId={waSessionId}
+              defaultPhone={waDefaultPhone}
               onGenerated={carregarWhatsApp}
             />
 
@@ -453,40 +478,83 @@ function FecharMesBtn() {
 }
 
 // ── CÓDIGO DE VINCULAÇÃO WHATSAPP ────────────────────────────────────────────
-function CodigoVinculacaoWhatsApp({ sessionId, onGenerated }: {
+function CodigoVinculacaoWhatsApp({ sessionId, defaultPhone, onGenerated }: {
   sessionId: string;
+  defaultPhone: string;
   onGenerated: () => void | Promise<void>;
 }) {
   const [phone, setPhone] = useState("");
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [qrBusy, setQrBusy] = useState(false);
   const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const phoneOk = PAIRING_PHONE_RE.test(phone.trim());
+  const [qrPayload, setQrPayload] = useState<WhatsAppModalPayload | null>(null);
+  const [msg, setMsg] = useState<{ text: string; kind: "hint" | "error" } | null>(null);
+  const effectivePhone = phoneTouched ? phone : defaultPhone;
+  const phoneOk = PAIRING_PHONE_RE.test(effectivePhone.trim());
 
   const gerar = useCallback(async () => {
     if (busy) return;
     if (!sessionId) {
-      setMsg("Sessão WhatsApp ainda não carregou. Atualize a tela e tente de novo.");
+      setMsg({ text: "Sessão WhatsApp ainda não carregou. Atualize a tela e tente de novo.", kind: "error" });
       return;
     }
     if (!phoneOk) {
-      setMsg("Informe o telefone com DDI, ex.: +5519999999999.");
+      setMsg({ text: "Informe o telefone com DDI, ex.: +5519999999999.", kind: "error" });
       return;
     }
     setBusy(true);
     setMsg(null);
     setPairing(null);
+    setQrPayload(null);
     try {
-      const res = await requestWhatsAppPairingCode(sessionId, phone.trim());
+      const res = await requestWhatsAppPairingCode(sessionId, effectivePhone.trim());
       setPairing(res);
-      setMsg(res.code ? "Código criado. Digite no WhatsApp do celular." : res.message || "Não foi possível criar o código.");
+      setMsg({
+        text: res.code ? "Código criado. Digite no WhatsApp do celular." : res.message || "Não foi possível criar o código.",
+        kind: res.code ? "hint" : "error",
+      });
       await onGenerated();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Falha ao criar o código.");
+      setMsg({ text: e instanceof Error ? e.message : "Falha ao criar o código.", kind: "error" });
     } finally {
       setBusy(false);
     }
-  }, [busy, onGenerated, phone, phoneOk, sessionId]);
+  }, [busy, effectivePhone, onGenerated, phoneOk, sessionId]);
+
+  const gerarQr = useCallback(async () => {
+    if (qrBusy) return;
+    setQrBusy(true);
+    setMsg(null);
+    setPairing(null);
+    try {
+      const current = await fetchWhatsAppModalStatus().catch(() => null);
+      let res: WhatsAppModalPayload;
+      if (current?.status === "waiting_qr" || current?.status === "starting") {
+        res = await fetchWhatsAppModalQr();
+      } else if (current?.status === "connected") {
+        setQrPayload(current);
+        setMsg({ text: "WhatsApp já está conectado.", kind: "hint" });
+        await onGenerated();
+        return;
+      } else {
+        res = await startWhatsAppModalSession();
+        if ((res.status === "waiting_qr" || res.status === "starting") && !res.data.qrCodeDataUrl) {
+          res = await fetchWhatsAppModalQr().catch(() => res);
+        }
+      }
+      setQrPayload(res);
+      setMsg({
+        text: res.data?.qrCodeDataUrl ? "QR Code criado. Leia pelo WhatsApp do celular." : res.message || "QR solicitado.",
+        kind: res.data?.qrCodeDataUrl ? "hint" : "error",
+      });
+      await onGenerated();
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : "Falha ao criar QR Code.", kind: "error" });
+    } finally {
+      setQrBusy(false);
+    }
+  }, [onGenerated, qrBusy]);
 
   return (
     <div className="ent-link-code">
@@ -497,8 +565,12 @@ function CodigoVinculacaoWhatsApp({ sessionId, onGenerated }: {
           type="tel"
           inputMode="tel"
           placeholder="+5519999999999"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          autoComplete="tel"
+          value={effectivePhone}
+          onChange={(e) => {
+            setPhoneTouched(true);
+            setPhone(e.target.value);
+          }}
           aria-label="Telefone para criar código de vinculação do WhatsApp"
         />
       </label>
@@ -508,15 +580,32 @@ function CodigoVinculacaoWhatsApp({ sessionId, onGenerated }: {
           <span className="ent-hint">Válido por {pairing.expiresInSeconds}s</span>
         </div>
       ) : null}
-      {msg ? <div className={pairing?.code ? "ent-hint" : "ent-erro"}>{msg}</div> : null}
-      <button
-        type="button"
-        className="ent-btn ent-btn--secondary"
-        onClick={() => void gerar()}
-        disabled={busy || !sessionId || !phoneOk}
-      >
-        {busy ? "Criando…" : pairing?.code ? "Criar novo código de vinculação" : "Criar código de vinculação"}
-      </button>
+      {qrPayload?.data?.qrCodeDataUrl ? (
+        <div className="ent-code-box">
+          {/* eslint-disable-next-line @next/next/no-img-element -- QR vem pronto do backend */}
+          <img className="ent-link-qr" src={qrPayload.data.qrCodeDataUrl} alt="QR Code do WhatsApp" />
+          <span className="ent-hint">Abra o WhatsApp no celular e leia este QR.</span>
+        </div>
+      ) : null}
+      {msg ? <div className={msg.kind === "hint" ? "ent-hint" : "ent-erro"}>{msg.text}</div> : null}
+      <div className="ent-link-actions">
+        <button
+          type="button"
+          className="ent-btn ent-btn--secondary"
+          onClick={() => void gerar()}
+          disabled={busy || qrBusy || !sessionId || !phoneOk}
+        >
+          {busy ? "Criando…" : pairing?.code ? "Criar novo código de vinculação" : "Criar código de vinculação"}
+        </button>
+        <button
+          type="button"
+          className="ent-btn ent-btn--secondary"
+          onClick={() => void gerarQr()}
+          disabled={busy || qrBusy}
+        >
+          {qrBusy ? "Gerando…" : qrPayload?.data?.qrCodeDataUrl ? "Gerar novo QR Code" : "Gerar QR Code"}
+        </button>
+      </div>
     </div>
   );
 }
