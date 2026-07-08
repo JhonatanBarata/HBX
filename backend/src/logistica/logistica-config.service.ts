@@ -72,6 +72,21 @@ export class LogisticaConfigService {
     if (input.moduloFinanceiroAtivo !== undefined) data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
     if (input.moduloRecoveryAtivo !== undefined) data.moduloRecoveryAtivo = !!input.moduloRecoveryAtivo;
     if (input.gerarDiaAutomatico !== undefined) data.gerarDiaAutomatico = !!input.gerarDiaAutomatico;
+    // F1 — Pix direto do tenant (BR Code no app). Vazio limpa (desliga o QR).
+    // Nome/cidade entram no payload EMV: sem acento e nos tetos da especificação
+    // (25/15) — normalizados AQUI pra o que está salvo ser o que o QR carrega.
+    if (input.pixChave !== undefined) {
+      const chave = String(input.pixChave ?? '').trim();
+      data.pixChave = chave ? chave.slice(0, 77) : null;
+    }
+    if (input.pixNome !== undefined) {
+      const nome = semAcento(String(input.pixNome ?? '').trim());
+      data.pixNome = nome ? nome.slice(0, 25) : null;
+    }
+    if (input.pixCidade !== undefined) {
+      const cidade = semAcento(String(input.pixCidade ?? '').trim());
+      data.pixCidade = cidade ? cidade.slice(0, 15) : null;
+    }
 
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
@@ -187,6 +202,11 @@ export function saudacaoPorHorario(now: Date): string {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
+/** Remove diacríticos ("São Paulo" → "Sao Paulo") — exigência prática do EMV. */
+function semAcento(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const n = Math.trunc(Number(value));
   if (!Number.isFinite(n)) return fallback;
@@ -204,6 +224,9 @@ function serializeConfig(c: any): LogisticaConfigDTO {
     moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
     moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
     gerarDiaAutomatico: !!c.gerarDiaAutomatico,
+    pixChave: c.pixChave ?? null,
+    pixNome: c.pixNome ?? null,
+    pixCidade: c.pixCidade ?? null,
   };
 }
 
@@ -218,6 +241,9 @@ export interface UpdateLogisticaConfigInput {
   moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
   gerarDiaAutomatico?: boolean;
+  pixChave?: string | null;
+  pixNome?: string | null;
+  pixCidade?: string | null;
 }
 
 export interface LogisticaConfigDTO {
@@ -230,4 +256,7 @@ export interface LogisticaConfigDTO {
   moduloFinanceiroAtivo: boolean;
   moduloRecoveryAtivo: boolean;
   gerarDiaAutomatico: boolean;
+  pixChave: string | null;
+  pixNome: string | null;
+  pixCidade: string | null;
 }

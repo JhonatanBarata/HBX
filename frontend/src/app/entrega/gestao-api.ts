@@ -63,6 +63,10 @@ export interface LogisticaConfig {
   moduloFinanceiroAtivo: boolean;
   moduloRecoveryAtivo: boolean;
   gerarDiaAutomatico: boolean;
+  // F1 — Pix direto do tenant (BR Code no app, taxa zero). Chave vazia = desligado.
+  pixChave: string | null;
+  pixNome: string | null;
+  pixCidade: string | null;
 }
 
 export function getConfig(): Promise<LogisticaConfig> {

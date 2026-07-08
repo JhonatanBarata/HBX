@@ -665,6 +665,7 @@ export class NucleoCadastroService {
         metodoPadrao: true,
         contabilizar: true,
         diaFechamento: true,
+        limiteFiado: true,
         contatos: {
           where: { isPrincipal: true },
           take: 1,
@@ -698,6 +699,7 @@ export class NucleoCadastroService {
       metodoPadrao: row.metodoPadrao ?? null,
       contabilizar: row.contabilizar !== false,
       diaFechamento: row.diaFechamento ?? null,
+      limiteFiado: row.limiteFiado ?? null,
       contatoPrincipalId: principal?.id ?? null,
     };
   }
@@ -1396,6 +1398,7 @@ export interface ClienteDetail {
   metodoPadrao: string | null;
   contabilizar: boolean;
   diaFechamento: number | null;
+  limiteFiado: number | null;
   contatoPrincipalId: string | null;
 }
 

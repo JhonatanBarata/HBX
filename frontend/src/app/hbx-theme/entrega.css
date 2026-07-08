@@ -1121,6 +1121,158 @@
 }
 
 /* ============================================================
+   F1 (07/07) — FINANCEIRO NA FICHA + CHEGADA:
+   dívida ("Deve R$ X"), QR Pix do ato, saldo/extrato da conta.
+   Ícone + número + verbo (Lei nº1); tokens da pele, zero hex de marca.
+   ============================================================ */
+/* Badge de dívida na folha de chegada. Neutro-quente; estourou o teto de
+   fiado (is-over) = urgência (danger) — é a hora de cobrar. */
+[data-skin="entrega"] .ent-divida {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ent-2);
+  margin-top: var(--ent-2);
+  padding: var(--ent-2) var(--ent-3);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ent-warning) 14%, var(--ent-surface-soft));
+  border: 1px solid color-mix(in srgb, var(--ent-warning) 35%, transparent);
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-soft);
+}
+[data-skin="entrega"] .ent-divida b {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text);
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-divida.is-over {
+  background: color-mix(in srgb, var(--ent-danger) 16%, var(--ent-surface-soft));
+  border-color: color-mix(in srgb, var(--ent-danger) 45%, transparent);
+}
+[data-skin="entrega"] .ent-divida.is-over b,
+[data-skin="entrega"] .ent-divida-acao {
+  color: var(--ent-danger);
+}
+[data-skin="entrega"] .ent-divida-acao {
+  margin-left: auto;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--ent-text-xs);
+}
+
+/* QR Pix do ato (folha de chegada): quadro claro (quiet zone), valor grande. */
+[data-skin="entrega"] .ent-pix {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ent-2);
+  margin-top: var(--ent-2);
+  padding: var(--ent-3);
+  border-radius: 14px;
+  background: var(--ent-surface-soft);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-pix-qr {
+  padding: var(--ent-2);
+  border-radius: 11px;
+  background: #ffffff; /* quiet zone do QR: branco puro é exigência de leitura (neutro isento) */
+  line-height: 0;
+}
+[data-skin="entrega"] .ent-pix-valor {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+
+/* Saldo da conta na ficha do cliente ("quanto me deve"). */
+[data-skin="entrega"] .ent-saldo {
+  padding: var(--ent-3);
+  border-radius: 14px;
+  background: var(--ent-surface-soft);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-saldo.is-devendo {
+  background: color-mix(in srgb, var(--ent-warning) 12%, var(--ent-surface-soft));
+  border-color: color-mix(in srgb, var(--ent-warning) 32%, transparent);
+}
+[data-skin="entrega"] .ent-saldo-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ent-2);
+}
+[data-skin="entrega"] .ent-saldo-label {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+[data-skin="entrega"] .ent-saldo-valor {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-saldo-sub {
+  margin-top: var(--ent-1);
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-soft);
+  font-weight: 600;
+}
+
+/* Extrato (lista de cobranças na ficha). */
+[data-skin="entrega"] .ent-extrato {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-1);
+}
+[data-skin="entrega"] .ent-extrato-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ent-2);
+  padding: var(--ent-2) var(--ent-3);
+  border-radius: 11px;
+  background: var(--ent-surface-soft);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-extrato-desc {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-extrato-data {
+  font-size: var(--ent-text-xs);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+}
+[data-skin="entrega"] .ent-extrato-valor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+[data-skin="entrega"] .ent-extrato-valor b {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text);
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-extrato-tag {
+  font-size: var(--ent-text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ent-warning);
+}
+[data-skin="entrega"] .ent-extrato-row.is-pago .ent-extrato-tag {
+  color: var(--ent-success);
+}
+[data-skin="entrega"] .ent-extrato-row.is-pago .ent-extrato-valor b {
+  color: var(--ent-ink-soft);
+}
+
+/* ============================================================
    VIDRO MODERN nos cartões (dono 07/07 noite, "injetar a casca e temas
    novos na logística") — mesma receita do dashboard: os --mod-* nascem em
    casca-modern.css no <html> [data-casca="modern"] e são herdados aqui;

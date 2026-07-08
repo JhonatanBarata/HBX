@@ -29,7 +29,8 @@ function buildEntrega(overrides: Record<string, any> = {}) {
 // Prisma mock mínimo: só o que confirmarEntrega/lancarCobranca tocam.
 // R2: financeiroCharge.findFirst (idempotência por entregaId) + um "banco" de charges.
 // R4: entrega.updateMany (claim do teto do reenvio) + masterEvent (trilha de falha).
-function buildPrismaMock(entrega: any, conta: any) {
+// F1: entregaItem.findMany (recálculo do valor pelo stepper) — itens injetáveis.
+function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
   const masterEvents: any[] = [];
@@ -68,8 +69,15 @@ function buildPrismaMock(entrega: any, conta: any) {
       },
     },
     // M4/R3 — quantidades por item (dentro da tx do confirmar). No-op observável.
+    // F1 — updateMany reflete a qtd nos itens injetados; findMany alimenta o
+    // recálculo do valor (Σ qtdEntregue×valorUnit) do confirmar.
     entregaItem: {
-      updateMany: async () => ({ count: 1 }),
+      updateMany: async (args: any) => {
+        const alvo = entregaItens.find((it) => it.id === args?.where?.id);
+        if (alvo && args?.data?.qtdEntregue !== undefined) alvo.qtdEntregue = args.data.qtdEntregue;
+        return { count: alvo ? 1 : 0 };
+      },
+      findMany: async () => entregaItens,
     },
     customerProfile: {
       findFirst: async () => conta,
@@ -838,6 +846,60 @@ test('M8 (b): sem key → comportamento clássico (idempotência por status), n�
   await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
   assert.equal(calls.length, 1, 'sem key, 2ª confirmação já-entregue não redispara WhatsApp');
   assert.equal(chargesCreated.length, 1, 'sem key, 2ª confirmação não duplica charge');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── F1 (07/07) — o VALOR da cobrança acompanha o stepper ──────────────────────
+test('F1: stepper mudou a qtd → charge nasce do valor RECALCULADO (Σ qtd×valorUnit)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  // Prevista: 2× R$10 = R$20 (valor da entrega). Entregou 3 → cobrança = R$30.
+  const itens = [{ id: 'item-1', qtdPrevista: 2, qtdEntregue: null, valorUnit: 10 }];
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega({ valor: 20 }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+    itens,
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9,
+    lng: -38.3,
+    itens: [{ id: 'item-1', qtdEntregue: 3 }],
+  });
+
+  assert.equal(res?.status, 'entregue');
+  assert.equal(chargesCreated.length, 1, '1 charge criado');
+  assert.equal(chargesCreated[0].amount, 30, 'o charge usa o valor ENTREGUE (3×10), não o previsto (20)');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── F1 — sem itens no payload (entrega legada) → valor previsto intocado ──────
+test('F1: payload SEM itens → não recalcula (valor escalar de sempre)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega({ valor: 20 }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(chargesCreated.length, 1);
+  assert.equal(chargesCreated[0].amount, 20, 'sem stepper, o valor previsto vale');
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;

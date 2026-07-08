@@ -35,9 +35,11 @@ import {
   reverseGeocodar,
   soDigitos,
 } from "../geo";
+import { fmtMoney, getConfig } from "../gestao-api";
 import {
   type ClienteListItem,
   type ClienteProduto,
+  type ExtratoResult,
   type FormaPagamento,
   type MetodoPadrao,
   type ProdutoOption,
@@ -46,6 +48,7 @@ import {
   editarCliente,
   editarContatoPrincipal,
   enderecoCurtoCliente,
+  getExtrato,
   recorrenciaLabel,
   getCliente,
   listClienteProdutos,
@@ -228,6 +231,10 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
   const [metodo, setMetodo] = useState<MetodoPadrao | "">("");
   const [diaFechamento, setDiaFechamento] = useState<string>("");
   const [contabilizar, setContabilizar] = useState(true);
+  // F1 — teto de fiado (vazio = sem limite) + o extrato da conta ("quanto me deve").
+  const [limiteFiado, setLimiteFiado] = useState<string>("");
+  const [extrato, setExtrato] = useState<ExtratoResult | null>(null);
+  const [extratoAberto, setExtratoAberto] = useState(false);
 
   // Estado do contato principal (pra editar telefone quando já existe).
   const [contatoPrincipalId, setContatoPrincipalId] = useState<string | null>(null);
@@ -249,8 +256,18 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
       }
       if (!editando || !id) return;
       try {
-        const [c, cps] = await Promise.all([getCliente(id), listClienteProdutos(id)]);
+        // F1 — a seção Conta segue a LEI do módulo financeiro (OFF → dinheiro não
+        // aparece em lugar NENHUM): só busca o extrato com o módulo ON. Tudo
+        // best-effort: falha na config/extrato não trava a ficha (fica sem saldo).
+        const [c, cps, ext] = await Promise.all([
+          getCliente(id),
+          listClienteProdutos(id),
+          getConfig()
+            .then((cfg) => (cfg.moduloFinanceiroAtivo ? getExtrato(id) : null))
+            .catch(() => null),
+        ]);
         if (!vivo) return;
+        setExtrato(ext);
         setNome(c.name || "");
         setWhatsapp(fmtTelefone(c.whatsapp || ""));
         setWhatsappOriginal(fmtTelefone(c.whatsapp || ""));
@@ -266,6 +283,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         setMetodo((c.metodoPadrao as MetodoPadrao) || "");
         setDiaFechamento(c.diaFechamento ? String(c.diaFechamento) : "");
         setContabilizar(c.contabilizar !== false);
+        setLimiteFiado(c.limiteFiado != null ? String(c.limiteFiado) : "");
         setContatoPrincipalId(c.contatoPrincipalId);
         setProdutos(cps);
       } catch (e) {
@@ -360,11 +378,19 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     setErro(null);
     try {
       const diaNum = diaFechamento.trim() ? Math.max(1, Math.min(31, Number(diaFechamento))) : undefined;
+      // F1 — teto de fiado: vazio/inválido = null (limpa; sem limite). Parse no
+      // formato BR: com vírgula, os pontos são MILHAR ("1.500,00" → 1500); sem
+      // vírgula, o ponto é decimal ("1500.50" → 1500.5).
+      const limiteTexto = limiteFiado.trim();
+      const limiteNum = Number(
+        limiteTexto.includes(",") ? limiteTexto.replace(/\./g, "").replace(",", ".") : limiteTexto,
+      );
       const financeiro = {
         formaPagamento: forma,
         // na_hora usa método fixo; fora dela, limpa (o backend também limpa).
         metodoPadrao: forma === "na_hora" ? (metodo || "") : "",
         contabilizar,
+        limiteFiado: limiteTexto && Number.isFinite(limiteNum) && limiteNum >= 0 ? limiteNum : null,
         ...(forma === "mensal" && diaNum ? { diaFechamento: diaNum } : {}),
       } as const;
 
@@ -410,7 +436,8 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
     }
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId,
-    comporEndereco, cep, cidade, uf, coord, forma, metodo, diaFechamento, contabilizar, onSair,
+    comporEndereco, cep, cidade, uf, coord, forma, metodo, diaFechamento, contabilizar,
+    limiteFiado, onSair,
   ]);
 
   if (carregando) {
@@ -557,6 +584,19 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           </label>
         ) : null}
 
+        {/* F1 — teto de fiado: acima disso, a chegada avisa o entregador a cobrar. */}
+        <label className="ent-field">
+          <span className="ent-field-label">Limite de fiado (R$)</span>
+          <input
+            className="ent-input"
+            type="text"
+            inputMode="decimal"
+            value={limiteFiado}
+            onChange={(e) => setLimiteFiado(e.target.value)}
+            placeholder="Sem limite"
+          />
+        </label>
+
         <button
           type="button"
           className="ent-toggle"
@@ -566,6 +606,54 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           <span className="ent-toggle-label">Entra na contabilidade</span>
           <span className={`ent-switch${contabilizar ? " is-on" : ""}`} aria-hidden="true" />
         </button>
+
+        {/* F1 — CONTA: o "quanto me deve" + extrato (endpoint R2 que só o ERP via). */}
+        {editando && extrato ? (
+          <>
+            <div className="ent-field-label ent-section">Conta</div>
+            <div className={`ent-saldo${extrato.saldoAberto > 0 ? " is-devendo" : ""}`}>
+              <div className="ent-saldo-main">
+                <span className="ent-saldo-label">{extrato.saldoAberto > 0 ? "Em aberto" : "Em dia"}</span>
+                <b className="ent-saldo-valor">{fmtMoney(extrato.saldoAberto)}</b>
+              </div>
+              {extrato.aguardandoFechamento > 0 ? (
+                <div className="ent-saldo-sub">{fmtMoney(extrato.aguardandoFechamento)} fecham no mês</div>
+              ) : null}
+            </div>
+            {extrato.charges.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--ghost"
+                  onClick={() => setExtratoAberto((v) => !v)}
+                  aria-expanded={extratoAberto}
+                >
+                  {extratoAberto ? "Esconder extrato" : `Extrato (${extrato.charges.length})`}
+                </button>
+                {extratoAberto ? (
+                  <div className="ent-extrato">
+                    {extrato.charges.slice(0, 30).map((c) => {
+                      const pago = c.lifecycle === "paid" || c.status === "approved";
+                      const data = (c.paidAt ?? c.dueDate ?? c.createdAt ?? "").slice(0, 10).split("-").reverse().join("/");
+                      return (
+                        <div className={`ent-extrato-row${pago ? " is-pago" : ""}`} key={c.id}>
+                          <div className="ent-extrato-main">
+                            <div className="ent-extrato-desc">{c.description}</div>
+                            <div className="ent-extrato-data">{data}</div>
+                          </div>
+                          <div className="ent-extrato-valor">
+                            <b>{fmtMoney(c.amount)}</b>
+                            <span className="ent-extrato-tag">{pago ? "pago" : "aberto"}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </>
+        ) : null}
 
         {/* PRODUTOS DO CLIENTE */}
         <div className="ent-field-label ent-section">Produtos</div>

@@ -276,6 +276,47 @@ export function EntregaAjustes() {
             {/* ── FECHAR MÊS ─────────────────────────────────────────────── */}
             <div className="ent-field-label ent-section">Cobrança</div>
             <FecharMesBtn />
+
+            {/* ── F1 — PIX NA ENTREGA (BR Code direto, taxa zero) ─────────── */}
+            <div className="ent-field-label ent-section">Pix na entrega</div>
+            <label className="ent-field">
+              <span className="ent-field-label">Chave Pix</span>
+              <input
+                className="ent-input"
+                type="text"
+                defaultValue={cfg.pixChave ?? ""}
+                onBlur={(e) => void patch({ pixChave: e.target.value.trim() })}
+                placeholder="email, +55… ou chave aleatória"
+                aria-label="Chave Pix do recebedor"
+              />
+            </label>
+            <div className="ent-field-row">
+              <label className="ent-field ent-field--grow">
+                <span className="ent-field-label">Nome (recebedor)</span>
+                <input
+                  className="ent-input"
+                  type="text"
+                  maxLength={25}
+                  defaultValue={cfg.pixNome ?? ""}
+                  onBlur={(e) => void patch({ pixNome: e.target.value.trim() })}
+                  aria-label="Nome do recebedor do Pix"
+                />
+              </label>
+              <label className="ent-field ent-field--grow">
+                <span className="ent-field-label">Cidade</span>
+                <input
+                  className="ent-input"
+                  type="text"
+                  maxLength={15}
+                  defaultValue={cfg.pixCidade ?? ""}
+                  onBlur={(e) => void patch({ pixCidade: e.target.value.trim() })}
+                  aria-label="Cidade do recebedor do Pix"
+                />
+              </label>
+            </div>
+            {cfg.pixChave ? (
+              <div className="ent-hint">QR aparece na chegada quando o pagamento é Pix</div>
+            ) : null}
           </>
         ) : null}
 

@@ -110,6 +110,8 @@ export class LogisticaService {
             // decidir se mostra os chips (só 'aberto') ou some (costumeiro).
             formaPagamento: true,
             metodoPadrao: true,
+            // F1 — teto de fiado (o app avisa quando o saldo em aberto estoura).
+            limiteFiado: true,
           },
         },
         contato: { select: { id: true, nome: true, whatsapp: true, phone: true } },
@@ -121,6 +123,7 @@ export class LogisticaService {
             id: true,
             qtdPrevista: true,
             qtdEntregue: true,
+            valorUnit: true,
             product: { select: { id: true, name: true, unidade: true } },
           },
         },
@@ -130,15 +133,38 @@ export class LogisticaService {
     // M4 — a regra dos chips depende do módulo financeiro do tenant (opt-in).
     // OFF → NENHUM chip de pagamento, nunca (só qtd + Entregue). Best-effort: se a
     // config não existir ainda, o default do schema (false) é o comportamento seguro.
+    // F1 — a MESMA leitura traz o Pix do tenant (chave/nome/cidade do BR Code).
     let moduloFinanceiroAtivo = false;
+    let pix: RotaPix | null = null;
     try {
       const cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
+        select: { moduloFinanceiroAtivo: true, pixChave: true, pixNome: true, pixCidade: true },
       });
       moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+      // O QR só existe com o módulo ON e a chave configurada (regra do M4 preservada:
+      // financeiro OFF = nenhum pagamento aparece na entrega, nunca).
+      if (moduloFinanceiroAtivo && cfg?.pixChave) {
+        pix = { chave: cfg.pixChave, nome: cfg.pixNome ?? null, cidade: cfg.pixCidade ?? null };
+      }
     } catch (e: any) {
       this.logger.warn(`[logistica] listRota loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+
+    // F1 — saldo em aberto POR CLIENTE ("quanto me deve"), fonte única
+    // (saldoAbertoPorClientes). SÓ com o módulo financeiro ON — OFF significa que
+    // dinheiro não aparece (nem roda) em lugar nenhum da entrega. Best-effort:
+    // falha aqui NUNCA derruba a rota — o app só fica sem o badge.
+    let saldoPorCliente = new Map<string, { pendente: number; aguardando: number }>();
+    if (moduloFinanceiroAtivo) {
+      try {
+        saldoPorCliente = await this.saldoAbertoPorClientes(
+          companyId,
+          Array.from(new Set(rows.map((r) => r.customerProfile.id))),
+        );
+      } catch (e: any) {
+        this.logger.warn(`[logistica] listRota saldoAberto company=${companyId} falhou: ${String(e?.message || e)}`);
+      }
     }
 
     return {
@@ -146,6 +172,7 @@ export class LogisticaService {
       total: rows.length,
       effectsEnabled: this.effectsEnabled,
       moduloFinanceiroAtivo,
+      pix,
       items: rows.map((r) => ({
         id: r.id,
         status: r.status,
@@ -169,6 +196,9 @@ export class LogisticaService {
           // M4 — a folha de chegada decide os chips por aqui (só 'aberto' mostra).
           formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
           metodoPadrao: r.customerProfile.metodoPadrao ?? null,
+          // F1 — "quanto me deve" + teto de fiado (o badge da folha de chegada).
+          saldoAberto: somaSaldo(saldoPorCliente.get(r.customerProfile.id)),
+          limiteFiado: r.customerProfile.limiteFiado ?? null,
         },
         contato: r.contato
           ? { id: r.contato.id, nome: r.contato.nome, whatsapp: r.contato.whatsapp ?? null, phone: r.contato.phone ?? null }
@@ -182,6 +212,7 @@ export class LogisticaService {
                 id: it.id,
                 qtdPrevista: it.qtdPrevista,
                 qtdEntregue: it.qtdEntregue ?? null,
+                valorUnit: it.valorUnit ?? 0,
                 produto: it.product
                   ? { id: it.product.id, nome: it.product.name, unidade: it.product.unidade ?? null }
                   : null,
@@ -192,6 +223,7 @@ export class LogisticaService {
                     id: r.id,
                     qtdPrevista: r.quantidade,
                     qtdEntregue: null,
+                    valorUnit: 0,
                     produto: { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null },
                   },
                 ]
@@ -333,6 +365,8 @@ export class LogisticaService {
     // unique (P2002 — outra reentrega da MESMA key ganhou a corrida), tratamos como
     // REPLAY: nada foi re-executado por nós, devolvemos o desfecho já gravado.
     const gravarKey = key && !entrega.idempotencyKey ? key : undefined;
+    // F1 — valor que a cobrança vai usar (recalculado na tx quando o stepper mudou).
+    let valorCobranca = entrega.valor;
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.entrega.update({
@@ -355,6 +389,29 @@ export class LogisticaService {
             where: { id: it.id, entregaId: entrega.id },
             data: { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) },
           });
+        }
+        // F1 — o stepper mudou a quantidade → o VALOR da entrega acompanha
+        // (Σ qtdEntregue×valorUnit). Sem isso a cobrança nasce do valor PREVISTO
+        // (entregou 3, cobrava 2). Só recalcula quando o payload TROUXE itens
+        // (stepper presente) e há item com preço; entrega legada (sem EntregaItem/
+        // sem valorUnit) mantém o valor escalar de sempre.
+        if (!jaEntregue && itensValidos.length > 0) {
+          const itensRows = await tx.entregaItem.findMany({
+            where: { entregaId: entrega.id },
+            select: { qtdPrevista: true, qtdEntregue: true, valorUnit: true },
+          });
+          if (itensRows.length > 0 && itensRows.some((it) => (Number(it.valorUnit) || 0) > 0)) {
+            const novo = round2(
+              itensRows.reduce(
+                (sum, it) => sum + Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0) * Math.max(0, Number(it.valorUnit) || 0),
+                0,
+              ),
+            );
+            if (novo !== entrega.valor) {
+              await tx.entrega.update({ where: { id: entrega.id }, data: { valor: novo } });
+              valorCobranca = novo;
+            }
+          }
         }
       });
     } catch (e: any) {
@@ -393,7 +450,7 @@ export class LogisticaService {
       });
       whatsappSent = wa.status === 'enviado';
 
-      const cob = await this.lancarCobranca(companyId, entrega, receiptMethod).catch((e) => {
+      const cob = await this.lancarCobranca(companyId, { ...entrega, valor: valorCobranca }, receiptMethod).catch((e) => {
         this.logger.warn(`[logistica] cobrança falhou entrega=${entrega.id}: ${String(e?.message || e)}`);
         return { lancada: false, outcome: 'falhou' as CobrancaOutcome };
       });
@@ -993,10 +1050,21 @@ export class LogisticaService {
       },
     });
 
+    // F1 — o "quanto me deve" da ficha, pela MESMA fonte única da rota
+    // (saldoAbertoPorClientes). Best-effort: falha não derruba o extrato.
+    let saldo: { pendente: number; aguardando: number } | undefined;
+    try {
+      saldo = (await this.saldoAbertoPorClientes(companyId, [cliente.id])).get(cliente.id);
+    } catch (e: any) {
+      this.logger.warn(`[logistica] extrato saldo cliente=${cliente.id} falhou: ${String(e?.message || e)}`);
+    }
+
     return {
       clienteId: cliente.id,
       nome: String(cliente.name || '').trim() || null,
       total: charges.length,
+      saldoAberto: somaSaldo(saldo),
+      aguardandoFechamento: round2(saldo?.aguardando ?? 0),
       charges: charges.map((c) => ({
         id: c.id,
         amount: c.amount,
@@ -1011,6 +1079,57 @@ export class LogisticaService {
         paidAt: c.paidAt ? c.paidAt.toISOString() : null,
       })),
     };
+  }
+
+  // ── F1 — fonte ÚNICA do "quanto me deve" ─────────────────────────────────────
+  /**
+   * Saldo em aberto por cliente: charges 'pending' da logística (entrega +
+   * fechamento) + entregas 'entregue' aguardando o fechamento mensal. Usada pela
+   * ROTA (badge da chegada) e pelo EXTRATO (ficha) — a regra vive SÓ aqui pra os
+   * dois nunca divergirem. Read-only, company-scoped.
+   */
+  private async saldoAbertoPorClientes(
+    companyId: number,
+    clienteIds: string[],
+  ): Promise<Map<string, { pendente: number; aguardando: number }>> {
+    const mapa = new Map<string, { pendente: number; aguardando: number }>();
+    const ids = Array.from(new Set(clienteIds.filter(Boolean)));
+    if (!companyId || ids.length === 0) return mapa;
+
+    const entry = (id: string) => {
+      let e = mapa.get(id);
+      if (!e) {
+        e = { pendente: 0, aguardando: 0 };
+        mapa.set(id, e);
+      }
+      return e;
+    };
+
+    const [pendentes, aguardando] = await Promise.all([
+      this.prisma.financeiroCharge.groupBy({
+        by: ['customerProfileId'],
+        where: {
+          companyId,
+          customerProfileId: { in: ids },
+          status: 'pending',
+          sourceModule: { in: ['logistica_entrega', 'logistica_fechamento'] },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.entrega.groupBy({
+        by: ['customerProfileId'],
+        where: { companyId, customerProfileId: { in: ids }, status: 'entregue', cobrancaStatus: 'aguardando_fechamento' },
+        _sum: { valor: true },
+      }),
+    ]);
+
+    for (const p of pendentes) {
+      if (p.customerProfileId) entry(p.customerProfileId).pendente = round2(Math.max(0, Number(p._sum.amount) || 0));
+    }
+    for (const a of aguardando) {
+      entry(a.customerProfileId).aguardando = round2(Math.max(0, Number(a._sum.valor) || 0));
+    }
+    return mapa;
   }
 
   // ── M6 — RESUMO DO DIA (read-only, company-scoped) ──────────────────────────
@@ -1118,6 +1237,17 @@ export class LogisticaService {
       data.diaFechamento = input.diaFechamento == null ? null : clampDiaFechamento(input.diaFechamento);
     }
 
+    // F1 — teto de fiado: null limpa (sem limite); número entra clampado ≥ 0.
+    if (input.limiteFiado !== undefined) {
+      if (input.limiteFiado == null) {
+        data.limiteFiado = null;
+      } else {
+        const teto = Number(input.limiteFiado);
+        if (!Number.isFinite(teto) || teto < 0) throw new BadRequestException('Limite de fiado inválido.');
+        data.limiteFiado = round2(Math.min(teto, 1_000_000));
+      }
+    }
+
     const updated = await this.prisma.customerProfile.update({
       where: { id: found.id },
       data,
@@ -1127,6 +1257,7 @@ export class LogisticaService {
         metodoPadrao: true,
         contabilizar: true,
         diaFechamento: true,
+        limiteFiado: true,
       },
     });
 
@@ -1136,6 +1267,7 @@ export class LogisticaService {
       metodoPadrao: updated.metodoPadrao ?? null,
       contabilizar: updated.contabilizar,
       diaFechamento: updated.diaFechamento ?? null,
+      limiteFiado: updated.limiteFiado ?? null,
     };
   }
 }
@@ -1192,6 +1324,11 @@ function clampDiaFechamento(v: number): number {
 // R2 — dinheiro é sempre 2 casas (evita 19.999999 virar cobrança).
 function round2(v: number): number {
   return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+// F1 — total do saldo em aberto (pendente + mensal a fechar), arredondado.
+function somaSaldo(s: { pendente: number; aguardando: number } | undefined): number {
+  return round2((s?.pendente ?? 0) + (s?.aguardando ?? 0));
 }
 
 // R3 — violação de unique (Prisma P2002 OU o code 23505 do Postgres cru). Usado pra
@@ -1289,6 +1426,10 @@ export interface RotaCliente {
   phone: string | null;
   formaPagamento: string;
   metodoPadrao: string | null;
+  // F1 — "quanto me deve" (charges pending da logística + mensal a fechar) e o
+  // teto de fiado do cliente (null = sem limite). Base do badge da chegada.
+  saldoAberto: number;
+  limiteFiado: number | null;
 }
 
 export interface RotaProduto {
@@ -1301,6 +1442,9 @@ export interface RotaEntregaItem {
   id: string;
   qtdPrevista: number;
   qtdEntregue: number | null;
+  // F1 — preço unitário do item (0 = sem preço): o QR Pix da chegada recalcula o
+  // valor ao vivo conforme o stepper (mesma conta do backend no confirmar).
+  valorUnit: number;
   produto: RotaProduto | null;
 }
 
@@ -1321,11 +1465,20 @@ export interface RotaItem {
   itens: RotaEntregaItem[];
 }
 
+// F1 — Pix DIRETO do tenant (BR Code gerado no app, taxa zero). Só vem quando o
+// módulo financeiro está ON e a chave foi configurada em Ajustes.
+export interface RotaPix {
+  chave: string;
+  nome: string | null;
+  cidade: string | null;
+}
+
 export interface RotaResult {
   date: string;
   total: number;
   effectsEnabled: boolean;
   moduloFinanceiroAtivo: boolean;
+  pix: RotaPix | null;
   items: RotaItem[];
 }
 
@@ -1418,6 +1571,10 @@ export interface ExtratoResult {
   clienteId: string;
   nome: string | null;
   total: number;
+  // F1 — o "quanto me deve" da ficha: pendências (charges 'pending' da logística)
+  // + mensal ainda não faturado. saldoAberto já é a SOMA dos dois.
+  saldoAberto: number;
+  aguardandoFechamento: number;
   charges: ExtratoCharge[];
 }
 
@@ -1435,6 +1592,8 @@ export interface UpdateFinanceiroClienteInput {
   metodoPadrao?: string | null;
   contabilizar?: boolean;
   diaFechamento?: number | null;
+  // F1 — teto de fiado (R$). null limpa (sem limite).
+  limiteFiado?: number | null;
 }
 
 export interface FinanceiroClienteDTO {
@@ -1443,4 +1602,5 @@ export interface FinanceiroClienteDTO {
   metodoPadrao: string | null;
   contabilizar: boolean;
   diaFechamento: number | null;
+  limiteFiado: number | null;
 }

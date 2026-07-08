@@ -69,6 +69,7 @@ export interface ClienteDetail {
   metodoPadrao: string | null;
   contabilizar: boolean;
   diaFechamento: number | null;
+  limiteFiado: number | null;
   contatoPrincipalId: string | null;
 }
 
@@ -134,6 +135,8 @@ export interface FinanceiroPayload {
   metodoPadrao?: MetodoPadrao | "";
   contabilizar?: boolean;
   diaFechamento?: number;
+  // F1 — teto de fiado (R$). null limpa (sem limite).
+  limiteFiado?: number | null;
 }
 export interface FinanceiroResult {
   id: string;
@@ -141,6 +144,7 @@ export interface FinanceiroResult {
   metodoPadrao: string | null;
   contabilizar: boolean;
   diaFechamento: number | null;
+  limiteFiado: number | null;
 }
 
 export function salvarFinanceiro(id: string, p: FinanceiroPayload): Promise<FinanceiroResult> {
@@ -148,6 +152,36 @@ export function salvarFinanceiro(id: string, p: FinanceiroPayload): Promise<Fina
     method: "PATCH",
     body: JSON.stringify(p),
   });
+}
+
+// ── F1 — Extrato do cliente (GET /logistica/clientes/:id/extrato) ────────────
+// Endpoint que JÁ existia (R2) e só era usado no ERP desktop — a ficha do app
+// passa a mostrar o "quanto me deve" + as cobranças.
+export interface ExtratoCharge {
+  id: string;
+  amount: number;
+  currency: string;
+  description: string;
+  status: string; // pending | approved | …
+  lifecycle: string; // in_progress | paid | …
+  dueDate: string | null;
+  sourceModule: string | null;
+  entregaId: string | null;
+  createdAt: string | null;
+  paidAt: string | null;
+}
+export interface ExtratoResult {
+  clienteId: string;
+  nome: string | null;
+  total: number;
+  // saldoAberto JÁ soma pendências + mensal a fechar (aguardandoFechamento).
+  saldoAberto: number;
+  aguardandoFechamento: number;
+  charges: ExtratoCharge[];
+}
+
+export function getExtrato(clienteId: string): Promise<ExtratoResult> {
+  return apiFetch<ExtratoResult>(`/logistica/clientes/${encodeURIComponent(clienteId)}/extrato`);
 }
 
 // ── Catálogo de produtos (GET /logistica/produtos) ───────────────────────────

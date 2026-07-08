@@ -308,6 +308,22 @@ export class UpdateLogisticaConfigDto {
   @IsOptional()
   @IsBoolean()
   gerarDiaAutomatico?: boolean;
+
+  // F1 — Pix direto do tenant (BR Code gerado no app, sem MP). Vazio limpa/desliga.
+  @IsOptional()
+  @IsString()
+  @MaxLength(77)
+  pixChave?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  pixNome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  pixCidade?: string;
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).
@@ -363,6 +379,14 @@ export class UpdateFinanceiroClienteDto {
   @Min(1)
   @Max(31)
   diaFechamento?: number;
+
+  // F1 — teto de fiado do cliente (R$). null limpa (sem limite). O app só AVISA
+  // o entregador quando o saldo em aberto estoura — nunca bloqueia a entrega.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  limiteFiado?: number | null;
 }
 
 // ── LOGÍSTICA-MOBILE M7 — recovery opt-in (varrer cobranças vencidas) ─────────

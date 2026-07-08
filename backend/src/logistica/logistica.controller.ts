@@ -194,6 +194,7 @@ export class LogisticaController {
       metodoPadrao: dto?.metodoPadrao,
       contabilizar: dto?.contabilizar,
       diaFechamento: dto?.diaFechamento,
+      limiteFiado: dto?.limiteFiado,
     });
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;

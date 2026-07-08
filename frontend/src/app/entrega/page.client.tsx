@@ -316,6 +316,7 @@ export function EntregaHome() {
         open={sheetAberta && !!paradaAtual}
         parada={paradaAtual}
         moduloFinanceiroAtivo={rota?.moduloFinanceiroAtivo ?? false}
+        pix={rota?.pix ?? null}
         onEntregue={onEntregue}
         onNaoEntregue={onNaoEntregue}
         onClose={() => setSheetAberta(false)}

@@ -933,6 +933,10 @@ model CustomerProfile {
   formaPagamento       String   @default("aberto") // aberto | mensal | na_hora | pendura
   metodoPadrao         String?  // pix | dinheiro (só para na_hora)
   contabilizar         Boolean  @default(true)
+  // LOGÍSTICA F1 (07/07) — teto de fiado POR CLIENTE (controle de risco). null =
+  // sem limite (comportamento atual). O app AVISA o entregador quando o saldo em
+  // aberto estoura o teto — nunca bloqueia a entrega.
+  limiteFiado          Float?
   // LOGÍSTICA-MOBILE M5 (05/07) — toggle POR CLIENTE do aviso "entregue" no zap.
   // Soma com o global (LogisticaConfig.avisoWhatsEnabled): o N6 só dispara quando
   // ambos true. Default true = mantém o comportamento atual (aditivo/seguro).
@@ -1114,6 +1118,12 @@ model LogisticaConfig {
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
   gerarDiaAutomatico    Boolean  @default(false)
+  // LOGÍSTICA F1 (07/07) — Pix DIRETO do tenant (BR Code EMV gerado no app, taxa
+  // ZERO, sem MP). pixNome/pixCidade são exigidos pelo payload EMV (recebedor).
+  // pixChave null = recurso desligado (nenhum QR aparece na entrega).
+  pixChave              String?
+  pixNome               String?
+  pixCidade             String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

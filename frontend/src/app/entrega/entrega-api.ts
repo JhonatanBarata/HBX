@@ -23,6 +23,9 @@ export interface RotaEntregaItem {
   id: string;
   qtdPrevista: number;
   qtdEntregue: number | null;
+  // F1 — preço unitário (0 = sem preço): o QR Pix da chegada recalcula o valor
+  // ao vivo conforme o stepper (mesma conta que o backend faz no confirmar).
+  valorUnit: number;
   produto: RotaProduto | null;
 }
 
@@ -37,6 +40,9 @@ export interface RotaCliente {
   phone: string | null;
   formaPagamento: FormaPagamento;
   metodoPadrao: string | null;
+  // F1 — "quanto me deve" + teto de fiado (badge da folha de chegada).
+  saldoAberto: number;
+  limiteFiado: number | null;
 }
 
 export interface RotaItem {
@@ -59,11 +65,20 @@ export interface RotaItem {
   etaAt?: string | null;
 }
 
+// F1 — Pix direto do tenant (BR Code no app). Só vem com módulo financeiro ON
+// e chave configurada em Ajustes; null = nenhum QR aparece na entrega.
+export interface RotaPix {
+  chave: string;
+  nome: string | null;
+  cidade: string | null;
+}
+
 export interface RotaResult {
   date: string;
   total: number;
   effectsEnabled: boolean;
   moduloFinanceiroAtivo: boolean;
+  pix: RotaPix | null;
   items: RotaItem[];
 }
 
