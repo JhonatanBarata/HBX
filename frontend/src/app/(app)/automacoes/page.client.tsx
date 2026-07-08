@@ -1,11 +1,13 @@
 "use client";
 
-// Tela AUTOMAÇÕES (WORM-13) — a EMBALAGEM: o cliente não monta fluxo, ESCOLHE uma
-// PERSONALIDADE de cadência (Conservador/Moderado/Agressivo). 3 abas:
+// Tela AUTOMAÇÕES (WORM-13, v2 07/07) — a EMBALAGEM: o cliente não monta fluxo,
+// ESCOLHE uma PERSONALIDADE de cadência (Conservador/Moderado/Agressivo). 3 abas:
 //   - Cadências: 3 cards de persona + aplicar a uma lista de leads / pesquisa salva.
 //   - Gatilhos (13b): "lead respondeu WhatsApp" → mover etapa / criar atividade / notificar.
 //   - Rotinas (13c): "toda segunda puxa N leads da pesquisa Y pro vendedor Z" (WORM-15).
-// Contratos reais (todos sob /cadencia, gate de módulo 'vendas'):
+// v2 (console): as 3 fontes carregam JUNTAS na raiz → hero com números reais +
+// chip do estado do motor; grades auto-fit preenchem a largura; estado vazio é
+// vitrine com CTA. Contratos reais (todos sob /cadencia, gate de módulo 'vendas'):
 //   GET/POST/PATCH/DELETE /cadencia            · POST /cadencia/:id/aplicar
 //   GET/POST/PATCH/DELETE /cadencia/gatilhos
 //   GET/POST/PATCH/DELETE /cadencia/rotinas
@@ -47,6 +49,7 @@ const CANAL_META: Record<string, { label: string; icon: keyof typeof ICONS }> = 
 const WEEKDAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const WEEKDAY_FULL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 const STATUS_OPTS = ["novo", "contato", "retorno", "qualificado", "encerrado"];
+const PERSONA_CLASSES = new Set(["conservador", "moderado", "agressivo"]);
 
 function canalLabel(canal: string) {
   return CANAL_META[canal]?.label || canal;
@@ -54,62 +57,152 @@ function canalLabel(canal: string) {
 function diaLabel(dia: number) {
   return dia === 0 ? "Dia 0" : `Dia ${dia}`;
 }
+function personaClass(persona: string) {
+  const key = String(persona || "").toLowerCase();
+  return "persona-card--" + (PERSONA_CLASSES.has(key) ? key : "custom");
+}
 
 type Tab = "cadencias" | "gatilhos" | "rotinas";
 
+// ================================================================
+// RAIZ — carrega as 3 fontes em paralelo (hero + contagem nas abas)
+// ================================================================
 export function AutomacoesClient() {
   useCurrentUser();
   const [tab, setTab] = useState<Tab>("cadencias");
   const tabPill = useGlassPill<HTMLButtonElement>(tab);
 
+  const [cad, setCad] = useState<CadenciaResponse>(null);
+  const [gat, setGat] = useState<GatilhoResponse>(null);
+  const [rot, setRot] = useState<RotinaResponse>(null);
+  const [loading, setLoading] = useState(true);
+  const [errCad, setErrCad] = useState<string | null>(null);
+  const [errGat, setErrGat] = useState<string | null>(null);
+  const [errRot, setErrRot] = useState<string | null>(null);
+
+  const loadCad = useCallback(async () => {
+    try { setCad(await apiFetch<CadenciaResponse>("/cadencia")); setErrCad(null); }
+    catch (err) { setErrCad(err instanceof Error ? err.message : "Não foi possível carregar."); }
+  }, []);
+  const loadGat = useCallback(async () => {
+    try { setGat(await apiFetch<GatilhoResponse>("/cadencia/gatilhos")); setErrGat(null); }
+    catch (err) { setErrGat(err instanceof Error ? err.message : "Não foi possível carregar."); }
+  }, []);
+  const loadRot = useCallback(async () => {
+    try { setRot(await apiFetch<RotinaResponse>("/cadencia/rotinas")); setErrRot(null); }
+    catch (err) { setErrRot(err instanceof Error ? err.message : "Não foi possível carregar."); }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.allSettled([loadCad(), loadGat(), loadRot()]).then(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [loadCad, loadGat, loadRot]);
+
+  const cadencias = cad?.cadencias ?? [];
+  const gatilhos = gat?.gatilhos ?? [];
+  const rotinas = rot?.rotinas ?? [];
+  const runnerEnabled = Boolean(cad?.runnerEnabled ?? rot?.runnerEnabled ?? false);
+
+  const stats = useMemo(() => ({
+    cadAtivas: cadencias.filter((c) => c.ativa).length,
+    inscritos: cadencias.reduce((s, c) => s + (c.inscritos ?? 0), 0),
+    gatAtivos: gatilhos.filter((g) => g.ativo).length,
+    rotAtivas: rotinas.filter((r) => r.ativa).length,
+  }), [cadencias, gatilhos, rotinas]);
+
   return (
     <div className="work" style={{ flex: 1 }}>
+      <header className="auto-hero">
+        <div className="auto-hero__id">
+          <span className="auto-hero__badge"><I d={ICONS.automacao} size={22} /></span>
+          <div style={{ minWidth: 0 }}>
+            <div className="auto-hero__title">Automações</div>
+            <div className="auto-hero__sub">Cadências, gatilhos e rotinas trabalhando o funil por você — no ritmo seguro do chip.</div>
+          </div>
+        </div>
+        <div className="auto-hero__stats">
+          <div className={"auto-stat" + (stats.cadAtivas ? " is-hot" : "")}>
+            <span className="auto-stat__n">{loading ? "—" : stats.cadAtivas}</span>
+            <span className="auto-stat__l">Cadências ativas</span>
+          </div>
+          <div className={"auto-stat" + (stats.inscritos ? " is-hot" : "")}>
+            <span className="auto-stat__n">{loading ? "—" : stats.inscritos}</span>
+            <span className="auto-stat__l">Leads em cadência</span>
+          </div>
+          <div className={"auto-stat" + (stats.gatAtivos ? " is-hot" : "")}>
+            <span className="auto-stat__n">{loading ? "—" : stats.gatAtivos}</span>
+            <span className="auto-stat__l">Gatilhos ativos</span>
+          </div>
+          <div className={"auto-stat" + (stats.rotAtivas ? " is-hot" : "")}>
+            <span className="auto-stat__n">{loading ? "—" : stats.rotAtivas}</span>
+            <span className="auto-stat__l">Rotinas ativas</span>
+          </div>
+        </div>
+        <div className="auto-engine">
+          <span className={"auto-engine__chip " + (runnerEnabled ? "is-on" : "is-off")}>
+            <span className="auto-engine__dot" />
+            {runnerEnabled ? "Disparo automático ATIVO" : "Disparo em espera"}
+          </span>
+          <span className="auto-engine__hint">
+            {runnerEnabled
+              ? "Passos devidos disparam sozinhos, com teto diário de WhatsApp por empresa."
+              : "Inscrever leads já funciona; os passos só disparam quando o suporte liga o motor."}
+          </span>
+        </div>
+      </header>
+
       <div className="auto-tabs glass-pill-track">
         <GlassPill {...tabPill} />
-        <button ref={tabPill.itemRef("cadencias")} className={"auto-tab" + (tab === "cadencias" ? " is-active" : "")} onClick={() => setTab("cadencias")}>Cadências</button>
-        <button ref={tabPill.itemRef("gatilhos")} className={"auto-tab" + (tab === "gatilhos" ? " is-active" : "")} onClick={() => setTab("gatilhos")}>Gatilhos</button>
-        <button ref={tabPill.itemRef("rotinas")} className={"auto-tab" + (tab === "rotinas" ? " is-active" : "")} onClick={() => setTab("rotinas")}>Rotinas</button>
+        <button ref={tabPill.itemRef("cadencias")} className={"auto-tab" + (tab === "cadencias" ? " is-active" : "")} onClick={() => setTab("cadencias")}>
+          <I d={ICONS.send} size={15} /> Cadências
+          <span className="auto-tab__n">{cadencias.length}</span>
+        </button>
+        <button ref={tabPill.itemRef("gatilhos")} className={"auto-tab" + (tab === "gatilhos" ? " is-active" : "")} onClick={() => setTab("gatilhos")}>
+          <I d={ICONS.bolt} size={15} /> Gatilhos
+          <span className="auto-tab__n">{gatilhos.length}</span>
+        </button>
+        <button ref={tabPill.itemRef("rotinas")} className={"auto-tab" + (tab === "rotinas" ? " is-active" : "")} onClick={() => setTab("rotinas")}>
+          <I d={ICONS.clock} size={15} /> Rotinas
+          <span className="auto-tab__n">{rotinas.length}</span>
+        </button>
       </div>
 
-      {tab === "cadencias" && <CadenciasTab />}
-      {tab === "gatilhos" && <GatilhosTab />}
-      {tab === "rotinas" && <RotinasTab />}
+      {tab === "cadencias" && <CadenciasTab data={cad} loading={loading} error={errCad} reload={loadCad} />}
+      {tab === "gatilhos" && <GatilhosTab data={gat} loading={loading} error={errGat} reload={loadGat} />}
+      {tab === "rotinas" && <RotinasTab data={rot} loading={loading} error={errRot} reload={loadRot} runnerEnabled={runnerEnabled} />}
     </div>
+  );
+}
+
+function LoadErrorPanel({ error, retry }: { error: string; retry: () => void }) {
+  return (
+    <section className="panel">
+      <div style={{ padding: 18, display: "grid", gap: 10, justifyItems: "start" }}>
+        <strong>Não carregou</strong>
+        <span className="hint">{error}</span>
+        <button className="btn-ghost" onClick={retry}>Tentar novamente</button>
+      </div>
+    </section>
   );
 }
 
 // ================================================================
 // 13a — CADÊNCIAS (personas)
 // ================================================================
-function CadenciasTab() {
-  const [data, setData] = useState<CadenciaResponse>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+function CadenciasTab({ data, loading, error, reload }: {
+  data: CadenciaResponse; loading: boolean; error: string | null; reload: () => Promise<void>;
+}) {
   const [msg, setMsg] = useState<string | null>(null);
   const [aplicando, setAplicando] = useState<Cadencia | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await apiFetch<CadenciaResponse>("/cadencia");
-      setData(res);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Não foi possível carregar.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
   const cadencias = data?.cadencias ?? [];
   const canManage = data?.canManage ?? false;
-  const runnerEnabled = data?.runnerEnabled ?? false;
 
   async function toggleAtiva(c: Cadencia) {
     try {
       await apiFetch(`/cadencia/${encodeURIComponent(c.id)}`, { method: "PATCH", body: JSON.stringify({ ativa: !c.ativa }) });
-      await load();
+      await reload();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Falhou.");
     }
@@ -117,35 +210,31 @@ function CadenciasTab() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span className="hint">Escolha uma personalidade de cadência e aplique a uma lista de leads.</span>
-        {msg && <span className="link" style={{ marginLeft: "auto" }}>{msg}</span>}
+      <div className="auto-bar">
+        <span className="hint">Escolha uma personalidade de cadência e aplique a uma lista de leads — o ritmo de toques segue sozinho.</span>
+        {msg && <span className="link">{msg}</span>}
       </div>
 
-      {!runnerEnabled && (
-        <div className="auto-flag-note">
-          <I d={ICONS.clock} size={15} />
-          O disparo automático está desligado. Os leads entram na cadência, mas nenhum passo dispara até o suporte ligar o motor.
+      {error && <LoadErrorPanel error={error} retry={() => void reload()} />}
+
+      {!error && loading && !data && (
+        <div className="persona-grid">
+          {[0, 1, 2].map((i) => <div key={i} className="auto-skel" />)}
         </div>
       )}
 
-      {loadError && (
-        <section className="panel">
-          <div style={{ padding: 18, display: "grid", gap: 10, justifyItems: "start" }}>
-            <strong>Não carregou</strong>
-            <span className="hint">{loadError}</span>
-            <button className="btn-ghost" onClick={() => void load()}>Tentar novamente</button>
-          </div>
-        </section>
-      )}
-
-      {!loadError && !loading && cadencias.length === 0 && (
-        <section className="panel"><div style={{ padding: 24 }}><span className="hint">Nenhuma cadência ainda.</span></div></section>
+      {!error && !loading && cadencias.length === 0 && (
+        <div className="auto-empty">
+          <span className="auto-empty__icon"><I d={ICONS.send} size={26} /></span>
+          <h4>Nenhuma cadência ainda</h4>
+          <p>As personalidades padrão são criadas automaticamente na primeira visita. Recarregue a tela — se não aparecerem, chame o suporte.</p>
+          <button className="btn-ghost" onClick={() => void reload()}>Recarregar</button>
+        </div>
       )}
 
       <div className="persona-grid">
         {cadencias.map((c) => (
-          <div key={c.id} className={"persona-card" + (c.ativa ? "" : " is-inactive")}>
+          <div key={c.id} className={"persona-card " + personaClass(c.persona) + (c.ativa ? "" : " is-inactive")}>
             <div className="persona-card__head">
               <span className="persona-card__badge"><I d={ICONS.automacao} size={18} /></span>
               <div style={{ minWidth: 0 }}>
@@ -167,11 +256,11 @@ function CadenciasTab() {
               })}
             </div>
 
-            <div className="step-list">
+            <div className="step-flow">
               {c.passos.map((p, idx) => (
                 <div key={idx} className="step-row">
                   <span className="step-row__day">{diaLabel(p.dia)}</span>
-                  <span className="step-row__icon"><I d={ICONS[CANAL_META[p.canal]?.icon || "check"]} size={15} /></span>
+                  <span className="step-row__node"><I d={ICONS[CANAL_META[p.canal]?.icon || "check"]} size={15} /></span>
                   <span className="step-row__body">
                     <span className="step-row__label">{p.titulo || canalLabel(p.canal)}</span>
                     {p.corpo && <span className="step-row__text">{p.corpo}</span>}
@@ -181,7 +270,7 @@ function CadenciasTab() {
             </div>
 
             <div className="persona-card__foot">
-              <span className="persona-card__count">{c.inscritos ?? 0} inscrito{(c.inscritos ?? 0) === 1 ? "" : "s"}</span>
+              <span className="persona-card__count"><b>{c.inscritos ?? 0}</b><span>lead{(c.inscritos ?? 0) === 1 ? "" : "s"} dentro</span></span>
               {canManage && (
                 <>
                   <button className="btn-ghost btn-xs" onClick={() => toggleAtiva(c)}>{c.ativa ? "Desativar" : "Ativar"}</button>
@@ -199,7 +288,7 @@ function CadenciasTab() {
         <AplicarModal
           cadencia={aplicando}
           onClose={() => setAplicando(null)}
-          onDone={(txt) => { setAplicando(null); setMsg(txt); void load(); }}
+          onDone={(txt) => { setAplicando(null); setMsg(txt); void reload(); }}
         />
       )}
     </>
@@ -288,84 +377,128 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
 }
 
 // ================================================================
-// 13b — GATILHOS
+// 13b — GATILHOS (QUANDO → ENTÃO)
 // ================================================================
-function GatilhosTab() {
-  const [data, setData] = useState<GatilhoResponse>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [novo, setNovo] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<GatilhoResponse>("/cadencia/gatilhos");
-      setData(res);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não carregou.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const gatilhos = data?.gatilhos ?? [];
-  const canManage = data?.canManage ?? false;
-
-  async function toggle(g: Gatilho) {
-    await apiFetch(`/cadencia/gatilhos/${encodeURIComponent(g.id)}`, { method: "PATCH", body: JSON.stringify({ ativo: !g.ativo }) }).catch(() => null);
-    await load();
-  }
-  async function remover(g: Gatilho) {
-    await apiFetch(`/cadencia/gatilhos/${encodeURIComponent(g.id)}`, { method: "DELETE" }).catch(() => null);
-    await load();
-  }
-
-  return (
-    <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span className="hint">Quando o lead responde no WhatsApp, dispara ações no funil — sem enviar mensagem automática.</span>
-        {canManage && <button className="btn-teal" style={{ marginLeft: "auto" }} onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Novo gatilho</button>}
-      </div>
-
-      {error && <section className="panel"><div style={{ padding: 18 }}><span className="hint">{error}</span></div></section>}
-      {!error && !loading && gatilhos.length === 0 && (
-        <section className="panel"><div style={{ padding: 24 }}><span className="hint">Nenhum gatilho ainda.</span></div></section>
-      )}
-
-      <div style={{ display: "grid", gap: 10 }}>
-        {gatilhos.map((g) => (
-          <div key={g.id} className={"auto-item" + (g.ativo ? "" : " is-inactive")}>
-            <span className="persona-card__badge"><I d={ICONS.msg} size={16} /></span>
-            <div className="auto-item__main">
-              <span className="auto-item__title">{g.nome}</span>
-              <span className="auto-item__sub">
-                {g.evento === "lead_respondeu_whatsapp" ? "Quando: lead respondeu WhatsApp" : "Quando: e-mail lido"}
-                {" · "}{g.acoes.map((a) => acaoLabel(a)).join(" + ") || "sem ações"}
-                {g.fireCount > 0 && ` · disparou ${g.fireCount}×`}
-              </span>
-            </div>
-            {canManage && (
-              <div className="auto-item__actions">
-                <button className="btn-ghost btn-xs" onClick={() => toggle(g)}>{g.ativo ? "Desativar" : "Ativar"}</button>
-                <button className="btn-ghost btn-xs danger" onClick={() => remover(g)}>Remover</button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {novo && <NovoGatilhoModal onClose={() => setNovo(false)} onDone={() => { setNovo(false); void load(); }} />}
-    </>
-  );
-}
+const ACAO_META: Record<string, { icon: keyof typeof ICONS }> = {
+  mover_status: { icon: "arrow" },
+  criar_atividade: { icon: "agenda" },
+  notificar_vendedor: { icon: "bell" },
+};
 
 function acaoLabel(a: AcaoGatilho): string {
   if (a.tipo === "mover_status") return `mover p/ ${a.status}`;
   if (a.tipo === "criar_atividade") return `criar atividade (${a.atividadeTipo || "ligacao"})`;
   if (a.tipo === "notificar_vendedor") return "notificar vendedor";
   return a.tipo;
+}
+
+function GatilhosTab({ data, loading, error, reload }: {
+  data: GatilhoResponse; loading: boolean; error: string | null; reload: () => Promise<void>;
+}) {
+  const [novo, setNovo] = useState(false);
+
+  const gatilhos = data?.gatilhos ?? [];
+  const canManage = data?.canManage ?? false;
+
+  async function toggle(g: Gatilho) {
+    await apiFetch(`/cadencia/gatilhos/${encodeURIComponent(g.id)}`, { method: "PATCH", body: JSON.stringify({ ativo: !g.ativo }) }).catch(() => null);
+    await reload();
+  }
+  async function remover(g: Gatilho) {
+    await apiFetch(`/cadencia/gatilhos/${encodeURIComponent(g.id)}`, { method: "DELETE" }).catch(() => null);
+    await reload();
+  }
+
+  return (
+    <>
+      <div className="auto-bar">
+        <span className="hint">Quando o lead responde no WhatsApp, dispara ações no funil — sem enviar mensagem automática.</span>
+        {canManage && gatilhos.length > 0 && (
+          <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Novo gatilho</button>
+        )}
+      </div>
+
+      {error && <LoadErrorPanel error={error} retry={() => void reload()} />}
+
+      {!error && loading && !data && (
+        <div className="auto-grid">
+          {[0, 1].map((i) => <div key={i} className="auto-skel" />)}
+        </div>
+      )}
+
+      {!error && !loading && gatilhos.length === 0 && (
+        <div className="auto-empty">
+          <span className="auto-empty__icon"><I d={ICONS.bolt} size={26} /></span>
+          <h4>Nenhum gatilho ainda</h4>
+          <p>Gatilho é o reflexo do funil: o lead respondeu no WhatsApp e o sistema reage na hora — move a etapa, cria a atividade de retorno e avisa o vendedor. Nada de lead respondido ficar esquecido.</p>
+          <div className="auto-empty__demo">
+            <span className="auto-chip"><I d={ICONS.msg} size={12} /> Lead responde</span>
+            <I d={ICONS.arrow} size={13} />
+            <span className="auto-chip"><I d={ICONS.arrow} size={12} /> mover p/ retorno</span>
+            <span className="auto-chip"><I d={ICONS.bell} size={12} /> notificar vendedor</span>
+          </div>
+          {canManage && (
+            <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Criar meu primeiro gatilho</button>
+          )}
+        </div>
+      )}
+
+      {gatilhos.length > 0 && (
+        <div className="auto-grid">
+          {gatilhos.map((g) => (
+            <div key={g.id} className={"auto-card" + (g.ativo ? "" : " is-inactive")}>
+              <div className="auto-card__head">
+                <span className="auto-card__ico"><I d={ICONS.bolt} size={16} /></span>
+                <span className="auto-card__title">{g.nome}</span>
+                <span className={"auto-state" + (g.ativo ? " is-on" : "")}>{g.ativo ? "Ativo" : "Pausado"}</span>
+              </div>
+
+              <div className="auto-rule">
+                <span className="auto-rule__k">Quando</span>
+                <span className="auto-rule__v">
+                  <I d={ICONS.msg} size={14} />
+                  {g.evento === "lead_respondeu_whatsapp" ? "Lead responde no WhatsApp" : "E-mail é lido"}
+                </span>
+              </div>
+              <span className="auto-connector"><I d={ICONS.chevronDown} size={14} /></span>
+              <div className="auto-rule is-then">
+                <span className="auto-rule__k">Então</span>
+                <div className="auto-rule__chips">
+                  {g.acoes.length === 0 && <span className="auto-chip">sem ações</span>}
+                  {g.acoes.map((a, i) => (
+                    <span key={i} className="auto-chip">
+                      <I d={ICONS[ACAO_META[a.tipo]?.icon || "check"]} size={12} /> {acaoLabel(a)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="auto-card__meta">
+                <span>Disparos <b>{g.fireCount}</b></span>
+                {g.lastFiredAt && <span>Último <b>{new Date(g.lastFiredAt).toLocaleDateString("pt-BR")}</b></span>}
+              </div>
+
+              {canManage && (
+                <div className="auto-card__foot">
+                  <button className="btn-ghost btn-xs" onClick={() => toggle(g)}>{g.ativo ? "Desativar" : "Ativar"}</button>
+                  <button className="btn-ghost btn-xs danger" onClick={() => remover(g)}>Remover</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {canManage && (
+            <button type="button" className="auto-add-card" onClick={() => setNovo(true)}>
+              <I d={ICONS.plus} size={22} />
+              <b>Novo gatilho</b>
+              <span>Reaja na hora quando um lead responder no WhatsApp.</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {novo && <NovoGatilhoModal onClose={() => setNovo(false)} onDone={() => { setNovo(false); void reload(); }} />}
+    </>
+  );
 }
 
 function NovoGatilhoModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -436,81 +569,113 @@ function NovoGatilhoModal({ onClose, onDone }: { onClose: () => void; onDone: ()
 }
 
 // ================================================================
-// 13c — ROTINAS
+// 13c — ROTINAS (agenda semanal visual)
 // ================================================================
-function RotinasTab() {
-  const [data, setData] = useState<RotinaResponse>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
+  data: RotinaResponse; loading: boolean; error: string | null; reload: () => Promise<void>; runnerEnabled: boolean;
+}) {
   const [novo, setNovo] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<RotinaResponse>("/cadencia/rotinas");
-      setData(res);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não carregou.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
 
   const rotinas = data?.rotinas ?? [];
   const canManage = data?.canManage ?? false;
-  const runnerEnabled = data?.runnerEnabled ?? false;
 
   async function toggle(r: Rotina) {
     await apiFetch(`/cadencia/rotinas/${encodeURIComponent(r.id)}`, { method: "PATCH", body: JSON.stringify({ ativa: !r.ativa }) }).catch(() => null);
-    await load();
+    await reload();
   }
   async function remover(r: Rotina) {
     await apiFetch(`/cadencia/rotinas/${encodeURIComponent(r.id)}`, { method: "DELETE" }).catch(() => null);
-    await load();
+    await reload();
   }
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div className="auto-bar">
         <span className="hint">Recorrência sobre uma pesquisa salva: puxa leads pro funil nos dias escolhidos.</span>
-        {canManage && <button className="btn-teal" style={{ marginLeft: "auto" }} onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Nova rotina</button>}
+        {canManage && rotinas.length > 0 && (
+          <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Nova rotina</button>
+        )}
       </div>
 
-      {!runnerEnabled && (
+      {!runnerEnabled && rotinas.length > 0 && (
         <div className="auto-flag-note"><I d={ICONS.clock} size={15} /> Rotinas só rodam quando o motor está ligado pelo suporte.</div>
       )}
 
-      {error && <section className="panel"><div style={{ padding: 18 }}><span className="hint">{error}</span></div></section>}
-      {!error && !loading && rotinas.length === 0 && (
-        <section className="panel"><div style={{ padding: 24 }}><span className="hint">Nenhuma rotina ainda.</span></div></section>
+      {error && <LoadErrorPanel error={error} retry={() => void reload()} />}
+
+      {!error && loading && !data && (
+        <div className="auto-grid">
+          {[0, 1].map((i) => <div key={i} className="auto-skel" />)}
+        </div>
       )}
 
-      <div style={{ display: "grid", gap: 10 }}>
-        {rotinas.map((r) => (
-          <div key={r.id} className={"auto-item" + (r.ativa ? "" : " is-inactive")}>
-            <span className="persona-card__badge"><I d={ICONS.clock} size={16} /></span>
-            <div className="auto-item__main">
-              <span className="auto-item__title">{r.nome}</span>
-              <span className="auto-item__sub">
-                {r.weekdays.map((d) => WEEKDAY_FULL[d]).join(", ") || "—"}
-                {r.everyWeeks > 1 ? ` · a cada ${r.everyWeeks} semanas` : ""}
-                {" · até "}{r.maxLeads} leads
-                {r.lastRunAt ? ` · última: ${new Date(r.lastRunAt).toLocaleDateString("pt-BR")} (${r.lastRunCount ?? 0})` : " · nunca rodou"}
-              </span>
-            </div>
-            {canManage && (
-              <div className="auto-item__actions">
-                <button className="btn-ghost btn-xs" onClick={() => toggle(r)}>{r.ativa ? "Desativar" : "Ativar"}</button>
-                <button className="btn-ghost btn-xs danger" onClick={() => remover(r)}>Remover</button>
-              </div>
-            )}
+      {!error && !loading && rotinas.length === 0 && (
+        <div className="auto-empty">
+          <span className="auto-empty__icon"><I d={ICONS.clock} size={26} /></span>
+          <h4>Nenhuma rotina ainda</h4>
+          <p>Rotina é o abastecimento automático do funil: toda segunda (ou nos dias que você marcar) ela puxa até N leads de uma pesquisa salva e entrega pro vendedor — sem ninguém precisar lembrar.</p>
+          <div className="auto-empty__demo">
+            <span className="auto-chip"><I d={ICONS.clock} size={12} /> Toda segunda</span>
+            <I d={ICONS.arrow} size={13} />
+            <span className="auto-chip"><I d={ICONS.search} size={12} /> Pesquisa salva</span>
+            <I d={ICONS.arrow} size={13} />
+            <span className="auto-chip"><I d={ICONS.vendas} size={12} /> 50 leads no funil</span>
           </div>
-        ))}
-      </div>
+          {canManage && (
+            <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Criar minha primeira rotina</button>
+          )}
+        </div>
+      )}
 
-      {novo && <NovaRotinaModal onClose={() => setNovo(false)} onDone={() => { setNovo(false); void load(); }} />}
+      {rotinas.length > 0 && (
+        <div className="auto-grid">
+          {rotinas.map((r) => (
+            <div key={r.id} className={"auto-card" + (r.ativa ? "" : " is-inactive")}>
+              <div className="auto-card__head">
+                <span className="auto-card__ico"><I d={ICONS.clock} size={16} /></span>
+                <span className="auto-card__title">{r.nome}</span>
+                <span className={"auto-state" + (r.ativa ? " is-on" : "")}>{r.ativa ? "Ativa" : "Pausada"}</span>
+              </div>
+
+              <div className="rot-week" title={r.weekdays.map((d) => WEEKDAY_FULL[d]).join(", ") || "Sem dias"}>
+                {WEEKDAY_LABELS.map((lbl, d) => (
+                  <span key={d} className={"rot-day" + (r.weekdays.includes(d) ? " is-on" : "")}>{lbl}</span>
+                ))}
+              </div>
+
+              <div className="auto-card__meta">
+                <span>Até <b>{r.maxLeads}</b> leads por execução</span>
+                {r.everyWeeks > 1 && <span>a cada <b>{r.everyWeeks}</b> semanas</span>}
+              </div>
+              <div className="auto-card__meta">
+                {r.lastRunAt ? (
+                  <span className={"rot-status " + (r.lastRunStatus === "erro" ? "is-err" : "is-ok")}>
+                    Última execução <b>{new Date(r.lastRunAt).toLocaleDateString("pt-BR")}</b> ({r.lastRunCount ?? 0} leads)
+                  </span>
+                ) : (
+                  <span className="rot-status">Nunca rodou</span>
+                )}
+              </div>
+
+              {canManage && (
+                <div className="auto-card__foot">
+                  <button className="btn-ghost btn-xs" onClick={() => toggle(r)}>{r.ativa ? "Desativar" : "Ativar"}</button>
+                  <button className="btn-ghost btn-xs danger" onClick={() => remover(r)}>Remover</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {canManage && (
+            <button type="button" className="auto-add-card" onClick={() => setNovo(true)}>
+              <I d={ICONS.plus} size={22} />
+              <b>Nova rotina</b>
+              <span>Abasteça o funil sozinho nos dias que você escolher.</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {novo && <NovaRotinaModal onClose={() => setNovo(false)} onDone={() => { setNovo(false); void reload(); }} />}
     </>
   );
 }
