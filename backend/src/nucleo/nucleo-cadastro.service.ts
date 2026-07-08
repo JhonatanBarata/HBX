@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
 
 /**
  * NÚCLEO-CRM N1 (04/07) — serviço INERTE da espinha de cadastro.
@@ -740,28 +741,35 @@ export class NucleoCadastroService {
     const isFornecedor = input.isFornecedor ?? false;
 
     // ── Resolve idempotência: acha uma conta existente por (cnpj/document/phone) ──
-    let existing: { id: string } | null = null;
+    // Select traz também os campos de geo (B-backend 08/07): precisamos saber se o
+    // registro JÁ tem pino (e de que fonte) antes de decidir se vale resolver no servidor.
+    let existing: GeoRecord | null = null;
     if (cnpj) {
       existing = await this.prisma.customerProfile.findFirst({
         where: { companyId, cnpj },
-        select: { id: true },
+        select: GEO_RECORD_SELECT,
       });
     }
     if (!existing && document) {
       existing = await this.prisma.customerProfile.findFirst({
         where: { companyId, document },
-        select: { id: true },
+        select: GEO_RECORD_SELECT,
       });
     }
     if (!existing && phoneNormalized) {
       existing = await this.prisma.customerProfile.findFirst({
         where: { companyId, phoneNormalized },
-        select: { id: true },
+        select: GEO_RECORD_SELECT,
       });
     }
 
     let contaId: string;
     if (existing) {
+      // Navegador conseguiu → respeita sempre. Senão, tenta resolver no servidor
+      // (Nominatim → cidade) SÓ se a conta ainda não tem nenhuma coordenada e não é
+      // pino humano protegido (maybeResolveServerGeo cobre as duas checagens).
+      const clientCoord = hasNumericCoord(input.lat, input.lng);
+      const resolvedGeo = clientCoord ? null : await this.maybeResolveServerGeo(input, existing);
       const updated = await this.prisma.customerProfile.update({
         where: { id: existing.id },
         data: {
@@ -777,9 +785,13 @@ export class NucleoCadastroService {
           ...(input.cidade !== undefined ? { cidade: input.cidade || null } : {}),
           ...(input.uf !== undefined ? { uf: (input.uf || '').toUpperCase() || null } : {}),
           ...(input.cep !== undefined ? { cep: input.cep || null } : {}),
-          ...(input.lat !== undefined ? { lat: input.lat } : {}),
-          ...(input.lng !== undefined ? { lng: input.lng } : {}),
-          ...(input.geoFonte !== undefined ? { geoFonte: normalizeGeoFonteInput(input.geoFonte) } : {}),
+          ...(resolvedGeo
+            ? { lat: resolvedGeo.lat, lng: resolvedGeo.lng, geoFonte: resolvedGeo.geoFonte }
+            : {
+                ...(input.lat !== undefined ? { lat: input.lat } : {}),
+                ...(input.lng !== undefined ? { lng: input.lng } : {}),
+                ...(input.geoFonte !== undefined ? { geoFonte: normalizeGeoFonteInput(input.geoFonte) } : {}),
+              }),
           // papéis acumulativos: só LIGAM (nunca desligam um papel já marcado)
           ...(isCliente ? { isCliente: true } : {}),
           ...(isLead ? { isLead: true } : {}),
@@ -789,6 +801,8 @@ export class NucleoCadastroService {
       });
       contaId = updated.id;
     } else {
+      const clientCoord = hasNumericCoord(input.lat, input.lng);
+      const resolvedGeo = clientCoord ? null : await this.maybeResolveServerGeo(input, null);
       const created = await this.prisma.customerProfile.create({
         data: {
           companyId,
@@ -805,9 +819,9 @@ export class NucleoCadastroService {
           cidade: input.cidade || null,
           uf: (input.uf || '').toUpperCase() || null,
           cep: input.cep || null,
-          lat: input.lat ?? null,
-          lng: input.lng ?? null,
-          geoFonte: normalizeGeoFonteInput(input.geoFonte),
+          lat: resolvedGeo ? resolvedGeo.lat : input.lat ?? null,
+          lng: resolvedGeo ? resolvedGeo.lng : input.lng ?? null,
+          geoFonte: resolvedGeo ? resolvedGeo.geoFonte : normalizeGeoFonteInput(input.geoFonte),
           isCliente,
           isLead,
           isFornecedor,
@@ -896,9 +910,11 @@ export class NucleoCadastroService {
   /** Edita uma CONTA (papéis/endereço/dados). Company-scoped (isolamento duro). */
   async updateConta(companyId: number, id: string, input: UpdateContaInput): Promise<{ id: string } | null> {
     if (!companyId || !id) return null;
+    // Select traz os campos de geo (B-backend 08/07) — precisamos saber se a conta JÁ
+    // tem pino (e de que fonte) antes de decidir se vale tentar resolver no servidor.
     const found = await this.prisma.customerProfile.findFirst({
       where: { id, companyId },
-      select: { id: true },
+      select: GEO_RECORD_SELECT,
     });
     if (!found) return null;
 
@@ -916,9 +932,26 @@ export class NucleoCadastroService {
     if (input.cidade !== undefined) data.cidade = input.cidade || null;
     if (input.uf !== undefined) data.uf = (input.uf || '').toUpperCase() || null;
     if (input.cep !== undefined) data.cep = input.cep || null;
-    if (input.lat !== undefined) data.lat = input.lat;
-    if (input.lng !== undefined) data.lng = input.lng;
-    if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+
+    // Coordenada (B-backend 08/07): o navegador mandou lat/lng explícito → respeita
+    // sempre (inclusive troca o pino humano se for uma edição explícita — é o próprio
+    // vendedor mexendo). Quando NÃO mandou NENHUM dos dois, tenta resolver no servidor
+    // (Nominatim → cidade) SÓ se a conta ainda não tem coordenada nenhuma — e
+    // `maybeResolveServerGeo` blinda o pino humano ('gps_cadastro'): nunca sobrescreve.
+    if (input.lat !== undefined || input.lng !== undefined) {
+      if (input.lat !== undefined) data.lat = input.lat;
+      if (input.lng !== undefined) data.lng = input.lng;
+      if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+    } else {
+      if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+      const resolvedGeo = await this.maybeResolveServerGeo(input, found);
+      if (resolvedGeo) {
+        data.lat = resolvedGeo.lat;
+        data.lng = resolvedGeo.lng;
+        data.geoFonte = resolvedGeo.geoFonte;
+      }
+    }
+
     // Papéis no PATCH: aqui podem LIGAR e DESLIGAR (é edição explícita da conta).
     if (input.isCliente !== undefined) data.isCliente = Boolean(input.isCliente);
     if (input.isLead !== undefined) data.isLead = Boolean(input.isLead);
@@ -930,6 +963,39 @@ export class NucleoCadastroService {
       select: { id: true },
     });
     return { id: updated.id };
+  }
+
+  /**
+   * B-backend (08/07) — decide SE vale resolver coordenada no servidor pra um
+   * create/update, e resolve. Gatilho: o registro (se já existir) ainda não tem
+   * NENHUMA coordenada válida E não é pino humano protegido (`geoFonte='gps_cadastro'`
+   * — decisão do "Usar este local" no cadastro, intocável). Usa o endereço do `input`
+   * quando presente, senão cai pro do registro já salvo (edição parcial que não tocou
+   * no endereço, mas a conta nunca teve pino). Best-effort: NUNCA lança (o util já
+   * degrada tudo pra null internamente).
+   */
+  private async maybeResolveServerGeo(
+    input: {
+      endereco?: string | null;
+      numero?: string | null;
+      bairro?: string | null;
+      cidade?: string | null;
+      uf?: string | null;
+      cep?: string | null;
+    },
+    existing: GeoRecord | null,
+  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' | 'cidade' } | null> {
+    if (existing && (hasNumericCoord(existing.lat, existing.lng) || existing.geoFonte === 'gps_cadastro')) {
+      return null; // já tem pino (qualquer fonte) OU é pino humano protegido — nunca mexe
+    }
+    return resolveServerGeo({
+      endereco: input.endereco ?? existing?.endereco,
+      numero: input.numero ?? existing?.numero,
+      bairro: input.bairro ?? existing?.bairro,
+      cidade: input.cidade ?? existing?.cidade,
+      uf: input.uf ?? existing?.uf,
+      cep: input.cep ?? existing?.cep,
+    });
   }
 
   /**
@@ -1246,12 +1312,43 @@ function normalizeDigits(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D+/g, '');
 }
 
-// LOGÍSTICA-MOBILE B1 (07/07) — só 'geocode' | 'gps_cadastro' passam pelo cadastro
-// (o front nunca manda outra coisa; o DTO também trava, isto é defesa em profundidade).
-// 'gps_entrega' é gravado SOMENTE pelo confirmarEntrega (LogisticaService) — nunca aqui.
-function normalizeGeoFonteInput(v: string | null | undefined): 'geocode' | 'gps_cadastro' | null {
-  return v === 'geocode' || v === 'gps_cadastro' ? v : null;
+// LOGÍSTICA-MOBILE B1 (07/07) — 'geocode' | 'gps_cadastro' passam pelo cadastro vindos
+// do CLIENTE (o front nunca manda outra coisa; o DTO também trava, isto é defesa em
+// profundidade). 'cidade' (08/07, LOGÍSTICA-MOBILE B-backend) é gravado SÓ pelo próprio
+// serviço (fallback aproximado do `resolveServerGeo`, nunca vem do body) — some da
+// lista dos DTOs de propósito, mas passa por aqui quando o serviço escreve. 'gps_entrega'
+// é gravado SOMENTE pelo confirmarEntrega (LogisticaService) — nunca aqui.
+function normalizeGeoFonteInput(v: string | null | undefined): 'geocode' | 'gps_cadastro' | 'cidade' | null {
+  return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' ? v : null;
 }
+
+// B-backend (08/07) — recorte do CustomerProfile que `maybeResolveServerGeo` precisa pra
+// decidir se vale (e com que endereço) resolver coordenada no servidor.
+type GeoRecord = {
+  id: string;
+  lat: number | null;
+  lng: number | null;
+  geoFonte: string | null;
+  endereco: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+};
+
+const GEO_RECORD_SELECT = {
+  id: true,
+  lat: true,
+  lng: true,
+  geoFonte: true,
+  endereco: true,
+  numero: true,
+  bairro: true,
+  cidade: true,
+  uf: true,
+  cep: true,
+} as const;
 
 // Casa contato↔conversa pelo MESMO número, tolerando país (55) e o "9" de celular.
 // Devolve as chaves LOCAIS comparáveis (DDD+número): p.ex. "85999990000" e a

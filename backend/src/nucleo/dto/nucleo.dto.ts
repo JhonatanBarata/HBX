@@ -101,6 +101,10 @@ export class CreateContaDto {
   // LOGÍSTICA-MOBILE B1 (07/07) — origem da coordenada acima (só o front decide;
   // 'gps_entrega' é EXCLUSIVO do confirmar, nunca aceito aqui — o serviço ignora
   // qualquer outro valor). 'geocode' (CEP) | 'gps_cadastro' ("Usar este local").
+  // B-backend (08/07): 'cidade' (fallback aproximado do geocode server-side) NUNCA
+  // vem do body — o serviço escreve direto quando resolve a coordenada sozinho
+  // (nucleo-geo.util.ts). De propósito fora deste enum: o cliente não pode alegar
+  // 'cidade' por conta própria.
   @IsOptional()
   @IsString()
   @IsIn(['geocode', 'gps_cadastro'])

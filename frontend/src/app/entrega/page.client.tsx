@@ -26,7 +26,7 @@ import {
   type RotaResult,
 } from "./entrega-api";
 import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock, type PosicaoAoVivo } from "./entrega-hooks";
-import { getConfig } from "./gestao-api";
+import { fmtMoney, getConfig, getResumoDia, type ResumoDia } from "./gestao-api";
 
 // B2 — MapLibre só entra no bundle da rota /entrega (client-only: WebGL/
 // `navigator` não existem no server). Zero peso extra pro dashboard/demais rotas.
@@ -52,6 +52,30 @@ function formatarDataHoje(): string {
 }
 const RAIO_CHEGADA_FALLBACK_M = 60; // default do LogisticaConfig (schema); só usado se GET /logistica/config falhar.
 const SWIPE_THRESHOLD_PX = 60;
+const SUCESSO_DURACAO_MS = 1600; // D1 — flash "aprovado" some sozinho (1,4–1,8s pedido).
+
+// D1 — dado do flash otimista ao confirmar (nome + itens + valor JÁ na tela;
+// nunca "avisado" — a fila é assíncrona, sem sinal síncrono de envio real).
+interface SucessoEntrega {
+  nome: string;
+  itens: string;
+  valor: number | null;
+}
+
+// D1 — valor REALMENTE confirmado: mesma conta do stepper na folha de chegada
+// (ArrivalSheet.valorAtual), mas a partir do payload final (qtdEntregue), não
+// da quantidade prevista — honesto com o que o entregador de fato marcou.
+function valorConfirmado(parada: RotaItem, payload: { itens: Array<{ id: string; qtdEntregue: number }> }): number {
+  const temPreco = parada.itens.some((it) => it.valorUnit > 0);
+  if (!temPreco) return Math.max(0, parada.valor ?? 0);
+  const somaItens = payload.itens.reduce((s, p) => {
+    const it = parada.itens.find((i) => i.id === p.id);
+    return s + (it ? p.qtdEntregue * it.valorUnit : 0);
+  }, 0);
+  const itensReaisExistiam = parada.itens.length > 0;
+  const base = itensReaisExistiam ? 0 : Math.max(0, parada.valor ?? 0);
+  return Math.round((base + somaItens) * 100) / 100;
+}
 
 export function EntregaHome() {
   const router = useRouter();
@@ -73,6 +97,15 @@ export function EntregaHome() {
   const [indice, setIndice] = useState(0); // parada atual no carrossel
   const [sheetAberta, setSheetAberta] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // D1 — flash "aprovado" ao confirmar (nível de page, não da folha: precisa
+  // sobreviver ao fechamento da ArrivalSheet e ao avanço do carrossel).
+  const [sucesso, setSucesso] = useState<SucessoEntrega | null>(null);
+  const sucessoTimeoutRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (sucessoTimeoutRef.current != null) window.clearTimeout(sucessoTimeoutRef.current);
+    };
+  }, []);
   // M9 — onboarding do 1º acesso (3 telas visuais). Lazy init no cliente evita
   // efeito só para setar estado e mantém o primeiro paint estável.
   const [onboarding, setOnboarding] = useState<boolean | null>(() =>
@@ -261,6 +294,19 @@ export function EntregaHome() {
           itens: payload.itens,
           novosItens: payload.novosItens,
         });
+        // D1 — momento "aprovado": flash otimista com o que já está na tela
+        // (a fila é assíncrona — nada de "cliente avisado" sem sinal de envio
+        // confirmado). O buzz([16, 20, 16]) já disparado no início deste
+        // handler É o padrão de sucesso existente no app (Onboarding usa o
+        // mesmo pattern na conclusão) — não duplica vibração aqui.
+        const valor = rota?.moduloFinanceiroAtivo ? valorConfirmado(paradaAtual, payload) : 0;
+        setSucesso({
+          nome: paradaAtual.cliente.nome ?? "Cliente",
+          itens: resumoItens(paradaAtual),
+          valor: valor > 0 ? valor : null,
+        });
+        if (sucessoTimeoutRef.current != null) window.clearTimeout(sucessoTimeoutRef.current);
+        sucessoTimeoutRef.current = window.setTimeout(() => setSucesso(null), SUCESSO_DURACAO_MS);
         setSheetAberta(false);
         // Recarrega best-effort: online reflete 'entregue'; offline mantém a parada (o
         // sync a fecha depois). Erro de rede aqui NÃO reverte a confirmação enfileirada.
@@ -273,7 +319,7 @@ export function EntregaHome() {
         setSubmitting(false);
       }
     },
-    [abertas.length, carregar, paradaAtual, sync],
+    [abertas.length, carregar, paradaAtual, rota, sync],
   );
 
   const onNaoEntregue = useCallback(
@@ -394,6 +440,18 @@ export function EntregaHome() {
         onClose={() => setSheetAberta(false)}
         submitting={submitting}
       />
+
+      {/* D1 — flash "aprovado" (some sozinho via SUCESSO_DURACAO_MS acima). */}
+      {sucesso ? (
+        <div className="ent-sucesso" role="status" aria-live="polite">
+          <div className="ent-sucesso-card">
+            <div className="ent-sucesso-check" aria-hidden="true">✓</div>
+            <div className="ent-sucesso-nome">{sucesso.nome}</div>
+            <div className="ent-sucesso-itens">{sucesso.itens}</div>
+            {sucesso.valor != null ? <div className="ent-sucesso-valor">{fmtMoney(sucesso.valor)}</div> : null}
+          </div>
+        </div>
+      ) : null}
     </EntregaScaffold>
   );
 }
@@ -535,6 +593,9 @@ function ViewRota({
           ✓
         </div>
         <div className="ent-empty-title">Rota concluída</div>
+        {/* D2 — fechamento do dia: reusa getResumoDia (mesmos 3 stats da faixa
+            de gestão). Best-effort: falha não derruba o empty-state acima. */}
+        <FechamentoDia />
       </div>
     );
   }
@@ -619,5 +680,40 @@ function ViewRota({
         </button>
       </div>
     </>
+  );
+}
+
+// ── D2: FECHAMENTO DO DIA (fim da rota) ─────────────────────────────────────
+// Reusa getResumoDia() — os MESMOS 3 stats da faixa de gestão (GestaoDia),
+// buscados 1× ao entrar neste estado. Best-effort: falha some sozinha (null),
+// o empty-state "Rota concluída ✓" continua valendo sem quebrar.
+function FechamentoDia() {
+  const [resumo, setResumo] = useState<ResumoDia | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    void getResumoDia()
+      .then((r) => { if (vivo) setResumo(r); })
+      .catch(() => { /* best-effort: sem resumo, o empty-state seco basta */ });
+    return () => { vivo = false; };
+  }, []);
+
+  if (!resumo) return null;
+
+  return (
+    <div className="ent-stats ent-fechamento">
+      <div className="ent-stat">
+        <span className="ent-stat-num">{resumo.entregues}</span>
+        <span className="ent-stat-lbl">Entregues</span>
+      </div>
+      <div className="ent-stat">
+        <span className="ent-stat-num is-ok">{fmtMoney(resumo.recebidoHoje)}</span>
+        <span className="ent-stat-lbl">Recebido</span>
+      </div>
+      <div className="ent-stat">
+        <span className="ent-stat-num is-due">{fmtMoney(resumo.aReceber)}</span>
+        <span className="ent-stat-lbl">A receber</span>
+      </div>
+    </div>
   );
 }

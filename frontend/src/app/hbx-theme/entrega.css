@@ -1698,3 +1698,103 @@
   color: var(--ent-ink-muted);
   font-weight: 700;
 }
+
+/* ============================================================
+   D1 (08/07) — MOMENTO "APROVADO" ao confirmar entrega. Overlay curto,
+   OTIMISTA (fila M8 é assíncrona — mostra só o fato local: entregue + cliente
+   + itens + valor; NUNCA "avisado"/"mensagem enviada" sem sinal confirmado de
+   envio). Some sozinho (setTimeout no page.client.tsx); ✓ anima entrada — a
+   regra global de prefers-reduced-motion (acima) já zera toda animação/
+   transição dentro de [data-skin="entrega"], então o keyframe recolhe sozinho
+   pra quem pediu menos movimento. Toda cor/forma vive AQUI (Lei); o TSX só
+   usa a classe.
+   ============================================================ */
+[data-skin="entrega"] .ent-sucesso {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ent-5);
+  background: color-mix(in srgb, var(--ent-canvas) 55%, transparent);
+  /* decorativo/transiente: não trava o próximo toque do entregador. */
+  pointer-events: none;
+  animation: ent-sucesso-veil var(--ent-motion) both;
+}
+[data-skin="entrega"] .ent-sucesso-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ent-1);
+  width: 100%;
+  max-width: 320px;
+  padding: var(--ent-8) var(--ent-5);
+  background: var(--ent-surface-raised);
+  border-radius: var(--ent-radius-lg);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-lg);
+  text-align: center;
+  animation: ent-sucesso-pop var(--ent-motion-slow) both;
+}
+[data-skin="entrega"] .ent-sucesso-check {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-pill);
+  background: color-mix(in srgb, var(--ent-success) 16%, var(--ent-surface));
+  color: var(--ent-success);
+  font-family: var(--ent-font-num);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: var(--ent-3);
+  animation: ent-sucesso-check var(--ent-motion-slow) both;
+}
+[data-skin="entrega"] .ent-sucesso-nome {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-sucesso-itens {
+  font-size: var(--ent-text);
+  font-weight: 600;
+  color: var(--ent-ink-soft);
+}
+[data-skin="entrega"] .ent-sucesso-valor {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+  font-weight: 800;
+  color: var(--ent-success);
+  margin-top: var(--ent-1);
+}
+@keyframes ent-sucesso-veil {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ent-sucesso-pop {
+  0% { opacity: 0; transform: scale(0.92) translateY(6px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes ent-sucesso-check {
+  0% { opacity: 0; transform: scale(0.4); }
+  60% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+[data-theme-mode="dark"] [data-skin="entrega"] .ent-sucesso-check {
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ent-success) 55%, transparent);
+}
+
+/* ============================================================
+   D2 (08/07) — FECHAMENTO DO DIA no fim da rota (abertas.length===0, ViewRota
+   em page.client.tsx). Reusa .ent-stats/.ent-stat* — mesmo idioma visual da
+   faixa de gestão (GestaoDia) — dentro do .ent-empty existente; só ajusta
+   largura/respiro do card no centro do empty-state (cor/forma já herdadas).
+   ============================================================ */
+[data-skin="entrega"] .ent-fechamento {
+  width: 100%;
+  max-width: 340px;
+  margin-top: var(--ent-2);
+}
