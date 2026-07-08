@@ -196,7 +196,12 @@ export function EntregaHome() {
 
   // ── Confirmar entrega (Entregue) ───────────────────────────────────────────
   const onEntregue = useCallback(
-    async (payload: { itens: Array<{ id: string; qtdEntregue: number }>; receiptMethod?: ReceiptMethod }) => {
+    async (payload: {
+      itens: Array<{ id: string; qtdEntregue: number }>;
+      // F2 (08/07) — produtos novos incluídos/trocados na chegada (ArrivalSheet).
+      novosItens?: Array<{ productId: number; qtdEntregue: number }>;
+      receiptMethod?: ReceiptMethod;
+    }) => {
       if (!paradaAtual) return;
       setSubmitting(true);
       buzz([16, 20, 16]);
@@ -217,6 +222,7 @@ export function EntregaHome() {
           accuracy: gps?.accuracy, // B1 — o backend só realimenta o cadastro se accuracy<=60m.
           receiptMethod: payload.receiptMethod,
           itens: payload.itens,
+          novosItens: payload.novosItens,
         });
         setSheetAberta(false);
         // Recarrega best-effort: online reflete 'entregue'; offline mantém a parada (o

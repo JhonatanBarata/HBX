@@ -110,6 +110,10 @@ export interface ConfirmarPayload {
   accuracy?: number;
   receiptMethod?: ReceiptMethod;
   itens?: Array<{ id: string; qtdEntregue: number }>;
+  // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd).
+  // Preço NUNCA vai aqui — o servidor resolve pelo catálogo/ClienteProduto (regra
+  // de ouro): mandar preço seria o entregador "definindo" quanto cobrar.
+  novosItens?: Array<{ productId: number; qtdEntregue: number }>;
   // M8 (offline-first) — chave de idempotência (uuid). O servidor dedupe por ela:
   // reenviar a MESMA confirmação (fila offline) NÃO dispara efeito 2×.
   idempotencyKey?: string;

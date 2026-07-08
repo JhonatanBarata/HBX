@@ -1445,3 +1445,107 @@
 [data-skin="entrega"] .ent-map-rota .maplibregl-ctrl-attrib-button {
   background-color: color-mix(in srgb, var(--ent-surface) 80%, transparent);
 }
+
+/* ============================================================
+   F2 (08/07) — ADICIONAR/TROCAR PRODUTO na folha de chegada.
+   Tag "novo" no rótulo, botão × (zera a linha) ao lado do stepper, botão
+   "＋ Adicionar produto" (borda tracejada = convenção de "incluir item") e o
+   picker compacto do catálogo. Toda cor/forma vive AQUI (Lei); o TSX só usa
+   estas classes .ent-*.
+   ============================================================ */
+[data-skin="entrega"] .ent-item-tag {
+  margin-left: var(--ent-2);
+  padding: 1px var(--ent-2);
+  border-radius: var(--ent-radius-pill);
+  background: var(--ent-brand-soft);
+  color: var(--ent-brand-strong);
+  font-size: var(--ent-text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+/* Linha do item "novo": stepper + botão × lado a lado (item existente não usa
+   este wrapper — continua com o .ent-stepper puro, largura cheia de sempre). */
+[data-skin="entrega"] .ent-item-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-item-row .ent-stepper { flex: 1 1 auto; }
+[data-skin="entrega"] .ent-item-remove {
+  flex: 0 0 auto;
+  width: var(--ent-tap-lg);
+  height: var(--ent-tap-lg);
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-line-strong);
+  background: var(--ent-surface);
+  color: var(--ent-ink-muted);
+  font-size: var(--ent-title);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast), color var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-item-remove:active {
+  transform: scale(0.92);
+  background: var(--ent-surface-soft);
+  color: var(--ent-danger);
+}
+
+/* Botão "＋ Adicionar produto": borda tracejada distingue de secundário/ghost. */
+[data-skin="entrega"] .ent-btn--add {
+  background: transparent;
+  color: var(--ent-brand-strong);
+  border: 1.5px dashed color-mix(in srgb, var(--ent-brand) 45%, var(--ent-line-strong));
+}
+[data-skin="entrega"] .ent-btn--add:active { background: var(--ent-brand-soft); }
+
+/* Picker compacto do catálogo (lista tocável, rola se passar da altura). */
+[data-skin="entrega"] .ent-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-2);
+  margin-top: var(--ent-2);
+  padding: var(--ent-3);
+  border-radius: 14px;
+  background: var(--ent-surface-soft);
+  border: 1px solid var(--ent-hairline);
+  max-height: 46dvh;
+  overflow-y: auto;
+}
+[data-skin="entrega"] .ent-picker-label {
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--ent-1);
+}
+[data-skin="entrega"] .ent-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ent-3);
+  min-height: var(--ent-tap);
+  padding: 0 var(--ent-3);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+  background: var(--ent-surface);
+  color: var(--ent-ink);
+  font-size: var(--ent-text);
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-picker-item:active { transform: scale(0.98); background: var(--ent-surface-soft); }
+[data-skin="entrega"] .ent-picker-preco {
+  flex: 0 0 auto;
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 700;
+}

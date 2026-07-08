@@ -38,6 +38,9 @@ export interface PendenciaPayload {
   accuracy?: number;
   receiptMethod?: "pix" | "dinheiro" | "fiado";
   itens?: Array<{ id: string; qtdEntregue: number }>;
+  // F2 (08/07) — produtos novos incluídos/trocados na chegada; aditivo (undefined
+  // nos itens já enfileirados antes desta versão — o backend trata como "nenhum").
+  novosItens?: Array<{ productId: number; qtdEntregue: number }>;
 }
 
 export interface PendenciaItem {

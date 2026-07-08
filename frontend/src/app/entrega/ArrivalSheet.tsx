@@ -14,11 +14,12 @@
 // A UI só LÊ cliente.formaPagamento — não cria charge (isso é M6).
 // ================================================================
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CascaSheet } from "@/components/casca";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { QrCanvas } from "../(app)/logistica/instalar/QrCanvas";
+import { listProdutos, type ProdutoOption } from "./clientes-api";
 import type { ReceiptMethod, RotaItem, RotaPix } from "./entrega-api";
 import { buzz } from "./entrega-hooks";
 import { fmtMoney } from "./gestao-api";
@@ -31,7 +32,13 @@ interface Props {
   moduloFinanceiroAtivo: boolean;
   /** F1 — Pix do tenant (BR Code). null = sem QR (módulo OFF ou chave não configurada). */
   pix: RotaPix | null;
-  onEntregue: (payload: { itens: Array<{ id: string; qtdEntregue: number }>; receiptMethod?: ReceiptMethod }) => void;
+  onEntregue: (payload: {
+    itens: Array<{ id: string; qtdEntregue: number }>;
+    // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd;
+    // preço NUNCA sai daqui — o servidor resolve, regra de ouro).
+    novosItens?: Array<{ productId: number; qtdEntregue: number }>;
+    receiptMethod?: ReceiptMethod;
+  }) => void;
   onNaoEntregue: (motivo: string) => void;
   onClose: () => void;
   submitting: boolean;
@@ -45,25 +52,77 @@ function mostrarChips(moduloFinanceiroAtivo: boolean, formaPagamento: string): b
   return moduloFinanceiroAtivo && formaPagamento === "aberto";
 }
 
+// F2 (08/07) — item do stepper na folha de chegada. `novo=true` = incluído agora
+// pelo picker "＋ Adicionar produto" — ainda NÃO existe no backend, então vai em
+// `novosItens` no confirmar (nunca em `itens`, que é só p/ EntregaItem real).
+interface StepperItem {
+  id: string;
+  productId: number | null;
+  label: string;
+  qtd: number;
+  valorUnit: number;
+  novo: boolean;
+}
+
 // Itens do stepper: os EntregaItem previstos; fallback p/ o produto/qtd legado.
 // F1 — carrega o valorUnit junto: o QR Pix recalcula o valor ao vivo com o stepper.
-function itensIniciais(parada: RotaItem): Array<{ id: string; label: string; qtd: number; valorUnit: number }> {
+function itensIniciais(parada: RotaItem): StepperItem[] {
   if (parada.itens.length > 0) {
     return parada.itens.map((it) => ({
       id: it.id,
+      productId: it.produto?.id ?? null,
       label: it.produto?.nome ? `${it.produto.nome}` : "Item",
       qtd: Math.max(0, it.qtdPrevista ?? 1),
       valorUnit: Math.max(0, it.valorUnit ?? 0),
+      novo: false,
     }));
   }
   return [
     {
       id: parada.id,
+      productId: parada.produto?.id ?? null,
       label: parada.produto?.nome ?? "Entrega",
       qtd: Math.max(1, parada.quantidade ?? 1),
       valorUnit: 0,
+      novo: false,
     },
   ];
+}
+
+// O par de botões −/valor/+ — extraído p/ reusar sem duplicar entre a linha
+// normal (item já existente) e a linha "novo" (que ganha um botão × ao lado).
+function Stepper({
+  it,
+  submitting,
+  onDelta,
+}: {
+  it: StepperItem;
+  submitting: boolean;
+  onDelta: (id: string, delta: number) => void;
+}) {
+  return (
+    <div className="ent-stepper">
+      <button
+        type="button"
+        className="ent-stepper-btn"
+        aria-label={`Menos um ${it.label}`}
+        onClick={() => onDelta(it.id, -1)}
+        disabled={submitting}
+      >
+        −
+      </button>
+      <div className="ent-stepper-val">{it.qtd}</div>
+      <button
+        type="button"
+        className="ent-stepper-btn"
+        aria-label={`Mais um ${it.label}`}
+        onClick={() => onDelta(it.id, 1)}
+        disabled={submitting}
+      >
+        +
+      </button>
+    </div>
+  );
 }
 
 export function ArrivalSheet({
@@ -111,7 +170,13 @@ function ArrivalSheetBody({
   parada: RotaItem;
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
-  onEntregue: (payload: { itens: Array<{ id: string; qtdEntregue: number }>; receiptMethod?: ReceiptMethod }) => void;
+  onEntregue: (payload: {
+    itens: Array<{ id: string; qtdEntregue: number }>;
+    // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd;
+    // preço NUNCA sai daqui — o servidor resolve, regra de ouro).
+    novosItens?: Array<{ productId: number; qtdEntregue: number }>;
+    receiptMethod?: ReceiptMethod;
+  }) => void;
   onNaoEntregue: (motivo: string) => void;
   submitting: boolean;
 }) {
@@ -122,6 +187,27 @@ function ArrivalSheetBody({
   const [qrAberto, setQrAberto] = useState(false);
   const receiptPill = useGlassPill<HTMLButtonElement>(receipt);
   const motivoPill = useGlassPill<HTMLButtonElement>(motivo);
+
+  // F2 (08/07) — catálogo da empresa p/ o picker "＋ Adicionar produto". Carregado
+  // 1× quando a folha abre: a CascaSheet desmonta este componente ao fechar (ver
+  // comentário no ArrivalSheet acima), então cada abertura é um mount novo — sem
+  // risco de ficar com o catálogo de uma parada anterior. Best-effort: falha só
+  // faz o botão "Adicionar produto" não aparecer (o resto da folha funciona).
+  const [catalogo, setCatalogo] = useState<ProdutoOption[]>([]);
+  const [pickerAberto, setPickerAberto] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    listProdutos()
+      .then((lista) => { if (ativo) setCatalogo(lista); })
+      .catch(() => { /* best-effort: sem catálogo, só some o "Adicionar produto" */ });
+    return () => { ativo = false; };
+  }, []);
+
+  // Só produtos AINDA não presentes na lista (previstos ou já adicionados agora).
+  const produtosDisponiveis = useMemo(
+    () => catalogo.filter((p) => !itens.some((it) => it.productId === p.id)),
+    [catalogo, itens],
+  );
 
   const chipsVisiveis = useMemo(
     () => mostrarChips(moduloFinanceiroAtivo, parada.cliente.formaPagamento),
@@ -136,14 +222,18 @@ function ArrivalSheetBody({
 
   // F1 — valor da entrega AO VIVO: acompanha o stepper quando os itens têm preço
   // (mesma conta do backend no confirmar); sem preço por item, vale o previsto.
+  // F2 — se a parada NÃO tinha EntregaItem real (legada, ex.: agendada avulsa) e
+  // ganhou produto(s) novo(s) agora, a soma dos itens SOMA ao valor previsto em vez
+  // de SUBSTITUIR (mesma regra aditiva do backend em confirmarEntrega) — senão o QR
+  // pediria só o produto novo e "esqueceria" o valor que já existia.
+  const itensReaisExistiam = parada.itens.length > 0;
   const temPreco = itens.some((it) => it.valorUnit > 0);
-  const valorAtual = useMemo(
-    () =>
-      temPreco
-        ? Math.round(itens.reduce((s, it) => s + it.qtd * it.valorUnit, 0) * 100) / 100
-        : Math.max(0, parada.valor ?? 0),
-    [itens, temPreco, parada.valor],
-  );
+  const valorAtual = useMemo(() => {
+    if (!temPreco) return Math.max(0, parada.valor ?? 0);
+    const somaItens = Math.round(itens.reduce((s, it) => s + it.qtd * it.valorUnit, 0) * 100) / 100;
+    const base = itensReaisExistiam ? 0 : Math.max(0, parada.valor ?? 0);
+    return Math.round((base + somaItens) * 100) / 100;
+  }, [itens, temPreco, itensReaisExistiam, parada.valor]);
 
   // F1 — o QR Pix aparece quando o pagamento É pix neste ato: cliente 'aberto' que
   // escolheu o chip Pix, ou costumeiro 'na_hora' com método fixo pix. pendura/
@@ -181,10 +271,36 @@ function ArrivalSheetBody({
     setItens((prev) => prev.map((it) => (it.id === id ? { ...it, qtd: Math.max(0, it.qtd + delta) } : it)));
   };
 
+  // F2 — escolheu no picker → vira uma nova linha de stepper (qtd inicial 1). O
+  // preço mostrado aqui é só PREVIEW (precoCatalogo do catálogo); o servidor
+  // resolve o valorUnit de verdade no confirmar (regra de ouro do preço).
+  const adicionarProduto = (p: ProdutoOption) => {
+    buzz(10);
+    setItens((prev) => [
+      ...prev,
+      { id: `novo-${p.id}`, productId: p.id, label: p.nome, qtd: 1, valorUnit: Math.max(0, p.precoCatalogo ?? 0), novo: true },
+    ]);
+    setPickerAberto(false);
+  };
+
+  // F2 — "trocar" = adicionar o certo + zerar a qtd do errado (qtd 0 já significa
+  // "não entra"). O × nas linhas novas é o atalho — equivale a levar o stepper a 0.
+  const zerarItem = (id: string) => {
+    buzz(8);
+    setItens((prev) => prev.map((it) => (it.id === id ? { ...it, qtd: 0 } : it)));
+  };
+
   const confirmarEntregue = () => {
+    // F2 — só os itens JÁ existentes (EntregaItem real) vão em `itens`; os
+    // adicionados agora (novo=true) vão em `novosItens` (productId+qtd, sem preço
+    // — o servidor resolve). Item novo com qtd 0 não fez nada: não manda.
+    const novosItens = itens
+      .filter((it) => it.novo && it.qtd > 0 && it.productId != null)
+      .map((it) => ({ productId: it.productId as number, qtdEntregue: it.qtd }));
     // receiptMethod só é mandado quando os chips estão visíveis (cliente 'aberto').
     onEntregue({
-      itens: itens.map((it) => ({ id: it.id, qtdEntregue: it.qtd })),
+      itens: itens.filter((it) => !it.novo).map((it) => ({ id: it.id, qtdEntregue: it.qtd })),
+      novosItens: novosItens.length > 0 ? novosItens : undefined,
       receiptMethod: chipsVisiveis && receipt ? receipt : undefined,
     });
   };
@@ -207,30 +323,70 @@ function ArrivalSheetBody({
         <>
           {itens.map((it) => (
             <div className="ent-item" key={it.id}>
-              <div className="ent-item-label">{it.label}</div>
-              <div className="ent-stepper">
-                <button
-                  type="button"
-                  className="ent-stepper-btn"
-                  aria-label={`Menos um ${it.label}`}
-                  onClick={() => setQtd(it.id, -1)}
-                  disabled={submitting}
-                >
-                  −
-                </button>
-                <div className="ent-stepper-val">{it.qtd}</div>
-                <button
-                  type="button"
-                  className="ent-stepper-btn"
-                  aria-label={`Mais um ${it.label}`}
-                  onClick={() => setQtd(it.id, 1)}
-                  disabled={submitting}
-                >
-                  +
-                </button>
+              <div className="ent-item-label">
+                {it.label}
+                {it.novo ? <span className="ent-item-tag">novo</span> : null}
               </div>
+              {it.novo ? (
+                <div className="ent-item-row">
+                  <Stepper it={it} submitting={submitting} onDelta={setQtd} />
+                  <button
+                    type="button"
+                    className="ent-item-remove"
+                    aria-label={`Remover ${it.label}`}
+                    onClick={() => zerarItem(it.id)}
+                    disabled={submitting}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <Stepper it={it} submitting={submitting} onDelta={setQtd} />
+              )}
             </div>
           ))}
+
+          {/* F2 — picker compacto do catálogo; some sozinho se o catálogo não
+              carregou ou se não sobrou produto pra adicionar (tudo já na lista). */}
+          {produtosDisponiveis.length > 0 ? (
+            !pickerAberto ? (
+              <button
+                type="button"
+                className="ent-btn ent-btn--add"
+                onClick={() => {
+                  buzz(8);
+                  setPickerAberto(true);
+                }}
+                disabled={submitting}
+              >
+                ＋ Adicionar produto
+              </button>
+            ) : (
+              <div className="ent-picker">
+                <div className="ent-picker-label">Adicionar produto</div>
+                {produtosDisponiveis.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="ent-picker-item"
+                    onClick={() => adicionarProduto(p)}
+                    disabled={submitting}
+                  >
+                    <span>{p.nome}</span>
+                    {p.precoCatalogo != null ? <span className="ent-picker-preco">{fmtMoney(p.precoCatalogo)}</span> : null}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--ghost"
+                  onClick={() => setPickerAberto(false)}
+                  disabled={submitting}
+                >
+                  Fechar
+                </button>
+              </div>
+            )
+          ) : null}
 
           {chipsVisiveis ? (
             <>

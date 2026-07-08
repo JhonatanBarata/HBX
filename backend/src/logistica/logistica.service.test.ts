@@ -30,12 +30,23 @@ function buildEntrega(overrides: Record<string, any> = {}) {
 // R2: financeiroCharge.findFirst (idempotência por entregaId) + um "banco" de charges.
 // R4: entrega.updateMany (claim do teto do reenvio) + masterEvent (trilha de falha).
 // F1: entregaItem.findMany (recálculo do valor pelo stepper) — itens injetáveis.
-function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
+// F2: product/clienteProduto (preço do SERVIDOR) + entregaItem.create/count (produto
+// novo na chegada) — `opts.products`/`opts.clienteProdutos` são o "catálogo" injetável.
+function buildPrismaMock(
+  entrega: any,
+  conta: any,
+  entregaItens: any[] = [],
+  opts: { products?: any[]; clienteProdutos?: any[] } = {},
+) {
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
   const masterEvents: any[] = [];
   // B1 — updates do CustomerProfile fora da tx (realimentação de coordenada).
   const customerProfileUpdates: any[] = [];
+  // F2 — EntregaItem.create observável (id do produto novo + preço RESOLVIDO pelo mock).
+  const entregaItemCreates: any[] = [];
+  const products = opts.products ?? [];
+  const clienteProdutos = opts.clienteProdutos ?? [];
   const prisma: any = {
     entrega: {
       findFirst: async () => entrega,
@@ -80,6 +91,38 @@ function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
         return { count: alvo ? 1 : 0 };
       },
       findMany: async () => entregaItens,
+      // F2 — cria o item novo (o serviço já resolveu o preço ANTES de chamar create;
+      // o mock só grava). Reflete em `entregaItens` — a MESMA "tabela" que findMany/
+      // count leem — pra o recompute de valor enxergar o item recém-criado, como no
+      // Prisma real dentro de uma transação interativa (read-your-writes).
+      create: async (args: any) => {
+        const row = { id: `item-novo-${entregaItemCreates.length + 1}`, ...args.data };
+        entregaItemCreates.push(row);
+        entregaItens.push(row);
+        return row;
+      },
+      count: async () => entregaItens.length,
+    },
+    // F2 — catálogo (Product) company-scoped: a regra de ouro do preço.
+    product: {
+      findFirst: async (args: any) => {
+        const where = args?.where || {};
+        return products.find((p) => p.id === where.id && p.companyId === where.companyId) ?? null;
+      },
+    },
+    // F2 — ClienteProduto.precoAcordado (quando existe) VENCE o catálogo.
+    clienteProduto: {
+      findFirst: async (args: any) => {
+        const where = args?.where || {};
+        return (
+          clienteProdutos.find(
+            (cp) =>
+              cp.companyId === where.companyId &&
+              cp.customerProfileId === where.customerProfileId &&
+              cp.productId === where.productId,
+          ) ?? null
+        );
+      },
     },
     customerProfile: {
       findFirst: async () => conta,
@@ -123,7 +166,7 @@ function buildPrismaMock(entrega: any, conta: any, entregaItens: any[] = []) {
     // mock não isola de verdade, mas prova que o serviço passa por $transaction).
     $transaction: async (fn: any) => fn(prisma),
   };
-  return { chargesCreated, entregaUpdates, masterEvents, customerProfileUpdates, prisma };
+  return { chargesCreated, entregaUpdates, masterEvents, customerProfileUpdates, entregaItemCreates, prisma };
 }
 
 // LogisticaRotaService stub: o re-ETA pós-ação (M3) é aditivo/best-effort e não
@@ -970,6 +1013,173 @@ test('F1: payload SEM itens → não recalcula (valor escalar de sempre)', async
 
   assert.equal(chargesCreated.length, 1);
   assert.equal(chargesCreated[0].amount, 20, 'sem stepper, o valor previsto vale');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// F2 (08/07) — adicionar/trocar produto NA folha de chegada.
+//   REGRA DE OURO: o preço vem SEMPRE do servidor — catálogo (Product company-
+//   scoped) ou ClienteProduto.precoAcordado quando existir (vence o catálogo). O
+//   payload do cliente só carrega productId+qtd (o DTO nem aceita campo de preço).
+//   Idempotência preservada: o item novo nasce DENTRO da tx guardada da 1ª
+//   confirmação — reenvio pela MESMA idempotencyKey (replay) NUNCA duplica.
+// ══════════════════════════════════════════════════════════════════════════════
+
+test('F2: novoItem cria EntregaItem com o preço do CATÁLOGO (servidor) e o charge soma existente+novo', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  // Existente: 2×R$10 = R$20 (igual ao valor previsto da entrega). Novo produto do
+  // catálogo: R$15 (priceCents=1500) — o cliente NUNCA manda esse preço, só productId+qtd.
+  const itens = [{ id: 'item-1', qtdPrevista: 2, qtdEntregue: null, valorUnit: 10 }];
+  const { prisma, chargesCreated, entregaItemCreates } = buildPrismaMock(
+    buildEntrega({ valor: 20 }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+    itens,
+    { products: [{ id: 501, companyId: 1, price: 12, priceCents: 1500 }] },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9,
+    lng: -38.3,
+    itens: [{ id: 'item-1', qtdEntregue: 2 }],
+    novosItens: [{ productId: 501, qtdEntregue: 1 }],
+  });
+
+  assert.equal(res?.status, 'entregue');
+  assert.equal(entregaItemCreates.length, 1, 'cria exatamente 1 EntregaItem novo');
+  assert.equal(entregaItemCreates[0].productId, 501);
+  assert.equal(entregaItemCreates[0].qtdEntregue, 1);
+  assert.equal(entregaItemCreates[0].valorUnit, 15, 'preço vem do CATÁLOGO (priceCents/100), nunca do cliente');
+  assert.equal(chargesCreated.length, 1, '1 charge criado');
+  assert.equal(chargesCreated[0].amount, 35, 'charge soma existente(2×10=20) + novo(1×15=15) = 35');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('F2: ClienteProduto.precoAcordado VENCE o catálogo; entrega legada (sem item antes) SOMA ao valor escalar', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  // Entrega "avulsa" legada: valor escalar R$20, NENHUM EntregaItem ainda (agendada
+  // fora da recorrência M2). Ganha 1 produto novo agora: catálogo R$15, mas este
+  // cliente tem preço negociado R$9 (ClienteProduto.precoAcordado) — o negociado vence.
+  const { prisma, chargesCreated, entregaItemCreates } = buildPrismaMock(
+    buildEntrega({ valor: 20 }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+    [],
+    {
+      products: [{ id: 501, companyId: 1, price: 15, priceCents: 1500 }],
+      clienteProdutos: [{ companyId: 1, customerProfileId: 'conta-1', productId: 501, precoAcordado: 9 }],
+    },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9,
+    lng: -38.3,
+    novosItens: [{ productId: 501, qtdEntregue: 2 }],
+  });
+
+  assert.equal(res?.status, 'entregue');
+  assert.equal(entregaItemCreates.length, 1);
+  assert.equal(entregaItemCreates[0].valorUnit, 9, 'precoAcordado do cliente vence o catálogo (15)');
+  assert.equal(chargesCreated.length, 1);
+  // Legada (0 EntregaItem antes desta chamada) → SOMA ao valor escalar que já existia:
+  // 20 (legado) + 2×9 (novo) = 38 — NÃO substitui pelo valor do item isolado (18).
+  assert.equal(chargesCreated[0].amount, 38, 'entrega sem item prévio: valor SOMA ao legado, não substitui');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('F2: novoItem de produto de OUTRA empresa é ignorado (company-scoped) — não cria, não quebra', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated, entregaItemCreates } = buildPrismaMock(
+    buildEntrega({ valor: 20 }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+    [],
+    { products: [{ id: 999, companyId: 2, price: 50, priceCents: null }] }, // empresa 2, confirmar roda na empresa 1
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9,
+    lng: -38.3,
+    novosItens: [{ productId: 999, qtdEntregue: 1 }],
+  });
+
+  assert.equal(res?.status, 'entregue');
+  assert.equal(entregaItemCreates.length, 0, 'produto de outro tenant não vira EntregaItem');
+  assert.equal(chargesCreated.length, 1);
+  assert.equal(chargesCreated[0].amount, 20, 'nada novo entrou: valor legado intocado');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── F2 idempotência — a MESMA prova do M8, agora para o item novo ─────────────
+test('F2 idempotência: reenvio com a MESMA idempotencyKey NÃO duplica o item novo (replay)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const itens = [{ id: 'item-1', qtdPrevista: 2, qtdEntregue: null, valorUnit: 10 }];
+  const entrega = buildEntrega({ valor: 20 });
+  const { prisma, chargesCreated, entregaItemCreates } = buildPrismaMock(
+    entrega,
+    {
+      id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+      formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true,
+    },
+    itens,
+    { products: [{ id: 501, companyId: 1, price: 15, priceCents: null }] },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const KEY = 'idem-f2-key-1';
+  const payload = {
+    lat: -4.9,
+    lng: -38.3,
+    itens: [{ id: 'item-1', qtdEntregue: 2 }],
+    novosItens: [{ productId: 501, qtdEntregue: 1 }],
+    idempotencyKey: KEY,
+  };
+
+  const r1 = await service.confirmarEntrega(1, 'entrega-1', payload);
+  assert.equal(r1?.status, 'entregue');
+  assert.equal(entregaItemCreates.length, 1, '1ª confirmação: cria o item novo 1x');
+  assert.equal(chargesCreated.length, 1);
+  assert.equal(chargesCreated[0].amount, 35, '2×10 (existente) + 1×15 (novo)');
+
+  // Reenvio da fila offline: MESMA key (típico do drain do M8, forçando a "corrida"
+  // reabrindo status/cobrança). O replay é decidido pela key ANTES da tx — o item
+  // novo NUNCA nasce 2x, nem o charge duplica.
+  entrega.status = 'em_rota';
+  entrega.cobrancaStatus = 'pendente';
+  const r2 = await service.confirmarEntrega(1, 'entrega-1', payload);
+
+  assert.equal(r2?.replayed, true, '2ª confirmação com a mesma key = replay');
+  assert.equal(calls.length, 1, 'replay: WhatsApp não dispara de novo');
+  assert.equal(entregaItemCreates.length, 1, 'replay: o item novo NÃO duplica');
+  assert.equal(chargesCreated.length, 1, 'replay: nenhum charge novo');
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;

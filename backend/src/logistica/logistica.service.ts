@@ -372,6 +372,14 @@ export class LogisticaService {
           .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue) }))
           .filter((it) => it.id && Number.isFinite(it.qtd))
       : [];
+    // F2 — produtos NOVOS a criar (qtd<=0 é no-op: nada a adicionar). productId
+    // precisa ser um inteiro positivo; o resto (existência/empresa) é resolvido
+    // DENTRO da tx (company-scoped — regra de ouro do preço vem junto).
+    const novosItensValidos = Array.isArray(gps.novosItens)
+      ? gps.novosItens
+          .map((it) => ({ productId: Math.trunc(Number(it?.productId)), qtd: Number(it?.qtdEntregue) }))
+          .filter((it) => Number.isInteger(it.productId) && it.productId > 0 && Number.isFinite(it.qtd) && it.qtd > 0)
+      : [];
     // M8 — grava a idempotencyKey (unique) JUNTO com o status/GPS. Só grava se ainda
     // não houver key nesta entrega (a 1ª confirmação vence). Se o INSERT bater no
     // unique (P2002 — outra reentrega da MESMA key ganhou a corrida), tratamos como
@@ -402,23 +410,76 @@ export class LogisticaService {
             data: { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) },
           });
         }
-        // F1 — o stepper mudou a quantidade → o VALOR da entrega acompanha
-        // (Σ qtdEntregue×valorUnit). Sem isso a cobrança nasce do valor PREVISTO
-        // (entregou 3, cobrava 2). Só recalcula quando o payload TROUXE itens
-        // (stepper presente) e há item com preço; entrega legada (sem EntregaItem/
-        // sem valorUnit) mantém o valor escalar de sempre.
-        if (!jaEntregue && itensValidos.length > 0) {
+        // F2 — produtos NOVOS incluídos/trocados NA folha de chegada. SÓ roda na 1ª
+        // confirmação (jaEntregue barra — reconfirmar não recria); o replay pela
+        // MESMA idempotencyKey nem chega aqui (retorna ANTES da tx, lá em cima).
+        // Preço SEMPRE do servidor (regra de ouro): resolve o Product COMPANY-SCOPED
+        // (produto de outro tenant/inexistente = ignora, best-effort) e, se houver
+        // ClienteProduto deste cliente+produto com precoAcordado, ele VENCE o
+        // catálogo — o payload do cliente NUNCA carrega preço (DTO nem aceita o campo).
+        let itensNovosCriados = 0;
+        if (!jaEntregue) {
+          for (const novo of novosItensValidos) {
+            const product = await tx.product.findFirst({
+              where: { id: novo.productId, companyId },
+              select: { id: true, price: true, priceCents: true },
+            });
+            if (!product) {
+              this.logger.warn(
+                `[logistica] F2 novoItem produto=${novo.productId} fora da empresa/inexistente — ignorado (entrega=${entrega.id}).`,
+              );
+              continue;
+            }
+            const precoCatalogo =
+              typeof product.priceCents === 'number' ? product.priceCents / 100 : typeof product.price === 'number' ? product.price : 0;
+            const clienteProduto = await tx.clienteProduto.findFirst({
+              where: { companyId, customerProfileId: entrega.customerProfileId, productId: product.id },
+              select: { precoAcordado: true },
+            });
+            const precoFinal =
+              clienteProduto?.precoAcordado != null && Number.isFinite(Number(clienteProduto.precoAcordado))
+                ? Math.max(0, Number(clienteProduto.precoAcordado))
+                : Math.max(0, precoCatalogo);
+            await tx.entregaItem.create({
+              data: {
+                entregaId: entrega.id,
+                productId: product.id,
+                qtdPrevista: novo.qtd,
+                qtdEntregue: novo.qtd,
+                valorUnit: precoFinal,
+              },
+            });
+            itensNovosCriados += 1;
+          }
+        }
+
+        // F1/F2 — o stepper mudou a quantidade OU um produto novo entrou → o VALOR
+        // da entrega acompanha (Σ qtdEntregue×valorUnit de TODOS os itens, existentes
+        // + novos). Sem isso a cobrança nasce do valor PREVISTO (entregou 3, cobrava 2)
+        // ou ignora o produto que acabou de entrar. Só recalcula quando o payload
+        // TROUXE itens/novoItem e há item com preço; entrega legada intocada (sem
+        // EntregaItem/sem valorUnit) mantém o valor escalar de sempre.
+        if (!jaEntregue && (itensValidos.length > 0 || itensNovosCriados > 0)) {
+          // F2 — só importa quando um item NOVO entrou (é a única situação em que a
+          // contagem de ANTES difere de AGORA): decide se a soma dos itens SUBSTITUI
+          // o valor (já havia EntregaItem — comportamento F1 clássico) ou se SOMA ao
+          // valor escalar legado (entrega sem EntregaItem nenhum antes desta chamada
+          // — ex.: agendada avulsa — ganhando seu 1º item agora: aditivo, não apaga
+          // o valor que já existia).
+          const haviaItensAntes =
+            itensNovosCriados === 0 || (await tx.entregaItem.count({ where: { entregaId: entrega.id } })) > itensNovosCriados;
           const itensRows = await tx.entregaItem.findMany({
             where: { entregaId: entrega.id },
             select: { qtdPrevista: true, qtdEntregue: true, valorUnit: true },
           });
           if (itensRows.length > 0 && itensRows.some((it) => (Number(it.valorUnit) || 0) > 0)) {
-            const novo = round2(
+            const somaItens = round2(
               itensRows.reduce(
                 (sum, it) => sum + Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0) * Math.max(0, Number(it.valorUnit) || 0),
                 0,
               ),
             );
+            const novo = haviaItensAntes ? somaItens : round2(entrega.valor + somaItens);
             if (novo !== entrega.valor) {
               await tx.entrega.update({ where: { id: entrega.id }, data: { valor: novo } });
               valorCobranca = novo;
@@ -1539,6 +1600,10 @@ export interface ConfirmarGps {
   accuracy?: number;
   receiptMethod?: string;
   itens?: Array<{ id: string; qtdEntregue: number }>;
+  // F2 (08/07) — produtos NOVOS incluídos/trocados na folha de chegada (não
+  // previstos). O preço SEMPRE vem do servidor (regra de ouro) — este payload só
+  // carrega productId + qtd; jamais um preço vindo do cliente.
+  novosItens?: Array<{ productId: number; qtdEntregue: number }>;
   // M8 (offline-first) — chave de idempotência (uuid do celular). Se a MESMA key já
   // foi gravada nesta entrega, o confirmar é um REPLAY (fila offline) → devolve o
   // desfecho anterior SEM re-executar WhatsApp/charge.

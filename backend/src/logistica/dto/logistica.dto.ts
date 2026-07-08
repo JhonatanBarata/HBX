@@ -105,6 +105,17 @@ export class ConfirmarEntregaDto {
   @Type(() => ConfirmarEntregaItemDto)
   itens?: ConfirmarEntregaItemDto[];
 
+  // F2 (08/07) — produtos NOVOS incluídos/trocados na folha de chegada (não
+  // previstos). SÓ productId + qtd — o preço NUNCA vem daqui (regra de ouro): o
+  // serviço resolve o valorUnit pelo catálogo (Product company-scoped) ou pelo
+  // ClienteProduto.precoAcordado desse cliente+produto, se existir. Whitelist do
+  // DTO garante que nenhum campo de preço passe (ValidationPipe forbidNonWhitelisted).
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ConfirmarNovoItemDto)
+  novosItens?: ConfirmarNovoItemDto[];
+
   // M8 (offline-first) — chave de idempotência gerada no celular (uuid) antes de
   // enfileirar a confirmação. O reenvio da MESMA confirmação (mesma key, típico da
   // fila offline drenando após reconectar) NÃO dispara efeito 2× (WhatsApp/charge):
@@ -121,6 +132,19 @@ export class ConfirmarEntregaItemDto {
   @IsString()
   @MaxLength(60)
   id!: string;
+
+  @IsInt()
+  @Min(0)
+  @Max(9999)
+  qtdEntregue!: number;
+}
+
+// F2 (08/07) — um produto NOVO adicionado/trocado na folha de chegada. Só
+// productId + qtd; o preço é resolvido pelo servidor (Product/ClienteProduto),
+// NUNCA aceito daqui — não existe campo de preço nesta classe (whitelist estrito).
+export class ConfirmarNovoItemDto {
+  @IsInt()
+  productId!: number;
 
   @IsInt()
   @Min(0)
