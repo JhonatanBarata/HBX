@@ -26,8 +26,7 @@ import {
   wipeAllWhatsAppData,
 } from "@/lib/whatsapp-connection-flow";
 import { formatWhatsAppDateTime, whatsappModalStatusLabel, type WhatsAppModalPayload, type WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
-
-const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
+import { brPhoneToE164, formatBrPhone, isBrPhoneComplete, toLocalDigits } from "@/lib/br-phone";
 
 // Nunca deixar um JID técnico (5519920121720@s.whatsapp.net, @lid, @g.us...) vazar pra tela.
 // De um JID/telefone, extrai os dígitos e formata bonito (+55 (DD) XXXXX-XXXX). JID técnico
@@ -142,7 +141,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   const canRestart = !busy && ["error", "reconnecting", "waiting_qr", "starting"].includes(status);
   const connected = status === "connected";
   const sessionId = payload?.data?.tenantKey || "";
-  const phoneOk = PAIRING_PHONE_RE.test(phone.trim());
+  const phoneOk = isBrPhoneComplete(phone);
 
   async function run(action: () => Promise<WhatsAppModalPayload>) {
     if (busy) return;
@@ -181,12 +180,12 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   async function generatePairing() {
     if (busy) return;
     if (!sessionId) { setError("Sessão WhatsApp ainda não carregou — clique em Atualizar status."); return; }
-    if (!phoneOk) { setError("Informe o telefone com DDI, ex.: +5519999999999."); return; }
+    if (!phoneOk) { setError("Informe o telefone com DDD, ex.: (19)99702-4884."); return; }
     setBusy(true);
     setError(null);
     setBootstrapMsg(null);
     try {
-      const res = await requestWhatsAppPairingCode(sessionId, phone.trim());
+      const res = await requestWhatsAppPairingCode(sessionId, brPhoneToE164(phone));
       setPairing(res);
       if (!res.success || !res.code) {
         setError(res.message || "Não foi possível gerar o código de pareamento.");
@@ -264,9 +263,9 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             <input
               className="field-dark"
               inputMode="tel"
-              placeholder="Telefone com DDI, ex.: +5519999999999"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
+              placeholder="(19)99702-4884"
+              value={formatBrPhone(phone)}
+              onChange={e => setPhone(toLocalDigits(e.target.value))}
             />
             {pairing?.code ? (
               <div style={{ display: "grid", justifyItems: "center", gap: 6, padding: 8 }}>

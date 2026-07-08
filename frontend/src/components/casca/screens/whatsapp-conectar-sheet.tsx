@@ -37,8 +37,7 @@ import {
 } from "@/lib/whatsapp-center";
 
 import { CascaSheet } from "../transitions";
-
-const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
+import { brPhoneToE164, formatBrPhone, isBrPhoneComplete, toLocalDigits } from "@/lib/br-phone";
 
 // Nunca deixar um JID técnico (5519999999999@s.whatsapp.net, @lid, @g.us...)
 // vazar pra tela — mesmos helpers do modal desktop (não exportados de lá,
@@ -68,10 +67,11 @@ function sanitizeJidsInText(text: string | null | undefined): string {
 
 type Method = "code" | "qr";
 
-export function WhatsAppConectarSheet({ open, onClose, onConnected }: {
+export function WhatsAppConectarSheet({ open, onClose, onConnected, defaultPhoneDigits }: {
   open: boolean;
   onClose: () => void;
   onConnected?: () => void;
+  defaultPhoneDigits?: string;
 }) {
   const [payload, setPayload] = useState<WhatsAppModalPayload | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,6 +80,7 @@ export function WhatsAppConectarSheet({ open, onClose, onConnected }: {
   // Código é o método PADRÃO no mobile (sem câmera pra escanear a própria tela).
   const [method, setMethod] = useState<Method>("code");
   const [phone, setPhone] = useState("");
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const bootstrappedKey = useRef<string | null>(null);
@@ -144,18 +145,22 @@ export function WhatsAppConectarSheet({ open, onClose, onConnected }: {
   const qr = payload?.data?.qrCodeDataUrl || null;
   const connected = status === "connected";
   const sessionId = payload?.data?.tenantKey || "";
-  const phoneOk = PAIRING_PHONE_RE.test(phone.trim());
+  // Enquanto o usuário não digitou, mostra o telefone pré-preenchido (entrega
+  // passa o contato da empresa em dígitos locais). Sem useEffect → sem setState
+  // dentro de efeito.
+  const effectiveDigits = phoneTouched ? phone : toLocalDigits(defaultPhoneDigits ?? "");
+  const phoneOk = isBrPhoneComplete(effectiveDigits);
   const canStartQr = !busy && ["offline", "disconnected", "error"].includes(status);
 
   async function generatePairing() {
     if (busy) return;
     if (!sessionId) { setError("Sessão WhatsApp ainda não carregou — clique em Atualizar status."); return; }
-    if (!phoneOk) { setError("Informe o telefone com DDI, ex.: +5519999999999."); return; }
+    if (!phoneOk) { setError("Informe o telefone com DDD, ex.: (19)99702-4884."); return; }
     setBusy(true);
     setError(null);
     setBootstrapMsg(null);
     try {
-      const res = await requestWhatsAppPairingCode(sessionId, phone.trim());
+      const res = await requestWhatsAppPairingCode(sessionId, brPhoneToE164(effectiveDigits));
       setPairing(res);
       if (!res.success || !res.code) {
         setError(res.message || "Não foi possível gerar o código de pareamento.");
@@ -252,9 +257,9 @@ export function WhatsAppConectarSheet({ open, onClose, onConnected }: {
                 <input
                   className="field-dark"
                   inputMode="tel"
-                  placeholder="+5519999999999"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
+                  placeholder="(19)99702-4884"
+                  value={formatBrPhone(effectiveDigits)}
+                  onChange={e => { setPhoneTouched(true); setPhone(toLocalDigits(e.target.value)); }}
                 />
                 {pairing?.code ? (
                   <div className="wa-conectar__codebox">

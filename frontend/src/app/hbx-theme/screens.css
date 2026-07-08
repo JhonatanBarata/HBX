@@ -5372,6 +5372,35 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   white-space: nowrap;
 }
 
+/* Botão ÚNICO de conexão WhatsApp (whatsapp-connect-button.tsx) — entrada
+   padrão em TODOS os modos (mobile atendimento, entrega). Substitui a antiga
+   faixa vermelha de aviso. Block-level centralizado com margens laterais →
+   NÃO transborda no mobile (width:auto + box-sizing). Mesmos tokens do
+   .btn-teal (temado por pele, inclusive entrega via aliases --hbx-*). */
+.wa-connect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: auto;
+  margin: var(--space-2) var(--space-4);
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  color: var(--hbx-action-ink);
+  font-family: var(--font-body);
+  font-size: var(--casca-text-body);
+  font-weight: var(--weight-extrabold, 800);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.wa-connect-btn:hover { background: linear-gradient(135deg, var(--hbx-brand-strong), var(--hbx-secondary)); }
+.wa-connect-btn:active { opacity: 0.9; }
+.wa-connect-btn:disabled { opacity: 0.5; cursor: default; }
+.wa-connect-btn__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ============================================================
    Folha "Conexão WhatsApp" (whatsapp-conectar-sheet.tsx) — reusa o fluxo
    canônico (src/lib/whatsapp-connection-flow.ts), mesma lógica do modal

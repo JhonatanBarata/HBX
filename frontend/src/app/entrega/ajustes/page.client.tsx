@@ -20,8 +20,10 @@ import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFul
 import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, clearToken } from "@/lib/api";
-import { fetchWhatsAppModalQr, fetchWhatsAppModalStatus, requestWhatsAppPairingCode, startWhatsAppModalSession } from "@/lib/whatsapp-connection-flow";
-import type { WhatsAppModalPayload, WhatsAppPairingCodePayload } from "@/lib/whatsapp-center";
+import { fetchWhatsAppModalStatus } from "@/lib/whatsapp-connection-flow";
+import { WhatsAppConnectButton } from "@/components/hbx/whatsapp-connect-button";
+import { WhatsAppConectarSheet } from "@/components/casca/screens/whatsapp-conectar-sheet";
+import { toLocalDigits } from "@/lib/br-phone";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
 import { EntregaScaffold } from "../EntregaScaffold";
@@ -50,8 +52,6 @@ const PREVIEW_VARS = {
   qtd: "3",
   produto: "Galão 20L",
 };
-
-const PAIRING_PHONE_RE = /^\+[1-9]\d{7,14}$/;
 
 type WhatsAppCenterPayload = {
   company?: {
@@ -275,7 +275,9 @@ export function EntregaAjustes() {
               title={waPronto ? undefined : "Conecte o WhatsApp ou a Meta para ativar este aviso"}
             >
               <span className="ent-toggle-label">Avisar o cliente na entrega</span>
-              <span className={`ent-switch${cfg.avisoWhatsEnabled ? " is-on" : ""}`} aria-hidden="true" />
+              {/* Só aparece LIGADO quando há conexão — sem WhatsApp/Meta o aviso não sai,
+                  então não pode parecer ligado (reprova do dono). */}
+              <span className={`ent-switch${cfg.avisoWhatsEnabled && waPronto ? " is-on" : ""}`} aria-hidden="true" />
             </button>
             <div className="ent-hint">{waVerificando ? "Verificando WhatsApp/Meta…" : waMsg}</div>
             <CodigoVinculacaoWhatsApp
@@ -478,134 +480,25 @@ function FecharMesBtn() {
 }
 
 // ── CÓDIGO DE VINCULAÇÃO WHATSAPP ────────────────────────────────────────────
-function CodigoVinculacaoWhatsApp({ sessionId, defaultPhone, onGenerated }: {
+// Wrapper fino: usa o MESMO botão + a MESMA folha de conexão dos outros modos
+// (mobile atendimento). O painel (código/QR/status + máscara BR) vive em
+// WhatsAppConectarSheet; aqui só o disparo. Prefill do telefone = contato da
+// empresa (dígitos locais, sem +55 — o +55 entra no envio).
+function CodigoVinculacaoWhatsApp({ defaultPhone, onGenerated }: {
   sessionId: string;
   defaultPhone: string;
   onGenerated: () => void | Promise<void>;
 }) {
-  const [phone, setPhone] = useState("");
-  const [phoneTouched, setPhoneTouched] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [qrBusy, setQrBusy] = useState(false);
-  const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
-  const [qrPayload, setQrPayload] = useState<WhatsAppModalPayload | null>(null);
-  const [msg, setMsg] = useState<{ text: string; kind: "hint" | "error" } | null>(null);
-  const effectivePhone = phoneTouched ? phone : defaultPhone;
-  const phoneOk = PAIRING_PHONE_RE.test(effectivePhone.trim());
-
-  const gerar = useCallback(async () => {
-    if (busy) return;
-    if (!sessionId) {
-      setMsg({ text: "Sessão WhatsApp ainda não carregou. Atualize a tela e tente de novo.", kind: "error" });
-      return;
-    }
-    if (!phoneOk) {
-      setMsg({ text: "Informe o telefone com DDI, ex.: +5519999999999.", kind: "error" });
-      return;
-    }
-    setBusy(true);
-    setMsg(null);
-    setPairing(null);
-    setQrPayload(null);
-    try {
-      const res = await requestWhatsAppPairingCode(sessionId, effectivePhone.trim());
-      setPairing(res);
-      setMsg({
-        text: res.code ? "Código criado. Digite no WhatsApp do celular." : res.message || "Não foi possível criar o código.",
-        kind: res.code ? "hint" : "error",
-      });
-      await onGenerated();
-    } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : "Falha ao criar o código.", kind: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, effectivePhone, onGenerated, phoneOk, sessionId]);
-
-  const gerarQr = useCallback(async () => {
-    if (qrBusy) return;
-    setQrBusy(true);
-    setMsg(null);
-    setPairing(null);
-    try {
-      const current = await fetchWhatsAppModalStatus().catch(() => null);
-      let res: WhatsAppModalPayload;
-      if (current?.status === "waiting_qr" || current?.status === "starting") {
-        res = await fetchWhatsAppModalQr();
-      } else if (current?.status === "connected") {
-        setQrPayload(current);
-        setMsg({ text: "WhatsApp já está conectado.", kind: "hint" });
-        await onGenerated();
-        return;
-      } else {
-        res = await startWhatsAppModalSession();
-        if ((res.status === "waiting_qr" || res.status === "starting") && !res.data.qrCodeDataUrl) {
-          res = await fetchWhatsAppModalQr().catch(() => res);
-        }
-      }
-      setQrPayload(res);
-      setMsg({
-        text: res.data?.qrCodeDataUrl ? "QR Code criado. Leia pelo WhatsApp do celular." : res.message || "QR solicitado.",
-        kind: res.data?.qrCodeDataUrl ? "hint" : "error",
-      });
-      await onGenerated();
-    } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : "Falha ao criar QR Code.", kind: "error" });
-    } finally {
-      setQrBusy(false);
-    }
-  }, [onGenerated, qrBusy]);
-
+  const [open, setOpen] = useState(false);
   return (
     <div className="ent-link-code">
-      <label className="ent-field">
-        <span className="ent-field-label">Telefone do WhatsApp</span>
-        <input
-          className="ent-input"
-          type="tel"
-          inputMode="tel"
-          placeholder="+5519999999999"
-          autoComplete="tel"
-          value={effectivePhone}
-          onChange={(e) => {
-            setPhoneTouched(true);
-            setPhone(e.target.value);
-          }}
-          aria-label="Telefone para criar código de vinculação do WhatsApp"
-        />
-      </label>
-      {pairing?.code ? (
-        <div className="ent-code-box">
-          <span className="ent-code">{pairing.code}</span>
-          <span className="ent-hint">Válido por {pairing.expiresInSeconds}s</span>
-        </div>
-      ) : null}
-      {qrPayload?.data?.qrCodeDataUrl ? (
-        <div className="ent-code-box">
-          {/* eslint-disable-next-line @next/next/no-img-element -- QR vem pronto do backend */}
-          <img className="ent-link-qr" src={qrPayload.data.qrCodeDataUrl} alt="QR Code do WhatsApp" />
-          <span className="ent-hint">Abra o WhatsApp no celular e leia este QR.</span>
-        </div>
-      ) : null}
-      {msg ? <div className={msg.kind === "hint" ? "ent-hint" : "ent-erro"}>{msg.text}</div> : null}
-      <div className="ent-link-actions">
-        <button
-          type="button"
-          className="ent-btn ent-btn--secondary"
-          onClick={() => void gerar()}
-          disabled={busy || qrBusy || !sessionId || !phoneOk}
-        >
-          {busy ? "Criando…" : pairing?.code ? "Criar novo código de vinculação" : "Criar código de vinculação"}
-        </button>
-        <button
-          type="button"
-          className="ent-btn ent-btn--secondary"
-          onClick={() => void gerarQr()}
-          disabled={busy || qrBusy}
-        >
-          {qrBusy ? "Gerando…" : qrPayload?.data?.qrCodeDataUrl ? "Gerar novo QR Code" : "Gerar QR Code"}
-        </button>
-      </div>
+      <WhatsAppConnectButton onClick={() => setOpen(true)} />
+      <WhatsAppConectarSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        onConnected={() => { setOpen(false); void onGenerated(); }}
+        defaultPhoneDigits={toLocalDigits(defaultPhone)}
+      />
     </div>
   );
 }

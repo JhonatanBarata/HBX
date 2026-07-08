@@ -30,6 +30,7 @@ import {
   isNovaConversa,
   type InboxConversation,
 } from "./conversas-types";
+import { WhatsAppConnectButton } from "@/components/hbx/whatsapp-connect-button";
 import { WhatsAppConectarSheet } from "./whatsapp-conectar-sheet";
 
 type Tab = "todas" | "naolidas" | "bot";
@@ -160,15 +161,7 @@ export function ConversasLista({
     <>
     <div className="cvs-m__body">
       {chipFaixaMsg ? (
-        <button
-          type="button"
-          className="cvs-m__faixa cvs-m__faixa-btn"
-          onClick={() => setConectarOpen(true)}
-        >
-          <span className="cvs-m__faixa-dot" aria-hidden="true" />
-          <span className="cvs-m__faixa-text">WhatsApp {chipFaixaMsg.toLowerCase()} — mensagens podem não sair.</span>
-          <span className="cvs-m__faixa-cta">Conectar</span>
-        </button>
+        <WhatsAppConnectButton onClick={() => setConectarOpen(true)} />
       ) : null}
 
       {/* FIX4: painel de comando único (.casca-command, casca.css) — mesmo
