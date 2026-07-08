@@ -62,6 +62,11 @@ export const IC_BOLT      = ["M13 2 4 14h7l-1 8 10-12h-9l1-8Z"];
 export const IC_CUBE      = ["M12 2 21 7v10l-9 5-9-5V7l9-5Z", "M3.3 7.2 12 12l8.7-4.8", "M12 12v10"];
 export const IC_CHECK     = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8.4 12l2.4 2.4 4.8-5"];
 export const IC_BARS      = ["M4 19V5", "M4 19h16", "M8 19v-6", "M13 19V9", "M18 19v-4"];
+// Ícones da explicação de créditos (carteira + landing) — mesma família 24×24.
+export const IC_SEARCH    = ["M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z", "m21 21-4.3-4.3"];
+export const IC_REFRESH   = ["M21 12a9 9 0 1 1-3-6.7", "M21 4v5h-5"];
+export const IC_CAL       = ["M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z", "M4 9h16", "M9 3v4", "M15 3v4"];
+export const IC_WALLET    = ["M20 7H5a2 2 0 0 1-2-2 2 2 0 0 1 2-2h13v4", "M3 5v13a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H3", "M16 13h.01"];
 export const IC_LOGOS     = [
   ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z"],
   ["M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Z", "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M17 7h.01"],

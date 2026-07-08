@@ -17,12 +17,13 @@ import { LegalModal, type LegalKind } from "@/components/hbx/legal-modal";
 import { RegisterPanel } from "@/app/register/page.client";
 import {
   FALLBACK_PLANS, PLAN_ORDER, PLAN_STATIC, IC_BARS, IC_CHECK,
-  fetchPublicPlans, getPlanFallback,
+  IC_CAL, IC_REFRESH, IC_SEARCH, IC_TARGET,
+  fetchPublicPlans, formatBRL, getPlanFallback,
   type PublicPlan,
 } from "@/lib/plans";
 import { PlanCard } from "@/components/hbx/plan-card";
 import { PlanDetailCard } from "@/components/hbx/plan-detail-card";
-import { fetchCreditStorefront } from "@/lib/credits-storefront";
+import { fetchCreditStorefront, type CreditPackPublic } from "@/lib/credits-storefront";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 // Login saiu da casca (16/06): a view "entrar" foi removida — "Entrar" agora abre
@@ -102,6 +103,30 @@ function Ic({ paths }: { paths: string[] }) {
   );
 }
 
+// ── Explicação pública de créditos (cena planos do modelo grátis, 07/07) ──────
+// Mesma história contada na carteira logada (credits-wallet-section): honesta
+// com o backend — débito só na entrega, estorno on-failure, FIFO por validade.
+const SITE_CREDITS_HOW = [
+  { ic: IC_SEARCH, t: "Buscar é grátis", d: "Pesquise e filtre empresas à vontade. Procurar não gasta crédito." },
+  { ic: IC_TARGET, t: "1 crédito = 1 lead", d: "Só desconta quando um lead novo é entregue e validado na sua lista." },
+  { ic: IC_REFRESH, t: "Falhou, voltou", d: "Entrega que falha é estornada na hora. Saldo nunca fica negativo." },
+  { ic: IC_CAL, t: "Validade por lote", d: "Cada recarga tem prazo próprio; o sistema gasta primeiro o que vence antes." },
+];
+const SITE_CREDITS_FAQ: Array<{ q: string; a: string }> = [
+  {
+    q: "Preciso de cartão pra começar?",
+    a: "Não. O cadastro é grátis: confirmando email e telefone, seus créditos de boas-vindas entram na hora — sem cartão, sem mensalidade e sem fidelidade.",
+  },
+  {
+    q: "O que gasta e o que não gasta crédito?",
+    a: "Gasta: receber um lead novo, entregue e validado, na sua lista (1 crédito por lead — e cada lead é cobrado uma única vez). Não gasta: buscar, filtrar, conversar, agendar retorno e usar o funil.",
+  },
+  {
+    q: "Créditos expiram?",
+    a: "Cada lote tem validade própria, mostrada no pacote. O sistema consome primeiro os créditos que vencem primeiro — nada morre na mão à toa.",
+  },
+];
+
 function DiaNoite() {
   const mode = useSyncExternalStore(
     subscribeToThemeMode,
@@ -148,6 +173,10 @@ export function MarketingClient() {
   // → mantém a vitrine de planos de hoje intacta (regressão zero).
   const [creditsEnabled, setCreditsEnabled] = useState(false);
   const [welcomeCredits, setWelcomeCredits] = useState(0);
+  // Pacotes de recarga públicos (mesmo /credits/public-catalog): a vitrine mostra
+  // preço/validade com transparência (padrão da categoria — CNPJ Biz e afins);
+  // pack `paused` aparece embaçado "Em breve" (dono ainda não cravou preço).
+  const [creditPacks, setCreditPacks] = useState<CreditPackPublic[]>([]);
   // Modelo grátis: nem o cadastro nem o card Company/Implantação usam a
   // esteira animada de planos (não existe mais escolha de plano) — cada um
   // só abre a tela seguinte direto (sem plano pra "escolher").
@@ -159,6 +188,7 @@ export function MarketingClient() {
       if (!alive) return;
       setCreditsEnabled(sf.enabled);
       setWelcomeCredits(sf.welcomeCredits);
+      setCreditPacks(Array.isArray(sf.packs) ? sf.packs : []);
     });
     return () => { alive = false; };
   }, []);
@@ -883,7 +913,7 @@ export function MarketingClient() {
               <>
                 <span className="site-eyebrow">Cadastro grátis</span>
                 <h2 className="site-esteira-title">Cadastre-se <span className="site-accent">grátis</span>.</h2>
-                <p className="site-sub">Confirme email e telefone e ganhe {welcomeCredits} créditos. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</p>
+                <p className="site-sub">Ganhe {welcomeCredits} créditos confirmando email e telefone — sem cartão e sem mensalidade. Recarregue só quando precisar.</p>
                 <div className="site-plans site-plans--free">
                   <div className="site-plan2">
                     <span className="site-plan2__ic"><Ic paths={PLAN_STATIC.hbx_padrao.ic} /></span>
@@ -905,6 +935,49 @@ export function MarketingClient() {
                     cta={<div className="site-plan2__cta">{PLAN_STATIC.hbx_melhor.cta}</div>}
                   />
                 </div>
+
+                {/* Explicação de créditos (07/07): mesma tela, sem sair da cena —
+                    4 regras + pacotes públicos + FAQ. Pacote paused = "Em breve". */}
+                <h3 className="site-credits-title">Como funcionam os <span className="site-accent">créditos</span></h3>
+                <div className="site-credits-how">
+                  {SITE_CREDITS_HOW.map((item) => (
+                    <div key={item.t} className="site-credits-how__item">
+                      <span className="site-credits-how__ic"><Ic paths={item.ic} /></span>
+                      <span className="site-credits-how__t">{item.t}</span>
+                      <span className="site-credits-how__d">{item.d}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {creditPacks.length > 0 && (
+                  <>
+                    <h3 className="site-credits-title">Recargas <span className="site-accent">sem assinatura</span></h3>
+                    <p className="site-credits-sub">Acabaram os créditos? Recarregue na hora, só quando precisar — o preço por lead cai conforme o pacote.</p>
+                    <div className="site-credits-packs">
+                      {creditPacks.map((p) => (
+                        <div key={p.key} className={"site-credits-pack" + (p.recommended ? " is-best" : "") + (p.paused ? " is-paused" : "")}>
+                          {p.paused && <span className="site-credits-pack__paused">Em breve</span>}
+                          {p.badge && <span className="site-credits-pack__badge">{p.badge}</span>}
+                          <span className="site-credits-pack__credits"><b>{p.credits.toLocaleString("pt-BR")}</b><em>créditos</em></span>
+                          <span className="site-credits-pack__price">{formatBRL(p.price)}</span>
+                          {p.credits > 0 && p.price > 0 && (
+                            <span className="site-credits-pack__unit">{formatBRL(p.price / p.credits)} por lead · {p.expiryDays} dias</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <div className="site-credits-faq">
+                  {SITE_CREDITS_FAQ.map((item) => (
+                    <details key={item.q}>
+                      <summary>{item.q}</summary>
+                      <p>{item.a}</p>
+                    </details>
+                  ))}
+                </div>
+                <p className="site-credits-note">Precisa de implantação assistida, Recovery e integração com o seu ERP? Esse é o HBX Company — toque no card e fale com um especialista.</p>
               </>
             )}
             {freeImplantacaoOpen && (

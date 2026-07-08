@@ -90,3 +90,7 @@
    dashboard (nenhuma regra fora do escopo); as peles velhas não entram
    no app (o wrapper redefine as próprias CSS vars). Ver entrega.css. */
 @import "./hbx-theme/entrega.css";
+
+/* CRÉDITOS — vitrine da carteira (Configurações → Créditos) + explicação
+   pública na landing (cena de planos do modelo grátis). Ver creditos.css. */
+@import "./hbx-theme/creditos.css";
