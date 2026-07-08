@@ -64,7 +64,11 @@ html, body { margin: 0; }
    intenção: Informações/Comunicação/Cadastros/Facilidades/Logística).
    Estrutural só: tamanho+espaçamento próprios, cor vem de --text-muted (mesmo
    token do resto do kit, nunca hex solto). Primeiro grupo não empurra a logo. */
-.nav-group-label { max-height: 40px; padding: 10px 11px 2px; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow: hidden; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast), padding var(--motion-base) var(--ease-out-quint); }
+/* flex-shrink:0 é o que importa aqui (bug achado testando 07/07): o overflow:hidden
+   da transição vira "elegível pra encolher" pro flex column .side — sem o shrink:0,
+   quando a lista de módulos não cabe no rail, o navegador espreme o rótulo até sumir
+   (o texto virava um tracinho residual) em vez de deixar o `.side` rolar. */
+.nav-group-label { flex-shrink: 0; max-height: 40px; padding: 10px 11px 2px; font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); overflow: hidden; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast), padding var(--motion-base) var(--ease-out-quint); }
 .nav-group-label:first-child { padding-top: 2px; }
 /* Ida e volta do recolhe/expande (07/07): padding+gap animam junto com o rail
    (mesma easing do grid-template-columns em .app) — sem isso os ícones "pulavam"
