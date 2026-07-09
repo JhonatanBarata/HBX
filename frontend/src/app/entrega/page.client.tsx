@@ -243,11 +243,19 @@ export function EntregaHome() {
   // (onIniciar/onEntregue setam só o flag — a lista `abertas` é derivada de
   // estado assíncrono, então o efeito espera o render onde ela já chegou).
   useEffect(() => {
-    if (!autoNavPendente || !paradaAtual) return;
+    if (!autoNavPendente) return;
+    if (!paradaAtual) {
+      // Confirmou a ÚLTIMA parada do dia: não há próxima e não vai ter — a
+      // lista `abertas`/`paradaAtual` já é a final aqui (efeito roda pós-
+      // `await carregar()`). Sem limpar, o flag ficaria pendente pra sempre e
+      // um lote novo de entregas (GestaoDia) disparava o countdown do nada
+      // na tela "Hoje". Deferido (callback, não síncrono no corpo do efeito)
+      // — mesmo padrão do ramo abaixo.
+      const t = window.setTimeout(() => setAutoNavPendente(null), 0);
+      return () => window.clearTimeout(t);
+    }
     const rotulo = autoNavPendente;
     const paradaId = paradaAtual.id;
-    // Deferido (callback, não síncrono no corpo do efeito) — mesmo padrão do
-    // countdown abaixo.
     const t = window.setTimeout(() => {
       setAutoNav({ paradaId, rotulo, n: AUTO_NAV_COUNTDOWN_N, manual: false });
       setAutoNavPendente(null);
@@ -258,26 +266,47 @@ export function EntregaHome() {
   // Tenta abrir o Maps da parada do countdown. Sucesso fecha o overlay; falha
   // (bloqueador de pop-up — sem gesto do usuário) vira modo `manual`: um botão
   // grande primário, porque O CLIQUE nele TEM gesto e o window.open funciona.
-  const tentarAbrirAutoNav = useCallback(() => {
-    setAutoNav((prev) => {
-      if (!prev) return prev;
-      const parada = abertas.find((p) => p.id === prev.paradaId);
-      if (!parada) return null; // parada sumiu da lista (ex.: cancelada em outro dispositivo)
-      const janela = window.open(mapsHref(parada.cliente), "_blank", "noopener");
-      if (janela) return null;
-      if (prev.manual) return prev; // já em modo manual: só re-tentativa do próprio clique
+  // Recebe o AutoNav atual por parâmetro em vez de ler dentro de um updater
+  // de setState: updater tem que ser puro (StrictMode/replays podem invocar
+  // 2×, o que abriria 2 abas) — window.open/buzz/beep viram efeito colateral
+  // FORA do setAutoNav, que aqui só recebe o resultado já decidido.
+  const tentarAbrirAutoNav = useCallback(
+    (atual: AutoNav) => {
+      const parada = abertas.find((p) => p.id === atual.paradaId);
+      if (!parada) {
+        setAutoNav(null); // parada sumiu da lista (ex.: cancelada em outro dispositivo)
+        return;
+      }
+      // SEM a feature "noopener": por spec (MDN), window.open com noopener
+      // retorna null MESMO EM SUCESSO — sempre cairia no modo manual/buzz
+      // mesmo com o Maps aberto de verdade. Sem a feature o retorno volta a
+      // ser confiável (janela = sucesso, null = bloqueado); corta o vínculo
+      // na mão pra manter o isolamento que o noopener dava.
+      const janela = window.open(mapsHref(parada.cliente), "_blank");
+      if (janela) {
+        try {
+          janela.opener = null;
+        } catch {
+          /* best-effort */
+        }
+        setAutoNav(null);
+        return;
+      }
+      if (atual.manual) return; // já em modo manual: só re-tentativa do próprio clique
       buzz([30, 60, 30]);
       beep();
-      return { ...prev, manual: true };
-    });
-  }, [abertas]);
+      setAutoNav({ ...atual, manual: true });
+    },
+    [abertas],
+  );
 
   useEffect(() => {
     if (!autoNav || autoNav.manual) return;
     if (autoNav.n <= 0) {
       // Deferido (mesmo padrão do tick abaixo): setState só dentro do callback,
       // nunca síncrono no corpo do efeito.
-      const t = window.setTimeout(() => tentarAbrirAutoNav(), 0);
+      const atual = autoNav;
+      const t = window.setTimeout(() => tentarAbrirAutoNav(atual), 0);
       return () => window.clearTimeout(t);
     }
     const t = window.setTimeout(() => {
@@ -584,7 +613,7 @@ export function EntregaHome() {
           aria-live="assertive"
           aria-label={autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
           onClick={() => {
-            if (!autoNav.manual) tentarAbrirAutoNav();
+            if (!autoNav.manual) tentarAbrirAutoNav(autoNav);
           }}
         >
           <div className="ent-countdown-card">
@@ -597,7 +626,7 @@ export function EntregaHome() {
                 className="ent-btn ent-btn--primary"
                 onClick={(e) => {
                   e.stopPropagation();
-                  tentarAbrirAutoNav();
+                  tentarAbrirAutoNav(autoNav);
                 }}
               >
                 Abrir navegador
