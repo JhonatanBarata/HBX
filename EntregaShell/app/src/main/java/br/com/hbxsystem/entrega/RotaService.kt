@@ -187,15 +187,23 @@ class RotaService : Service() {
 
     private fun onChegada(alvo: Parada) {
         falar(alvo.nome)
-        notificarChegadaHeadsUp(alvo)
-        if (Settings.canDrawOverlays(this)) {
-            try {
-                val intent = Intent(this, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        // Estilo Uber: só "slama" o takeover quando o motorista está FORA do app
+        // (Maps, tela bloqueada, outro app). Com o HBX em foreground, o próprio
+        // web abre a folha na hora (ver RotaState.notificarChegada abaixo) — nada
+        // de Activity nova por cima de quem já está olhando o app.
+        if (!RotaState.temListenerAtivo()) {
+            notificarChegadaHeadsUp(alvo)
+            if (Settings.canDrawOverlays(this)) {
+                try {
+                    val intent = Intent(this, ChegadaActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        putExtra(ChegadaActivity.EXTRA_NOME, alvo.nome)
+                        putExtra(ChegadaActivity.EXTRA_PARADA_ID, alvo.id)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    /* fica só a heads-up */
                 }
-                startActivity(intent)
-            } catch (e: Exception) {
-                /* fica só a heads-up */
             }
         }
         RotaState.notificarChegada(alvo.id)
@@ -211,8 +219,10 @@ class RotaService : Service() {
 
     private fun notificarChegadaHeadsUp(alvo: Parada) {
         try {
-            val activityIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            val activityIntent = Intent(this, ChegadaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(ChegadaActivity.EXTRA_NOME, alvo.nome)
+                putExtra(ChegadaActivity.EXTRA_PARADA_ID, alvo.id)
             }
             val pendingActivity = PendingIntent.getActivity(
                 this,

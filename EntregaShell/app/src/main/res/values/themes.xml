@@ -12,4 +12,11 @@
         <item name="windowNoTitle">true</item>
     </style>
 
+    <!-- Tela de takeover de chegada (ChegadaActivity) — full-screen, sem status/nav
+         bar (o resto é escondido em runtime via WindowInsetsControllerCompat). -->
+    <style name="Theme.EntregaShell.Chegada" parent="Theme.EntregaShell.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+
 </resources>

@@ -1,6 +1,7 @@
 package br.com.hbxsystem.entrega
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -41,6 +42,11 @@ class MainActivity : AppCompatActivity() {
     // sem esta trava, todo onResume re-abria as configurações pra quem negou —
     // pingue-pongue app↔configurações que impedia de usar o app.
     private var overlayJaPedido = false
+
+    // Mesmo padrão do overlay acima, pro full-screen-intent do Android 14+ (best-
+    // effort: o overlay já é o caminho principal do takeover de chegada, isto é
+    // só reforço pra quando ele não estiver concedido).
+    private var fullScreenIntentJaPedido = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -158,6 +164,32 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 // alguns fabricantes não têm essa tela — segue sem "trazer pra frente"
             }
+            return // 1 tela de configuração por vez, igual ao bloco de cima
+        }
+        pedirFullScreenIntentSeNecessario()
+    }
+
+    /**
+     * Android 14+ pode exigir permissão explícita pra notificação full-screen-intent
+     * "slamar" a tela sozinha. O overlay (acima) já é o caminho principal do takeover
+     * de chegada — isto é só reforço best-effort, pedido no máximo 1x por processo
+     * (mesmo padrão do overlay; não entra no INSTALAR.md, não é obrigatório).
+     */
+    private fun pedirFullScreenIntentSeNecessario() {
+        if (fullScreenIntentJaPedido) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (nm.canUseFullScreenIntent()) return
+        fullScreenIntentJaPedido = true
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (e: Exception) {
+            // fabricante sem essa tela — o overlay já cobre o slam principal
         }
     }
 }

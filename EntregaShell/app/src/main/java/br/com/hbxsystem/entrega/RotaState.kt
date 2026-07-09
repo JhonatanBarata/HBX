@@ -66,6 +66,13 @@ object RotaState {
         listener = l
     }
 
+    /**
+     * true = MainActivity está resumida (HBX em foreground). Usado pelo RotaService
+     * pra decidir se "slama" o takeover (ChegadaActivity) ou deixa o próprio web
+     * abrir a folha na hora (motorista já está olhando o app).
+     */
+    fun temListenerAtivo(): Boolean = listener != null
+
     /** Chamado pelo RotaService ao detectar uma chegada (1x por parada.id). */
     fun notificarChegada(paradaId: String) {
         val l = listener
