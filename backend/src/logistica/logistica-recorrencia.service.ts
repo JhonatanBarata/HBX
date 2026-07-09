@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolvePrincipalContatoId } from './logistica-contato.util';
 
 // "Cron" caseiro (o repo não usa @nestjs/schedule): varre 1×/dia + 1 passada
 // atrasada no boot. INERTE por default — só toca empresas que ligaram
@@ -335,10 +336,26 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
         const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
 
+        // BUGFIX (09/07) — BUG 1: a Entrega nascia com contatoId=null; sem contato
+        // gravado, o aviso "entregue" caía no CustomerProfile.phone (podendo estar
+        // desatualizado — caso Josefino: o WhatsApp certo estava no Contato principal,
+        // não no telefone da conta). Resolve o contato principal/mais-recente ANTES
+        // de criar a Entrega — best-effort: falha aqui não pode travar o gerar-dia
+        // (contatoId fica null, dispararWhatsappEntregue tem seu próprio fallback).
+        let contatoId: string | null = null;
+        try {
+          contatoId = await resolvePrincipalContatoId(this.prisma as any, companyId, customerProfileId);
+        } catch (e: any) {
+          this.logger.warn(
+            `[logistica] gerar-dia resolvePrincipalContato cliente=${customerProfileId} falhou: ${String(e?.message || e)}`,
+          );
+        }
+
         await this.prisma.entrega.create({
           data: {
             companyId,
             customerProfileId,
+            contatoId,
             // productId escalar legado = o do 1º vínculo (backward-compat N6; o
             // N6 real — montarVarsAviso/listRota — já prioriza `itens` sobre este
             // campo quando `itens.length > 0`, que é sempre o caso aqui).

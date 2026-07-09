@@ -18,7 +18,9 @@ import {
 // ── mock mínimo do Prisma p/ gerarDia ────────────────────────────────────────
 // Simula a persistência: entregas ficam num array; o findFirst de idempotência
 // enxerga o que já foi criado NAQUELE dia (mesmo comportamento do índice real).
-function buildPrismaMock(vinculos: any[]) {
+// BUGFIX (09/07) — BUG 1: `contatos` é a "tabela" injetável de Contato (isPrincipal
+// + updatedAt), lida por resolvePrincipalContatoId ao criar a Entrega.
+function buildPrismaMock(vinculos: any[], contatos: any[] = []) {
   const entregas: any[] = [];
   const cpUpdates: any[] = [];
   const itensCriados: any[] = [];
@@ -27,6 +29,22 @@ function buildPrismaMock(vinculos: any[]) {
 
   const cpDeletes: string[] = [];
   const prisma: any = {
+    contato: {
+      findFirst: async (args: any) => {
+        const w = args?.where || {};
+        const candidatos = contatos.filter(
+          (c) =>
+            c.companyId === w.companyId &&
+            c.customerProfileId === w.customerProfileId &&
+            (w.isPrincipal === undefined || c.isPrincipal === w.isPrincipal),
+        );
+        if (candidatos.length === 0) return null;
+        if (args?.orderBy?.updatedAt === 'desc') {
+          return [...candidatos].sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0))[0];
+        }
+        return candidatos[0];
+      },
+    },
     clienteProduto: {
       findMany: async (_args: any) => vinculosState,
       // findFirst company-scoped (usado por remove): só acha se id E companyId batem.
@@ -176,6 +194,88 @@ test('gerarDia: 2 chamadas no mesmo dia = 1 entrega por cliente (idempotente)', 
   assert.equal(itensCriados.length, 1);
   assert.equal(itensCriados[0].qtdPrevista, 2);
   assert.equal(itensCriados[0].valorUnit, 15);
+});
+
+// ── 1b) BUG 1 (09/07, incidente Josefino) — contatoId resolvido ao criar ──────
+// Antes do fix, a Entrega nascia SEMPRE com contatoId=null; o aviso "entregue"
+// caía direto no CustomerProfile.phone (podendo estar desatualizado). Agora
+// gerarDia resolve o contato PRINCIPAL (ou o mais recente, na ausência de um
+// principal) e grava em Entrega.contatoId.
+test('gerarDia: resolve o Contato PRINCIPAL e grava em Entrega.contatoId', async () => {
+  const dia = '2026-07-06';
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: 10,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', precoPadrao: null },
+    },
+  ];
+  const contatos = [
+    { id: 'contato-velho', companyId: 1, customerProfileId: 'conta-1', isPrincipal: false, updatedAt: new Date('2026-06-01') },
+    { id: 'contato-principal', companyId: 1, customerProfileId: 'conta-1', isPrincipal: true, updatedAt: new Date('2026-06-15') },
+  ];
+  const { prisma, entregas } = buildPrismaMock(vinculos, contatos);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 1);
+  assert.equal(entregas[0].contatoId, 'contato-principal', 'usa o contato marcado isPrincipal, não o mais antigo');
+});
+
+test('gerarDia: sem contato PRINCIPAL, usa o mais recente (updatedAt desc)', async () => {
+  const dia = '2026-07-06';
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: 10,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', precoPadrao: null },
+    },
+  ];
+  const contatos = [
+    { id: 'contato-antigo', companyId: 1, customerProfileId: 'conta-1', isPrincipal: false, updatedAt: new Date('2026-06-01') },
+    { id: 'contato-recente', companyId: 1, customerProfileId: 'conta-1', isPrincipal: false, updatedAt: new Date('2026-07-01') },
+  ];
+  const { prisma, entregas } = buildPrismaMock(vinculos, contatos);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 1);
+  assert.equal(entregas[0].contatoId, 'contato-recente');
+});
+
+test('gerarDia: cliente SEM nenhum contato → contatoId fica null (fallback do dispararWhatsapp decide)', async () => {
+  const dia = '2026-07-06';
+  const vinculos = [
+    {
+      id: 'cp-1',
+      customerProfileId: 'conta-1',
+      productId: 10,
+      qtdPadrao: 1,
+      precoAcordado: 10,
+      frequenciaDias: null,
+      diasSemana: '1',
+      proximaData: null,
+      product: { id: 10, price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas } = buildPrismaMock(vinculos, []);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 1);
+  assert.equal(entregas[0].contatoId, null);
 });
 
 // ── 3) frequência 7d avança proximaData ───────────────────────────────────────

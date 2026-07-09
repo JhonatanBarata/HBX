@@ -36,8 +36,13 @@ function buildPrismaMock(
   entrega: any,
   conta: any,
   entregaItens: any[] = [],
-  opts: { products?: any[]; clienteProdutos?: any[] } = {},
+  opts: { products?: any[]; clienteProdutos?: any[]; contatos?: any[] } = {},
 ) {
+  // BUGFIX (09/07) — BUG 1b: `contatos` é a "tabela" injetável usada pelo fallback
+  // defense-in-depth do dispararWhatsappEntregue (resolvePrincipalContato) quando a
+  // Entrega chega sem contatoId. Default [] preserva o comportamento anterior dos
+  // testes já existentes (contato.findFirst devolve null → cai no phone da conta).
+  const contatos = opts.contatos ?? [];
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
   const masterEvents: any[] = [];
@@ -137,7 +142,24 @@ function buildPrismaMock(
       },
     },
     contato: {
-      findFirst: async () => null,
+      // Reflete tanto o lookup DIRETO por id (`entrega.contatoId` já resolvido)
+      // quanto a resolução do PRINCIPAL/mais-recente (fallback BUG 1b) — o mesmo
+      // shape de argumentos que resolvePrincipalContato/dispararWhatsappEntregue usam.
+      findFirst: async (args: any) => {
+        const w = args?.where || {};
+        if (w.id) return contatos.find((c) => c.id === w.id && c.companyId === w.companyId) ?? null;
+        const candidatos = contatos.filter(
+          (c) =>
+            c.companyId === w.companyId &&
+            c.customerProfileId === w.customerProfileId &&
+            (w.isPrincipal === undefined || c.isPrincipal === w.isPrincipal),
+        );
+        if (candidatos.length === 0) return null;
+        if (args?.orderBy?.updatedAt === 'desc') {
+          return [...candidatos].sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0))[0];
+        }
+        return candidatos[0];
+      },
     },
     financeiroCharge: {
       // idempotência dura: já existe charge desta entrega?
@@ -280,6 +302,122 @@ test('confirmarEntrega: flag ON (avulso) → WhatsApp blindado 1x + 1 charge LIN
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── BUGFIX (09/07, incidente Josefino) — BUG 2: E.164 BR antes de enfileirar ──
+// O caso real em prod: CustomerProfile.phone gravado como dígitos crus SEM o país
+// ("19996015804") saía pro Webwhats como "+19996015804" (sem 55) → Bad Request.
+test('confirmarEntrega: telefone da conta SEM 55 (dígitos crus) → normaliza para +55 antes de enfileirar', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega({ contatoId: null }),
+    // Igual ao caso Josefino: phone/phoneNormalized SEM o 55 (11 dígitos crus).
+    { id: 'conta-1', name: 'Dona Maria', phone: '19996015804', phoneNormalized: '19996015804', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.to, '+5519996015804', 'ganha o 55 (era +19996015804, recusado pelo Webwhats)');
+  assert.equal(calls[0].payload.contactId, '+5519996015804');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('confirmarEntrega: telefone JÁ com 55 não duplica o DDI', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega({ contatoId: null }),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5519997024884', phoneNormalized: '5519997024884', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.to, '+5519997024884');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── BUGFIX (09/07) — BUG 1b: defense-in-depth quando a Entrega chega sem contatoId ─
+// Entrega LEGADA (contatoId=null, dado de antes do fix do BUG 1) — em vez de cair
+// direto no telefone (possivelmente desatualizado) da CONTA, primeiro tenta o
+// Contato PRINCIPAL da conta. É o caso Josefino: CustomerProfile.phone tinha o
+// número VELHO; o Contato principal tinha o número CERTO editado pelo dono.
+test('confirmarEntrega: entrega sem contatoId → usa o Contato PRINCIPAL, não o telefone (talvez velho) da conta', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega({ contatoId: null }),
+    {
+      id: 'conta-1',
+      name: 'Josefino',
+      phone: '19996015804', // número VELHO da conta (o bug mandava pra cá)
+      phoneNormalized: '19996015804',
+      formaPagamento: 'avulso',
+      contabilizar: true,
+      avisarEntrega: true,
+    },
+    [],
+    {
+      contatos: [
+        {
+          id: 'contato-principal',
+          companyId: 1,
+          customerProfileId: 'conta-1',
+          isPrincipal: true,
+          nome: 'Josefino (WhatsApp certo)',
+          whatsapp: '19997024884', // número CERTO editado pelo dono
+          phone: null,
+          updatedAt: new Date('2026-07-01'),
+        },
+      ],
+    },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.to, '+5519997024884', 'usa o WhatsApp do contato principal (certo), normalizado');
+});
+
+test('confirmarEntrega: sem contatoId E sem NENHUM contato cadastrado → cai no telefone da conta (último recurso)', async () => {
+  const { prisma } = buildPrismaMock(
+    buildEntrega({ contatoId: null }),
+    { id: 'conta-1', name: 'Dona Maria', phone: '19996015804', phoneNormalized: '19996015804', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+    [],
+    { contatos: [] },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+  delete process.env.HBX_LOGISTICA_ENABLED;
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.to, '+5519996015804', 'sem contato nenhum, cai no telefone da conta (normalizado)');
 });
 
 // M5 — o 2-níveis de aviso é FREIO do WhatsApp: com a flag ON, se resolverAviso

@@ -1852,3 +1852,83 @@ test('reaper: mensagem PENDING normal não entra na varredura (findMany já filt
   assert.equal(outboundAttemptUpdateCalls.length, 0);
   assert.equal(companyMessageUpdateManyCalls.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// BUGFIX (09/07, incidente Josefino) — BUG 3: syncLogisticaEntregaWhatsappOutcome
+// espelha o desfecho REAL (SENT/FAILED) do sendOne na Entrega.whatsappStatus.
+// Testado direto (método privado) em vez de simular o worker sendOne inteiro
+// (webwhats bridge, throttle, etc.) — o que importa aqui é o CONTRATO: no-op
+// fora da logística, grava o desfecho quando é da logística, nunca lança.
+// ---------------------------------------------------------------------------
+
+function createServiceForLogisticaSyncTest() {
+  const entregaUpdateCalls: any[] = [];
+  const { service } = createService({
+    prisma: {
+      entrega: {
+        update: async (args: any) => {
+          entregaUpdateCalls.push(args);
+          return { id: args.where.id, ...args.data };
+        },
+      },
+    },
+  });
+  return { service, entregaUpdateCalls };
+}
+
+test('syncLogisticaEntregaWhatsappOutcome: no-op quando variables.module não é logistica', async () => {
+  const { service, entregaUpdateCalls } = createServiceForLogisticaSyncTest();
+  await (service as any).syncLogisticaEntregaWhatsappOutcome(
+    { module: 'vendas_prospeccao_bot', entregaId: 'entrega-1' },
+    'enviado',
+  );
+  assert.equal(entregaUpdateCalls.length, 0, 'outbound de outro módulo não deve tocar Entrega');
+});
+
+test('syncLogisticaEntregaWhatsappOutcome: no-op quando falta entregaId', async () => {
+  const { service, entregaUpdateCalls } = createServiceForLogisticaSyncTest();
+  await (service as any).syncLogisticaEntregaWhatsappOutcome({ module: 'logistica' }, 'enviado');
+  assert.equal(entregaUpdateCalls.length, 0);
+});
+
+test('syncLogisticaEntregaWhatsappOutcome: SENT real → grava whatsappStatus=enviado, motivo null', async () => {
+  const { service, entregaUpdateCalls } = createServiceForLogisticaSyncTest();
+  await (service as any).syncLogisticaEntregaWhatsappOutcome(
+    { module: 'logistica', event: 'entregue', entregaId: 'entrega-42' },
+    'enviado',
+  );
+  assert.equal(entregaUpdateCalls.length, 1);
+  assert.equal(entregaUpdateCalls[0].where.id, 'entrega-42');
+  assert.equal(entregaUpdateCalls[0].data.whatsappStatus, 'enviado');
+  assert.equal(entregaUpdateCalls[0].data.whatsappMotivo, null);
+});
+
+test('syncLogisticaEntregaWhatsappOutcome: FAILED real (ex.: "Webwhats Bad Request") → grava falhou + motivo', async () => {
+  const { service, entregaUpdateCalls } = createServiceForLogisticaSyncTest();
+  await (service as any).syncLogisticaEntregaWhatsappOutcome(
+    { module: 'logistica', event: 'entregue', entregaId: 'entrega-42' },
+    'falhou',
+    'Webwhats Bad Request',
+  );
+  assert.equal(entregaUpdateCalls.length, 1);
+  assert.equal(entregaUpdateCalls[0].data.whatsappStatus, 'falhou');
+  assert.equal(entregaUpdateCalls[0].data.whatsappMotivo, 'Webwhats Bad Request');
+});
+
+test('syncLogisticaEntregaWhatsappOutcome: falha do prisma.entrega.update NUNCA lança (best-effort)', async () => {
+  const { service } = createService({
+    prisma: {
+      entrega: {
+        update: async () => {
+          throw new Error('db off');
+        },
+      },
+    },
+  });
+  await assert.doesNotReject(
+    (service as any).syncLogisticaEntregaWhatsappOutcome(
+      { module: 'logistica', entregaId: 'entrega-99' },
+      'enviado',
+    ),
+  );
+});

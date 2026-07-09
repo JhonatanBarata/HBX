@@ -40,6 +40,37 @@ export function normalizeWhatsAppPhone(valueRaw: string | null | undefined) {
   return digits;
 }
 
+/**
+ * BUGFIX (09/07, incidente Josefino) — `normalizeWhatsAppPhone` só prefixa `+` nos
+ * dígitos recebidos; NÃO garante o DDI 55. Quando o valor de origem é um telefone
+ * BR "cru" (DDD+número, 10 ou 11 dígitos, sem 55 — ex.: CustomerProfile.phone ou
+ * Contato.whatsapp gravados sem país), o resultado sai `+19996015804` em vez de
+ * `+5519996015804` e o Webwhats recusa (Bad Request). O caminho do atendimento
+ * nunca sofre isso porque `conversation.contact` já nasce do JID inbound (que o
+ * WhatsApp sempre entrega com o país); quem PARTE de um telefone cru (ex.: um
+ * disparo que INICIA conversa) precisa desta normalização ANTES de virar `to`.
+ *
+ * Mesmo algoritmo já usado (duplicado) em `messaging.service.ts#normalizeSelfAlertPhone`
+ * e `vendas-automation.service.ts#normalizePhoneDigits/normalizeContact` — comprovado
+ * correto nesses dois caminhos. Centralizado aqui (o módulo "dono" da normalização
+ * de telefone WhatsApp) para os módulos que INICIAM conversa (ex.: logística)
+ * reusarem em vez de reinventar.
+ */
+export function normalizeBrPhoneDigits(valueRaw: string | null | undefined): string {
+  const digits = normalizeWhatsAppDigits(valueRaw);
+  if (!digits) return '';
+  if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+    return `55${digits}`;
+  }
+  return digits;
+}
+
+/** `normalizeBrPhoneDigits` + prefixo `+` (o formato E.164 que o Webwhats/Cloud API espera). */
+export function normalizeBrPhoneE164(valueRaw: string | null | undefined): string {
+  const digits = normalizeBrPhoneDigits(valueRaw);
+  return digits ? `+${digits}` : '';
+}
+
 export function buildWhatsAppPhoneCandidates(valueRaw: string | null | undefined) {
   const digits = normalizeWhatsAppDigits(valueRaw);
   if (!digits) return [] as string[];

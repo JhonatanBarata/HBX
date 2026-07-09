@@ -4,6 +4,8 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 import { emitMasterEvent } from '../common/master-event';
+import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-contato.util';
+import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -257,7 +259,10 @@ export class LogisticaService {
     });
     if (!conta) throw new NotFoundException('Cliente não encontrado');
 
-    // Contato: se informado, tem de ser da MESMA conta+empresa; senão null.
+    // Contato: se informado, tem de ser da MESMA conta+empresa; senão, resolve o
+    // PRINCIPAL da conta (BUG 1, 09/07) — sem isso a Entrega nascia com contatoId
+    // null e o aviso "entregue" caía no telefone (possivelmente desatualizado) da
+    // conta em vez do WhatsApp do contato que o dono realmente mantém certo.
     let contatoId: string | null = null;
     if (input.contatoId) {
       const contato = await this.prisma.contato.findFirst({
@@ -265,6 +270,12 @@ export class LogisticaService {
         select: { id: true },
       });
       contatoId = contato?.id ?? null;
+    } else {
+      try {
+        contatoId = await resolvePrincipalContatoId(this.prisma as any, companyId, customerProfileId);
+      } catch (e: any) {
+        this.logger.warn(`[logistica] createEntrega resolvePrincipalContato cliente=${customerProfileId} falhou: ${String(e?.message || e)}`);
+      }
     }
 
     // Produto: se informado, tem de ser da MESMA empresa; puxa o preço de fallback.
@@ -794,15 +805,30 @@ export class LogisticaService {
     }
 
     // Destinatário: o contato da entrega (whatsapp/phone) ou o telefone da conta.
+    //
+    // BUG 1b (09/07, defense-in-depth) — se a Entrega chegou aqui SEM contatoId
+    // (dado legado, ou uma entrega criada antes do fix de gerarDia/createEntrega),
+    // NÃO cai direto no telefone da conta: primeiro tenta o contato PRINCIPAL da
+    // conta (a mesma resolução usada na criação). Só cai no CustomerProfile.phone
+    // se a conta REALMENTE não tiver nenhum contato cadastrado.
     let contact = '';
     let nome = String(conta?.name || '').trim();
+    let contato: { nome: string | null; whatsapp: string | null; phone: string | null } | null = null;
     if (entrega.contatoId) {
-      const contato = await this.prisma.contato.findFirst({
+      contato = await this.prisma.contato.findFirst({
         where: { id: entrega.contatoId, companyId },
         select: { nome: true, whatsapp: true, phone: true },
       });
-      contact = String(contato?.whatsapp || contato?.phone || '').trim();
-      if (contato?.nome) nome = String(contato.nome).trim();
+    } else {
+      try {
+        contato = await resolvePrincipalContato(this.prisma as any, companyId, entrega.customerProfileId);
+      } catch (e: any) {
+        this.logger.warn(`[logistica] entrega=${entrega.id} resolvePrincipalContato falhou: ${String(e?.message || e)}`);
+      }
+    }
+    if (contato) {
+      contact = String(contato.whatsapp || contato.phone || '').trim();
+      if (contato.nome) nome = String(contato.nome).trim();
     }
     if (!contact) {
       contact = String(conta?.phoneNormalized || conta?.phone || '').trim();
@@ -811,6 +837,15 @@ export class LogisticaService {
       this.logger.log(`[logistica] entrega=${entrega.id} sem telefone — WhatsApp pulado (no-op).`);
       return { status: 'pulado', motivo: 'sem_telefone' };
     }
+
+    // BUG 2 (09/07) — normaliza pro E.164 BR ANTES de enfileirar. O caminho do
+    // atendimento nunca precisa disso porque `conversation.contact` nasce do JID
+    // inbound (que já vem com o DDI). Aqui a mensagem PARTE de um telefone cru
+    // (Contato.whatsapp/phone ou CustomerProfile.phone, gravados como dígitos sem
+    // país) — sem normalizar, o Webwhats recebe "+19996015804" (sem o 55) e recusa
+    // (Bad Request). Mesmo algoritmo do vendas-automation/self-alert (55 só entra
+    // se ainda não estiver lá — não duplica).
+    contact = normalizeBrPhoneE164(contact) || contact;
 
     // M5 — variáveis do template a partir dos itens efetivamente entregues (M2/M4).
     const vars = await this.montarVarsAviso(companyId, entrega.id, nome);

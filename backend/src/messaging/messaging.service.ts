@@ -8182,6 +8182,42 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // BUGFIX (09/07, incidente Josefino) — BUG 3: `logistica.service.ts` marcava
+  // `Entrega.whatsappStatus='enviado'` no ENFILEIRAMENTO (queueOutboundForCompany
+  // só grava o OutboundMessage como PENDING; o envio de verdade é ASSÍNCRONO, aqui
+  // em sendOne). Se o envio real FALHASSE depois, a Entrega continuava mentindo
+  // 'enviado' para sempre — foi exatamente o caso em prod (OutboundMessage FAILED
+  // "Webwhats Bad Request", Entrega.whatsappStatus='enviado').
+  //
+  // `dispararWhatsappEntregue` já carimba `variables.module='logistica'` +
+  // `variables.entregaId` no enqueue (queueOutboundForCompany grava isso no
+  // `CompanyMessage.variablesJson`, correlacionado 1:1 com o OutboundMessage via
+  // `outboundMessageId`) — `sendOne` já lê esse payload em `dispatchVariables`.
+  // Este hook só ESPELHA o desfecho REAL (SENT/FAILED) na Entrega quando o outbound
+  // é da logística; para qualquer outro módulo é um no-op imediato (retorna antes
+  // de tocar o Prisma). Best-effort PURO: nunca lança — uma falha aqui NUNCA pode
+  // afetar o envio/retry do WhatsApp (a razão de existir deste worker).
+  private async syncLogisticaEntregaWhatsappOutcome(
+    variables: Record<string, any> | null | undefined,
+    outcome: 'enviado' | 'falhou',
+    motivo?: string | null,
+  ): Promise<void> {
+    try {
+      if (String(variables?.module || '') !== 'logistica') return;
+      const entregaId = String(variables?.entregaId || '').trim();
+      if (!entregaId) return;
+      await this.prisma.entrega.update({
+        where: { id: entregaId },
+        data: {
+          whatsappStatus: outcome,
+          whatsappMotivo: outcome === 'falhou' ? String(motivo || 'erro').slice(0, 200) : null,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[messaging] syncLogisticaEntregaWhatsappOutcome falhou: ${String(e?.message || e)}`);
+    }
+  }
+
   private normalizeWebwhatsAttachmentKind(value: unknown): 'image' | 'video' | 'document' | 'audio' | 'sticker' | null {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'image') return 'image';
@@ -8499,6 +8535,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           },
         });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+        await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -8648,6 +8685,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'SENT', error: null } });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+        await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
         return;
       }
 
@@ -8734,6 +8772,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           data: { status: 'SENT', providerMessageId: providerMessageId || undefined, error: null },
         });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+        await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -8780,6 +8819,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: providerError } });
         await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
+        await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'falhou', providerError);
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -8829,6 +8869,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'FAILED', failedAt: new Date(), deliveryStatus: 'failed' } });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: errorMessage } });
         await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
+        // `dispatchVariables` foi declarado dentro do `try` (fora de escopo aqui) —
+        // relê o mesmo payload já carregado em `msg.message.variablesJson`.
+        await this.syncLogisticaEntregaWhatsappOutcome(
+          this.parseJsonPayload<Record<string, any>>(msg.message?.variablesJson, {}),
+          'falhou',
+          errorMessage,
+        );
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
