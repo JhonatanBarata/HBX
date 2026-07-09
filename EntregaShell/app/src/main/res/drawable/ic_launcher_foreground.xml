@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sem arte por enquanto: apenas um círculo branco centralizado sobre o fundo sólido. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="36dp"
+    android:insetTop="36dp"
+    android:insetRight="36dp"
+    android:insetBottom="36dp">
+    <shape android:shape="oval">
+        <solid android:color="#FFFFFFFF" />
+    </shape>
+</inset>
