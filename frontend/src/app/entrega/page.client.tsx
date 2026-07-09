@@ -14,6 +14,7 @@ import { I, ICON_PATHS } from "./icons";
 import { Onboarding, jaViuOnboarding } from "./Onboarding";
 import {
   cancelarEntrega,
+  distanciaMetros,
   enderecoCurto,
   getRota,
   hhmm,
@@ -25,7 +26,16 @@ import {
   type RotaItem,
   type RotaResult,
 } from "./entrega-api";
-import { buzz, getPosicaoUma, useGeofence, useOfflineSync, useWakeLock, type PosicaoAoVivo } from "./entrega-hooks";
+import {
+  beep,
+  buzz,
+  getPosicaoUma,
+  primeAudio,
+  useGeofence,
+  useOfflineSync,
+  useWakeLock,
+  type PosicaoAoVivo,
+} from "./entrega-hooks";
 import { fmtMoney, getConfig, getResumoDia, type ResumoDia } from "./gestao-api";
 
 // B2 — MapLibre só entra no bundle da rota /entrega (client-only: WebGL/
@@ -53,6 +63,18 @@ function formatarDataHoje(): string {
 const RAIO_CHEGADA_FALLBACK_M = 60; // default do LogisticaConfig (schema); só usado se GET /logistica/config falhar.
 const SWIPE_THRESHOLD_PX = 60;
 const SUCESSO_DURACAO_MS = 1600; // D1 — flash "aprovado" some sozinho (1,4–1,8s pedido).
+const AUTO_NAV_COUNTDOWN_N = 5; // ROTA-AUTOPILOT F1/F3 — contagem "5,4,3,2,1…" antes de abrir o Maps sozinho.
+
+// ROTA-AUTOPILOT F1/F3 — countdown que abre o Maps sozinho (1º cliente ao
+// iniciar / próximo cliente ao confirmar). `manual` é o fallback do bloqueador
+// de pop-up: sem gesto do usuário o window.open() pode voltar null — em vez de
+// sumir mudo, o overlay vira um botão grande (o clique TEM gesto, funciona).
+interface AutoNav {
+  paradaId: string;
+  rotulo: "abrindo" | "proxima";
+  n: number;
+  manual: boolean;
+}
 
 // D1 — dado do flash otimista ao confirmar (nome + itens + valor JÁ na tela;
 // nunca "avisado" — a fila é assíncrona, sem sinal síncrono de envio real).
@@ -96,6 +118,9 @@ export function EntregaHome() {
   const [iniciando, setIniciando] = useState(false);
   const [indice, setIndice] = useState(0); // parada atual no carrossel
   const [sheetAberta, setSheetAberta] = useState(false);
+  // ROTA-AUTOPILOT F2 — true só quando a sheet abriu pelo geofence (chegada
+  // automática); o "Cheguei" manual passa false — vira o rótulo da ArrivalSheet.
+  const [chegouPeloGps, setChegouPeloGps] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // D1 — flash "aprovado" ao confirmar (nível de page, não da folha: precisa
   // sobreviver ao fechamento da ArrivalSheet e ao avanço do carrossel).
@@ -106,6 +131,15 @@ export function EntregaHome() {
       if (sucessoTimeoutRef.current != null) window.clearTimeout(sucessoTimeoutRef.current);
     };
   }, []);
+  // ROTA-AUTOPILOT F1/F3 — countdown ativo (overlay) + flag "pendente" (setado
+  // logo após iniciar/confirmar; um efeito à parte dispara o countdown quando
+  // `paradaAtual` já refletir a lista pós-recarga — ela é derivada de estado
+  // assíncrono, por isso o flag+efeito em vez de chamada direta).
+  const [autoNav, setAutoNav] = useState<AutoNav | null>(null);
+  const [autoNavPendente, setAutoNavPendente] = useState<"abrindo" | "proxima" | null>(null);
+  // ROTA-AUTOPILOT F4 — confirmação bloqueante quando o GPS não bate com o
+  // endereço cadastrado; a Promise segura o onEntregue até Sim/Não.
+  const [gpsAviso, setGpsAviso] = useState<{ resolve: (ok: boolean) => void } | null>(null);
   // M9 — onboarding do 1º acesso (3 telas visuais). Lazy init no cliente evita
   // efeito só para setar estado e mantém o primeiro paint estável.
   const [onboarding, setOnboarding] = useState<boolean | null>(() =>
@@ -195,6 +229,8 @@ export function EntregaHome() {
 
   const onChegada = useCallback(() => {
     buzz([24, 40, 24]);
+    beep(); // ROTA-AUTOPILOT F2 — chegada automática soma som ao buzz já existente.
+    setChegouPeloGps(true);
     setSheetAberta(true);
   }, []);
 
@@ -202,11 +238,66 @@ export function EntregaHome() {
   // (zero watcher novo): o mapa embutido usa pra desenhar a bolinha ao vivo.
   const { posicao: posicaoEntregador } = useGeofence(alvo, view === "rota" && !sheetAberta, onChegada);
 
+  // ── ROTA-AUTOPILOT F1/F3 — countdown "abrindo navegador sozinho" ───────────
+  // Dispara o countdown assim que `paradaAtual` refletir a lista pós-recarga
+  // (onIniciar/onEntregue setam só o flag — a lista `abertas` é derivada de
+  // estado assíncrono, então o efeito espera o render onde ela já chegou).
+  useEffect(() => {
+    if (!autoNavPendente || !paradaAtual) return;
+    const rotulo = autoNavPendente;
+    const paradaId = paradaAtual.id;
+    // Deferido (callback, não síncrono no corpo do efeito) — mesmo padrão do
+    // countdown abaixo.
+    const t = window.setTimeout(() => {
+      setAutoNav({ paradaId, rotulo, n: AUTO_NAV_COUNTDOWN_N, manual: false });
+      setAutoNavPendente(null);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [autoNavPendente, paradaAtual]);
+
+  // Tenta abrir o Maps da parada do countdown. Sucesso fecha o overlay; falha
+  // (bloqueador de pop-up — sem gesto do usuário) vira modo `manual`: um botão
+  // grande primário, porque O CLIQUE nele TEM gesto e o window.open funciona.
+  const tentarAbrirAutoNav = useCallback(() => {
+    setAutoNav((prev) => {
+      if (!prev) return prev;
+      const parada = abertas.find((p) => p.id === prev.paradaId);
+      if (!parada) return null; // parada sumiu da lista (ex.: cancelada em outro dispositivo)
+      const janela = window.open(mapsHref(parada.cliente), "_blank", "noopener");
+      if (janela) return null;
+      if (prev.manual) return prev; // já em modo manual: só re-tentativa do próprio clique
+      buzz([30, 60, 30]);
+      beep();
+      return { ...prev, manual: true };
+    });
+  }, [abertas]);
+
+  useEffect(() => {
+    if (!autoNav || autoNav.manual) return;
+    if (autoNav.n <= 0) {
+      // Deferido (mesmo padrão do tick abaixo): setState só dentro do callback,
+      // nunca síncrono no corpo do efeito.
+      const t = window.setTimeout(() => tentarAbrirAutoNav(), 0);
+      return () => window.clearTimeout(t);
+    }
+    const t = window.setTimeout(() => {
+      setAutoNav((prev) => (prev ? { ...prev, n: prev.n - 1 } : prev));
+    }, 1000);
+    return () => window.clearTimeout(t);
+  }, [autoNav, tentarAbrirAutoNav]);
+
+  // ROTA-AUTOPILOT F4 — segura o onEntregue até o entregador responder Sim/Não
+  // (Promise resolvida pelos botões do overlay .ent-gpsaviso).
+  const confirmarApesarDoGps = useCallback((): Promise<boolean> => {
+    return new Promise<boolean>((resolve) => setGpsAviso({ resolve }));
+  }, []);
+
   // ── Iniciar rota (manda GPS de origem) ─────────────────────────────────────
   const onIniciar = useCallback(async () => {
     setIniciando(true);
     setErro(null);
     buzz(14);
+    primeAudio(); // ROTA-AUTOPILOT F2 — gesto real está AQUI; libera o beep() de chegada, sem gesto próprio, depois.
     void wakeLock.enable(); // tela acesa durante a rota
     // LEI nº3 (fullscreen "especialmente no Rota"): oferece tela cheia em 1
     // toque ao iniciar — a lib central já emite o aviso ("deslize a borda de
@@ -224,6 +315,8 @@ export function EntregaHome() {
       await carregar(); // recarrega com rotaOrdem/etaAt já gravados
       setIndice(0);
       setView("rota");
+      // ROTA-AUTOPILOT F1 — já abre o 1º cliente sozinho (via flag+efeito acima).
+      setAutoNavPendente("abrindo");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao iniciar a rota");
     } finally {
@@ -281,6 +374,25 @@ export function EntregaHome() {
       } catch {
         gps = undefined;
       }
+      // ROTA-AUTOPILOT F4 — checagem honesta: o GPS bateu longe do endereço
+      // cadastrado do cliente? Pergunta ANTES de enfileirar. `limiteGpsM` serve
+      // duas vezes: teto de distância (folga p/ imprecisão urbana) E teto de
+      // "accuracy confiável" — accuracy pior que isso não dá pra confiar, então
+      // segue direto (comportamento de hoje) em vez de acusar falso positivo.
+      const clienteLat = paradaAtual.cliente.lat;
+      const clienteLng = paradaAtual.cliente.lng;
+      const limiteGpsM = Math.max(raioChegadaM * 2, 120);
+      const accuracyConfiavel = gps == null || gps.accuracy == null || gps.accuracy <= limiteGpsM;
+      if (typeof clienteLat === "number" && typeof clienteLng === "number" && gps && accuracyConfiavel) {
+        const dist = distanciaMetros(gps, { lat: clienteLat, lng: clienteLng });
+        if (dist > limiteGpsM) {
+          const confirmaMesmoAssim = await confirmarApesarDoGps();
+          if (!confirmaMesmoAssim) {
+            setSubmitting(false);
+            return;
+          }
+        }
+      }
       // M8 — OFFLINE-FIRST: enfileira a confirmação (gera idempotencyKey) e tenta enviar
       // já. Online → some da fila na hora; offline/falha → fica na fila e sincroniza ao
       // reconectar (teto + backoff). Nunca perde a entrega por falta de sinal. O servidor
@@ -313,13 +425,17 @@ export function EntregaHome() {
         await carregar().catch(() => {});
         // Avança para a próxima parada (o índice se mantém: a lista encurtou).
         setIndice((i) => Math.max(0, Math.min(i, abertas.length - 2)));
+        // ROTA-AUTOPILOT F3 — confirmou → tenta abrir o Maps da PRÓXIMA parada
+        // sozinho (mesmo flag+efeito do F1). Sem próxima parada, o efeito não
+        // acha `paradaAtual` e não faz nada — o empty "Rota concluída" já cuida.
+        setAutoNavPendente("proxima");
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Falha ao confirmar");
       } finally {
         setSubmitting(false);
       }
     },
-    [abertas.length, carregar, paradaAtual, rota, sync],
+    [abertas.length, carregar, confirmarApesarDoGps, paradaAtual, raioChegadaM, rota, sync],
   );
 
   const onNaoEntregue = useCallback(
@@ -424,6 +540,9 @@ export function EntregaHome() {
           onDot={irPara}
           onChegar={() => {
             buzz(14);
+            // ROTA-AUTOPILOT F2 — "Cheguei" é manual (botão), NÃO pelo geofence:
+            // a ArrivalSheet não repete o óbvio ("Você chegou no endereço").
+            setChegouPeloGps(false);
             setSheetAberta(true);
           }}
           posicaoEntregador={posicaoEntregador}
@@ -435,6 +554,7 @@ export function EntregaHome() {
         parada={paradaAtual}
         moduloFinanceiroAtivo={rota?.moduloFinanceiroAtivo ?? false}
         pix={rota?.pix ?? null}
+        chegouPeloGps={chegouPeloGps}
         onEntregue={onEntregue}
         onNaoEntregue={onNaoEntregue}
         onClose={() => setSheetAberta(false)}
@@ -449,6 +569,92 @@ export function EntregaHome() {
             <div className="ent-sucesso-nome">{sucesso.nome}</div>
             <div className="ent-sucesso-itens">{sucesso.itens}</div>
             {sucesso.valor != null ? <div className="ent-sucesso-valor">{fmtMoney(sucesso.valor)}</div> : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* ROTA-AUTOPILOT F1/F3 — countdown "abrindo navegador"/"carregando
+          próxima rota". Tocar em qualquer ponto (fora do Cancelar) aproveita o
+          gesto e abre já; sem gesto (autoplay do timer) o bloqueador de pop-up
+          pode barrar — vira modo `manual` com botão grande. */}
+      {autoNav ? (
+        <div
+          className="ent-countdown"
+          role="alertdialog"
+          aria-live="assertive"
+          aria-label={autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
+          onClick={() => {
+            if (!autoNav.manual) tentarAbrirAutoNav();
+          }}
+        >
+          <div className="ent-countdown-card">
+            <div className="ent-countdown-label">
+              {autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
+            </div>
+            {autoNav.manual ? (
+              <button
+                type="button"
+                className="ent-btn ent-btn--primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  tentarAbrirAutoNav();
+                }}
+              >
+                Abrir navegador
+              </button>
+            ) : (
+              <div className="ent-countdown-num">{autoNav.n}</div>
+            )}
+            {autoNav.rotulo === "abrindo" ? (
+              <div className="ent-countdown-hint">
+                Iniciou a navegação? Volte pro HBX — o Maps vira janelinha.
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="ent-countdown-cancel"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAutoNav(null);
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ROTA-AUTOPILOT F4 — GPS longe do endereço combinado: confirmação
+          bloqueante (mesmo padrão visual do countdown), Sim/Não seguram o
+          onEntregue via Promise (confirmarApesarDoGps). */}
+      {gpsAviso ? (
+        <div className="ent-gpsaviso" role="alertdialog" aria-live="assertive">
+          <div className="ent-countdown-card">
+            <div className="ent-countdown-label">
+              Pelo GPS você não está no local combinado. Confirma mesmo assim?
+            </div>
+            <div className="ent-sheet-actions">
+              <button
+                type="button"
+                className="ent-btn ent-btn--primary"
+                onClick={() => {
+                  gpsAviso.resolve(true);
+                  setGpsAviso(null);
+                }}
+              >
+                Sim
+              </button>
+              <button
+                type="button"
+                className="ent-btn ent-btn--secondary"
+                onClick={() => {
+                  gpsAviso.resolve(false);
+                  setGpsAviso(null);
+                }}
+              >
+                Não
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

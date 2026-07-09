@@ -32,6 +32,10 @@ interface Props {
   moduloFinanceiroAtivo: boolean;
   /** F1 — Pix do tenant (BR Code). null = sem QR (módulo OFF ou chave não configurada). */
   pix: RotaPix | null;
+  /** ROTA-AUTOPILOT F2 — true só quando a folha abriu pelo geofence (chegada
+   * automática); o "Cheguei" manual passa false/undefined. Mostra o rótulo
+   * "Você chegou no endereço" acima do nome do cliente. */
+  chegouPeloGps?: boolean;
   onEntregue: (payload: {
     itens: Array<{ id: string; qtdEntregue: number }>;
     // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd;
@@ -130,6 +134,7 @@ export function ArrivalSheet({
   parada,
   moduloFinanceiroAtivo,
   pix,
+  chegouPeloGps,
   onEntregue,
   onNaoEntregue,
   onClose,
@@ -150,6 +155,7 @@ export function ArrivalSheet({
           parada={paradaExibida}
           moduloFinanceiroAtivo={moduloFinanceiroAtivo}
           pix={pix}
+          chegouPeloGps={chegouPeloGps}
           onEntregue={onEntregue}
           onNaoEntregue={onNaoEntregue}
           submitting={submitting}
@@ -163,6 +169,7 @@ function ArrivalSheetBody({
   parada,
   moduloFinanceiroAtivo,
   pix,
+  chegouPeloGps,
   onEntregue,
   onNaoEntregue,
   submitting,
@@ -170,6 +177,7 @@ function ArrivalSheetBody({
   parada: RotaItem;
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
+  chegouPeloGps?: boolean;
   onEntregue: (payload: {
     itens: Array<{ id: string; qtdEntregue: number }>;
     // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd;
@@ -307,6 +315,9 @@ function ArrivalSheetBody({
 
   return (
     <>
+      {/* ROTA-AUTOPILOT F2 — só quando a folha abriu pelo geofence (chegada
+          automática); o "Cheguei" manual não repete o óbvio. */}
+      {chegouPeloGps ? <div className="ent-sheet-chegada">Você chegou no endereço</div> : null}
       <div className="ent-sheet-title">{parada.cliente.nome ?? "Cliente"}</div>
       <div className="ent-sheet-sub">{parada.cliente.endereco ?? "Sem endereço"}</div>
 

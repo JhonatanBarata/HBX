@@ -34,6 +34,52 @@ export function buzz(pattern: number | number[] = 14): void {
   }
 }
 
+// ── ROTA-AUTOPILOT F2 — som de chegada ──────────────────────────────────────
+// AudioContext SINGLETON de módulo: a autoplay policy do navegador só libera
+// som depois de um gesto real do usuário. `primeAudio()` é chamado dentro do
+// onIniciar (que TEM gesto — o toque em "Iniciar rota"); o `beep()` de chegada
+// dispara depois, sem gesto próprio (é o geofence quem chama) — sem o prime
+// antes, o beep sairia mudo em boa parte dos aparelhos.
+type AudioContextCtor = typeof AudioContext;
+let audioCtxSingleton: AudioContext | null = null;
+
+/** Cria/retoma o AudioContext singleton. Chamar SEMPRE dentro de um handler com gesto do usuário. */
+export function primeAudio(): void {
+  try {
+    if (typeof window === "undefined") return;
+    const Ctor: AudioContextCtor | undefined =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
+    if (!Ctor) return;
+    if (!audioCtxSingleton) audioCtxSingleton = new Ctor();
+    if (audioCtxSingleton.state === "suspended") void audioCtxSingleton.resume();
+  } catch {
+    /* sem WebAudio: beep() vira no-op (audioCtxSingleton continua null) */
+  }
+}
+
+/** 2 notas curtas (~880Hz→660Hz) pra marcar a chegada. No-op silencioso sem WebAudio/prime. */
+export function beep(): void {
+  try {
+    const ctx = audioCtxSingleton;
+    if (!ctx) return;
+    const tocarNota = (freqHz: number, inicioMs: number, duracaoMs: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freqHz;
+      gain.gain.value = 0.2; // ganho baixo — aviso, não alarme
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const inicio = ctx.currentTime + inicioMs / 1000;
+      osc.start(inicio);
+      osc.stop(inicio + duracaoMs / 1000);
+    };
+    tocarNota(880, 0, 120);
+    tocarNota(660, 130, 120);
+  } catch {
+    /* aparelho sem WebAudio não pode quebrar o fluxo */
+  }
+}
+
 /** Screen Wake Lock: tela acesa durante a rota; solta ao sair/desmontar. */
 export function useWakeLock() {
   const sentinel = useRef<WakeLockSentinelLike | null>(null);

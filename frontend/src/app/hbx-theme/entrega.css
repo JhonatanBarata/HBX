@@ -80,6 +80,9 @@
   --ent-title: 19px;
   --ent-title-lg: 22px;
   --ent-num: 25px;
+  /* ROTA-AUTOPILOT F1/F3 — número grande do countdown (5→1); token central
+     (Lei nº1), não reinfla --ent-num usado em toda a métrica existente. */
+  --ent-num-lg: 48px;
 
   /* Grade de 8 (TASK 11b 08/07: mais um nível compacto — ver nota no topo) */
   --ent-1: 4px;
@@ -1797,4 +1800,102 @@
   width: 100%;
   max-width: 340px;
   margin-top: var(--ent-2);
+}
+
+/* ============================================================
+   ROTA-AUTOPILOT F1/F3 (09/07) — countdown "abrindo navegador"/"carregando
+   próxima rota" (page.client.tsx). Ao contrário do .ent-sucesso (decorativo,
+   pointer-events:none), este overlay É BLOQUEANTE E TOCÁVEL: durante a
+   contagem, tocar em qualquer ponto aproveita o gesto do usuário e abre o
+   Maps já; sem gesto (o timer chega a 0 sozinho) o bloqueador de pop-up pode
+   barrar — o overlay então vira modo `manual` com botão grande (o clique
+   nele TEM gesto, funciona). Mesmo padrão veil+card do .ent-sucesso acima.
+   ============================================================ */
+[data-skin="entrega"] .ent-countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ent-5);
+  background: color-mix(in srgb, var(--ent-canvas) 72%, transparent);
+  cursor: pointer;
+  animation: ent-sucesso-veil var(--ent-motion) both;
+}
+[data-skin="entrega"] .ent-countdown-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ent-2);
+  width: 100%;
+  max-width: 320px;
+  padding: var(--ent-8) var(--ent-5);
+  background: var(--ent-surface-raised);
+  border-radius: var(--ent-radius-lg);
+  border: 1px solid var(--ent-hairline);
+  box-shadow: var(--ent-shadow-lg);
+  text-align: center;
+  cursor: default;
+  animation: ent-sucesso-pop var(--ent-motion-slow) both;
+}
+[data-skin="entrega"] .ent-countdown-label {
+  font-size: var(--ent-text);
+  font-weight: 700;
+  color: var(--ent-ink-soft);
+}
+[data-skin="entrega"] .ent-countdown-num {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num-lg);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ent-brand);
+  margin: var(--ent-2) 0;
+}
+[data-skin="entrega"] .ent-countdown-hint {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+}
+[data-skin="entrega"] .ent-countdown-cancel {
+  margin-top: var(--ent-2);
+  padding: var(--ent-2) var(--ent-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--ent-radius-sm);
+  font-family: var(--ent-font);
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  cursor: pointer;
+}
+[data-skin="entrega"] .ent-countdown-cancel:active { opacity: 0.7; }
+
+/* ROTA-AUTOPILOT F4 (09/07) — checagem de GPS no confirmar (page.client.tsx):
+   overlay bloqueante Sim/Não, MESMO padrão veil+card do countdown acima (sem
+   tap-to-dismiss no fundo — só os botões decidem). */
+[data-skin="entrega"] .ent-gpsaviso {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ent-5);
+  background: color-mix(in srgb, var(--ent-canvas) 72%, transparent);
+  animation: ent-sucesso-veil var(--ent-motion) both;
+}
+
+/* ROTA-AUTOPILOT F2 (09/07) — rótulo "Você chegou no endereço" acima do nome
+   do cliente na ArrivalSheet, só quando a folha abriu pelo geofence (nunca no
+   "Cheguei" manual). Mesmo idioma visual do .ent-stop-badge (pill pequeno). */
+[data-skin="entrega"] .ent-sheet-chegada {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ent-2);
+  padding: var(--ent-1) var(--ent-3);
+  border-radius: var(--ent-radius-pill);
+  background: color-mix(in srgb, var(--ent-success) 16%, var(--ent-surface));
+  color: var(--ent-success);
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  margin-bottom: var(--ent-2);
 }
