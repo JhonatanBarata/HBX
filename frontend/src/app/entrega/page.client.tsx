@@ -38,6 +38,7 @@ import {
   type PosicaoAoVivo,
 } from "./entrega-hooks";
 import { fmtMoney, getConfig, getResumoDia, type ResumoDia } from "./gestao-api";
+import { shellAbrirMaps, shellClearRota, shellDisponivel, shellSetRota } from "./shell-bridge";
 
 // B2 — MapLibre só entra no bundle da rota /entrega (client-only: WebGL/
 // `navigator` não existem no server). Zero peso extra pro dashboard/demais rotas.
@@ -274,6 +275,29 @@ export function EntregaHome() {
   // (zero watcher novo): o mapa embutido usa pra desenhar a bolinha ao vivo.
   const { posicao: posicaoEntregador } = useGeofence(alvo, view === "rota" && !sheetAberta, onChegada);
 
+  // WEB-BRIDGE — alimenta o serviço nativo de GPS de fundo (casca Android) com
+  // a rota inteira sempre que ela muda; em navegador comum (sem HBXShell) os
+  // helpers são no-op — zero mudança de comportamento fora da casca.
+  useEffect(() => {
+    if (view === "rota" && shellDisponivel()) {
+      const paradas = abertas
+        .filter((p) => typeof p.cliente.lat === "number" && typeof p.cliente.lng === "number")
+        .map((p) => ({
+          id: p.id,
+          nome: p.cliente.nome ?? "Cliente",
+          lat: p.cliente.lat as number,
+          lng: p.cliente.lng as number,
+        }));
+      if (paradas.length > 0) shellSetRota(raioChegadaM, paradas);
+      else shellClearRota();
+    } else {
+      shellClearRota();
+    }
+    // Cleanup do efeito (deps mudaram) e do unmount: desliga o GPS de fundo —
+    // o corpo do efeito religa na sequência se a condição ainda valer.
+    return () => shellClearRota();
+  }, [view, abertas, raioChegadaM]);
+
   // ── ROTA-AUTOPILOT F1/F3 — countdown "abrindo navegador sozinho" ───────────
   // Dispara o countdown assim que `paradaAtual` refletir a lista pós-recarga
   // (onIniciar/onEntregue setam só o flag — a lista `abertas` é derivada de
@@ -311,6 +335,13 @@ export function EntregaHome() {
       const parada = abertas.find((p) => p.id === atual.paradaId);
       if (!parada) {
         setAutoNav(null); // parada sumiu da lista (ex.: cancelada em outro dispositivo)
+        return;
+      }
+      // WEB-BRIDGE — na casca nativa o Maps abre via Intent (sem pop-up, sem
+      // bloqueador): sucesso garantido, sem passar pelo window.open abaixo.
+      // O modo `manual` (fallback do bloqueador) só existe pro navegador comum.
+      if (shellAbrirMaps(mapsHref(parada.cliente))) {
+        setAutoNav(null);
         return;
       }
       // SEM a feature "noopener": por spec (MDN), window.open com noopener
@@ -403,6 +434,35 @@ export function EntregaHome() {
     },
     [abertas.length, indice],
   );
+
+  // WEB-BRIDGE — chegada detectada NATIVAMENTE (o shell re-dispara no resume
+  // se aconteceu em background) abre a mesma folha do geofence JS. PODE
+  // chegar duplicado e PODE chegar junto do geofence — por isso a checagem de
+  // `sheetAberta` primeiro. Listener registrado 1x (mount); lê estado atual
+  // via ref pra não precisar re-registrar a cada render.
+  const chegadaNativaRef = useRef({ sheetAberta, paradaAtual, abertas, irPara, onChegada });
+  useEffect(() => {
+    chegadaNativaRef.current = { sheetAberta, paradaAtual, abertas, irPara, onChegada };
+  });
+  useEffect(() => {
+    const onChegadaNativa = (e: Event) => {
+      const paradaId = (e as CustomEvent<{ paradaId?: string }>).detail?.paradaId;
+      if (!paradaId) return;
+      const atual = chegadaNativaRef.current;
+      if (atual.sheetAberta) return; // idempotência — evita beep/reabertura duplicada
+      if (paradaId === atual.paradaAtual?.id) {
+        atual.onChegada();
+        return;
+      }
+      const idx = atual.abertas.findIndex((p) => p.id === paradaId);
+      if (idx >= 0) {
+        atual.irPara(idx);
+        atual.onChegada();
+      }
+    };
+    document.addEventListener("hbxshell:chegada", onChegadaNativa);
+    return () => document.removeEventListener("hbxshell:chegada", onChegadaNativa);
+  }, []);
 
   const onPointerDown = (e: React.PointerEvent) => {
     dragStart.current = e.clientX;
@@ -678,7 +738,7 @@ export function EntregaHome() {
               ) : (
                 <div className="ent-countdown-num">{autoNav.n}</div>
               )}
-              {autoNav.rotulo === "abrindo" ? (
+              {autoNav.rotulo === "abrindo" && !shellDisponivel() ? (
                 <div className="ent-countdown-hint">
                   Iniciou a navegação? Volte pro HBX — o Maps vira janelinha.
                 </div>
