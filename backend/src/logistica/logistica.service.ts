@@ -879,19 +879,22 @@ export class LogisticaService {
    * falhar, devolve vars mínimas (só o cliente) — a mensagem ainda sai.
    *   {itens}   = "2× Galão 20L, 1× Água com gás"
    *   {qtd}     = soma das quantidades
+   *   {quantidade} = soma das quantidades
    *   {produto} = nome do produto principal (o primeiro item / o produto legado)
+   *   {empresa} = nome da empresa
    */
   private async montarVarsAviso(
     companyId: number,
     entregaId: string,
     cliente: string,
-  ): Promise<{ cliente: string; itens: string; qtd: number; produto: string }> {
-    const vars = { cliente, itens: '', qtd: 0, produto: '' };
+  ): Promise<{ cliente: string; itens: string; qtd: number; quantidade: number; produto: string; empresa: string }> {
+    const vars = { cliente, itens: '', qtd: 0, quantidade: 0, produto: '', empresa: '' };
     try {
       const entrega = await this.prisma.entrega.findFirst({
         where: { id: entregaId, companyId },
         select: {
           quantidade: true,
+          company: { select: { name: true } },
           product: { select: { name: true, unidade: true } },
           itens: {
             select: {
@@ -903,6 +906,7 @@ export class LogisticaService {
         },
       });
       if (!entrega) return vars;
+      vars.empresa = String(entrega.company?.name || '').trim();
 
       const linhas: string[] = [];
       let total = 0;
@@ -923,6 +927,7 @@ export class LogisticaService {
       }
       vars.itens = linhas.join(', ');
       vars.qtd = total;
+      vars.quantidade = total;
     } catch (e: any) {
       this.logger.warn(`[logistica] montarVarsAviso entrega=${entregaId} falhou: ${String(e?.message || e)}`);
     }

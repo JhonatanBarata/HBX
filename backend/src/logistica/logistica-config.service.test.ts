@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { renderTemplateAviso, saudacaoPorHorario } from './logistica-config.service';
 
 // LOGÍSTICA-MOBILE M5 — prova a RENDERIZAÇÃO PURA do template do aviso:
-//   - todas as variáveis {saudacao} {cliente} {itens} {qtd} {produto} substituem;
+//   - todas as variáveis públicas substituem;
 //   - saudação segue o horário injetado (determinística);
 //   - variável ausente vira "" e NÃO vaza "{placeholder}" cru;
 //   - {chave} desconhecida é removida.
@@ -16,18 +16,27 @@ function manha(): Date {
   return d;
 }
 
-test('renderTemplateAviso: substitui TODAS as variáveis', () => {
-  const template = '{saudacao} {cliente}! Foram entregues {itens} (total {qtd}× de {produto}).';
+test('renderTemplateAviso: substitui TODAS as variáveis públicas', () => {
+  const template = '{saudacao} {cliente}! Foram entregues {quantidade} {produto}. {empresa}';
   const out = renderTemplateAviso(template, {
     cliente: 'Dona Maria',
-    itens: '2× Galão 20L, 1× Água com gás',
-    qtd: 3,
+    quantidade: 3,
     produto: 'Galão 20L',
+    empresa: 'Água LTDA',
     now: manha(),
   });
-  assert.equal(out, 'Bom dia Dona Maria! Foram entregues 2× Galão 20L, 1× Água com gás (total 3× de Galão 20L).');
+  assert.equal(out, 'Bom dia Dona Maria! Foram entregues 3 Galão 20L. Água LTDA');
   // Nenhum placeholder cru sobrou.
   assert.ok(!/\{[a-z]+\}/i.test(out), 'não pode sobrar {placeholder} na mensagem');
+});
+
+test('renderTemplateAviso: mantém aliases legados {itens} e {qtd}', () => {
+  const out = renderTemplateAviso('{itens} total {qtd}', {
+    itens: '2× Galão 20L',
+    qtd: 2,
+    now: manha(),
+  });
+  assert.equal(out, '2× Galão 20L total 2');
 });
 
 test('renderTemplateAviso: saudação por horário (manhã/tarde/noite)', () => {

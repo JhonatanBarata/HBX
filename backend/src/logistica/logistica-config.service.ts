@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
  *     dia automático) e os parâmetros de rota (raio de chegada, velocidade média,
  *     tempo de parada). company-scoped; cria um default se ainda não existir.
  *  2) `renderTemplateAviso` (função PURA, testável isolada): troca as variáveis
- *     {saudacao} {cliente} {itens} {qtd} {produto} no template do admin. É o que o
+ *     públicas do template do admin. É o que o
  *     N6 (dispararWhatsappEntregue) passa a usar no lugar da mensagem fixa.
  *
  * ── SEM EFEITO EXTERNO ───────────────────────────────────────────────────────
@@ -163,12 +163,14 @@ export interface TemplateVars {
   cliente?: string | null;
   itens?: string | null; // ex.: "2× Galão 20L, 1× Água com gás"
   qtd?: number | string | null; // qtd total
+  quantidade?: number | string | null; // alias público de qtd
   produto?: string | null; // produto principal (o primeiro)
+  empresa?: string | null;
   now?: Date; // p/ a saudação por horário (default: agora) — injetável no teste
 }
 
 /**
- * Troca {saudacao} {cliente} {itens} {qtd} {produto} no template do admin.
+ * Troca as variáveis públicas do template do admin.
  *  - {saudacao} = "Bom dia" | "Boa tarde" | "Boa noite" pelo horário de `now`.
  *  - variáveis ausentes viram "" (nunca deixa "{produto}" cru na mensagem).
  *  - qualquer {chave} desconhecida é REMOVIDA (não vaza placeholder pro cliente).
@@ -181,7 +183,9 @@ export function renderTemplateAviso(template: string, vars: TemplateVars = {}): 
     cliente: String(vars.cliente ?? '').trim(),
     itens: String(vars.itens ?? '').trim(),
     qtd: vars.qtd == null ? '' : String(vars.qtd).trim(),
+    quantidade: vars.quantidade == null ? (vars.qtd == null ? '' : String(vars.qtd).trim()) : String(vars.quantidade).trim(),
     produto: String(vars.produto ?? '').trim(),
+    empresa: String(vars.empresa ?? '').trim(),
   };
   const out = String(template ?? '').replace(/\{(\w+)\}/g, (_full, key: string) => {
     const k = String(key).toLowerCase();

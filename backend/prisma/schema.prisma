@@ -1127,7 +1127,7 @@ model LogisticaConfig {
   company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId             Int
   avisoWhatsEnabled     Boolean  @default(true)
-  templateAviso         String?  // variáveis {saudacao} {cliente} {itens} {qtd} {produto}
+  templateAviso         String?  // variáveis públicas do aviso de entrega
   raioChegadaM          Int      @default(60)
   velocidadeMediaKmH    Int      @default(25)
   tempoParadaMin        Int      @default(5)

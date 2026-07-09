@@ -37,21 +37,21 @@ import {
 
 // Template padrão (o que aparece quando ainda não gravou nada) — igual ao ERP.
 const TEMPLATE_DEFAULT =
-  "{saudacao} {cliente}! Sua entrega foi concluída: {itens}. Obrigado pela preferência!";
+  "{saudacao} {cliente}! Sua entrega foi concluída: {quantidade} {produto}. Obrigado pela preferência! {empresa}";
 
 const VARS: Array<{ key: string; label: string }> = [
-  { key: "saudacao", label: "Saudação" },
-  { key: "cliente", label: "Cliente" },
-  { key: "itens", label: "Itens" },
-  { key: "qtd", label: "Qtd" },
-  { key: "produto", label: "Produto" },
+  { key: "saudacao", label: "{saudacao}" },
+  { key: "cliente", label: "{cliente}" },
+  { key: "quantidade", label: "{quantidade}" },
+  { key: "produto", label: "{produto}" },
+  { key: "empresa", label: "{empresa}" },
 ];
 
 const PREVIEW_VARS = {
   cliente: "Dona Maria",
-  itens: "2× Galão 20L, 1× Água com gás",
-  qtd: "3",
+  quantidade: "3",
   produto: "Galão 20L",
+  empresa: "Água LTDA",
 };
 
 type WhatsAppCenterPayload = {
@@ -94,9 +94,9 @@ function renderPreview(template: string): string {
   const map: Record<string, string> = {
     saudacao: saudacaoPorHorario(new Date()),
     cliente: PREVIEW_VARS.cliente,
-    itens: PREVIEW_VARS.itens,
-    qtd: PREVIEW_VARS.qtd,
+    quantidade: PREVIEW_VARS.quantidade,
     produto: PREVIEW_VARS.produto,
+    empresa: PREVIEW_VARS.empresa,
   };
   return String(template || "")
     .replace(/\{(\w+)\}/g, (_full, key: string) => {
@@ -300,17 +300,20 @@ export function EntregaAjustes() {
             <CodigoVinculacaoWhatsApp
               sessionId={waSessionId}
               defaultPhone={waDefaultPhone}
+              connected={waPronto}
               onGenerated={carregarWhatsApp}
             />
 
-            <div className="ent-chips ent-chips--fit">
-              {VARS.map((v) => (
-                <button type="button" key={v.key} className="ent-chip" onClick={() => inserirVar(v.key)}>
-                  {v.label}
-                </button>
-              ))}
+            <div className="ent-field">
+              <span className="ent-field-label">Variáveis</span>
+              <div className="ent-chips ent-chips--fit">
+                {VARS.map((v) => (
+                  <button type="button" key={v.key} className="ent-chip" onClick={() => inserirVar(v.key)}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
             </div>
-
             <label className="ent-field">
               <span className="ent-field-label">Mensagem</span>
               <textarea
@@ -521,15 +524,20 @@ function FecharMesBtn() {
 // (mobile atendimento). O painel (código/QR/status + máscara BR) vive em
 // WhatsAppConectarSheet; aqui só o disparo. Prefill do telefone = contato da
 // empresa (dígitos locais, sem +55 — o +55 entra no envio).
-function CodigoVinculacaoWhatsApp({ defaultPhone, onGenerated }: {
+function CodigoVinculacaoWhatsApp({ defaultPhone, connected, onGenerated }: {
   sessionId: string;
   defaultPhone: string;
+  connected: boolean;
   onGenerated: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="ent-link-code">
-      <WhatsAppConnectButton onClick={() => setOpen(true)} />
+      <WhatsAppConnectButton
+        onClick={() => setOpen(true)}
+        label={connected ? "Conectado" : "Conectar WhatsApp"}
+        connected={connected}
+      />
       <WhatsAppConectarSheet
         open={open}
         onClose={() => setOpen(false)}

@@ -12,13 +12,15 @@ export function WhatsAppConnectButton({
   onClick,
   label = "Conectar WhatsApp",
   disabled = false,
+  connected = false,
 }: {
   onClick: () => void;
   label?: string;
   disabled?: boolean;
+  connected?: boolean;
 }) {
   return (
-    <button type="button" className="wa-connect-btn" onClick={onClick} disabled={disabled}>
+    <button type="button" className={`wa-connect-btn${connected ? " is-connected" : ""}`} onClick={onClick} disabled={disabled}>
       <I d={ICONS.msg} size={16} />
       <span className="wa-connect-btn__label">{label}</span>
     </button>

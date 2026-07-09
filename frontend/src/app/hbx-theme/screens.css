@@ -5397,6 +5397,13 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   box-sizing: border-box;
 }
 .wa-connect-btn:hover { background: linear-gradient(135deg, var(--hbx-brand-strong), var(--hbx-secondary)); }
+.wa-connect-btn.is-connected {
+  background: linear-gradient(135deg, var(--hbx-success), color-mix(in srgb, var(--hbx-success) 72%, var(--hbx-primary)));
+  color: var(--hbx-action-ink);
+}
+.wa-connect-btn.is-connected:hover {
+  background: linear-gradient(135deg, var(--hbx-success), color-mix(in srgb, var(--hbx-success) 82%, var(--hbx-primary)));
+}
 .wa-connect-btn:active { opacity: 0.9; }
 .wa-connect-btn:disabled { opacity: 0.5; cursor: default; }
 .wa-connect-btn__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
