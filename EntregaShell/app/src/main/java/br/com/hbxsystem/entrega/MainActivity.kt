@@ -37,6 +37,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
 
+    // Overlay ("Exibir sobre outros apps") é pedido no MÁXIMO 1x por processo:
+    // sem esta trava, todo onResume re-abria as configurações pra quem negou —
+    // pingue-pongue app↔configurações que impedia de usar o app.
+    private var overlayJaPedido = false
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* resultado é conferido de novo no próximo onResume — fluxo simples */ }
@@ -141,7 +146,8 @@ class MainActivity : AppCompatActivity() {
             permissionLauncher.launch(faltando.toTypedArray())
             return // 1 diálogo de cada vez; overlay é conferido no próximo onResume
         }
-        if (!Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this) && !overlayJaPedido) {
+            overlayJaPedido = true // no máximo 1x por processo — negar não vira loop
             try {
                 startActivity(
                     Intent(
