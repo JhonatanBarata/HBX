@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 
@@ -99,6 +100,28 @@ function valorConfirmado(parada: RotaItem, payload: { itens: Array<{ id: string;
   return Math.round((base + somaItens) * 100) / 100;
 }
 
+// ROTA-AUTOPILOT (fix 09/07, achado no teste ao vivo) — `.ent-countdown` e
+// `.ent-gpsaviso` são overlays fixos (z-index:60 no entrega.css) renderizados
+// DENTRO do EntregaScaffold, cujo `.casca-stage` tem `transform` (swipe entre
+// módulos — casca.css FIX5) e todo `transform` cria stacking context próprio
+// (spec CSS): o z-index:60 só é comparado DENTRO desse contexto. O véu do
+// CascaSheet (`.casca-sheet-veil`, z-index:40 — casca.css) já portala pro
+// document.body (CascaPortal em components/casca/transitions.tsx) e por isso
+// vive no stacking context RAIZ — fora do `.casca-stage` — vencendo o overlay
+// mesmo com z-index menor (contextos diferentes não se comparam por número, o
+// navegador empilha pelo CONTAINER). Sintoma ao vivo: com a folha aberta +
+// aviso de GPS na tela, o 1º toque em "Sim"/"Não" era capturado pelo véu (que
+// fechava a folha) e só o 2º toque respondia o aviso.
+// Fix: portalar estes 2 overlays pro MESMO document.body — aí entram no MESMO
+// stacking context raiz do véu e o z-index:60 finalmente vale contra o 40.
+// CSS ainda bate: EntregaSkinGate (entrega-skin-gate.tsx) já espelha
+// data-skin="entrega" no <html> justamente pra portais pro body continuarem
+// no escopo do entrega.css (mesmo problema resolvido pra folha "Novo cliente").
+function EntregaOverlayPortal({ children }: { children: React.ReactNode }) {
+  if (typeof document === "undefined") return <>{children}</>;
+  return createPortal(children, document.body);
+}
+
 export function EntregaHome() {
   const router = useRouter();
   const wakeLock = useWakeLock();
@@ -166,16 +189,29 @@ export function EntregaHome() {
     };
   }, []);
 
+  // ROTA-AUTOPILOT (fix 09/07, achado no teste ao vivo) — DUAS recargas da rota
+  // podem estar em voo ao mesmo tempo: o `await carregar()` do onEntregue e o
+  // `carregar()` disparado pelo efeito `sync.sincronizados` (fila offline
+  // drenando). No VPS a resposta VELHA (GET que saiu ANTES do POST /confirmar
+  // commitar) resolveu por ÚLTIMO e sobrescreveu o estado novo — a parada já
+  // entregue no servidor "voltava" a aparecer como atual até dar F5. Guarda de
+  // ordem: um contador incrementa a cada chamada; só aplica a resposta se o
+  // valor local ainda for o mais recente no momento em que ela chega — resposta
+  // de uma chamada já superada por outra mais nova é descartada em silêncio.
+  const carregarSeqRef = useRef(0);
   const carregar = useCallback(async () => {
+    const minhaSeq = ++carregarSeqRef.current;
     setLoading(true);
     setErro(null);
     try {
       const r = await getRota();
+      if (carregarSeqRef.current !== minhaSeq) return; // resposta obsoleta — descarta
       setRota(r);
     } catch (e) {
+      if (carregarSeqRef.current !== minhaSeq) return; // idem — outra chamada já é a atual
       setErro(e instanceof Error ? e.message : "Falha ao carregar a rota");
     } finally {
-      setLoading(false);
+      if (carregarSeqRef.current === minhaSeq) setLoading(false);
     }
   }, []);
 
@@ -586,7 +622,14 @@ export function EntregaHome() {
         chegouPeloGps={chegouPeloGps}
         onEntregue={onEntregue}
         onNaoEntregue={onNaoEntregue}
-        onClose={() => setSheetAberta(false)}
+        onClose={() => {
+          // ROTA-AUTOPILOT F4 (fix 09/07) — o aviso de GPS é uma decisão
+          // BLOQUEANTE (segura o onEntregue via Promise); um fechamento
+          // acidental da folha (ex.: o véu ainda capturando o 1º toque antes
+          // do fix do portal acima) não pode se sobrepor à resposta Sim/Não.
+          if (gpsAviso) return;
+          setSheetAberta(false);
+        }}
         submitting={submitting}
       />
 
@@ -607,85 +650,89 @@ export function EntregaHome() {
           gesto e abre já; sem gesto (autoplay do timer) o bloqueador de pop-up
           pode barrar — vira modo `manual` com botão grande. */}
       {autoNav ? (
-        <div
-          className="ent-countdown"
-          role="alertdialog"
-          aria-live="assertive"
-          aria-label={autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
-          onClick={() => {
-            if (!autoNav.manual) tentarAbrirAutoNav(autoNav);
-          }}
-        >
-          <div className="ent-countdown-card">
-            <div className="ent-countdown-label">
-              {autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
-            </div>
-            {autoNav.manual ? (
+        <EntregaOverlayPortal>
+          <div
+            className="ent-countdown"
+            role="alertdialog"
+            aria-live="assertive"
+            aria-label={autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
+            onClick={() => {
+              if (!autoNav.manual) tentarAbrirAutoNav(autoNav);
+            }}
+          >
+            <div className="ent-countdown-card">
+              <div className="ent-countdown-label">
+                {autoNav.rotulo === "abrindo" ? "Abrindo navegador" : "Carregando próxima rota"}
+              </div>
+              {autoNav.manual ? (
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    tentarAbrirAutoNav(autoNav);
+                  }}
+                >
+                  Abrir navegador
+                </button>
+              ) : (
+                <div className="ent-countdown-num">{autoNav.n}</div>
+              )}
+              {autoNav.rotulo === "abrindo" ? (
+                <div className="ent-countdown-hint">
+                  Iniciou a navegação? Volte pro HBX — o Maps vira janelinha.
+                </div>
+              ) : null}
               <button
                 type="button"
-                className="ent-btn ent-btn--primary"
+                className="ent-countdown-cancel"
                 onClick={(e) => {
                   e.stopPropagation();
-                  tentarAbrirAutoNav(autoNav);
+                  setAutoNav(null);
                 }}
               >
-                Abrir navegador
+                Cancelar
               </button>
-            ) : (
-              <div className="ent-countdown-num">{autoNav.n}</div>
-            )}
-            {autoNav.rotulo === "abrindo" ? (
-              <div className="ent-countdown-hint">
-                Iniciou a navegação? Volte pro HBX — o Maps vira janelinha.
-              </div>
-            ) : null}
-            <button
-              type="button"
-              className="ent-countdown-cancel"
-              onClick={(e) => {
-                e.stopPropagation();
-                setAutoNav(null);
-              }}
-            >
-              Cancelar
-            </button>
+            </div>
           </div>
-        </div>
+        </EntregaOverlayPortal>
       ) : null}
 
       {/* ROTA-AUTOPILOT F4 — GPS longe do endereço combinado: confirmação
           bloqueante (mesmo padrão visual do countdown), Sim/Não seguram o
           onEntregue via Promise (confirmarApesarDoGps). */}
       {gpsAviso ? (
-        <div className="ent-gpsaviso" role="alertdialog" aria-live="assertive">
-          <div className="ent-countdown-card">
-            <div className="ent-countdown-label">
-              Pelo GPS você não está no local combinado. Confirma mesmo assim?
-            </div>
-            <div className="ent-sheet-actions">
-              <button
-                type="button"
-                className="ent-btn ent-btn--primary"
-                onClick={() => {
-                  gpsAviso.resolve(true);
-                  setGpsAviso(null);
-                }}
-              >
-                Sim
-              </button>
-              <button
-                type="button"
-                className="ent-btn ent-btn--secondary"
-                onClick={() => {
-                  gpsAviso.resolve(false);
-                  setGpsAviso(null);
-                }}
-              >
-                Não
-              </button>
+        <EntregaOverlayPortal>
+          <div className="ent-gpsaviso" role="alertdialog" aria-live="assertive">
+            <div className="ent-countdown-card">
+              <div className="ent-countdown-label">
+                Pelo GPS você não está no local combinado. Confirma mesmo assim?
+              </div>
+              <div className="ent-sheet-actions">
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--primary"
+                  onClick={() => {
+                    gpsAviso.resolve(true);
+                    setGpsAviso(null);
+                  }}
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--secondary"
+                  onClick={() => {
+                    gpsAviso.resolve(false);
+                    setGpsAviso(null);
+                  }}
+                >
+                  Não
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </EntregaOverlayPortal>
       ) : null}
     </EntregaScaffold>
   );
