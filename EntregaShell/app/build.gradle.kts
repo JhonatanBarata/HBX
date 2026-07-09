@@ -15,9 +15,22 @@ android {
         versionName = "1.0"
     }
 
+    // App sideload de 1 motorista (repo privado) — keystore + senha comitados
+    // de propósito (decisão do orquestrador, ver keystore/SENHA.txt). Senha
+    // igual à gerada por keytool na criação do keystore.
+    signingConfigs {
+        create("release") {
+            storeFile = file("../keystore/hbx-entrega.jks")
+            storePassword = "cFTUN9ZRRDteImsOFDE40bizNPF6JrS"
+            keyAlias = "hbx-entrega"
+            keyPassword = "cFTUN9ZRRDteImsOFDE40bizNPF6JrS"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
