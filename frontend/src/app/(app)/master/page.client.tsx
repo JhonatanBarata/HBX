@@ -21,7 +21,6 @@ import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaOnline } from "./janela-online";
 import { JanelaIntegracoes } from "./janela-integracoes";
 import { JanelaSelfCheckout } from "./janela-self-checkout";
-import { JanelaPagamentos } from "./janela-pagamentos";
 import { JanelaSistema } from "./janela-sistema";
 import { JanelaTickets } from "./janela-tickets";
 
@@ -114,7 +113,6 @@ const JANELAS = [
   { id: "integracoes", label: "Integrações", icon: "config" },
   { id: "emails", label: "E-mails", icon: "mail" },
   { id: "tickets", label: "Tickets", icon: "doc" },
-  { id: "pagamentos", label: "Pagamentos", icon: "money" },
   { id: "contabil", label: "Contabil", icon: "doc" },
   { id: "sistema", label: "Sistema", icon: "mark" },
 ] as const;
@@ -363,11 +361,10 @@ export function MasterClient() {
           )}
           {janela === "online" && <JanelaOnline />}
           {janela === "self-checkout" && <JanelaSelfCheckout />}
-          {janela === "creditos" && <JanelaCreditos companies={companies} />}
+          {janela === "creditos" && <JanelaCreditos companies={companies} reload={reloadCompanies} />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
           {janela === "emails" && <JanelaEmails />}
           {janela === "tickets" && <JanelaTickets />}
-          {janela === "pagamentos" && <JanelaPagamentos />}
           {janela === "contabil" && <JanelaContabil onBadgeChange={setContabilBadge} />}
           {janela === "sistema" && <JanelaSistema />}
         </div>

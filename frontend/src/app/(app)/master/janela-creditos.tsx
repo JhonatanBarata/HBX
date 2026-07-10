@@ -1,17 +1,35 @@
 "use client";
 
-// Janela Créditos (CRÉDITOS S6) — painel MASTER da carteira pré-paga (1 crédito
-// = 1 lead). Espelha o padrão de guias da JanelaSelfCheckout (organograma de
-// planos): guias PACOTES · EXPIRAÇÃO · CONCEDER CRÉDITO. Consome os endpoints
-// do S3-PARTE1 (backend/src/credits/credits-master.controller.ts):
-//   GET/PUT  /credits/master/packs*            → catálogo de pacotes de recarga
-//   PUT      /credits/master/config/expiry-default → prazo default global
-//   POST     /credits/master/company/:id/grant → concessão manual a uma empresa
-// Idempotência OBRIGATÓRIA na concessão (Fix II do S3-PARTE1): o backend
-// REJEITA grant sem usageKey/sourceRef — geramos um UUID uma única vez na
-// ABERTURA do form (não a cada clique) e mandamos como usageKey, travando o
-// double-click sem impedir duas concessões legítimas em sessões diferentes.
-// Lei 5 (design system): visual só via classe central (.sc-*, .kv, .tag, .tbl).
+// Janela Créditos (MASTER-REFAB S2) — vira o CENTRO FINANCEIRO do modelo crédito.
+// Absorve a antiga janela-pagamentos.tsx (guia "Recargas" abaixo) — aquele arquivo foi
+// apagado neste sprint e a entrada "Pagamentos" saiu do menu em page.client.tsx.
+//
+// 5 guias:
+//   Visão geral        — agregados de leitura (receita recarga 30d, circulação, expiração,
+//                         empresas sem saldo). Nada clicável além de atalho pras outras guias.
+//   Empresas            — saldo/lotes ativos/último consumo por empresa + "Conceder" inline.
+//   Packs                — CRUD do catálogo de recarga (era a guia única "Pacotes" antes do S2).
+//   Bônus de cadastro    — CreditGlobalConfig (welcomeCredits/welcomeExpiryDays/defaultExpiryDays).
+//   Recargas             — histórico de notificações de pagamento (ex-janela-pagamentos.tsx).
+//
+// Endpoints:
+//   GET  /credits/master/overview                 → agregados (S2, novo)
+//   GET  /credits/master/config                    → welcome*/defaultExpiryDays (S2, novo — o PUT já existia)
+//   GET/PUT  /credits/master/packs*                 → catálogo de pacotes (S3-PARTE1)
+//   PUT  /credits/master/config/expiry-default      → prazo default global (S3-PARTE1)
+//   PUT  /credits/master/config/welcome-batch       → bônus de cadastro (A3)
+//   POST /credits/master/company/:id/grant          → concessão manual (S3-PARTE1)
+//   GET  /master/payment-notifications/history       → guia Recargas (ex-janela-pagamentos.tsx)
+//
+// Idempotência OBRIGATÓRIA na concessão (Fix II do S3-PARTE1): usageKey UUID gerada 1x na
+// abertura da intenção (double-click não duplica; 2 concessões legítimas usam tokens diferentes).
+//
+// "Créditos em circulação" e "empresas sem saldo" NÃO batem endpoint novo — são derivados de
+// `companies` (creditsBalance, já carregado por MasterClient via /modules/master/companies, a
+// MESMA fonte que a lista/ficha de Empresas usa) pra não duplicar a régua de saldo em 2 lugares.
+//
+// Lei 5 (design system): tokens hbx-theme; sem hex cru — os cards de Visão geral usam inline
+// style com var(--hbx-*), mesmo padrão já usado em janela-pagamentos.tsx/janela-empresas.tsx.
 
 import React, { useCallback, useEffect, useState } from "react";
 
@@ -21,8 +39,10 @@ import { reportError } from "@/lib/error-bus";
 import { useTabParam } from "@/lib/use-tab-param";
 
 import type { MasterCompany } from "./page.client";
+import { fmtDataHora } from "./page.client";
 
-const GUIAS = ["Pacotes", "Expiração", "Conceder crédito"] as const;
+const GUIAS = ["Visão geral", "Empresas", "Packs", "Bônus de cadastro", "Recargas"] as const;
+type Guia = (typeof GUIAS)[number];
 
 type CreditPack = {
   key: string;
@@ -45,11 +65,28 @@ type PackForm = {
   defaultExpiryDays: string;
 };
 
-const GRANT_TYPES: { value: "paid" | "courtesy_internal" | "promo"; label: string }[] = [
+type GrantType = "paid" | "courtesy_internal" | "promo";
+
+const GRANT_TYPES: { value: GrantType; label: string }[] = [
   { value: "courtesy_internal", label: "Cortesia interna" },
   { value: "paid", label: "Pago (fora do checkout)" },
   { value: "promo", label: "Promoção" },
 ];
+
+type CreditsOverview = {
+  enabled?: boolean;
+  revenueRecharge30d?: number;
+  revenueRecharge30dCount?: number;
+  creditsExpiring30d?: number;
+  creditsExpiring30dLots?: number;
+  companies?: { companyId: number; activeLots: number; lastConsumptionAt: string | null }[];
+};
+
+type GlobalConfig = {
+  defaultExpiryDays?: number;
+  welcomeCredits?: number;
+  welcomeExpiryDays?: number;
+};
 
 function toForm(p: CreditPack | null): PackForm {
   return {
@@ -69,18 +106,108 @@ function newIdempotencyKey(): string {
   return `grant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function JanelaCreditos({ companies }: { companies: MasterCompany[] | null }) {
-  const [guia, setGuia] = useTabParam<(typeof GUIAS)[number]>("guia", "Pacotes", GUIAS);
+function brl(value: number) {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
-  // ── Pacotes ──────────────────────────────────────────────────────────────
+function n0(value: number) {
+  return value.toLocaleString("pt-BR");
+}
+
+// Feature flag OFF (ou sem permissão) devolve 403/404 — mesma dica em todo o módulo créditos:
+// não é "erro", é "recurso desligado". Erro de rede/500 real segue mostrando a mensagem.
+function isFeatureFlagStatus(status: unknown) {
+  return status === 403 || status === 404;
+}
+
+export function JanelaCreditos({ companies, reload }: {
+  companies: MasterCompany[] | null;
+  reload?: () => Promise<void> | void;
+}) {
+  const [guia, setGuia] = useTabParam<Guia>("guia", "Visão geral", GUIAS);
+
+  // ── Overview (Visão geral + guia Empresas: lotes ativos/último consumo) ────────────────────
+  const [overview, setOverview] = useState<CreditsOverview | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+
+  const carregarOverview = useCallback(() => {
+    return apiFetch<CreditsOverview>("/credits/master/overview")
+      .then(res => { setOverview(res); setOverviewError(null); })
+      .catch((err: unknown) => {
+        setOverview(null);
+        const status = (err as ApiError)?.status;
+        setOverviewError(isFeatureFlagStatus(status) ? null : ((err as ApiError)?.message || "Falha ao carregar a visão geral."));
+      });
+  }, []);
+
+  useEffect(() => { carregarOverview(); }, [carregarOverview]);
+
+  const overviewByCompany = new Map((overview?.companies || []).map(c => [c.companyId, c]));
+  const circulacaoTotal = (companies || []).reduce((sum, c) => sum + (c.creditsBalance || 0), 0);
+  const empresasSemSaldo = (companies || []).filter(c => (c.creditsBalance ?? 0) <= 0).length;
+
+  // ── Conceder crédito inline (guia Empresas) ─────────────────────────────────────────────────
+  const [grantOpenFor, setGrantOpenFor] = useState<number | null>(null);
+  const [grantAmount, setGrantAmount] = useState("");
+  const [grantType, setGrantType] = useState<GrantType>("courtesy_internal");
+  const [grantExpiresAt, setGrantExpiresAt] = useState("");
+  const [grantBusy, setGrantBusy] = useState(false);
+  const [grantMsg, setGrantMsg] = useState<string | null>(null);
+  // Idempotência OBRIGATÓRIA (Fix II S3-PARTE1): 1 UUID por ABERTURA de intenção de concessão —
+  // double-click/retry de rede reusam a MESMA chave (backend dedupa); nova intenção = nova chave.
+  const [usageKey, setUsageKey] = useState<string>(() => newIdempotencyKey());
+
+  function abrirConceder(companyId: number) {
+    setGrantOpenFor(companyId);
+    setGrantAmount("");
+    setGrantType("courtesy_internal");
+    setGrantExpiresAt("");
+    setGrantMsg(null);
+    setUsageKey(newIdempotencyKey());
+  }
+
+  function fecharConceder() {
+    setGrantOpenFor(null);
+    setGrantMsg(null);
+  }
+
+  async function conceder(companyId: number) {
+    if (grantBusy) return;
+    const amount = Number(grantAmount);
+    if (!Number.isInteger(amount) || amount <= 0) { setGrantMsg("Informe uma quantidade inteira positiva de créditos."); return; }
+
+    setGrantBusy(true);
+    setGrantMsg(null);
+    try {
+      const body: Record<string, unknown> = { amount, grantType, usageKey };
+      if (grantExpiresAt) body.expiresAt = new Date(`${grantExpiresAt}T00:00:00`).toISOString();
+      const res = await apiFetch<{ ok?: boolean; balanceAfter?: number; expiresAt?: string | null; alreadyProcessed?: boolean }>(
+        `/credits/master/company/${companyId}/grant`,
+        { method: "POST", body: JSON.stringify(body) },
+      );
+      setGrantMsg(res?.alreadyProcessed
+        ? "✓ Concessão já havia sido processada antes (idempotência) — nada foi duplicado."
+        : `✓ Créditos concedidos. Saldo após: ${res?.balanceAfter ?? "—"}.`);
+      // Nova intenção a partir daqui — gera nova chave (double-click do botão "Conceder"
+      // de novo não reusa a mesma).
+      setUsageKey(newIdempotencyKey());
+      await Promise.all([reload?.(), carregarOverview()]);
+    } catch (e) {
+      reportError(e);
+      setGrantMsg(e instanceof Error ? e.message : "Falha ao conceder crédito.");
+    } finally {
+      setGrantBusy(false);
+    }
+  }
+
+  // ── Packs ────────────────────────────────────────────────────────────────────────────────
   const [packs, setPacks] = useState<CreditPack[] | null>(null);
   const [packKey, setPackKey] = useState<string | null>(null);
   const [packForm, setPackForm] = useState<PackForm>(toForm(null));
   const [packBusy, setPackBusy] = useState(false);
   const [packMsg, setPackMsg] = useState<string | null>(null);
-  // Lista vazia real (flag ligada, catálogo zerado) × erro de rede/500 do
-  // endpoint contam histórias diferentes pro dono — não podem cair na mesma
-  // dica de "confira a flag" (achado C6/CORRECOES.md).
+  // Lista vazia real (flag ligada, catálogo zerado) × erro de rede/500 do endpoint contam
+  // histórias diferentes pro dono — não podem cair na mesma dica de "confira a flag".
   const [packsLoadError, setPacksLoadError] = useState<string | null>(null);
 
   const carregarPacks = useCallback(() => {
@@ -94,10 +221,7 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
       .catch((err: unknown) => {
         setPacks([]);
         const status = (err as ApiError)?.status;
-        const isFeatureFlag = status === 403 || status === 404;
-        setPacksLoadError(isFeatureFlag
-          ? null
-          : ((err as ApiError)?.message || "Falha ao carregar os pacotes de crédito."));
+        setPacksLoadError(isFeatureFlagStatus(status) ? null : ((err as ApiError)?.message || "Falha ao carregar os pacotes de crédito."));
       });
   }, []);
 
@@ -137,245 +261,459 @@ export function JanelaCreditos({ companies }: { companies: MasterCompany[] | nul
     }
   }
 
-  // ── Expiração default global ────────────────────────────────────────────
-  // O default global não tem GET próprio no S3-PARTE1 (só PUT) — o campo
-  // nasce vazio e o master digita o prazo desejado; o placeholder "90" reflete
-  // o default de código (credit-pack-catalog.ts DEFAULT_CREDIT_EXPIRY_DAYS).
-  const [expiryDays, setExpiryDays] = useState("");
-  const [expiryBusy, setExpiryBusy] = useState(false);
-  const [expiryMsg, setExpiryMsg] = useState<string | null>(null);
-
-  async function salvarExpiry() {
-    if (expiryBusy) return;
-    const n = Number(expiryDays);
-    if (!Number.isFinite(n) || n <= 0) {
-      setExpiryMsg("Informe um número de dias positivo.");
-      return;
-    }
-    setExpiryBusy(true);
-    setExpiryMsg(null);
-    try {
-      const res = await apiFetch<{ defaultExpiryDays?: number }>("/credits/master/config/expiry-default", {
-        method: "PUT",
-        body: JSON.stringify({ defaultExpiryDays: n }),
-      });
-      setExpiryMsg(`✓ Prazo default salvo: ${res?.defaultExpiryDays ?? n} dias. Vale para concessões manuais sem data explícita.`);
-    } catch (e) {
-      reportError(e);
-      setExpiryMsg(e instanceof Error ? e.message : "Falha ao salvar o prazo default.");
-    } finally {
-      setExpiryBusy(false);
-    }
-  }
-
-  // ── Conceder crédito a uma empresa ──────────────────────────────────────
-  const [grantCompanyId, setGrantCompanyId] = useState("");
-  const [grantAmount, setGrantAmount] = useState("");
-  const [grantType, setGrantType] = useState<"paid" | "courtesy_internal" | "promo">("courtesy_internal");
-  const [grantExpiresAt, setGrantExpiresAt] = useState("");
-  const [grantBusy, setGrantBusy] = useState(false);
-  const [grantMsg, setGrantMsg] = useState<string | null>(null);
-  const [grantResult, setGrantResult] = useState<{ balanceAfter: number; expiresAt: string | null; alreadyProcessed: boolean } | null>(null);
-  // Idempotência OBRIGATÓRIA (Fix II S3-PARTE1): 1 UUID por ABERTURA de
-  // intenção de concessão, gerado uma vez e reusado em toda a vida deste form
-  // — double-click/retry de rede reusam a MESMA chave (backend dedupa); ao
-  // concluir e resetar o form, uma NOVA chave nasce pra próxima concessão.
-  const [usageKey, setUsageKey] = useState<string>(() => newIdempotencyKey());
-
-  function resetGrantForm() {
-    setGrantCompanyId("");
-    setGrantAmount("");
-    setGrantType("courtesy_internal");
-    setGrantExpiresAt("");
-    setUsageKey(newIdempotencyKey());
-  }
-
-  async function conceder() {
-    if (grantBusy) return;
-    const companyId = Number(grantCompanyId);
-    const amount = Number(grantAmount);
-    if (!companyId) { setGrantMsg("Selecione a empresa."); return; }
-    if (!Number.isInteger(amount) || amount <= 0) { setGrantMsg("Informe uma quantidade inteira positiva de créditos."); return; }
-
-    setGrantBusy(true);
-    setGrantMsg(null);
-    setGrantResult(null);
-    try {
-      const body: Record<string, unknown> = { amount, grantType, usageKey };
-      if (grantExpiresAt) body.expiresAt = new Date(`${grantExpiresAt}T00:00:00`).toISOString();
-      const res = await apiFetch<{ ok?: boolean; balanceAfter?: number; expiresAt?: string | null; alreadyProcessed?: boolean }>(
-        `/credits/master/company/${companyId}/grant`,
-        { method: "POST", body: JSON.stringify(body) },
-      );
-      setGrantResult({
-        balanceAfter: res?.balanceAfter ?? 0,
-        expiresAt: res?.expiresAt ?? null,
-        alreadyProcessed: Boolean(res?.alreadyProcessed),
-      });
-      setGrantMsg(res?.alreadyProcessed
-        ? "✓ Concessão já havia sido processada antes (idempotência) — nada foi duplicado."
-        : "✓ Créditos concedidos.");
-      // Nova intenção a partir daqui — gera nova chave, mas preserva a
-      // empresa selecionada pra facilitar uma 2ª concessão distinta.
-      setUsageKey(newIdempotencyKey());
-    } catch (e) {
-      reportError(e);
-      setGrantMsg(e instanceof Error ? e.message : "Falha ao conceder crédito.");
-    } finally {
-      setGrantBusy(false);
-    }
-  }
-
   const pausado = packForm.status === "paused";
 
+  // ── Bônus de cadastro (welcomeCredits/welcomeExpiryDays/defaultExpiryDays) ─────────────────
+  const [welcomeCredits, setWelcomeCredits] = useState("");
+  const [welcomeExpiryDays, setWelcomeExpiryDays] = useState("");
+  const [defaultExpiryDays, setDefaultExpiryDays] = useState("");
+  const [configBusy, setConfigBusy] = useState(false);
+  const [configMsg, setConfigMsg] = useState<string | null>(null);
+  const [configLoadError, setConfigLoadError] = useState<string | null>(null);
+
+  const carregarConfig = useCallback(() => {
+    apiFetch<GlobalConfig>("/credits/master/config")
+      .then(res => {
+        setWelcomeCredits(res?.welcomeCredits != null ? String(res.welcomeCredits) : "");
+        setWelcomeExpiryDays(res?.welcomeExpiryDays != null ? String(res.welcomeExpiryDays) : "");
+        setDefaultExpiryDays(res?.defaultExpiryDays != null ? String(res.defaultExpiryDays) : "");
+        setConfigLoadError(null);
+      })
+      .catch((err: unknown) => {
+        const status = (err as ApiError)?.status;
+        setConfigLoadError(isFeatureFlagStatus(status) ? null : ((err as ApiError)?.message || "Falha ao carregar a configuração."));
+      });
+  }, []);
+
+  useEffect(() => { carregarConfig(); }, [carregarConfig]);
+
+  async function salvarConfig() {
+    if (configBusy) return;
+    const wc = Number(welcomeCredits);
+    const wed = Number(welcomeExpiryDays);
+    const ded = Number(defaultExpiryDays);
+    if (!Number.isFinite(wc) || wc <= 0 || !Number.isFinite(wed) || wed <= 0 || !Number.isFinite(ded) || ded <= 0) {
+      setConfigMsg("Informe números positivos nos 3 campos.");
+      return;
+    }
+    setConfigBusy(true);
+    setConfigMsg(null);
+    try {
+      await Promise.all([
+        apiFetch("/credits/master/config/welcome-batch", {
+          method: "PUT",
+          body: JSON.stringify({ welcomeCredits: wc, welcomeExpiryDays: wed }),
+        }),
+        apiFetch("/credits/master/config/expiry-default", {
+          method: "PUT",
+          body: JSON.stringify({ defaultExpiryDays: ded }),
+        }),
+      ]);
+      setConfigMsg("✓ Configuração salva.");
+      carregarConfig();
+    } catch (e) {
+      reportError(e);
+      setConfigMsg(e instanceof Error ? e.message : "Falha ao salvar a configuração.");
+    } finally {
+      setConfigBusy(false);
+    }
+  }
+
+  const empresasOrdenadas = (companies || [])
+    .slice()
+    .sort((a, b) => (a.creditsBalance ?? 0) - (b.creditsBalance ?? 0)); // sem saldo primeiro
+
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Créditos — carteira pré-paga</h2>
-        {guia === "Pacotes" && (
-          <div className="meta">
-            <select className="field-dark" value={packKey || ""} onChange={e => setPackKey(e.target.value)} aria-label="Pacote">
-              {(packs || []).map(p => <option key={p.key} value={p.key}>{p.title}</option>)}
-            </select>
-            <button className="btn-teal" disabled={packBusy || !packKey} onClick={salvarPack}>{packBusy ? "Salvando…" : "Salvar pacote"}</button>
+    <React.Fragment>
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Créditos — centro financeiro</h2>
+          <div className="meta">1 crédito = 1 lead</div>
+        </div>
+        <div className="tabs sc-tabs">
+          {GUIAS.map(g => (
+            <button key={g} className={"tab" + (guia === g ? " active" : "")} onClick={() => setGuia(g)}>
+              {g}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {guia === "Visão geral" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Visão geral</h2>
+            <div className="meta">últimos 30 dias</div>
           </div>
-        )}
-      </div>
+          {overviewError && (
+            <div className="sc-intro"><div className="sc-msg is-warn">{overviewError}</div></div>
+          )}
+          {overview === null && !overviewError && (
+            <div className="sc-intro"><span className="sc-loading">Carregando…</span></div>
+          )}
+          {overview && (
+            <div className="sc-tiles">
+              <button type="button" onClick={() => setGuia("Recargas")} className="btn-ghost sc-tile">
+                <span className="sc-tile-label">Receita de recarga (30d)</span>
+                <strong className="sc-tile-value">{brl(overview.revenueRecharge30d || 0)}</strong>
+                <span className="sc-tile-sub">{overview.revenueRecharge30dCount || 0} recarga(s) aprovada(s)</span>
+              </button>
+              <button type="button" onClick={() => setGuia("Empresas")} className="btn-ghost sc-tile">
+                <span className="sc-tile-label">Créditos em circulação</span>
+                <strong className="sc-tile-value">{n0(circulacaoTotal)}</strong>
+                <span className="sc-tile-sub">{(companies || []).length} empresa(s) na base</span>
+              </button>
+              <button type="button" onClick={() => setGuia("Empresas")} className="btn-ghost sc-tile">
+                <span className="sc-tile-label">Expirando em 30 dias</span>
+                <strong className="sc-tile-value">{n0(overview.creditsExpiring30d || 0)}</strong>
+                <span className="sc-tile-sub">{overview.creditsExpiring30dLots || 0} lote(s)</span>
+              </button>
+              <button type="button" onClick={() => setGuia("Empresas")} className="btn-ghost sc-tile">
+                <span className="sc-tile-label">Empresas sem saldo</span>
+                <strong className="sc-tile-value">{n0(empresasSemSaldo)}</strong>
+                <span className="sc-tile-sub">abrir na guia Empresas</span>
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
-      <div className="sc-intro">
-        <span className="sc-note">
-          1 crédito = 1 lead. Preços dos pacotes são os que a empresa vê ao recarregar (checkout ainda não existe — S3-PARTE2).
-        </span>
-      </div>
+      {guia === "Empresas" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Empresas ({(companies || []).length})</h2>
+            <div className="meta">sem saldo primeiro</div>
+          </div>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr><th>Empresa</th><th>Saldo</th><th>Lotes ativos</th><th>Último consumo</th><th>Ação</th></tr>
+              </thead>
+              <tbody>
+                {companies === null && (
+                  <tr><td colSpan={5} className="muted-note">Carregando…</td></tr>
+                )}
+                {companies !== null && companies.length === 0 && (
+                  <tr><td colSpan={5} className="muted-note">Nenhuma empresa na base.</td></tr>
+                )}
+                {empresasOrdenadas.map(c => {
+                  const meta = overviewByCompany.get(c.id);
+                  const isOpen = grantOpenFor === c.id;
+                  return (
+                    <React.Fragment key={c.id}>
+                      <tr>
+                        <td>
+                          <div className="co">
+                            <strong>{c.name}</strong>
+                            <span className="sub2">#{c.id}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={c.creditsBalance != null && c.creditsBalance <= 0 ? "tag red" : "tag teal"}>
+                            {c.creditsBalance != null ? n0(c.creditsBalance) : "—"}
+                          </span>
+                        </td>
+                        <td>{meta?.activeLots ?? 0}</td>
+                        <td>{fmtDataHora(meta?.lastConsumptionAt)}</td>
+                        <td>
+                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                            onClick={() => (isOpen ? fecharConceder() : abrirConceder(c.id))}>
+                            {isOpen ? "Cancelar" : "Conceder"}
+                          </button>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="sel">
+                          <td colSpan={5}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", padding: "10px 2px" }}>
+                              <div className="sc-field" style={{ minWidth: 120 }}>
+                                <label className="field-label">Quantidade</label>
+                                <input className="field-dark" inputMode="numeric" value={grantAmount}
+                                  onChange={e => setGrantAmount(e.target.value)} placeholder="0" />
+                              </div>
+                              <div className="sc-field" style={{ minWidth: 180 }}>
+                                <label className="field-label">Tipo</label>
+                                <select className="field-dark" value={grantType} onChange={e => setGrantType(e.target.value as GrantType)}>
+                                  {GRANT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                </select>
+                              </div>
+                              <div className="sc-field" style={{ minWidth: 160 }}>
+                                <label className="field-label">Expiração (opcional)</label>
+                                <input className="field-dark" type="date" value={grantExpiresAt}
+                                  onChange={e => setGrantExpiresAt(e.target.value)} />
+                              </div>
+                              <button className="btn-teal" disabled={grantBusy || !grantAmount} onClick={() => conceder(c.id)}>
+                                {grantBusy ? "Concedendo…" : "Conceder crédito"}
+                              </button>
+                            </div>
+                            {grantMsg && <div className={"sc-msg " + (grantMsg.startsWith("✓") ? "is-ok" : "is-warn")} style={{ paddingBottom: 8 }}>{grantMsg}</div>}
+                            <div className="sc-hint" style={{ paddingBottom: 8 }}>Vazio usa o prazo default global (guia Bônus de cadastro).</div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
-      <div className="tabs sc-tabs">
-        {GUIAS.map(g => (
-          <button key={g} className={"tab" + (guia === g ? " active" : "")} onClick={() => setGuia(g)}>
-            {g}
-          </button>
-        ))}
-      </div>
+      {guia === "Packs" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Packs de recarga</h2>
+            <div className="meta">
+              <select className="field-dark" value={packKey || ""} onChange={e => setPackKey(e.target.value)} aria-label="Pacote">
+                {(packs || []).map(p => <option key={p.key} value={p.key}>{p.title}</option>)}
+              </select>
+              <button className="btn-teal" disabled={packBusy || !packKey} onClick={salvarPack}>{packBusy ? "Salvando…" : "Salvar pacote"}</button>
+            </div>
+          </div>
+          <div className="sc-intro">
+            <span className="sc-note">
+              Preço e tamanho são definidos por você; o que estiver &quot;available&quot; aparece na vitrine pública.
+            </span>
+          </div>
+          <div className="sc-body">
+            {packs === null && <span className="sc-loading">Carregando…</span>}
 
-      <div className="sc-body">
-        {guia === "Pacotes" && packs === null && <span className="sc-loading">Carregando…</span>}
+            {packs !== null && packs.length === 0 && (
+              <span className="sc-note">
+                {packsLoadError || "Nenhum pacote encontrado — confira se o recurso de créditos está habilitado."}
+              </span>
+            )}
 
-        {guia === "Pacotes" && packs !== null && packs.length === 0 && (
-          <span className="sc-note">
-            {packsLoadError || "Nenhum pacote encontrado — confira se o recurso de créditos está habilitado."}
-          </span>
-        )}
+            {packs !== null && packs.length > 0 && (
+              <React.Fragment>
+                {packMsg && <div className={"sc-msg " + (packMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{packMsg}</div>}
+                <div className="sc-field">
+                  <label className="field-label">Nome do pacote</label>
+                  <input className="field-dark" maxLength={60} value={packForm.title}
+                    onChange={e => setPackForm(f => ({ ...f, title: e.target.value }))} placeholder="Nome exibido na carteira" />
+                </div>
+                <div className="sc-field">
+                  <label className="field-label">Observação</label>
+                  <textarea className="field-dark sc-textarea" rows={3} maxLength={400} value={packForm.observation}
+                    onChange={e => setPackForm(f => ({ ...f, observation: e.target.value }))}
+                    placeholder="Texto que acompanha o pacote" />
+                </div>
+                <div className="sc-field">
+                  <label className="field-label">Créditos no pacote</label>
+                  <input className="field-dark" inputMode="numeric" value={packForm.credits}
+                    onChange={e => setPackForm(f => ({ ...f, credits: e.target.value }))} placeholder="0" />
+                </div>
+                <div className="sc-field">
+                  <label className="field-label">Preço (R$)</label>
+                  <input className="field-dark" inputMode="decimal" value={packForm.price}
+                    onChange={e => setPackForm(f => ({ ...f, price: e.target.value }))} placeholder="0,00" />
+                </div>
+                <div className="sc-field">
+                  <label className="field-label">Validade do crédito (dias)</label>
+                  <input className="field-dark" inputMode="numeric" value={packForm.defaultExpiryDays}
+                    onChange={e => setPackForm(f => ({ ...f, defaultExpiryDays: e.target.value }))} placeholder="90" />
+                </div>
+                <div className="sc-field sc-field--sep">
+                  <label className="field-label">Disponibilidade</label>
+                  <label className="sc-check">
+                    <input type="checkbox" checked={pausado}
+                      onChange={e => setPackForm(f => ({ ...f, status: e.target.checked ? "paused" : "available" }))} />
+                    Pausar este pacote
+                  </label>
+                  <span className={"sc-hint" + (pausado ? " is-warn" : "")}>
+                    {pausado ? "Pausado: some da vitrine de recarga da empresa." : "Ativo: aparece na vitrine de recarga."}
+                  </span>
+                </div>
+              </React.Fragment>
+            )}
+          </div>
+        </section>
+      )}
 
-        {guia === "Pacotes" && packs !== null && packs.length > 0 && (
-          <React.Fragment>
-            {packMsg && <div className={"sc-msg " + (packMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{packMsg}</div>}
+      {guia === "Bônus de cadastro" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Bônus de cadastro</h2>
+            <div className="meta">config global</div>
+          </div>
+          <div className="sc-intro">
+            <span className="sc-note">
+              Lote grátis concedido no cadastro self-service + prazo default de validade usado quando uma concessão manual não informa data.
+            </span>
+          </div>
+          <div className="sc-body">
+            {configLoadError && <div className="sc-msg is-warn">{configLoadError}</div>}
+            {configMsg && <div className={"sc-msg " + (configMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{configMsg}</div>}
             <div className="sc-field">
-              <label className="field-label">Nome do pacote</label>
-              <input className="field-dark" maxLength={60} value={packForm.title}
-                onChange={e => setPackForm(f => ({ ...f, title: e.target.value }))} placeholder="Nome exibido na carteira" />
+              <label className="field-label">Créditos de boas-vindas</label>
+              <input className="field-dark" inputMode="numeric" value={welcomeCredits}
+                onChange={e => setWelcomeCredits(e.target.value)} placeholder="50" />
+              <span className="sc-hint">Concedido automaticamente no cadastro grátis (self-service).</span>
             </div>
             <div className="sc-field">
-              <label className="field-label">Observação</label>
-              <textarea className="field-dark sc-textarea" rows={3} maxLength={400} value={packForm.observation}
-                onChange={e => setPackForm(f => ({ ...f, observation: e.target.value }))}
-                placeholder="Texto que acompanha o pacote" />
-            </div>
-            <div className="sc-field">
-              <label className="field-label">Créditos no pacote</label>
-              <input className="field-dark" inputMode="numeric" value={packForm.credits}
-                onChange={e => setPackForm(f => ({ ...f, credits: e.target.value }))} placeholder="0" />
-            </div>
-            <div className="sc-field">
-              <label className="field-label">Preço (R$)</label>
-              <input className="field-dark" inputMode="decimal" value={packForm.price}
-                onChange={e => setPackForm(f => ({ ...f, price: e.target.value }))} placeholder="0,00" />
-            </div>
-            <div className="sc-field">
-              <label className="field-label">Validade do crédito (dias)</label>
-              <input className="field-dark" inputMode="numeric" value={packForm.defaultExpiryDays}
-                onChange={e => setPackForm(f => ({ ...f, defaultExpiryDays: e.target.value }))} placeholder="90" />
+              <label className="field-label">Validade do bônus de cadastro (dias)</label>
+              <input className="field-dark" inputMode="numeric" value={welcomeExpiryDays}
+                onChange={e => setWelcomeExpiryDays(e.target.value)} placeholder="30" />
             </div>
             <div className="sc-field sc-field--sep">
-              <label className="field-label">Disponibilidade</label>
-              <label className="sc-check">
-                <input type="checkbox" checked={pausado}
-                  onChange={e => setPackForm(f => ({ ...f, status: e.target.checked ? "paused" : "available" }))} />
-                Pausar este pacote
-              </label>
-              <span className={"sc-hint" + (pausado ? " is-warn" : "")}>
-                {pausado ? "Pausado: some da vitrine de recarga da empresa." : "Ativo: aparece na vitrine de recarga."}
-              </span>
+              <label className="field-label">Prazo default de expiração (dias)</label>
+              <input className="field-dark" inputMode="numeric" value={defaultExpiryDays}
+                onChange={e => setDefaultExpiryDays(e.target.value)} placeholder="90" />
+              <span className="sc-hint">Usado nas concessões manuais (guia Empresas) quando nenhuma data é informada. Cada pacote (guia Packs) tem seu próprio prazo, que prevalece na compra.</span>
             </div>
-          </React.Fragment>
-        )}
-
-        {guia === "Expiração" && (
-          <React.Fragment>
-            <span className="sc-note">
-              Prazo default GLOBAL de validade do crédito — usado nas concessões manuais quando nenhuma data é
-              informada. Cada pacote também tem seu próprio prazo (aba Pacotes), que prevalece na compra do pacote.
-            </span>
-            {expiryMsg && <div className={"sc-msg " + (expiryMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{expiryMsg}</div>}
-            <div className="sc-field">
-              <label className="field-label">Prazo default (dias)</label>
-              <input className="field-dark" inputMode="numeric" value={expiryDays}
-                onChange={e => setExpiryDays(e.target.value)} placeholder="90" />
-            </div>
-            <button className="btn-teal" disabled={expiryBusy} onClick={salvarExpiry}>
-              {expiryBusy ? "Salvando…" : "Salvar prazo default"}
+            <button className="btn-teal" disabled={configBusy} onClick={salvarConfig}>
+              {configBusy ? "Salvando…" : "Salvar configuração"}
             </button>
-          </React.Fragment>
-        )}
+          </div>
+        </section>
+      )}
 
-        {guia === "Conceder crédito" && (
-          <React.Fragment>
-            <span className="sc-note">
-              Concessão manual — "master libera créditos ao admin". Idempotente: reenviar a MESMA intenção (double-click)
-              não duplica o lote.
-            </span>
-            {grantMsg && <div className={"sc-msg " + (grantMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{grantMsg}</div>}
-            <div className="sc-field">
-              <label className="field-label">Empresa</label>
-              <select className="field-dark" value={grantCompanyId} onChange={e => setGrantCompanyId(e.target.value)}>
-                <option value="">Selecione…</option>
-                {(companies || []).map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="sc-field">
-              <label className="field-label">Quantidade de créditos</label>
-              <input className="field-dark" inputMode="numeric" value={grantAmount}
-                onChange={e => setGrantAmount(e.target.value)} placeholder="0" />
-            </div>
-            <div className="sc-field">
-              <label className="field-label">Tipo de concessão</label>
-              <select className="field-dark" value={grantType} onChange={e => setGrantType(e.target.value as typeof grantType)}>
-                {GRANT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-            </div>
-            <div className="sc-field">
-              <label className="field-label">Expiração (opcional)</label>
-              <input className="field-dark" type="date" value={grantExpiresAt}
-                onChange={e => setGrantExpiresAt(e.target.value)} />
-              <span className="sc-hint">Vazio usa o prazo default global (aba Expiração).</span>
-            </div>
-            <button className="btn-teal" disabled={grantBusy || !grantCompanyId || !grantAmount} onClick={conceder}>
-              {grantBusy ? "Concedendo…" : "Conceder crédito"}
+      {guia === "Recargas" && <GuiaRecargas />}
+    </React.Fragment>
+  );
+}
+
+// ── Guia Recargas — conteúdo migrado literalmente da antiga janela-pagamentos.tsx (apagada
+// neste sprint). Mesmo endpoint (histórico de notificações de pagamento aprovado via WhatsApp);
+// nenhum caminho de escrita de dinheiro tocado.
+
+type NotificationRow = {
+  id: string;
+  companyId?: number;
+  companyName?: string | null;
+  target?: string;
+  text?: string;
+  status?: string;
+  providerMessageId?: string | null;
+  errorMessage?: string | null;
+  createdAt?: string;
+};
+
+type HistoryResponse = {
+  ok?: boolean;
+  notifications?: NotificationRow[];
+  message?: string | null;
+} | null;
+
+const STATUS_OPCOES = [
+  { value: "", label: "Todos" },
+  { value: "sent", label: "Enviados" },
+  { value: "failed", label: "Falharam" },
+];
+
+function GuiaRecargas() {
+  const [status, setStatus] = useState("");
+  const [data, setData] = useState<HistoryResponse>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selId, setSelId] = useState<string | null>(null);
+
+  const carregar = useCallback((st: string) => {
+    const q = new URLSearchParams();
+    if (st) q.set("status", st);
+    q.set("take", "200");
+    apiFetch<HistoryResponse>(`/master/payment-notifications/history?${q.toString()}`)
+      .then(res => { setData(res); setLoadError(null); })
+      .catch((err: unknown) => {
+        setData({ ok: false, notifications: [] });
+        setLoadError(err instanceof Error ? err.message : "Falha ao carregar o histórico.");
+      });
+  }, []);
+
+  useEffect(() => { carregar(status); }, [status, carregar]);
+
+  function trocarStatus(st: string) {
+    setStatus(st);
+    setData(null);
+    setSelId(null);
+    setLoadError(null);
+  }
+
+  const linhas = data?.notifications || [];
+  const sel = linhas.find(n => n.id === selId) || null;
+
+  return (
+    <React.Fragment>
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Recargas — notificações de pagamento (WhatsApp)</h2>
+          <div className="meta">
+            {data?.notifications ? `${linhas.length} disparo(s)` : ""}
+            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} onClick={() => carregar(status)}>Atualizar</button>
+          </div>
+        </div>
+        <div style={{ padding: "12px 16px 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {STATUS_OPCOES.map(o => (
+            <button key={o.value} className="btn-ghost" onClick={() => trocarStatus(o.value)}
+              style={{ minHeight: 28, fontSize: "0.66rem", ...(o.value === status ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
+              {o.label}
             </button>
-
-            {grantResult && (
-              <div className="kv">
-                <div className="row"><span className="k">Saldo após concessão</span><span className="v">{grantResult.balanceAfter}</span></div>
-                <div className="row"><span className="k">Validade do lote</span><span className="v">{grantResult.expiresAt ? new Date(grantResult.expiresAt).toLocaleDateString("pt-BR") : "—"}</span></div>
-                {grantResult.alreadyProcessed && (
-                  <div className="row"><span className="k">Status</span><span className="v">já processada (idempotente)</span></div>
-                )}
-              </div>
-            )}
-            {grantResult && (
-              <button className="btn-ghost" onClick={resetGrantForm}>Nova concessão</button>
-            )}
-          </React.Fragment>
+          ))}
+        </div>
+        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {data?.ok === false && data?.message && (
+          <div style={{ padding: "8px 16px 12px", fontSize: "0.72rem", color: "var(--text-muted)" }}>{data.message}</div>
         )}
-      </div>
-    </section>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr><th>Empresa</th><th>Destinatário</th><th>Status</th><th>Mensagem</th><th>Disparado em</th></tr>
+            </thead>
+            <tbody>
+              {data === null && !loadError && (
+                <tr><td colSpan={5} style={{ color: "var(--text-muted)" }}>Carregando…</td></tr>
+              )}
+              {data !== null && linhas.length === 0 && !loadError && (
+                <tr><td colSpan={5} style={{ color: "var(--text-muted)" }}>
+                  Nenhum disparo registrado ainda — o histórico nasce nos próximos avisos de pagamento aprovado.
+                </td></tr>
+              )}
+              {linhas.map(n => (
+                <tr key={n.id} className={n.id === selId ? "sel" : ""} onClick={() => setSelId(n.id === selId ? null : n.id)}>
+                  <td>
+                    <div className="co">
+                      <strong>{n.companyName || "—"}</strong>
+                      <span className="sub2">#{n.companyId}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontFamily: "var(--font-mono)" }}>{n.target || "—"}</td>
+                  <td><span className={n.status === "sent" ? "tag teal" : "tag red"}>{n.status === "sent" ? "enviado" : "falhou"}</span></td>
+                  <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>{(n.text || "").slice(0, 60)}{(n.text || "").length > 60 ? "…" : ""}</td>
+                  <td>{fmtDataHora(n.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ padding: "8px 16px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
+          O disparo continua máquina-a-máquina (webhook Mercado Pago → WhatsApp via Webwhats). Esta guia é o histórico.
+        </div>
+      </section>
+
+      {sel && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Disparo {sel.status === "sent" ? "enviado" : "com falha"}</h2>
+            <div className="meta">{fmtDataHora(sel.createdAt)}</div>
+          </div>
+          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "0.74rem" }}>
+            <p style={{ margin: 0, lineHeight: 1.55, whiteSpace: "pre-line", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>{sel.text || "—"}</p>
+            <div style={{ display: "grid", gap: 6 }}>
+              {[
+                ["Empresa", sel.companyName ? `${sel.companyName} (#${sel.companyId})` : `#${sel.companyId}`],
+                ["Destinatário", sel.target],
+                ["ID no provedor", sel.providerMessageId],
+                ["Erro", sel.errorMessage],
+              ].map(([label, value]) => (
+                <div key={String(label)} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span style={{ color: "var(--text-muted)" }}>{label}</span>
+                  <span style={{ fontWeight: 600, textAlign: "right", overflowWrap: "anywhere" }}>{value || "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+    </React.Fragment>
   );
 }

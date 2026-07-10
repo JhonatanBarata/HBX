@@ -16,13 +16,22 @@ import { clearCreditPackOverrides } from './credit-pack-catalog';
 type Row = Record<string, any>;
 
 function matchesWhere(row: Row, where: Row): boolean {
+  // S2 (getMasterOverview): "OR" no topo do where, ex. lote perpétuo (expiresAt null) OU não
+  // expirado ainda — recursivo (AND do resto do where + OR de UMA das alternativas).
+  if (where && Array.isArray((where as any).OR)) {
+    const { OR, ...rest } = where as any;
+    if (!matchesWhere(row, rest)) return false;
+    return (OR as Row[]).some((cond) => matchesWhere(row, cond));
+  }
   for (const [key, cond] of Object.entries(where || {})) {
     const value = row[key];
     if (cond && typeof cond === 'object' && !(cond instanceof Date)) {
       if ('gt' in cond && !(Number(value) > cond.gt)) return false;
       if ('lt' in cond && !(value instanceof Date && value.getTime() < cond.lt.getTime())) return false;
       if ('gte' in cond && !(value instanceof Date && value.getTime() >= cond.gte.getTime())) return false;
+      if ('lte' in cond && !(value instanceof Date && value.getTime() <= cond.lte.getTime())) return false;
       if ('in' in cond && !cond.in.includes(value)) return false;
+      if ('startsWith' in cond && !(typeof value === 'string' && value.startsWith(cond.startsWith))) return false;
     } else if (value !== cond) {
       return false;
     }
@@ -152,6 +161,50 @@ function createFakePrisma(companyIds: number[] = [1]) {
       record(() => befores.forEach(({ row, snapshot }) => Object.assign(row, snapshot)));
       return { count: rows.length };
     },
+    // S2 (getMasterOverview): groupBy por companyId com _sum/_count/_max — só o suficiente pro
+    // que o service pede (by:['companyId']).
+    groupBy: async ({ where, _sum, _count, _max }: any) => {
+      const rows = entries.filter((item) => matchesWhere(item, where));
+      const byCompany = new Map<number, Row[]>();
+      for (const row of rows) {
+        const key = Number(row.companyId);
+        if (!byCompany.has(key)) byCompany.set(key, []);
+        byCompany.get(key)!.push(row);
+      }
+      return Array.from(byCompany.entries()).map(([companyId, group]) => {
+        const out: Row = { companyId };
+        if (_sum?.remaining) out._sum = { remaining: group.reduce((s, r) => s + (Number(r.remaining) || 0), 0) };
+        if (_count?._all) out._count = { _all: group.length };
+        if (_max?.createdAt) {
+          const max = group.reduce(
+            (m: Date | null, r) => (!m || r.createdAt.getTime() > m.getTime() ? r.createdAt : m),
+            null as Date | null,
+          );
+          out._max = { createdAt: max };
+        }
+        return out;
+      });
+    },
+    aggregate: async ({ where, _sum, _count }: any) => {
+      const rows = entries.filter((item) => matchesWhere(item, where));
+      const out: Row = {};
+      if (_sum?.remaining) out._sum = { remaining: rows.reduce((s, r) => s + (Number(r.remaining) || 0), 0) };
+      if (_count?._all) out._count = { _all: rows.length };
+      return out;
+    },
+  };
+
+  // S2 (getMasterOverview): receita de recarga vem de FinanceiroCharge (fora do domínio de
+  // crédito) — fake mínimo, só leitura (aggregate), sem caminho de escrita nenhum.
+  const charges: Row[] = [];
+  const financeiroCharge = {
+    aggregate: async ({ where, _sum, _count }: any) => {
+      const rows = charges.filter((item) => matchesWhere(item, where));
+      const out: Row = {};
+      if (_sum?.amount) out._sum = { amount: rows.reduce((s, r) => s + (Number(r.amount) || 0), 0) };
+      if (_count?._all) out._count = { _all: rows.length };
+      return out;
+    },
   };
 
   const company = {
@@ -212,6 +265,7 @@ function createFakePrisma(companyIds: number[] = [1]) {
     userTeamPolicy,
     creditPackConfig,
     creditGlobalConfig,
+    financeiroCharge,
     $transaction: async (fn: any) => {
       const run = async () => {
         const outerJournal = journal;
@@ -231,6 +285,13 @@ function createFakePrisma(companyIds: number[] = [1]) {
       txChain = result.then(() => undefined, () => undefined);
       return result;
     },
+  };
+
+  // S2 (getMasterOverview): semear uma FinanceiroCharge de recarga direto no array in-memory —
+  // não existe caminho de escrita real aqui (fake mínimo, só leitura), então o teste monta o
+  // cenário à mão.
+  client.__seedFinanceiroCharge = (row: Row) => {
+    charges.push({ status: 'approved', description: '', amount: 0, paidAt: new Date(), ...row });
   };
 
   // Handles de teste (R1): mutar direto o estado in-memory sem passar por métodos do serviço —
@@ -964,4 +1025,82 @@ test('isCreditsAccountCompany: true p/ cortesia vigente; false p/ paga; false co
   fake.__setCompanyFields(1, { status: 'courtesy', courtesyEndsAt: null });
   delete process.env.HBX_CREDITS_ENABLED;
   assert.equal(await service.isCreditsAccountCompany(1), false);
+});
+
+// ─── MASTER-REFAB S2 — getMasterOverview (Visão geral do centro financeiro) ─────────────────────
+
+test('getMasterOverview: receita de recarga 30d soma só charges APROVADAS com o prefixo de recarga, dentro da janela', async () => {
+  const { service, fake } = buildService();
+  const now = new Date();
+  const dentro = new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000);
+  const fora = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000);
+
+  fake.__seedFinanceiroCharge({ amount: 97, status: 'approved', description: 'Recarga de créditos — Pacote Starter (100 créditos)', paidAt: dentro });
+  fake.__seedFinanceiroCharge({ amount: 247, status: 'approved', description: 'Recarga de créditos — Pacote Growth (300 créditos)', paidAt: fora }); // fora da janela de 30d
+  fake.__seedFinanceiroCharge({ amount: 597, status: 'pending', description: 'Recarga de créditos — Pacote Scale (800 créditos)', paidAt: dentro }); // não aprovada
+  fake.__seedFinanceiroCharge({ amount: 999, status: 'approved', description: 'Assinatura HBX Lead Plus', paidAt: dentro }); // outra origem, não é recarga
+
+  const overview = await service.getMasterOverview();
+  assert.equal(overview.revenueRecharge30d, 97);
+  assert.equal(overview.revenueRecharge30dCount, 1);
+});
+
+test('getMasterOverview: créditos expirando nos próximos 30d somam só lotes ativos dentro da janela (exclui perpétuo e distante)', async () => {
+  const { service, wallet } = buildService();
+  const now = new Date();
+  await wallet.grant(1, 10, { kind: 'grant', usageKey: 'g1', expiresAt: new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000) }); // entra
+  await wallet.grant(1, 20, { kind: 'grant', usageKey: 'g2', expiresAt: new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000) }); // fora (>30d)
+  await wallet.grant(1, 30, { kind: 'grant', usageKey: 'g3', expiresAt: null }); // perpétuo, nunca expira
+
+  const overview = await service.getMasterOverview();
+  assert.equal(overview.creditsExpiring30d, 10);
+  assert.equal(overview.creditsExpiring30dLots, 1);
+});
+
+test('getMasterOverview: por empresa devolve lotes ativos + data do último débito (empresa sem débito -> null)', async () => {
+  const { service, wallet } = buildService([1, 2]);
+  await wallet.grant(1, 10, { kind: 'grant', usageKey: 'a' });
+  await wallet.grant(1, 5, { kind: 'grant', usageKey: 'b' });
+  await wallet.debit(1, 3, { actionKey: 'lead_delivery', usageKey: 'd1' });
+  await wallet.grant(2, 7, { kind: 'grant', usageKey: 'c' });
+
+  const overview = await service.getMasterOverview();
+  const c1 = overview.companies.find((c) => c.companyId === 1);
+  const c2 = overview.companies.find((c) => c.companyId === 2);
+  assert.equal(c1?.activeLots, 2); // débito parcial não fecha o lote (remaining ainda >0)
+  assert.ok(c1?.lastConsumptionAt);
+  assert.equal(c2?.activeLots, 1);
+  assert.equal(c2?.lastConsumptionAt, null); // nunca debitou
+});
+
+test('flag HBX_CREDITS_ENABLED OFF: getMasterOverview recusa (mesmo padrão dos outros endpoints master)', async () => {
+  const { service } = buildService();
+  delete process.env.HBX_CREDITS_ENABLED;
+  await assert.rejects(() => service.getMasterOverview());
+});
+
+// ─── MASTER-REFAB S2 — getGlobalConfigForMaster (prefill da guia Bônus de cadastro) ─────────────
+
+test('getGlobalConfigForMaster: reflete os defaults de código quando nada foi configurado', () => {
+  const { service } = buildService();
+  const config = service.getGlobalConfigForMaster();
+  assert.equal(config.defaultExpiryDays, 90);
+  assert.equal(config.welcomeCredits, 50);
+  assert.equal(config.welcomeExpiryDays, 30);
+});
+
+test('getGlobalConfigForMaster: reflete os valores reconfigurados pelo master (mesmo overlay do PUT)', async () => {
+  const { service } = buildService();
+  await service.updateGlobalExpiryDefaultAsMaster(45);
+  await service.updateWelcomeBatchConfigAsMaster({ welcomeCredits: 80, welcomeExpiryDays: 15 });
+  const config = service.getGlobalConfigForMaster();
+  assert.equal(config.defaultExpiryDays, 45);
+  assert.equal(config.welcomeCredits, 80);
+  assert.equal(config.welcomeExpiryDays, 15);
+});
+
+test('flag HBX_CREDITS_ENABLED OFF: getGlobalConfigForMaster recusa', () => {
+  const { service } = buildService();
+  delete process.env.HBX_CREDITS_ENABLED;
+  assert.throws(() => service.getGlobalConfigForMaster());
 });

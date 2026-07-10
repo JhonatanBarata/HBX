@@ -206,6 +206,104 @@ export class CreditsService {
     };
   }
 
+  // ── MASTER-REFAB S2 — Visão geral do centro financeiro (leitura pura) ────────
+  /**
+   * Agregados que NÃO são derivavéis do `/modules/master/companies` já carregado pelo /master
+   * (que expõe `creditsBalance` por empresa, MESMA régua de `CreditWalletService.
+   * getBalancesByCompanyIds` — por isso "créditos em circulação" e "empresas sem saldo" são
+   * computados no FRONT a partir dali, sem duplicar a fonte de saldo aqui): receita de recarga
+   * (dinheiro, fonte é `FinanceiroCharge`) e o QUANTO expira nos próximos 30 dias (janela de
+   * tempo, não é "saldo agora"). Também devolve, por empresa, quantos LOTES ativos ela tem e a
+   * data do último débito — o front junta isso com `companies` (nome/saldo) na guia Empresas.
+   *
+   * Receita de recarga: filtra pelo MESMO prefixo de description que
+   * `CreditRechargeService.rechargeWithCard` grava (financeiro/credit-recharge.service.ts) — é
+   * a ÚNICA rota que cria FinanceiroCharge com esse texto, então não precisa reabrir o
+   * financeiro.service nem tocar caminho de escrita nenhum (leitura pura).
+   */
+  async getMasterOverview(): Promise<{
+    enabled: boolean;
+    revenueRecharge30d: number;
+    revenueRecharge30dCount: number;
+    creditsExpiring30d: number;
+    creditsExpiring30dLots: number;
+    companies: Array<{ companyId: number; activeLots: number; lastConsumptionAt: string | null }>;
+  }> {
+    this.assertFeatureEnabled();
+    const now = new Date();
+    const in30d = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const since30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [revenueAgg, expiringAgg, activeLotRows, lastDebitRows] = await Promise.all([
+      this.prisma.financeiroCharge.aggregate({
+        where: {
+          status: 'approved',
+          paidAt: { gte: since30dAgo },
+          description: { startsWith: 'Recarga de créditos' },
+        },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.creditLedgerEntry.aggregate({
+        where: {
+          kind: { in: ['grant', 'recharge', 'promo'] },
+          remaining: { gt: 0 },
+          expiresAt: { gt: now, lte: in30d },
+        },
+        _sum: { remaining: true },
+        _count: { _all: true },
+      }),
+      this.prisma.creditLedgerEntry.groupBy({
+        by: ['companyId'],
+        where: {
+          kind: { in: ['grant', 'recharge', 'promo'] },
+          remaining: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.creditLedgerEntry.groupBy({
+        by: ['companyId'],
+        where: { kind: 'debit' },
+        _max: { createdAt: true },
+      }),
+    ]);
+
+    const activeLotsByCompany = new Map<number, number>(
+      (activeLotRows as any[]).map((r) => [Number(r.companyId), Number(r._count?._all || 0)]),
+    );
+    const lastDebitByCompany = new Map<number, Date | null>(
+      (lastDebitRows as any[]).map((r) => [Number(r.companyId), r._max?.createdAt instanceof Date ? r._max.createdAt : null]),
+    );
+    const companyIds = new Set<number>([...activeLotsByCompany.keys(), ...lastDebitByCompany.keys()]);
+
+    const companies = Array.from(companyIds).map((companyId) => ({
+      companyId,
+      activeLots: activeLotsByCompany.get(companyId) || 0,
+      lastConsumptionAt: lastDebitByCompany.get(companyId)?.toISOString() ?? null,
+    }));
+
+    return {
+      enabled: true,
+      revenueRecharge30d: Number((revenueAgg as any)._sum?.amount || 0),
+      revenueRecharge30dCount: Number((revenueAgg as any)._count?._all || 0),
+      creditsExpiring30d: Number((expiringAgg as any)._sum?.remaining || 0),
+      creditsExpiring30dLots: Number((expiringAgg as any)._count?._all || 0),
+      companies,
+    };
+  }
+
+  // ── MASTER-REFAB S2 — leitura da config global (bônus de cadastro + prazo default) ───────────
+  /** Getters síncronos do overlay em memória (mesma fonte do PUT) — sem round-trip ao banco. */
+  getGlobalConfigForMaster(): { defaultExpiryDays: number; welcomeCredits: number; welcomeExpiryDays: number } {
+    this.assertFeatureEnabled();
+    return {
+      defaultExpiryDays: this.packConfig.getGlobalExpiryDefaultDays(),
+      welcomeCredits: this.packConfig.getWelcomeCreditsDefault(),
+      welcomeExpiryDays: this.packConfig.getWelcomeExpiryDaysDefault(),
+    };
+  }
+
   // ── /credits/me — leitura role-gated ─────────────────────────────────────────
   /**
    * Audiência de COBRANÇA (master OU dono do tenant): saldo completo + lotes + pacotes

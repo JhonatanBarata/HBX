@@ -32,6 +32,22 @@ export class CreditsMasterController {
     return { packs: await this.creditsService.listPacksForMaster() };
   }
 
+  // MASTER-REFAB S2 — agregados de leitura pra guia "Visão geral" (receita de recarga 30d,
+  // expiração 30d, lotes ativos/último consumo por empresa). Nada de escrita.
+  @Get('overview')
+  async getOverview() {
+    this.assertEnabled();
+    return this.creditsService.getMasterOverview();
+  }
+
+  // MASTER-REFAB S2 — leitura da config global (guia "Bônus de cadastro"): o PUT já existia
+  // (config/expiry-default, config/welcome-batch); faltava o GET pra prefill do form.
+  @Get('config')
+  async getGlobalConfig() {
+    this.assertEnabled();
+    return this.creditsService.getGlobalConfigForMaster();
+  }
+
   // MASTER-REFAB S1 — bloco Carteira na ficha da empresa (saldo/lotes/extrato). Só leitura;
   // a concessão continua sendo o POST .../grant logo abaixo.
   @Get('company/:id')
