@@ -729,6 +729,9 @@ export class CommercialPlansService {
     }
   }
 
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou POST /commercial-plans/select
+  // (bloqueado com 410 antes de chegar aqui). Corpo mantido pra auditoria/histórico; NÃO usar
+  // como base pra código novo (self-checkout por planKey morreu).
   async selectPlanForUser(user: any, dto: SelectCommercialPlanDto) {
     const context = await this.resolveUserContext(user);
     if (!context.canSelectPlan) {

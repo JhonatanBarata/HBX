@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, GoneException, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
@@ -12,7 +12,15 @@ import { IntegrationSyncDto } from '../integrations/dto/integration-sync.dto';
 import { IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { probeWebscrapingRuntime } from './webscraping-runtime.util';
-import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
+
+// MASTER-REFAB S7 (10/07): plano/trial/plan-taste/cortesia (endpoint master) aposentados —
+// zero chamador no front (grep confirmado antes da retirada). A exceção comercial agora é
+// montada na ficha (Company.accountType 'enterprise', S6); o padrão é conta de crédito
+// (Carteira). Dado histórico (Company.status/selectedPlanKey já gravado) NÃO muda — só a
+// escrita NOVA por estas rotas fica bloqueada. Leitura legada intacta em outro lugar
+// (GET .../detail, STATUS_LABEL do front, financeiro.service).
+export const RETIRED_PLAN_ENDPOINT_MESSAGE =
+  'Modelo de planos/trial/cortesia foi descontinuado. Use créditos (Carteira) ou o toggle Crédito|Empresarial na ficha da empresa.';
 
 class ModulePermissionDto {
   @IsString()
@@ -68,6 +76,9 @@ class UpdateMasterGlobalIntegrationsDto {
 }
 
 class UpdateMasterBillingPolicyDto {
+  // MASTER-REFAB S7 (10/07): campo aceito por compatibilidade, mas IGNORADO na escrita
+  // (ModulesService.updateMasterBillingPolicy sempre preserva o valor já gravado) — modelo
+  // de plano/assinatura anual acabou. Leitura legada (financeiro.service) continua.
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -151,26 +162,6 @@ class ImportCompanyTokensToMasterDto {
   clearSource?: boolean;
 }
 
-class GrantTrialDto {
-  @IsOptional()
-  @IsString()
-  action?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(365)
-  days?: number;
-
-  @IsOptional()
-  @IsString()
-  endsAt?: string;
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-}
-
 class SetSuspensionDto {
   @IsBoolean()
   suspended: boolean;
@@ -186,25 +177,6 @@ class SetAccountTypeDto {
   @IsString()
   @IsIn(['credit', 'enterprise'])
   accountType!: string;
-}
-
-class SetCompanyPlanDto {
-  @IsString()
-  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
-  planKey!: string;
-}
-
-class GrantPlanTasteDto {
-  @IsString()
-  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
-  planKey!: string;
-
-  @IsString()
-  revertsAt!: string; // ISO date string
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
 }
 
 class CompleteAssistedSetupDto {
@@ -283,19 +255,6 @@ class UpdateMasterCompanyProfileDto {
   @IsOptional()
   @IsString()
   billingProvider?: string;
-}
-
-class SetCourtesyDto {
-  @IsBoolean()
-  active: boolean;
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-
-  @IsOptional()
-  @IsString()
-  endsAt?: string;
 }
 
 class SetBotActivationDto {
@@ -524,21 +483,20 @@ export class ModulesController {
     return this.modulesService.updateMasterSystemModule(Number(req.user?.id), moduleKey, dto || {});
   }
 
-  // Régua única (PR13062026007 PF2): Sistema → Planos — módulos padrões por plano.
+  // MASTER-REFAB S7 (10/07): editor de módulos-por-plano (PlanModuleConfig) aposentado — a
+  // janela Self-Checkout que o consumia morreu no S4; zero chamador no front (GET e PUT). O
+  // dado (tabela PlanModuleConfig) e a LEITURA em runtime (getPlanModuleDefaults, usada quando
+  // a empresa não tem post-it) continuam intactos — só o editor master parou de aceitar visita.
   @Get('master/plan/:planKey/modules')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  getMasterPlanModules(@Req() req: any, @Param('planKey') planKey: string) {
-    return this.modulesService.getPlanModulesForMaster(Number(req.user?.id), planKey);
+  getMasterPlanModules() {
+    throw new GoneException('Editor de módulos por plano foi descontinuado. Módulos da empresa: kill-switch (SystemModule) na ficha.');
   }
 
   @Put('master/plan/:planKey/modules')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  setMasterPlanModules(
-    @Req() req: any,
-    @Param('planKey') planKey: string,
-    @Body() dto: { modules?: Record<string, unknown>; planInfo?: Record<string, unknown> },
-  ) {
-    return this.modulesService.setPlanModulesForMaster(Number(req.user?.id), planKey, dto || {});
+  setMasterPlanModules() {
+    throw new GoneException('Editor de módulos por plano foi descontinuado. Módulos da empresa: kill-switch (SystemModule) na ficha.');
   }
 
   @Get('master/global-integrations')
@@ -630,35 +588,25 @@ export class ModulesController {
     return this.modulesService.setCompanyModuleByMaster(Number(req.user?.id), companyId, dto?.moduleKey, Boolean(dto?.enabled));
   }
 
+  // MASTER-REFAB S7 (10/07): "trocar plano"/"degustação de plano" aposentados — zero
+  // chamador no front (removidos no S1). A exceção comercial (accountType 'enterprise')
+  // é montada na ficha (toggle S6) e o crédito é concedido pela Carteira.
   @Put('master/company/:companyId/plan')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  setCompanyPlan(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: SetCompanyPlanDto,
-  ) {
-    return this.modulesService.setCompanyPlanByMaster(Number(req.user?.id), companyId, dto?.planKey);
+  setCompanyPlan() {
+    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
   }
 
   @Post('master/company/:companyId/plan-taste')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  grantPlanTaste(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: GrantPlanTasteDto,
-  ) {
-    const revertsAt = new Date(dto?.revertsAt);
-    if (isNaN(revertsAt.getTime())) throw new Error('revertsAt invalido');
-    return this.modulesService.grantPlanTasteByMaster(Number(req.user?.id), companyId, dto?.planKey, revertsAt, dto?.reason);
+  grantPlanTaste() {
+    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
   }
 
   @Delete('master/company/:companyId/plan-taste')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  revokePlanTaste(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-  ) {
-    return this.modulesService.revokePlanTasteByMaster(Number(req.user?.id), companyId);
+  revokePlanTaste() {
+    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
   }
 
   @Post('master/company/:companyId/assisted-setup/complete')
@@ -691,14 +639,12 @@ export class ModulesController {
     return this.modulesService.importCompanyTokensToMaster(Number(req.user?.id), companyId, dto || {});
   }
 
+  // MASTER-REFAB S7 (10/07): grant/end de trial pelo master aposentado (ordem literal do
+  // dono — trial morre em definitivo). Zero chamador no front (removido no S1).
   @Post('master/company/:companyId/trial')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  grantTrial(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: GrantTrialDto,
-  ) {
-    return this.modulesService.manageTrialByMaster(Number(req.user?.id), companyId, dto || {});
+  grantTrial() {
+    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
   }
 
   @Put('master/company/:companyId/suspension')
@@ -742,14 +688,13 @@ export class ModulesController {
     return this.modulesService.updateCompanyProfileByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
+  // MASTER-REFAB S7 (10/07): endpoint de cortesia (box da ficha) aposentado — a UI já morreu
+  // no S6 (cortesia deixou de ser estado de conta); zero chamador no front. Presente vira
+  // grant na Carteira; liberação manual sem prazo vira toggle accountType='enterprise'.
   @Put('master/company/:companyId/courtesy')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  setCompanyCourtesy(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: SetCourtesyDto,
-  ) {
-    return this.modulesService.setCompanyCourtesyByMaster(Number(req.user?.id), companyId, dto || {});
+  setCompanyCourtesy() {
+    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
   }
 
   // MASTER-REFAB S6 (10/07 noite): toggle Crédito|Empresarial na ficha — PUT enxuto (padrão dos

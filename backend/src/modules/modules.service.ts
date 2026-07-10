@@ -1226,10 +1226,12 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     await this.assertMasterUser(masterUserId);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const current = await getMasterGlobalIntegrationConfig(this.prisma);
-    const annualPlanDiscountPercent =
-      input?.annualPlanDiscountPercent !== undefined
-        ? this.normalizePercentValue(input.annualPlanDiscountPercent)
-        : this.normalizePercentValue((current as any)?.annualPlanDiscountPercent || 0);
+    // MASTER-REFAB S7 (10/07): desconto ANUAL morre pra ESCRITA — modelo de plano/assinatura
+    // acabou, sem UI de propósito (front nunca mandou este campo desde o S4). `input.
+    // annualPlanDiscountPercent` é IGNORADO de propósito (nunca aplicado), sempre preservando o
+    // valor já gravado — financeiro.service ainda LÊ esta coluna pra assinaturas legadas
+    // (leitura de legado preservada; dado não some).
+    const annualPlanDiscountPercent = this.normalizePercentValue((current as any)?.annualPlanDiscountPercent || 0);
     const referralDiscountActive =
       input?.referralDiscountActive !== undefined
         ? Boolean(input.referralDiscountActive)
@@ -3939,6 +3941,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou GET/PUT master/plan/:key/
+  // modules (zero front, S4 matou o Self-Checkout que os consumia). Corpo mantido pra
+  // auditoria; a leitura em runtime que outros fluxos usam é `getPlanModuleDefaults` (privado,
+  // outra função), que continua ativa.
   async getPlanModulesForMaster(masterUserId: number, rawPlanKey: string) {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
@@ -3976,6 +3982,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return { planKey, items, total: items.length, planInfo, planMeta };
   }
 
+  // MASTER-REFAB S7 (10/07): sem chamador — ver nota em getPlanModulesForMaster acima.
   async setPlanModulesForMaster(
     masterUserId: number,
     rawPlanKey: string,
@@ -4110,6 +4117,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, companyId: result.companyId, moduleKey: moduleItem.key, enabled: result.enabled };
   }
 
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou POST master/company/:id/
+  // trial (ordem literal do dono: trial morre em definitivo; front removido no S1). Corpo
+  // mantido pra auditoria/histórico; não remover sem também conferir `grantTrial` abaixo
+  // (alias interno, já sem chamador antes deste sprint).
   async manageTrialByMaster(
     masterUserId: number,
     companyId: number,
@@ -4325,6 +4336,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // MASTER-REFAB S7 (10/07): já era um alias sem chamador antes deste sprint (só o controller
+  // usava manageTrialByMaster direto). Segue órfão — não removido pra não abrir escopo maior.
   async grantTrial(masterUserId: number, companyId: number, days = 30) {
     return this.manageTrialByMaster(masterUserId, companyId, {
       action: 'grant',
@@ -4383,6 +4396,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou PUT master/company/:id/plan
+  // (zero front desde o S1). Corpo mantido pra auditoria/histórico.
   async setCompanyPlanByMaster(masterUserId: number, companyId: number, planKey: string) {
     await this.assertMasterUser(masterUserId);
     const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
@@ -4892,6 +4907,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   // Cortesia (PR-002 Fase B): UMA acao funde "liberar manual" + "isenta".
   // Com prazo = temporaria (vence e volta a cobrar); sem prazo = permanente
   // (ex.: tenant interno HBX). Escreve o estado unico nativamente.
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou PUT master/company/:id/
+  // courtesy (a UI já morreu no S6). Corpo mantido pra auditoria/histórico.
   async setCompanyCourtesyByMaster(
     masterUserId: number,
     companyId: number,
@@ -5518,6 +5535,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ── Degustação temporária de plano (PR16062026035) ─────────────────────────
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou POST/DELETE master/company/
+  // :id/plan-taste (zero front desde o S1). Corpo mantido pra auditoria/histórico.
 
   async grantPlanTasteByMaster(
     masterUserId: number,

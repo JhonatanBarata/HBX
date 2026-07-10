@@ -15,7 +15,8 @@
 //                         + S4 (10/07): Política de indicação migrada da Self-Checkout morta
 //                         (guia Política) — é a única parte dela viva no runtime (financeiro
 //                         calcula desconto de indicação na cobrança). Desconto anual/trial/
-//                         módulos-por-plano/assentos NÃO migraram (modelo morto, sem UI até S6).
+//                         módulos-por-plano/assentos NÃO migraram — aposentados no backend (S7,
+//                         escrita bloqueada 410; leitura legada preservada).
 //   Recargas             — histórico de notificações de pagamento (ex-janela-pagamentos.tsx).
 //
 // Endpoints:
@@ -29,8 +30,8 @@
 //   GET  /master/payment-notifications/history       → guia Recargas (ex-janela-pagamentos.tsx)
 //   GET  /modules/master/global-integrations         → lê referralDiscount* (ex-Self-Checkout)
 //   PUT  /modules/master/billing-policy               → grava só os campos referralDiscount* daqui
-//                                                        (annualPlanDiscountPercent fica intocado —
-//                                                        não migrou, sem UI de propósito)
+//                                                        (annualPlanDiscountPercent: aposentado no
+//                                                        S7, o backend ignora o campo na escrita)
 //
 // Idempotência OBRIGATÓRIA na concessão (Fix II do S3-PARTE1): usageKey UUID gerada 1x na
 // abertura da intenção (double-click não duplica; 2 concessões legítimas usam tokens diferentes).
@@ -369,7 +370,8 @@ export function JanelaCreditos({ companies, reload }: {
   // ── Política de indicação (S4 — migrada da Self-Checkout morta) ────────────────────────────
   // Único pedaço da guia "Política" com efeito vivo no runtime: financeiro.service calcula o
   // desconto de indicação na cobrança de empresas com assinatura/ciclo ativo (buildReferralSnapshot).
-  // O desconto anual (mesmo endpoint) NÃO migrou — modelo de plano morreu, sem UI de propósito.
+  // O desconto anual (mesmo endpoint) NÃO migrou e foi aposentado no S7 — o backend ignora
+  // annualPlanDiscountPercent na escrita (leitura legada em financeiro.service preservada).
   const [refActive, setRefActive] = useState(false);
   const [refPercent, setRefPercent] = useState("");
   const [refMode, setRefMode] = useState("ONCE");
@@ -674,7 +676,7 @@ export function JanelaCreditos({ companies, reload }: {
             </button>
           </div>
           {/* S4 (10/07) — Política de indicação, migrada da Self-Checkout morta. Desconto anual
-              (mesmo endpoint) não migrou: modelo de plano morreu, fica sem UI até a aposentadoria (S6). */}
+              (mesmo endpoint) não migrou e foi aposentado no S7 (backend ignora a escrita). */}
           <div className="sc-body">
             <span className="sc-note">Desconto aplicado na cobrança de empresas indicadas (assinatura/ciclo ativo).</span>
             {refLoadError && <div className="sc-msg is-warn">{refLoadError}</div>}

@@ -292,7 +292,7 @@ function PassoReceita({ dossie, onRecarregar, onNext }: { dossie: PreClose; onRe
   return (
     <div className="ctb-wiz-panel">
       <p className="ctb-wiz-lead">
-        Recebemos <strong>{brl(dossie.receita.receitaMesCents)}</strong> de assinaturas em {competenciaLabel(dossie.competencia)} (fonte Mercado Pago). Confere?
+        Recebemos <strong>{brl(dossie.receita.receitaMesCents)}</strong> em cobranças aprovadas em {competenciaLabel(dossie.competencia)} (fonte Mercado Pago). Confere?
       </p>
       <div className="ctb-wiz-kv">
         <div><span>Receita de caixa (MP)</span><strong>{brl(dossie.receita.receitaCaixaCents)}</strong></div>

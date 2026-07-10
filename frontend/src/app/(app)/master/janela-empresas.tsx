@@ -6,8 +6,8 @@
 // default) e Empresarial (exceção montada aqui pelo master; era "Negociada" no S1). O box
 // Cortesia da ficha SOME (presente = conceder crédito na Carteira, aba Financeiro). O modelo de
 // catálogo/período de avaliação/degustação e as condições de cobrança à parte morreram desta
-// tela (os endpoints de backend continuam existindo — aposentar é S7 — este arquivo só parou de
-// chamá-los; o endpoint de cortesia idem, fica órfão).
+// tela; S7 (10/07) aposentou os endpoints de backend correspondentes (plan/trial/plan-taste/
+// courtesy) — 410 na escrita, corpo mantido no service pra auditoria.
 // Contratos ligados (todos já existentes no backend):
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo

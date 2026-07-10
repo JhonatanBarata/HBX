@@ -125,7 +125,10 @@ type ResumoAnoResp = {
 };
 
 const CATEGORIA_LABEL: Record<string, string> = {
-  RECEITA_ASSINATURA: "Receita (assinatura/checkout)",
+  // MASTER-REFAB S7 (10/07): rótulo trocado — a categoria persistida ("RECEITA_ASSINATURA",
+  // dado de banco, não editada aqui) hoje é sobretudo recarga de crédito (credit-recharge.
+  // service grava aqui também), não só assinatura/checkout do modelo de plano morto.
+  RECEITA_ASSINATURA: "Receita (cobranças MP)",
   DAS: "DAS",
   DARF_INSS: "DARF INSS",
   PROLABORE: "Pró-labore",

@@ -1,8 +1,7 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, GoneException, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CommercialPlansService } from './commercial-plans.service';
-import { SelectCommercialPlanDto } from './dto/select-commercial-plan.dto';
 import { buildCommercialPlansCatalog } from './commercial-plan-catalog';
 
 // Vitrine PÚBLICA do catálogo (fila PLAN12062026001 E1, ordem do dono):
@@ -43,6 +42,11 @@ export class CommercialPlansPublicController {
   }
 }
 
+// MASTER-REFAB S7 (10/07): mensagem da aposentadoria do self-checkout por planKey — exportada
+// só pra o teste conferir o contrato sem duplicar a string.
+export const RETIRED_SELECT_PLAN_MESSAGE =
+  'Modelo de planos foi descontinuado. Assinaturas existentes seguem ativas; novas contas usam créditos.';
+
 @Controller('commercial-plans')
 @UseGuards(JwtAuthGuard)
 export class CommercialPlansController {
@@ -58,9 +62,15 @@ export class CommercialPlansController {
     return this.commercialPlansService.getCatalogForUser(req.user);
   }
 
+  // MASTER-REFAB S7 (10/07): self-checkout/troca de plano por planKey aposentado (item 1 do
+  // sprint — "signup/checkout self-service de PLANO"). Zero chamador no front (grep
+  // confirmado); bloqueado aqui em vez de removido porque `selectPlanForUser` é alcançável
+  // por QUALQUER tenant autenticado (JwtAuthGuard, sem MasterGuard) — mensagem clara em vez
+  // de 404 cego cobre também clientes externos/scripts antigos. Assinaturas EXISTENTES não
+  // são tocadas (recorrência/cobrança MP seguem intactas — não é esta rota que as processa).
   @Post('select')
-  selectPlan(@Req() req: any, @Body() dto: SelectCommercialPlanDto) {
-    return this.commercialPlansService.selectPlanForUser(req.user, dto);
+  selectPlan() {
+    throw new GoneException(RETIRED_SELECT_PLAN_MESSAGE);
   }
 
   // Pedido de Implantação com mensagem livre (bloco PR16062026025).

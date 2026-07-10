@@ -3,12 +3,12 @@
 // Janela Sistema — fase 3 do /master (ordem do dono 12/06/2026: "ligue tudo").
 // Catálogo de módulos saiu daqui (21/06). S4 (10/07): a janela Self-Checkout MORREU
 // (modelo de plano-catálogo acabou) — a política de indicação (única parte viva no
-// runtime) migrou pra Créditos → Config; desconto anual/PlanModuleConfig ficaram sem
-// UI de propósito (endpoints backend intactos até a aposentadoria em S6). Esta janela
-// não edita nenhum dos dois. Subabas: Credenciais/Exclusões/Reclamações.
+// runtime) migrou pra Créditos → Config. S7 (10/07): desconto anual/PlanModuleConfig/editor
+// de plano foram APOSENTADOS no backend (escrita bloqueada, 410) — esta janela nunca editou
+// nenhum dos dois. Subabas: Credenciais/Exclusões/Reclamações.
 // Contratos ligados (ModulesController, todos JWT+MasterGuard):
 //   GET     modules/master/global-integrations     → política + bibliotecas
-//   PUT     modules/master/billing-policy          → desconto anual/assento extra/indicação
+//   PUT     modules/master/billing-policy          → só indicação (desconto anual: aposentado no S7, escrita ignorada)
 //   PUT     modules/master/global-integrations     → bibliotecas de credenciais
 //     (accessToken vazio MANTÉM o segredo atual — preserve*Secrets do service)
 //   GET     modules/master/exclusoes               → lixeira global (records + radar)
@@ -35,9 +35,9 @@ const SUBTABS = ["Credenciais", "Exclusões", "Reclamações"];
 type CredWa = { key?: string; label?: string; phoneNumberId?: string; wabaId?: string; displayNumber?: string; accessTokenPreview?: string | null; configured?: boolean; accessToken?: string };
 type CredMp = { key?: string; label?: string; accessTokenPreview?: string | null; configured?: boolean; accessToken?: string };
 
+// S7 (10/07): annualPlanDiscountPercent/extraSeatMonthlyAmount tirados do tipo — campos
+// mortos aqui (nunca lidos nesta janela; a política anual foi aposentada no backend).
 type GlobalIntegrations = {
-  annualPlanDiscountPercent?: number;
-  extraSeatMonthlyAmount?: number;
   referralDiscountActive?: boolean;
   referralDiscountPercent?: number;
   referralDiscountMode?: string;
