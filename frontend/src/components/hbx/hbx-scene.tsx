@@ -1,8 +1,7 @@
 "use client";
 
 // CASCA ÚNICA da cena (15/06) — UM dono do fundo. Robô full-bleed (fixo) + cor
-// ciclando (.hbx-scene) + marca » + nav Início/Esteira/Planos/Entrar com o
-// marcador da tela atual. TODA tela (site, register, planos, checkout, pagamentos)
+// ciclando (.hbx-scene) + marca » + navegação de acesso. TODA tela de auth
 // só entrega o CONTEÚDO em .scene-body. Mexeu aqui, mexeu em todas — sem cópias.
 // plain = remove-visual (robô some). nav=false esconde a nav.
 // SceneMenu é exportada à parte pro login (que tem cena própria) reusar os 4 guias.
@@ -12,13 +11,11 @@ import { useState } from "react";
 
 import { AuthThemeControls } from "@/components/hbx/auth-theme-controls";
 
-export type SceneNav = "inicio" | "esteira" | "modulos" | "planos" | "entrar";
+export type SceneNav = "inicio" | "cadastro" | "entrar";
 
 const NAV: { key: SceneNav; label: string; href: string; cta?: boolean }[] = [
   { key: "inicio", label: "Início", href: "/" },
-  { key: "esteira", label: "Esteira", href: "/?ver=esteira" },
-  { key: "modulos", label: "Módulos", href: "/?ver=modulos" },
-  { key: "planos", label: "Planos", href: "/?ver=planos" },
+  { key: "cadastro", label: "Criar conta", href: "/register" },
   { key: "entrar", label: "Entrar", href: "/login", cta: true },
 ];
 
@@ -98,13 +95,13 @@ export function HbxScene({
 }) {
   const router = useRouter();
   const [leaving, setLeaving] = useState(false);
-  const isBack = active === "esteira";
+  const isBack = active === "cadastro";
 
   // REGRA DA CASCA: páginas de rota também saem com transição antes de navegar
   // (a próxima entra ao montar via CSS). A landing passa onNav/onBrand próprios
   // (deck in-place) e NÃO usa isto.
   const navTo = (href: string) => { setLeaving(true); window.setTimeout(() => router.push(href), 340); };
-  const HREF: Record<SceneNav, string> = { inicio: "/", esteira: "/?ver=esteira", modulos: "/?ver=modulos", planos: "/?ver=planos", entrar: "/login" };
+  const HREF: Record<SceneNav, string> = { inicio: "/", cadastro: "/register", entrar: "/login" };
   const handleNav = onNav ?? ((k: SceneNav) => navTo(HREF[k]));
   const handleBrand = onBrand ?? (() => navTo("/"));
 

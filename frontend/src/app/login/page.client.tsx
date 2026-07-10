@@ -55,7 +55,12 @@ type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElemen
 type WinG = typeof window & { google?: { accounts?: { id?: GisApi } } };
 type Lado = "corporativo" | "autonomo";
 
-export function LoginClient() {
+type LoginClientProps = {
+  /** Monta o mesmo fluxo de autenticação dentro de uma casca já existente. */
+  embedded?: boolean;
+};
+
+export function LoginClient({ embedded = false }: LoginClientProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -66,8 +71,8 @@ export function LoginClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmPending, setConfirmPending] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
-  // F4 (19/06): destino de RETOMADA devolvido pelo backend (/?ver=planos&resume=1).
-  const [resumeHref, setResumeHref] = useState<string>("/?ver=planos&resume=1");
+  // Destino de retomada devolvido pelo backend quando a conta ainda não foi confirmada.
+  const [resumeHref, setResumeHref] = useState<string>("/register?resume=1");
   const [manterConectado, setManterConectado] = useState(true); // checkbox "Manter conectado" (default = marcado)
   const [plain, setPlain] = useState(false);
   const [lado, setLado] = useState<Lado>("corporativo"); // login entra no MUNDO escolhido (default: empresa)
@@ -219,28 +224,34 @@ export function LoginClient() {
 
   return (
     <>
-      <AuthThemeControls />
-      <div className="login-visual-toggle">
-        <span>Visual</span>
-        <button type="button" className={"sw" + (!plain ? " on" : "")} role="switch" aria-checked={!plain}
-          aria-label="Ligar ou desligar os efeitos visuais do login" title="Liga/desliga os efeitos do login" onClick={toggleVisual}>
-          <i />
-        </button>
-      </div>
-
-      <SceneMenu active="entrar" mode="world" />
-
-      <div className={"hbx-scene login-console world world--" + lado + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
-        <div className="login-art" aria-hidden>
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
-          <i className="login-art__frame" />
+      {!embedded && <AuthThemeControls />}
+      {!embedded && (
+        <div className="login-visual-toggle">
+          <span>Visual</span>
+          <button type="button" className={"sw" + (!plain ? " on" : "")} role="switch" aria-checked={!plain}
+            aria-label="Ligar ou desligar os efeitos visuais do login" title="Liga/desliga os efeitos do login" onClick={toggleVisual}>
+            <i />
+          </button>
         </div>
-        <div className="login-fog" aria-hidden />
+      )}
 
-        <aside className="login-side login-side--left" aria-label="Soluções integradas">
+      {!embedded && <SceneMenu active="entrar" mode="world" />}
+
+      <div className={"hbx-scene login-console" + (embedded ? " login-console--embedded" : " world world--" + lado) + (ok && !plain ? " is-leaving" : "") + (plain ? " is-plain" : "")}>
+        {!embedded && (
+          <>
+            <div className="login-art" aria-hidden>
+              <i className="login-art__frame" />
+              <i className="login-art__frame" />
+              <i className="login-art__frame" />
+              <i className="login-art__frame" />
+              <i className="login-art__frame" />
+            </div>
+            <div className="login-fog" aria-hidden />
+          </>
+        )}
+
+        {!embedded && <aside className="login-side login-side--left" aria-label="Soluções integradas">
           <div className="login-side__panel">
             <div className="login-side__header">Soluções integradas</div>
             {SOLUTIONS.map(it => (
@@ -252,7 +263,7 @@ export function LoginClient() {
             ))}
             <div className="login-side__footer"><span>Todos os serviços operacionais</span><SideIcon name="shield" size={16} /></div>
           </div>
-        </aside>
+        </aside>}
 
         <main className="login-shell">
           <div className="login-intro">
@@ -305,11 +316,11 @@ export function LoginClient() {
                 <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
               </>
             )}
-            <div className="alt">Ainda não tem conta? <Link href="/?ver=planos" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
+            <div className="alt">Ainda não tem conta? <Link href="/register" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
           </form>
         </main>
 
-        <aside className="login-side login-side--right" aria-label="Confiança e tecnologia">
+        {!embedded && <aside className="login-side login-side--right" aria-label="Confiança e tecnologia">
           <div className="login-side__panel">
             <div className="login-side__header">Confiança e tecnologia</div>
             {TRUST.map(it => (
@@ -320,7 +331,7 @@ export function LoginClient() {
               </article>
             ))}
           </div>
-        </aside>
+        </aside>}
       </div>
     </>
   );

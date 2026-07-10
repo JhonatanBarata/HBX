@@ -1149,6 +1149,17 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .reg-checkout__safe { margin: 2px 0 0; font-size: 0.66rem; line-height: 1.5; color: var(--text-muted); text-align: center; }
 .reg-form { display: grid; place-items: center; min-width: 0; }
 .reg-form .card { width: min(480px, 100%); }
+.register-entry {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: clamp(28px, 6vh, 72px) clamp(20px, 5vw, 64px);
+  background:
+    radial-gradient(circle at 24% 16%, color-mix(in srgb, var(--hbx-primary) 18%, transparent), transparent 32%),
+    radial-gradient(circle at 82% 82%, color-mix(in srgb, var(--hbx-secondary) 14%, transparent), transparent 30%),
+    var(--hbx-background);
+}
+.register-entry .reg-form { width: min(480px, 100%); }
 
 /* "escrevendo": kicker → título → sub → cards → métricas entram em sequência ao revelar */
 .site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }

@@ -1,10 +1,8 @@
 "use client";
 
-// Formulário de cadastro EMBUTIDO no funil de planos (casca /?ver=planos).
-// NÃO é mais uma tela própria: a rota /register só redireciona pra casca
-// (register/page.tsx). Aqui mora SÓ o form — o resumo do plano (cards, preço,
-// feature) é da casca, fonte única; este arquivo nunca mais duplica plano.
-// Fluxo: POST /auth/signup → confirmação de e-mail → CheckoutPanel na mesma cena.
+// Formulário canônico de cadastro. A rota /register é a única entrada pública
+// para este fluxo; preço e regras seguem a fonte de planos e o backend.
+// Fluxo: POST /auth/signup → confirmação de e-mail → CheckoutPanel.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";

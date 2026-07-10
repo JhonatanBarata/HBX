@@ -1,7 +1,7 @@
 "use client";
 
 // CRÉDITOS (cutover 06/07) — vitrine PÚBLICA do modelo grátis. Gêmeo de
-// `plans.tsx` (fetchPublicPlans): alimenta a landing (/?ver=planos) e o
+// `plans.tsx` (fetchPublicPlans): alimenta o cadastro e o
 // cadastro (/register) SEM auth, só dados de marketing. Fonte da verdade é o
 // backend (`GET /credits/public-catalog`, credits-public.controller.ts):
 //   - HBX_CREDITS_ENABLED OFF → { enabled:false, packs:[] } → front mantém a

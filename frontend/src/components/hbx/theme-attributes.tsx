@@ -34,6 +34,7 @@ export type Pele = {
 // sendo a BASE de tokens (o contrato neutro que toda pele veste) — só não é
 // uma opção do seletor.
 export const PELES: ReadonlyArray<Pele> = [
+  { key: "login-mod", label: "Login Mod", base: "login", casca: "modern" },
   { key: "aurora-mod", label: "Aurora Mod", base: "aurora", casca: "modern" },
   { key: "ember-mod", label: "Ember Mod", base: "ember", casca: "modern" },
   { key: "rose-mod", label: "Rosé Mod", base: "rose", casca: "modern" },
@@ -42,7 +43,7 @@ export const PELES: ReadonlyArray<Pele> = [
 
 // Pele padrão quando não há preferência salva (mantém o boot do layout.tsx
 // em sincronia se mudar).
-export const DEFAULT_PELE = "aurora-mod";
+export const DEFAULT_PELE = "login-mod";
 
 const PELE_KEY = "hbx:pele";
 const MODE_KEY = "hbx:mode";

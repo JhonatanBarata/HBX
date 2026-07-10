@@ -1,7 +1,7 @@
 "use client";
 
-// Card de plano CENTRAL (PR17062026). UM card .site-plan2 servindo a casca
-// (/?ver=planos) E a Configurações → Plano e cobrança. Fonte ÚNICA: copy =
+// Card de plano CENTRAL (PR17062026). UM card .site-plan2 para Cadastro e
+// Configurações → Plano e cobrança. Fonte ÚNICA: copy =
 // lib/plans (PLAN_STATIC); número = backend (PublicPlan); visual =
 // hbx-theme/screens.css (.site-plan2*, importado global). NÃO duplicar
 // card/preço/feature em tela — quem precisar do card de plano importa daqui.

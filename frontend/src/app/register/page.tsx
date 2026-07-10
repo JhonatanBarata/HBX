@@ -1,25 +1,17 @@
-import { redirect } from "next/navigation";
+import { RegisterPanel } from "./page.client";
 
-// /register CONSOLIDADO na casca única (16/06): NÃO existe mais tela de cadastro
-// separada. O cadastro vive DENTRO do funil de planos (/?ver=planos) — fonte ÚNICA
-// de plano/preço/copy. Esta rota só encaminha pra lá (igual /planos faz), levando
-// junto o ?plan=&hbxLead= dos links de contratação do vendedor (hbx-handoff) pra
-// abrir o plano certo direto no funil. Mata a duplicidade de tela: o formulário
-// antigo mostrava um resumo de plano DUPLICADO (e já desatualizado) ao lado.
+// O cadastro continua usando o formulário e as regras comerciais canônicas, mas
+// agora tem uma rota própria: a landing anterior foi removida por completo.
 export default async function RegisterPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const params = new URLSearchParams({ ver: "planos" });
   const plan = typeof sp.plan === "string" ? sp.plan : undefined;
-  const hbxLead = typeof sp.hbxLead === "string" ? sp.hbxLead : undefined;
-  if (plan) params.set("plan", plan);
-  // S4 (10/07): sem plano específico, /register pula a pitch e abre o form direto —
-  // sinalizado por ?auto=register (só ESTA rota liga o atalho). Visita direta a
-  // /?ver=planos (landing, /planos, links externos) fica na pitch/régua normal.
-  else params.set("auto", "register");
-  if (hbxLead) params.set("hbxLead", hbxLead);
-  redirect(`/?${params.toString()}`);
+  return (
+    <main className="register-entry hbx-scene">
+      <RegisterPanel selectedPlanKey={plan} />
+    </main>
+  );
 }

@@ -37,7 +37,7 @@ export const viewport: Viewport = {
 // hbx:mode = claro/escuro global automático. 15/06: a landing "/" deixou de
 // ser "html puro" — agora É o login (tokens + robô do tema), herda
 // data-theme/mode.
-const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var B=["aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele")||"aurora-mod";if(!/-mod$/.test(k)){k=k+"-mod";}var base=k.slice(0,-4);if(B.indexOf(base)<0){k="aurora-mod";base="aurora";}h.setAttribute("data-theme",base);h.setAttribute("data-pele",k);h.setAttribute("data-casca","modern");var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
+const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var B=["login","aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele")||"login-mod";if(!/-mod$/.test(k)){k=k+"-mod";}var base=k.slice(0,-4);if(B.indexOf(base)<0){k="login-mod";base="login";}h.setAttribute("data-theme",base);h.setAttribute("data-pele",k);h.setAttribute("data-casca","modern");var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
 
 // Boot da CASCA MOBILE antes da pintura (07/07, queixa do dono: reload no
 // celular piscava a sidebar desktop antes da moldura mobile aparecer) —

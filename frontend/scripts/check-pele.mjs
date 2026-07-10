@@ -32,6 +32,7 @@ const CSS_ALLOWED = [
   /hbx-theme[\\/]theme\.css$/,
   /hbx-theme[\\/]theme-[^\\/]+\.css$/,
   /hbx-theme[\\/]marketing\.css$/,
+  /hbx-theme[\\/]public-entry\.css$/,
   // Design System Entrega (LOGISTICA-MOBILE): arquivo de TOKEN/pele do app do
   // entregador, escopo [data-skin="entrega"] — mesma categoria isenta das peles
   // (é onde a Lei permite hex). TSX do app fica limpo (só classes .ent-*).

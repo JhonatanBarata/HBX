@@ -15,9 +15,8 @@
 @import "./hbx-theme/kit.css";
 @import "./hbx-theme/errors.css";
 @import "./hbx-theme/screens.css";
-@import "./hbx-theme/marketing.css";
-/* OOBE — primeira configuração: casca ISOLADA dark (mundo próprio, tipo
-   marketing.css). A pele do sistema NÃO entra lá; hex próprio permitido. */
+@import "./hbx-theme/public-entry.css";
+/* OOBE — primeira configuração: casca ISOLADA dark, com paleta própria. */
 @import "./hbx-theme/oobe.css";
 @import "./hbx-theme/transitions.css";
 
@@ -79,6 +78,7 @@
 @import "./hbx-theme/theme-ember.css";
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
+@import "./hbx-theme/theme-login.css";
 
 /* CASCA MODERN — o 2º padrão de casca (desktop + mobile), escopo
    [data-casca="modern"]. NÃO é pele: veste a MESMA estrutura (shell/casca)

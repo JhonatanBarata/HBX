@@ -1,8 +1,7 @@
 "use client";
 
-// Detalhe do plano — UI/UX ÚNICO (extraído da landing `site-plan-intruder`).
-// O MESMO corpo de "Detalhes do plano" da casca (/?ver=planos) servindo também o
-// modal de troca de plano (Configurações → Plano e cobrança). Fonte única: copy =
+// Detalhe do plano — UI/UX ÚNICO. O mesmo corpo de "Detalhes do plano" serve
+// o cadastro e o modal de troca de plano (Configurações → Plano e cobrança). Fonte única: copy =
 // lib/plans (PLAN_STATIC); número = backend (PublicPlan); visual = screens.css
 // (.site-plan-intruder__*). NÃO duplicar copy/estrutura — quem precisa do detalhe
 // importa daqui (igual ao PlanCard).
