@@ -172,6 +172,60 @@ export class LogisticaController {
     return res;
   }
 
+  // ── PR10072026 W2 — Financeiro do cliente (fase 1) ───────────────────────────
+
+  /**
+   * W2 (contrato nº4) — HISTÓRICO de entregas de UM cliente: data/hora, itens,
+   * valor, desfecho do WhatsApp e da cobrança. Read-only, company-scoped, cursor
+   * (?limit=&cursor=; default 30, máx 100). Cliente de outra empresa → 404.
+   */
+  @Get('clientes/:id/entregas')
+  async historicoEntregas(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.historicoEntregasCliente(companyId, id, {
+      limit: limit != null && String(limit).trim() !== '' ? Number(limit) : undefined,
+      cursor,
+    });
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  /**
+   * W2 (contrato nº5) — BAIXA MANUAL do fiado: marca a charge 'pending' da
+   * logística como paga (approved/paid/paidAt=now). ADMIN-only (RolesGuard +
+   * @Admin, mesmo padrão do fechar-mes; USERMASTER passa por superset).
+   * Idempotente (já paga → 200 com o estado atual). Charge de outra empresa OU
+   * de origem fora de logistica_* → 404 (não vaza existência). NÃO toca MP.
+   */
+  @Post('charges/:id/quitar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async quitarCharge(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.quitarCharge(companyId, id, {
+      userId: Number(req.user?.id) || null,
+    });
+    if (!res) throw new NotFoundException('Cobrança não encontrada');
+    return res;
+  }
+
+  /**
+   * W2 (contrato nº6) — SALDOS em aberto por cliente ("quem me deve"): só quem
+   * tem saldoAberto>0 || aguardandoFechamento>0, com nome. Mesmo gate dos
+   * endpoints financeiros vizinhos (resumo-dia/extrato: autenticado na empresa)
+   * + moduloFinanceiroAtivo FAIL-CLOSED (OFF → lista vazia, dinheiro não aparece).
+   */
+  @Get('financeiro/saldos')
+  saldosFinanceiro(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.saldosFinanceiro(companyId);
+  }
+
   // ── LOGÍSTICA-MOBILE M6 — financeiro na tela ────────────────────────────────
 
   /**

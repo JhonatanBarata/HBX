@@ -449,6 +449,26 @@ export function ConfiguracoesClient() {
 
             {sec === "Integrações" && canSeeIntegracoes && <MetaLeadAdsSection />}
 
+            {sec === "Módulos" && canSeeModulos && (
+              <section className="panel cfg-section">
+                <div className="panel-head"><h2>Módulos</h2></div>
+                <div className="cfg-notif-body" style={{ padding: "6px 18px 14px" }}>
+                  {/* Categoria travada pelo master (locked) NUNCA aparece; o
+                      switch da última ligada trava (mínimo 1 categoria). */}
+                  {(catOpts || []).filter(c => !c.locked).map(c => {
+                    const ligadas = (catOpts || []).filter(o => o.enabled && !o.locked).length;
+                    const ultima = c.enabled && ligadas <= 1;
+                    return (
+                      <div className="setting" key={c.key}>
+                        <div style={{ flex: 1 }}><strong>{CATEGORIA_LABEL[c.key] || c.key}</strong></div>
+                        <Toggle on={c.enabled} disabled={catBusy || ultima} set={v => alternarCategoria(c.key, v)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
             {sec === "Notificações" && (
               <section className="panel cfg-section">
                 <div className="panel-head"><h2>Notificações</h2></div>

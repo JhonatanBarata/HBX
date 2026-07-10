@@ -684,6 +684,20 @@ export function isModuleVisible(
   user?: { isSystemMaster?: boolean | null } | null,
   mods?: MyModulesState,
 ) {
+  // Fail-closed (PR10072026 W3): id sem entrada EXPLÍCITA nos DOIS mapas =
+  // oculto pra todos (antes caía em `?? null` = visível — fail-open). Os
+  // `null` explícitos continuam significando "sem gate". Todo id novo de
+  // NAV_LINKS (e das cascas) PRECISA ganhar entrada nos dois mapas.
+  if (
+    !Object.prototype.hasOwnProperty.call(NAV_ENTITLEMENT, id) ||
+    !Object.prototype.hasOwnProperty.call(NAV_MODULE_KEY, id)
+  ) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[shell] nav id "${id}" sem entrada explícita em NAV_ENTITLEMENT/NAV_MODULE_KEY — oculto (fail-closed).`);
+    }
+    return false;
+  }
+
   // master enxerga TUDO: o backend bypassa entitlements para isSystemMaster
   // (commercial-plans.service.assertEntitlementForUser), mas /commercial-plans/me
   // falha sem empresa — sem este bypass a sidebar encolhia para o dono.

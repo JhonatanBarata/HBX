@@ -11,7 +11,10 @@
 // Quando é mobile e a rota é do grupo (app):
 //   topo 1 linha (título) + SLOT de conteúdo (registry rota→tela, com transição
 //   IR na troca de rota) + tab bar. Rota registrada → a tela; não registrada →
-//   fallback central. /dashboard no mobile redireciona pra /vendas.
+//   fallback central. /dashboard no mobile redireciona module-aware (W4
+//   PR10072026): vendas acessível → /vendas; só-logística → /entrega; senão a
+//   primeira aba visível da tab bar (fallback /empresas) — mata o /vendas-403
+//   do entregador só-logística.
 //
 // /master e /entrega têm chrome próprio (o AppShell já passa /master direto; o
 // /entrega vive FORA do grupo (app), então nem chega aqui). Este shell é
@@ -24,6 +27,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY, useCascaMobile } from "@/lib/casca-mobile";
 import { dismissCascaToast } from "@/lib/casca-toast";
+import { soLogistica } from "@/lib/so-logistica";
 
 import { CascaFallback } from "./fallback";
 import { HbxMarkViva } from "./hbx-mark";

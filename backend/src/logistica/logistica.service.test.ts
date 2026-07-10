@@ -1324,3 +1324,304 @@ test('F2 idempotência: reenvio com a MESMA idempotencyKey NÃO duplica o item n
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PR10072026 W2 — Financeiro do cliente (fase 1): baixa manual do fiado (quitar),
+// saldos em aberto por cliente e histórico de entregas.
+//   quitar: pending→approved/paid/paidAt (o MESMO shape do pago-na-hora do M6);
+//   idempotente (2ª chamada devolve o estado, não re-quita); cross-tenant OU
+//   sourceModule fora de logistica_* → null (controller vira 404, sem vazar).
+//   saldos: moduloFinanceiroAtivo OFF = FAIL-CLOSED (lista vazia, zero consulta
+//   de valores). histórico: item sintético p/ entrega legada sem EntregaItem.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Prisma mock focado no quitar: 1 charge em memória; findFirst respeita
+// companyId + sourceModule.startsWith; updateMany é o claim atômico (guarda de
+// status no WHERE — só transiciona se o status ainda bate).
+function buildQuitarPrisma(charge: any) {
+  const updates: any[] = [];
+  return {
+    updates,
+    prisma: {
+      financeiroCharge: {
+        findFirst: async (args: any) => {
+          const w = args?.where || {};
+          if (w.id !== charge.id || w.companyId !== charge.companyId) return null;
+          const prefix = w.sourceModule?.startsWith;
+          if (prefix && !String(charge.sourceModule || '').startsWith(prefix)) return null;
+          return { ...charge };
+        },
+        updateMany: async (args: any) => {
+          const w = args?.where || {};
+          if (w.id === charge.id && w.companyId === charge.companyId && charge.status === w.status) {
+            updates.push(args.data);
+            charge.status = args.data.status;
+            charge.lifecycle = args.data.lifecycle;
+            charge.paidAt = args.data.paidAt;
+            return { count: 1 };
+          }
+          return { count: 0 };
+        },
+      },
+    } as any,
+  };
+}
+
+test('W2 quitar: charge pending da logística → approved/paid/paidAt (baixa manual)', async () => {
+  const charge = {
+    id: 'ch-1', companyId: 1, status: 'pending', lifecycle: 'in_progress',
+    amount: 35, paidAt: null, sourceModule: 'logistica_entrega',
+  };
+  const { prisma, updates } = buildQuitarPrisma(charge);
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  const res = await service.quitarCharge(1, 'ch-1', { userId: 7 });
+
+  assert.ok(res, 'quitar devolve resultado');
+  assert.equal(res?.status, 'approved', 'pending → approved (mesmo shape do pago-na-hora M6)');
+  assert.ok(res?.paidAt, 'paidAt setado');
+  assert.equal(res?.alreadyPaid, false);
+  assert.equal(updates.length, 1, 'exatamente 1 update');
+  assert.equal(updates[0].lifecycle, 'paid');
+  assert.ok(updates[0].paidAt instanceof Date);
+  assert.equal(charge.status, 'approved', 'o "banco" reflete a baixa');
+});
+
+test('W2 quitar idempotente: 2ª chamada devolve o estado atual SEM re-quitar (paidAt preservado)', async () => {
+  const charge = {
+    id: 'ch-1', companyId: 1, status: 'pending', lifecycle: 'in_progress',
+    amount: 20, paidAt: null, sourceModule: 'logistica_fechamento',
+  };
+  const { prisma, updates } = buildQuitarPrisma(charge);
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  const r1 = await service.quitarCharge(1, 'ch-1');
+  const r2 = await service.quitarCharge(1, 'ch-1');
+
+  assert.equal(updates.length, 1, '2ª chamada NÃO gera update novo');
+  assert.equal(r2?.status, 'approved');
+  assert.equal(r2?.alreadyPaid, true, '2ª chamada sinaliza já-paga');
+  assert.equal(r2?.paidAt, r1?.paidAt, 'paidAt original preservado (não re-quita)');
+});
+
+test('W2 quitar cross-tenant/origem: outra empresa OU sourceModule fora de logistica_* → null (404)', async () => {
+  // Outra empresa: o findFirst company-scoped não acha → null.
+  const deOutraEmpresa = {
+    id: 'ch-1', companyId: 2, status: 'pending', lifecycle: 'in_progress',
+    amount: 10, paidAt: null, sourceModule: 'logistica_entrega',
+  };
+  const { prisma: p1, updates: u1 } = buildQuitarPrisma(deOutraEmpresa);
+  const s1 = new LogisticaService(p1, {} as any, {} as any, {} as any);
+  assert.equal(await s1.quitarCharge(1, 'ch-1'), null, 'charge de outra empresa → null (não vaza)');
+  assert.equal(u1.length, 0, 'nada é tocado');
+
+  // Origem fora da logística (ex.: assinatura HBX, sourceModule null) → null.
+  const assinaturaHbx = {
+    id: 'ch-2', companyId: 1, status: 'pending', lifecycle: 'in_progress',
+    amount: 199, paidAt: null, sourceModule: null,
+  };
+  const { prisma: p2, updates: u2 } = buildQuitarPrisma(assinaturaHbx);
+  const s2 = new LogisticaService(p2, {} as any, {} as any, {} as any);
+  assert.equal(await s2.quitarCharge(1, 'ch-2'), null, 'charge fora de logistica_* → null (assinatura intocável)');
+  assert.equal(u2.length, 0, 'a assinatura HBX nunca é quitada por aqui');
+});
+
+test('W2 quitar não-quitável: charge cancelled → devolve o estado atual sem mutar', async () => {
+  const charge = {
+    id: 'ch-3', companyId: 1, status: 'cancelled', lifecycle: 'cancelled',
+    amount: 15, paidAt: null, sourceModule: 'logistica_entrega',
+  };
+  const { prisma, updates } = buildQuitarPrisma(charge);
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  const res = await service.quitarCharge(1, 'ch-3');
+  assert.equal(res?.status, 'cancelled', 'devolve o estado atual');
+  assert.equal(res?.alreadyPaid, false);
+  assert.equal(updates.length, 0, 'cancelled não vira pago');
+});
+
+// ── W2 saldos — gate fail-closed + fonte única ────────────────────────────────
+test('W2 saldos: moduloFinanceiroAtivo OFF → FAIL-CLOSED (lista vazia, zero consulta de valores)', async () => {
+  let consultouValores = false;
+  const prisma = {
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
+    financeiroCharge: {
+      findMany: async () => { consultouValores = true; return []; },
+      groupBy: async () => { consultouValores = true; return []; },
+    },
+    entrega: {
+      findMany: async () => { consultouValores = true; return []; },
+      groupBy: async () => { consultouValores = true; return []; },
+    },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.saldosFinanceiro(1);
+
+  assert.equal(res.moduloFinanceiroAtivo, false);
+  assert.deepEqual(res.clientes, [], 'OFF → nenhum cliente listado');
+  assert.equal(consultouValores, false, 'OFF → nem consulta charges/entregas (fail-closed de verdade)');
+});
+
+test('W2 saldos: módulo ON → lista só quem deve (>0), com nome, pela fonte única', async () => {
+  const prisma = {
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
+    financeiroCharge: {
+      // candidatos com charge pending da logística
+      findMany: async () => [{ customerProfileId: 'conta-1' }],
+      // fonte única (saldoAbertoPorClientes): Σ pending por cliente
+      groupBy: async () => [{ customerProfileId: 'conta-1', _sum: { amount: 42.5 } }],
+    },
+    entrega: {
+      // candidatos aguardando fechamento
+      findMany: async () => [{ customerProfileId: 'conta-2' }],
+      groupBy: async () => [{ customerProfileId: 'conta-2', _sum: { valor: 30 } }],
+    },
+    customerProfile: {
+      findMany: async () => [
+        { id: 'conta-1', name: 'Dona Maria' },
+        { id: 'conta-2', name: 'Mercadinho' },
+      ],
+    },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.saldosFinanceiro(1);
+
+  assert.equal(res.moduloFinanceiroAtivo, true);
+  assert.equal(res.clientes.length, 2);
+  // ordenado por saldoAberto desc: conta-1 (42.5) antes de conta-2 (30).
+  assert.equal(res.clientes[0].customerProfileId, 'conta-1');
+  assert.equal(res.clientes[0].nome, 'Dona Maria');
+  assert.equal(res.clientes[0].saldoAberto, 42.5);
+  assert.equal(res.clientes[0].aguardandoFechamento, 0);
+  assert.equal(res.clientes[1].customerProfileId, 'conta-2');
+  assert.equal(res.clientes[1].saldoAberto, 30, 'saldoAberto = pendente + aguardando (semântica do extrato)');
+  assert.equal(res.clientes[1].aguardandoFechamento, 30);
+});
+
+// ── W2 histórico — item sintético p/ entrega legada + cursor ──────────────────
+test('W2 histórico: entrega legada sem EntregaItem → 1 item sintético; com itens usa qtdEntregue ?? qtdPrevista', async () => {
+  const rows = [
+    {
+      id: 'e2',
+      status: 'entregue',
+      quantidade: 1,
+      valor: 35,
+      scheduledAt: new Date('2026-07-09T09:00:00Z'),
+      deliveredAt: new Date('2026-07-09T10:30:00Z'),
+      receiptMethod: 'pix',
+      cobrancaStatus: 'lancada',
+      whatsappStatus: 'enviado',
+      whatsappMotivo: null,
+      createdAt: new Date('2026-07-09T08:00:00Z'),
+      product: null,
+      itens: [
+        { qtdPrevista: 2, qtdEntregue: 3, valorUnit: 10, product: { name: 'Galão 20L' } },
+        { qtdPrevista: 1, qtdEntregue: null, valorUnit: 5, product: { name: 'Água com gás' } },
+      ],
+    },
+    {
+      // LEGADA (N6): single-produto, sem EntregaItem → item sintético de
+      // productId/quantidade/valor (valorUnit = valor/quantidade).
+      id: 'e1',
+      status: 'entregue',
+      quantidade: 2,
+      valor: 20,
+      scheduledAt: new Date('2026-07-08T09:00:00Z'),
+      deliveredAt: new Date('2026-07-08T11:00:00Z'),
+      receiptMethod: null,
+      cobrancaStatus: 'lancada',
+      whatsappStatus: 'pulado',
+      whatsappMotivo: 'sem_telefone',
+      createdAt: new Date('2026-07-08T08:00:00Z'),
+      product: { name: 'Galão 20L' },
+      itens: [],
+    },
+  ];
+  const prisma = {
+    customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'Dona Maria' }) },
+    entrega: { findMany: async () => rows },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.historicoEntregasCliente(1, 'conta-1', { limit: 30 });
+
+  assert.ok(res, 'histórico retorna resultado');
+  assert.equal(res?.items.length, 2);
+  assert.equal(res?.nextCursor, null, 'página menor que o limit → sem próxima página');
+  // desc por deliveredAt: e2 (09/07) antes de e1 (08/07).
+  assert.equal(res?.items[0].id, 'e2');
+  assert.equal(res?.items[0].receiptMethod, 'pix');
+  assert.equal(res?.items[0].itens.length, 2);
+  assert.equal(res?.items[0].itens[0].produtoNome, 'Galão 20L');
+  assert.equal(res?.items[0].itens[0].qtd, 3, 'qtd = qtdEntregue quando existe');
+  assert.equal(res?.items[0].itens[1].qtd, 1, 'qtd = qtdPrevista quando qtdEntregue é null');
+  // item sintético da legada: nome do produto + quantidade + valorUnit = valor/qtd.
+  assert.equal(res?.items[1].id, 'e1');
+  assert.equal(res?.items[1].itens.length, 1, 'legada ganha 1 item sintético');
+  assert.equal(res?.items[1].itens[0].produtoNome, 'Galão 20L');
+  assert.equal(res?.items[1].itens[0].qtd, 2);
+  assert.equal(res?.items[1].itens[0].valorUnit, 10, 'valorUnit sintético = valor(20)/quantidade(2)');
+  assert.equal(res?.items[1].whatsappStatus, 'pulado');
+  assert.equal(res?.items[1].whatsappMotivo, 'sem_telefone');
+});
+
+test('W2 histórico: cliente de outra empresa → null (404, sem vazar); página cheia → nextCursor', async () => {
+  const prismaVazio = { customerProfile: { findFirst: async () => null } } as any;
+  const s1 = new LogisticaService(prismaVazio, {} as any, {} as any, {} as any);
+  assert.equal(await s1.historicoEntregasCliente(1, 'conta-de-outra-empresa'), null);
+
+  // Página CHEIA (rows.length === limit) → nextCursor = id da última linha do banco.
+  const mkRow = (id: string, dia: number) => ({
+    id,
+    status: 'entregue',
+    quantidade: 1,
+    valor: 10,
+    scheduledAt: new Date(`2026-07-0${dia}T09:00:00Z`),
+    deliveredAt: new Date(`2026-07-0${dia}T10:00:00Z`),
+    receiptMethod: null,
+    cobrancaStatus: 'lancada',
+    whatsappStatus: null,
+    whatsappMotivo: null,
+    createdAt: new Date(`2026-07-0${dia}T08:00:00Z`),
+    product: { name: 'Galão 20L' },
+    itens: [],
+  });
+  let capturedArgs: any = null;
+  const prisma = {
+    customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'Dona Maria' }) },
+    entrega: {
+      findMany: async (args: any) => {
+        capturedArgs = args;
+        return [mkRow('e9', 9), mkRow('e8', 8)];
+      },
+    },
+  } as any;
+  const s2 = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await s2.historicoEntregasCliente(1, 'conta-1', { limit: 2, cursor: 'e10' });
+
+  assert.equal(capturedArgs?.take, 2, 'limit vira take');
+  assert.deepEqual(capturedArgs?.cursor, { id: 'e10' }, 'cursor por id');
+  assert.equal(capturedArgs?.skip, 1, 'skip 1 = não repete a linha do cursor');
+  assert.equal(res?.items.length, 2);
+  assert.equal(res?.nextCursor, 'e8', 'página cheia → nextCursor = última linha da ordem do banco');
+});
+
+test('W2 histórico: limit é clampado (0/negativo → default 30; acima de 100 → 100)', async () => {
+  const captured: number[] = [];
+  const prisma = {
+    customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'X' }) },
+    entrega: {
+      findMany: async (args: any) => {
+        captured.push(args.take);
+        return [];
+      },
+    },
+  } as any;
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  await service.historicoEntregasCliente(1, 'conta-1', { limit: 0 });
+  await service.historicoEntregasCliente(1, 'conta-1', { limit: 500 });
+  await service.historicoEntregasCliente(1, 'conta-1', {});
+  assert.deepEqual(captured, [30, 100, 30], 'clamp: default 30, teto 100');
+});

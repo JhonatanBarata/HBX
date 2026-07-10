@@ -12,7 +12,7 @@
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
 //   PUT  /modules/master/company/:id/account-type        → toggle Crédito|Empresarial (S6)
-//   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (HBX Full)
+//   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (TETO/masterEnabled — W1 PR10072026)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
 //   PUT  /modules/master/company/:id/suspension          → {suspended, reason}
 //   PUT  /modules/master/company/:id/card-quota          → {seatCap} (assentos; cards/mês·dia morreram da UI)
@@ -106,7 +106,10 @@ type Detail = {
     setupValue?: number | null;
     monthlyValueOverride?: number | null;
     users?: DetailUser[];
-    modules?: { key: string; name: string; enabled: boolean }[];
+    // PR10072026 W1/W3 — 2 camadas: `enabled` = teto do master (compat com o
+    // toggle), `companyEnabled` = camada da empresa (OOBE/Configurações),
+    // `effective` = masterEnabled && companyEnabled.
+    modules?: { key: string; name: string; enabled: boolean; masterEnabled?: boolean; companyEnabled?: boolean; effective?: boolean }[];
     plan?: { id?: number; name?: string | null } | null;
     botArmedAt?: string | null;
     botArmChannel?: string | null;
@@ -1140,6 +1143,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     {(c.modules || []).map(m => (
                       <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem" }}>
                         <span style={{ fontWeight: 600 }}>{m.name}</span>
+                        {/* PR10072026 W3 — estado da empresa quando diverge do teto:
+                            teto ON (enabled) + camada empresa OFF = a empresa desligou
+                            em Configurações/OOBE (o toggle ao lado segue sendo o teto). */}
+                        {m.enabled && m.companyEnabled === false && (
+                          <span className="tag warn" style={{ fontSize: "0.6rem" }}>empresa desligou</span>
+                        )}
                         <button type="button" className="btn-ghost" disabled={moduloBusy === m.key}
                           style={{ marginLeft: "auto", minHeight: 26, fontSize: "0.62rem", padding: "0 10px", ...(m.enabled ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
                           onClick={() => alternarModulo(m.key, !m.enabled)}>
