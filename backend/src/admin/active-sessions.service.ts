@@ -61,7 +61,8 @@ export class ActiveSessionsService {
                 id: true,
                 name: true,
                 companyModules: {
-                  where: { enabled: true },
+                  // PR10072026 W1: efetivo = masterEnabled && enabled.
+                  where: { enabled: true, masterEnabled: true },
                   select: {
                     systemModule: {
                       select: {

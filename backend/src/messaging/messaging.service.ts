@@ -504,11 +504,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           trialModuleSelection: true,
         },
       }),
+      // PR10072026 W1: efetivo = masterEnabled && enabled (teto do master conta).
       this.prisma.companyModule?.findFirst
         ? this.prisma.companyModule.findFirst({
             where: {
               companyId,
               enabled: true,
+              masterEnabled: true,
               systemModule: { key: 'hbx_recovery' },
             },
             select: { id: true },

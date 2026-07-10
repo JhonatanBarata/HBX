@@ -15,6 +15,8 @@ import {
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
+import { ModuleAccess } from '../modules/module-feature.decorator';
+import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
@@ -40,15 +42,20 @@ import {
  * NÚCLEO-CRM N6 (05/07) — controller do módulo LOGÍSTICA (app de entrega).
  *
  * Company-scoped: o companyId vem SEMPRE do usuário logado (JWT), nunca do
- * cliente. Mesmo padrão de guard/scoping dos controllers vizinhos (NucleoController):
- * apenas JwtAuthGuard. Kill-switch (não paywall): a aba nasce visível por default;
- * o SystemModule 'logistica' (defaultEnabled=true) é o interruptor do master.
+ * cliente. Mesmo padrão de guard/scoping dos controllers vizinhos (NucleoController).
+ *
+ * PR10072026 W1 — kill-switch DE VERDADE: @ModuleAccess('logistica') +
+ * ModuleAccessGuard na classe inteira. 'logistica' é COMPANY_LEVEL_MODULE_KEY
+ * (module-access-policy.ts): o gate checa SÓ a camada empresa (teto do master ×
+ * enabled da empresa), sem molho de cargo/per-usuário — o entregador USER não
+ * quebra. Master bypassa (PR-002 A.6); empresa com módulo OFF → 403.
  *
  * Os EFEITOS de confirmar entrega (WhatsApp + cobrança) vivem no serviço, atrás da
  * flag HBX_LOGISTICA_ENABLED (default OFF). Enquanto OFF, confirmar só muda status/GPS.
  */
 @Controller('logistica')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@ModuleAccess('logistica')
 export class LogisticaController {
   constructor(
     private readonly service: LogisticaService,

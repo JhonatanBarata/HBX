@@ -354,11 +354,37 @@ export class ProfileController {
     }
     const companyId = Number((user as any).companyId || 0);
     if (!companyId) throw new BadRequestException('Empresa nao encontrada.');
+    // PR10072026 W1: teto do master é lei (skip devolvido em skippedModules) e
+    // toda chamada grava auditoria com o ator do tenant.
     const saved = await this.usersService.saveCompanyModuleCategories(
       companyId,
       Array.isArray(body?.categories) ? body.categories : [],
+      { userId: Number(user.id), role },
     );
-    return { ok: true, moduleCategories: saved, categoryModuleMap: MODULE_CATEGORY_MAP };
+    return {
+      ok: true,
+      moduleCategories: saved.categories,
+      skippedModules: saved.skippedModuleKeys,
+      categoryModuleMap: MODULE_CATEGORY_MAP,
+    };
+  }
+
+  // PR10072026 W1 — estado por categoria pro tenant (mesmo gate de dono do POST):
+  // `enabled` = todos os módulos da categoria com efetivo ON; `locked` = teto do
+  // master OFF em algum módulo da categoria (nunca vira ligável pelo tenant).
+  @Get('module-categories/options')
+  @UseGuards(JwtAuthGuard)
+  async getModuleCategoryOptions(@Req() req: any) {
+    const user = await this.usersService.findById(req.user.id);
+    if (!user) throw new BadRequestException('Usuario invalido');
+    const role = String(user.role || '').trim().toUpperCase();
+    const isTenantAdminRole = role === 'ADMIN' || role === 'USERMASTER';
+    if (user.isSystemMaster || !isTenantAdminRole || (user as any).canViewBilling === false) {
+      throw new BadRequestException('Apenas o dono define os módulos da empresa.');
+    }
+    const companyId = Number((user as any).companyId || 0);
+    if (!companyId) throw new BadRequestException('Empresa nao encontrada.');
+    return this.usersService.getCompanyModuleCategoryOptions(companyId);
   }
 
   @Patch('display-name')

@@ -23,10 +23,14 @@ import {
 } from './preferred-segments.util';
 import {
   CATEGORY_MANAGED_MODULE_KEYS,
+  MODULE_CATEGORY_KEYS,
+  MODULE_CATEGORY_MAP,
   moduleKeysForCategories,
   normalizeModuleCategories,
+  parseCompanyModuleCategories,
   type ModuleCategoryKey,
 } from '../modules/module-categories';
+import { effectiveCompanyModuleEnabled } from '../modules/module-access-policy';
 
 export const SELF_ACCESS_REMOVAL_MESSAGE = 'Você não pode remover seu próprio acesso.';
 export const LAST_TENANT_ADMIN_MESSAGE = 'A empresa precisa manter pelo menos um administrador ativo.';
@@ -898,10 +902,16 @@ export class UsersService {
   // mapa (CATEGORY_MANAGED_MODULE_KEYS); cadastros básicos (empresas/contatos/
   // produtos/config/dash) e financeiro/gerencial ficam intocados. O guard
   // @ModuleAccess e o GET /modules/me já respeitam o post-it (fail-closed).
+  //
+  // PR10072026 W1: (a) TETO do master é lei — módulo com masterEnabled=false NUNCA
+  // recebe enabled=true (skip; devolvido em skippedModuleKeys); desligar
+  // (enabled=false) continua permitido. (b) toda chamada grava auditoria com ator
+  // do tenant (evento análogo ao MODULE_TOGGLED do master, mesma trilha da ficha).
   async saveCompanyModuleCategories(
     companyId: number,
     categories: unknown,
-  ): Promise<ModuleCategoryKey[]> {
+    actor?: { userId?: number | null; role?: string | null },
+  ): Promise<{ categories: ModuleCategoryKey[]; skippedModuleKeys: string[] }> {
     const clean = normalizeModuleCategories(categories);
     if (!clean.length) {
       throw new BadRequestException('Escolha pelo menos uma categoria.');
@@ -911,21 +921,133 @@ export class UsersService {
       where: { key: { in: CATEGORY_MANAGED_MODULE_KEYS }, companyAssignable: true },
       select: { id: true, key: true },
     });
+    const [existingRows, previousCompany] = await Promise.all([
+      this.prisma.companyModule.findMany({
+        where: { companyId, moduleId: { in: managedModules.map((m) => m.id) } },
+        select: { moduleId: true, enabled: true, masterEnabled: true },
+      }),
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { moduleCategoriesJson: true } as any,
+      }),
+    ]);
+    const rowByModuleId = new Map(existingRows.map((row) => [row.moduleId, row]));
+    const previousCategories = parseCompanyModuleCategories((previousCompany as any)?.moduleCategoriesJson);
+
+    const skippedModuleKeys: string[] = [];
+    const moduleChanges: Array<{ moduleKey: string; previousEnabled: boolean | null; enabled: boolean }> = [];
     await this.prisma.$transaction(async (tx) => {
       await tx.company.update({
         where: { id: companyId },
         data: { moduleCategoriesJson: clean } as any,
       });
       for (const moduleRow of managedModules) {
-        const enabled = enabledKeys.has(String(moduleRow.key || '').trim().toLowerCase());
+        const moduleKey = String(moduleRow.key || '').trim().toLowerCase();
+        const enabled = enabledKeys.has(moduleKey);
+        const existing = rowByModuleId.get(moduleRow.id);
+        // TETO (W1): masterEnabled=false nunca vira enabled=true por aqui.
+        if (enabled && existing && (existing as any).masterEnabled === false) {
+          skippedModuleKeys.push(moduleKey);
+          continue;
+        }
         await tx.companyModule.upsert({
           where: { companyId_moduleId: { companyId, moduleId: moduleRow.id } },
           update: { enabled },
           create: { companyId, moduleId: moduleRow.id, enabled },
         });
+        moduleChanges.push({
+          moduleKey,
+          previousEnabled: existing ? Boolean(existing.enabled) : null,
+          enabled,
+        });
       }
     });
-    return clean;
+
+    // Auditoria com ator do TENANT (análogo ao MODULE_TOGGLED do master): mesma
+    // trilha que a ficha da empresa no /master lê (MasterSupportAuditLog). O
+    // registerSupportAction é master-only, então o insert é direto (best-effort,
+    // padrão do TeamPolicyAuditLog — falha de auditoria não derruba o save).
+    const actorUserId = Math.trunc(Number(actor?.userId || 0)) || null;
+    if (actorUserId) {
+      const metadataJson = JSON.stringify({
+        actor: {
+          userId: actorUserId,
+          role: String(actor?.role || '').trim().toUpperCase() || null,
+          kind: 'tenant',
+        },
+        previousCategories,
+        categories: clean,
+        moduleChanges,
+        skippedModuleKeys,
+      });
+      try {
+        await this.prisma.$executeRaw`
+          INSERT INTO "MasterSupportAuditLog"
+          ("id", "masterUserId", "companyId", "assumedContextSessionId", "scope", "action", "severity", "route", "metadata", "createdAt")
+          VALUES (
+            ${crypto.randomUUID()},
+            ${actorUserId},
+            ${Number(companyId)},
+            ${null},
+            ${'tenant_module'},
+            ${'MODULE_CATEGORIES_TOGGLED'},
+            ${'INFO'},
+            ${'/profile/module-categories'},
+            ${metadataJson},
+            ${new Date()}
+          )
+        `;
+      } catch (error) {
+        this.logger.warn(`Falha ao gravar auditoria de module-categories (companyId=${companyId}): ${error instanceof Error ? error.message : error}`);
+      }
+    }
+
+    return { categories: clean, skippedModuleKeys };
+  }
+
+  // PR10072026 W1 — GET /profile/module-categories/options: estado por categoria
+  // pro tenant decidir o que dá pra ligar. `enabled` = TODOS os módulos da
+  // categoria com efetivo ON (masterEnabled && enabled; sem linha = defaultEnabled);
+  // `locked` = QUALQUER módulo da categoria com teto do master OFF (nunca vira
+  // ligável pelo tenant). Módulo ausente do catálogo conta como locked (fail-closed).
+  async getCompanyModuleCategoryOptions(
+    companyId: number,
+  ): Promise<{ categories: Array<{ key: ModuleCategoryKey; enabled: boolean; locked: boolean }> }> {
+    const systemModules = await this.prisma.systemModule.findMany({
+      where: { key: { in: CATEGORY_MANAGED_MODULE_KEYS }, companyAssignable: true },
+      select: { id: true, key: true, defaultEnabled: true },
+    });
+    const rows = await this.prisma.companyModule.findMany({
+      where: { companyId, moduleId: { in: systemModules.map((m) => m.id) } },
+      select: { moduleId: true, enabled: true, masterEnabled: true },
+    });
+    const rowByModuleId = new Map(rows.map((row) => [row.moduleId, row]));
+    const moduleByKey = new Map(
+      systemModules.map((m) => [String(m.key || '').trim().toLowerCase(), m]),
+    );
+
+    const categories = MODULE_CATEGORY_KEYS.map((key) => {
+      const moduleKeys = MODULE_CATEGORY_MAP[key] || [];
+      let enabled = moduleKeys.length > 0;
+      let locked = false;
+      for (const moduleKey of moduleKeys) {
+        const systemModule = moduleByKey.get(moduleKey);
+        if (!systemModule) {
+          enabled = false;
+          locked = true;
+          continue;
+        }
+        const row = rowByModuleId.get(systemModule.id);
+        const effective = row
+          ? effectiveCompanyModuleEnabled(row)
+          : Boolean(systemModule.defaultEnabled);
+        if (!effective) enabled = false;
+        if (row && (row as any).masterEnabled === false) locked = true;
+      }
+      return { key, enabled, locked };
+    });
+
+    return { categories };
   }
 
   // Preferência de segmento/região do PRÓPRIO vendedor (self-service 14/06):

@@ -9,6 +9,7 @@ import {
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
 import { ModulesService } from './modules.service';
 import {
+  effectiveCompanyModuleEnabled,
   presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
   resolveKillSwitchModuleKeys,
@@ -337,7 +338,7 @@ function withKillSwitchFlag<T>(_value: string | undefined, fn: () => T): T {
 }
 
 function buildSnapshot(
-  entries: Array<{ key: string; defaultEnabled: boolean; enabled?: boolean | null; companyAssignable?: boolean }>,
+  entries: Array<{ key: string; defaultEnabled: boolean; enabled?: boolean | null; masterEnabled?: boolean | null; companyAssignable?: boolean }>,
 ): KillSwitchModuleSnapshot {
   return {
     modules: entries.map((entry) => ({
@@ -345,9 +346,38 @@ function buildSnapshot(
       companyAssignable: entry.companyAssignable !== false,
       defaultEnabled: entry.defaultEnabled,
       enabled: entry.enabled === undefined ? null : entry.enabled,
+      masterEnabled: entry.masterEnabled === undefined ? null : entry.masterEnabled,
     })),
   };
 }
+
+// PR10072026 W1 — helper único do efetivo (masterEnabled && enabled) + veto do
+// teto no kill-switch (masterEnabled=false mata o módulo, override não salva).
+test('W1: effectiveCompanyModuleEnabled = masterEnabled && enabled (linha pré-migração conta como teto ON)', () => {
+  assert.equal(effectiveCompanyModuleEnabled({ enabled: true, masterEnabled: true }), true);
+  assert.equal(effectiveCompanyModuleEnabled({ enabled: true, masterEnabled: false }), false);
+  assert.equal(effectiveCompanyModuleEnabled({ enabled: false, masterEnabled: true }), false);
+  assert.equal(effectiveCompanyModuleEnabled({ enabled: false, masterEnabled: false }), false);
+  // linha antiga em memória (sem a coluna) = teto ON (mesmo backfill da migration)
+  assert.equal(effectiveCompanyModuleEnabled({ enabled: true }), true);
+  assert.equal(effectiveCompanyModuleEnabled({ enabled: true, masterEnabled: null }), true);
+  assert.equal(effectiveCompanyModuleEnabled(null), false);
+});
+
+test('W1: resolveKillSwitchModuleKeys — teto do master OFF veta o módulo mesmo com enabled=true da empresa', () => {
+  const snapshot = buildSnapshot([
+    { key: 'vendas', defaultEnabled: true, enabled: true, masterEnabled: false }, // teto OFF → some
+    { key: 'webscraping', defaultEnabled: false, enabled: true, masterEnabled: true }, // empresa ligou, teto ON → fica
+    { key: 'logistica', defaultEnabled: true, enabled: null, masterEnabled: false }, // teto OFF sem override → some
+    { key: 'atendimento', defaultEnabled: true }, // sem linha → segue default
+  ]);
+
+  const keys = resolveKillSwitchModuleKeys(snapshot);
+  assert.equal(keys.has('vendas'), false);
+  assert.equal(keys.has('webscraping'), true);
+  assert.equal(keys.has('logistica'), false);
+  assert.equal(keys.has('atendimento'), true);
+});
 
 test('sem snapshot: fallback defensivo deriva do plano (só quando o chamador não migrou)', () => {
   const withoutSnapshot = resolveCompanyModuleAccessPolicy({

@@ -4,6 +4,8 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { HbxRecoveryModule } from '../hbx-recovery/hbx-recovery.module';
 // CRÉDITO UNIVERSAL (PR10072026): medidor de uso (track da entrega concluída).
 import { CreditsModule } from '../credits/credits.module';
+// PR10072026 W1: gate de módulo em rota (ModuleAccessGuard precisa do ModulesService).
+import { ModulesAccessModule } from '../modules/modules.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
@@ -25,7 +27,7 @@ import { LogisticaController } from './logistica.controller';
  * ciclo: hbx-recovery NÃO importa logistica.
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule],
   controllers: [LogisticaController],
   providers: [
     LogisticaService,

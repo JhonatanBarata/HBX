@@ -61,6 +61,8 @@ import { resolveActorKind, isAdminTierActor } from '../access/actor-kind';
 import {
   PRIMARY_COMMERCIAL_MODULE_KEYS,
   ROUTE_GUARDED_MODULE_KEYS,
+  effectiveCompanyModuleEnabled,
+  isCompanyLevelModuleKey,
   presentModuleBlockForRole,
   resolveCompanyModuleAccessPolicy,
   type KillSwitchModuleSnapshot,
@@ -115,7 +117,6 @@ const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredModuleKeys)
   ? ((structuralDefaults as any).retiredModuleKeys as string[])
   : [];
-const TRIAL_BUNDLED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'];
 const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'atendimento',
   'vendas',
@@ -1598,7 +1599,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     await this.removeRetiredSystemModules();
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
-    await this.ensureTrialBundleForAllCompanies();
     // Self-Checkout (F2): hidrata o overlay editável do catálogo a partir do DB
     // para que preço/assentos/trial/nome/pausa editados pelo master reflitam nos
     // getters síncronos (vitrine pública + billing). Falha aqui não derruba o boot.
@@ -1638,53 +1638,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return key === 'hbx_recovery' ? 'atendimento' : key;
   }
 
-  private isTrialBundledModuleKey(moduleKey: string) {
-    return TRIAL_BUNDLED_MODULE_KEYS.includes(this.normalizeRequestedModuleKey(moduleKey));
-  }
-
-  private async ensureTrialBundleForCompany(companyId: number) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { trialModuleSelection: true },
-    });
-    if (String(company?.trialModuleSelection || '').trim().toLowerCase() !== 'vendas') return;
-
-    const moduleRows = await this.prisma.systemModule.findMany({
-      where: {
-        companyAssignable: true,
-        key: { in: TRIAL_BUNDLED_MODULE_KEYS },
-      },
-      select: { id: true },
-    });
-    if (!moduleRows.length) return;
-
-    await this.prisma.$transaction(async (tx) => {
-      for (const moduleRow of moduleRows) {
-        await tx.companyModule.upsert({
-          where: {
-            companyId_moduleId: {
-              companyId,
-              moduleId: moduleRow.id,
-            },
-          },
-          update: { enabled: true },
-          create: { companyId, moduleId: moduleRow.id, enabled: true },
-        });
-      }
-
-    });
-  }
-
-  private async ensureTrialBundleForAllCompanies() {
-    const companies = await this.prisma.company.findMany({
-      where: { trialModuleSelection: 'vendas' },
-      select: { id: true },
-    });
-
-    for (const company of companies) {
-      await this.ensureTrialBundleForCompany(company.id);
-    }
-  }
+  // PR10072026 W1 (item 7): ensureTrialBundleForCompany/TRIAL_BUNDLED_MODULE_KEYS
+  // removidos — trial aposentado no MASTER-REFAB S7; o bundle re-ligava post-its
+  // por fora das 2 camadas (teto do master × empresa) e virou sujeira de auditoria.
 
   private getModuleCategory(moduleKey: string): ModuleCategory {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
@@ -1964,18 +1920,20 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       const nextStored = storedCompanyStatusFromAccessState(access.state) || 'suspended';
       const currentStored = normalizeStoredCompanyStatus(company.status);
       if (company.isActive || currentStored !== nextStored) {
-        await this.prisma.$transaction([
-          this.prisma.company.update({
-            where: { id: companyId },
-            data: {
-              status: nextStored,
-              statusChangedAt: new Date(),
-              isActive: false,
-              deactivatedAt: new Date(),
-            },
-          }),
-          this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
-        ]);
+        // PR10072026 W1 (item 6): NÃO apaga mais os post-its (CompanyModule) na
+        // transição terminal — o bloqueio já é garantido por resolveCompanyModule
+        // AccessPolicy (estado não-liberado → moduleKeys vazio) + canUserAccessModule
+        // (!status.active → nega). Preservar o estado permite reativar sem perder
+        // a configuração de módulos da empresa.
+        await this.prisma.company.update({
+          where: { id: companyId },
+          data: {
+            status: nextStored,
+            statusChangedAt: new Date(),
+            isActive: false,
+            deactivatedAt: new Date(),
+          },
+        });
       }
       return { exists: true, active: false };
     }
@@ -1994,7 +1952,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const row = await this.prisma.companyModule.findUnique({
       where: { companyId_moduleId: { companyId, moduleId } },
     });
-    return Boolean(row?.enabled);
+    // PR10072026 W1: efetivo = masterEnabled && enabled (helper único).
+    return row ? effectiveCompanyModuleEnabled(row) : false;
   }
 
   // Régua única (PR13062026007 P2): molho de ACESSO do cargo Vendedor, 1 por
@@ -2029,6 +1988,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const role = String(user?.role || '').trim().toUpperCase();
     if (role !== 'USER') return false;
     const norm = this.normalizeRequestedModuleKey(moduleKey);
+    // PR10072026 W1: módulo de decisão POR EMPRESA (ex.: logistica) não passa
+    // pelo molho de cargo — a camada empresa decide sozinha (kill-switch de
+    // verdade; o entregador USER não pode quebrar).
+    if (isCompanyLevelModuleKey(norm)) return true;
     if (SELLER_CARGO_WALL_MODULES.has(norm)) return false;
     if (cargoAccess.has(norm)) return Boolean(cargoAccess.get(norm));
     return SELLER_CARGO_DEFAULT_ACCESS.has(norm);
@@ -2048,19 +2011,29 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       }),
       this.prisma.companyModule.findMany({
         where: { companyId },
-        select: { moduleId: true, enabled: true },
+        select: { moduleId: true, enabled: true, masterEnabled: true },
       }),
     ]);
-    const overrideByModuleId = new Map<number, boolean>(
-      companyModuleRows.map((row) => [row.moduleId, Boolean(row.enabled)]),
+    // PR10072026 W1: post-it agora tem 2 camadas — enabled (empresa) + masterEnabled
+    // (teto). O helper puro (resolveKillSwitchModuleKeys) aplica masterEnabled===false
+    // como veto absoluto; enabled continua sendo o override da empresa.
+    const rowByModuleId = new Map<number, { enabled: boolean; masterEnabled: boolean }>(
+      companyModuleRows.map((row) => [
+        row.moduleId,
+        { enabled: Boolean(row.enabled), masterEnabled: (row as any).masterEnabled !== false },
+      ]),
     );
     return {
-      modules: moduleRows.map((moduleItem) => ({
-        key: this.normalizeRequestedModuleKey(moduleItem.key),
-        companyAssignable: Boolean(moduleItem.companyAssignable),
-        defaultEnabled: Boolean(moduleItem.defaultEnabled),
-        enabled: overrideByModuleId.has(moduleItem.id) ? Boolean(overrideByModuleId.get(moduleItem.id)) : null,
-      })),
+      modules: moduleRows.map((moduleItem) => {
+        const row = rowByModuleId.get(moduleItem.id);
+        return {
+          key: this.normalizeRequestedModuleKey(moduleItem.key),
+          companyAssignable: Boolean(moduleItem.companyAssignable),
+          defaultEnabled: Boolean(moduleItem.defaultEnabled),
+          enabled: row ? row.enabled : null,
+          masterEnabled: row ? row.masterEnabled : null,
+        };
+      }),
     };
   }
 
@@ -2106,12 +2079,15 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
   // Post-it da empresa: linha em CompanyModule = exceção explícita. null = sem
   // post-it → segue o plano. (Empresa antiga com linhas segue intocada.)
+  // PR10072026 W1: o override devolvido é o EFETIVO das 2 camadas
+  // (masterEnabled && enabled) — teto do master OFF mata o módulo mesmo com a
+  // empresa ligada, e vice-versa.
   private async getCompanyModuleOverride(companyId: number, moduleId: number): Promise<boolean | null> {
     const row = await this.prisma.companyModule.findUnique({
       where: { companyId_moduleId: { companyId, moduleId } },
-      select: { enabled: true },
+      select: { enabled: true, masterEnabled: true },
     });
-    return row ? Boolean(row.enabled) : null;
+    return row ? effectiveCompanyModuleEnabled(row) : null;
   }
 
   private isFinanceModuleKey(moduleKey: string) {
@@ -2230,10 +2206,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       if (!gerencialStatus.active) return false;
       return this.canUseAdminOnlyModule(user, key, context);
     }
-    if (this.isTrialBundledModuleKey(key)) {
-      await this.ensureTrialBundleForCompany(companyId);
-    }
-
     const candidateKeys = this.getModuleCandidateKeys(key);
     const moduleItems = await this.prisma.systemModule.findMany({
       where: {
@@ -2276,11 +2248,16 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     for (const moduleItem of orderedModules) {
       // Post-it (PR13062026007 PB2): override da empresa (linha em CompanyModule)
       // manda; senão, segue a caixa do plano (ao vivo, editável no Sistema).
+      // PR10072026 W1: o override já é o EFETIVO (masterEnabled && enabled).
       const override = await this.getCompanyModuleOverride(companyId, moduleItem.id);
       const companyHas = override !== null
         ? override
         : planDefaults.get(this.normalizeRequestedModuleKey(moduleItem.key)) === true;
       if (!companyHas) continue;
+
+      // PR10072026 W1: chave company-level (ex.: logistica) checa SÓ a camada
+      // empresa — pula molho de cargo e caps per-usuário (kill-switch de verdade).
+      if (isCompanyLevelModuleKey(this.normalizeRequestedModuleKey(moduleItem.key))) return true;
 
       if (!this.resolveCargoModuleAllowed(user, moduleItem.key, sellerCargoAccess)) continue;
 
@@ -2348,8 +2325,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       }));
     }
 
-    await this.ensureTrialBundleForCompany(companyId);
-
     await this.evaluateCompanyStatus(companyId);
 
     const company = await this.prisma.company.findUnique({
@@ -2390,7 +2365,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       ...Object.values(COMMERCIAL_PLAN_MODULE_KEYS).flat(),
       'financeiro',
       'gerencial',
-      'whatsapp',
       'cadastro',
       'email',
       'bot',
@@ -2432,7 +2406,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         // Gerente, fora do plano/catálogo. Sempre "company-enabled"; o acesso é por role.
         const adminTierModule = financeModule || gerencialModule;
         // Post-it (PB2): post-it da empresa manda; senão, a caixa do plano (viva).
-        const companyHasModule = row ? Boolean(row.enabled) : (planDefaults.get(normalizedKey) === true);
+        // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
+        const companyHasModule = row ? effectiveCompanyModuleEnabled(row) : (planDefaults.get(normalizedKey) === true);
         const effectiveCompanyEnabled = adminTierModule ? true : companyHasModule;
         // Acesso por CARGO (P2): USER resolve do molho do cargo Vendedor; ADMIN/
         // master = tudo. financeiro/gerencial = muro do eixo Dono/Gerente.
@@ -2528,7 +2503,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const { user, companyId } = await this.resolveUserContext(adminUserId);
     // RBAC Sprint 3: master OU qualquer ADMIN (dono/gerente) via fonte única.
     if (!companyId || !isAdminTierActor(user)) throw new ForbiddenException('Admin role required');
-    await this.ensureTrialBundleForCompany(companyId);
 
     const [users, modules, company] = await Promise.all([
       this.usersService.listByCompany(companyId),
@@ -2560,7 +2534,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     );
 
     const companyModuleRows = await this.prisma.companyModule.findMany({ where: { companyId } });
-    const companyModuleMap = new Map<number, boolean>(companyModuleRows.map((row) => [row.moduleId, row.enabled]));
+    // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
+    const companyModuleMap = new Map<number, boolean>(
+      companyModuleRows.map((row) => [row.moduleId, effectiveCompanyModuleEnabled(row)]),
+    );
 
     const policyRows = await this.prisma.userTeamPolicy.findMany({
       where: { userId: { in: users.map((u) => u.id) } },
@@ -2661,8 +2638,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       const companyModuleRows = await this.prisma.companyModule.findMany({
         where: { companyId: targetCompanyId },
       });
+      // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
       const companyModuleById = new Map<number, boolean>(
-        companyModuleRows.map((r) => [r.moduleId, r.enabled]),
+        companyModuleRows.map((r) => [r.moduleId, effectiveCompanyModuleEnabled(r)]),
       );
       for (const permission of modulePermissions || []) {
         if (!permission.allowed) continue;
@@ -2708,8 +2686,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    if (targetCompanyId) await this.ensureTrialBundleForCompany(targetCompanyId);
-
     return { ok: true };
   }
 
@@ -2738,12 +2714,14 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const accessSnapshot = { ...company, isActive: active };
     const access = resolveCompanyAccessState(accessSnapshot);
     const statusBucket = this.companyStatusBucket(accessSnapshot);
+    // PR10072026 W1: "ligado" aqui = EFETIVO (masterEnabled && enabled) — o resumo
+    // e os sinais derivados (ex.: hasWebsiteModule) contam o que a empresa realmente usa.
     const enabledModules = (company.companyModules || [])
       .filter((row: any) => row?.systemModule?.companyAssignable)
       .map((row: any) => ({
         key: row.systemModule.key,
         name: row.systemModule.name,
-        enabled: Boolean(row.enabled),
+        enabled: effectiveCompanyModuleEnabled(row),
         monthlyPrice: this.normalizeCurrencyAmount(row?.systemModule?.monthlyPrice || 0),
       }));
     const activeModules = enabledModules.filter((module: any) => module.enabled);
@@ -3535,12 +3513,20 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           retentionUntil: user.retentionUntil ? user.retentionUntil.toISOString() : null,
           createdAt: user.createdAt ? user.createdAt.toISOString() : null,
         })),
+        // PR10072026 W1 — 2 camadas na ficha: `enabled` continua sendo O QUE O
+        // MASTER CONTROLA (teto; compat com o toggle da janela-empresas), e os
+        // campos novos expõem a camada empresa (`companyEnabled`) e o efetivo.
         modules: assignableSystemModules.map((moduleItem) => {
           const row = companyModuleByKeyForDetail.get(moduleItem.key);
+          const masterEnabled = row ? (row as any).masterEnabled !== false : Boolean(moduleItem.defaultEnabled);
+          const companyEnabled = row ? Boolean(row.enabled) : true;
           return {
             key: moduleItem.key,
             name: moduleItem.name,
-            enabled: row ? Boolean(row.enabled) : Boolean(moduleItem.defaultEnabled),
+            enabled: masterEnabled,
+            masterEnabled,
+            companyEnabled,
+            effective: row ? effectiveCompanyModuleEnabled(row) : Boolean(moduleItem.defaultEnabled),
             monthlyPrice: this.normalizeCurrencyAmount((moduleItem as any).monthlyPrice || 0),
           };
         }),
@@ -3805,12 +3791,18 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           const companyModuleByKey = new Map(
             (company.companyModules || []).map((row) => [row.systemModule.key, row]),
           );
+          // PR10072026 W1 — mesmo shape da ficha: `enabled` = teto do master
+          // (compat), + companyEnabled/effective como campos novos.
           return assignableSystemModulesForListing.map((moduleItem) => {
             const row = companyModuleByKey.get(moduleItem.key);
+            const masterEnabled = row ? (row as any).masterEnabled !== false : Boolean(moduleItem.defaultEnabled);
             return {
               key: moduleItem.key,
               name: moduleItem.name,
-              enabled: row ? Boolean(row.enabled) : Boolean(moduleItem.defaultEnabled),
+              enabled: masterEnabled,
+              masterEnabled,
+              companyEnabled: row ? Boolean(row.enabled) : true,
+              effective: row ? effectiveCompanyModuleEnabled(row) : Boolean(moduleItem.defaultEnabled),
             };
           });
         })(),
@@ -3830,8 +3822,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       select: { sellerCargoAccessJson: true },
     });
     const current = this.parseSellerCargoAccess(company);
+    // PR10072026 W1: efetivo = masterEnabled && enabled (mesma régua do helper único).
     const rows = await this.prisma.companyModule.findMany({
-      where: { companyId, enabled: true },
+      where: { companyId, enabled: true, masterEnabled: true },
       include: { systemModule: true },
     });
     const items = rows
@@ -3851,8 +3844,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   async setSellerCargoAccessForAdmin(adminUserId: number, accessInput: Record<string, unknown>) {
     const { companyId } = await this.resolveUserContext(adminUserId);
     if (!companyId) throw new BadRequestException('Empresa nao identificada.');
+    // PR10072026 W1: efetivo = masterEnabled && enabled (mesma régua do helper único).
     const enabledRows = await this.prisma.companyModule.findMany({
-      where: { companyId, enabled: true },
+      where: { companyId, enabled: true, masterEnabled: true },
       include: { systemModule: true },
     });
     const companyHas = new Set(
@@ -4072,7 +4066,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     if (!moduleItem || !moduleItem.companyAssignable) throw new BadRequestException('Modulo nao encontrado para empresas');
     const existingModuleState = await this.prisma.companyModule.findUnique({
       where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
-      select: { enabled: true },
+      select: { enabled: true, masterEnabled: true },
     });
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
@@ -4083,11 +4077,13 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // Regua unica: o master edita modulo de QUALQUER plano, empresa por empresa
     // (plano virou so nome+preco). O paywall continua barrando no runtime — aqui
     // so guardamos a config. Empresa de infra ja foi barrada acima.
+    // PR10072026 W1: o master escreve o TETO (masterEnabled), nunca mais a camada
+    // da empresa (`enabled` fica com OOBE/admin). Efetivo = masterEnabled && enabled.
 
     const result = await this.prisma.companyModule.upsert({
       where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
-      update: { enabled: Boolean(enabled) },
-      create: { companyId, moduleId: moduleItem.id, enabled: Boolean(enabled) },
+      update: { masterEnabled: Boolean(enabled) },
+      create: { companyId, moduleId: moduleItem.id, masterEnabled: Boolean(enabled) },
     });
 
     await this.masterContextService.registerSupportAction({
@@ -4098,23 +4094,23 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       metadata: {
         moduleKey: moduleItem.key,
         moduleName: moduleItem.name,
+        // W1: previous/current agora refletem o TETO do master (masterEnabled).
         previousState: {
           moduleKey: moduleItem.key,
           moduleName: moduleItem.name,
-          enabled: Boolean(existingModuleState?.enabled),
+          enabled: existingModuleState
+            ? (existingModuleState as any).masterEnabled !== false
+            : Boolean(moduleItem.defaultEnabled),
         },
         currentState: {
           moduleKey: moduleItem.key,
           moduleName: moduleItem.name,
-          enabled: Boolean(result.enabled),
+          enabled: (result as any).masterEnabled !== false,
         },
       },
     });
-    if (this.isTrialBundledModuleKey(moduleItem.key)) {
-      await this.ensureTrialBundleForCompany(companyId);
-    }
 
-    return { ok: true, companyId: result.companyId, moduleKey: moduleItem.key, enabled: result.enabled };
+    return { ok: true, companyId: result.companyId, moduleKey: moduleItem.key, enabled: (result as any).masterEnabled !== false };
   }
 
   // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou POST master/company/:id/
@@ -4139,20 +4135,20 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     let auditAction = 'TRIAL_GRANTED';
 
     if (action === 'end') {
-      await this.prisma.$transaction([
-        this.prisma.company.update({
-          where: { id: companyId },
-          data: {
-            // Fim de trial leva ao checkout, nao a suspensao (PR-002 B).
-            status: 'pending_checkout',
-            statusChangedAt: now,
-            statusChangedByUserId: masterUserId,
-            isActive: false,
-            deactivatedAt: now,
-          },
-        }),
-        this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
-      ]);
+      // PR10072026 W1 (item 6): sem wipe de CompanyModule — pending_checkout já
+      // bloqueia via policy (moduleKeys vazio) + canUserAccessModule; post-its
+      // preservados pra reativação.
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: {
+          // Fim de trial leva ao checkout, nao a suspensao (PR-002 B).
+          status: 'pending_checkout',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
+          isActive: false,
+          deactivatedAt: now,
+        },
+      });
 
       await this.masterContextService.registerSupportAction({
         masterUserId,
@@ -4184,22 +4180,21 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       trialEndsAt = manualEnd;
       auditAction = manualEnd.getTime() <= now.getTime() ? 'TRIAL_SET_DATE_EXPIRED' : 'TRIAL_SET_DATE';
       if (manualEnd.getTime() <= now.getTime()) {
-        await this.prisma.$transaction([
-          this.prisma.company.update({
-            where: { id: companyId },
-            data: {
-              // Trial com data no passado = fim de trial -> checkout (PR-002 B).
-              status: 'pending_checkout',
-              statusChangedAt: now,
-              statusChangedByUserId: masterUserId,
-              trialStartsAt,
-              trialEndsAt: manualEnd,
-              isActive: false,
-              deactivatedAt: now,
-            },
-          }),
-          this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
-        ]);
+        // PR10072026 W1 (item 6): sem wipe de CompanyModule — pending_checkout já
+        // bloqueia via policy + canUserAccessModule; post-its preservados.
+        await this.prisma.company.update({
+          where: { id: companyId },
+          data: {
+            // Trial com data no passado = fim de trial -> checkout (PR-002 B).
+            status: 'pending_checkout',
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            trialStartsAt,
+            trialEndsAt: manualEnd,
+            isActive: false,
+            deactivatedAt: now,
+          },
+        });
       } else {
         await this.prisma.$transaction(async (tx) => {
           await tx.company.update({
@@ -4410,8 +4405,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const previousNormalizedPlanKey = previousPlanKey
       ? normalizeCommercialPlanKey(previousPlanKey)
       : null;
+    // PR10072026 W1: efetivo = masterEnabled && enabled (mesma régua do helper único).
     const previousModuleRows = await this.prisma.companyModule.findMany({
-      where: { companyId, enabled: true },
+      where: { companyId, enabled: true, masterEnabled: true },
       include: { systemModule: { select: { key: true } } },
     });
     const previousModuleKeys = previousModuleRows
@@ -4485,9 +4481,11 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       });
       if (nextIsActive && released) {
         await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
-      } else {
-        await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
       }
+      // PR10072026 W1 (item 6): o else que apagava CompanyModule em massa saiu —
+      // empresa não-liberada já é bloqueada pela policy (suspended/overdue/
+      // pending_checkout → moduleKeys vazio) + canUserAccessModule; post-its
+      // preservados pra reativação.
       await this.syncCompanyEntitlementsForPlanTx(
         tx,
         companyId,
@@ -4966,6 +4964,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
       // Encerrar cortesia = volta a cobrar: a empresa precisa contratar de
       // novo (pending_checkout) e perde o acesso ate regularizar.
+      // PR10072026 W1 (item 6): sem wipe de CompanyModule — pending_checkout já
+      // bloqueia via policy + canUserAccessModule; post-its preservados.
       const next = await tx.company.update({
         where: { id: companyId },
         data: {
@@ -4978,7 +4978,6 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           deactivatedAt: now,
         },
       });
-      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
       return next;
     });
 
@@ -5066,19 +5065,19 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
     let resultingStatus = 'suspended';
     if (suspended) {
-      await this.prisma.$transaction([
-        this.prisma.company.update({
-          where: { id: companyId },
-          data: {
-            status: 'suspended',
-            statusChangedAt: now,
-            statusChangedByUserId: masterUserId,
-            isActive: false,
-            deactivatedAt: now,
-          },
-        }),
-        this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
-      ]);
+      // PR10072026 W1 (item 6): suspensão NÃO apaga mais os post-its — 'suspended'
+      // já bloqueia TODA conta via policy (subscription_inactive, moduleKeys vazio)
+      // + canUserAccessModule (!status.active). Reativar volta com os módulos como estavam.
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: {
+          status: 'suspended',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
+          isActive: false,
+          deactivatedAt: now,
+        },
+      });
     } else if (normalizeCompanyAccountType((company as any).accountType) === 'credit') {
       // MASTER-REFAB S6 (10/07 noite): conta credit não tem mais sub-estado pra decidir
       // reativação por datas (cortesia/assinatura/trial morreram como conceito) — ela é ATIVA

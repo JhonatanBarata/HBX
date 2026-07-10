@@ -39,8 +39,11 @@ import { useTabParam } from "@/lib/use-tab-param";
 // Equipe saiu de Configurações → vive agora em Gerencial → aba Equipe.
 // "Integrações" (ARQ11 S2 item 3) — hoje só Meta Ads (Leads); admin da empresa configura
 // pageId/token/webhook direto na tela em vez de curl na API.
-const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Notificações", "Créditos"];
-const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Notificações": "bell", "Créditos": "money" };
+// "Módulos" (PR10072026 W3): o dono liga/desliga as categorias de módulo da
+// empresa (mesmas do OOBE) — GET /profile/module-categories/options + POST
+// /profile/module-categories. Categoria travada pelo master (locked) não aparece.
+const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Módulos", "Notificações", "Créditos"];
+const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Módulos": "grid", "Notificações": "bell", "Créditos": "money" };
 
 type CurrentUser = {
   name?: string | null;
@@ -81,9 +84,21 @@ function entitlementLabel(key: string) {
   return ENTITLEMENT_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function Toggle({ on, set }: { on: boolean; set: (v: boolean) => void }) {
-  return <button className={"sw" + (on ? " on" : "")} onClick={() => set(!on)} role="switch" aria-checked={on}><i></i></button>;
+function Toggle({ on, set, disabled }: { on: boolean; set: (v: boolean) => void; disabled?: boolean }) {
+  return <button className={"sw" + (on ? " on" : "")} disabled={disabled} onClick={() => set(!on)} role="switch" aria-checked={on}><i></i></button>;
 }
+
+// Categorias de módulo — mesmos labels do OOBE (oobe-gate.tsx); o mapa
+// categoria→módulos é fonte única no backend (modules/module-categories.ts).
+const CATEGORIA_LABEL: Record<string, string> = {
+  radar: "Radar de empresas",
+  vendas: "Vendas e Agenda",
+  whatsapp: "WhatsApp e IA",
+  logistica: "Logística",
+  website: "Website",
+};
+
+type CategoriaOpt = { key: string; enabled: boolean; locked: boolean };
 
 function roleLabel(role?: string | null) {
   return ROLE_LABEL[String(role || "").toUpperCase()] || "Usuário";
@@ -136,6 +151,10 @@ export function ConfiguracoesClient() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [plansMe, setPlansMe] = useState<CommercialPlansMe>(null);
+
+  // Módulos (PR10072026 W3): estado por categoria vindo do backend.
+  const [catOpts, setCatOpts] = useState<CategoriaOpt[] | null>(null);
+  const [catBusy, setCatBusy] = useState(false);
 
   // Equipe saiu desta tela — sem novoAcesso/gerirMembro/excluirMembro aqui.
   // Gestão de membros vive em Gerencial → aba Equipe.
@@ -239,6 +258,44 @@ export function ConfiguracoesClient() {
     });
   }
 
+  // Módulos (PR10072026 W3): mesmo gate de dono do backend (profile.controller
+  // exige ADMIN/USERMASTER com canViewBilling ≠ false) — gerente sem cobrança
+  // não vê a seção (a chamada devolveria 400 "Apenas o dono...").
+  const canSeeModulos = isTenantAdmin(user) && user?.canViewBilling !== false;
+
+  useEffect(() => {
+    if (!canSeeModulos) return;
+    let alive = true;
+    apiFetch<{ categories: CategoriaOpt[] }>("/profile/module-categories/options")
+      .then(res => { if (alive && Array.isArray(res?.categories)) setCatOpts(res.categories); })
+      .catch(() => { /* sem acesso — seção fica sem conteúdo */ });
+    return () => { alive = false; };
+  }, [canSeeModulos]);
+
+  // Toggle de categoria: otimista + rollback (padrão das notification-prefs).
+  // POST manda a lista COMPLETA de categorias ligadas; mínimo 1 ligada (o
+  // switch da última trava via disabled). Após salvar OK, reload — a sidebar
+  // lê /modules/me com cache de 60s no shell (mesmo padrão do OOBE).
+  async function alternarCategoria(key: string, on: boolean) {
+    if (!catOpts || catBusy) return;
+    const prev = catOpts;
+    const next = catOpts.map(c => (c.key === key ? { ...c, enabled: on } : c));
+    const ligadas = next.filter(c => c.enabled && !c.locked).map(c => c.key);
+    if (ligadas.length === 0) return;
+    setCatOpts(next);
+    setCatBusy(true);
+    try {
+      await apiFetch("/profile/module-categories", {
+        method: "POST",
+        body: JSON.stringify({ categories: ligadas }),
+      });
+      window.location.reload();
+    } catch {
+      setCatOpts(prev);
+      setCatBusy(false);
+    }
+  }
+
 
 
   const displayName = user?.name || user?.username || "—";
@@ -266,7 +323,8 @@ export function ConfiguracoesClient() {
   const sections = SECTIONS
     .filter(s => s !== "Créditos" || canSeeBilling)
     .filter(s => s !== "E-mail" || canSeeEmail)
-    .filter(s => s !== "Integrações" || canSeeIntegracoes);
+    .filter(s => s !== "Integrações" || canSeeIntegracoes)
+    .filter(s => s !== "Módulos" || canSeeModulos);
   const current = plansMe?.current;
   const entitlementsAtivos = Object.entries(current?.entitlements || {}).filter(([, on]) => on).map(([k]) => k);
 

@@ -354,9 +354,10 @@ export class VendasService {
   async getBotStatusForUser(user: any) {
     const context = await this.resolveVendasUserContext(user);
     const [botModule, company] = await Promise.all([
+      // PR10072026 W1: efetivo = masterEnabled && enabled (teto do master conta).
       this.prisma.companyModule?.findFirst
         ? this.prisma.companyModule.findFirst({
-            where: { companyId: context.companyId, enabled: true, systemModule: { key: 'bot' } },
+            where: { companyId: context.companyId, enabled: true, masterEnabled: true, systemModule: { key: 'bot' } },
             select: { id: true },
           }).catch(() => null)
         : Promise.resolve(null),

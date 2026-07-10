@@ -1430,6 +1430,281 @@ export class LogisticaService {
       limiteFiado: updated.limiteFiado ?? null,
     };
   }
+
+  // ══ PR10072026 W2 — Financeiro do cliente (fase 1) ══════════════════════════
+
+  // ── W2 (contrato nº4) — HISTÓRICO de entregas de UM cliente ─────────────────
+  /**
+   * Extrato de ENTREGAS (não de charges — isso é o extratoCliente) de um cliente:
+   * data/hora, itens (nome/qtd/valor unit), valor, desfecho do WhatsApp e da
+   * cobrança. Read-only, company-scoped (cliente TEM de ser desta empresa — fora
+   * dela devolve null → 404 no controller, sem vazar existência).
+   *
+   * Paginação por CURSOR (id da última linha da página; `limit` default 30, máx
+   * 100). Keyset no banco por [scheduledAt desc, id desc] — usa o índice
+   * [companyId, customerProfileId, scheduledAt] existente. A APRESENTAÇÃO da
+   * página segue o contrato (desc por deliveredAt ?? scheduledAt): como a entrega
+   * é confirmada no dia da rota, as duas ordens são a mesma na prática — a
+   * reordenação é só um ajuste fino dentro da página.
+   *
+   * Entrega LEGADA (single-produto do N6, sem EntregaItem): monta 1 item
+   * SINTÉTICO de productId/quantidade/valor (mesmo fallback do listRota).
+   * Soft-delete: o padrão do módulo marca status='cancelada' (não some do banco)
+   * e listRota/extratoCliente NÃO filtram — aqui segue igual (o status aparece).
+   */
+  async historicoEntregasCliente(
+    companyId: number,
+    clienteId: string,
+    opts: { limit?: number; cursor?: string } = {},
+  ): Promise<HistoricoEntregasResult | null> {
+    if (!companyId || !clienteId) return null;
+    const cliente = await this.prisma.customerProfile.findFirst({
+      where: { id: String(clienteId).trim(), companyId },
+      select: { id: true, name: true },
+    });
+    if (!cliente) return null;
+
+    const take = clampLimit(opts.limit, 30, 100);
+    const cursor = String(opts.cursor || '').trim() || null;
+
+    const rows = await this.prisma.entrega.findMany({
+      where: { companyId, customerProfileId: cliente.id },
+      orderBy: [{ scheduledAt: 'desc' }, { id: 'desc' }],
+      take,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        status: true,
+        quantidade: true,
+        valor: true,
+        scheduledAt: true,
+        deliveredAt: true,
+        receiptMethod: true,
+        cobrancaStatus: true,
+        whatsappStatus: true,
+        whatsappMotivo: true,
+        createdAt: true,
+        product: { select: { name: true } },
+        itens: {
+          select: {
+            qtdPrevista: true,
+            qtdEntregue: true,
+            valorUnit: true,
+            product: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    // nextCursor SEMPRE pela ordem do banco (keyset) — a reordenação de exibição
+    // abaixo não muda a âncora da próxima página.
+    const nextCursor = rows.length === take ? rows[rows.length - 1].id : null;
+
+    // Contrato: desc por deliveredAt ?? scheduledAt (fallback createdAt p/ linha
+    // legada sem data nenhuma — chave total, nada fica "flutuando").
+    const sortKey = (r: (typeof rows)[number]) =>
+      (r.deliveredAt ?? r.scheduledAt ?? r.createdAt)?.getTime() ?? 0;
+    const ordered = [...rows].sort((a, b) => sortKey(b) - sortKey(a));
+
+    return {
+      clienteId: cliente.id,
+      nome: String(cliente.name || '').trim() || null,
+      items: ordered.map((r) => ({
+        id: r.id,
+        scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
+        deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
+        status: r.status,
+        valor: r.valor,
+        receiptMethod: r.receiptMethod ?? null,
+        cobrancaStatus: r.cobrancaStatus,
+        whatsappStatus: r.whatsappStatus ?? null,
+        whatsappMotivo: r.whatsappMotivo ?? null,
+        itens:
+          r.itens.length > 0
+            ? r.itens.map((it) => ({
+                produtoNome: it.product?.name ?? null,
+                qtd: it.qtdEntregue ?? it.qtdPrevista,
+                valorUnit: it.valorUnit ?? 0,
+              }))
+            : r.product
+              ? [
+                  {
+                    // Item SINTÉTICO da entrega legada (single-produto, sem EntregaItem):
+                    // valorUnit derivado do valor/quantidade da própria entrega.
+                    produtoNome: r.product.name,
+                    qtd: r.quantidade,
+                    valorUnit: r.quantidade > 0 ? round2((Number(r.valor) || 0) / r.quantidade) : round2(Number(r.valor) || 0),
+                  },
+                ]
+              : [],
+      })),
+      nextCursor,
+    };
+  }
+
+  // ── W2 (contrato nº5) — BAIXA MANUAL do fiado (quitar charge) ────────────────
+  /**
+   * Marca um FinanceiroCharge 'pending' da LOGÍSTICA como pago (baixa manual do
+   * fiado): status='approved', lifecycle='paid', paidAt=now — EXATAMENTE o shape
+   * do "pago na hora" do lancarCobranca (M6). paymentMethod não muda (MANUAL);
+   * NADA dispara MercadoPago.
+   *
+   * Escopo DURO: só charge da MESMA empresa E sourceModule iniciando com
+   * 'logistica' — qualquer outra origem/empresa devolve null (controller → 404,
+   * sem vazar existência; a assinatura HBX é INTOCÁVEL por aqui).
+   *
+   * IDEMPOTENTE: já paga → devolve o estado atual (200), sem tocar nada. A
+   * transição pending→paga é um claim ATÔMICO (updateMany com o status no WHERE,
+   * mesmo padrão do teto do reenviarAviso) — 2 cliques simultâneos = 1 baixa.
+   * Charge não-quitável (cancelled/failed/…) → devolve o estado atual sem mutar.
+   *
+   * Auditoria: FinanceiroCharge não tem campo de notes/auditoria no schema →
+   * log ESTRUTURADO com ator/valor (padrão do módulo p/ trilha sem coluna).
+   */
+  async quitarCharge(
+    companyId: number,
+    chargeId: string,
+    opts: { userId?: number | null } = {},
+  ): Promise<QuitarChargeResult | null> {
+    if (!companyId || !chargeId) return null;
+    const charge = await this.prisma.financeiroCharge.findFirst({
+      where: { id: String(chargeId).trim(), companyId, sourceModule: { startsWith: 'logistica' } },
+      select: { id: true, status: true, lifecycle: true, amount: true, paidAt: true },
+    });
+    if (!charge) return null;
+
+    // Idempotente: já paga (por aqui, pelo pago-na-hora do M6 ou por corrida) →
+    // devolve o estado atual, sem re-quitar nem mexer no paidAt original.
+    if (charge.paidAt || charge.status === 'approved' || charge.lifecycle === 'paid') {
+      return {
+        id: charge.id,
+        status: charge.status,
+        paidAt: charge.paidAt ? charge.paidAt.toISOString() : null,
+        alreadyPaid: true,
+      };
+    }
+
+    // Não-quitável (cancelled/failed/refunded/…): devolve o estado atual SEM mutar
+    // (a baixa manual só existe pra 'pending'; nada destrutivo aqui).
+    if (String(charge.status).trim().toLowerCase() !== 'pending') {
+      return { id: charge.id, status: charge.status, paidAt: null, alreadyPaid: false };
+    }
+
+    // Claim atômico pending→paga (guarda no WHERE): 2 baixas simultâneas = 1 update.
+    const now = new Date();
+    const claim = await this.prisma.financeiroCharge.updateMany({
+      where: { id: charge.id, companyId, status: 'pending' },
+      data: { status: 'approved', lifecycle: 'paid', paidAt: now },
+    });
+    if (!claim.count) {
+      // Corrida perdida: outra chamada resolveu o charge primeiro → relê e devolve.
+      const atual = await this.prisma.financeiroCharge.findFirst({
+        where: { id: charge.id, companyId },
+        select: { id: true, status: true, paidAt: true },
+      });
+      if (!atual) return null;
+      return {
+        id: atual.id,
+        status: atual.status,
+        paidAt: atual.paidAt ? atual.paidAt.toISOString() : null,
+        alreadyPaid: Boolean(atual.paidAt) || atual.status === 'approved',
+      };
+    }
+
+    // Trilha de auditoria estruturada (sem coluna própria no schema — ver docstring).
+    this.logger.log(
+      `[logistica] baixa manual de fiado: charge=${charge.id} company=${companyId} amount=${charge.amount} user=${opts.userId ?? 'n/d'} paidAt=${now.toISOString()}`,
+    );
+
+    return { id: charge.id, status: 'approved', paidAt: now.toISOString(), alreadyPaid: false };
+  }
+
+  // ── W2 (contrato nº6) — SALDOS em aberto por cliente (visão da empresa) ──────
+  /**
+   * "Quem me deve": todos os clientes da empresa com saldo em aberto — charges
+   * 'pending' da logística + entregas 'entregue' aguardando o fechamento mensal.
+   * REUSA a fonte única saldoAbertoPorClientes (a mesma da rota e do extrato — as
+   * três visões nunca divergem). Read-only, company-scoped.
+   *
+   * GATE moduloFinanceiroAtivo FAIL-CLOSED: com o módulo financeiro do tenant OFF,
+   * dinheiro não aparece em lugar NENHUM da logística (regra do M4, a mesma que
+   * esconde saldo/pix no listRota) → devolve lista vazia sem nem consultar valores.
+   *
+   * Semântica dos campos (idêntica ao extratoCliente): saldoAberto = pendente +
+   * aguardando (o TOTAL devido); aguardandoFechamento = só a parcela mensal ainda
+   * não faturada. Ordenado por saldoAberto desc (quem deve mais primeiro).
+   */
+  async saldosFinanceiro(companyId: number): Promise<SaldosFinanceiroResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+
+    // Mesma leitura best-effort do listRota: config ausente = default seguro (false).
+    let moduloFinanceiroAtivo = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] saldos loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+    if (!moduloFinanceiroAtivo) return { moduloFinanceiroAtivo: false, clientes: [] };
+
+    // Candidatos: quem TEM charge pending da logística OU entrega aguardando o
+    // fechamento — evita varrer a carteira inteira de clientes da empresa.
+    const [pendentes, aguardando] = await Promise.all([
+      this.prisma.financeiroCharge.findMany({
+        where: {
+          companyId,
+          status: 'pending',
+          sourceModule: { in: ['logistica_entrega', 'logistica_fechamento'] },
+          customerProfileId: { not: null },
+        },
+        select: { customerProfileId: true },
+        distinct: ['customerProfileId'],
+      }),
+      this.prisma.entrega.findMany({
+        where: { companyId, status: 'entregue', cobrancaStatus: 'aguardando_fechamento' },
+        select: { customerProfileId: true },
+        distinct: ['customerProfileId'],
+      }),
+    ]);
+    const ids = Array.from(
+      new Set([
+        ...pendentes.map((p) => p.customerProfileId).filter((id): id is string => Boolean(id)),
+        ...aguardando.map((a) => a.customerProfileId),
+      ]),
+    );
+    if (ids.length === 0) return { moduloFinanceiroAtivo: true, clientes: [] };
+
+    // Fonte única do valor (a MESMA da rota/extrato) + só quem tem valor > 0.
+    const saldos = await this.saldoAbertoPorClientes(companyId, ids);
+    const comSaldo = ids.filter((id) => {
+      const s = saldos.get(id);
+      return (s?.pendente ?? 0) > 0 || (s?.aguardando ?? 0) > 0;
+    });
+    if (comSaldo.length === 0) return { moduloFinanceiroAtivo: true, clientes: [] };
+
+    const nomes = await this.prisma.customerProfile.findMany({
+      where: { companyId, id: { in: comSaldo } },
+      select: { id: true, name: true },
+    });
+    const nomePorId = new Map(nomes.map((n) => [n.id, n.name]));
+
+    const clientes = comSaldo
+      .map((id) => {
+        const s = saldos.get(id);
+        return {
+          customerProfileId: id,
+          nome: String(nomePorId.get(id) || '').trim() || null,
+          saldoAberto: somaSaldo(s),
+          aguardandoFechamento: round2(s?.aguardando ?? 0),
+        };
+      })
+      .sort((a, b) => b.saldoAberto - a.saldoAberto);
+
+    return { moduloFinanceiroAtivo: true, clientes };
+  }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -1484,6 +1759,13 @@ function clampDiaFechamento(v: number): number {
 // R2 — dinheiro é sempre 2 casas (evita 19.999999 virar cobrança).
 function round2(v: number): number {
   return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+// W2 — limite de página do histórico: default quando ausente/inválido, teto duro.
+function clampLimit(v: number | undefined, def: number, max: number): number {
+  const n = Math.trunc(Number(v));
+  if (!Number.isFinite(n) || n < 1) return def;
+  return Math.min(max, n);
 }
 
 // F1 — total do saldo em aberto (pendente + mensal a fechar), arredondado.
@@ -1770,4 +2052,57 @@ export interface FinanceiroClienteDTO {
   contabilizar: boolean;
   diaFechamento: number | null;
   limiteFiado: number | null;
+}
+
+// ── PR10072026 W2 — Financeiro do cliente (fase 1) ────────────────────────────
+
+// W2 (contrato nº4) — histórico de entregas do cliente (extrato de ENTREGAS).
+export interface HistoricoEntregaItemLinha {
+  produtoNome: string | null;
+  qtd: number;
+  valorUnit: number;
+}
+
+export interface HistoricoEntregaItem {
+  id: string;
+  scheduledAt: string | null;
+  deliveredAt: string | null;
+  status: string;
+  valor: number;
+  receiptMethod: string | null;
+  cobrancaStatus: string;
+  whatsappStatus: string | null;
+  whatsappMotivo: string | null;
+  itens: HistoricoEntregaItemLinha[];
+}
+
+export interface HistoricoEntregasResult {
+  clienteId: string;
+  nome: string | null;
+  items: HistoricoEntregaItem[];
+  // id da última linha da página (ordem do banco) — null quando acabou.
+  nextCursor: string | null;
+}
+
+// W2 (contrato nº5) — baixa manual do fiado. alreadyPaid é ADITIVO ao contrato
+// ({id, status, paidAt}): true quando a charge JÁ estava paga (resposta idempotente).
+export interface QuitarChargeResult {
+  id: string;
+  status: string;
+  paidAt: string | null;
+  alreadyPaid: boolean;
+}
+
+// W2 (contrato nº6) — saldos em aberto por cliente (visão da empresa).
+export interface SaldosClienteRow {
+  customerProfileId: string;
+  nome: string | null;
+  // TOTAL devido (pendente + mensal a fechar) — mesma semântica do extratoCliente.
+  saldoAberto: number;
+  aguardandoFechamento: number;
+}
+
+export interface SaldosFinanceiroResult {
+  moduloFinanceiroAtivo: boolean;
+  clientes: SaldosClienteRow[];
 }

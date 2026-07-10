@@ -2604,11 +2604,13 @@ export class InboxService {
         trialModuleSelection: true,
       },
     });
+    // PR10072026 W1: efetivo = masterEnabled && enabled (teto do master conta).
     const recoveryModule = this.prisma.companyModule?.findFirst
       ? await this.prisma.companyModule.findFirst({
           where: {
             companyId,
             enabled: true,
+            masterEnabled: true,
             systemModule: { key: 'hbx_recovery' },
           },
           select: { id: true },

@@ -3494,7 +3494,11 @@ model CompanyModule {
   companyId      Int
   systemModule   SystemModule @relation(fields: [moduleId], references: [id])
   moduleId       Int
+  // PR10072026 W1 — 2 camadas: `masterEnabled` = TETO (só o /master escreve);
+  // `enabled` = camada da EMPRESA (OOBE/admin escrevem). Efetivo do override =
+  // masterEnabled && enabled; ausência de linha continua = SystemModule.defaultEnabled.
   enabled        Boolean      @default(true)
+  masterEnabled  Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 

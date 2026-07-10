@@ -2804,8 +2804,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     }
 
     const pricing = await this.buildPricing(company, masterConfig, ledgerRows);
+    // PR10072026 W1: efetivo = masterEnabled && enabled (teto do master conta).
     const activeModules = (company.companyModules || [])
-      .filter((row: any) => row?.enabled && row?.systemModule?.companyAssignable)
+      .filter((row: any) => row?.enabled && (row as any)?.masterEnabled !== false && row?.systemModule?.companyAssignable)
       .map((row: any) => ({
         key: row.systemModule.key,
         name: row.systemModule.name,

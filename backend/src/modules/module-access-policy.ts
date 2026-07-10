@@ -9,6 +9,35 @@ import { resolveCompanyAccessState } from './company-access-state';
 export const PRIMARY_COMMERCIAL_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'] as const;
 export const ROUTE_GUARDED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping', 'website'] as const;
 
+// PR10072026 W1 — módulos de decisão POR EMPRESA: para estas chaves o gate
+// (canUserAccessModule) checa SÓ a camada empresa (teto do master × enabled da
+// empresa) e PULA o molho de cargo/per-usuário — o entregador USER não pode
+// quebrar o acesso à logística por não estar no molho de vendedor.
+export const COMPANY_LEVEL_MODULE_KEYS = ['logistica'] as const;
+
+export function isCompanyLevelModuleKey(moduleKey: string): boolean {
+  const key = String(moduleKey || '').trim().toLowerCase();
+  return (COMPANY_LEVEL_MODULE_KEYS as readonly string[]).includes(key);
+}
+
+// PR10072026 W1 — HELPER ÚNICO do efetivo de um post-it (linha de CompanyModule):
+// `masterEnabled` = TETO (só o /master escreve) && `enabled` = camada da EMPRESA
+// (OOBE/admin). Linha ausente NÃO passa por aqui (segue SystemModule.defaultEnabled
+// no chamador). masterEnabled null/undefined (linha pré-migração em memória) conta
+// como true — mesmo backfill da migration.
+export type CompanyModuleEffectiveRow = {
+  enabled?: boolean | null;
+  masterEnabled?: boolean | null;
+};
+
+export function effectiveCompanyModuleEnabled(row: CompanyModuleEffectiveRow | null | undefined): boolean {
+  if (!row) return false;
+  const masterEnabled = row.masterEnabled === null || row.masterEnabled === undefined
+    ? true
+    : Boolean(row.masterEnabled);
+  return masterEnabled && Boolean(row.enabled);
+}
+
 export type ModuleAccessCompanySnapshot = {
   companyKind?: string | null;
   slug?: string | null;
@@ -27,11 +56,15 @@ export type ModuleAccessCompanySnapshot = {
 // default OFF): 1 entrada por SystemModule assignable a empresa. `enabled=null`
 // = sem post-it da empresa (CompanyModule) -> segue `defaultEnabled` do master;
 // `enabled=true/false` = override explicito da empresa (post-it), sempre manda.
+// PR10072026 W1: `masterEnabled` = TETO do master na linha (false mata o módulo
+// independente do override da empresa/default); null/undefined = sem linha ou
+// pré-migração → conta como true.
 export type KillSwitchModuleEntry = {
   key: string;
   companyAssignable: boolean;
   defaultEnabled: boolean;
   enabled: boolean | null;
+  masterEnabled?: boolean | null;
 };
 
 export type KillSwitchModuleSnapshot = {
@@ -41,12 +74,15 @@ export type KillSwitchModuleSnapshot = {
 // R2: helper PURO (sem banco) que aplica o kill-switch do master sobre um
 // snapshot ja carregado pelo chamador (modules.service.ts monta o snapshot
 // lendo SystemModule/CompanyModule e injeta aqui). Regra: modulo comercial
-// disponivel = companyAssignable && (override===true || (override===null &&
-// defaultEnabled)). Nao deriva mais de COMMERCIAL_PLAN_MODULE_KEYS.
+// disponivel = companyAssignable && masterEnabled!==false && (override===true
+// || (override===null && defaultEnabled)). Nao deriva mais de
+// COMMERCIAL_PLAN_MODULE_KEYS.
 export function resolveKillSwitchModuleKeys(snapshot: KillSwitchModuleSnapshot | null | undefined): Set<string> {
   const result = new Set<string>();
   for (const moduleItem of snapshot?.modules || []) {
     if (!moduleItem?.companyAssignable) continue;
+    // PR10072026 W1: teto do master OFF → módulo indisponível, ponto final.
+    if (moduleItem.masterEnabled === false) continue;
     const key = String(moduleItem.key || '').trim().toLowerCase();
     if (!key) continue;
     const enabled = moduleItem.enabled === null || moduleItem.enabled === undefined

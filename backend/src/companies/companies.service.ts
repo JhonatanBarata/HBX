@@ -731,8 +731,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
   private async listEnabledModuleKeys(companyId: number) {
     await ensureMasterBillingRuntimeSchema(this.prisma);
+    // PR10072026 W1: efetivo = masterEnabled && enabled (mesma régua do helper único).
     const rows = await this.prisma.companyModule.findMany({
-      where: { companyId, enabled: true, systemModule: { companyAssignable: true } },
+      where: { companyId, enabled: true, masterEnabled: true, systemModule: { companyAssignable: true } },
       include: { systemModule: true },
     });
     return new Set(
