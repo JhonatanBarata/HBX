@@ -70,6 +70,9 @@ function withEnv(values: Record<string, string>, fn: () => Promise<void> | void)
   }
 }
 
+// DNS fake do guard anti-SSRF: hosts de teste não resolvem no mundo real.
+const publicSsrfLookup = async () => [{ address: '203.0.113.10', family: 4 }];
+
 function createExecutorHost(overrides: Record<string, any> = {}) {
   const orchestrator = new RadarSearchOrchestratorService(
     new RadarSearchStrategyService(),
@@ -1105,6 +1108,7 @@ test('website_crawl_light falha e nao bloqueia delivery', async () => withEnv({
           ...input,
           options: {
             paths: ['/'],
+            ssrfLookup: publicSsrfLookup,
             fetcher: async () => {
               throw new Error('fetch indisponivel');
             },
@@ -1134,6 +1138,7 @@ test('website crawl provider extrai email de HTML', async () => {
   const provider = new WebsiteCrawlProviderService();
   const result = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
+    ssrfLookup: publicSsrfLookup,
     fetcher: async () => ({
       ok: true,
       status: 200,
@@ -1150,6 +1155,7 @@ test('website crawl provider extrai telefone e WhatsApp de HTML', async () => {
   const provider = new WebsiteCrawlProviderService();
   const result = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
+    ssrfLookup: publicSsrfLookup,
     fetcher: async () => ({
       ok: true,
       status: 200,
@@ -1166,6 +1172,7 @@ test('website crawl provider extrai Instagram e Facebook de links', async () => 
   const provider = new WebsiteCrawlProviderService();
   const result = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
+    ssrfLookup: publicSsrfLookup,
     fetcher: async () => ({
       ok: true,
       status: 200,
@@ -1182,6 +1189,7 @@ test('website crawl provider detecta formulario orcamento chat e sinais de oport
   const provider = new WebsiteCrawlProviderService();
   const result = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
+    ssrfLookup: publicSsrfLookup,
     fetcher: async () => ({
       ok: true,
       status: 200,
@@ -1210,6 +1218,7 @@ test('website crawl provider detecta site sem WhatsApp claro e sem formulario', 
   const provider = new WebsiteCrawlProviderService();
   const result = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
+    ssrfLookup: publicSsrfLookup,
     fetcher: async () => ({
       ok: true,
       status: 200,
@@ -1230,6 +1239,7 @@ test('website crawl provider respeita timeout e limite de HTML', async () => {
   const limited = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
     maxHtmlBytes: 20,
+    ssrfLookup: publicSsrfLookup,
     fetcher: async () => ({
       ok: true,
       status: 200,
@@ -1240,6 +1250,7 @@ test('website crawl provider respeita timeout e limite de HTML', async () => {
   const timedOut = await provider.crawl('https://barbeariax.com.br', {
     paths: ['/'],
     timeoutMs: 5,
+    ssrfLookup: publicSsrfLookup,
     fetcher: async (_url, init) => new Promise((resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
       setTimeout(() => resolve({
@@ -1264,6 +1275,7 @@ test('website crawl source retorna partial_error em erro de fetch', async () => 
     currentResults: [{ placeId: 'lead:1', name: 'Barbearia X', phone: '', phoneDigits: '', website: 'https://barbeariax.com.br' } as any],
     options: {
       paths: ['/'],
+      ssrfLookup: publicSsrfLookup,
       fetcher: async () => {
         throw new Error('timeout');
       },
