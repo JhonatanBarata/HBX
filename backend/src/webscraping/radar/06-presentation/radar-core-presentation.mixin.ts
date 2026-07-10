@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   NotFoundException,
   ServiceUnavailableException,
   randomUUID,
@@ -105,6 +106,7 @@ import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-w
 import { confirmedSegments } from '../../../users/segment-affinity.util';
 import { buildCnpjBaseQueryInputFromRadarFilters } from '../providers/cnpj-public/radar-base-availability.util';
 import type { CnpjBaseQueryInput } from '../providers/cnpj-public/cnpj-base-query.service';
+import { RadarSearchRateLimiterService } from '../search-rate-limit.service';
 
 import type {
   AutonomousMassDataCandidate,
@@ -3040,11 +3042,33 @@ export class RadarCorePresentationMixin {
    * único CONTRATO, dois pontos de entrada (ver docs/PLANEJAMENTOS/VENDAS-REFAB/CONTRATO-FILTRO.md).
    */
   async queryCnpjBaseForUser(user: any, input: CnpjBaseQueryInput) {
-    this.resolveContext(user);
+    const context = this.resolveContext(user);
+    // GUARDRAILS S3 — throttle da busca grátis (anti-scraper varrendo a base 28M em loop).
+    this.assertRadarSearchRateAllowed(user, context.companyId);
     if (!this.cnpjBaseQuery) {
       throw new ServiceUnavailableException('Base Receita (CnpjPublicCompany) indisponivel neste processo.');
     }
     return this.cnpjBaseQuery.query(input || {});
+  }
+
+  /**
+   * GUARDRAILS S3 — janela deslizante por empresa (RadarSearchRateLimiterService). Master
+   * (isSystemMaster) e a empresa-container platform_infra NUNCA são throttled. Fail-open: erro
+   * interno no throttle nunca bloqueia a busca (só o 429 legítimo do próprio guardrail sobe).
+   */
+  private assertRadarSearchRateAllowed(user: any, companyId: number) {
+    try {
+      if (Boolean(user?.isSystemMaster)) return;
+      const companyKind = String(user?.company?.companyKind || '').trim().toLowerCase();
+      if (companyKind === 'platform_infra') return;
+      const result = RadarSearchRateLimiterService.checkAndConsume(companyId);
+      if (!result.allowed) {
+        throw new HttpException('Muitas buscas em sequência. Aguarde um instante.', 429);
+      }
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      console.warn(`radar_search_rate_limit_guardrail_failed company=${companyId} error=${String(error?.message || error)}`);
+    }
   }
 
   async getRadarLeadForUser(user: any, radarLeadId: string) {

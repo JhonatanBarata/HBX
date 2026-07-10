@@ -69,6 +69,9 @@ export class RadarVendasSyncService {
       // em lote (senão o loop tenta cada card da fila e falha um a um, sem sentido).
       || code.includes('credit_balance_exhausted')
       || code.includes('company_access_paused')
+      // GUARDRAILS S3 — teto diário de entregas por empresa (anti-scraper) também PARA a
+      // distribuição automática quando bate (mesma lógica: sem sentido martelar card a card).
+      || code.includes('daily_delivery_cap_reached')
       || message.includes('saldo de créditos')
       || message.includes('saldo de creditos')
       || message.includes('limite diario')

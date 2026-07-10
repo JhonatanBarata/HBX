@@ -3502,6 +3502,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         // PF3: Central de Implantação do Full (registro do master).
         setupValue: (company as any).setupValue ?? null,
         monthlyValueOverride: (company as any).monthlyValueOverride ?? null,
+        // GUARDRAILS S3 — override do teto diário de entregas (anti-scraper); null = herda o
+        // default global (ver GET /credits/master/config).
+        dailyDeliveryCapOverride: (company as any).dailyDeliveryCapOverride ?? null,
         operationalStatus,
         users: company.users.map((user) => ({
           id: user.id,
@@ -5178,6 +5181,46 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     });
 
     return { ok: true, companyId, commercialCardQuota: currentState };
+  }
+
+  /**
+   * GUARDRAILS S3 (10/07) — override POR EMPRESA do teto diário de entregas de lead (anti-
+   * scraper). null/omitido = limpa o override (volta a herdar o default global); 0 = SEM teto
+   * SÓ para esta empresa; N>0 = teto próprio. Mesmo padrão de updateCompanyFinanceSettingsByMaster
+   * (ORM direto — coluna nova aditiva, sem o cuidado extra de $executeRawUnsafe que as colunas
+   * legadas de quota usam).
+   */
+  async updateCompanyDailyDeliveryCapByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { dailyDeliveryCapOverride?: number | null },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const raw = dto?.dailyDeliveryCapOverride;
+    const dailyDeliveryCapOverride = raw === null || raw === undefined
+      ? null
+      : Math.trunc(Number(raw) || 0);
+
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: { dailyDeliveryCapOverride } as any,
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_quota',
+      action: 'COMPANY_DAILY_DELIVERY_CAP_UPDATED',
+      metadata: {
+        previousState: { dailyDeliveryCapOverride: (company as any).dailyDeliveryCapOverride ?? null },
+        currentState: { dailyDeliveryCapOverride: (updated as any).dailyDeliveryCapOverride ?? null },
+      },
+    });
+
+    return { ok: true, companyId, dailyDeliveryCapOverride: (updated as any).dailyDeliveryCapOverride ?? null };
   }
 
   private normalizeVendasComplaintStatus(value: unknown) {

@@ -304,6 +304,38 @@ export class CreditsService {
     };
   }
 
+  // ── GUARDRAILS S3 (10/07) — teto diário GLOBAL default de entregas por empresa (anti-
+  // scraper). Coluna nova aditiva (CreditGlobalConfig.dailyDeliveryCapDefault); ao contrário
+  // dos 3 campos acima, lida DIRETO do banco (sem overlay em memória — quem de fato ENFORCE o
+  // teto, commercial-usage-limits.service.ts, lê por SQL cru direto e não depende deste
+  // getter; este método só serve o prefill/edição do master). Fail-open: erro de leitura (ex.:
+  // ambiente sem a coluna ainda) devolve o fallback 500, nunca lança. ────────────────────────
+  async getDailyDeliveryCapDefaultAsMaster(): Promise<number> {
+    this.assertFeatureEnabled();
+    try {
+      const cfg = await (this.prisma as any).creditGlobalConfig.findUnique({ where: { key: 'default' } });
+      const value = cfg?.dailyDeliveryCapDefault;
+      return value != null && Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 500;
+    } catch {
+      return 500;
+    }
+  }
+
+  /** 0 = sem teto global (empresas sem override próprio ficam sem teto). */
+  async updateDailyDeliveryCapDefaultAsMaster(value: number): Promise<{ dailyDeliveryCapDefault: number }> {
+    this.assertFeatureEnabled();
+    const n = Math.trunc(Number(value));
+    if (!Number.isFinite(n) || n < 0) {
+      throw new BadRequestException('dailyDeliveryCapDefault deve ser um numero >= 0 (0 = sem teto)');
+    }
+    await (this.prisma as any).creditGlobalConfig.upsert({
+      where: { key: 'default' },
+      update: { dailyDeliveryCapDefault: n },
+      create: { key: 'default', dailyDeliveryCapDefault: n },
+    });
+    return { dailyDeliveryCapDefault: n };
+  }
+
   // ── /credits/me — leitura role-gated ─────────────────────────────────────────
   /**
    * Audiência de COBRANÇA (master OU dono do tenant): saldo completo + lotes + pacotes

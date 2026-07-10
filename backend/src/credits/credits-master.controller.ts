@@ -42,10 +42,13 @@ export class CreditsMasterController {
 
   // MASTER-REFAB S2 — leitura da config global (guia "Bônus de cadastro"): o PUT já existia
   // (config/expiry-default, config/welcome-batch); faltava o GET pra prefill do form.
+  // GUARDRAILS S3 — dailyDeliveryCapDefault entra junto (prefill da guia "Config").
   @Get('config')
   async getGlobalConfig() {
     this.assertEnabled();
-    return this.creditsService.getGlobalConfigForMaster();
+    const base = this.creditsService.getGlobalConfigForMaster();
+    const dailyDeliveryCapDefault = await this.creditsService.getDailyDeliveryCapDefaultAsMaster();
+    return { ...base, dailyDeliveryCapDefault };
   }
 
   // MASTER-REFAB S1 — bloco Carteira na ficha da empresa (saldo/lotes/extrato). Só leitura;
@@ -74,6 +77,13 @@ export class CreditsMasterController {
   async updateWelcomeBatch(@Body() body: { welcomeCredits?: number; welcomeExpiryDays?: number }) {
     this.assertEnabled();
     return this.creditsService.updateWelcomeBatchConfigAsMaster(body || {});
+  }
+
+  // GUARDRAILS S3 (10/07) — teto diário GLOBAL default de entregas por empresa (anti-scraper).
+  @Put('config/delivery-cap')
+  async updateDeliveryCapDefault(@Body() body: { dailyDeliveryCapDefault?: number }) {
+    this.assertEnabled();
+    return this.creditsService.updateDailyDeliveryCapDefaultAsMaster(Number(body?.dailyDeliveryCapDefault));
   }
 
   // Concessão manual de crédito a uma empresa ("master libera créditos ao admin"). Idempotente

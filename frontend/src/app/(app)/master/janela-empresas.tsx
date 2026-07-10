@@ -13,6 +13,7 @@
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
 //   PUT  /modules/master/company/:id/suspension          → {suspended, reason}
 //   PUT  /modules/master/company/:id/card-quota          → {seatCap} (assentos; cards/mês·dia morreram da UI)
+//   PUT  /modules/master/company/:id/delivery-cap        → {dailyDeliveryCapOverride} (GUARDRAILS S3, anti-scraper)
 //   PUT  /modules/master/company/:id/finance-settings    → {setupValue, monthlyValueOverride} (Implantação)
 //   PUT  /modules/master/company/:id/global-token-usage  → toggles credencial master
 //   PUT  /modules/master/company/:id/bot-activation      → {armed, channel, reason}
@@ -96,6 +97,7 @@ type Detail = {
     commercialCardsMonthlyLimitOverride?: number | null;
     commercialCardsDailyLimitOverride?: number | null;
     seatCap?: number | null;
+    dailyDeliveryCapOverride?: number | null;
     setupValue?: number | null;
     monthlyValueOverride?: number | null;
     users?: DetailUser[];
@@ -267,6 +269,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   // que esta tela não edita mais). A UI mostra só "Assentos".
   const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "", seatCap: "" });
   const [finForm, setFinForm] = useState({ setupValue: "", parcela: "" });
+  // GUARDRAILS S3 (10/07) — teto diário de leads por empresa (anti-scraper), PUT dedicado
+  // (não é assento nem cota de plano). "" = herda o default global.
+  const [dailyCapForm, setDailyCapForm] = useState("");
 
   // carteira (MASTER-REFAB S1)
   const [wallet, setWallet] = useState<WalletOverview>(null);
@@ -353,6 +358,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
           daily: c?.commercialCardsDailyLimitOverride != null ? String(c.commercialCardsDailyLimitOverride) : "",
           seatCap: c?.seatCap != null ? String(c.seatCap) : "",
         });
+        setDailyCapForm(c?.dailyDeliveryCapOverride != null ? String(c.dailyDeliveryCapOverride) : "");
         setFinForm({
           setupValue: c?.setupValue != null ? String(c.setupValue) : "",
           parcela: c?.monthlyValueOverride != null ? String(c.monthlyValueOverride) : "",
@@ -568,6 +574,26 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       await recarregarTudo();
     } catch (err) {
       setComMsg(err instanceof Error ? err.message : "Falha ao salvar o teto de acessos.");
+    } finally {
+      setComBusy(null);
+    }
+  }
+
+  // GUARDRAILS S3 (10/07) — teto diário de leads (anti-scraper). "" = limpa o override (herda o
+  // default global); "0" = sem teto SÓ nesta empresa; N>0 = teto próprio.
+  async function salvarDailyCap() {
+    if (comBusy || selId == null) return;
+    setComBusy("dailyCap");
+    setComMsg(null);
+    try {
+      const body: Record<string, number | null> = {
+        dailyDeliveryCapOverride: dailyCapForm.trim() === "" ? null : Math.max(0, Number(dailyCapForm) || 0),
+      };
+      await apiFetch(`/modules/master/company/${selId}/delivery-cap`, { method: "PUT", body: JSON.stringify(body) });
+      setComMsg("✓ Teto diário de leads atualizado.");
+      await recarregarTudo();
+    } catch (err) {
+      setComMsg(err instanceof Error ? err.message : "Falha ao salvar o teto diário de leads.");
     } finally {
       setComBusy(null);
     }
@@ -1289,6 +1315,18 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </div>
                         <button className="btn-ghost" disabled={comBusy != null} onClick={salvarQuota}>
                           {comBusy === "quota" ? "Salvando…" : "Salvar assentos"}
+                        </button>
+                      </div>
+                      {/* GUARDRAILS S3 (10/07) — teto diário de leads (anti-scraper); mesmo bloco de
+                          limites, PUT dedicado (não é assento). */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <label className="field-label">Teto diário de leads</label>
+                          <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="padrão global (500)"
+                            value={dailyCapForm} onChange={e => setDailyCapForm(e.target.value)} />
+                        </div>
+                        <button className="btn-ghost" disabled={comBusy != null} onClick={salvarDailyCap}>
+                          {comBusy === "dailyCap" ? "Salvando…" : "Salvar teto diário"}
                         </button>
                       </div>
                     </div>

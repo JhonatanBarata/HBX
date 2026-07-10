@@ -2,6 +2,7 @@ export {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';

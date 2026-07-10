@@ -103,6 +103,12 @@ model Company {
   tasteGrantedByUserId    Int?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
+  // GUARDRAILS S3 (10/07, docs/PLANEJAMENTOS/MASTER-REFAB/PLANO.md) — teto anti-scraper de
+  // ENTREGAS de lead por dia, mesmo com saldo de crédito sobrando. null = herda o default
+  // global (CreditGlobalConfig.dailyDeliveryCapDefault); valor <=0 = SEM teto (desligado só
+  // para esta empresa). Migration ADITIVA, nullable, sem default — não muda nenhum comportamento
+  // até o master preencher.
+  dailyDeliveryCapOverride Int?
   // CRÉDITOS R1 (docs/PLANEJAMENTOS/CREDITOS/R1-SPEC-GATE-ENFORCE.md): gate por-empresa do
   // enforcement real de crédito. Só entra em vigor quando HBX_CREDITS_ENFORCE (env, mestre)
   // TAMBÉM está ON — as duas precisam ser true. Default false: nenhuma empresa é afetada até
@@ -4282,6 +4288,10 @@ model CreditGlobalConfig {
   // defaultExpiryDays acima. Migration ADITIVA (2 colunas com DEFAULT, nenhuma existente muda).
   welcomeCredits           Int      @default(30)
   welcomeExpiryDays        Int      @default(30)
+  // GUARDRAILS S3 (10/07) — teto GLOBAL default de entregas/dia por empresa (anti-scraper),
+  // usado quando a empresa não tem Company.dailyDeliveryCapOverride próprio. <=0 = sem teto
+  // global (empresas sem override próprio ficam sem teto). Migration ADITIVA com DEFAULT.
+  dailyDeliveryCapDefault  Int      @default(500)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

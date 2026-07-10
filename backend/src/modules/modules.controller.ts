@@ -358,6 +358,17 @@ class UpdateMasterCompanyQuotaDto {
   seatCap?: number;
 }
 
+// GUARDRAILS S3 (10/07) — override por empresa do teto diário de entregas (anti-scraper).
+// null explícito = limpa o override (herda o default global); 0 = sem teto só nesta empresa.
+class UpdateMasterCompanyDeliveryCapDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999999)
+  dailyDeliveryCapOverride?: number | null;
+}
+
 class PermanentDeleteDto {
   @IsOptional()
   @IsString()
@@ -761,6 +772,17 @@ export class ModulesController {
     @Body() dto: UpdateMasterCompanyQuotaDto,
   ) {
     return this.modulesService.updateCompanyCardQuotaByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  // GUARDRAILS S3 (10/07) — override por empresa do teto diário de entregas (anti-scraper).
+  @Put('master/company/:companyId/delivery-cap')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateCompanyDeliveryCap(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: UpdateMasterCompanyDeliveryCapDto,
+  ) {
+    return this.modulesService.updateCompanyDailyDeliveryCapByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Get('master/exclusoes')

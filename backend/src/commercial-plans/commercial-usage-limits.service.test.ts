@@ -715,3 +715,211 @@ test('releaseLeadDeliveryCredit: estorna pela MESMA usageKey; sem CreditsService
   const bare = new CommercialUsageLimitsService({} as any);
   await assert.doesNotReject(() => bare.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-9' }));
 });
+
+// ─── GUARDRAILS S3 (10/07) — teto DIÁRIO de entregas por empresa (anti-scraper) ──────────────────
+// Roda no MESMO choke do débito real (enforceLeadDeliveryDebit via recordCardImport /
+// reserveLeadDeliveryCredit), ANTES do débito — bloqueia MESMO com saldo sobrando. Config lida por
+// SQL cru numa query só (override da empresa + default global via LEFT-subselect); qualquer erro
+// nessa leitura OU na contagem é fail-open (nunca derruba a venda por bug do guardrail).
+
+function buildDailyCapPrismaMock(input: {
+  isSystemMaster?: boolean;
+  companyKind?: string;
+  companyName?: string;
+  override?: number | null;
+  globalDefault?: number | null;
+  deliveredTodayCount?: number;
+  existingUsageKeys?: string[];
+  queryRawThrows?: boolean;
+  countThrows?: boolean;
+} = {}) {
+  const createdLogs: Array<Record<string, any>> = [];
+  return {
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          selectedPlanKey: 'hbx_padrao',
+          timezone: 'America/Sao_Paulo',
+          companyKind: input.companyKind || 'tenant',
+        }),
+      },
+      user: {
+        findUnique: async () => ({ isSystemMaster: Boolean(input.isSystemMaster) }),
+      },
+      userTeamPolicy: { findUnique: async () => null },
+      $queryRawUnsafe: async () => {
+        if (input.queryRawThrows) throw new Error('boom: coluna ainda nao migrada');
+        return [{
+          companyKind: input.companyKind || 'tenant',
+          companyName: input.companyName ?? 'Empresa Teste',
+          override: input.override === undefined ? null : input.override,
+          globalDefault: input.globalDefault === undefined ? 500 : input.globalDefault,
+        }];
+      },
+      companyCommercialUsageLog: {
+        create: async ({ data }: any) => {
+          createdLogs.push(data);
+          return { id: `log-${createdLogs.length}`, ...data };
+        },
+        findFirst: async ({ where }: any) => {
+          const needle = String(where?.metadataJson?.contains || '');
+          if (!needle) return null;
+          const hit = (input.existingUsageKeys || []).some((key) => needle.includes(`"usageKey":"${key}"`));
+          return hit ? { id: 'existing' } : null;
+        },
+        count: async () => {
+          if (input.countThrows) throw new Error('boom: banco fora do ar');
+          return input.deliveredTodayCount ?? 0;
+        },
+      },
+    },
+    createdLogs,
+  };
+}
+
+function buildDailyCapCredits() {
+  const debitCalls: Array<Record<string, any>> = [];
+  return {
+    debitCalls,
+    service: {
+      assertAndDebitLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
+        debitCalls.push({ companyId, userId, ...i });
+        return { applied: true, debited: 1 };
+      },
+      recordShadowDebit: async () => {},
+      refundLeadDelivery: async () => ({ refunded: 0 }),
+      isCreditsAccountCompany: async () => false,
+    } as any,
+  };
+}
+
+test('GUARDRAILS S3 (1): 4a entrega do dia com cap=3 lanca DAILY_DELIVERY_CAP_REACHED MESMO com saldo (débito nunca chamado)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 3, deliveredTodayCount: 3 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.rejects(
+    () => service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-4', isBillingAudienceUser: true }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      return true;
+    },
+  );
+  // O bloqueio aconteceu ANTES do débito de crédito — saldo sobrando não importa.
+  assert.equal(credits.debitCalls.length, 0);
+});
+
+test('GUARDRAILS S3 (2): override por empresa VENCE o default global', async () => {
+  // Global folgado (100) mas override apertado (2) — a 3a entrega já bloqueia pelo override.
+  const { prisma } = buildDailyCapPrismaMock({ override: 2, globalDefault: 100, deliveredTodayCount: 2 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.rejects(
+    () => service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-3' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      return true;
+    },
+  );
+  assert.equal(credits.debitCalls.length, 0);
+});
+
+test('GUARDRAILS S3 (3): override = 0 significa SEM teto (mesmo com contagem gigante)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ override: 0, globalDefault: 5, deliveredTodayCount: 999 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-1000' }),
+  );
+  assert.equal(credits.debitCalls.length, 1);
+});
+
+test('GUARDRAILS S3 (4): erro simulado na contagem de hoje -> FAIL-OPEN (entrega segue, débito chamado)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 3, countThrows: true });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-x' }),
+  );
+  assert.equal(credits.debitCalls.length, 1);
+});
+
+test('GUARDRAILS S3 (5): vendedor recebe MENSAGEM NEUTRA (mesmo code, sem citar teto/credito)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 3, deliveredTodayCount: 3 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.rejects(
+    // isBillingAudienceUser OMITIDO -> LEI DO VENDEDOR: bloqueio neutro.
+    () => service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-4' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      assert.equal(error?.response?.message, 'Acesso pausado pela administracao da conta.');
+      return true;
+    },
+  );
+});
+
+test('GUARDRAILS S3 (6): lead JÁ entregue hoje (idempotente) re-tentado NÃO é bloqueado pelo cap', async () => {
+  // Cap já ESTOURADO (3/3), mas a usageKey desta tentativa é a MESMA de uma das 3 já contadas —
+  // um retry (rede/duplo-clique) não pode ser barrado por um cap que ele mesmo já compõe.
+  const { prisma } = buildDailyCapPrismaMock({
+    globalDefault: 3,
+    deliveredTodayCount: 3,
+    existingUsageKeys: ['radar:lead-1'],
+  });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-1' }),
+  );
+  assert.equal(credits.debitCalls.length, 1);
+});
+
+test('GUARDRAILS S3: bypass isSystemMaster — nunca é capado mesmo com cap estourado', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ isSystemMaster: true, globalDefault: 1, deliveredTodayCount: 999 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-master' }),
+  );
+});
+
+test('GUARDRAILS S3: flag HBX_DELIVERY_DAILY_CAP_ENABLED=false desliga o guardrail inteiro', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 1, deliveredTodayCount: 999 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  const prev = process.env.HBX_DELIVERY_DAILY_CAP_ENABLED;
+  process.env.HBX_DELIVERY_DAILY_CAP_ENABLED = 'false';
+  try {
+    await assert.doesNotReject(() =>
+      service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-flag-off' }),
+    );
+  } finally {
+    if (prev === undefined) delete process.env.HBX_DELIVERY_DAILY_CAP_ENABLED;
+    else process.env.HBX_DELIVERY_DAILY_CAP_ENABLED = prev;
+  }
+});
+
+// Segundo choke (reserveLeadDeliveryCredit — reserva atômica do Radar->Vendas) também aplica o
+// MESMO teto: prova que os "MESMOS 2 chokes" do R1 estão cobertos, não só recordCardImport.
+test('GUARDRAILS S3: reserveLeadDeliveryCredit (outro choke) também aplica o teto diário', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 2, deliveredTodayCount: 2 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.rejects(
+    () => service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:lead-9', isBillingAudienceUser: true }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      return true;
+    },
+  );
+  assert.equal(credits.debitCalls.length, 0);
+});

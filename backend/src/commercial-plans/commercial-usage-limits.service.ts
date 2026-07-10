@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, Optional } from '@nestjs/common';
 import { isPlatformInfraCompany } from '../common/company-kind';
+import { pushMasterNotice } from '../common/push-master-notice';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
 import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
@@ -1000,6 +1001,164 @@ export class CommercialUsageLimitsService {
       .catch(() => undefined);
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  // GUARDRAILS S3 (10/07, docs/PLANEJAMENTOS/MASTER-REFAB/PLANO.md) — teto DIÁRIO de entregas
+  // de lead POR EMPRESA, mesmo com saldo de crédito sobrando ("não posso deixar uma empresa
+  // scraper, puxando os 28 milhões de leads atuais"). Roda nos MESMOS 2 chokes do gate R1
+  // (enforceLeadDeliveryDebit / reserveLeadDeliveryCredit), ANTES do débito. Config aditiva
+  // (Company.dailyDeliveryCapOverride / CreditGlobalConfig.dailyDeliveryCapDefault) — lida por
+  // SQL cru e isolada num try/catch próprio: qualquer erro (coluna ainda não migrada, banco
+  // fora do ar, etc.) é FAIL-OPEN — o guardrail nunca derruba uma venda por bug dele mesmo.
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+
+  private isDailyDeliveryCapGuardrailEnabled(): boolean {
+    const raw = String(process.env.HBX_DELIVERY_DAILY_CAP_ENABLED ?? '').trim().toLowerCase();
+    if (!raw) return true; // default ON — é proteção, não cobrança.
+    return !['false', '0', 'off'].includes(raw);
+  }
+
+  /** Janela do dia em UTC puro (NÃO é o timezone da empresa — pedido explícito do spec). */
+  private getUtcDayBounds(now: Date = new Date()) {
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    return { dayStart, dayEnd };
+  }
+
+  /**
+   * Lê override da empresa + default global numa única query crua (2 colunas novas, aditivas —
+   * ver migration 20260710000000_delivery_daily_cap). `effectiveCap: null` = guardrail
+   * indisponível (erro/ambiente sem a coluna ainda) → o CALLER trata como fail-open, nunca como
+   * "cap=0". Semântica override ?? global ?? 500 (fallback de código, mesmo default da coluna).
+   */
+  private async getDailyDeliveryCapConfig(companyId: number): Promise<{
+    companyKind: string | null;
+    companyName: string | null;
+    effectiveCap: number | null;
+  }> {
+    let rows: Array<{
+      companyKind: string | null;
+      companyName: string | null;
+      override: number | null;
+      globalDefault: number | null;
+    }>;
+    try {
+      rows = await this.prisma.$queryRawUnsafe(
+        `SELECT
+           c."companyKind" AS "companyKind",
+           c."name" AS "companyName",
+           c."dailyDeliveryCapOverride" AS "override",
+           (SELECT g."dailyDeliveryCapDefault" FROM "CreditGlobalConfig" g WHERE g."key" = 'default') AS "globalDefault"
+         FROM "Company" c
+         WHERE c."id" = $1
+         LIMIT 1`,
+        Number(companyId),
+      );
+    } catch (error: any) {
+      console.warn(`daily_delivery_cap_config_read_failed company=${companyId} error=${String(error?.message || error)}`);
+      return { companyKind: null, companyName: null, effectiveCap: null };
+    }
+    const row = rows?.[0] || null;
+    if (!row) return { companyKind: null, companyName: null, effectiveCap: null };
+    const override = row.override != null && Number.isFinite(Number(row.override)) ? Math.trunc(Number(row.override)) : null;
+    const globalDefault = row.globalDefault != null && Number.isFinite(Number(row.globalDefault)) ? Math.trunc(Number(row.globalDefault)) : null;
+    const effectiveCap = override != null ? override : (globalDefault != null ? globalDefault : 500);
+    return { companyKind: row.companyKind ?? null, companyName: row.companyName ?? null, effectiveCap };
+  }
+
+  private todayUtcDateKey(now: Date = new Date()): string {
+    return now.toISOString().slice(0, 10);
+  }
+
+  /** Best-effort — nunca lança (pushMasterNotice já engole tudo; aqui só documentamos o contrato). */
+  private async notifyDailyDeliveryCapHit(companyId: number, companyName: string | null, count: number, cap: number) {
+    await pushMasterNotice(this.prisma, {
+      companyId,
+      audience: 'seller',
+      tone: 'warning',
+      source: 'guardrail_daily_cap',
+      title: 'Teto diário de leads atingido',
+      body: `Empresa ${companyName || `#${companyId}`} bateu o teto diário de leads (${count}).`,
+      nudgeKey: `caphit:${companyId}:${this.todayUtcDateKey()}`,
+    });
+  }
+
+  private async notifyDailyDeliveryCapWarn(companyId: number, companyName: string | null, count: number, cap: number) {
+    await pushMasterNotice(this.prisma, {
+      companyId,
+      audience: 'seller',
+      tone: 'info',
+      source: 'guardrail_daily_cap',
+      title: 'Consumo alto de leads',
+      body: `Empresa ${companyName || `#${companyId}`} consumiu ${count} créditos em 24h.`,
+      nudgeKey: `capwarn:${companyId}:${this.todayUtcDateKey()}`,
+    });
+  }
+
+  /**
+   * Choke do teto diário — chamado do INÍCIO de enforceLeadDeliveryDebit/reserveLeadDeliveryCredit,
+   * ANTES do débito de crédito. Ordem interna: (1) flag/bypass master·platform_infra, (2) cap
+   * resolvido (override ?? global ?? 500; <=0 = sem teto), (3) IDEMPOTÊNCIA — lead já entregue
+   * HOJE com esta MESMA usageKey não conta como nova entrega nem pode ser bloqueado por retry,
+   * (4) conta sucessos de hoje (UTC) e compara com o cap. Lança ConflictException
+   * DAILY_DELIVERY_CAP_REACHED (mesmo code nas 2 audiências — só a MENSAGEM bifurca, LEI DO
+   * VENDEDOR). Qualquer erro que não seja esse bloqueio real é engolido (fail-open, log warn).
+   */
+  private async assertDailyDeliveryCapNotReached(
+    companyId: number,
+    userId: number | null,
+    input: { usageKey: string; isBillingAudienceUser: boolean },
+  ): Promise<void> {
+    if (!this.isDailyDeliveryCapGuardrailEnabled()) return;
+    const companyIdNum = Math.trunc(Number(companyId) || 0);
+    if (!companyIdNum) return;
+    try {
+      if (await this.isSystemMasterUser(userId)) return;
+
+      const config = await this.getDailyDeliveryCapConfig(companyIdNum);
+      if (isPlatformInfraCompany({ companyKind: config.companyKind })) return;
+      const cap = config.effectiveCap;
+      if (cap == null || cap <= 0) return; // null = guardrail indisponível (fail-open); <=0 = sem teto.
+
+      const usageKey = this.normalizeUsageKey(input?.usageKey || '');
+      if (usageKey) {
+        // Idempotência PRIMEIRO: lead já entregue hoje com esta usageKey re-tentado (retry de
+        // rede, duplo clique) não é uma entrega NOVA — não deve ser bloqueado pelo cap, mesmo
+        // que o cap já tenha sido atingido pelas outras entregas do dia.
+        const alreadyDeliveredToday = await this.prisma.companyCommercialUsageLog.findFirst({
+          where: {
+            companyId: companyIdNum,
+            eventType: { in: CARD_SUCCESS_EVENTS },
+            metadataJson: { contains: `"usageKey":"${usageKey}"` },
+          },
+          select: { id: true },
+        });
+        if (alreadyDeliveredToday) return;
+      }
+
+      const { dayStart, dayEnd } = this.getUtcDayBounds();
+      const deliveredToday = await this.countLogs(companyIdNum, CARD_SUCCESS_EVENTS, dayStart, dayEnd);
+
+      if (deliveredToday >= cap) {
+        void this.notifyDailyDeliveryCapHit(companyIdNum, config.companyName, deliveredToday, cap).catch(() => undefined);
+        throw new ConflictException({
+          ok: false,
+          code: 'DAILY_DELIVERY_CAP_REACHED',
+          message: input?.isBillingAudienceUser
+            ? 'Teto diário de leads da conta atingido. Libera amanhã ou ajuste com o suporte.'
+            : 'Acesso pausado pela administracao da conta.',
+        });
+      }
+
+      // Consumo anômalo (best-effort, não bloqueia): >=80% do cap já hoje.
+      if (deliveredToday >= Math.floor(cap * 0.8)) {
+        void this.notifyDailyDeliveryCapWarn(companyIdNum, config.companyName, deliveredToday, cap).catch(() => undefined);
+      }
+    } catch (error: any) {
+      if (error instanceof ConflictException) throw error; // bloqueio real do guardrail, não bug.
+      console.warn(`daily_delivery_cap_guardrail_failed company=${companyId} error=${String(error?.message || error)}`);
+    }
+  }
+
   /**
    * CRÉDITOS R1 — gate REAL (bloqueante) no MESMO ponto/MESMA chave canônica do shadow (S2).
    * Diferente do shadow (fire-and-forget), este AWAIT e PODE LANÇAR: se o gate (2 chaves) está
@@ -1017,6 +1176,9 @@ export class CommercialUsageLimitsService {
     const leadId = this.resolveLeadDeliveryKey(metadata);
     if (!leadId) return;
     const isBillingAudienceUser = Boolean(metadata?.isBillingAudienceUser);
+    // GUARDRAILS S3 — teto diário por empresa, no MESMO choke do débito real, ANTES do débito
+    // (mesmo com saldo sobrando, o teto batido PARA a entrega).
+    await this.assertDailyDeliveryCapNotReached(companyId, userId, { usageKey: leadId, isBillingAudienceUser });
     await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
       leadId,
       actionKey: 'lead_delivery',
@@ -1043,6 +1205,12 @@ export class CommercialUsageLimitsService {
     }
     const usageKey = this.normalizeUsageKey(input?.usageKey || '');
     if (!usageKey) return { applied: false, debited: 0 };
+    // GUARDRAILS S3 — mesmo teto diário de enforceLeadDeliveryDebit, aqui no OUTRO choke (reserva
+    // atômica ANTES da gravação do card no Vendas).
+    await this.assertDailyDeliveryCapNotReached(companyId, userId, {
+      usageKey,
+      isBillingAudienceUser: Boolean(input?.isBillingAudienceUser),
+    });
     const result = await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
       leadId: usageKey,
       actionKey: 'lead_delivery',

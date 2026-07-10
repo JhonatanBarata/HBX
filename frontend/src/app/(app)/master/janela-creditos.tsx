@@ -9,15 +9,18 @@
 //                         empresas sem saldo). Nada clicável além de atalho pras outras guias.
 //   Empresas            — saldo/lotes ativos/último consumo por empresa + "Conceder" inline.
 //   Packs                — CRUD do catálogo de recarga (era a guia única "Pacotes" antes do S2).
-//   Bônus de cadastro    — CreditGlobalConfig (welcomeCredits/welcomeExpiryDays/defaultExpiryDays).
+//   Config                — CreditGlobalConfig (welcomeCredits/welcomeExpiryDays/defaultExpiryDays
+//                         + GUARDRAILS S3: dailyDeliveryCapDefault). Renomeada de "Bônus de
+//                         cadastro" (10/07) — já não é só bônus, é config global mesmo.
 //   Recargas             — histórico de notificações de pagamento (ex-janela-pagamentos.tsx).
 //
 // Endpoints:
 //   GET  /credits/master/overview                 → agregados (S2, novo)
-//   GET  /credits/master/config                    → welcome*/defaultExpiryDays (S2, novo — o PUT já existia)
+//   GET  /credits/master/config                    → welcome*/defaultExpiryDays/dailyDeliveryCapDefault
 //   GET/PUT  /credits/master/packs*                 → catálogo de pacotes (S3-PARTE1)
 //   PUT  /credits/master/config/expiry-default      → prazo default global (S3-PARTE1)
 //   PUT  /credits/master/config/welcome-batch       → bônus de cadastro (A3)
+//   PUT  /credits/master/config/delivery-cap        → teto diário default anti-scraper (GUARDRAILS S3)
 //   POST /credits/master/company/:id/grant          → concessão manual (S3-PARTE1)
 //   GET  /master/payment-notifications/history       → guia Recargas (ex-janela-pagamentos.tsx)
 //
@@ -41,7 +44,7 @@ import { useTabParam } from "@/lib/use-tab-param";
 import type { MasterCompany } from "./page.client";
 import { fmtDataHora } from "./page.client";
 
-const GUIAS = ["Visão geral", "Empresas", "Packs", "Bônus de cadastro", "Recargas"] as const;
+const GUIAS = ["Visão geral", "Empresas", "Packs", "Config", "Recargas"] as const;
 type Guia = (typeof GUIAS)[number];
 
 type CreditPack = {
@@ -86,6 +89,7 @@ type GlobalConfig = {
   defaultExpiryDays?: number;
   welcomeCredits?: number;
   welcomeExpiryDays?: number;
+  dailyDeliveryCapDefault?: number;
 };
 
 function toForm(p: CreditPack | null): PackForm {
@@ -263,13 +267,19 @@ export function JanelaCreditos({ companies, reload }: {
 
   const pausado = packForm.status === "paused";
 
-  // ── Bônus de cadastro (welcomeCredits/welcomeExpiryDays/defaultExpiryDays) ─────────────────
+  // ── Config global (welcomeCredits/welcomeExpiryDays/defaultExpiryDays) ─────────────────────
   const [welcomeCredits, setWelcomeCredits] = useState("");
   const [welcomeExpiryDays, setWelcomeExpiryDays] = useState("");
   const [defaultExpiryDays, setDefaultExpiryDays] = useState("");
   const [configBusy, setConfigBusy] = useState(false);
   const [configMsg, setConfigMsg] = useState<string | null>(null);
   const [configLoadError, setConfigLoadError] = useState<string | null>(null);
+  // GUARDRAILS S3 (10/07) — teto diário default de leads (anti-scraper), aplicado a toda
+  // empresa sem override próprio (ficha, janela-empresas.tsx). Validação PRÓPRIA (0 = sem teto
+  // é um valor válido aqui, diferente dos 3 campos acima que exigem positivo) -> botão separado.
+  const [dailyCapDefaultForm, setDailyCapDefaultForm] = useState("");
+  const [dailyCapBusy, setDailyCapBusy] = useState(false);
+  const [dailyCapMsg, setDailyCapMsg] = useState<string | null>(null);
 
   const carregarConfig = useCallback(() => {
     apiFetch<GlobalConfig>("/credits/master/config")
@@ -277,6 +287,7 @@ export function JanelaCreditos({ companies, reload }: {
         setWelcomeCredits(res?.welcomeCredits != null ? String(res.welcomeCredits) : "");
         setWelcomeExpiryDays(res?.welcomeExpiryDays != null ? String(res.welcomeExpiryDays) : "");
         setDefaultExpiryDays(res?.defaultExpiryDays != null ? String(res.defaultExpiryDays) : "");
+        setDailyCapDefaultForm(res?.dailyDeliveryCapDefault != null ? String(res.dailyDeliveryCapDefault) : "");
         setConfigLoadError(null);
       })
       .catch((err: unknown) => {
@@ -316,6 +327,32 @@ export function JanelaCreditos({ companies, reload }: {
       setConfigMsg(e instanceof Error ? e.message : "Falha ao salvar a configuração.");
     } finally {
       setConfigBusy(false);
+    }
+  }
+
+  // GUARDRAILS S3 (10/07) — teto diário default (0 = sem teto global; empresas sem override
+  // próprio ficam sem teto). "" no campo = mantém o valor atual (não força um número).
+  async function salvarDailyCapDefault() {
+    if (dailyCapBusy) return;
+    const value = dailyCapDefaultForm.trim() === "" ? NaN : Number(dailyCapDefaultForm);
+    if (!Number.isFinite(value) || value < 0) {
+      setDailyCapMsg("Informe um número >= 0 (0 = sem teto).");
+      return;
+    }
+    setDailyCapBusy(true);
+    setDailyCapMsg(null);
+    try {
+      await apiFetch("/credits/master/config/delivery-cap", {
+        method: "PUT",
+        body: JSON.stringify({ dailyDeliveryCapDefault: value }),
+      });
+      setDailyCapMsg("✓ Teto diário default salvo.");
+      carregarConfig();
+    } catch (e) {
+      reportError(e);
+      setDailyCapMsg(e instanceof Error ? e.message : "Falha ao salvar o teto diário default.");
+    } finally {
+      setDailyCapBusy(false);
     }
   }
 
@@ -447,7 +484,7 @@ export function JanelaCreditos({ companies, reload }: {
                               </button>
                             </div>
                             {grantMsg && <div className={"sc-msg " + (grantMsg.startsWith("✓") ? "is-ok" : "is-warn")} style={{ paddingBottom: 8 }}>{grantMsg}</div>}
-                            <div className="sc-hint" style={{ paddingBottom: 8 }}>Vazio usa o prazo default global (guia Bônus de cadastro).</div>
+                            <div className="sc-hint" style={{ paddingBottom: 8 }}>Vazio usa o prazo default global (guia Config).</div>
                           </td>
                         </tr>
                       )}
@@ -531,10 +568,10 @@ export function JanelaCreditos({ companies, reload }: {
         </section>
       )}
 
-      {guia === "Bônus de cadastro" && (
+      {guia === "Config" && (
         <section className="panel">
           <div className="panel-head">
-            <h2>Bônus de cadastro</h2>
+            <h2>Config</h2>
             <div className="meta">config global</div>
           </div>
           <div className="sc-intro">
@@ -564,6 +601,20 @@ export function JanelaCreditos({ companies, reload }: {
             </div>
             <button className="btn-teal" disabled={configBusy} onClick={salvarConfig}>
               {configBusy ? "Salvando…" : "Salvar configuração"}
+            </button>
+          </div>
+          {/* GUARDRAILS S3 (10/07) — teto diário default anti-scraper; botão próprio (validação
+              diferente: 0 é valor válido aqui). */}
+          <div className="sc-body">
+            {dailyCapMsg && <div className={"sc-msg " + (dailyCapMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{dailyCapMsg}</div>}
+            <div className="sc-field sc-field--sep">
+              <label className="field-label">Teto diário de leads (default)</label>
+              <input className="field-dark" inputMode="numeric" value={dailyCapDefaultForm}
+                onChange={e => setDailyCapDefaultForm(e.target.value)} placeholder="500" />
+              <span className="sc-hint">Anti-scraper: teto de entregas de lead por dia, mesmo com saldo. Vale pra empresa que não tem teto próprio (ficha, guia Empresas). 0 = sem teto global.</span>
+            </div>
+            <button className="btn-teal" disabled={dailyCapBusy} onClick={salvarDailyCapDefault}>
+              {dailyCapBusy ? "Salvando…" : "Salvar teto diário default"}
             </button>
           </div>
         </section>
