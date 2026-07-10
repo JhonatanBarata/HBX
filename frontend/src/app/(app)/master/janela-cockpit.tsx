@@ -1,9 +1,11 @@
 "use client";
 
 // Janela "Cockpit" — command center do MASTER (Camada 5 do onboarding).
-// O dono OPERA a plataforma: feed do flywheel ao vivo (vendas + comissões,
-// cross-company), métrica-norte "vendedores ativados", roster de empresas
-// (status comercial + MRR) e drill-down god-view (empresa → vendedor → negócio).
+// O dono OPERA a plataforma no MODELO CRÉDITO (MASTER-REFAB S5): KPIs de
+// crédito (recarga 30d, circulação, consumo 7d, empresas sem saldo), funil de
+// ativação (cadastro → 1º consumo → 1ª recarga), feed do flywheel ao vivo
+// (vendas + comissões, cross-company), roster de empresas (status + créditos)
+// e drill-down god-view (empresa → vendedor → negócio).
 // Backend: GET /master-cockpit/overview (JWT + MasterGuard) — SÓ leitura.
 // Visual em hbx-theme/cockpit-master.css (5 Leis): só layout inline aqui.
 
@@ -51,14 +53,33 @@ type RosterCompany = {
   statusLabel: string;
   riskLevel: "stable" | "warning" | "critical" | string;
   released: boolean;
-  planKey: string | null;
-  planTitle: string;
-  mrr: number;
   sellsHbxPlans: boolean;
   sellerCount: number;
   activatedSellerCount: number;
   createdAt: string | null;
+  // S5 (modelo crédito): saldo atual (null = módulo de crédito OFF) + consumo 30d.
+  creditsBalance: number | null;
+  consumption30d: number;
 };
+
+// S5 — KPIs do modelo crédito (null = flag OFF/erro no backend; a tela mostra "—").
+type CreditsBlock = {
+  revenueRecharge30d: number;
+  revenueRecharge30dCount: number;
+  creditsInCirculation: number;
+  burn7d: number;
+  companiesNoBalance: number;
+} | null;
+
+// S5 — funil de ativação: cadastros de 30d → Ativou (1º consumo = primeiro débito
+// no ledger, fonte documentada no backend) → 1ª recarga aprovada.
+type ActivationFunnel = {
+  signups30d: number;
+  activated30d: number;
+  recharged30d: number;
+  activationRate: number;
+  rechargeRate: number;
+} | null;
 
 type SellerDrill = {
   userId: number;
@@ -113,26 +134,30 @@ type Overview = {
     salesMonthValue: number;
     commissionPayable: number;
     commissionPaidMonth: number;
+    // ── Bloco LEGADO ("Assinaturas legadas") ── única menção a mrr permitida na
+    // janela: receita mensal das assinaturas antigas ainda ativas; o card some
+    // sozinho quando zerar (S6 aposenta o campo no backend).
     mrrTotal: number;
-  };
-  funnel: {
-    companiesTotal: number;
-    companiesReleased: number;
-    companiesSelling: number;
-    sellersTotal: number;
-    sellersActivated: number;
   };
   roster: RosterCompany[];
   sellers: SellerDrill[];
   // Sprint 2 — só adições (opcionais: backend antigo continua rendendo a tela).
   events?: MasterEventItem[];
   health?: HealthBlock;
+  // S5 — blocos do modelo crédito (opcionais e null-áveis, mesmo padrão acima).
+  credits?: CreditsBlock;
+  activationFunnel?: ActivationFunnel;
 } | null;
 
 const REFRESH_MS = 30000;
 
 function brl(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// Inteiro localizado (créditos são contagem, não dinheiro).
+function n0(value: number) {
+  return value.toLocaleString("pt-BR");
 }
 
 function riskDot(level: string) {
@@ -256,7 +281,8 @@ export function JanelaCockpit() {
   }, [auto, carregar]);
 
   const m = data?.metrics;
-  const funnel = data?.funnel;
+  const cr = data?.credits || null;
+  const af = data?.activationFunnel || null;
   const roster = data?.roster || [];
   const sellers = data?.sellers || [];
   const sales = data?.feed.sales || [];
@@ -290,14 +316,13 @@ export function JanelaCockpit() {
       ? sales.filter((s) => s.companyId === drillCompanyId)
       : sales;
 
-  // Funil: maior degrau = base 100% das barras.
-  const funnelSteps = funnel
+  // Funil de ativação (S5): cadastro → 1º consumo → 1ª recarga, com taxas de
+  // conversão entre degraus. Maior degrau = base 100% das barras.
+  const funnelSteps = af
     ? [
-        { name: "Empresas na base", num: funnel.companiesTotal, hint: "todas as empresas cadastradas", north: false },
-        { name: "Empresas operando", num: funnel.companiesReleased, hint: "com acesso liberado", north: false },
-        { name: "Empresas revendedoras", num: funnel.companiesSelling, hint: "habilitadas a vender HBX", north: false },
-        { name: "Vendedores na base", num: funnel.sellersTotal, hint: "usuários do tipo vendedor", north: false },
-        { name: "Vendedores ATIVADOS", num: funnel.sellersActivated, hint: "iniciaram a 1ª conversa", north: true },
+        { name: "Cadastros 30d", num: af.signups30d, hint: "empresas novas no período", north: false },
+        { name: "Ativou", num: af.activated30d, hint: `1º consumo de crédito · ${af.activationRate}% dos cadastros`, north: false },
+        { name: "1ª recarga", num: af.recharged30d, hint: `recarga aprovada · ${af.rechargeRate}% dos ativados`, north: true },
       ]
     : [];
   const funnelBase = Math.max(1, ...funnelSteps.map((s) => s.num));
@@ -320,13 +345,33 @@ export function JanelaCockpit() {
         </span>
       </div>
 
-      {/* Faixa de KPIs */}
+      {/* Faixa de KPIs — modelo crédito na frente (S5) */}
       <div className="ckm-kpis">
-        <div className="ckm-kpi ckm-kpi-north">
+        <div className="ckm-kpi ckm-kpi-north ckm-kpi-money">
+          <span className="ckm-kpi-label">Recarga 30d</span>
+          <strong className="ckm-kpi-value">{cr ? brl(cr.revenueRecharge30d) : "—"}</strong>
+          <span className="ckm-kpi-sub">{cr ? `${cr.revenueRecharge30dCount} recargas aprovadas` : "receita de recarga do período"}</span>
+        </div>
+        <div className="ckm-kpi">
+          <span className="ckm-kpi-label">Créditos em circulação</span>
+          <strong className="ckm-kpi-value">{cr ? n0(cr.creditsInCirculation) : "—"}</strong>
+          <span className="ckm-kpi-sub">soma dos lotes ativos</span>
+        </div>
+        <div className="ckm-kpi">
+          <span className="ckm-kpi-label">Consumo 7d</span>
+          <strong className="ckm-kpi-value">{cr ? n0(cr.burn7d) : "—"}</strong>
+          <span className="ckm-kpi-sub">créditos consumidos na semana</span>
+        </div>
+        <div className="ckm-kpi">
+          <span className="ckm-kpi-label">Empresas sem saldo</span>
+          <strong className="ckm-kpi-value">{cr ? cr.companiesNoBalance : "—"}</strong>
+          <span className="ckm-kpi-sub">precisam de recarga</span>
+        </div>
+        <div className="ckm-kpi">
           <span className="ckm-kpi-label">Vendedores ativados</span>
           <strong className="ckm-kpi-value">{m ? m.activatedSellers : "—"}</strong>
           <span className="ckm-kpi-sub">
-            {m ? `${m.activatedSellers}/${m.totalSellers} · ${m.activationRate}% da base` : "indicador-líder do flywheel"}
+            {m ? `${m.activatedSellers}/${m.totalSellers} · ${m.activationRate}% da base` : "iniciaram a 1ª conversa"}
           </span>
         </div>
         <div className="ckm-kpi">
@@ -340,15 +385,18 @@ export function JanelaCockpit() {
           <span className="ckm-kpi-sub">{m ? brl(m.salesMonthValue) : "fechamentos do mês"}</span>
         </div>
         <div className="ckm-kpi ckm-kpi-money">
-          <span className="ckm-kpi-label">MRR ativo</span>
-          <strong className="ckm-kpi-value">{m ? brl(m.mrrTotal) : "—"}</strong>
-          <span className="ckm-kpi-sub">receita recorrente das empresas pagantes</span>
-        </div>
-        <div className="ckm-kpi ckm-kpi-money">
           <span className="ckm-kpi-label">Comissão a pagar</span>
           <strong className="ckm-kpi-value">{m ? brl(m.commissionPayable) : "—"}</strong>
           <span className="ckm-kpi-sub">{m ? `pagas no mês: ${brl(m.commissionPaidMonth)}` : "fila de comissão"}</span>
         </div>
+        {/* ── Bloco LEGADO: assinaturas antigas ainda ativas (some quando zerar) ── */}
+        {m && m.mrrTotal > 0 && (
+          <div className="ckm-kpi">
+            <span className="ckm-kpi-label">Assinaturas legadas</span>
+            <strong className="ckm-kpi-value">{brl(m.mrrTotal)}</strong>
+            <span className="ckm-kpi-sub">mensalidade do modelo antigo</span>
+          </div>
+        )}
       </div>
 
       {/* Feed do flywheel + funil */}
@@ -451,11 +499,11 @@ export function JanelaCockpit() {
           </div>
         </section>
 
-        {/* Funil de aquisição */}
+        {/* Funil de ativação (S5): cadastro → 1º consumo → 1ª recarga */}
         <section className="panel">
           <div className="panel-head">
-            <h2>Funil de aquisição</h2>
-            <div className="meta">indicador-líder</div>
+            <h2>Funil de ativação</h2>
+            <div className="meta">cadastro → consumo → recarga</div>
           </div>
           <div className="ckm-funnel">
             {funnelSteps.length === 0 && <div className="ckm-empty">Sem leitura ainda.</div>}
@@ -478,11 +526,11 @@ export function JanelaCockpit() {
         </section>
       </div>
 
-      {/* Roster de empresas (status comercial + MRR) */}
+      {/* Roster de empresas (status + créditos) */}
       <section className="panel">
         <div className="panel-head">
           <h2>Empresas ({roster.length})</h2>
-          <div className="meta">status comercial · MRR · vendedores</div>
+          <div className="meta">status · créditos · consumo 30d</div>
         </div>
         <div className="tbl-wrap">
           <table className="tbl">
@@ -490,8 +538,8 @@ export function JanelaCockpit() {
               <tr>
                 <th>Empresa</th>
                 <th>Status</th>
-                <th>Plano</th>
-                <th>MRR</th>
+                <th>Créditos</th>
+                <th>Consumo 30d</th>
                 <th>Vendedores</th>
                 <th>Ativados</th>
               </tr>
@@ -519,8 +567,14 @@ export function JanelaCockpit() {
                     </div>
                   </td>
                   <td><span className="ckm-funnel-name">{r.statusLabel}</span></td>
-                  <td>{r.planTitle}</td>
-                  <td style={{ fontWeight: 700 }}>{r.mrr > 0 ? brl(r.mrr) : "—"}</td>
+                  <td style={{ fontWeight: 700 }}>
+                    {r.creditsBalance == null
+                      ? "—"
+                      : r.creditsBalance === 0
+                        ? <span className="tag warn">sem saldo</span>
+                        : n0(r.creditsBalance)}
+                  </td>
+                  <td>{r.consumption30d > 0 ? n0(r.consumption30d) : "—"}</td>
                   <td>{r.sellerCount}</td>
                   <td>{r.activatedSellerCount}</td>
                 </tr>
@@ -611,7 +665,7 @@ export function JanelaCockpit() {
               <thead>
                 <tr>
                   <th>Cliente / lead</th>
-                  <th>Plano</th>
+                  <th>Produto</th>
                   <th>Valor</th>
                   <th>Comissão</th>
                   <th>Situação</th>

@@ -9,6 +9,10 @@ import {
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
 } from '../commercial-plans/commercial-plan-catalog';
+import { CreditsService } from '../credits/credits.service';
+import { CreditWalletService } from '../credits/credit-wallet.service';
+import { isCreditsFeatureEnabled } from '../credits/credits.flags';
+import { COMPANY_KIND_TENANT } from '../common/company-kind';
 
 // Cockpit do MASTER (Camada 5 do onboarding HBX). O system master OPERA a
 // plataforma — este service só LÊ (cross-company) e agrega. NÃO escreve nada e
@@ -16,7 +20,12 @@ import {
 // donos já gravaram:
 //   - Feed do flywheel: VendasLead (saleStatus/saleValue/commissionAmount…)
 //   - Comissões: VendasCommissionReceivable (payable/paid/pending)
-//   - Roster/MRR/status: Company + resolveCompanyAccessState + catálogo de planos
+//   - Roster/status: Company + resolveCompanyAccessState; saldo/consumo de crédito
+//     vêm do ledger (CreditWalletService — fonte única de saldo)
+//   - MASTER-REFAB S5 (modelo crédito): recarga 30d/circulação REUSAM
+//     CreditsService.getMasterOverview (via DI, 1 fonte só); burn 7d e consumo
+//     30d = Σ débitos (kind='debit') do CreditLedgerEntry; funil de ativação
+//     cadastro→1º consumo→1ª recarga
 //   - Vendedores ativados: User.onboardingStateJson (first_conversation_started)
 //     OU derivação barata (lead atribuído + conversa) — espelha a derivação do
 //     OnboardingController.checklist (LEITURA; não edita aquele arquivo).
@@ -80,6 +89,37 @@ type RosterCompany = {
   sellerCount: number;
   activatedSellerCount: number;
   createdAt: string | null;
+  // S5 (modelo crédito): saldo atual da carteira (null = módulo de crédito OFF na env)
+  // + consumo de créditos nos últimos 30d (Σ débitos do ledger).
+  creditsBalance: number | null;
+  consumption30d: number;
+};
+
+// ── MASTER-REFAB S5 — blocos do modelo crédito ─────────────────────────────────
+// KPIs de crédito do topo. `revenueRecharge30d`/`creditsInCirculation` REUSAM
+// CreditsService.getMasterOverview (1 fonte só, via DI); burn 7d = Σ débitos
+// (kind='debit') do ledger; "empresas sem saldo" = MESMA régua da janela Créditos
+// (tenants com saldo agregado <= 0, saldo por CreditWalletService.getBalancesByCompanyIds).
+type CreditsBlock = {
+  revenueRecharge30d: number;
+  revenueRecharge30dCount: number;
+  creditsInCirculation: number;
+  burn7d: number;
+  companiesNoBalance: number;
+};
+
+// Funil de ativação (a métrica que paga boleto): cadastros de tenants nos últimos
+// 30d → "Ativou" (1º consumo) → 1ª recarga aprovada, com taxas de conversão.
+// FONTE ESCOLHIDA pro "Ativou": primeiro débito REAL no ledger (kind='debit') — a
+// MESMA fonte única de saldo/burn/consumo deste cockpit (uma régua só). NÃO usamos
+// CARD_SUCCESS do usage-log de propósito: aquele trilho mistura cota de plano
+// legado e não diferencia consumo de crédito.
+type ActivationFunnel = {
+  signups30d: number;
+  activated30d: number;
+  recharged30d: number;
+  activationRate: number;
+  rechargeRate: number;
 };
 
 type SellerDrill = {
@@ -195,6 +235,10 @@ export class MasterCockpitService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly webwhats: WebwhatsBridgeService,
+    // S5 — REUSO via DI (padrão S1/S2): agregados de crédito vêm do CreditsService/
+    // CreditWalletService, nunca de query duplicada aqui.
+    private readonly credits: CreditsService,
+    private readonly creditWallet: CreditWalletService,
   ) {}
 
   // Visão única do cockpit — com cache (TTL 30 s) e single-flight. O payload em
@@ -224,17 +268,21 @@ export class MasterCockpitService {
     this.overviewRebuilds += 1;
     this.logger.debug(`overview rebuild #${this.overviewRebuilds}`);
     const nowMs = Date.now();
-    const [feed, commissions, roster, sellers, events, health, saleTotals] = await Promise.all([
-      this.buildSaleFeed().catch(() => [] as SaleFeedItem[]),
-      this.buildCommissionFeed().catch(() => [] as CommissionFeedItem[]),
-      this.buildRoster(nowMs).catch(() => [] as RosterCompany[]),
-      this.buildSellers().catch(() => [] as SellerDrill[]),
-      this.buildEvents().catch(() => [] as MasterEventItem[]),
-      this.buildHealth().catch(
-        () => ({ whatsapp: null, billing: null, factory: null }) as HealthBlock,
-      ),
-      this.buildSaleAndCommissionTotals().catch(() => null as SaleAndCommissionTotals | null),
-    ]);
+    const [feed, commissions, roster, sellers, events, health, saleTotals, credits, activationFunnel] =
+      await Promise.all([
+        this.buildSaleFeed().catch(() => [] as SaleFeedItem[]),
+        this.buildCommissionFeed().catch(() => [] as CommissionFeedItem[]),
+        this.buildRoster(nowMs).catch(() => [] as RosterCompany[]),
+        this.buildSellers().catch(() => [] as SellerDrill[]),
+        this.buildEvents().catch(() => [] as MasterEventItem[]),
+        this.buildHealth().catch(
+          () => ({ whatsapp: null, billing: null, factory: null }) as HealthBlock,
+        ),
+        this.buildSaleAndCommissionTotals().catch(() => null as SaleAndCommissionTotals | null),
+        // S5 — blocos do modelo crédito (flag OFF ou erro → null; front mostra "—").
+        this.buildCreditsBlock().catch(() => null as CreditsBlock | null),
+        this.buildActivationFunnel().catch(() => null as ActivationFunnel | null),
+      ]);
 
     const activatedSellers = sellers.filter((s) => s.activated);
     const totalSellers = sellers.length;
@@ -324,6 +372,10 @@ export class MasterCockpitService {
       // Sprint 2 — SÓ adições (campos existentes acima ficam intactos).
       events,
       health,
+      // S5 — SÓ adições (o payload legado acima segue intacto até a aposentadoria S6):
+      // KPIs do modelo crédito + funil de ativação cadastro→consumo→recarga.
+      credits,
+      activationFunnel,
     };
   }
 
@@ -654,6 +706,34 @@ export class MasterCockpitService {
       /* sem contagem de vendedores — roster segue com 0 */
     }
 
+    // S5 — saldo atual (fonte única: CreditWalletService, mesma régua da lista de
+    // empresas do /master) + consumo 30d (Σ débitos do ledger) por empresa. Cada
+    // leitura é defensiva: falha → saldo null/consumo 0, o roster nunca quebra.
+    const creditsEnabled = isCreditsFeatureEnabled();
+    let balanceByCompany = new Map<number, number>();
+    const consumption30dByCompany = new Map<number, number>();
+    if (creditsEnabled) {
+      const companyIds = companies.map((c) => Number(c.id));
+      try {
+        balanceByCompany = await this.creditWallet.getBalancesByCompanyIds(companyIds);
+      } catch {
+        /* sem saldo — coluna mostra 0 (flag ON sem leitura) */
+      }
+      try {
+        const since30d = new Date(nowMs - 30 * 24 * 60 * 60 * 1000);
+        const grouped = await this.prisma.creditLedgerEntry.groupBy({
+          by: ['companyId'],
+          where: { companyId: { in: companyIds }, kind: 'debit', createdAt: { gte: since30d } },
+          _sum: { amount: true },
+        });
+        for (const g of grouped as any[]) {
+          consumption30dByCompany.set(Number(g.companyId), Number(g._sum?.amount || 0));
+        }
+      } catch {
+        /* sem consumo — coluna mostra 0 */
+      }
+    }
+
     return companies.map((c) => {
       const snapshot: CompanyAccessSnapshot = {
         companyKind: c.companyKind,
@@ -690,8 +770,100 @@ export class MasterCockpitService {
         sellerCount: sellerCounts.get(c.id) || 0,
         activatedSellerCount: activatedCounts.get(c.id) || 0,
         createdAt: toIso(c.createdAt),
+        creditsBalance: creditsEnabled ? (balanceByCompany.get(c.id) ?? 0) : null,
+        consumption30d: consumption30dByCompany.get(c.id) || 0,
       };
     });
+  }
+
+  // ── S5 — KPIs do modelo crédito (leitura pura, flag OFF → null) ──────────────
+  // Recarga 30d + circulação REUSAM CreditsService.getMasterOverview (via DI — a
+  // query mora LÁ, 1 fonte só). Burn 7d = Σ débitos (kind='debit') dos últimos 7
+  // dias no ledger. "Empresas sem saldo" = MESMA régua da janela Créditos: tenants
+  // cujo saldo agregado (getBalancesByCompanyIds; ausente = 0) é <= 0.
+  private async buildCreditsBlock(): Promise<CreditsBlock | null> {
+    if (!isCreditsFeatureEnabled()) return null;
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    // Braços embrulhados em closures async: um throw SÍNCRONO de um braço (ex.:
+    // client sem o model em teste) vira rejeição tratada pelo Promise.all — nunca
+    // deixa a promise de outro braço rejeitando órfã (unhandledRejection).
+    const [creditsOverview, burnAgg, tenants] = await Promise.all([
+      (async () => this.credits.getMasterOverview())(),
+      (async () =>
+        this.prisma.creditLedgerEntry.aggregate({
+          where: { kind: 'debit', createdAt: { gte: since7d } },
+          _sum: { amount: true },
+        }))(),
+      (async () =>
+        this.prisma.company.findMany({
+          where: { companyKind: COMPANY_KIND_TENANT },
+          select: { id: true },
+        }))(),
+    ]);
+
+    const tenantIds = tenants.map((t) => Number(t.id));
+    const balances = await this.creditWallet.getBalancesByCompanyIds(tenantIds);
+    const companiesNoBalance = tenantIds.filter((id) => (balances.get(id) || 0) <= 0).length;
+
+    return {
+      revenueRecharge30d: money(creditsOverview.revenueRecharge30d),
+      revenueRecharge30dCount: Number(creditsOverview.revenueRecharge30dCount || 0),
+      creditsInCirculation: Number(creditsOverview.creditsInCirculation || 0),
+      burn7d: Number((burnAgg as any)._sum?.amount || 0),
+      companiesNoBalance,
+    };
+  }
+
+  // ── S5 — Funil de ativação: cadastros 30d → Ativou (1º consumo) → 1ª recarga ──
+  // Coorte = tenants criados nos últimos 30d. "Ativou" = tem >=1 débito REAL no
+  // ledger (kind='debit') — fonte escolhida e documentada no type ActivationFunnel.
+  // "1ª recarga" = >=1 FinanceiroCharge APROVADA com o prefixo de description que só
+  // a rota de recarga grava (mesmo predicado de CreditsService.getMasterOverview).
+  // Flag de créditos OFF → null (funil de ativação é semântica do modelo crédito).
+  private async buildActivationFunnel(): Promise<ActivationFunnel | null> {
+    if (!isCreditsFeatureEnabled()) return null;
+    const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const cohort = await this.prisma.company.findMany({
+      where: { companyKind: COMPANY_KIND_TENANT, createdAt: { gte: since30d } },
+      select: { id: true },
+    });
+    const cohortIds = cohort.map((c) => Number(c.id));
+    if (cohortIds.length === 0) {
+      return { signups30d: 0, activated30d: 0, recharged30d: 0, activationRate: 0, rechargeRate: 0 };
+    }
+
+    // Mesmo padrão de closures async do buildCreditsBlock (sem rejeição órfã).
+    const [debitGroups, rechargeGroups] = await Promise.all([
+      (async () =>
+        this.prisma.creditLedgerEntry.groupBy({
+          by: ['companyId'],
+          where: { companyId: { in: cohortIds }, kind: 'debit' },
+          _count: { _all: true },
+        }))(),
+      (async () =>
+        this.prisma.financeiroCharge.groupBy({
+          by: ['companyId'],
+          where: {
+            companyId: { in: cohortIds },
+            status: 'approved',
+            description: { startsWith: 'Recarga de créditos' },
+          },
+          _count: { _all: true },
+        }))(),
+    ]);
+
+    const signups30d = cohortIds.length;
+    const activated30d = (debitGroups as any[]).length;
+    const recharged30d = (rechargeGroups as any[]).length;
+    return {
+      signups30d,
+      activated30d,
+      recharged30d,
+      activationRate: signups30d > 0 ? Math.round((activated30d / signups30d) * 100) : 0,
+      rechargeRate: activated30d > 0 ? Math.round((recharged30d / activated30d) * 100) : 0,
+    };
   }
 
   // ── Drill-down: vendedores (ativados + carteira + comissão) ──────────────────

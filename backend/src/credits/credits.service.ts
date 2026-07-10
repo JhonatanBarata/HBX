@@ -210,11 +210,16 @@ export class CreditsService {
   /**
    * Agregados que NÃO são derivavéis do `/modules/master/companies` já carregado pelo /master
    * (que expõe `creditsBalance` por empresa, MESMA régua de `CreditWalletService.
-   * getBalancesByCompanyIds` — por isso "créditos em circulação" e "empresas sem saldo" são
-   * computados no FRONT a partir dali, sem duplicar a fonte de saldo aqui): receita de recarga
-   * (dinheiro, fonte é `FinanceiroCharge`) e o QUANTO expira nos próximos 30 dias (janela de
-   * tempo, não é "saldo agora"). Também devolve, por empresa, quantos LOTES ativos ela tem e a
-   * data do último débito — o front junta isso com `companies` (nome/saldo) na guia Empresas.
+   * getBalancesByCompanyIds` — por isso "empresas sem saldo" segue computado no FRONT a partir
+   * dali na janela Créditos): receita de recarga (dinheiro, fonte é `FinanceiroCharge`) e o
+   * QUANTO expira nos próximos 30 dias (janela de tempo, não é "saldo agora"). Também devolve,
+   * por empresa, quantos LOTES ativos ela tem e a data do último débito — o front junta isso
+   * com `companies` (nome/saldo) na guia Empresas.
+   *
+   * S5 (cockpit): `creditsInCirculation` = Σ `remaining` dos lotes ativos não expirados,
+   * agregado GLOBAL no banco (mesmo predicado de lote aberto de `openLotsFifo`/
+   * `getBalancesByCompanyIds`). Vive AQUI (1 fonte só) — o cockpit consome via DI em vez de
+   * reescrever a query.
    *
    * Receita de recarga: filtra pelo MESMO prefixo de description que
    * `CreditRechargeService.rechargeWithCard` grava (financeiro/credit-recharge.service.ts) — é
@@ -227,6 +232,7 @@ export class CreditsService {
     revenueRecharge30dCount: number;
     creditsExpiring30d: number;
     creditsExpiring30dLots: number;
+    creditsInCirculation: number;
     companies: Array<{ companyId: number; activeLots: number; lastConsumptionAt: string | null }>;
   }> {
     this.assertFeatureEnabled();
@@ -234,7 +240,7 @@ export class CreditsService {
     const in30d = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const since30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const [revenueAgg, expiringAgg, activeLotRows, lastDebitRows] = await Promise.all([
+    const [revenueAgg, expiringAgg, circulationAgg, activeLotRows, lastDebitRows] = await Promise.all([
       this.prisma.financeiroCharge.aggregate({
         where: {
           status: 'approved',
@@ -252,6 +258,16 @@ export class CreditsService {
         },
         _sum: { remaining: true },
         _count: { _all: true },
+      }),
+      // S5 — créditos em circulação: Σ remaining dos lotes ATIVOS (mesmo predicado de lote
+      // aberto de openLotsFifo/getBalancesByCompanyIds, agregado global no banco).
+      this.prisma.creditLedgerEntry.aggregate({
+        where: {
+          kind: { in: ['grant', 'recharge', 'promo'] },
+          remaining: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        _sum: { remaining: true },
       }),
       this.prisma.creditLedgerEntry.groupBy({
         by: ['companyId'],
@@ -289,6 +305,7 @@ export class CreditsService {
       revenueRecharge30dCount: Number((revenueAgg as any)._count?._all || 0),
       creditsExpiring30d: Number((expiringAgg as any)._sum?.remaining || 0),
       creditsExpiring30dLots: Number((expiringAgg as any)._count?._all || 0),
+      creditsInCirculation: Number((circulationAgg as any)._sum?.remaining || 0),
       companies,
     };
   }

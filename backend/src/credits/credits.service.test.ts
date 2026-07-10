@@ -1073,6 +1073,20 @@ test('getMasterOverview: por empresa devolve lotes ativos + data do último déb
   assert.equal(c2?.lastConsumptionAt, null); // nunca debitou
 });
 
+// ─── MASTER-REFAB S5 — créditos em circulação (consumido pelo cockpit via DI) ────────────────────
+
+test('getMasterOverview: créditos em circulação = Σ remaining de lotes ativos, líquido de débitos e sem lote expirado', async () => {
+  const { service, wallet } = buildService([1, 2]);
+  const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await wallet.grant(1, 10, { kind: 'grant', usageKey: 's5-a' });
+  await wallet.debit(1, 4, { actionKey: 'lead_delivery', usageKey: 's5-d1' }); // sobra 6
+  await wallet.grant(2, 7, { kind: 'grant', usageKey: 's5-b' }); // 7 vivos
+  await wallet.grant(2, 5, { kind: 'grant', usageKey: 's5-c', expiresAt: past }); // expirado, fora
+
+  const overview = await service.getMasterOverview();
+  assert.equal(overview.creditsInCirculation, 13); // 6 + 7
+});
+
 test('flag HBX_CREDITS_ENABLED OFF: getMasterOverview recusa (mesmo padrão dos outros endpoints master)', async () => {
   const { service } = buildService();
   delete process.env.HBX_CREDITS_ENABLED;
