@@ -625,7 +625,10 @@ function buildRemoteDeployScript(config, mode) {
     '    -e HBX_GOOGLE_EMERGENCY_MAX_PER_RUN=20 \\',
     '    -e HBX_QUEUE_STUCK_MINUTES=10 \\',
     '    -e HBX_ENGINE_MAX_BUSY_MINUTES=15 \\',
-    '    -p 3000:3000 \\',
+    // Bind SÓ em loopback: nginx faz proxy p/ 127.0.0.1:3000 e webwhats/front entram pelo domínio
+    // HTTPS — expor 0.0.0.0 deixava a API inteira atingível em VPS_IP:3000 fora do TLS/rate-limit
+    // (docker -p fura ufw via NAT; o bind local é o freio real).
+    '    -p 127.0.0.1:3000:3000 \\',
     '    -v "$HBX_HOST_DOCKER_CLI_PATH:/usr/bin/docker:ro" \\',
     '    -v /var/run/docker.sock:/var/run/docker.sock \\',
     '    -v "$APP_DIR/backend/public/uploads:/app/public/uploads" \\',
