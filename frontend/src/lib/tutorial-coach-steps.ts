@@ -98,7 +98,7 @@ const MODULE_STEPS: Array<{ id: string; title: string; body: string }> = [
   {
     id: "config",
     title: "O controle da empresa",
-    body: "Configurações guarda equipe, plano, módulos, preferências e ajustes da conta. O usuário comum vê menos; o dono controla mais.",
+    body: "Configurações guarda equipe, módulos, preferências e ajustes da conta. O usuário comum vê menos; o dono controla mais.",
   },
 ];
 
@@ -117,8 +117,8 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
   });
 
   // 2) Módulos na ordem REAL da sidebar — só os que o usuário vê. O Dashboard
-  // é o passo "limpo" (sem escurecer, texto que se escreve sozinho, na própria
-  // rota); os demais só destacam o item real do menu — SEM navegar.
+  // é o passo "limpo" (sem escurecer, texto instantâneo, na própria rota); os
+  // demais só destacam o item real do menu — SEM navegar.
   for (const def of MODULE_STEPS) {
     if (!visible.has(def.id)) continue;
     if (def.id === "dash") {
@@ -127,7 +127,6 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
         route: "/dashboard",
         title: def.title,
         body: def.body,
-        typewriter: true,
         plain: true,
         gate: "next",
       });

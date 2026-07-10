@@ -134,6 +134,11 @@ model Company {
   // dono. Vira filtro padrão do Radar/Leads e desempata o que cada empresa vê
   // primeiro — a lagoa é COMPARTILHADA, o "não repetir" é por empresa. JSON de strings.
   prospectingSegmentsJson String?
+  // OOBE POR CATEGORIA (PR10072026/02, 10/07): categorias de módulo que o DONO escolheu no
+  // primeiro acesso (ex.: ["radar","vendas"]). null/vazio = ainda não escolheu (portão
+  // pergunta). O mapa categoria→módulos vive em modules/module-categories.ts (fonte única);
+  // a escolha materializa post-its em CompanyModule (enabled true/false). ADITIVA, nullable.
+  moduleCategoriesJson    Json?
   // Régua única (PR13062026007 PF3): "Central de Implantação" do Full. Registro do
   // master do que foi acordado com este cliente (NÃO fia em cobrança/comissão sozinho
   // — isso é passo de dinheiro separado). setupValue = implantação (one-time);

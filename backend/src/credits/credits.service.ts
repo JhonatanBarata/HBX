@@ -437,11 +437,15 @@ export class CreditsService {
    * Idempotente em código por `usageKey` (`shadow:<actionKey>:<leadId>`) + `kind: 'debit_shadow'`
    * — o `@@unique([usageKey, parentEntryId])` do schema NÃO cobre este caso (parentEntryId fica
    * null aqui, e NULLs não colidem em unique no Postgres), então o `findFirst` abaixo É a trava.
+   *
+   * CRÉDITO UNIVERSAL (PR10072026): este é o escritor ÚNICO de shadow — o CreditMeterService
+   * (track de whatsapp/IA/logística) passa por aqui também. `leadId` é a REF idempotente da
+   * ação (historicamente o lead; hoje qualquer ref), `units` é o peso medido (default 1).
    */
   async recordShadowDebit(
     companyId: number,
     userId: number | null,
-    input: { leadId: string | number; actionKey: string },
+    input: { leadId: string | number; actionKey: string; units?: number },
   ): Promise<void> {
     if (!isCreditsShadowEnabled()) return;
     try {
@@ -450,6 +454,7 @@ export class CreditsService {
       const actionKey = String(input?.actionKey || '').trim();
       const leadId = String(input?.leadId ?? '').trim();
       if (!actionKey || !leadId) return;
+      const units = Math.max(1, Math.trunc(Number(input?.units ?? 1)) || 1);
 
       const usageKey = `shadow:${actionKey}:${leadId}`;
 
@@ -465,7 +470,7 @@ export class CreditsService {
           walletId: wallet.id,
           companyId: companyIdNum,
           kind: 'debit_shadow',
-          amount: 1,
+          amount: units,
           remaining: 0,
           actionKey,
           usageKey,
@@ -483,8 +488,8 @@ export class CreditsService {
    * Concede 1 lote `kind:'promo'`/`grantType:'promo'` (NUNCA receita — D3/S5) na hora em que
    * uma empresa TENANT self-service nasce (auth.service.ts: signupWithGoogle / signup).
    * Quantidade/validade vêm da config global do master (`welcomeCredits`/`welcomeExpiryDays`,
-   * default 30/30 — âncora de mercado: CNPJ.biz dá ~10 créditos de trial, 3x é argumento de
-   * venda). Idempotente por `usageKey: welcome:<companyId>` — 1 lote por empresa, PRA SEMPRE
+   * default 50/30 — dono cravou 50 em 06/07, modelo CNPJ.biz: email+telefone confirmados
+   * liberam o lote). Idempotente por `usageKey: welcome:<companyId>` — 1 lote por empresa, PRA SEMPRE
    * (retry/duplo-clique/reprocesso nunca duplica; `CreditWalletService.grant` já dedupa).
    *
    * Best-effort PURO (mesmo padrão do `recordShadowDebit` acima): nunca lança, nunca atrasa
@@ -621,6 +626,10 @@ export class CreditsService {
     const daily = resolveTeamPolicyStoredLimit(policy, 'cardDeliveryDaily');
     if (!monthly.applies && !daily.applies) return { blocked: false, scope: null };
 
+    // CRÉDITO UNIVERSAL (PR10072026): o teto do vendedor é de LEAD (monthlyCardsLimit /
+    // cardDeliveryDailyLimit — semântica de cards). Com actionKeys novos no ledger
+    // (whatsapp/IA/logística), contar todo `kind:debit` inflaria o teto com uso que não é
+    // lead — filtro explícito pela ação.
     if (monthly.applies) {
       const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
       const monthlyUsed = await this.prisma.creditLedgerEntry.count({
@@ -628,6 +637,7 @@ export class CreditsService {
           companyId,
           createdByUserId: userIdNum,
           kind: 'debit',
+          actionKey: 'lead_delivery',
           createdAt: { gte: monthStart },
         },
       }).catch(() => 0);
@@ -641,6 +651,7 @@ export class CreditsService {
           companyId,
           createdByUserId: userIdNum,
           kind: 'debit',
+          actionKey: 'lead_delivery',
           createdAt: { gte: dayStart },
         },
       }).catch(() => 0);

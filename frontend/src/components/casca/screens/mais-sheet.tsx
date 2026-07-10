@@ -16,8 +16,9 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS, type SignalState, subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
-import { apiFetch, clearToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, subscribeGeoUpdated, toggleGeoRadar } from "@/lib/geo-radar";
+import { logout } from "@/lib/logout";
 
 import { CascaSheet, toggleCascaFullscreen } from "../index";
 import { companyName, displayName, fmtWhen, type MasterNotice, useMaisCurrentUser } from "./mais-types";
@@ -243,12 +244,9 @@ export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => voi
   async function sair() {
     if (signingOut) return;
     setSigningOut(true);
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch { /* sessão já inválida — segue limpando o cliente */ }
-    clearToken();
-    try { localStorage.removeItem("hbx:brain:session-start"); } catch { /* sem storage */ }
-    router.replace("/login");
+    // Helper único (lib/logout.ts): POST best-effort + limpeza + transição de
+    // saída + landing.
+    await logout();
   }
 
   async function alternarTelaCheia() {

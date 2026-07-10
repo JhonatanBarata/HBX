@@ -1,4 +1,10 @@
 /* Entrada pública HBX — mesma paleta e tokens da cena de login. */
+
+/* Logado nunca vê a landing (W1): o boot inline de app/page.tsx marca o <html>
+   e navega pro /dashboard ANTES da pintura — isto esconde a casca no meio-tempo
+   (só layout, cor nenhuma). */
+html[data-hbx-authed] .public-entry { display: none; }
+
 .public-entry {
   --f1-bg: var(--hbx-background);
   --f1-bg-soft: var(--hbx-background-alt);
@@ -143,7 +149,9 @@
 
 .f1-product-wrap { position: relative; grid-area: product; width: calc(100% + clamp(52px, 6vw, 92px)); min-width: 0; margin-top: clamp(-24px, -2.8vh, -10px); margin-left: clamp(-92px, -5.5vw, -54px); perspective: 1400px; animation: f1-product-in 1.15s 0.24s var(--f1-ease) both; }
 .f1-product-aura { position: absolute; inset: 8% 4% -8%; border-radius: 42px; background: linear-gradient(130deg, var(--f1-accent-soft), var(--f1-blue-soft)); filter: blur(55px); opacity: 0.78; animation: f1-aura 5s ease-in-out infinite; }
-.f1-product { position: relative; height: clamp(430px, 59vh, 610px); overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-lg); background: var(--f1-surface); box-shadow: 0 42px 100px var(--f1-shadow), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(28px) saturate(135%); transform: rotateY(-2.4deg) rotateX(0.8deg); transform-origin: center; transition: transform 0.7s var(--f1-ease), box-shadow 0.7s ease; }
+/* margin-right (W1, hero mais separado): o desktop encolhe à direita e abre a
+   faixa de ar onde o celular flutua — desgrudado, não colado na borda. */
+.f1-product { position: relative; height: clamp(430px, 59vh, 610px); margin-right: clamp(96px, 8.5vw, 148px); overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-lg); background: var(--f1-surface); box-shadow: 0 42px 100px var(--f1-shadow), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(28px) saturate(135%); transform: rotateY(-2.4deg) rotateX(0.8deg); transform-origin: center; transition: transform 0.7s var(--f1-ease), box-shadow 0.7s ease; }
 .f1-product-wrap:hover .f1-product { transform: rotateY(0) rotateX(0) translateY(-4px); box-shadow: 0 52px 120px var(--f1-shadow), inset 0 1px 0 var(--f1-line); }
 .f1-product__bar { display: flex; height: 56px; padding: 0 18px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--f1-line); background: color-mix(in srgb, var(--f1-surface-solid) 72%, transparent); }
 .f1-product__dots { display: flex; gap: 5px; }
@@ -159,7 +167,7 @@
 .f1-product__rail span { display: grid; width: 37px; height: 37px; place-items: center; border-radius: 11px; color: var(--f1-text-soft); transition: color 0.35s ease, background 0.35s ease, transform 0.35s var(--f1-ease); }
 .f1-product__rail span.is-active { color: var(--f1-accent-ink); background: var(--f1-accent); box-shadow: 0 10px 24px var(--f1-accent-soft); animation: f1-nav-active 0.9s var(--f1-ease) both; }
 .f1-product__content { display: flex; min-width: 0; padding: clamp(18px, 2vw, 26px); flex-direction: column; }
-.f1-phone { position: absolute; z-index: 3; top: 22%; right: clamp(-42px, -3vw, -24px); display: block; width: clamp(178px, 15vw, 214px); aspect-ratio: 0.49; padding: 7px; overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: 38px; background: color-mix(in srgb, var(--f1-surface-solid) 90%, #000 10%); box-shadow: 18px 34px 60px var(--f1-shadow), -4px 0 0 var(--f1-line), inset 0 1px 0 var(--f1-line-strong); transform: rotate(7deg); transform-origin: 70% 50%; animation: f1-phone-float 5.8s ease-in-out infinite; }
+.f1-phone { position: absolute; z-index: 3; top: 30%; right: clamp(-36px, -2.5vw, -18px); display: block; width: clamp(168px, 13.5vw, 196px); aspect-ratio: 0.49; padding: 7px; overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: 38px; background: color-mix(in srgb, var(--f1-surface-solid) 90%, #000 10%); box-shadow: 18px 34px 60px var(--f1-shadow), -4px 0 0 var(--f1-line), inset 0 1px 0 var(--f1-line-strong); transform: rotate(6deg); transform-origin: 70% 50%; animation: f1-phone-float 5.8s ease-in-out infinite; }
 .f1-phone::after { content: ""; position: absolute; top: 24%; right: -2px; width: 3px; height: 15%; border-radius: 4px 0 0 4px; background: var(--f1-line-strong); }
 .f1-phone__notch { position: absolute; z-index: 3; top: 12px; left: 50%; width: 30%; height: 16px; border-radius: 999px; background: #080a09; box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08); transform: translateX(-50%); }
 .f1-phone__screen { display: flex; width: 100%; height: 100%; overflow: hidden; border: 1px solid var(--f1-line); border-radius: 31px; flex-direction: column; background: var(--f1-surface-solid); }
@@ -169,6 +177,14 @@
 .f1-phone__status i { display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--f1-success); }
 .f1-phone__canvas { position: relative; min-height: 0; flex: 1; overflow: hidden; border-top: 1px solid var(--f1-line); border-bottom: 1px solid var(--f1-line); }
 .f1-phone__canvas > .f1-screen { position: absolute; left: 0; top: 0; width: 166.667%; height: 166.667%; border: 0; border-radius: 0; box-shadow: none; transform: scale(0.6); transform-origin: top left; }
+/* Dentro do celular da vitrine o WhatsAppPreview vira SÓ a tela (o f1-phone já
+   é a moldura): frame/ilha/home do wa-phone somem — mesmo truque do
+   bot-builder (.bot-preview-dock). Só layout, cor nenhuma. */
+.f1-phone .f1-chat-screen { padding: 0; }
+.f1-phone .f1-chat-screen .wa-phone { height: 100%; max-width: none; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.f1-phone .wa-phone::before, .f1-phone .wa-phone::after { display: none; }
+.f1-phone .wa-phone__island, .f1-phone .wa-phone__home { display: none; }
+.f1-phone .wa-phone__screen { border-radius: 0; }
 .f1-phone__nav { display: flex; height: 48px; padding: 7px 11px; align-items: center; justify-content: space-around; color: var(--f1-text-soft); }
 .f1-phone__nav span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; color: var(--f1-text-soft); transition: color 0.35s ease, background 0.35s ease, transform 0.35s var(--f1-ease); }
 .f1-phone__nav span.is-active { color: var(--f1-accent-ink); background: var(--f1-accent); animation: f1-nav-active 0.9s var(--f1-ease) both; }
@@ -181,19 +197,13 @@
 .f1-screen-slot { position: relative; min-height: 0; flex: 1; margin-top: 18px; animation: f1-screen-in 1.08s var(--f1-ease) both; }
 .f1-screen { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-md); background: color-mix(in srgb, var(--f1-surface-solid) 82%, transparent); box-shadow: inset 0 1px 0 var(--f1-line); }
 
-/* Radar */
+/* Radar — o DISCO REAL do /leads (components/hbx/radar-disc.tsx, CSS .radar*
+   do screens.css) no lugar do mapa fake (W1). Aqui só o encaixe (layout). */
 .f1-radar-screen { background-image: radial-gradient(circle at 45% 50%, var(--f1-accent-soft), transparent 38%), linear-gradient(var(--f1-line) 1px, transparent 1px), linear-gradient(90deg, var(--f1-line) 1px, transparent 1px); background-size: auto, 34px 34px, 34px 34px; }
-.f1-map { position: absolute; left: 5%; top: 8%; width: 62%; height: 84%; overflow: hidden; border-radius: 50%; }
-.f1-map::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: var(--f1-accent); box-shadow: 0 0 22px var(--f1-accent); transform: translate(-50%, -50%); }
-.f1-map__ring { position: absolute; left: 50%; top: 50%; border: 1px solid var(--f1-line-strong); border-radius: 50%; transform: translate(-50%, -50%); }
-.f1-map__ring--one { width: 42%; aspect-ratio: 1; }
-.f1-map__ring--two { width: 76%; aspect-ratio: 1; }
-.f1-map__sweep { position: absolute; left: 50%; top: 50%; width: 42%; height: 2px; background: linear-gradient(90deg, var(--f1-accent), transparent); transform-origin: left center; animation: f1-radar-sweep 3.2s linear infinite; }
-.f1-map__node { position: absolute; width: 8px; height: 8px; border: 2px solid var(--f1-surface-solid); border-radius: 50%; background: var(--f1-blue); box-shadow: 0 0 0 5px var(--f1-blue-soft); animation: f1-node 2s ease-in-out infinite; }
-.f1-map__node--one { left: 28%; top: 32%; }
-.f1-map__node--two { left: 68%; top: 26%; animation-delay: -0.7s; }
-.f1-map__node--three { left: 67%; top: 70%; animation-delay: -1.4s; }
-.f1-float-list { position: absolute; right: 4%; top: 12%; display: grid; width: 45%; gap: 8px; }
+.f1-radar-live { position: absolute; left: 4%; top: 6%; bottom: 6%; width: 54%; display: grid; place-items: center; container-type: size; }
+/* disco = menor lado do slot (nunca vaza pra cima da lista flutuante) */
+.f1-radar-live .radar-disc-wrap { width: min(100cqw, 100cqh); height: auto; max-width: none; aspect-ratio: 1; }
+.f1-float-list { position: absolute; right: 4%; top: 12%; display: grid; width: 40%; gap: 8px; }
 .f1-float-list article { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); box-shadow: 0 12px 30px var(--f1-shadow-soft); backdrop-filter: blur(18px); animation: f1-card-float 4s ease-in-out infinite; }
 .f1-float-list article:nth-child(2) { animation-delay: -1.2s; }
 .f1-float-list article:nth-child(3) { animation-delay: -2.4s; }
@@ -219,29 +229,12 @@
 .f1-flow-line { position: absolute; left: 9%; right: 9%; bottom: 13px; height: 2px; overflow: hidden; border-radius: 99px; background: var(--f1-line); }
 .f1-flow-line span { display: block; width: 28%; height: 100%; border-radius: inherit; background: var(--f1-accent); box-shadow: 0 0 12px var(--f1-accent); animation: f1-flow 2.4s ease-in-out infinite; }
 
-/* WhatsApp */
-.f1-chat-screen { display: grid; grid-template-columns: 35% 65%; }
-.f1-chat-list { display: flex; padding: 13px 9px; flex-direction: column; gap: 6px; border-right: 1px solid var(--f1-line); }
-.f1-chat-list article { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; padding: 9px 7px; border-radius: 10px; }
-.f1-chat-list article.is-current { background: var(--f1-accent-soft); }
-.f1-chat-list article > i,
-.f1-conversation header > i { display: grid; flex: 0 0 auto; width: 26px; height: 26px; place-items: center; border-radius: 50%; color: var(--f1-accent-ink); background: var(--f1-accent); font-size: 0.48rem; font-style: normal; font-weight: 800; }
-.f1-chat-list article > span,
-.f1-conversation header > span { display: grid; min-width: 0; gap: 2px; }
-.f1-chat-list b,
-.f1-conversation header b { overflow: hidden; font-size: 0.55rem; text-overflow: ellipsis; white-space: nowrap; }
-.f1-chat-list small,
-.f1-conversation header small { color: var(--f1-text-soft); font-size: 0.45rem; }
-.f1-conversation { position: relative; display: flex; padding: 12px; flex-direction: column; background-image: radial-gradient(circle at 70% 40%, var(--f1-blue-soft), transparent 46%); }
-.f1-conversation header { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--f1-line); }
-.f1-bubble { width: max-content; max-width: 70%; margin-top: 16px; padding: 9px 11px; border: 1px solid var(--f1-line); border-radius: 5px 12px 12px 12px; background: var(--f1-surface-up); font-size: 0.55rem; animation: f1-bubble-in 0.5s 0.1s var(--f1-ease) both; }
-.f1-bubble.is-outgoing { align-self: flex-end; border-radius: 12px 5px 12px 12px; color: var(--f1-accent-ink); background: var(--f1-accent); animation-delay: 0.45s; }
-.f1-typing { display: flex; width: max-content; gap: 3px; margin-top: 8px; padding: 7px 9px; border-radius: 5px 11px 11px 11px; background: var(--f1-surface-up); }
-.f1-typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--f1-text-soft); animation: f1-typing 1.2s ease-in-out infinite; }
-.f1-typing i:nth-child(2) { animation-delay: 0.15s; }
-.f1-typing i:nth-child(3) { animation-delay: 0.3s; }
-.f1-conversation footer { display: flex; height: 32px; margin-top: auto; padding: 0 10px; align-items: center; justify-content: space-between; border: 1px solid var(--f1-line); border-radius: 999px; color: var(--f1-text-soft); background: var(--f1-surface-solid); font-size: 0.49rem; }
-.f1-conversation footer .f1-icon { color: var(--f1-accent); }
+/* WhatsApp — o <WhatsAppPreview> REAL do app (CSS .wa-* em whatsapp.css) com
+   conversa demo, no lugar do chat fake (W1). Aqui só o encaixe (layout):
+   dentro do mock desktop o frame do celular fica sem moldura dupla exagerada,
+   centrado e limitado à altura do slot. */
+.f1-chat-screen { display: grid; place-items: center; padding: 12px; background-image: radial-gradient(circle at 70% 40%, var(--f1-blue-soft), transparent 46%); }
+.f1-chat-screen .wa-phone { height: 100%; max-height: 100%; max-width: 236px; }
 
 /* Entrega */
 .f1-route-map { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(135deg, var(--f1-blue-soft), transparent 70%); }
@@ -304,20 +297,16 @@
 @keyframes f1-title-in { from { opacity: 0; transform: translateY(115%) rotate(2deg); } to { opacity: 1; transform: translateY(0) rotate(0); } }
 @keyframes f1-line-draw { to { transform: scaleX(1); } }
 @keyframes f1-product-in { from { opacity: 0; transform: translateX(50px) scale(0.94); } to { opacity: 1; transform: translateX(0) scale(1); } }
-@keyframes f1-phone-float { 0%, 100% { transform: rotate(7deg) translateY(0); } 50% { transform: rotate(5deg) translateY(-11px); } }
+@keyframes f1-phone-float { 0%, 100% { transform: rotate(6deg) translateY(0); } 50% { transform: rotate(4deg) translateY(-11px); } }
 @keyframes f1-nav-active { from { opacity: 0.6; transform: scale(0.72); } 70% { transform: scale(1.08); } to { opacity: 1; transform: scale(1); } }
 @keyframes f1-screen-in { from { opacity: 0; transform: translateX(22px) scale(0.985); } to { opacity: 1; transform: translateX(0) scale(1); } }
 @keyframes f1-orb-drift { to { transform: translate3d(6vw, 4vh, 0) scale(1.18); } }
 @keyframes f1-bars { 0%, 100% { transform: skewY(-24deg) scaleY(0.7); } 50% { transform: skewY(-24deg) scaleY(1); } }
 @keyframes f1-aura { 0%, 100% { opacity: 0.58; transform: scale(0.94); } 50% { opacity: 0.9; transform: scale(1.03); } }
 @keyframes f1-live { 50% { opacity: 0.35; transform: scale(0.75); } }
-@keyframes f1-radar-sweep { to { transform: rotate(360deg); } }
-@keyframes f1-node { 50% { transform: scale(1.35); box-shadow: 0 0 0 9px var(--f1-blue-soft); } }
 @keyframes f1-card-float { 50% { transform: translateY(-5px); } }
 @keyframes f1-kanban-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes f1-flow { 0% { transform: translateX(-110%); } 100% { transform: translateX(370%); } }
-@keyframes f1-bubble-in { from { opacity: 0; transform: translateY(8px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes f1-typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-3px); opacity: 1; } }
 @keyframes f1-route-move { to { stroke-dashoffset: -18; } }
 @keyframes f1-van { 0%, 100% { transform: translate(-12px, 10px) rotate(-4deg); } 50% { transform: translate(18px, -13px) rotate(3deg); } }
 @keyframes f1-card-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
@@ -357,16 +346,22 @@
   clip-path: inset(0 round var(--f1-radius-lg));
   pointer-events: auto;
 }
+/* Casca COMPLETA do card embutido (W1: o .login-console base do screens.css
+   morreu junto com a tela /login — o que o embedded usava veio pra cá). */
 .public-entry .login-console--embedded {
   --login-accent: var(--f1-accent);
+  position: relative;
+  display: grid;
   min-height: 0;
   height: 100%;
   padding: clamp(18px, 3vh, 34px) clamp(20px, 5vw, 72px);
   grid-template-columns: minmax(0, 420px);
+  align-items: center;
   place-content: center;
   justify-items: center;
   background: transparent;
 }
+.public-entry .login-console--embedded .card .field-dark { min-height: 44px; line-height: 44px; cursor: text; caret-color: var(--login-accent); }
 .public-entry .login-console--embedded .login-shell {
   width: min(420px, 100%);
   justify-items: stretch;
@@ -399,7 +394,8 @@
   .f1-hero { grid-template-columns: minmax(320px, 0.86fr) minmax(440px, 1.14fr); column-gap: 28px; }
   .f1-copy h1 { font-size: clamp(3.8rem, 6.1vw, 5.3rem); }
   .f1-product-wrap { width: calc(100% + 52px); margin-left: -38px; }
-  .f1-phone { width: 176px; right: -22px; }
+  .f1-product { margin-right: 68px; }
+  .f1-phone { width: 172px; right: -16px; }
   .f1-stage-intro { display: none; }
   .f1-stage-shell { grid-template-columns: minmax(0, 1fr) 48px; }
 }
@@ -434,7 +430,7 @@
   .f1-whatsapp-mini { width: 40px; height: 40px; border-radius: 12px; }
   .f1-product-wrap { width: 100%; margin-top: 2px; margin-left: 0; }
   .f1-phone { display: none; }
-  .f1-product { height: min(116vw, 490px); min-height: 410px; border-radius: 23px; transform: none; }
+  .f1-product { height: min(116vw, 490px); min-height: 410px; margin-right: 0; border-radius: 23px; transform: none; }
   .f1-product-wrap:hover .f1-product { transform: translateY(-3px); }
   .f1-product__bar { height: 50px; }
   .f1-product__body { height: calc(100% - 50px); grid-template-columns: 48px minmax(0, 1fr); }
@@ -444,11 +440,10 @@
   .f1-screen-head > b { display: none; }
   .f1-screen-head strong { font-size: 0.96rem; }
   .f1-screen-slot { margin-top: 13px; }
-  .f1-float-list { right: 3%; width: 52%; }
-  .f1-map { left: -3%; width: 70%; }
+  .f1-float-list { right: 3%; width: 48%; }
+  .f1-radar-live { left: -2%; width: 56%; }
   .f1-kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .f1-kanban section:nth-child(2) { display: none; }
-  .f1-chat-screen { grid-template-columns: 31% 69%; }
 }
 
 @media (max-width: 430px) {

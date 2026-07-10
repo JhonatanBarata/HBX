@@ -6,30 +6,14 @@
    carregado entre rotas — ver doc do PR.
    ============================================================ */
 
-/* ---------- Login.html ---------- */
+/* ---------- Auth (login embutido na landing + register/reset/confirm) ---------- */
 body { min-height: 100vh; }
-/* Auth (criar conta/reset/confirmar) = MESMA cena do login: robô full-bleed (fixo) +
-   cor ciclando (.hbx-scene), card opaco por cima. NÃO é mais o split legado de pitch. */
-.login-split { position: relative; min-height: 100vh; overflow-x: hidden; background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background)); }
-.login-split .login-art { position: fixed; }
-.login-split__brand { position: fixed; top: clamp(18px, 4vh, 36px); left: clamp(20px, 5vw, 56px); z-index: 2; }
-.brand-side { position: relative; display: flex; flex-direction: column; justify-content: space-between; padding: 44px 48px; background:
-  radial-gradient(circle at 80% 10%, color-mix(in srgb, var(--login-accent) 10%, transparent), transparent 40%),
-  var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); overflow: hidden; }
-.brand-side::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px); background-size: 22px 22px; opacity: 0.5; }
-.brand-side > * { position: relative; }
 /* mesma marca persistente do app (.logo): morfa do login para o sistema */
 .bl { display: flex; align-items: center; gap: 10px; view-transition-name: hbx-brand; }
 .bl strong { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; }
-.pitch h1 { margin: 0 0 12px; font-family: var(--font-display); font-size: 2.1rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; max-width: 16ch; }
-.pitch p { margin: 0 0 26px; color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; max-width: 44ch; }
-.feat { display: grid; gap: 12px; }
-.feat .it { display: flex; gap: 11px; align-items: center; font-size: 0.84rem; color: var(--text-body); font-weight: 600; }
-.feat .ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--login-accent) 35%, transparent); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--login-accent) 8%, transparent); flex: 0 0 auto; }
-.foot { font-size: 0.66rem; color: var(--text-muted); }
-.form-side { position: relative; z-index: 1; min-height: 100vh; display: grid; place-items: center; padding: clamp(72px, 10vh, 104px) clamp(20px, 5vw, 64px) 48px; }
-/* O card de auth (e seus campos) vale nos DOIS shells: .login-split (2 colunas:
-   register/reset) e .login-console (3 painéis: login restaurada 14/06). */
+/* O card de auth (e seus campos) vale nos DOIS shells: .register-entry
+   (register/reset/confirm) e .login-console--embedded (card do login na
+   landing — W1). O split legado e a cena do robô (HbxScene) morreram (W3). */
 .hbx-scene .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 /* Variante opt-in p/ telas com leitura longa (contrato/onboarding) — não afeta login */
 .hbx-scene .is-wide .card { width: min(720px, 100%); }
@@ -47,110 +31,32 @@ body { min-height: 100vh; }
 .ok.warn { border-color: color-mix(in srgb, var(--hbx-warning) 35%, transparent); background: color-mix(in srgb, var(--hbx-warning) 8%, transparent); color: var(--hbx-warning); }
 .ok.bad { border-color: color-mix(in srgb, var(--hbx-danger) 30%, transparent); background: color-mix(in srgb, var(--hbx-danger) 8%, transparent); color: var(--hbx-danger); }
 
-/* ---------- Login — DOIS estados no mesmo DOM, via grid de 3 colunas que ANIMA
-   (ordem do dono 14/06). Visual ON: card à ESQUERDA + cena/robô à direita.
-   Visual OFF (.is-plain): card CENTRALIZADO + painéis laterais EMERGINDO, sem
-   robô/efeitos. grid-template-columns interpola → a troca desliza. Login é
-   UNIVERSAL (mesma cara em toda pele). Fundo segue a cor do tema, +claro. ---------- */
-.login-console {
-  position: relative; min-height: 100vh; overflow: hidden;
-  display: grid; grid-template-columns: minmax(0, 0fr) minmax(340px, 420px) minmax(0, 1fr);
-  align-items: center; gap: clamp(16px, 3vw, 40px); padding: 32px clamp(24px, 5vw, 72px);
-  background: transparent;
-  transition: grid-template-columns 0.91s var(--ease-out-quint), gap 0.91s var(--ease-out-quint);
-}
-/* Visual OFF: card no centro, painéis ocupam as laterais (1fr cada). */
-.login-console.is-plain { grid-template-columns: minmax(0, 1fr) minmax(340px, 420px) minmax(0, 1fr); }
-
-/* Cena/robô: full-bleed atrás de tudo. url() não é cor → pode aqui. */
-.login-art { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: 1; transition: opacity 0.78s var(--ease-out-quint); }
-.login-art__frame { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 90s linear infinite; }
-.login-art__frame:nth-child(1) { background-image: url("/robo-blue.png"); animation-delay: 0s; }
-.login-art__frame:nth-child(2) { background-image: url("/robo-purple.png"); animation-delay: -18s; }
-.login-art__frame:nth-child(3) { background-image: url("/robo-magenta.png"); animation-delay: -36s; }
-.login-art__frame:nth-child(4) { background-image: url("/robo-crimson.png"); animation-delay: -54s; }
-.login-art__frame:nth-child(5) { background-image: url("/robo-amber.png"); animation-delay: -72s; }
-/* MODO CLARO: cada quadro ganha uma CAMADA clara por cima (::after) que faz
-   CROSS-FADE ao trocar de modo — background-image não anima, então uso camada +
-   opacity. As fotos claras PRECISAM ter o robô no MESMO lugar/tamanho das
-   escuras (mesmo enquadramento; só muda luz/céu) — senão o robô "desliza" no
-   fade. Mesma ordem dos quadros: 1 azul · 2 roxo · 3 magenta · 4 carmesim · 5 âmbar. */
-.login-art__frame::after { content: ""; position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; opacity: 0; transition: opacity 0.9s var(--ease-out-quint); }
-[data-theme-mode="light"] .login-art__frame::after { opacity: 1; }
-.login-art__frame:nth-child(1)::after { background-image: url("/blue light.png"); }
-.login-art__frame:nth-child(2)::after { background-image: url("/purple light.png"); }
-.login-art__frame:nth-child(3)::after { background-image: url("/magenta light.png"); }
-.login-art__frame:nth-child(4)::after { background-image: url("/crimson light.png"); }
-.login-art__frame:nth-child(5)::after { background-image: url("/amber light.png"); }
-/* escurece FORTE a esquerda (backdrop do texto/card, segue o modo) e libera a direita */
-.login-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-background) 100%, transparent) 0%, color-mix(in srgb, var(--hbx-background) 94%, transparent) 42%, transparent 71%); }
-@keyframes hbx-robo-cycle {
-  /* troca LIMPA: cada robô segura opacidade 1 até o PRÓXIMO já estar 100% por cima,
-     e só então some (por trás dele) — nunca abre brecha pro fundo vazar ("wash" na transição). */
-  0% { opacity: 0; } 5% { opacity: 1; } 25% { opacity: 1; } 30% { opacity: 0; } 100% { opacity: 0; }
-}
-/* CHROME acompanha a COR PREDOMINANTE da foto (@property interpola sem pulo).
-   As janelas SEGURAM a cor enquanto o robô daquela cor está 100% na tela
-   (op1 do hbx-robo-cycle) e só MORFAM durante o cross-fade — assim a cor
-   nunca foge do robô visível. Janelas op1: azul 4–20%, âmbar 24–40%,
-   carmesim 44–60%, magenta 64–80%, roxo 84–100% (volta pro azul em 0–4%). */
-@keyframes login-accent {
-  /* janelas ALINHADAS às do robô (hbx-robo-cycle): azul 5-25, âmbar 25-45,
-     carmesim 45-65, magenta 65-85, roxo 85-100 — robô e cor mudam JUNTOS. */
-  0% { --login-accent: var(--login-cycle-5); }            /* roxo    */
-  5%, 23% { --login-accent: var(--login-cycle-1); }       /* azul    */
-  25%, 43% { --login-accent: var(--login-cycle-2); }      /* âmbar   */
-  45%, 63% { --login-accent: var(--login-cycle-3); }      /* carmesim*/
-  65%, 83% { --login-accent: var(--login-cycle-4); }      /* magenta */
-  85%, 100% { --login-accent: var(--login-cycle-5); }     /* roxo    */
-}
+/* ---------- Login: SÓ o card embutido na landing (W1 10/07 — o /login
+   cinematográfico de 2 estados/3 colunas morreu; a casca do card vive em
+   public-entry.css: .login-console--embedded). A cena do robô (.login-art +
+   robo-*.png) morreu no W3 — register/reset/confirm viraram card limpo
+   (.register-entry). ---------- */
 
 /* ============================================================
-   PRINCIPAL da CENA COMPARTILHADA (regra absoluta do CLAUDE.md / 5 Leis:
-   visual repetido = classe central, NUNCA espalhado por tela). A COR que
-   cicla (var(--login-accent)) é ligada AQUI, num só lugar. Toda superfície
-   que usa o MESMO fundo/cena DERIVA daqui só recebendo a classe .hbx-scene:
-   login, cadastro/reset, site — e planos/checkout/pagamentos quando entrarem.
-   Proibido redeclarar a animação por tela. ATENÇÃO: aplicar na CENA (container do
-   robô/accent), NUNCA no mesmo elemento que tem .hbx-page (page-enter) — os dois usam
-   `animation` e colidem, matando o ciclo. Por isso no site a classe fica em .site-scene
-   (não em .site). ============================================================ */
+   PRINCIPAL do accent das superfícies de auth (regra das 5 Leis: visual
+   repetido = classe central). var(--login-accent) nasce AQUI, num só lugar —
+   login embutido, register/reset/confirm e o painel de pagamento derivam
+   recebendo a classe .hbx-scene. (O ciclo de cor da cena antiga morreu com o
+   robô; o valor é estático — a landing sobrepõe com --f1-accent.)
+   ============================================================ */
 /* pele-allow: entrada V1.0 — accent da cena pública (mundo visual do site) */
 .hbx-scene { --login-accent: #4f9bff; }
 /* pele-allow-end */
-@media (prefers-reduced-motion: reduce) { .hbx-scene { animation: none; } }
 
-/* CONTRASTE do texto direto SOBRE a cena (robô): halo de sombra pra legibilidade
-   nos 2 temas. Regra ÚNICA aqui — vale em toda .hbx-scene: login (.login-intro__*)
-   e site (.site-eyebrow/.site-title/.site-sub). Não repetir por tela. */
-.hbx-scene :is(.login-intro__title, .site-title) { text-shadow: 0 2px 20px color-mix(in srgb, #000 60%, transparent); }
-.hbx-scene :is(.login-intro__sub, .site-eyebrow, .site-sub) { text-shadow: 0 1px 12px color-mix(in srgb, #000 50%, transparent); }
-/* Névoa: embaça da metade pra esquerda; no claro, clareia SÓ essa região. */
-.login-fog { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(10.4px); backdrop-filter: blur(10.4px); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 58%); mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 58%); transition: opacity 0.78s var(--ease-out-quint); }
-[data-theme-mode="light"] .login-fog { background: color-mix(in srgb, var(--hbx-surface) 55%, transparent); }
-
+/* CONTRASTE do texto direto sobre a cena: halo de sombra pra legibilidade nos
+   2 temas. Regra ÚNICA aqui — vale em toda .hbx-scene (.login-intro__*). */
+.hbx-scene .login-intro__title { text-shadow: 0 2px 20px color-mix(in srgb, #000 60%, transparent); }
+.hbx-scene .login-intro__sub { text-shadow: 0 1px 12px color-mix(in srgb, #000 50%, transparent); }
 /* Coluna do meio: escrita + card. */
 .login-shell { position: relative; z-index: 2; width: 100%; display: grid; gap: 18px; align-content: center; justify-items: start; }
 .login-intro { display: grid; gap: 8px; }
 .login-intro__title { margin: 0; font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--text-strong); max-width: 18ch; }
 .login-intro__sub { margin: 0; font-size: 0.88rem; line-height: 1.5; color: var(--text-body); max-width: 36ch; }
-
-/* Painéis laterais: somem (clipados pela coluna 0fr) no Visual ON; EMERGEM do
-   centro no Visual OFF (opacity + sai de trás do card). */
-.login-side { position: relative; z-index: 2; min-width: 0; display: flex; opacity: 0; transition: opacity 0.65s var(--ease-out-quint), transform 0.78s var(--ease-out-quint); }
-.login-side--left { justify-content: flex-end; transform: translateX(38%) scale(0.9); }
-.login-side--right { justify-content: flex-start; transform: translateX(-38%) scale(0.9); }
-.login-console.is-plain .login-side { opacity: 1; transform: none; }
-.login-side__panel { width: min(300px, 100%); display: grid; gap: 12px; padding: 20px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 86%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: var(--shadow-md); }
-.login-side__header { font-family: var(--font-display); font-size: 0.72rem; font-weight: 800; letter-spacing: var(--tracking-overline); text-transform: uppercase; color: var(--text-muted); }
-.login-microcard { display: flex; gap: 11px; align-items: flex-start; padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); }
-.login-microcard .ic { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--login-accent) 30%, transparent); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--login-accent) 8%, transparent); }
-.login-microcard .tx { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.login-microcard .tx strong { font-size: 0.8rem; }
-.login-microcard .tx span { font-size: 0.68rem; color: var(--text-body); line-height: 1.4; }
-.login-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--hbx-success); flex: 0 0 auto; align-self: center; box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-success) 18%, transparent); }
-.login-side__footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; color: var(--text-body); }
-.login-side__footer svg { color: var(--hbx-brand-strong); }
 
 /* card, botão, links e foco seguem a cor do TEMA (var(--login-accent)) — não cicla.
    Chaveado pelo PRINCIPAL .hbx-scene: vale em TODA superfície que receba a
@@ -168,8 +74,6 @@ body { min-height: 100vh; }
 .hbx-scene .card .sub, .hbx-scene .card .f label, .hbx-scene .card .row label { color: var(--text-body); }
 .hbx-scene .card .btn-teal { background: linear-gradient(135deg, var(--login-accent), color-mix(in srgb, var(--login-accent) 58%, var(--hbx-surface))); box-shadow: var(--shadow-inset), 0 16px 32px -18px color-mix(in srgb, var(--login-accent) 75%, transparent); }
 .hbx-scene .link { color: var(--login-accent); }
-.login-console .login-shell, .login-console .card, .login-console .f { position: relative; z-index: 10; pointer-events: auto; }
-.login-console .card .field-dark { min-height: 44px; line-height: 44px; cursor: text; caret-color: var(--login-accent); }
 .hbx-scene .card .field-dark { position: relative; z-index: 11; pointer-events: auto; cursor: text; }
 .hbx-scene .field-dark:focus { border-color: var(--login-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 26%, transparent); }
 .hbx-scene .row input { accent-color: var(--login-accent); }
@@ -177,35 +81,10 @@ body { min-height: 100vh; }
 .login-or { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin: 2px 0; color: var(--text-muted); font-size: 0.72rem; font-weight: 600; }
 .login-or::before, .login-or::after { content: ""; height: 1px; background: var(--border-hairline); }
 
-/* Toggle "Visual" (topo-direito, ao lado do tema): pílula de vidro + switch .sw. */
-.login-visual-toggle { position: fixed; top: 14px; right: 62px; z-index: 11; display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--hbx-surface) 72%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-size: 0.72rem; font-weight: 700; color: var(--text-body); box-shadow: var(--shadow-sm); }
-
-/* SAÍDA (ao Entrar, Visual ON): esmaece tudo que não é foto + zoom na cena. */
-.login-shell { transition: opacity 0.65s var(--ease-out-quint); }
-.login-console.is-leaving .login-shell, .login-console.is-leaving .login-fog { opacity: 0; }
-.login-console.is-leaving .login-art { transform: scale(1.06); transition: transform 1.56s var(--ease-out-quint); }
-
-/* Visual OFF: esconde só o robô + a névoa, mas MANTÉM a cor do login ciclando
-   (mais leve). O importante: as DUAS animações (cor + robô) NUNCA param nem
-   reiniciam ao ligar/desligar o Visual, então nunca dessincronizam. Por isso a
-   cor do login é PRÓPRIA/universal e NÃO segue a marca do tema — ordem do dono. */
-.login-console.is-plain .login-art, .login-console.is-plain .login-fog { opacity: 0; }
 .alt button { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
 
 @media (max-width: 1000px) {
-  .login-console, .login-console.is-plain { grid-template-columns: 1fr; justify-items: center; }
-  .login-side { display: none; }
   .login-shell { justify-items: center; text-align: center; }
-}
-@media (max-width: 720px) {
-  .login-console { padding: 24px; }
-  .login-fog { -webkit-mask-image: none; mask-image: none; }
-  .login-visual-toggle { right: 58px; padding: 5px 10px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .login-art__frame { animation: none; }
-  .login-art__frame:nth-child(1) { opacity: 1; }
-  .login-console { animation: none; transition: none; }
 }
 
 /* ---------- Coachmark do tutorial (tour guiado estilo jogo) ----------
@@ -258,7 +137,7 @@ body { min-height: 100vh; }
 @keyframes tut-spot-pulse-dot { 0%, 100% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
 
 /* Passo "limpo" (resumo de Dashboard/Relatórios): NÃO escurece a tela — balão no
-   rodapé-centro, mais largo, pra você ver o painel atrás enquanto o resumo "digita". */
+   rodapé-centro, mais largo, pra você ver o painel atrás enquanto lê o resumo. */
 .tut-balloon.is-plain { left: 50%; bottom: 26px; top: auto; transform: translateX(-50%);
   width: min(560px, calc(100vw - 32px)); padding: 18px 20px 16px;
   animation: tut-pop-in-plain 0.36s var(--ease-out-quint) both; }
@@ -272,11 +151,6 @@ body { min-height: 100vh; }
 .tut-balloon.is-centered.is-leaving { transform: translate(-50%, -47%) scale(0.98); }
 .tut-balloon.is-plain.is-leaving { transform: translateX(-50%) translateY(12px); }
 .tut-veil.is-leaving { animation: none; opacity: 0; transition: opacity 0.2s var(--ease-out-quint); }
-
-/* Caret do typewriter. */
-.tut-caret { display: inline-block; width: 2px; height: 1em; margin-left: 1px; vertical-align: text-bottom;
-  background: var(--hbx-brand-strong); animation: tut-caret-blink 0.9s steps(1) infinite; }
-@keyframes tut-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
 /* Imagem ilustrativa (ex.: Meta no passo do Atendimento desligado). */
 .tut-img { width: 100%; max-height: 168px; object-fit: contain; border-radius: var(--radius-md);
@@ -306,7 +180,7 @@ body { min-height: 100vh; }
 .tut-btn:disabled { opacity: 0.6; cursor: progress; transform: none; filter: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .tut-spot { animation: none; } .tut-hint__dot { animation: none; } .tut-caret { animation: none; }
+  .tut-spot { animation: none; } .tut-hint__dot { animation: none; }
   .tut-balloon, .tut-balloon.is-centered, .tut-balloon.is-plain, .tut-veil { animation: none; }
   .tut-balloon.is-leaving, .tut-veil.is-leaving { transition: none; } }
 
@@ -553,18 +427,10 @@ html, body { height: 100%; }
 }
 .bv-hero .orb { position: absolute; right: -38px; top: -46px; width: 168px; height: 168px; border-radius: var(--radius-pill); background: radial-gradient(circle, color-mix(in srgb, var(--hbx-brand-contrast) 28%, transparent), transparent 70%); pointer-events: none; }
 .bv-hero .kicker { position: relative; font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85; }
-.bv-hero .bv-tag { position: relative; display: inline-flex; align-items: center; padding: 4px 11px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--hbx-brand-contrast) 20%, transparent); font-size: 0.66rem; font-weight: 700; }
 .bv-hero h2 { position: relative; margin: 10px 0 0; font-family: var(--font-display); font-size: var(--text-h2); font-weight: 800; letter-spacing: -0.01em; line-height: 1.14; }
 .bv-hero p { position: relative; margin: 9px 0 0; font-size: 0.84rem; line-height: 1.55; opacity: 0.93; max-width: 48ch; }
 .bv-body { padding: 22px 30px 26px; display: grid; gap: 15px; }
 .bv-hint { font-size: 0.71rem; line-height: 1.5; color: var(--text-muted); }
-.bv-field { display: grid; gap: 6px; }
-.bv-field > label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
-.bv-row { display: flex; gap: 8px; align-items: center; }
-.bv-row .field-dark { flex: 1; }
-/* Ramo no primeiro acesso (14/06): grade de chips do kit (btn-ghost/btn-teal). */
-.bv-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.bv-chips > button { min-height: 34px; padding: 6px 12px; font-size: 0.74rem; }
 /* Linha de chips de rodapé de painel (resultado/avisos) — kit central, sem
    inline na tela (Lei 5). Usada por puxar-leads-panel e afins. */
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 16px 12px; }
@@ -702,341 +568,15 @@ html, body { height: 100%; }
 [data-theme-mode="dark"] .chan-ico--instagram { background-image: url("/Icones/instagram_dark.webp"); }
 [data-theme-mode="dark"] .chan-ico--facebook { background-image: url("/Icones/facebook_dark.webp"); }
 [data-theme-mode="dark"] .chan-ico--site { background-image: url("/Icones/site_globe_dark.webp"); }
-.bv-msg { font-size: 0.74rem; font-weight: 700; line-height: 1.5; }
-.bv-msg.bad { color: var(--hbx-danger); }
 .bv-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding-top: 2px; }
 .bv-foot .grow { margin-left: auto; }
 .bv-foot .btn-teal { min-height: 42px; }
-.bv-steps { display: grid; gap: 9px; }
-.bv-step { display: flex; gap: 12px; align-items: flex-start; padding: 11px 13px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); text-decoration: none; cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; box-sizing: border-box; }
-.bv-step .n { flex: 0 0 auto; width: 25px; height: 25px; display: grid; place-items: center; border-radius: var(--radius-pill); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; }
-.bv-step .tx { display: grid; gap: 2px; min-width: 0; }
-.bv-step .tx strong { font-size: 0.79rem; }
-.bv-step .tx small { font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
 
-/* Onboarding do dono (Camada 4, 28/06): escolha solo|time no 1º login. Dois cartões
-   grandes e clicáveis; só tokens (Lei 1/5). Reusa a casca .bv-card/.bv-hero/.bv-body. */
-.bv-branch { display: grid; gap: 10px; }
-.bv-branch-opt {
-  display: flex; gap: 13px; align-items: center; width: 100%;
-  padding: 15px 16px; text-align: left; font: inherit; color: inherit; cursor: pointer;
-  border-radius: var(--radius-lg); border: 1px solid var(--border-hairline);
-  background: var(--hbx-surface-soft);
-  transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
-}
-.bv-branch-opt:hover:not(:disabled) {
-  border-color: var(--hbx-brand); background: var(--hbx-brand-soft); transform: translateY(-1px);
-}
-.bv-branch-opt:disabled { opacity: 0.6; cursor: progress; }
-.bv-branch-ico {
-  flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center;
-  border-radius: var(--radius-md); background: var(--hbx-brand-soft);
-  color: var(--hbx-brand-strong); font-size: 1.25rem;
-}
-.bv-branch-tx { display: grid; gap: 3px; min-width: 0; flex: 1; }
-.bv-branch-tx strong { font-size: 0.92rem; color: var(--text-strong); }
-.bv-branch-tx small { font-size: 0.76rem; line-height: 1.5; color: var(--text-muted); }
-.bv-branch-go { flex: 0 0 auto; font-size: 1.1rem; font-weight: 800; color: var(--hbx-brand-strong); }
-
-/* Troca de plano: faixa antes→depois + detalhe do destino reusando o UI da landing. */
-.bv-card--plan { width: min(680px, 100%); }
-.bv-compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.bv-metric { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); min-width: 0; }
-.bv-metric__k { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; color: var(--text-muted); }
-.bv-metric__row { display: inline-flex; align-items: baseline; gap: 6px; font-size: 0.9rem; line-height: 1.2; flex-wrap: wrap; }
-.bv-metric__from { color: var(--text-muted); }
-.bv-metric__arrow { font-size: 0.78rem; color: var(--text-muted); }
-.bv-metric__arrow.is-up { color: var(--hbx-brand-strong); }
-.bv-metric__to { font-weight: 800; }
-.bv-metric__arrow.is-up + .bv-metric__to { color: var(--hbx-brand-strong); }
-
-/* Detalhe do plano FORA da cena (modal): herda o visual da landing, mas estático
-   (sem a animação de entrada presa ao .hbx-scene) e com o accent vindo da marca. */
-.bv-plan-details { --login-accent: var(--hbx-brand-strong); display: grid; gap: 14px; padding-top: 14px; border-top: 1px solid var(--border-hairline); }
-.bv-plan-details .site-plan-intruder__body { opacity: 1; animation: none; }
-.bv-plan-details .site-plan-intruder__type { opacity: 1; clip-path: none; animation: none; }
-.bv-plan-details .site-plan-intruder__safe { text-align: left; margin-top: 2px !important; }
-
-.bv-dots { display: inline-flex; gap: 6px; align-items: center; }
-.bv-dots i { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--border-strong); transition: width var(--motion-fast), background var(--motion-fast); }
-.bv-dots i.on { width: 20px; background: var(--login-accent); }
 .bv-link { background: transparent; border: none; padding: 6px 4px; color: var(--text-muted); font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; cursor: pointer; }
 .bv-link:hover { color: var(--text-strong); }
 @keyframes hbx-bv-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes hbx-bv-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
 
-/* ============================================================
-   LANDING pública (.site) — PR15062026001. Veste a MESMA cena do /login
-   (reusa .login-art: robô transmux + cor que cicla via --login-accent) e os
-   tokens de tema (dark/light). Continuidade pro /login via View Transitions.
-   Tipografia GRANDE/ousada (ordem do dono 15/06: sem coleira). Esteira = estrela.
-   ============================================================ */
-.site { position: relative; overflow-x: hidden; color: var(--text-body); background: var(--hbx-background); }
-.site-ic { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-
-/* HERO = a cena do robô (reusa .login-art). É a ÚNICA parte sobre a foto; o texto
-   mora na divisão escurecida (.login-art::after) — igual ao login. */
-.site-scene { position: relative; min-height: 100svh; overflow: hidden; display: grid; grid-template-rows: auto 1fr; }
-/* robô = IDÊNTICO ao /login: a base .login-art já é absolute inset:0; aqui só fica
-   escopada à CENA (~100svh), com overflow:hidden recortando igual ao console do
-   login. SEM position:fixed — era o fixed+cover que esticava o robô pra encher a
-   viewport inteira (fora do padrão do login). */
-.site-scene > .login-art { position: absolute; }
-.site-scene > .site-top, .site-scene > .site-hero { position: relative; z-index: 1; }
-/* scrim no TOPO pra nav/marca contrastarem sobre a foto, nos dois temas */
-.site-scene > .site-top { background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-background) 72%, transparent), transparent); }
-/* TODO O RESTO em fundo SÓLIDO do tema: escuro é escuro, claro é claro (sem foto atrás). */
-.site-body { position: relative; z-index: 1; background: var(--hbx-background); }
-
-.site-top { display: flex; justify-content: space-between; align-items: center; padding: 22px clamp(20px, 5vw, 64px); }
-.site-brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 2.3rem; line-height: 1; letter-spacing: 0.04em; color: var(--text-body); view-transition-name: hbx-brand; }
-.site-brand svg, .site-brand__arrow { color: var(--login-accent); font-size: 1em; line-height: 1; letter-spacing: 0; }
-.site-nav { position: absolute; left: clamp(20px, 5vw, 64px); bottom: clamp(20px, 4vh, 48px); z-index: 1; display: flex; align-items: center; gap: 6px; }
-/* SEM transition de color/background aqui: o ciclo da cor é o relógio único
-   (@property --login-accent interpola sozinho). Transition por elemento criava
-   lag diferente → robô numa cor e o texto/botão em outra. */
-.site-nav a { color: var(--text-body); padding: 0.5rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.9rem; text-decoration: none; cursor: pointer; }
-.site-nav a:hover { background: color-mix(in srgb, var(--text-body) 10%, transparent); }
-/* marcador da TELA ATUAL: item ativo colore na cor do tema. */
-.site-nav a.is-current { color: var(--login-accent); font-weight: 800; background-color: color-mix(in srgb, var(--login-accent) 14%, transparent); }
-.site-enter { color: var(--hbx-action-ink) !important; background-color: var(--login-accent); }
-
-.site-hero { align-self: center; padding: clamp(20px, 4vh, 60px) clamp(20px, 5vw, 64px) clamp(40px, 8vh, 90px); max-width: 920px; }
-.site-eyebrow { display: inline-block; font-family: var(--font-mono); font-size: 0.86rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--login-accent); margin-bottom: 16px; }
-.site-title { font-family: var(--font-display); font-weight: 900; font-size: clamp(3rem, 9.5vw, 7.5rem); line-height: 0.92; letter-spacing: -0.045em; margin: 0; color: var(--text-body); }
-.site-accent { color: var(--login-accent); }
-.site-sub { max-width: 42ch; margin: 22px 0 0; font-size: clamp(1rem, 1.6vw, 1.3rem); line-height: 1.5; color: var(--text-body); opacity: 0.86; }
-.site-cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
-.site-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 54px; padding: 0 30px; border-radius: 16px; font-family: var(--font-display); font-weight: 700; font-size: 1rem; cursor: pointer; text-decoration: none; border: 1px solid transparent; transition: transform .2s, filter .2s, border-color .2s; }
-.site-btn .site-ic { width: 18px; height: 18px; flex: none; }
-.site-btn--solid { color: var(--hbx-action-ink); background-color: var(--login-accent); }
-.site-btn--solid:hover { transform: translateY(-2px); filter: brightness(1.08); }
-.site-btn--ghost { color: var(--text-body); border-color: color-mix(in srgb, var(--text-body) 32%, transparent); background: color-mix(in srgb, var(--hbx-background) 40%, transparent); }
-.site-btn--ghost:hover { border-color: var(--login-accent); }
-
-/* Selos de propaganda do herói (3): ícone em caixa + frase curta, com divisória
-   fina entre eles (igual referência). Token-only (check-pele fiscaliza screens.css). */
-.site-feats { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; margin-top: 34px; }
-.site-feat { display: inline-flex; align-items: center; gap: 11px; max-width: 30ch; }
-.site-feat + .site-feat { padding-left: 24px; border-left: 1px solid var(--border-hairline); }
-.site-feat__ic { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 11px; color: var(--login-accent); background-color: color-mix(in srgb, var(--login-accent) 14%, var(--hbx-background)); }
-.site-feat__ic svg { width: 20px; height: 20px; }
-.site-feat__tx { font-size: 0.92rem; line-height: 1.3; font-weight: 600; color: var(--text-body); opacity: 0.85; }
-@media (max-width: 700px) {
-  .site-feat { max-width: none; }
-  .site-feat + .site-feat { padding-left: 0; border-left: none; }
-}
-
-/* seções do corpo: respiro + título de seção contido */
-.site-sec { padding: clamp(48px, 9vh, 110px) clamp(20px, 5vw, 64px); }
-.site-sec + .site-sec { border-top: 1px solid var(--border-hairline); }
-.site-h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 8px; max-width: 20ch; color: var(--text-body); }
-.site-lead { margin: 0 0 30px; font-size: clamp(1rem, 1.5vw, 1.2rem); color: var(--text-muted); max-width: 52ch; }
-
-/* ESTEIRA — estrela, em fundo sólido (legível) */
-.site-esteira { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
-.site-esteira::before { content: ""; position: absolute; left: 4%; right: 4%; top: 54px; height: 2px; background: linear-gradient(90deg, transparent, var(--login-accent), transparent); opacity: 0.45; }
-/* cards CLICÁVEIS (button): mesma classe, agora interativos. Entrada via .is-revealed. */
-.site-station { position: relative; display: grid; gap: 9px; justify-items: center; text-align: center; padding: 24px 18px; border-radius: 20px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); color: var(--text-body); font: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; transition: transform .2s var(--ease-out-quint), border-color .2s var(--ease-out-quint), box-shadow .2s var(--ease-out-quint); }
-.site-station:hover, .site-station.is-active { transform: translateY(-5px); border-color: var(--login-accent); box-shadow: 0 0 0 1px var(--login-accent), 0 22px 46px -22px color-mix(in srgb, var(--login-accent) 65%, transparent); }
-.site-station__ic { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 999px; color: var(--login-accent); border: 1px solid color-mix(in srgb, var(--login-accent) 42%, transparent); background-color: color-mix(in srgb, var(--login-accent) 14%, var(--hbx-background)); }
-.site-station__ic svg { width: 26px; height: 26px; }
-.site-station__k { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 700; letter-spacing: 0.1em; color: var(--login-accent); }
-.site-station__t { font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; color: var(--text-strong); }
-.site-station__d { font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; max-width: 22ch; }
-@keyframes site-slide-r { from { opacity: 0; transform: translateX(44px); } to { opacity: 1; transform: none; } }
-@keyframes site-slide-l { from { opacity: 0; transform: translateX(-44px); } to { opacity: 1; transform: none; } }
-
-/* PLANOS — cards ricos (selo, nome, tagline, features, CTA), cor por tier via token */
-.site-plan-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: stretch; }
-.site-plan { --tier: var(--login-accent); display: flex; flex-direction: column; gap: 9px; padding: 24px 22px; border-radius: 20px; border: 1px solid var(--border-hairline); background: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); transition: transform .2s, border-color .2s; }
-.site-plan:hover { transform: translateY(-4px); border-color: var(--tier); }
-.site-plan--list { --tier: var(--hbx-success); }
-.site-plan--lead { --tier: var(--login-accent); }
-.site-plan--pro { --tier: var(--hbx-brand-strong); }
-.site-plan--company { --tier: var(--hbx-warning); }
-.site-plan--hot { border-color: var(--tier); box-shadow: 0 0 0 1px var(--tier); }
-.site-plan__badge { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--tier); }
-.site-plan__name { font-family: var(--font-display); font-size: 1.55rem; font-weight: 800; color: var(--text-body); }
-.site-plan__tag { font-size: 0.9rem; color: var(--text-muted); }
-.site-plan__feats { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 9px; }
-.site-plan__feats li { display: flex; gap: 8px; align-items: flex-start; font-size: 0.85rem; color: var(--text-body); opacity: 0.82; }
-.site-plan__feats svg { width: 16px; height: 16px; color: var(--tier); flex: none; margin-top: 1px; }
-.site-plan__cta { margin-top: auto; min-height: 46px; border-radius: 13px; border: 1px solid var(--tier); background: transparent; color: var(--tier); font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: background .2s, color .2s; }
-.site-plan__cta:hover, .site-plan--hot .site-plan__cta { background: var(--tier); color: var(--hbx-background); }
-.site-plan__cta--link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
-.site-plan__price { font-family: var(--font-display); font-size: 1.7rem; font-weight: 800; color: var(--tier); margin-top: 2px; }
-.site-plan__per { font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-left: 4px; }
-.site-annual { margin-top: 22px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.95rem; }
-.site-annual b { color: var(--login-accent); }
-
-/* PAINEL de frases — editorial, contido, não "word doc" */
-.site-panel { display: grid; gap: 18px; }
-.site-phrase { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(1.2rem, 2.2vw, 1.7rem); line-height: 1.22; color: var(--text-body); max-width: 28ch; padding-left: 18px; border-left: 2px solid var(--login-accent); }
-.site-phrase--big { font-size: clamp(1.8rem, 4.4vw, 3.2rem); font-weight: 900; letter-spacing: -0.035em; max-width: 18ch; }
-
-.site-foot { padding: clamp(56px, 11vh, 130px) clamp(20px, 5vw, 64px) clamp(70px, 13vh, 150px); }
-
-/* ===== REMOVE-VISUAL → ESTEIRA: "Conhecer o HBX" liga .site-scene.is-revealed.
-   Robô + herói saem, a esteira ESCREVE por cima. MESMA cena/cor (.hbx-scene), só
-   tokens → claro e escuro. A marca "HBX" vira "voltar". Sem tela nova, sem duplicar. ===== */
-.site-scene > .site-top { z-index: 3; }                 /* marca/voltar acima do overlay */
-.site-nav { z-index: 3; }                                /* nav clicável sobre o overlay */
-.site-brand { background: none; border: none; padding: 0; cursor: pointer; }
-
-.site-hero { transition: opacity 0.4s var(--ease-out-quint), transform 0.5s var(--ease-out-quint); }
-.site-scene.is-revealed .login-art { opacity: 0; }
-.site-scene.is-revealed .site-hero { opacity: 0; transform: translateY(-14px); pointer-events: none; }
-
-.site-esteira-view { position: absolute; inset: 0; z-index: 2; display: grid; align-content: center; justify-items: center; gap: 14px; padding: clamp(64px, 11vh, 104px) clamp(20px, 5vw, 64px) clamp(28px, 5vh, 56px); text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.4s var(--ease-out-quint); }
-.site-scene.is-revealed .site-esteira-view { opacity: 1; pointer-events: auto; }
-.site-esteira-view .site-eyebrow { margin: 0; }
-.site-esteira-title { margin: 0; font-family: var(--font-display); font-weight: 900; font-size: clamp(2.2rem, 6vw, 4.4rem); line-height: 0.96; letter-spacing: -0.04em; color: var(--text-strong); }
-.site-esteira-view .site-sub { text-align: center; }
-.site-esteira-view .site-esteira { width: min(1180px, 100%); margin-top: 16px; }
-
-.site-metrics { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 22px; margin-top: 22px; padding: 16px 22px; border-radius: 18px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 4%, var(--hbx-background)); width: min(1180px, 100%); }
-.site-metrics__lead { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 1rem; color: var(--text-body); }
-.site-metrics__lead svg { width: 22px; height: 22px; color: var(--login-accent); flex: none; }
-.site-metrics__tags { display: inline-flex; flex-wrap: wrap; gap: 10px; }
-.site-metric { padding: 7px 14px; border-radius: 999px; font-weight: 700; font-size: 0.84rem; color: var(--login-accent); background-color: color-mix(in srgb, var(--login-accent) 12%, var(--hbx-background)); border: 1px solid color-mix(in srgb, var(--login-accent) 30%, transparent); }
-
-/* ============================================================
-   CASCA ÚNICA (.scene = HbxScene): UM dono do fundo. Robô fixo + cor ciclando
-   (.hbx-scene) + marca » + nav com marcador. Toda tela só entrega o conteúdo
-   em .scene-body (herói à esquerda, ou centrado). Mexeu aqui = mexeu em todas.
-   ============================================================ */
-.scene { position: relative; min-height: 100dvh; overflow-x: hidden; color: var(--text-body); background: color-mix(in srgb, var(--hbx-surface) 40%, var(--hbx-background)); }
-.scene .login-art { position: fixed; }               /* robô cobre a viewport; conteúdo rola por cima */
-.scene.is-plain .login-art { opacity: 0; }            /* remove-visual: robô some */
-.scene .login-console:not(.is-plain) .login-fog { opacity: 0; -webkit-backdrop-filter: none; backdrop-filter: none; } /* ?ver=entrar com Visual ligado: robô nítido */
-
-.scene-top { position: fixed; top: clamp(18px, 4vh, 36px); left: clamp(20px, 5vw, 56px); z-index: 4; }
-.scene-top .site-brand { background: none; border: none; padding: 0; cursor: pointer; }
-
-.scene-nav { position: fixed; left: clamp(20px, 5vw, 56px); bottom: clamp(18px, 4vh, 40px); z-index: 4; display: flex; align-items: center; gap: 6px; }
-.scene-nav__item { font: inherit; border: none; background: none; cursor: pointer; color: var(--text-body); padding: 0.5rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.9rem; }
-.scene-nav__item:hover { background-color: color-mix(in srgb, var(--text-body) 10%, transparent); }
-.scene-nav__item.is-current { color: var(--login-accent); font-weight: 800; background-color: color-mix(in srgb, var(--login-accent) 14%, transparent); }
-.scene-nav__item.site-enter { color: var(--hbx-action-ink); background-color: var(--login-accent); padding: 0.5rem 1.1rem; }
-.scene-nav--world { z-index: 12; }
-.scene-nav__world { position: relative; display: grid; place-items: center; width: 58px; height: 58px; padding: 0; border: 1px solid color-mix(in srgb, var(--login-accent) 42%, transparent); border-radius: 999px; color: var(--login-accent); background: radial-gradient(circle at 38% 28%, color-mix(in srgb, var(--login-accent) 24%, transparent), color-mix(in srgb, var(--hbx-surface) 76%, transparent)); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: var(--shadow-inset), 0 18px 42px -22px color-mix(in srgb, var(--login-accent) 78%, transparent); cursor: pointer; overflow: hidden; }
-.scene-nav__world::before { content: ""; position: absolute; inset: 7px; border-radius: inherit; border: 1px solid color-mix(in srgb, var(--login-accent) 28%, transparent); opacity: 0.8; }
-.scene-nav__world:hover { transform: translateY(-2px) scale(1.04); box-shadow: var(--shadow-inset), 0 22px 50px -20px color-mix(in srgb, var(--login-accent) 90%, transparent); }
-.scene-world { position: relative; display: grid; place-items: center; width: 34px; height: 34px; }
-.scene-world__globe { position: relative; z-index: 2; filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--login-accent) 42%, transparent)); }
-.scene-world__orbit { position: absolute; width: 42px; height: 18px; border: 1.5px solid currentColor; border-left-color: transparent; border-right-color: transparent; border-radius: 999px; transform: rotate(-28deg); opacity: 0.9; animation: scene-world-orbit 3.8s linear infinite; }
-@keyframes scene-world-orbit { to { transform: rotate(332deg); } }
-
-.scene-body { position: relative; z-index: 1; }
-/* páginas de rota (planos/register…) ENTRAM ao montar e SAEM antes de navegar —
-   a regra da casca. A landing tem .scene-view próprio, então não duplica aqui. */
-.scene-body:not(:has(.scene-view)) { animation: scene-view-in 0.42s var(--ease-out-quint) both; }
-.scene-body.is-leaving { animation: scene-view-out 0.34s var(--ease-out-quint) both; }
-@media (prefers-reduced-motion: reduce) { .scene-body { animation: none !important; } }
-.scene-hero { min-height: 100dvh; display: grid; align-content: center; max-width: 920px; padding: clamp(80px, 12vh, 120px) clamp(20px, 5vw, 64px); }
-.scene-center { min-height: 100dvh; display: grid; align-content: center; justify-items: center; gap: 14px; padding: clamp(88px, 13vh, 128px) clamp(20px, 5vw, 64px) clamp(48px, 9vh, 80px); text-align: center; transform: translateY(-1cm); }
-.scene-center > * { width: 100%; max-width: 1180px; }
-.scene-form > * { max-width: 460px; }
-
-/* esteira: ESCREVE ao montar (só monta no remove-visual) */
-.scene-esteira .site-eyebrow { margin: 0; }
-.scene-esteira .site-esteira { width: min(1180px, 100%); margin-top: 16px; }
-.scene-esteira :is(.site-eyebrow, .site-esteira-title, .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }
-.scene-esteira .site-esteira-title { animation-delay: .1s; }
-.scene-esteira .site-sub { animation-delay: .18s; }
-.scene-esteira .site-station:nth-child(1) { animation-delay: .28s; }
-.scene-esteira .site-station:nth-child(2) { animation-delay: .38s; }
-.scene-esteira .site-station:nth-child(3) { animation-delay: .48s; }
-.scene-esteira .site-station:nth-child(4) { animation-delay: .58s; }
-.scene-esteira .site-station:nth-child(5) { animation-delay: .68s; }
-.scene-esteira .site-station:nth-child(6) { animation-delay: .78s; }
-.scene-esteira .site-metrics { animation-delay: .9s; }
-@media (prefers-reduced-motion: reduce) {
-  .scene-esteira :is(.site-eyebrow, .site-esteira-title, .site-sub, .site-station, .site-metrics) { animation: none; }
-}
-@media (max-width: 980px) { .scene-center, .scene-hero { align-content: start; } }
-
-
-/* DECK da casca: a MESMA transição em TODA troca de tela (sai → troca → entra).
-   Regra da casca: nada parte seco — sai, e a próxima entra depois. */
-.scene-view.is-in { animation: scene-view-in 0.42s var(--ease-out-quint) both; }
-.scene-view.is-out { animation: scene-view-out 0.34s var(--ease-out-quint) both; }
-@keyframes scene-view-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
-@keyframes scene-view-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-18px); } }
-@media (prefers-reduced-motion: reduce) { .scene-view.is-in, .scene-view.is-out { animation: none; } }
-
-/* ">" grande do fim da tela: transparente, tamanho de card, avança com transição. */
-.scene-next { display: grid; place-items: center; width: 116px; height: 116px; margin: 26px auto 0; border-radius: 26px; border: 1px solid color-mix(in srgb, var(--login-accent) 38%, transparent); background-color: color-mix(in srgb, var(--login-accent) 7%, transparent); color: var(--login-accent); cursor: pointer; transition: transform .2s var(--ease-out-quint), background-color .2s var(--ease-out-quint); }
-.scene-next:hover { transform: scale(1.06); background-color: color-mix(in srgb, var(--login-accent) 16%, transparent); }
-.scene-next .site-ic { width: 52px; height: 52px; }
-.scene-next__hint { margin-top: 6px; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
-
-/* integrações: grid de 3 (reusa o card .site-station), COMPACTO pra caber sem rolar. */
-.site-integra { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: min(960px, 100%); margin-top: 12px; }
-.site-integra .site-station { padding: 14px 14px; gap: 5px; }
-.site-integra .site-station__ic { width: 42px; height: 42px; }
-.site-integra .site-station__ic svg { width: 21px; height: 21px; }
-.site-integra .site-station__t { font-size: 1.05rem; }
-.site-integra .site-station__d { font-size: 0.78rem; line-height: 1.35; }
-@media (max-width: 760px) { .site-integra { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 460px) { .site-integra { grid-template-columns: 1fr; } }
-
-/* PLANOS (foto 1): cards no MESMO fundo do card, accent ciclando, Lead destacado. */
-.site-plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: min(1240px, 100%); margin-top: 20px; align-items: stretch; }
-/* CRÉDITOS (cutover 06/07) — vitrine grátis: só 2 cards (Grátis + Company/Implantação),
-   mesmo card .site-plan2, grid mais estreito pra não esticar demais em telas largas. */
-.site-plans--free { grid-template-columns: repeat(2, minmax(260px, 360px)); width: min(760px, 100%); justify-content: center; }
-@media (max-width: 640px) { .site-plans--free { grid-template-columns: 1fr; width: min(400px, 100%); } }
-.site-plan2 { position: relative; display: grid; gap: 10px; justify-items: center; text-align: center; padding: 28px 22px; border-radius: 22px; border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 5%, var(--hbx-background)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
-/* quando usado como botão (card inteiro clicável): resets + cursor */
-button.site-plan2 { font: inherit; text-align: left; -webkit-appearance: none; appearance: none; cursor: pointer; transition: transform .2s, border-color .2s, box-shadow .2s; }
-button.site-plan2:hover { transform: translateY(-4px); border-color: var(--login-accent); }
-.site-plan2.is-hot { border-color: var(--login-accent); box-shadow: 0 0 0 1px var(--login-accent), 0 24px 60px -28px color-mix(in srgb, var(--login-accent) 70%, transparent); }
-.site-plan2__badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); padding: 5px 14px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hbx-background); background-color: var(--login-accent); white-space: nowrap; }
-.site-plan2__annual { position: absolute; top: 12px; right: 12px; z-index: 1; max-width: 96px; padding: 6px 8px 7px; color: var(--login-accent); background: color-mix(in srgb, var(--login-accent) 13%, var(--hbx-background)); border: 1px solid color-mix(in srgb, var(--login-accent) 34%, transparent); border-radius: 11px 14px 11px 11px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--hbx-background) 65%, transparent), 0 14px 26px -24px color-mix(in srgb, var(--login-accent) 75%, #000); font-family: var(--font-mono); font-size: 0.52rem; font-weight: 800; letter-spacing: 0.03em; line-height: 1.12; text-transform: uppercase; text-align: center; pointer-events: none; }
-.site-plan2__ic { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 999px; color: var(--login-accent); border: 1px solid color-mix(in srgb, var(--login-accent) 40%, transparent); background-color: color-mix(in srgb, var(--login-accent) 12%, var(--hbx-background)); }
-.site-plan2__ic svg { width: 30px; height: 30px; }
-.site-plan2__name { font-family: var(--font-display); font-size: 1.45rem; font-weight: 800; color: var(--text-strong); }
-.site-plan2__price { display: inline-flex; align-items: baseline; justify-content: center; gap: 5px; min-height: 32px; color: var(--text-strong); font-family: var(--font-display); line-height: 1; white-space: nowrap; }
-.site-plan2__price small { align-self: center; color: var(--text-muted); font-family: var(--font-body); font-size: 0.68rem; font-weight: 700; }
-.site-plan2__price b { color: var(--login-accent); font-size: 1.22rem; font-weight: 800; }
-.site-plan2__price em { color: var(--text-muted); font-family: var(--font-body); font-size: 0.74rem; font-style: normal; font-weight: 700; }
-.site-plan2__trial-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.site-plan2__trial { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 5px 18px; border-radius: 999px; background-color: var(--login-accent); color: var(--hbx-background); font-family: var(--font-display); font-size: 1.08rem; font-weight: 800; letter-spacing: 0.01em; animation: trial-glow 2.2s ease-in-out infinite; }
-.site-plan2__trial-price { font-family: var(--font-body); font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
-.site-plan2__trial-price em { font-style: normal; }
-@keyframes trial-glow { 0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 32%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--login-accent) 14%, transparent), 0 4px 18px color-mix(in srgb, var(--login-accent) 40%, transparent); } }
-.site-plan2__tag { font-size: 0.86rem; line-height: 1.4; color: var(--text-muted); min-height: 2.4em; }
-.site-plan2__score { display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--login-accent) 30%, transparent); background-color: color-mix(in srgb, var(--login-accent) 10%, var(--hbx-background)); font-size: 0.82rem; font-weight: 600; color: var(--text-body); }
-.site-plan2__score svg { width: 17px; height: 17px; color: var(--login-accent); }
-.site-plan2__score b { color: var(--login-accent); font-size: 1rem; }
-.site-plan2__feats { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 9px; width: 100%; }
-.site-plan2__feats li { display: flex; align-items: center; gap: 9px; font-size: 0.84rem; color: var(--text-body); text-align: left; }
-.site-plan2__feats svg { width: 18px; height: 18px; flex: none; color: var(--login-accent); }
-.site-plan2__logos { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.site-plan2__logos span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; color: var(--login-accent); border: 1px solid var(--border-hairline); background-color: color-mix(in srgb, var(--text-body) 6%, var(--hbx-background)); }
-.site-plan2__logos svg { width: 18px; height: 18px; }
-.site-plan2__cta { margin-top: auto; width: 100%; min-height: 48px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--text-body) 24%, transparent); background: none; color: var(--text-body); font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: border-color .2s, transform .2s; display: flex; align-items: center; justify-content: center; text-align: center; }
-.site-plan2__cta:hover { border-color: var(--login-accent); transform: translateY(-2px); }
-.site-plan2.is-hot .site-plan2__cta { background-color: var(--login-accent); color: var(--hbx-background); border-color: transparent; }
-/* Catálogo de planos DENTRO do app (Configurações → Plano e cobrança, PR17062026):
-   o MESMO card .site-plan2 da casca, em grid de painel, com estado "plano atual" e
-   CTA acionável (upgrade/downgrade/contato). Visual nasce aqui, não na tela. */
-.plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding: 18px; align-items: stretch; }
-.plan-grid .site-plan2 { padding: 24px 18px; }
-.site-plan2.is-current { border-color: var(--login-accent); box-shadow: inset 0 0 0 1px var(--login-accent); }
-button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: none; }
-.site-plan2__cta.is-primary { background-color: var(--login-accent); color: var(--hbx-background); border-color: transparent; }
-.site-plan2__cta.is-primary:hover { transform: translateY(-2px); }
-.site-plan2__cta.is-muted { cursor: default; opacity: 0.7; font-family: var(--font-body); font-weight: 600; font-size: 0.82rem; }
-.site-plan2__cta.is-muted:hover { border-color: color-mix(in srgb, var(--text-body) 24%, transparent); transform: none; }
-.site-plan2__cta:disabled { opacity: 0.55; cursor: default; transform: none; }
-/* Self-Checkout (F2): plano pausado pelo master — card embaçado e inclicável,
-   com o selo "Indisponível" nítido por cima. */
-.site-plan2.is-paused { pointer-events: none; cursor: not-allowed; }
-.site-plan2.is-paused > :not(.site-plan2__paused) { filter: grayscale(0.8) blur(1.5px); opacity: 0.5; }
-.site-plan2__paused { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; padding: 7px 16px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-body); background-color: color-mix(in srgb, var(--text-body) 12%, var(--hbx-background)); border: 1px solid var(--border-hairline); white-space: nowrap; }
 
 /* Self-Checkout (master, F2): layout utilitário — sem visual solto em tela (Lei 5). */
 .sc-intro { padding: 10px 16px 0; }
@@ -1064,91 +604,21 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .sc-tile-sub { font-size: 0.66rem; color: var(--text-muted); }
 .sc-mod-btn.is-on { border-color: var(--login-accent); color: var(--hbx-brand-strong); }
 .sc-anual-val { color: var(--text-body); }
-@media (max-width: 1100px) { .plan-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 640px) { .plan-grid { grid-template-columns: 1fr; } }
-.site-trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 22px; margin-top: 22px; width: min(1240px, 100%); }
-.site-trust span { display: inline-flex; align-items: center; gap: 7px; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); }
-.site-trust svg { width: 16px; height: 16px; flex: none; color: var(--login-accent); }
-.site-plans.is-choosing .site-plan2 { pointer-events: none; }
-.site-plans.is-choosing .site-plan2.is-exiting { animation: site-write-in 1.5s var(--ease-out-quint) reverse both; }
-.site-plans.is-choosing .site-plan2.is-selected { transform: translateY(-6px) scale(1.02); border-color: var(--login-accent); box-shadow: 0 0 0 1px var(--login-accent), 0 24px 60px -28px color-mix(in srgb, var(--login-accent) 70%, transparent); }
-.scene-planos.is-choosing:not(:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning, .is-restoring)) > :is(.site-eyebrow, .site-esteira-title, .site-sub) { animation: site-write-in 1.5s var(--ease-out-quint) reverse both; }
-.scene-planos.is-restoring > :is(.site-eyebrow, .site-esteira-title, .site-sub), .scene-planos.is-restoring .site-plan2 { animation: site-write-in 1.5s var(--ease-out-quint) both; }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) { grid-template-columns: 96px 340px 360px 0px 480px; column-gap: 22px; justify-content: center; min-height: 100dvh; align-content: center; padding-top: clamp(64px, 8vh, 86px); padding-bottom: clamp(24px, 4vh, 40px); transition: grid-template-columns 0.8s var(--ease-out-quint), column-gap 0.8s var(--ease-out-quint); }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning).has-intruder2 { grid-template-columns: 88px 340px minmax(300px, 340px) minmax(300px, 340px) 480px; column-gap: clamp(16px, 1.5vw, 24px); }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) > :is(.site-eyebrow, .site-esteira-title, .site-sub) { display: none; }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) .site-plans { grid-column: 2; grid-row: 4; grid-template-columns: 1fr; width: 340px; margin-top: 0; align-self: center; align-items: start; }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) .site-plans .site-plan2 { animation: none; }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) .site-plans .site-plan2.is-selected { align-self: center; min-height: auto; height: auto; }
-.scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) .site-plans .site-plan2.is-exiting { display: none; }
-.site-plan-register { display: contents; }
-.site-plan-register .reg-form { grid-column: 5; grid-row: 4; place-items: stretch; animation: site-write-in 1.5s var(--ease-out-quint) both; position: relative; z-index: 20; }
-.site-plan-register .reg-form .card { position: relative; z-index: 20; }
-.hbx-scene .site-plan-intruder { grid-column: 3; grid-row: 4; width: 100%; align-self: stretch; justify-self: stretch; animation: site-detail-from-register 0.8s var(--ease-out-quint) both; display: grid; align-content: start; gap: 16px; text-align: left; transform-origin: right center; position: relative; z-index: 4; }
-/* col4=0px gera gap duplo (44px) à direita do intruder vs 22px à esquerda — equilibra visualmente */
-.scene-planos.has-intruder:not(.has-intruder2) .site-plan-intruder { margin-left: 22px; width: calc(100% - 22px); }
-.hbx-scene .site-plan-intruder--second { grid-column: 4; }
-.site-plan-intruder__safe { align-self: end; margin-top: auto !important; font-weight: 700; text-align: center; }
-.site-plan-intruder__body { display: grid; gap: 14px; opacity: 0; animation: site-write-in 0.6s var(--ease-out-quint) 1.4s both; }
-.site-plan-intruder__tag { margin: 0; font-size: 0.92rem; line-height: 1.5; color: var(--text-muted); }
-.site-plan-intruder__feats { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.site-plan-intruder__feats li { display: flex; align-items: start; gap: 10px; font-size: 0.88rem; line-height: 1.4; color: var(--text-body); }
-.site-plan-intruder__feats svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--login-accent); }
-.site-plan-intruder__sec { display: grid; gap: 8px; }
-.site-plan-intruder__label { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700; color: var(--login-accent); }
-.site-plan-intruder__how { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: hbxstep; }
-.site-plan-intruder__how li { display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 10px; font-size: 0.86rem; line-height: 1.45; color: var(--text-body); }
-.site-plan-intruder__how li::before { counter-increment: hbxstep; content: counter(hbxstep); display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800; color: var(--login-accent); border: 1px solid color-mix(in srgb, var(--login-accent) 40%, transparent); background-color: color-mix(in srgb, var(--login-accent) 12%, var(--hbx-background)); }
-.site-plan-intruder__for { margin: 0; font-size: 0.85rem; font-style: italic; color: var(--text-muted); }
-.site-plan-intruder__type { max-width: 100%; opacity: 0; clip-path: inset(0 100% 0 0); animation: site-detail-type 3s steps(42, end) 0.8s both; }
-.site-plan-intruder .site-plan-intruder__type { display: block; }
-.scene-planos:is(.is-detailReturning, .is-detail2Returning) .site-plan-intruder__type { opacity: 0; animation: none; }
-.site-plan-intruder .field-dark { min-height: 38px; display: flex; align-items: center; padding: 0 12px; color: var(--text-muted); font-size: 0.78rem; }
-.scene-planos.is-detailReturning .site-plan-intruder { animation: site-detail-to-register 0.65s var(--ease-out-quint) both; }
-.scene-planos.is-detail2Returning .site-plan-intruder--second { animation: site-detail-to-register 0.65s var(--ease-out-quint) both; }
-.scene-planos.is-returning .reg-form { animation: site-write-in 1.5s var(--ease-out-quint) reverse both; }
-.scene-planos.is-returning .scene-next--back { animation: site-write-in 1.5s var(--ease-out-quint) reverse both; }
-.site-plan-register .reg-form .card { width: min(480px, 100%); }
-.scene-planos.has-intruder .site-plan-register .reg-form .card { width: min(480px, 100%); }
-.scene-next--back { grid-column: 1; grid-row: 4; margin: 0; align-self: center; justify-self: center; }
-.scene-next--back .site-ic { transform: rotate(180deg); }
-.scene-planos.has-intruder2 .scene-next--back { width: 88px; height: 88px; border-radius: 22px; }
-.scene-planos.has-intruder2 .scene-next--back .site-ic { width: 40px; height: 40px; }
-@media (max-width: 980px) { .site-plans { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 980px) { .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning), .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning).has-intruder, .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning).has-intruder2 { grid-template-columns: 1fr; justify-items: center; } .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) > *, .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning) .site-plans, .site-plan-register .reg-form, .scene-next--back, .site-plan-intruder { grid-column: 1; grid-row: auto; width: min(520px, 100%); } .scene-next--back { width: 116px; } }
-@media (max-width: 560px) { .site-plans { grid-template-columns: 1fr; } }
-@keyframes site-detail-from-register {
-  from { opacity: 0; transform: translateX(420px) scale(0.96); }
-  to { opacity: 1; transform: translateX(0) scale(1); }
-}
-@keyframes site-detail-to-register {
-  from { opacity: 1; transform: translateX(0) scale(1); }
-  to { opacity: 0; transform: translateX(420px) scale(0.96); }
-}
-@keyframes site-detail-type {
-  from { opacity: 1; clip-path: inset(0 100% 0 0); }
-  to { opacity: 1; clip-path: inset(0 0 0 0); }
-}
 
-/* Checkout na casca (passo de pagamento embutido após o cadastro) */
+/* Painel de pagamento (recarga de créditos — CheckoutPanel) */
 .reg-checkout { gap: 12px; }
 .reg-checkout__summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-/* Ciclo Mensal/Anual — Glass Pill (Lei nº2, FRONTEND.md); forma pill total já
-   é o default do vidro, só precisa do track relative. */
-.reg-checkout__cycle { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid var(--border-hairline); background-color: var(--hbx-surface-soft); position: relative; }
-.reg-checkout__cycle button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 6px 14px; border-radius: 999px; font: inherit; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: background-color .2s, color .2s; }
-.reg-checkout__cycle button.is-on { color: var(--login-accent); }
-.reg-checkout__cycle button span { font-size: 0.6rem; opacity: 0.85; }
 .reg-checkout__total { display: inline-flex; align-items: baseline; gap: 4px; color: var(--text-strong); font-family: var(--font-display); line-height: 1; }
 .reg-checkout__total b { font-size: 1.3rem; font-weight: 800; color: var(--login-accent); }
-.reg-checkout__total em { font-style: normal; font-size: 0.74rem; font-weight: 700; color: var(--text-muted); }
-.reg-checkout__trial { padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--login-accent) 30%, transparent); background-color: color-mix(in srgb, var(--login-accent) 8%, transparent); font-size: 0.76rem; font-weight: 600; line-height: 1.45; color: var(--text-body); }
 .reg-checkout__row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .reg-checkout__note { margin: 0; font-size: 0.68rem; color: var(--text-muted); text-align: center; }
 .reg-checkout__err { padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--hbx-danger) 30%, transparent); background-color: color-mix(in srgb, var(--hbx-danger) 8%, transparent); color: var(--hbx-danger); font-size: 0.76rem; font-weight: 600; }
 .reg-checkout__safe { margin: 2px 0 0; font-size: 0.66rem; line-height: 1.5; color: var(--text-muted); text-align: center; }
 .reg-form { display: grid; place-items: center; min-width: 0; }
 .reg-form .card { width: min(480px, 100%); }
+/* Moldura das telas públicas de auth FORA da landing (register/reset/confirm/
+   onboarding do vendedor — AuthSplit e register/page.tsx): card limpo centrado,
+   fundo em token. Substitui a cena do robô (W3/PR10072026). */
 .register-entry {
   display: grid;
   min-height: 100dvh;
@@ -1160,84 +630,8 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
     var(--hbx-background);
 }
 .register-entry .reg-form { width: min(480px, 100%); }
-
-/* "escrevendo": kicker → título → sub → cards → métricas entram em sequência ao revelar */
-.site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: site-write-in 0.5s var(--ease-out-quint) both; }
-.site-scene.is-revealed .site-esteira-title { animation-delay: .1s; }
-.site-scene.is-revealed .site-esteira-view .site-sub { animation-delay: .18s; }
-.site-scene.is-revealed .site-station:nth-child(1) { animation-delay: .28s; }
-.site-scene.is-revealed .site-station:nth-child(2) { animation-delay: .38s; }
-.site-scene.is-revealed .site-station:nth-child(3) { animation-delay: .48s; }
-.site-scene.is-revealed .site-station:nth-child(4) { animation-delay: .58s; }
-.site-scene.is-revealed .site-station:nth-child(5) { animation-delay: .68s; }
-.site-scene.is-revealed .site-station:nth-child(6) { animation-delay: .78s; }
-.site-scene.is-revealed .site-metrics { animation-delay: .9s; }
-@keyframes site-write-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
-
-@media (max-width: 980px) {
-  .site-esteira-view { align-content: start; overflow-y: auto; }
-  .site-metrics { flex-direction: column; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .site-scene.is-revealed :is(.site-esteira-view .site-eyebrow, .site-esteira-title, .site-esteira-view .site-sub, .site-station, .site-metrics) { animation: none; }
-}
-
-@media (max-width: 980px) {
-  .site-esteira, .site-plan-strip { grid-template-columns: 1fr 1fr; }
-  .site-esteira::before { display: none; }
-}
-@media (max-width: 560px) {
-  .site-esteira, .site-plan-strip { grid-template-columns: 1fr; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .site-station { animation: none !important; }
-}
-
-/* ── Compact-height: zero scroll em desktops 768-900 px de altura (100% zoom)
-   Reduz padding, gap e botão ">" da .scene-center sem deformar o layout.
-   Não afeta max-width mobile (tratado nos blocos acima). ── */
-@media (max-height: 900px) {
-  .scene-center {
-    padding-top: clamp(44px, 6vh, 80px);
-    padding-bottom: clamp(20px, 3vh, 44px);
-    gap: 8px;
-  }
-  .scene-center .site-sub    { margin-top: 10px; }
-  .scene-center .site-integra { margin-top: 8px; }
-  .scene-center .site-metrics { margin-top: 10px; }
-  .scene-next { width: 80px; height: 80px; margin-top: 14px; }
-  .scene-next .site-ic { width: 40px; height: 40px; }
-  .scene-next__hint { font-size: 0.55rem; }
-  .site-integra { gap: 8px; }
-  .site-integra .site-station { padding: 10px 12px; gap: 4px; }
-  /* intruders (detalhe do plano) e form: todos rolam internamente, página não rola */
-  .site-plan-intruder {
-    max-height: calc(100dvh - 110px);
-    overflow-y: auto;
-  }
-  .site-plan-register .reg-form .card {
-    max-height: calc(100dvh - 47px);
-    overflow-y: auto;
-    padding: 18px 22px;
-    gap: 10px;
-  }
-  /* campos do form de cadastro: mais compactos sem comprimir o input */
-  .site-plan-register .reg-form .card .f {
-    gap: 3px;
-  }
-  /* bv-card (Implantação) dentro do reg-form: cabe na coluna e rola internamente */
-  .site-plan-register .reg-form .bv-card {
-    width: 100%;
-    max-height: calc(100dvh - 110px);
-    overflow-y: auto;
-  }
-  /* rows 1-3 invisíveis geram 3 × row-gap implícitos — zeramos no estado is-register */
-  .scene-planos:is(.is-register, .is-detailReturning, .is-detail2Returning, .is-returning, .is-restoring) {
-    row-gap: 0;
-  }
-  /* hero (desktop, palavras): compacta padding pra caber em 768-900px sem rolar */
-  .scene-hero { padding-top: clamp(10px, 2vh, 22px); padding-bottom: clamp(10px, 2vh, 22px); }
-}
+/* variante larga (leitura longa: onboarding/contrato) — casa com .is-wide do card */
+.register-entry .reg-form.is-wide { width: min(720px, 100%); }
 
 /* ============================================================
    Documento legal (Política / Termos) — corpo do pop-up central da casca
@@ -1263,12 +657,6 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
 .legal-page__brand:hover { opacity: 1; }
 .legal-page__title { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; color: var(--text-strong); margin: 0 0 6px; }
 .legal-page .legal { max-height: none; overflow: visible; padding-right: 0; }
-
-/* Links legais no rodapé da home — ponto de acesso plugado no front. */
-.site-legal-links { position: fixed; left: 50%; transform: translateX(-50%); bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.site-legal-link { font-family: var(--font-body); font-size: 0.82rem; font-weight: 700; color: var(--text-strong); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-.site-legal-link:hover { color: var(--login-accent); }
-.site-legal-sep { color: var(--text-strong); opacity: 0.5; }
 
 /* ============================================================
    Radar — tela limpa 3 camadas: LAGO → PRATELEIRA → CARTEIRA
@@ -2823,942 +2211,11 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
   padding: 12px 20px env(safe-area-inset-bottom, 16px);
 }
 
-/* ── Carrossel do hero — desktop: palavras; mobile: phone-frames ─────────────── */
-/* .site-carousel--words: palavras (Radar/Vendas/etc.) — desktop only          */
-/* .site-carousel--phones: phone-frames (Radar/Vendas/Atend) — mobile only     */
-.site-carousel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  margin-bottom: 4px;
-}
-/* No desktop: words visível, phones oculto */
-.site-carousel--phones { display: none; }
-/* Track no desktop (words carousel): altura fixa para as palavras absolutas */
-.site-carousel__track {
-  position: relative;
-  width: 100%;
-  height: 28px;
-  overflow: hidden;
-}
-/* Track do phone carousel (mobile): altura automática — molduras determinam altura */
-.site-carousel--phones .site-carousel__track {
-  height: auto;
-  overflow: visible;
-}
-/* Slot de slide: cada phone ocupa o mesmo espaço, transicao fade+slide */
-.site-carousel__slide {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  pointer-events: none;
-}
-.site-carousel__slide[data-state="idle"] {
-  opacity: 0;
-  transform: translateX(32px);
-  transition: none;
-}
-.site-carousel__slide[data-state="active"] {
-  opacity: 1;
-  transform: translateX(0);
-  transition: opacity 0.45s ease, transform 0.45s ease;
-  pointer-events: auto;
-}
-.site-carousel__slide[data-state="exit"] {
-  opacity: 0;
-  transform: translateX(-32px);
-  transition: opacity 0.3s ease, transform 0.32s ease;
-}
-/* Legenda embaixo do phone */
-.site-carousel__caption {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--login-accent);
-}
-/* Texto de módulo e ícone visíveis APENAS no mobile (desktop: ocultos, phone já identifica) */
-.site-carousel__mobile-tx { display: none; }
-/* No desktop o ícone do slide também fica oculto — a moldura identifica o módulo */
-.site-carousel__slide .site-carousel__ic { display: none; }
-/* legado: .site-carousel__word continua em uso no mobile (< 640px) */
-.site-carousel__word {
-  position: absolute;
-  inset: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--login-accent);
-  white-space: nowrap;
-}
-.site-carousel__word[data-state="idle"] {
-  opacity: 0;
-  transform: translateX(30px);
-  transition: none;
-}
-.site-carousel__word[data-state="active"] {
-  opacity: 1;
-  transform: translateX(0);
-  transition: opacity 0.45s ease, transform 0.45s ease;
-}
-.site-carousel__word[data-state="exit"] {
-  opacity: 0;
-  transform: translateX(-30px);
-  transition: opacity 0.3s ease, transform 0.32s ease;
-}
-.site-carousel__ic { display: inline-flex; align-items: center; }
-.site-carousel__ic .site-ic { width: 15px; height: 15px; }
-.site-carousel__dots {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.site-carousel__dot {
-  height: 3px;
-  width: 18px;
-  border: none;
-  border-radius: 99px;
-  padding: 0;
-  cursor: pointer;
-  background: color-mix(in srgb, var(--login-accent) 25%, transparent);
-  transition: width 0.35s ease, background 0.35s ease;
-}
-.site-carousel__dot.is-active {
-  width: 38px;
-  background: var(--login-accent);
-}
 
-/* ── Moldura de celular: layout e adaptacoes (tokens puros) ─────────────────── */
-/* Visual da moldura (.site-phone) vive em marketing.css (mundo-site, isento). */
-/* Aqui ficam apenas layout e overrides sem cor literal. */
-/* Conteudo scrollavel da tela (altura definida aqui; markup não rola — visual só) */
-.site-phone__screen {
-  overflow: hidden;
-  max-height: 300px;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ── Classes de nav do deck (reutilizadas pela landing/site-phone) ───────────── */
-/* Usadas no carrossel de phone-frames da landing (page.client.tsx).
-   Definições base; o .site-phone sobrescreve tamanhos abaixo. */
-.lead-deck__nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: center;
-  padding: 4px 0 2px;
-  flex: 0 0 auto;
-}
-.lead-deck__arrow {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 1px solid var(--border-hairline);
-  background: var(--hbx-surface);
-  color: var(--text-body);
-  cursor: pointer;
-  font-size: 1.1rem;
-  line-height: 1;
-  flex: 0 0 auto;
-  transition: background var(--motion-fast), color var(--motion-fast);
-}
-.lead-deck__dots {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  flex: 1;
-  justify-content: center;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  max-width: 140px;
-}
-.lead-deck__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--border-strong);
-  transition: background var(--motion-fast), width var(--motion-fast);
-  flex: 0 0 auto;
-}
-.lead-deck__dot--active {
-  background: var(--hbx-brand-strong);
-  width: 18px;
-}
-.lead-deck__progress {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  white-space: nowrap;
-  min-width: 36px;
-  text-align: center;
-}
-
-/* ── Adaptacoes dos cards do app DENTRO da moldura ───────────────────────────── */
-/* lead-card dentro do phone: posicao relativa (nao absolute), tamanho contido */
-.site-phone .lead-card {
-  position: relative;
-  inset: auto;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  box-shadow: none;
-  flex: 1;
-  min-height: 0;
-}
-.site-phone .lead-card__hero { padding: 10px 12px 8px; gap: 10px; }
-.site-phone .lead-card__name { font-size: 0.88rem; }
-.site-phone .lead-card__sub  { font-size: 0.62rem; }
-.site-phone .lead-card__body { padding: 8px 12px; gap: 7px; }
-.site-phone .lead-card__foot { padding: 7px 12px 10px; }
-.site-phone .lead-card__reason { font-size: 0.64rem; padding: 6px 8px; }
-.site-phone .lead-card__contact { padding: 6px 8px; }
-.site-phone .lead-card__contact-label { font-size: 0.6rem; }
-.site-phone .radar2-signals { margin-top: 2px; }
-.site-phone .radar2-sig { font-size: 0.52rem; padding: 1px 5px; }
-/* Deck nav compacto */
-.site-phone .lead-deck__nav { padding: 4px 10px 6px; gap: 6px; }
-.site-phone .lead-deck__arrow { width: 26px; height: 26px; font-size: 0.9rem; }
-.site-phone .lead-deck__dot { width: 4px; height: 4px; }
-.site-phone .lead-deck__dot--active { width: 12px; }
-.site-phone .lead-deck__progress { font-size: 0.52rem; }
-/* Deals (Vendas) dentro do phone */
-.site-phone-board { display: flex; flex-direction: column; gap: 0; }
-.site-phone-col-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px 4px;
-  border-bottom: 1px solid var(--border-hairline);
-}
-.site-phone-col-label {
-  font-size: 0.58rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-.site-phone-col-count {
-  font-size: 0.52rem;
-  color: var(--text-muted);
-  background: var(--hbx-surface-raised);
-  border-radius: 99px;
-  padding: 1px 5px;
-}
-.site-phone .deal { padding: 8px 12px; border-radius: 0; border-left: none; border-right: none; border-top: none; }
-.site-phone .deal + .deal { border-top: 1px solid var(--border-hairline); }
-.site-phone .deal strong { font-size: 0.74rem; }
-.site-phone .deal .who  { font-size: 0.6rem; }
-.site-phone .deal .val  { font-size: 0.72rem; }
-/* Barra topo do contato (Atendimento) */
-.site-phone-chat-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-hairline);
-  background: var(--hbx-surface);
-  flex: 0 0 auto;
-}
-.site-phone-chat-name {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--text-strong);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.site-phone-chat-sub {
-  font-size: 0.58rem;
-  color: var(--text-muted);
-}
-/* Thread de mensagens dentro do phone */
-.site-phone-thread {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 8px;
-  overflow: hidden;
-  background: var(--hbx-surface-soft);
-}
-.site-phone .msg { max-width: 82%; }
-.site-phone .bubble { font-size: 0.72rem; padding: 7px 9px 5px; }
-.site-phone .bubble .tm { font-size: 0.5rem; }
-/* Compact-height: phone no hero nao estoura viewport (768-900px de altura) */
-@media (max-height: 900px) {
-  .site-phone { width: 192px; }
-  .site-phone__screen { max-height: 196px; }
-  .site-phone__status { padding: 18px 14px 2px; font-size: 0.52rem; }
-  .site-phone .lead-card__hero { padding: 7px 10px 6px; }
-  .site-phone .lead-card__body { padding: 5px 10px; }
-  .site-phone .lead-card__foot { padding: 5px 10px 7px; }
-  .site-phone .deal { padding: 5px 10px; }
-  .site-phone-thread { padding: 6px 8px 5px; gap: 4px; }
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   MOBILE DA CENA (≤ 640 px) — layout completo refeito
-   Problemas resolvidos:
-   · Robô some (não anima, cobre texto)
-   · Marca (.scene-top fixed) saiu de fixed → barra topo full-width no fluxo
-   · Nav inferior: full-width, distribuída, nunca cortada
-   · Hero: padding ajustado ao espaço real disponível
-   · Features: coluna alinhada à esquerda, todas iguais
-   · Links legais: inline no rodapé do hero, não fixed
-   ══════════════════════════════════════════════════════════════════════════════ */
-@media (max-width: 640px) {
-
-  /* ── Fundo e robô ── */
-  .scene .login-art { opacity: 0; pointer-events: none; }
-  .hbx-scene :is(.login-intro__title, .site-title) { text-shadow: none; }
-  .hbx-scene :is(.login-intro__sub, .site-eyebrow, .site-sub) { text-shadow: none; }
-
-  /* ── Barra de topo: sai do fixed, entra no fluxo como topo da página ── */
-  .scene-top {
-    position: sticky;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 8;
-    display: flex;
-    align-items: center;
-    padding: 12px 20px;
-    background: var(--hbx-background);
-    border-bottom: 1px solid var(--border-hairline);
-  }
-  .scene-top .site-brand { font-size: 1.45rem; }
-
-  /* pele-allow: Portal v3.0 (arte full-bleed, escura) e telas internas com
-     mundo herdado — a faixa branca sólida do topo/nav ficava "chapada" por
-     cima da foto (reprova do dono 06/07, "essa faixa branca em cima e
-     embaixo é a arte final?"). Sobre arte escura, topo e nav viram VIDRO
-     escuro translúcido — mesmo par cor/blur do .portal-back/.world-chip já
-     aprovados (rgba(8,12,20,x) + backdrop-filter, mesma categoria "cena
-     pública em evolução" do bloco pele-allow do Portal mais abaixo neste
-     arquivo) — integra com a arte em vez de cortar a página; a marca »HBX
-     continua legível (branco). Fora do Portal (esteira/módulos/planos, sem
-     foto full-bleed) mantém o fundo sólido normal acima. */
-  .scene:has(.portal) .scene-top,
-  .scene:has(.scene-view.world) .scene-top {
-    background: rgba(8, 12, 20, .42);
-    border-bottom-color: rgba(255, 255, 255, .14);
-    -webkit-backdrop-filter: blur(var(--blur-glass));
-    backdrop-filter: blur(var(--blur-glass));
-  }
-  .scene:has(.portal) .scene-nav,
-  .scene:has(.scene-view.world) .scene-nav {
-    background: rgba(8, 12, 20, .42);
-    border-top-color: rgba(255, 255, 255, .14);
-    -webkit-backdrop-filter: blur(var(--blur-glass));
-    backdrop-filter: blur(var(--blur-glass));
-  }
-  /* pele-allow-end */
-
-  /* ── Hero: flex coluna, ocupa a altura disponível, distribui tudo na tela ── */
-  .scene-hero {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    min-height: 0;
-    height: calc(100dvh - 50px - 44px); /* topo ≈ 50px · nav ≈ 44px */
-    padding: 20px 20px 14px;
-    gap: 0;
-  }
-
-  /* ── Carrossel mobile: oculta palavras, mostra phone-frames ── */
-  /* No mobile: oculta words, exibe phones */
-  .scene-hero .site-carousel--words { display: none; }
-  .scene-hero .site-carousel--phones { display: flex; margin-bottom: 0; }
-  /* Track vira wrapper de altura fixa (texto inline) */
-  .scene-hero .site-carousel--phones .site-carousel__track { height: 26px; overflow: hidden; }
-  /* Slide no mobile = linha de texto horizontal (ícone + texto) */
-  .scene-hero .site-carousel__slide {
-    position: absolute;
-    inset: 0;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--login-accent);
-    white-space: nowrap;
-  }
-  /* Oculta a moldura e a legenda no mobile (mostra só texto inline) */
-  .scene-hero .site-phone,
-  .scene-hero .site-carousel__caption { display: none; }
-  /* Mostra texto e ícone inline do módulo no mobile */
-  .scene-hero .site-carousel__mobile-tx { display: inline; }
-  .scene-hero .site-carousel__slide .site-carousel__ic { display: inline-flex; }
-  .scene-hero .site-carousel__dots { justify-content: center; }
-
-  /* ── Título ── */
-  .site-title { font-size: clamp(2.2rem, 9.5vw, 3rem); line-height: 0.96; text-align: center; }
-
-  /* ── Subtítulo ── */
-  .site-sub { font-size: 0.92rem; margin-top: 10px; max-width: 100%; }
-
-  /* ── CTAs: primeiro botão flex-1; ghost menor ao lado ── */
-  .site-cta {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 10px;
-  }
-  .site-cta .site-btn--solid { flex: 1; justify-content: center; }
-  .site-cta .site-btn--ghost { flex: 0 0 auto; }
-
-  /* ── Features: coluna alinhada à esquerda, todas iguais ── */
-  .site-feats {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    margin-top: 14px;
-  }
-  .site-feat {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    max-width: 100%;
-    gap: 12px;
-  }
-  .site-feat + .site-feat { padding-left: 0; border-left: none; }
-  .site-feat__ic { flex: 0 0 34px; width: 34px; height: 34px; }
-  .site-feat__tx { font-size: 0.86rem; }
-
-  /* ── Links legais: no fundo, centralizado (space-between cuida da posição) ── */
-  .site-legal-links {
-    position: static;
-    left: auto;
-    transform: none;
-    bottom: auto;
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 6px 12px;
-    font-size: 0.7rem;
-  }
-
-  /* ── Nav inferior: full-width 20% maior, todos os itens distribuídos ── */
-  .scene-nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    width: 100%;
-    transform: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-around;
-    gap: 0;
-    padding: 6px 4px env(safe-area-inset-bottom, 6px);
-    background: var(--hbx-nav-surface, var(--hbx-background));
-    border-top: 1px solid var(--border-hairline);
-    z-index: 10;
-  }
-  .scene-nav__item {
-    font-size: 1.05rem;
-    padding: 0.55rem 0.5rem;
-    flex: 1;
-    text-align: center;
-    border-radius: var(--radius-sm);
-  }
-
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   PORTAL v3.0 — Bifurcação Empresa × Vendedor (entrada da casca)
-   Full-viewport, sem scroll. Duas fotos reais; hover expande; clique = takeover
-   (foto toma a tela + blur + scrim) e entra a copy direto ao ponto.
-   Cores soltas de propósito (autorizado): âmbar = vendedor, azul = empresa.
-   ════════════════════════════════════════════════════════════════════════════ */
-/* ════════════════════════════════════════════════════════════════════════════
-   pele-allow: ENTRADA V1.0 — portal / mundo escolhido / login-no-mundo.
-   É o "mundo visual do site público" (mesma categoria já isenta da landing).
-   Cores cinematográficas cru enquanto o V1.0 evolui; ao assentar, tokenizar e
-   remover este marcador e o do fim do arquivo (fecha lá embaixo, na última linha).
-   ════════════════════════════════════════════════════════════════════════════ */
-/* a casca vira coluna-flex SÓ quando o Portal está em cena → preenche a viewport
-   sem somar scroll, respeitando a barra/nav que a casca joga no fluxo no mobile */
-.scene:has(.portal){ height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-.scene:has(.portal) > .scene-body{ flex: 1 1 auto; min-height: 0; display: flex; }
-.scene:has(.portal) > .scene-body > .scene-view{ flex: 1 1 auto; min-height: 0; display: flex; }
-
-.portal{
-  position: relative; flex: 1 1 auto; min-height: 0; width: 100%;   /* preenche a casca via flex (sem rolar) */
-  display: flex; overflow: hidden; background: #05070c;
-  --corp: var(--login-cycle-1); --corp-deep: #1f6fe5;   /* accent FIXO na paleta da marca: azul */
-  --auto: var(--login-cycle-2); --auto-deep: #f59324;   /* âmbar */
-}
-
-/* cada metade (foto + rótulo) */
-.portal-side{
-  position: relative; flex: 1 1 50%; min-width: 0;
-  border: 0; margin: 0; padding: 0; outline: none; cursor: pointer;
-  background: #05070c; overflow: hidden;
-  transition: flex-grow .7s cubic-bezier(.22,1,.36,1),
-              flex-basis .7s cubic-bezier(.22,1,.36,1), opacity .6s ease;
-}
-.portal-side__photo{
-  position: absolute; inset: 0; background-size: cover; background-position: center;
-  transform: scale(1.04); filter: saturate(1.04) contrast(1.02) brightness(.72);
-  transition: transform 1.1s cubic-bezier(.22,1,.36,1), filter .7s ease;
-}
-.portal-side--corp .portal-side__photo{ background-position: 62% center; }
-.portal-side--auto .portal-side__photo{ background-position: 46% center; }
-
-.portal-side__veil{
-  position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(3,5,10,.12) 0%, rgba(3,5,10,.30) 52%, rgba(3,5,10,.88) 100%);
-  transition: background .6s ease, opacity .6s ease;
-}
-.portal-side--corp .portal-side__veil{ box-shadow: inset 0 -170px 210px -120px color-mix(in srgb, var(--corp) 70%, #000); }
-.portal-side--auto .portal-side__veil{ box-shadow: inset 0 -170px 210px -120px color-mix(in srgb, var(--auto) 70%, #000); }
-
-/* rótulo idle */
-.portal-side__label{
-  position: absolute; left: clamp(26px,4vw,64px); right: clamp(26px,4vw,64px);
-  bottom: clamp(98px,16vh,150px); z-index: 2;
-  display: grid; gap: 8px; text-align: left; color: #fff;
-  transition: opacity .45s ease, transform .6s cubic-bezier(.22,1,.36,1);
-}
-.portal-side--auto .portal-side__label{ text-align: right; justify-items: end; }
-.portal-side__kicker{
-  font-weight: 800; font-size: .72rem; letter-spacing: .22em; text-transform: uppercase;
-  color: var(--corp);
-}
-.portal-side--auto .portal-side__kicker{ color: var(--auto); }
-.portal-side__title{
-  font-family: var(--font-display, inherit); font-weight: 800;
-  font-size: clamp(2.1rem,4.6vw,3.7rem); line-height: .98; letter-spacing: -.02em;
-  text-shadow: 0 2px 30px rgba(0,0,0,.5);
-}
-.portal-side__promise{
-  font-size: clamp(.95rem,1.2vw,1.12rem); line-height: 1.4; max-width: 30ch;
-  color: rgba(255,255,255,.84);
-}
-.portal-side--auto .portal-side__promise{ margin-left: auto; }
-.portal-side__cue{
-  margin-top: 6px; display: inline-flex; align-items: center; gap: 8px;
-  font-weight: 700; font-size: .9rem; color: #fff; opacity: .9;
-  transition: gap .25s ease, opacity .25s ease;
-}
-.portal-side__cue svg{ width: 18px; height: 18px; stroke: currentColor; fill: none; }
-.portal-side--auto .portal-side__cue{ flex-direction: row-reverse; align-self: end; }
-
-/* hover desktop: expande o lado mirado, recolhe/escurece o outro */
-@media (hover:hover){
-  .portal.is-hover-corporativo .portal-side--corp,
-  .portal.is-hover-autonomo  .portal-side--auto{ flex-grow: 1.55; }
-  .portal.is-hover-corporativo .portal-side--auto,
-  .portal.is-hover-autonomo  .portal-side--corp{ flex-grow: .8; }
-  .portal.is-hover-corporativo .portal-side--corp .portal-side__photo,
-  .portal.is-hover-autonomo  .portal-side--auto .portal-side__photo{
-    transform: scale(1.0); filter: saturate(1.12) contrast(1.04) brightness(.95);
-  }
-  .portal.is-hover-corporativo .portal-side--auto .portal-side__photo,
-  .portal.is-hover-autonomo  .portal-side--corp .portal-side__photo{
-    filter: saturate(.6) brightness(.45) blur(1px);
-  }
-  .portal.is-hover-corporativo .portal-side--auto .portal-side__label,
-  .portal.is-hover-autonomo  .portal-side--corp .portal-side__label{ opacity: .3; }
-  .portal-side:hover .portal-side__cue{ opacity: 1; gap: 13px; }
-}
-
-/* fenda luminosa central + pergunta */
-.portal-seam{
-  position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-.5px);
-  background: linear-gradient(180deg, transparent, rgba(255,255,255,.55), transparent);
-  box-shadow: 0 0 24px 2px rgba(120,170,255,.45); z-index: 3; pointer-events: none;
-  transition: opacity .5s ease, box-shadow .5s ease;
-}
-.portal.is-hover-corporativo .portal-seam{ box-shadow: 0 0 32px 3px rgba(120,170,255,.65); }
-.portal.is-hover-autonomo  .portal-seam{ box-shadow: 0 0 32px 3px rgba(255,180,90,.65); }
-.portal-ask{
-  position: absolute; top: clamp(74px,12vh,120px); left: 50%; transform: translateX(-50%);
-  z-index: 3; pointer-events: none;
-  font-family: var(--font-display, inherit); font-weight: 700; font-size: clamp(.78rem,1vw,.92rem);
-  letter-spacing: .3em; text-transform: uppercase; color: rgba(255,255,255,.82);
-  text-shadow: 0 2px 18px rgba(0,0,0,.65); transition: opacity .4s ease;
-}
-
-/* legibilidade do chrome da casca (marca topo-esq + nav base-esq) sobre a foto */
-.portal::before{
-  content:""; position:absolute; inset:0; z-index:4; pointer-events:none;
-  background:
-    radial-gradient(120% 78% at 0% 0%, rgba(3,5,10,.5), transparent 36%),
-    radial-gradient(120% 78% at 0% 100%, rgba(3,5,10,.55), transparent 40%),
-    radial-gradient(ellipse 72% 44% at 50% 0%, rgba(3,5,10,.44), transparent 56%);
-}
-
-/* ── ESCOLHIDO: takeover ──────────────────────────────────────────────────── */
-.portal.is-chosen .portal-seam, .portal.is-chosen .portal-ask{ opacity: 0; }
-.portal.is-chosen .portal-side__label{ opacity: 0; transform: translateY(14px); }
-
-.portal.is-chosen.chose-corporativo .portal-side--corp{ flex: 1 1 100%; }
-.portal.is-chosen.chose-corporativo .portal-side--auto{ flex: 0 0 0%; opacity: 0; }
-.portal.is-chosen.chose-autonomo  .portal-side--auto{ flex: 1 1 100%; }
-.portal.is-chosen.chose-autonomo  .portal-side--corp{ flex: 0 0 0%; opacity: 0; }
-
-.portal.is-chosen.chose-corporativo .portal-side--corp .portal-side__photo,
-.portal.is-chosen.chose-autonomo  .portal-side--auto  .portal-side__photo{
-  transform: scale(1.12); filter: blur(8px) saturate(1.1) brightness(.5);
-}
-.portal.is-chosen.chose-corporativo .portal-side--corp .portal-side__veil,
-.portal.is-chosen.chose-autonomo  .portal-side--auto  .portal-side__veil{
-  background: linear-gradient(105deg, rgba(3,5,10,.88) 0%, rgba(3,5,10,.6) 44%, rgba(3,5,10,.22) 100%);
-  box-shadow: none;
-}
-
-/* stage da copy */
-.portal-stage{
-  position: absolute; inset: 0; z-index: 5;
-  display: grid; align-content: center;
-  padding: clamp(20px,5vw,96px) clamp(20px,5vw,96px) clamp(98px,16vh,150px);
-  opacity: 0; pointer-events: none; transition: opacity .55s ease .15s;
-}
-.portal.is-chosen .portal-stage{ opacity: 1; pointer-events: auto; }
-.portal-copy{
-  max-width: 640px; color: #fff; display: grid; gap: clamp(12px,1.6vh,20px);
-  transform: translateY(16px); transition: transform .6s cubic-bezier(.22,1,.36,1) .2s;
-}
-.portal.is-chosen .portal-copy{ transform: translateY(0); }
-.portal-copy__kicker{
-  font-weight: 800; font-size: .8rem; letter-spacing: .24em; text-transform: uppercase;
-  color: var(--corp);
-}
-.portal.chose-autonomo .portal-copy__kicker{ color: var(--auto); }
-.portal-copy__title{
-  margin: 0; font-family: var(--font-display, inherit); font-weight: 800;
-  font-size: clamp(2.2rem,4.4vw,3.6rem); line-height: 1.02; letter-spacing: -.025em;
-  text-shadow: 0 4px 40px rgba(0,0,0,.5);
-}
-.portal-copy__sub{
-  margin: 0; font-size: clamp(1rem,1.35vw,1.22rem); line-height: 1.5; max-width: 54ch;
-  color: rgba(255,255,255,.88);
-}
-.portal-copy__list{
-  list-style: none; margin: 4px 0 0; padding: 0;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; max-width: 56ch;
-}
-.portal-copy__list li{
-  display: flex; align-items: center; gap: 9px;
-  font-size: clamp(.9rem,1.05vw,1rem); color: rgba(255,255,255,.93);
-}
-.portal-copy__list svg{ width: 19px; height: 19px; flex: none; stroke: var(--corp); fill: none; }
-.portal.chose-autonomo .portal-copy__list svg{ stroke: var(--auto); }
-.portal-copy__cta{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
-.portal-btn{
-  border: 0; border-radius: 999px; cursor: pointer; padding: 14px 26px;
-  font-weight: 700; font-size: 1rem;
-  transition: transform .2s ease, box-shadow .3s ease, background .3s ease;
-}
-.portal-btn--solid{
-  color: #06121f; background: linear-gradient(135deg, var(--corp), color-mix(in srgb, var(--corp) 60%, #06121f));
-  box-shadow: 0 14px 40px -12px color-mix(in srgb, var(--corp) 60%, #000);
-}
-.portal.chose-autonomo .portal-btn--solid{
-  color: #2a1600; background: linear-gradient(135deg, var(--auto), color-mix(in srgb, var(--auto) 60%, #2a1600));
-  box-shadow: 0 14px 40px -12px color-mix(in srgb, var(--auto) 60%, #000);
-}
-.portal-btn--solid:hover{ transform: translateY(-2px); }
-.portal-btn--ghost{
-  color: #fff; background: rgba(255,255,255,.08);
-  border: 1px solid rgba(255,255,255,.28); backdrop-filter: blur(6px);
-}
-.portal-btn--ghost:hover{ background: rgba(255,255,255,.16); }
-
-/* trocar (voltar ao split) */
-.portal-back{
-  position: absolute; top: clamp(74px,12vh,118px); right: clamp(24px,5vw,56px); z-index: 6;
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid rgba(255,255,255,.25); background: rgba(8,12,20,.42);
-  backdrop-filter: blur(8px); color: #fff; border-radius: 999px;
-  padding: 9px 16px 9px 12px; font-weight: 600; font-size: .86rem; cursor: pointer;
-  transition: background .25s ease, transform .25s ease;
-}
-.portal-back svg{ width: 16px; height: 16px; stroke: currentColor; fill: none; transform: rotate(180deg); }
-.portal-back:hover{ background: rgba(8,12,20,.72); transform: translateX(-2px); }
-
-/* mobile: empilha vertical */
-@media (max-width: 760px){
-  .portal{ flex-direction: column; }
-  .portal-side{ flex: 1 1 50%; }
-  .portal-seam{
-    top: 50%; bottom: auto; left: 0; right: 0; width: auto; height: 1px; transform: translateY(-.5px);
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
-  }
-  .portal-side__label{ bottom: auto; top: 50%; transform: translateY(-50%); left: clamp(20px,6vw,40px); right: clamp(20px,6vw,40px); }
-  .portal-side--corp .portal-side__label{ top: 25%; }
-  .portal-side--auto .portal-side__label{ top: 75%; }
-  .portal-ask{ top: 50%; transform: translate(-50%,-50%); }
-  .portal.is-chosen.chose-corporativo .portal-side--corp,
-  .portal.is-chosen.chose-autonomo  .portal-side--auto{ flex: 1 1 100%; }
-  .portal.is-chosen.chose-corporativo .portal-side--auto,
-  .portal.is-chosen.chose-autonomo  .portal-side--corp{ flex: 0 0 0%; }
-  .portal-copy__list{ grid-template-columns: 1fr; gap: 8px; }
-  .portal-copy__title{ font-size: clamp(1.9rem,8vw,2.4rem); }
-
-  /* Corte de texto (dono 06/07, 2ª rodada): cartão vira só título + botão —
-     some eyebrow ("PARA EMPRESAS"/"PARA VENDEDOR AUTÔNOMO") e o parágrafo de
-     promessa; título+botão centralizados no cartão (antes alinhados à
-     esquerda/direita); título um pouco maior (só um pouquinho — anti-placona,
-     LEI nº6). Desktop INTOCADO (fora deste @media). */
-  .portal-side__kicker,
-  .portal-side__promise{ display: none; }
-  .portal-side__label{
-    text-align: center; justify-items: center; display: grid; gap: 10px;
-  }
-  .portal-side--auto .portal-side__label{ text-align: center; justify-items: center; }
-  .portal-side__title{ font-size: clamp(2.3rem, 9vw, 2.9rem); }
-  .portal-side__cue{
-    margin-top: 0; align-self: center;
-  }
-  .portal-side--auto .portal-side__cue{ flex-direction: row; align-self: center; }
-  /* Label curto SÓ no mobile ("Sou Vendedor"); desktop mostra o texto cheio. */
-  .portal-side__cue-full{ display: none; }
-  .portal-side__cue-short{ display: inline; }
-}
-@media (min-width: 761px){
-  .portal-side__cue-short{ display: none; }
-}
-
-@media (prefers-reduced-motion: reduce){
-  .portal-side, .portal-side__photo, .portal-copy, .portal-stage,
-  .portal-seam, .portal-ask, .portal-side__label{ transition: opacity .2s ease !important; }
-}
-/* ════════════════════════════════════════════════════════════════════════════
-   MUNDO escolhido herdado pelas telas internas (esteira/módulos/planos)
-   Foto do lado como fundo (embaçada+scrim) + accent por público + texto claro.
-   Tudo escopado em .world → NÃO afeta o caminho sem-lado nem o resto do app.
-   ════════════════════════════════════════════════════════════════════════════ */
-.scene-view.world { position: relative; }
-.scene-view.world--corporativo { --login-accent: var(--login-cycle-1); }
-.scene-view.world--autonomo    { --login-accent: var(--login-cycle-2); }
-/* marca (>> HBX) e toda a cena acompanham o lado escolhido — mata o ciclo de cor da
-   casca pra marca e conteúdo nunca destoarem (azul/âmbar consistentes) */
-.scene:has(.scene-view.world--corporativo), .scene:has(.portal.is-chosen.chose-corporativo) { animation: none; --login-accent: var(--login-cycle-1); }
-.scene:has(.scene-view.world--autonomo), .scene:has(.portal.is-chosen.chose-autonomo) { animation: none; --login-accent: var(--login-cycle-2); }
-
-.world-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center;
-  filter: blur(8px) brightness(.22) saturate(1.02); transform: scale(1.08); }
-.world-bg::after { content: ""; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(3,5,10,.66) 0%, rgba(3,5,10,.82) 55%, rgba(3,5,10,.9) 100%); }
-.scene-view.world > .scene-center { position: relative; z-index: 1; }
-
-/* legibilidade clara sobre a foto */
-.world .site-eyebrow { color: var(--login-accent); }
-.world .site-esteira-title { color: #fff; }
-.world .site-sub { color: rgba(255,255,255,.82); }
-.world .site-metrics__lead { color: rgba(255,255,255,.9); }
-.world .site-metric { color: #fff; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.06); }
-.world .scene-next__hint { color: rgba(255,255,255,.7); }
-.world .site-trust span { color: rgba(255,255,255,.72); }
-
-/* estações/integrações → glass escuro */
-.world .site-station { background: rgba(10,14,22,.55); border-color: rgba(255,255,255,.14);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-.world .site-station__t { color: #fff; }
-.world .site-station__d { color: rgba(255,255,255,.72); }
-.world .site-station.is-active { border-color: var(--login-accent); }
-
-/* cards de plano → glass escuro + texto claro */
-.world .site-plan2 { background: rgba(10,14,22,.6); border-color: rgba(255,255,255,.14); }
-.world .site-plan2__name, .world .site-plan2__price, .world .site-plan2__price b { color: #fff; }
-.world .site-plan2__tag, .world .site-plan2__feats li { color: rgba(255,255,255,.8); }
-.world .site-plan2__cta { color: #fff; border-color: rgba(255,255,255,.28); }
-.world .site-plan2__score { color: rgba(255,255,255,.85); }
-
-/* planos filtrados por lado (2 cards) → centraliza em 2 colunas */
-.site-plans.is-filtered { grid-template-columns: repeat(2, minmax(0, 340px)); justify-content: center; width: auto; }
-@media (max-width: 760px){ .site-plans.is-filtered { grid-template-columns: 1fr; } }
-
-/* chip do mundo (topo-centro): qual mundo + voltar pro split */
-.world-chip { position: absolute; top: clamp(16px,4vh,30px); left: 50%; transform: translateX(-50%); z-index: 5;
-  display: inline-flex; align-items: center; gap: 10px; padding: 7px 8px 7px 16px; border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.2); background: rgba(8,12,20,.5);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  color: #fff; font-weight: 700; font-size: .82rem; cursor: pointer; transition: background .25s ease; }
-.world-chip:hover { background: rgba(8,12,20,.72); }
-.world-chip__label::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px;
-  border-radius: 50%; background: var(--login-accent); box-shadow: 0 0 10px var(--login-accent); vertical-align: middle; }
-.world-chip__swap { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 999px;
-  background: rgba(255,255,255,.1); font-weight: 600; font-size: .74rem; color: rgba(255,255,255,.85); }
-.world-chip__swap svg { width: 13px; height: 13px; stroke: currentColor; fill: none; transform: rotate(180deg); }
-
-@media (prefers-reduced-motion: reduce){ .world-bg { transform: none; } }
-
-/* ── Contraste: nav + marca sobre fundos SEMPRE escuros (portal, world).
-   var(--text-body) é temático — aurora claro = #3D2B63 sobre #05070c ≈ 1.7:1, WCAG fail.
-   Força branco nesses contextos; .site-enter e .is-current mantêm lógica própria. */
-.scene:has(.portal) .scene-nav__item:not(.site-enter),
-.scene:has(.scene-view.world) .scene-nav__item:not(.site-enter) { color: rgba(255,255,255,.8); }
-.scene:has(.portal) .scene-nav__item:not(.site-enter):hover,
-.scene:has(.scene-view.world) .scene-nav__item:not(.site-enter):hover { color: #fff; background-color: rgba(255,255,255,.08); }
-.scene:has(.portal) .scene-nav__item.is-current,
-.scene:has(.scene-view.world) .scene-nav__item.is-current { color: var(--login-accent); background-color: color-mix(in srgb, var(--login-accent) 14%, transparent); }
-.scene:has(.portal) .site-brand,
-.scene:has(.scene-view.world) .site-brand { color: rgba(255,255,255,.9); }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   PORTAL — 5 fotos por lado em CROSS-FADE (mesma cadência de cor do master).
-   Reusa o keyframe hbx-robo-cycle (90s, janela op1 5–25%, troca limpa) e os
-   MESMOS delays do robô (0/-18/-36/-54/-72s) → os 2 lados morfam JUNTOS
-   (períodos alinhados). Vale também pro fundo das telas internas (.world-bg).
-   ════════════════════════════════════════════════════════════════════════════ */
-.pframe { position: absolute; inset: 0; background-size: cover; background-position: center;
-  background-repeat: no-repeat; opacity: 0; animation: hbx-robo-cycle 90s linear infinite; will-change: opacity; }
-.pframe:nth-child(1) { animation-delay: 0s; }
-.pframe:nth-child(2) { animation-delay: -18s; }
-.pframe:nth-child(3) { animation-delay: -36s; }
-.pframe:nth-child(4) { animation-delay: -54s; }
-.pframe:nth-child(5) { animation-delay: -72s; }
-
-/* enquadramento por lado (mantém o sujeito na borda externa) */
-.portal-side--corp .pframe { background-position: 62% center; }
-.portal-side--auto .pframe { background-position: 46% center; }
-
-/* imagens — Empresa (azul) */
-.portal-side--corp .portal-side__photo .pframe:nth-child(1),
-.world--corporativo .world-bg .pframe:nth-child(1) { background-image: url("/portal/corporativo/1.png"); }
-.portal-side--corp .portal-side__photo .pframe:nth-child(2),
-.world--corporativo .world-bg .pframe:nth-child(2) { background-image: url("/portal/corporativo/2.png"); }
-.portal-side--corp .portal-side__photo .pframe:nth-child(3),
-.world--corporativo .world-bg .pframe:nth-child(3) { background-image: url("/portal/corporativo/3.png"); }
-.portal-side--corp .portal-side__photo .pframe:nth-child(4),
-.world--corporativo .world-bg .pframe:nth-child(4) { background-image: url("/portal/corporativo/4.png"); }
-.portal-side--corp .portal-side__photo .pframe:nth-child(5),
-.world--corporativo .world-bg .pframe:nth-child(5) { background-image: url("/portal/corporativo/5.png"); }
-
-/* imagens — Vendedor (âmbar) */
-.portal-side--auto .portal-side__photo .pframe:nth-child(1),
-.world--autonomo .world-bg .pframe:nth-child(1) { background-image: url("/portal/autonomo/1.png"); }
-.portal-side--auto .portal-side__photo .pframe:nth-child(2),
-.world--autonomo .world-bg .pframe:nth-child(2) { background-image: url("/portal/autonomo/2.png"); }
-.portal-side--auto .portal-side__photo .pframe:nth-child(3),
-.world--autonomo .world-bg .pframe:nth-child(3) { background-image: url("/portal/autonomo/3.png"); }
-.portal-side--auto .portal-side__photo .pframe:nth-child(4),
-.world--autonomo .world-bg .pframe:nth-child(4) { background-image: url("/portal/autonomo/4.png"); }
-.portal-side--auto .portal-side__photo .pframe:nth-child(5),
-.world--autonomo .world-bg .pframe:nth-child(5) { background-image: url("/portal/autonomo/5.png"); }
-
-/* reduced motion: trava no 1º quadro (igual ao master) */
-@media (prefers-reduced-motion: reduce) {
-  .pframe { animation: none; opacity: 0; }
-  .pframe:nth-child(1) { opacity: 1; }
-}
-/* ════════════════════════════════════════════════════════════════════════════
-   LOGIN no MUNDO fotográfico — troca os 5 robôs pelas 5 fotos do lado.
-   Reusa 100% a máquina do login-art (cross-fade hbx-robo-cycle, névoa, scrim,
-   zoom de saída); só troca as imagens e FIXA a cor no tom do lado.
-   ════════════════════════════════════════════════════════════════════════════ */
-/* accent do login FIXO no tom do lado (mata o ciclo de cor da casca; só as fotos cruzam) */
-.login-console.world--corporativo { --login-accent: var(--login-cycle-1); animation: none; }
-.login-console.world--autonomo    { --login-accent: var(--login-cycle-2); animation: none; }
-.login-console.world .login-art__frame::after { opacity: 0 !important; }  /* sem overlay de cor do tema claro */
-
-/* Empresa (azul) */
-.login-console.world--corporativo .login-art__frame:nth-child(1) { background-image: url("/portal/corporativo/1.png"); }
-.login-console.world--corporativo .login-art__frame:nth-child(2) { background-image: url("/portal/corporativo/2.png"); }
-.login-console.world--corporativo .login-art__frame:nth-child(3) { background-image: url("/portal/corporativo/3.png"); }
-.login-console.world--corporativo .login-art__frame:nth-child(4) { background-image: url("/portal/corporativo/4.png"); }
-.login-console.world--corporativo .login-art__frame:nth-child(5) { background-image: url("/portal/corporativo/5.png"); }
-
-/* Vendedor (âmbar) */
-.login-console.world--autonomo .login-art__frame:nth-child(1) { background-image: url("/portal/autonomo/1.png"); }
-.login-console.world--autonomo .login-art__frame:nth-child(2) { background-image: url("/portal/autonomo/2.png"); }
-.login-console.world--autonomo .login-art__frame:nth-child(3) { background-image: url("/portal/autonomo/3.png"); }
-.login-console.world--autonomo .login-art__frame:nth-child(4) { background-image: url("/portal/autonomo/4.png"); }
-.login-console.world--autonomo .login-art__frame:nth-child(5) { background-image: url("/portal/autonomo/5.png"); }
-/* Accent FIXO por lado, na paleta da marca (--login-cycle-1 azul / -2 âmbar) — definido
-   em .scene-view.world--* e .scene:has(...) acima. Sem ciclo de cor: marca, conteúdo,
-   botões e login ficam no MESMO tom e no padrão. Só as FOTOS cruzam (hbx-robo-cycle). */
-/* ════════════════════════════════════════════════════════════════════════════
-   PORTAL — tapa final da ENTRADA: hero central + cards "ideal para" + botão +
-   microprova. Tudo dentro da casca, sem scroll. Some no takeover.
-   ════════════════════════════════════════════════════════════════════════════ */
-.portal-hero {
-  position: absolute; top: clamp(54px, 11vh, 104px); left: 50%; transform: translateX(-50%);
-  z-index: 5; pointer-events: none; width: min(680px, 86vw); text-align: center; color: #fff;
-  transition: opacity .45s ease;
-}
-.portal-hero__eyebrow {
-  display: block; font-weight: 800; font-size: clamp(.7rem, .95vw, .82rem);
-  letter-spacing: .26em; text-transform: uppercase; color: rgba(255,255,255,.82);
-  text-shadow: 0 2px 16px rgba(0,0,0,.7); margin-bottom: 12px;
-}
-.portal-hero__title {
-  margin: 0; font-family: var(--font-display, inherit); font-weight: 800;
-  font-size: clamp(1.7rem, 3.4vw, 2.9rem); line-height: 1.04; letter-spacing: -.02em;
-  text-shadow: 0 4px 34px rgba(0,0,0,.6);
-}
-.portal-hero__sub {
-  margin: 12px auto 0; max-width: 52ch; font-size: clamp(.9rem, 1.1vw, 1.04rem);
-  line-height: 1.5; color: rgba(255,255,255,.88); text-shadow: 0 1px 16px rgba(0,0,0,.78), 0 0 32px rgba(0,0,0,.42);
-}
-
-/* microprova (rodapé central) */
-.portal-foot {
-  position: absolute; bottom: clamp(20px, 4vh, 34px); left: 50%; transform: translateX(-50%);
-  z-index: 5; pointer-events: none; margin: 0; white-space: nowrap;
-  font-weight: 600; font-size: clamp(.7rem, .9vw, .82rem); letter-spacing: .04em;
-  color: rgba(255,255,255,.72); text-shadow: 0 1px 12px rgba(0,0,0,.7);
-  transition: opacity .45s ease;
-}
-.portal.is-chosen .portal-hero, .portal.is-chosen .portal-foot { opacity: 0; visibility: hidden; }
-
-/* "ideal para" dentro do card */
-.portal-side__ideal { display: grid; gap: 6px; margin-top: 4px; }
-.portal-side__ideal-item {
-  font-size: clamp(.74rem, .95vw, .84rem); line-height: 1.3; color: rgba(255,255,255,.74);
-  padding-left: 10px; border-left: 2px solid var(--corp);
-}
-.portal-side--auto .portal-side__ideal { justify-items: end; }
-.portal-side--auto .portal-side__ideal-item {
-  padding-left: 0; padding-right: 10px; border-left: 0; border-right: 2px solid var(--auto); text-align: right;
-}
-
-/* cue vira BOTÃO sólido na cor do lado ("Sou empresa" / "Sou vendedor autônomo") */
-.portal-side__cue {
-  margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; align-self: start;
-  padding: 11px 22px; border-radius: 999px; background: var(--corp); color: #06121f;
-  font-weight: 700; font-size: clamp(.84rem, 1vw, .95rem); opacity: 1;
-  box-shadow: 0 12px 30px -14px color-mix(in srgb, var(--corp) 70%, #000);
-  transition: transform .2s ease, box-shadow .3s ease, background .3s ease;
-}
-.portal-side--auto .portal-side__cue { align-self: end; flex-direction: row-reverse; background: var(--auto); color: #2a1600;
-  box-shadow: 0 12px 30px -14px color-mix(in srgb, var(--auto) 70%, #000); }
-.portal-side__cue svg { width: 17px; height: 17px; stroke: currentColor; fill: none; }
-.portal-side:hover .portal-side__cue { transform: translateY(-2px); }
-
-/* mobile: a entrada fica enxuta (os 2 cards são o título); some hero/foot/ideal */
-@media (max-width: 760px) {
-  .portal-hero, .portal-foot, .portal-side__ideal { display: none; }
-  .portal-side__cue { margin-top: 10px; padding: 9px 18px; }
-}
-/* pele-allow-end — fim da entrada V1.0 (portal / mundo / login-no-mundo) */
+/* PORTAL v3.0 / mundo escolhido / login-no-mundo (ENTRADA V1.0) REMOVIDOS
+   (W1/PR10072026): a entrada pública é a public-entry (f1) e o /login virou
+   redirect — nada mais renderizava .portal/.world/.world-bg; as fotos
+   public/portal/* sairam junto. */
 
 /* ============================================================
    WORM-13 v2 — AUTOMAÇÕES como CONSOLE (redesenho 07/07: "preencher a
@@ -6214,3 +4671,82 @@ button.site-plan2__cta { font: inherit; -webkit-appearance: none; appearance: no
    sem hex — lê certo em qualquer pele. ── */
 .vnd-m__sheet--lead-detail { box-shadow: var(--shadow-inset); }
 .vnd-m__act--primary { box-shadow: 0 10px 20px -10px color-mix(in srgb, var(--hbx-brand-strong) 55%, transparent); }
+
+/* ---------- OOBE — portão de primeiro acesso (10/07, PR10072026/02) ----------
+   MESMA casca do app: overlay/moldura são as centrais .hbx-veil/.hbx-modal e
+   toda cor vem de token (claro/escuro seguem o tema — a folha isolada oobe.css
+   morreu). Aqui só ESTRUTURA + transições "uma coisa sai pra outra entrar". */
+.oobe-veil { z-index: 80; }
+.oobe-shell { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
+.oobe-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; border-bottom: 1px solid var(--border-hairline); }
+.oobe-brand { display: flex; align-items: center; gap: 10px; }
+.oobe-brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius-sm); background: var(--hbx-primary); color: var(--hbx-action-ink); font-family: var(--font-display); font-weight: 800; }
+.oobe-brand strong { display: block; font-family: var(--font-display); font-size: 0.95rem; line-height: 1.15; color: var(--text-strong); }
+.oobe-brand span { display: block; font-size: 0.68rem; color: var(--text-muted); }
+.oobe-progress { display: grid; gap: 6px; justify-items: end; }
+.oobe-progress-label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); }
+.oobe-progress-bar { width: 150px; height: 5px; border-radius: 999px; background: var(--hbx-surface-raised); overflow: hidden; }
+.oobe-progress-fill { height: 100%; border-radius: 999px; background: var(--hbx-brand-strong); transition: width 0.5s var(--ease-out-quint); }
+.oobe-stage { position: relative; display: grid; padding: 22px; min-height: 340px; align-content: start; }
+
+/* Transição entre passos: o painel sai (is-leaving) antes de o próximo entrar
+   (remonta pelo key) — cascata leve nos filhos, lei "uma coisa sai pra outra entrar". */
+.oobe-panel { display: grid; gap: 14px; align-content: start; opacity: 0; transform: translateY(10px) scale(0.995); animation: oobe-enter 0.45s var(--ease-out-quint) forwards; }
+.oobe-panel.is-leaving { animation: oobe-leave 0.24s var(--ease-out-quint) forwards; }
+@keyframes oobe-enter { to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes oobe-leave { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-8px) scale(0.995); } }
+.oobe-panel > * { animation: oobe-child-in 0.5s var(--ease-out-quint) both; }
+.oobe-panel > *:nth-child(1) { animation-delay: 0.05s; }
+.oobe-panel > *:nth-child(2) { animation-delay: 0.12s; }
+.oobe-panel > *:nth-child(3) { animation-delay: 0.19s; }
+.oobe-panel > *:nth-child(4) { animation-delay: 0.26s; }
+.oobe-panel > *:nth-child(n+5) { animation-delay: 0.33s; }
+.oobe-panel.is-leaving > * { animation: none; }
+@keyframes oobe-child-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.oobe-title { margin: 0; font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; letter-spacing: var(--tracking-tight); color: var(--text-strong); }
+.oobe-copy { margin: 0; font-size: 0.8rem; line-height: 1.55; color: var(--text-muted); max-width: 560px; }
+.oobe-field { display: grid; gap: 7px; max-width: 560px; }
+.oobe-input-row { display: flex; gap: 8px; }
+.oobe-row { display: grid; grid-template-columns: 104px 1fr; gap: 12px; max-width: 560px; }
+.oobe-input--uf { text-align: center; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 800; }
+
+/* Chips de ramo (multi-select) — scroll interno só do bloco de chips. */
+.oobe-chips { display: flex; flex-wrap: wrap; gap: 8px; max-width: 640px; max-height: 96px; overflow-y: auto; }
+.oobe-chip { border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-body); border-radius: 999px; padding: 7px 12px; font-size: 0.74rem; font-weight: 600; cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast); }
+.oobe-chip:hover { background: var(--hbx-surface-raised); }
+.oobe-chip.is-on { background: var(--hbx-brand-soft); border-color: var(--hbx-brand); color: var(--hbx-brand-strong); }
+.oobe-chip:disabled { opacity: 0.5; pointer-events: none; }
+
+/* Cards de escolha (categorias / modo / caminho). */
+.oobe-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 10px; }
+.oobe-choices--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 420px; }
+.oobe-card { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 16px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-body); cursor: pointer; transition: transform var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
+.oobe-card:hover { transform: translateY(-1px); background: var(--hbx-surface-raised); }
+.oobe-card.is-selected { border-color: var(--hbx-brand); background: var(--hbx-brand-soft); box-shadow: 0 0 0 1px var(--hbx-brand), var(--shadow-xs); }
+.oobe-card:disabled { opacity: 0.55; cursor: progress; }
+.oobe-card-ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 999px; background: var(--hbx-primary); color: var(--hbx-action-ink); font-weight: 800; }
+.oobe-card strong { font-size: 0.85rem; letter-spacing: var(--tracking-tight); color: var(--text-strong); }
+
+.oobe-bottom { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 4px; }
+.oobe-help { min-height: 1em; font-size: 0.72rem; color: var(--text-muted); }
+.oobe-help.is-error { color: var(--hbx-danger); font-weight: 700; }
+.oobe-actions { display: flex; gap: 10px; }
+
+/* Boot do Tutorial — splash curto na casca (sem checklist fake). */
+.oobe-boot { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: var(--hbx-background); opacity: 1; transition: opacity 0.4s var(--ease-out-quint); }
+.oobe-boot.is-gone { opacity: 0; pointer-events: none; }
+.oobe-boot-stage { display: grid; gap: 14px; justify-items: center; text-align: center; }
+.oobe-boot-title { margin: 0; font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; letter-spacing: var(--tracking-tight); color: var(--text-strong); }
+.oobe-boot-dots { display: inline-flex; gap: 6px; }
+.oobe-boot-dots i { width: 8px; height: 8px; border-radius: 999px; background: var(--hbx-brand-strong); animation: oobe-dot 1s ease-in-out infinite; }
+.oobe-boot-dots i:nth-child(2) { animation-delay: 0.15s; }
+.oobe-boot-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes oobe-dot { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .oobe-panel, .oobe-panel > * { animation: none; opacity: 1; transform: none; }
+  .oobe-progress-fill, .oobe-boot { transition: none; }
+  .oobe-boot-dots i { animation: none; }
+  .oobe-card, .oobe-card:hover { transform: none; }
+}

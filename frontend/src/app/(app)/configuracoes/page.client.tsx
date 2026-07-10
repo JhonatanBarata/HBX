@@ -427,7 +427,7 @@ export function ConfiguracoesClient() {
                     </div>
                   </section>
                 )}
-                <CreditsWalletSection userEmail={user?.email || ""} userName={user?.name || user?.company?.name || ""} />
+                <CreditsWalletSection />
               </React.Fragment>
             )}
           </div>

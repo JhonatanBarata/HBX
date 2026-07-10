@@ -175,7 +175,7 @@ export function RelatoriosClient() {
         .catch((err: unknown) => {
           const e = err as Error & { status?: number };
           const msg = e?.status === 402
-            ? "Relatório completo requer plano com inteligência (Lead Plus)."
+            ? "Relatório completo requer o módulo de inteligência de leads liberado."
             : e?.message || "Falha ao carregar o relatório.";
           return { rep: null, err: `${msg}${e?.status ? ` (HTTP ${e.status})` : ""}` };
         }),
@@ -224,7 +224,7 @@ export function RelatoriosClient() {
       });
       if (!res.ok) {
         if (res.status === 403) {
-          throw new Error("Exportar PDF faz parte do HBX Lead Plus ou superior.");
+          throw new Error("Exportar PDF não está liberado para sua conta.");
         }
         throw new Error("Não foi possível gerar o PDF. Tente novamente em instantes.");
       }

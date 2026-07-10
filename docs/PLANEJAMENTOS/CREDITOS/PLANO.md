@@ -53,6 +53,21 @@ Estavam travando o schema. Agora resolvidas; cada uma vira consequência de cód
   do crédito**, nos governadores físicos que já existem (`SourceBudgetService`, disjuntor de zap,
   gate Serpro) — fail-closed, crédito não fura eles. Enriquecimento/IA/templates/e-mail viram
   **capacidade grátis** (RBAC decide se pode, não crédito). Só o lead é metrado.
+
+  > **ADENDO 10/07 (dono) — D1 parcialmente REVOGADO: crédito vira moeda UNIVERSAL, track-first.**
+  > "Só o lead é metrado" caiu. Agora TODO uso de módulo é MEDIDO por ação
+  > (`backend/src/credits/credit-action-catalog.ts` + `CreditMeterService`): `lead_delivery`
+  > segue **debit** (único que cobra — caminho assert intocado); `ai_realtime`/`ai_batch`,
+  > `whatsapp_auto_send` e `logistica_delivery` nascem **track** (linha `debit_shadow` no ledger,
+  > saldo intocado). Virar `debit` é decisão explícita do dono com ~30d de número real na mão —
+  > nunca flip silencioso. **Exceções decididas pelo dono:** WhatsApp automação **NUNCA debita**
+  > ("ninguém cobra a não ser que for Meta" — Evolution/Baileys não tem custo por mensagem);
+  > mensagem HUMANA nem é medida (allowlist por `sourceModule` no dispatch). IA local = track
+  > (custo ~R$0); IA PAGA futura entra como ação nova já debit no dia 1. Os governadores físicos
+  > do D1 original continuam valendo (crédito não fura orçamento de fonte paga/disjuntor).
+  > **Pendências registradas:** overlay do catálogo de ações editável no /master (hoje só código);
+  > IA batch do Radar (extração/saneamento/xray) roda sem empresa dona → sem medição por tenant
+  > (fábrica global — medir por empresa exigiria propagar companyId pelo lote).
 - **D2 — Unificar com a "baixa" do VENDAS-REFAB → `[FECHADO]` SIM, unificar.** Este plano é "tornar a
   cota da árvore uma carteira persistente + recarregável". Uma moeda só. `1 lead puxado = 1 baixa da
   empresa = 1 crédito debitado`. Nada de double-accounting.

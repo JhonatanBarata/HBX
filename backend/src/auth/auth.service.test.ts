@@ -538,6 +538,51 @@ test('sanitizeUser: USERMASTER (dono) e reconhecido como admin, identico a ADMIN
   assert.equal(usermaster?.sellerProfile?.isCommonSeller, false);
 });
 
+// OOBE POR CATEGORIA (PR10072026/02, 10/07): modulesPending pergunta as categorias
+// ao dono no 1º acesso; ramoPending passa a valer SÓ quando a categoria 'radar'
+// foi escolhida (cliente só-logística nunca vê pergunta de ramo).
+test('sanitizeUser: modulesPending/ramoPending seguem as categorias de módulo', () => {
+  const baseCompany = {
+    id: 78,
+    name: 'Cliente B',
+    companyKind: 'tenant',
+    accountType: 'enterprise',
+    isActive: true,
+    status: 'trial',
+    selectedPlanKey: 'hbx_padrao',
+    trialStartsAt: new Date(),
+    trialEndsAt: inDays(10),
+  };
+
+  // Sem categorias escolhidas: portão pergunta categorias; ramo ainda NÃO (espera o radar).
+  const semCategorias = sanitizeUser({ id: 20, username: 'dono', role: 'ADMIN', isSystemMaster: false, company: baseCompany });
+  assert.equal(semCategorias?.modulesPending, true);
+  assert.equal(semCategorias?.ramoPending, false);
+  assert.deepEqual(semCategorias?.company?.moduleCategories, []);
+
+  // Radar escolhido + sem ramo salvo: categorias resolvidas, ramo pendente.
+  const comRadar = sanitizeUser({
+    id: 20, username: 'dono', role: 'ADMIN', isSystemMaster: false,
+    company: { ...baseCompany, moduleCategoriesJson: ['radar', 'vendas'] },
+  });
+  assert.equal(comRadar?.modulesPending, false);
+  assert.equal(comRadar?.ramoPending, true);
+  assert.deepEqual(comRadar?.company?.moduleCategories, ['radar', 'vendas']);
+
+  // Só-logística: nunca vê pergunta de ramo. (JSON em string também é aceito.)
+  const soLogistica = sanitizeUser({
+    id: 20, username: 'dono', role: 'ADMIN', isSystemMaster: false,
+    company: { ...baseCompany, moduleCategoriesJson: JSON.stringify(['logistica']) },
+  });
+  assert.equal(soLogistica?.modulesPending, false);
+  assert.equal(soLogistica?.ramoPending, false);
+
+  // Vendedor nunca responde OOBE de dono.
+  const vendedor = sanitizeUser({ id: 21, username: 'v', role: 'USER', isSystemMaster: false, company: baseCompany });
+  assert.equal(vendedor?.modulesPending, false);
+  assert.equal(vendedor?.ramoPending, false);
+});
+
 // Maquina de cadastro nativa: a confirmacao de e-mail confirma o e-mail e deixa
 // a empresa em pending_checkout. O trial EXIGE cartao e so nasce no checkout
 // (regra travada do dono 16/06) — nunca na confirmacao.

@@ -121,6 +121,14 @@ export function DashboardClient() {
   const [audit, setAudit] = useState<Audit>(null);
   const [commission, setCommission] = useState<Commission>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Entrada suave pós-login (W1): enquanto o 1º payload de cada fonte não
+  // liquida, os KPIs/painéis mostram SKELETON — nunca "—"/"Sem dados" cru
+  // piscando por ~2s antes dos números (queixa mapeada no plano).
+  const [radarDone, setRadarDone] = useState(false);
+  const [convDone, setConvDone] = useState(false);
+  const [reportDone, setReportDone] = useState(false);
+  const [auditDone, setAuditDone] = useState(false);
+  const [commissionDone, setCommissionDone] = useState(false);
   const isSeller = isCompanySeller(user);
 
   useEffect(() => {
@@ -138,21 +146,29 @@ export function DashboardClient() {
         const real = res?.baseAvailable ? (res?.baseTotal ?? null) : (res?.total ?? null);
         setRadarTotal(real);
       })
-      .catch(() => { /* sem base */ });
+      .catch(() => { /* sem base */ })
+      .finally(() => { if (alive) setRadarDone(true); });
     apiFetch<Array<unknown>>("/inbox/conversations?take=50")
       .then(res => { if (alive) setConvCount(Array.isArray(res) ? res.length : 0); })
-      .catch(() => { /* inbox indisponível */ });
+      .catch(() => { /* inbox indisponível */ })
+      .finally(() => { if (alive) setConvDone(true); });
     apiFetch<Report>("/vendas/report?period=7d")
       .then(res => { if (alive) setReport(res); })
-      .catch(() => { /* relatório indisponível */ });
+      .catch(() => { /* relatório indisponível */ })
+      .finally(() => { if (alive) setReportDone(true); });
     apiFetch<Audit>("/vendas/seller-audit")
       .then(res => { if (alive) setAudit(res); })
-      .catch(() => { /* só Admin vê */ });
+      .catch(() => { /* só Admin vê */ })
+      .finally(() => { if (alive) setAuditDone(true); });
     apiFetch<Commission>("/vendas/commission/summary")
       .then(res => { if (alive) setCommission(res); })
-      .catch(() => { /* sem acesso à comissão pela política da equipe */ });
+      .catch(() => { /* sem acesso à comissão pela política da equipe */ })
+      .finally(() => { if (alive) setCommissionDone(true); });
     return () => { alive = false; };
   }, []);
+
+  // Board liquida quando chega (board) ou quando falha (loadError).
+  const boardDone = board !== null || loadError !== null;
 
   const summary = board?.summary;
   const hoje = board?.blocks?.today || [];
@@ -210,7 +226,8 @@ export function DashboardClient() {
               // próprio funil. Rótulo explícito pra admin/master nunca confundir com
               // "meu funil" (VENDAS-REFAB, lixo catalogado 04/07).
               label: isSeller ? "Cards no funil" : "Cards no funil (empresa)",
-              value: summary ? String(summary.total) : "—",
+              // value "" enquanto carrega = skeleton central (.kpi-value:empty, screens.css)
+              value: summary ? String(summary.total) : boardDone ? "—" : "",
               href: "/vendas",
             },
             // Vendedor vê a comissão dele (ordem do dono); demais perfis veem a base do Radar.
@@ -218,7 +235,7 @@ export function DashboardClient() {
               ? {
                   icon: "money",
                   label: "Comissão a receber",
-                  value: ct ? fmtMoney(ct.payableAmount) : "—",
+                  value: ct ? fmtMoney(ct.payableAmount) : commissionDone ? "—" : "",
                   sub: ct && ct.duePayableAmount > 0
                     ? `${fmtMoney(ct.duePayableAmount)} liberada`
                     : ct && ct.paidAmount > 0
@@ -227,9 +244,9 @@ export function DashboardClient() {
                   href: "/gerencial",
                   onClick: () => { try { sessionStorage.setItem("hbx:gerencial-aba", "Comissões"); } catch { /* sem storage */ } },
                 }
-              : { icon: "users", label: "Leads na base (Radar)", value: radarTotal != null ? radarTotal.toLocaleString("pt-BR") : "—", href: "/leads" },
-            { icon: "atend", label: "Atendimentos em aberto", value: convCount != null ? String(convCount) : "—", href: "/atendimento" },
-            { icon: "check", label: "Taxa de conversão (7d)", value: m ? `${(m.taxaConversao * 100).toFixed(1).replace(".", ",")}%` : "—", href: "/relatorios" },
+              : { icon: "users", label: "Leads na base (Radar)", value: radarTotal != null ? radarTotal.toLocaleString("pt-BR") : radarDone ? "—" : "", href: "/leads" },
+            { icon: "atend", label: "Atendimentos em aberto", value: convCount != null ? String(convCount) : convDone ? "—" : "", href: "/atendimento" },
+            { icon: "check", label: "Taxa de conversão (7d)", value: m ? `${(m.taxaConversao * 100).toFixed(1).replace(".", ",")}%` : reportDone ? "—" : "", href: "/relatorios" },
           ]} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14 }}>
@@ -241,7 +258,8 @@ export function DashboardClient() {
                 </div>
               </div>
               <div style={{ padding: "10px 18px 16px" }}>
-                {segments.length === 0 && (
+                {!reportDone && <div className="dash-skel-rows" aria-hidden="true"><i /><i /><i /></div>}
+                {reportDone && segments.length === 0 && (
                   <p className="muted-note">Sem dados no período — trabalhe cards para o ranking aparecer.</p>
                 )}
                 {segments.length > 0 && (
@@ -261,7 +279,8 @@ export function DashboardClient() {
             <section className="panel">
               <div className="panel-head"><h2>Funil de conversão (7 dias)</h2></div>
               <div style={{ padding: "14px 18px 18px" }}>
-                {funil.length === 0 && (
+                {!reportDone && <div className="dash-skel-rows" aria-hidden="true"><i /><i /><i /></div>}
+                {reportDone && funil.length === 0 && (
                   <p className="muted-note">Sem dados no período.</p>
                 )}
                 {funil.length > 0 && (
@@ -289,7 +308,8 @@ export function DashboardClient() {
                 <div className="meta"><Link className="link" href="/vendas">Ver tudo</Link></div>
               </div>
               <div className="activity" style={{ padding: "4px 18px 10px" }}>
-                {atividade.length === 0 && (
+                {!boardDone && <div className="dash-skel-rows" aria-hidden="true"><i /><i /><i /></div>}
+                {boardDone && atividade.length === 0 && (
                   <p className="muted-note">Sem eventos ainda — a atividade nasce do trabalho nos cards.</p>
                 )}
                 {atividade.map(({ card, ev }, i) => (
@@ -308,7 +328,8 @@ export function DashboardClient() {
             <section className="panel">
               <div className="panel-head"><h2>Tarefas de hoje</h2></div>
               <div style={{ padding: "8px 18px 14px" }}>
-                {tarefas.length === 0 && (
+                {!boardDone && <div className="dash-skel-rows" aria-hidden="true"><i /><i /></div>}
+                {boardDone && tarefas.length === 0 && (
                   <p className="muted-note">Nenhum retorno para hoje.</p>
                 )}
                 {tarefas.map((t, i) => (
@@ -331,7 +352,8 @@ export function DashboardClient() {
                 </div>
               </div>
               <div style={{ padding: "10px 18px 16px", display: "grid", gap: 13 }}>
-                {vendedores.length === 0 && (
+                {!auditDone && <div className="dash-skel-rows" aria-hidden="true"><i /><i /></div>}
+                {auditDone && vendedores.length === 0 && (
                   <p className="muted-note">{isSeller ? "Trabalhe e feche cards para ver seu desempenho aqui." : "Sem dados de vendedores no período ainda."}</p>
                 )}
                 {vendedores.map((v, i) => (

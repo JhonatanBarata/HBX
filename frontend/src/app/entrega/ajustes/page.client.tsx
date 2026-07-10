@@ -9,17 +9,17 @@
 //     Reusa GET/PATCH /logistica/config (mesma lógica de preview do backend).
 //   · FECHAR MÊS — POST /logistica/fechar-mes com confirmação simples.
 //   · INSTALAR APP — QR do /entrega (gerador local, sem CDN) + copiar link.
-//   · SAIR — clearToken + volta ao /login.
+//   · SAIR — logout único (lib/logout.ts): POST + limpeza + transição → landing.
 // Toda cor/forma vive em entrega.css (.ent-* / A4); zero hex/inline (5 Leis).
 // ================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
 
 import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFullscreen } from "@/components/casca";
 import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
-import { apiFetch, clearToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { logout } from "@/lib/logout";
 import { fetchWhatsAppModalStatus } from "@/lib/whatsapp-connection-flow";
 import { WhatsAppConnectButton } from "@/components/hbx/whatsapp-connect-button";
 import { WhatsAppConectarSheet } from "@/components/casca/screens/whatsapp-conectar-sheet";
@@ -110,8 +110,6 @@ function renderPreview(template: string): string {
 }
 
 export function EntregaAjustes() {
-  const router = useRouter();
-
   const [cfg, setCfg] = useState<LogisticaConfig | null>(null);
   const [template, setTemplate] = useState("");
   const [erro, setErro] = useState<string | null>(null);
@@ -250,10 +248,11 @@ export function EntregaAjustes() {
 
   const preview = useMemo(() => renderPreview(template), [template]);
 
+  // Helper único (lib/logout.ts) — de quebra conserta o bug antigo daqui:
+  // saía sem POST /auth/logout (sessão ficava viva no servidor).
   const sair = useCallback(() => {
-    clearToken();
-    router.replace("/login");
-  }, [router]);
+    void logout();
+  }, []);
 
   const onToggleFullscreen = useCallback(async () => {
     const ativo = await toggleCascaFullscreen();

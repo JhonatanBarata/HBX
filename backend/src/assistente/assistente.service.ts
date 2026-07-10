@@ -212,7 +212,9 @@ export class AssistenteService {
 
     const message = String(dto?.message || '').trim();
 
-    const result = await this.sandbox.reply(config, history, message, chat);
+    // CRÉDITO UNIVERSAL (PR10072026): meta com a empresa — a chamada de IA do sandbox vira
+    // medição `ai_realtime` (track) no gateway.
+    const result = await this.sandbox.reply(config, history, message, chat, { companyId });
 
     // Numera o teste: incrementa o contador da empresa (sem transacao pesada —
     // colisao aqui e irrelevante; e so um rotulo de UX). Sem envio real.

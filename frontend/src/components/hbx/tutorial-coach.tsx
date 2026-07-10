@@ -5,8 +5,9 @@
 // balão de texto, e avança quando a pessoa clica no alvo certo. Roda por cima do
 // shell PERSISTENTE via portal pro <body> e SOBREVIVE à navegação — por isso
 // consegue levar a pessoa de Leads → Vendas → Atendimento (clicar muda a rota,
-// o coach segue). Tem passo central, passo "limpo" (resumo com typewriter, sem
-// escurecer) e passo final (planos + "falar com a HBX").
+// o coach segue). Tem passo central, passo "limpo" (resumo sem escurecer) e
+// passo final (planos + "falar com a HBX"). O efeito typewriter MORREU
+// (10/07, PR10072026/02): texto instantâneo — nada segura o botão.
 //
 // LEI DO DONO "uma coisa sai pra outra entrar": toda troca de passo faz o balão
 // SAIR (fade/escala) e só então o próximo ENTRAR — nunca corte seco. O holofote
@@ -32,8 +33,6 @@ export type CoachStep = {
   // 'click' = espera o clique REAL no alvo (jogo). 'next' = botão "Continuar".
   gate?: "click" | "next";
   cta?: string;
-  // body escrito letra a letra.
-  typewriter?: boolean;
   // sem escurecer a tela; balão no rodapé-centro (resumos de Dashboard/Relatórios).
   plain?: boolean;
   // imagem ilustrativa acima do título (ex.: meta.webp no passo do Meta).
@@ -54,26 +53,6 @@ function prefersReducedMotion() {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-// Escreve o texto letra a letra; remonta (key=step.id) a cada passo. Respeita
-// reduced-motion (mostra tudo de uma vez).
-function Typewriter({ text, speed = 17 }: { text: string; speed?: number }) {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    if (prefersReducedMotion()) {
-      const t = window.setTimeout(() => setN(text.length), 0);
-      return () => window.clearTimeout(t);
-    }
-    let i = 0;
-    const id = window.setInterval(() => {
-      i += 1;
-      setN(i);
-      if (i >= text.length) window.clearInterval(id);
-    }, speed);
-    return () => window.clearInterval(id);
-  }, [text, speed]);
-  return <>{text.slice(0, n)}<span className="tut-caret" aria-hidden /></>;
 }
 
 export function TutorialCoach({
@@ -201,7 +180,7 @@ export function TutorialCoach({
 
   // Mede a altura real do balão a cada render (antes do paint). setState no mesmo
   // valor é no-op no React, então rodar sem deps NÃO causa loop nem custo relevante —
-  // e pega crescimento por texto/typewriter/troca de passo sem estimar nada. (O
+  // e pega crescimento por texto/troca de passo sem estimar nada. (O
   // aviso de "loop infinito" do exhaustive-deps é falso-positivo por isso.)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
@@ -292,9 +271,7 @@ export function TutorialCoach({
         )}
 
         <strong className="tut-balloon__title">{step.title}</strong>
-        <p className="tut-balloon__body">
-          {step.typewriter ? <Typewriter key={step.id} text={step.body} /> : step.body}
-        </p>
+        <p className="tut-balloon__body">{step.body}</p>
 
         {step.choice ? (
           <div className="tut-choice__row">

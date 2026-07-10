@@ -103,6 +103,9 @@ export class AssistenteSandboxService {
     history: SandboxTurn[],
     userMessage: string,
     chat?: OllamaChat,
+    // CRÉDITO UNIVERSAL (PR10072026): empresa dona do teste — repassada ao gateway de IA
+    // pra medição `ai_realtime` (track). Opcional: ausente = sem medição (testes/fakes).
+    meta?: { companyId?: number | null },
   ): Promise<SandboxReplyResult> {
     const startedAt = Date.now();
     const model = assistenteModel();
@@ -125,7 +128,7 @@ export class AssistenteSandboxService {
     }
 
     // Passo 2 — resposta via IA LOCAL (mesmo pipeline do bot). Chamada injetavel.
-    const caller = chat ?? this.defaultOllamaChat.bind(this);
+    const caller = chat ?? ((messages: Array<{ role: string; content: string }>) => this.defaultOllamaChat(messages, meta));
     const systemPrompt = compileSystemPrompt(config);
     const messages: Array<{ role: string; content: string }> = [
       { role: 'system', content: systemPrompt },
@@ -174,7 +177,10 @@ export class AssistenteSandboxService {
 
   // Chamada REAL ao Ollama LOCAL — mesmo /api/chat, host e model do classificador
   // do bot. NAO e Webwhats: e o motor de IA local (:11434, OpenAI/Ollama-compat).
-  private async defaultOllamaChat(messages: Array<{ role: string; content: string }>): Promise<string> {
+  private async defaultOllamaChat(
+    messages: Array<{ role: string; content: string }>,
+    meta?: { companyId?: number | null },
+  ): Promise<string> {
     this.guard.ollamaCalls += 1;
     if (!envOn('HBX_LLM_CLASSIFIER_ENABLED')) {
       // IA desligada no ambiente → sem chamada; o caller cai no roteiro.
@@ -187,19 +193,24 @@ export class AssistenteSandboxService {
     // GOVERNOR-IA: faixa realtime (assistente é interação ao vivo). Recusa cedo (fila cheia/espera
     // condenada) lança o MESMO tipo de erro que já cai no roteiro no `reply()` — o contrato de
     // degradação (nunca envio real, sempre roteiro/fallback) fica intacto.
-    const gw = await AiGatewayService.run('realtime', timeoutMs, () =>
-      fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          think: false,
-          options: { temperature: 0.4, num_predict: 220 },
-          messages,
+    // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
+    const gw = await AiGatewayService.run(
+      'realtime',
+      timeoutMs,
+      () =>
+        fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            think: false,
+            options: { temperature: 0.4, num_predict: 220 },
+            messages,
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
         }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }),
+      { companyId: meta?.companyId, actionKey: 'ai_realtime' },
     );
     if (gw.refused) throw new Error('governor recusou a chamada de IA (fila cheia) — caindo no roteiro');
     const response = gw.value;

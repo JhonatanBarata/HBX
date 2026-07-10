@@ -1,9 +1,7 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { LoginClient } from "./page.client";
-
-export const metadata: Metadata = { title: "HBX — Entrar" };
-
+// /login morreu como TELA (W1/PR10072026, dono 10/07): existe 1 login só,
+// o card embutido na landing. Rota vira alias — links antigos continuam vivos.
 export default function LoginPage() {
-  return <LoginClient />;
+  redirect("/?entrar");
 }

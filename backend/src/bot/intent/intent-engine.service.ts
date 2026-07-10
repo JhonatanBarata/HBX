@@ -130,7 +130,12 @@ export class IntentEngineService {
     context?: IntentEngineContext,
   ): Promise<IntentEngineResult> {
     const startedAt = Date.now();
-    const result = await this.aiIntentClassifier.classifyIntentWithFallback(input);
+    // CRÉDITO UNIVERSAL (PR10072026): repassa a empresa dona da conversa pro classificador —
+    // a chamada de IA vira medição `ai_realtime` (track) no gateway. Sem context = sem medição.
+    const result = await this.aiIntentClassifier.classifyIntentWithFallback({
+      ...input,
+      companyId: context?.companyId ?? null,
+    });
     const latencyMs = Date.now() - startedAt;
 
     if (context) {
@@ -187,26 +192,31 @@ export class IntentEngineService {
     try {
       // GOVERNOR-IA: faixa realtime (bot de atendimento tem gate apertado, passa na frente).
       // Recusa cedo → cai no MESMO menu de sempre (classification fica null).
-      const gw = await AiGatewayService.run('realtime', timeoutMs, () =>
-        fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model,
-            stream: false,
-            think: false,
-            format: 'json',
-            options: { temperature: 0.1, num_predict: 60 },
-            messages: [
-              { role: 'system', content: ATENDIMENTO_NLU_SYSTEM_PROMPT },
-              {
-                role: 'user',
-                content: `Acoes disponiveis:\n${catalogPrompt}\n\nMensagem do cliente: ${text}`,
-              },
-            ],
+      // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
+      const gw = await AiGatewayService.run(
+        'realtime',
+        timeoutMs,
+        () =>
+          fetch(`${baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              stream: false,
+              think: false,
+              format: 'json',
+              options: { temperature: 0.1, num_predict: 60 },
+              messages: [
+                { role: 'system', content: ATENDIMENTO_NLU_SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: `Acoes disponiveis:\n${catalogPrompt}\n\nMensagem do cliente: ${text}`,
+                },
+              ],
+            }),
+            signal: AbortSignal.timeout(timeoutMs),
           }),
-          signal: AbortSignal.timeout(timeoutMs),
-        }),
+        { companyId: input.context?.companyId, actionKey: 'ai_realtime' },
       );
       latencyMs = Date.now() - startedAt;
 

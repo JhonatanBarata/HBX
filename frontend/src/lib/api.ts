@@ -4,6 +4,8 @@
 // Mesmo contrato do app antigo: token em localStorage ("token"),
 // backend via NEXT_PUBLIC_API_URL ou proxy same-origin /hbx/api.
 
+import { leaveWithFade } from "@/lib/leave";
+
 const DEFAULT_API_URL =
   process.env.NODE_ENV === "production"
     ? "https://api.hbxsystem.com.br"
@@ -88,18 +90,20 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   }
 
   if (!res.ok) {
-    // Sessão expirada/derrubada (login único): limpa o cliente e volta ao
-    // /login com aviso — sem isso a tela morria em "Carregando…" quando
-    // outra sessão substituía a atual (relato do dono, 12/06/2026).
+    // Sessão expirada/derrubada (login único): limpa o cliente e volta pra
+    // LANDING com o card de login aberto ("/?entrar", W1 10/07 — /login morreu
+    // como tela) e com aviso — sem isso a tela morria em "Carregando…" quando
+    // outra sessão substituía a atual (relato do dono, 12/06/2026). pathname
+    // "/" é a própria landing (login embutido) — não redireciona em cima dela.
     if (
       res.status === 401 &&
-      !path.startsWith("/auth/login") &&
+      !path.startsWith("/auth/") &&
       typeof window !== "undefined" &&
-      window.location.pathname !== "/login"
+      window.location.pathname !== "/"
     ) {
       try { sessionStorage.setItem("hbx:session-notice", "expired"); } catch { /* sem storage */ }
       clearToken();
-      window.location.replace("/login");
+      leaveWithFade("/?entrar");
     }
     const payload = (data ?? {}) as { message?: string | string[]; error?: string };
     const rawMessage = Array.isArray(payload.message) ? payload.message[0] : payload.message;

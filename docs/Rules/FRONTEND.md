@@ -119,9 +119,10 @@
   não se copia para dentro de tela nem de TSX (vira token/classe).
 - Mundo-site (visual próprio, fora do fiscal): `hbx-theme/marketing.css`,
   `src/app/page.client.tsx` (landing) e `src/app/trabalhe-conosco/`.
-- OOBE (07/07): `hbx-theme/oobe.css` — casca ISOLADA do primeiro acesso
-  (`components/hbx/oobe-gate.tsx`), paleta própria dark constante (mock
-  aprovado pelo dono), padrão mundo-site: NUNCA vestir com a pele do app.
+- OOBE (10/07, supersede 07/07): a folha isolada `hbx-theme/oobe.css` MORREU —
+  o portão de primeiro acesso (`components/hbx/oobe-gate.tsx`) veste a MESMA
+  casca do app (tokens/kit; claro/escuro seguem o tema). Estrutura `.oobe-*`
+  vive em `screens.css`, sem exceção no check-pele.
 - `public/sw.js` é kill-switch permanente do PWA antigo — não remover; não
   registrar service worker novo sem ordem do dono.
 - Webfonts via `<link>` no `src/app/layout.tsx` (nunca `@import` em CSS — o
@@ -206,7 +207,9 @@ uma variação.
 
 - Uma rota canônica por funcionalidade; alias só redireciona.
 - Aliases ativos: `/dashboard/master` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
-  friendly morto na unificação); `/webscraping` → `/leads` (Radar unificada).
+  friendly morto na unificação); `/webscraping` → `/leads` (Radar unificada); `/login` → `/?entrar`
+  (W1 10/07: 1 login só, o card embutido na landing — logout/401 caem em `/` e `/?entrar` via
+  `lib/logout.ts`/`lib/leave.ts`, com transição).
   (`/boasvindas`, `/pre-checkout`, `/precheckout` removidos em F8/19/06 — rotas mortas deletadas.)
 - **Sem legado (regra dura, dono 17/06).** Merge/substituição de tela apaga a velha NO
   MESMO passo — ela vira alias `redirect()` (ex.: `/workspace`→`/dashboard`,

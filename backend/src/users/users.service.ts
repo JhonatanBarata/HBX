@@ -20,6 +20,12 @@ import {
   parsePreferredSegments,
   type PreferredSegments,
 } from './preferred-segments.util';
+import {
+  CATEGORY_MANAGED_MODULE_KEYS,
+  moduleKeysForCategories,
+  normalizeModuleCategories,
+  type ModuleCategoryKey,
+} from '../modules/module-categories';
 
 export const SELF_ACCESS_REMOVAL_MESSAGE = 'Você não pode remover seu próprio acesso.';
 export const LAST_TENANT_ADMIN_MESSAGE = 'A empresa precisa manter pelo menos um administrador ativo.';
@@ -880,6 +886,43 @@ export class UsersService {
     await this.prisma.company.update({
       where: { id: companyId },
       data,
+    });
+    return clean;
+  }
+
+  // OOBE POR CATEGORIA (PR10072026/02, 10/07): grava as categorias de módulo que o
+  // DONO escolheu no primeiro acesso e materializa a escolha em post-its de
+  // CompanyModule — enabled=true pros módulos das categorias escolhidas,
+  // enabled=false pros das NÃO escolhidas. SÓ encosta nos módulos governados pelo
+  // mapa (CATEGORY_MANAGED_MODULE_KEYS); cadastros básicos (empresas/contatos/
+  // produtos/config/dash) e financeiro/gerencial ficam intocados. O guard
+  // @ModuleAccess e o GET /modules/me já respeitam o post-it (fail-closed).
+  async saveCompanyModuleCategories(
+    companyId: number,
+    categories: unknown,
+  ): Promise<ModuleCategoryKey[]> {
+    const clean = normalizeModuleCategories(categories);
+    if (!clean.length) {
+      throw new BadRequestException('Escolha pelo menos uma categoria.');
+    }
+    const enabledKeys = moduleKeysForCategories(clean);
+    const managedModules = await this.prisma.systemModule.findMany({
+      where: { key: { in: CATEGORY_MANAGED_MODULE_KEYS }, companyAssignable: true },
+      select: { id: true, key: true },
+    });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: { moduleCategoriesJson: clean } as any,
+      });
+      for (const moduleRow of managedModules) {
+        const enabled = enabledKeys.has(String(moduleRow.key || '').trim().toLowerCase());
+        await tx.companyModule.upsert({
+          where: { companyId_moduleId: { companyId, moduleId: moduleRow.id } },
+          update: { enabled },
+          create: { companyId, moduleId: moduleRow.id, enabled },
+        });
+      }
     });
     return clean;
   }

@@ -1,16 +1,16 @@
 "use client";
 
 // Formulário canônico de cadastro. A rota /register é a única entrada pública
-// para este fluxo; preço e regras seguem a fonte de planos e o backend.
-// Fluxo: POST /auth/signup → confirmação de e-mail → CheckoutPanel.
+// para este fluxo. MODELO CRÉDITO É A VIA ÚNICA (W3/PR10072026, dono 10/07):
+// o funil de plano/trial/checkout morreu — cadastro leve (empresa, nome,
+// e-mail, senha, telefone obrigatório, CPF opcional, termos) → confirmação de
+// e-mail/WhatsApp → créditos de boas-vindas. Sem cartão, sem seleção de plano.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { apiFetch, setToken } from "@/lib/api";
-import { PLAN_STATIC } from "@/lib/plans";
 import { fetchCreditStorefront } from "@/lib/credits-storefront";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
@@ -27,33 +27,21 @@ type SignupResponse = {
   deliveryFailed?: boolean;
   // fluxo local/mock confirma na hora e devolve sessão completa
   access_token?: string | null;
-  // fluxo produção: sessão restrita ao checkout (empresa em pending_checkout)
-  checkout_token?: string | null;
   next?: string | null;
-  trialEndsAt?: string | null;
   // F4 (19/06): token de acompanhamento — habilita a RETOMADA do funil no reload.
   confirmationPollToken?: string | null;
 };
 
-const PLANOS_VALIDOS = new Set(Object.keys(PLAN_STATIC));
-
 // F4 (19/06): continuidade do funil. A VERDADE do passo é o backend (resume);
 // o sessionStorage é só uma DICA pra reidratar rápido (fail-safe se sumir).
 const ONBOARDING_POLL_KEY = "hbx:onboarding-poll";
-const ONBOARDING_PLAN_KEY = "hbx:onboarding-plan";
 const ONBOARDING_EMAIL_KEY = "hbx:onboarding-email";
 function clearOnboardingHint() {
   try {
     sessionStorage.removeItem(ONBOARDING_POLL_KEY);
-    sessionStorage.removeItem(ONBOARDING_PLAN_KEY);
     sessionStorage.removeItem(ONBOARDING_EMAIL_KEY);
   } catch { /* sem storage */ }
 }
-
-type RegisterPanelProps = {
-  selectedPlanKey?: string | null;
-  embedded?: boolean;
-};
 
 // Resposta do endpoint /auth/onboarding/whatsapp/start
 type WaStartResponse = {
@@ -67,7 +55,7 @@ type WaStartResponse = {
   alreadyConfirmed?: boolean;
 };
 
-export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPanelProps) {
+export function RegisterPanel() {
   const router = useRouter();
   const [empresa, setEmpresa] = useState("");
   const [email, setEmail] = useState("");
@@ -81,9 +69,6 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const googleBtnRef = useRef<HTMLDivElement>(null);
-  // Prefill do fechamento (PLAN-VENDA-PRONTA-A): o vendedor já confirmou telefone/CPF
-  // do cliente. Guardamos pra passar pro checkout (o cartão nasce pré-preenchido).
-  const [prefill, setPrefill] = useState<{ phone: string; cpf: string } | null>(null);
   const [prefillActive, setPrefillActive] = useState(false);
 
   // F6 — Confirmação por WhatsApp (3 estados: idle → phone → code)
@@ -96,51 +81,28 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
   const [waChallengeToken, setWaChallengeToken] = useState<string | null>(null);
   const [waPreviewCode, setWaPreviewCode] = useState<string | null>(null);
 
-  // CRÉDITOS (cutover 06/07) — chavinha HBX_CREDITS_ENABLED. `enabled===true`:
-  // cadastro direto sem plano (email + telefone confirmados = welcomeCredits
-  // grátis, sem cartão). `enabled===false` (ou ainda carregando): mantém o
-  // funil de PLANOS de hoje intacto (regressão zero).
-  const [creditsEnabled, setCreditsEnabled] = useState(false);
+  // Créditos de boas-vindas (vitrine pública) — só alimenta a copy do número.
   const [welcomeCredits, setWelcomeCredits] = useState(0);
   useEffect(() => {
     let alive = true;
     fetchCreditStorefront().then((sf) => {
       if (!alive) return;
-      setCreditsEnabled(sf.enabled);
       setWelcomeCredits(sf.welcomeCredits);
     });
     return () => { alive = false; };
   }, []);
 
-  // Cadastro grátis (modelo créditos): telefone obrigatório (base do dedup
-  // anti-farra + confirmação por WhatsApp), CPF opcional.
+  // Telefone obrigatório (base do dedup anti-farra + confirmação por WhatsApp),
+  // CPF opcional.
   const [freeTelefone, setFreeTelefone] = useState("");
   const [freeCpf, setFreeCpf] = useState("");
 
-  const selectedPlan = selectedPlanKey && PLANOS_VALIDOS.has(selectedPlanKey) ? selectedPlanKey : "hbx_padrao";
-  const isTrial = selectedPlan === "hbx_padrao";
-  const copy = PLAN_STATIC[selectedPlan] ?? PLAN_STATIC.hbx_padrao;
-  // Checkout na casca: List/Full cobram na hora; Lead salva o cartão e NÃO cobra
-  // (Plano B — trial com cartão, 1ª cobrança só no X+14, o backend adia). Company
-  // não tem self-checkout (falar com especialista).
-  // Modelo grátis (créditos): NUNCA tem checkout — não há venda no cadastro.
-  const needsCheckout = !creditsEnabled && selectedPlan !== "hbx_melhor";
-  // checkout_token = sessão de escopo restrito gerada no signup (produção).
-  // access_token = sessão completa (mock/local que auto-confirma o e-mail).
-  // Qualquer um dos dois habilita o CheckoutPanel na mesma cena.
-  // Cartão SÓ depois de confirmar (ordem do dono 19/06: confirmar antes de
-  // cobrar). checkout_token (produção, e-mail ainda não confirmado) NÃO abre o
-  // checkout — cai na tela "aguardando confirmação". Só access_token (sessão
-  // plena = e-mail confirmado / mock auto-confirmado) libera o pagamento.
-  const showCheckout = Boolean(done?.access_token) && needsCheckout;
-
-  // Guarda a dica de retomada (token + plano + e-mail) só quando o cadastro
-  // ficou PENDENTE (sem sessão plena). Sessão plena já limpa a dica.
+  // Guarda a dica de retomada (token + e-mail) só quando o cadastro ficou
+  // PENDENTE (sem sessão plena). Sessão plena já limpa a dica.
   function persistOnboardingHint(res: SignupResponse | null) {
     if (!res?.confirmationPollToken || res?.access_token) return;
     try {
       sessionStorage.setItem(ONBOARDING_POLL_KEY, res.confirmationPollToken);
-      sessionStorage.setItem(ONBOARDING_PLAN_KEY, selectedPlan);
       sessionStorage.setItem(ONBOARDING_EMAIL_KEY, String(res.email || email || ""));
     } catch { /* sem storage */ }
   }
@@ -173,8 +135,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             if (ms > 0) setResendCooldown(Math.ceil(ms / 1000));
           }
         } else {
-          // awaiting_payment | done: identidade confirmada → cobrança mora no app
-          // (gate do logado, F8). Entra pelo login.
+          // identidade confirmada → entra pelo login.
           clearOnboardingHint();
           router.replace("/login");
         }
@@ -183,10 +144,10 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     return () => { alive = false; };
   }, [done, router]);
 
-  // Prefill do checkout: o link de contratação traz ?hbxLead=<leadId> (cuid opaco =
-  // token; zero PII na URL). Buscamos o que o vendedor confirmou no fechamento pra
-  // pré-preencher conta (empresa/nome/e-mail) + guardar telefone/CPF pro cartão.
-  // Só preenche campo VAZIO — nunca atropela o que a pessoa já digitou.
+  // Prefill do fechamento: o link de contratação traz ?hbxLead=<leadId> (cuid
+  // opaco = token; zero PII na URL). Buscamos o que o vendedor confirmou no
+  // fechamento pra pré-preencher o cadastro. Só preenche campo VAZIO — nunca
+  // atropela o que a pessoa já digitou.
   useEffect(() => {
     let hbxLead: string | null = null;
     try { hbxLead = new URLSearchParams(window.location.search).get("hbxLead"); } catch { /* sem url */ }
@@ -200,7 +161,8 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         if (r.companyNameSuggested) setEmpresa((v) => v || String(r.companyNameSuggested));
         if (r.name) setNome((v) => v || String(r.name));
         if (r.email) setEmail((v) => v || String(r.email));
-        setPrefill({ phone: r.phone || "", cpf: r.cpf || "" });
+        if (r.phone) setFreeTelefone((v) => v || String(r.phone));
+        if (r.cpf) setFreeCpf((v) => v || String(r.cpf).replace(/\D/g, ""));
         setPrefillActive(true);
       })
       .catch(() => { /* lead sem prefill/expirado: segue o cadastro normal */ });
@@ -214,10 +176,9 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     try {
       const res = await apiFetch<SignupResponse>("/auth/google", {
         method: "POST",
-        body: JSON.stringify({ idToken: response.credential, selectedPlanKey: selectedPlan }),
+        body: JSON.stringify({ idToken: response.credential }),
       });
       if (res?.access_token) { setToken(res.access_token); clearOnboardingHint(); }
-      else if (res?.checkout_token) setToken(res.checkout_token);
       persistOnboardingHint(res);
       setDone(res || { ok: true });
     } catch (err) {
@@ -225,7 +186,7 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     } finally {
       setBusy(false);
     }
-  }, [busy, selectedPlan]);
+  }, [busy]);
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
@@ -255,22 +216,19 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
       setError("As senhas não conferem.");
       return;
     }
-    if (creditsEnabled && !freeTelefone.trim()) {
+    if (!freeTelefone.trim()) {
       setError("Informe seu telefone com DDD — usamos ele para confirmar sua conta e liberar seus créditos.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      // Cadastro enxuto (ordem do dono 19/06): paridade com o Google — só
-      // e-mail/nome/senha (+empresa). Telefone e CPF saíram daqui: telefone vem
-      // depois (confirmação por WhatsApp/F6), CPF no checkout (F7).
-      // CRÉDITOS (cutover 06/07): com a chavinha ON, o cadastro é direto (sem
-      // plano) e já manda telefone/CPF — o backend EXIGE telefone nesse modo
-      // (base do dedup anti-farra dos welcomeCredits).
+      // Cadastro do modelo crédito: direto, sem plano — o backend EXIGE o
+      // telefone (base do dedup anti-farra dos welcomeCredits).
       const res = await apiFetch<SignupResponse>("/auth/signup", {
         method: "POST",
-        body: JSON.stringify(creditsEnabled ? {
+        body: JSON.stringify({
+          companyName: empresa,
           email,
           name: nome,
           password: senha,
@@ -278,24 +236,9 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
           trialContactName: nome,
           trialContactPhone: freeTelefone,
           trialTaxDocument: freeCpf || undefined,
-        } : {
-          companyName: empresa,
-          email,
-          name: nome,
-          password: senha,
-          acceptedTerms: true,
-          selectedPlanKey: selectedPlan,
-          trialModuleSelection: "vendas",
-          trialContactName: nome,
         }),
       });
-      // Sessão na mão: dev/mock devolve access_token (e-mail auto-confirmado);
-      // produção devolve checkout_token (sessão restrita a /financeiro).
-      // Em ambos os casos, o CheckoutPanel pode chamar a API autenticado.
-      // Só a sessão plena (access_token = e-mail confirmado / mock auto-confirmado)
-      // autentica o funil. O checkout_token (produção, pré-confirmação) fica em
-      // `done` mas NÃO loga ninguém — o cartão espera a confirmação (F3).
-      if (res?.access_token && selectedPlan !== "hbx_melhor") {
+      if (res?.access_token) {
         setToken(res.access_token);
         clearOnboardingHint();
       }
@@ -393,7 +336,6 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
         router.replace(res.next || "/dashboard");
         return;
       }
-      // Confirmado mas sem access_token ainda (ex.: awaiting_payment)
       setDone(res || { ok: true });
     } catch (err) {
       setWaError(err instanceof Error ? err.message : "Código inválido. Tente novamente.");
@@ -409,40 +351,19 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
     </button>
   );
 
-  const formContent = (
-    <main className={"reg-form" + (embedded ? " reg-form--embedded" : "")}>
+  return (
+    <div className="reg-form">
       {done ? (
-        showCheckout ? (
-          <CheckoutPanel
-            planKey={selectedPlan}
-            phone={waPhone || prefill?.phone || ""}
-            taxDocument={prefill?.cpf || ""}
-            email={email}
-            name={nome}
-            trialEndsAt={done.trialEndsAt}
-            onSuccess={() => router.replace(done.next || "/dashboard")}
-          />
-        ) : (
         <div className="card">
           <h2>
-            {done.access_token
-              ? "Tudo pronto ✓"
-              : creditsEnabled
-                ? "Falta pouco — confirme sua conta"
-                : selectedPlan === "hbx_melhor"
-                  ? "Recebido ✓"
-                  : `HBX ${copy.accent} — Aguardando confirmação`}
+            {done.access_token ? "Tudo pronto ✓" : "Falta pouco — confirme sua conta"}
           </h2>
           <p className="sub">
             {done.access_token
-              ? (creditsEnabled ? `Sua conta está ativa com ${welcomeCredits} créditos grátis.` : copy.doneSub)
-              : creditsEnabled
+              ? (welcomeCredits > 0 ? `Sua conta está ativa com ${welcomeCredits} créditos grátis.` : "Sua conta está ativa.")
+              : (welcomeCredits > 0
                 ? `Confirme seu email e telefone para liberar seus ${welcomeCredits} créditos.`
-                : selectedPlan === "hbx_melhor"
-                  ? copy.doneSub
-                  : (isTrial
-                    ? "Falta um passo: confirme seu e-mail para ativar o teste grátis."
-                    : "Falta um passo: confirme seu e-mail para ativar sua conta.")}
+                : "Confirme seu email e telefone para liberar seus créditos.")}
           </p>
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
@@ -463,10 +384,10 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>
                 Ir para o login
               </Link>
-              {/* F6 — Confirmação por WhatsApp (modelo grátis: telefone já veio do
-                  cadastro — pré-preenche pra não digitar de novo) */}
+              {/* F6 — Confirmação por WhatsApp (telefone já veio do cadastro —
+                  pré-preenche pra não digitar de novo) */}
               {waStep === "idle" && (
-                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (creditsEnabled && freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
                   Confirmar pelo WhatsApp
                 </button>
               )}
@@ -520,16 +441,15 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             </React.Fragment>
           )}
         </div>
-        )
       ) : (
         <form className="card" onSubmit={onSubmit}>
-          <h2>{creditsEnabled ? "Criar sua conta grátis" : copy.formTitle}</h2>
+          <h2>Criar sua conta grátis</h2>
           <p className="sub">
-            {creditsEnabled
+            {welcomeCredits > 0
               ? <>Confirme email e telefone e ganhe <strong>{welcomeCredits} créditos</strong> grátis. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</>
-              : copy.formSub}
+              : <>Confirme email e telefone e ganhe seus créditos grátis. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</>}
           </p>
-          {GOOGLE_CLIENT_ID && (creditsEnabled || selectedPlan !== "hbx_melhor") && (
+          {GOOGLE_CLIENT_ID && (
             <>
               {prefillActive && (
                 <p className="sub" style={{ margin: "0 0 4px", fontWeight: 700, textAlign: "center" }}>
@@ -540,13 +460,11 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               <div className="login-or"><span>ou preencha abaixo</span></div>
             </>
           )}
-          {!creditsEnabled && (
-            <div className="f">
-              <label htmlFor="emp">Empresa</label>
-              <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}
-                value={empresa} onChange={e => setEmpresa(e.target.value)} />
-            </div>
-          )}
+          <div className="f">
+            <label htmlFor="emp">Empresa</label>
+            <input id="emp" className="field-dark" placeholder="Nome da sua empresa" required maxLength={120}
+              value={empresa} onChange={e => setEmpresa(e.target.value)} />
+          </div>
           <div className="f">
             <label htmlFor="em">E-mail</label>
             <input id="em" className="field-dark" type="email" placeholder="Digite seu e-mail" required autoComplete="email"
@@ -557,13 +475,11 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             <input id="nm" className="field-dark" placeholder="Nome que aparecerá no atendimento" required maxLength={120}
               value={nome} onChange={e => setNome(e.target.value)} />
           </div>
-          {creditsEnabled && (
-            <div className="f">
-              <label htmlFor="free-tel">WhatsApp com DDD</label>
-              <input id="free-tel" className="field-dark" type="tel" placeholder="WhatsApp com DDD" required autoComplete="tel"
-                value={freeTelefone} onChange={e => setFreeTelefone(e.target.value)} />
-            </div>
-          )}
+          <div className="f">
+            <label htmlFor="free-tel">WhatsApp com DDD</label>
+            <input id="free-tel" className="field-dark" type="tel" placeholder="WhatsApp com DDD" required autoComplete="tel"
+              value={freeTelefone} onChange={e => setFreeTelefone(e.target.value)} />
+          </div>
           <div className="f">
             <label htmlFor="pw">Senha</label>
             <div style={{ position: "relative" }}>
@@ -579,13 +495,11 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
               required minLength={8} autoComplete="new-password"
               value={confirma} onChange={e => setConfirma(e.target.value)} />
           </div>
-          {creditsEnabled && (
-            <div className="f">
-              <label htmlFor="free-cpf">CPF (opcional)</label>
-              <input id="free-cpf" className="field-dark" inputMode="numeric" placeholder="Só números, se quiser informar" maxLength={14}
-                value={freeCpf} onChange={e => setFreeCpf(e.target.value.replace(/\D/g, ""))} />
-            </div>
-          )}
+          <div className="f">
+            <label htmlFor="free-cpf">CPF (opcional)</label>
+            <input id="free-cpf" className="field-dark" inputMode="numeric" placeholder="Só números, se quiser informar" maxLength={14}
+              value={freeCpf} onChange={e => setFreeCpf(e.target.value.replace(/\D/g, ""))} />
+          </div>
           {error && (
             <div className="ok show" style={{ borderColor: "color-mix(in srgb, var(--hbx-danger) 30%, transparent)", background: "color-mix(in srgb, var(--hbx-danger) 8%, transparent)", color: "var(--hbx-danger)" }}>
               {error}
@@ -598,25 +512,21 @@ export function RegisterPanel({ selectedPlanKey, embedded = false }: RegisterPan
             </div>
           )}
           <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
-            {busy ? "Enviando…" : creditsEnabled ? "Criar conta grátis" : selectedPlan === "hbx_melhor" ? "Falar com especialista" : isTrial ? "Começar teste grátis" : "Criar conta"}
+            {busy ? "Enviando…" : "Criar conta grátis"}
           </button>
           <p style={{ margin: "2px 0 0", fontSize: "0.62rem", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>
             Ao criar a conta, você concorda com os Termos de uso e a Política de privacidade do HBX.
           </p>
           <div className="alt">Já tem conta? <Link href="/login" className="link" style={{ textDecoration: "none" }}>Entrar</Link></div>
-          {!embedded && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 4 }}>
-              {["Dados protegidos 24/7 com criptografia", "Conformidade LGPD", "Infraestrutura segura e estável"].map(t => (
-                <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.62rem", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>
-                  {t}
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 4 }}>
+            {["Dados protegidos 24/7 com criptografia", "Conformidade LGPD", "Infraestrutura segura e estável"].map(t => (
+              <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.62rem", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>
+                {t}
+              </div>
+            ))}
+          </div>
         </form>
       )}
-    </main>
+    </div>
   );
-
-  return formContent;
 }

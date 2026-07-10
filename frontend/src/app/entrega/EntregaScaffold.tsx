@@ -36,9 +36,10 @@ export function EntregaScaffold({
 }) {
   const router = useRouter();
 
-  // AUTH: reusa a sessão do app (mesma regra da home). Sem token → /login.
+  // AUTH: reusa a sessão do app (mesma regra da home). Sem token → landing
+  // com login aberto ("/?entrar" — /login morreu como tela, W1 10/07).
   useEffect(() => {
-    if (!getToken()) router.replace("/login");
+    if (!getToken()) router.replace("/?entrar");
   }, [router]);
 
   return (

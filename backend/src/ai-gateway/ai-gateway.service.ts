@@ -56,6 +56,30 @@ export type AiGatewayRunResult<T> =
   | { ok: true; value: T; refused: false }
   | { ok: false; value: null; refused: true; reason: AiGatewayRefusalReason };
 
+// ─── CRÉDITO UNIVERSAL (PR10072026) — medição de uso por empresa ─────────────────────────────
+/**
+ * Contexto OPCIONAL de uso, passado pelo caller que SABE a empresa dona da chamada. O gateway
+ * não conhece crédito nem banco: só repassa ao listener registrado no boot pelo módulo de
+ * créditos (CreditMeterService). Sem listener, sem contexto ou sem companyId válido → nada
+ * acontece (byte-idêntico ao comportamento anterior). Emite SÓ quando `fn` teve SUCESSO
+ * (uso real de IA); recusa cedo e erro não são uso.
+ */
+export type AiGatewayUsageContext = {
+  companyId?: number | null;
+  /** Default por faixa: realtime → 'ai_realtime', batch → 'ai_batch'. */
+  actionKey?: string;
+  units?: number;
+};
+
+export type AiGatewayUsageEvent = {
+  lane: AiGatewayLane;
+  companyId: number;
+  actionKey: string;
+  /** IA não tem id natural por chamada — ref única por processo (uso é evento, não entidade). */
+  refId: string;
+  units: number;
+};
+
 type LaneWaiter = { resolve: () => void; enqueuedAt: number };
 
 type LaneRuntime = {
@@ -115,6 +139,40 @@ export class AiGatewayService {
     return lane === 'realtime'
       ? envInt('HBX_AI_GATEWAY_REALTIME_TYPICAL_MS', 7000)
       : envInt('HBX_AI_GATEWAY_BATCH_TYPICAL_MS', 20000);
+  }
+
+  // ── medição de uso (CRÉDITO UNIVERSAL) ─────────────────────────────────────────────────────
+  private static usageListener: ((usage: AiGatewayUsageEvent) => void) | null = null;
+  private static usageSeq = 0;
+
+  /** Registrado 1x no boot pelo módulo de créditos (CreditMeterService); null desliga. */
+  static setUsageListener(listener: ((usage: AiGatewayUsageEvent) => void) | null) {
+    AiGatewayService.usageListener = listener;
+  }
+
+  /** Best-effort ABSOLUTO: medição nunca pode afetar a chamada de IA. */
+  private static emitUsage(lane: AiGatewayLane, usage: AiGatewayUsageContext | undefined, value: unknown) {
+    try {
+      const listener = AiGatewayService.usageListener;
+      if (!listener || !usage) return;
+      // fetch RESOLVE em HTTP 4xx/5xx (só rejeita em rede/timeout) — todos os call-sites
+      // devolvem Response. Resposta não-ok não é inferência real: não conta como uso (senão
+      // uma noite de Ollama devolvendo 500 infla exatamente o número que precifica a fase 2).
+      const okFlag = (value as { ok?: unknown } | null | undefined)?.ok;
+      if (typeof okFlag === 'boolean' && !okFlag) return;
+      const companyId = Math.trunc(Number(usage.companyId ?? 0));
+      if (!Number.isFinite(companyId) || companyId <= 0) return;
+      AiGatewayService.usageSeq += 1;
+      listener({
+        lane,
+        companyId,
+        actionKey: String(usage.actionKey || '').trim() || (lane === 'realtime' ? 'ai_realtime' : 'ai_batch'),
+        refId: `ai-${process.pid}-${Date.now().toString(36)}-${AiGatewayService.usageSeq}`,
+        units: Math.max(1, Math.trunc(Number(usage.units ?? 1)) || 1),
+      });
+    } catch {
+      // medição nunca derruba IA
+    }
   }
 
   // ── estado por faixa (estático — serve todo o processo, sem DI por call-site) ──────────────────
@@ -285,10 +343,19 @@ export class AiGatewayService {
    *
    * NUNCA lança por causa do gateway. Se `fn` lançar (Ollama fora/ timeout), a exceção PROPAGA como
    * sempre — o caller já a trata no try/catch existente. Só a ADMISSÃO é governada aqui.
+   *
+   * `usage` (opcional, CRÉDITO UNIVERSAL): quem tem a empresa à mão informa e o sucesso vira
+   * evento de medição (ver emitUsage). Omitir = comportamento idêntico ao anterior.
    */
-  static async run<T>(lane: AiGatewayLane, budgetMs: number, fn: () => Promise<T>): Promise<AiGatewayRunResult<T>> {
+  static async run<T>(
+    lane: AiGatewayLane,
+    budgetMs: number,
+    fn: () => Promise<T>,
+    usage?: AiGatewayUsageContext,
+  ): Promise<AiGatewayRunResult<T>> {
     if (!AiGatewayService.isEnabled()) {
       const value = await fn();
+      AiGatewayService.emitUsage(lane, usage, value);
       return { ok: true, value, refused: false };
     }
 
@@ -299,6 +366,7 @@ export class AiGatewayService {
 
     try {
       const value = await fn();
+      AiGatewayService.emitUsage(lane, usage, value);
       return { ok: true, value, refused: false };
     } finally {
       AiGatewayService.release(lane);

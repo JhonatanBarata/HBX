@@ -1,15 +1,14 @@
 "use client";
 
-// Moldura das telas de auth (criar conta, reset de senha, confirmar e-mail):
-// usa a CASCA ÚNICA (HbxScene) — mesmo fundo (robô + cor ciclando), marca » e nav
-// de todas. Aqui só entra o card do formulário, centrado. Sem split legado, sem cópia.
+// Moldura das telas públicas de auth (reset de senha, confirmar e-mail,
+// onboarding do vendedor): card limpo centrado na casca — mesma família do
+// login embutido na landing (login-client). A cena do robô (HbxScene) e a nav
+// da entrada antiga morreram na limpeza de legado (W3/PR10072026).
 
-import { HbxScene, type SceneNav } from "@/components/hbx/hbx-scene";
-
-export function AuthSplit({ children, wide = false, active = null }: { children: React.ReactNode; wide?: boolean; active?: SceneNav | null }) {
+export function AuthSplit({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   return (
-    <HbxScene active={active}>
-      <div className={"scene-center scene-form" + (wide ? " is-wide" : "")}>{children}</div>
-    </HbxScene>
+    <main className="register-entry hbx-scene">
+      <div className={"reg-form" + (wide ? " is-wide" : "")}>{children}</div>
+    </main>
   );
 }

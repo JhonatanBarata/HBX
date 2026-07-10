@@ -13,8 +13,9 @@ import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
+import { logout } from "@/lib/logout";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
@@ -523,10 +524,10 @@ export function useEntitlements() {
 // Resumo do plano para o card da sidebar (GET /commercial-plans/me). Título vem
 // do catálogo da própria resposta (sem hardcode — PAGAMENTOS.md). Trial/estado o
 // backend já esconde de vendedor; mesmo assim o card só renderiza para não-vendedor.
-export type PlanSummary = { loaded: boolean; title: string | null; isTrial: boolean; trialDays: number | null; accessLabel: string | null; creditsAccount: boolean };
+export type PlanSummary = { loaded: boolean; title: string | null; accessLabel: string | null; creditsAccount: boolean };
 
 export function usePlanSummary(): PlanSummary {
-  const [state, setState] = useState<PlanSummary>({ loaded: false, title: null, isTrial: false, trialDays: null, accessLabel: null, creditsAccount: false });
+  const [state, setState] = useState<PlanSummary>({ loaded: false, title: null, accessLabel: null, creditsAccount: false });
   useEffect(() => {
     let alive = true;
     if (!getToken()) return;
@@ -537,8 +538,6 @@ export function usePlanSummary(): PlanSummary {
       setState({
         loaded: true,
         title,
-        isTrial: Boolean(cur.isTrial),
-        trialDays: cur.trialRemainingDays ?? null,
         accessLabel: cur.accessStateLabel || null,
         creditsAccount: Boolean(cur.creditsAccount),
       });
@@ -571,29 +570,6 @@ export function useCreditsSummary(enabled: boolean): CreditsSummary {
     return () => { alive = false; };
   }, [enabled]);
   return summary;
-}
-
-// Consumo de leads do mês para o medidor da sidebar (WORM-17). Mesmo endpoint que o
-// radar usa (/vendas/usage → cards {used,limit,remaining}). Só busca quando habilitado
-// (não-vendedor); "sempre visível" = ansiedade boa ("usei 80% e é dia 20").
-export type CardUsage = { used: number; limit: number; remaining: number } | null;
-export function useCardUsage(enabled: boolean): CardUsage {
-  const [usage, setUsage] = useState<CardUsage>(null);
-  useEffect(() => {
-    if (!enabled || !getToken()) return;
-    let alive = true;
-    apiFetch<{ cards?: { used?: number; limit?: number; remaining?: number } }>("/vendas/usage")
-      .then(res => {
-        if (!alive) return;
-        const c = res?.cards;
-        if (c && typeof c.limit === "number" && c.limit > 0) {
-          setUsage({ used: c.used ?? 0, limit: c.limit, remaining: c.remaining ?? Math.max(0, c.limit - (c.used ?? 0)) });
-        }
-      })
-      .catch(() => { /* medidor some silencioso se o endpoint falhar */ });
-    return () => { alive = false; };
-  }, [enabled]);
-  return usage;
 }
 
 // ---------------------------------------------------------------
@@ -676,20 +652,22 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   agenda: "vendas",
   automacao: "vendas",
   atend: "atendimento",
-  // NÚCLEO-CRM N3: sem gate por usuário/plano (null) — a aba nasce ligada. Se
-  // no futuro o master ligar o kill-switch por empresa, trocar para "empresas".
+  // Cadastros básicos (empresas/contatos/produtos) = SEM gate (null, sempre
+  // visíveis). NÃO dar chave própria aqui: /modules/me resolve "sem post-it"
+  // pela CAIXA DO PLANO (modules.service.ts:2435), e nenhuma caixa contém esses
+  // módulos — a chave faria os 3 sumirem de TODA empresa sem post-it (provado
+  // em 10/07 no localhost). Eles também ficam FORA do mapa de categorias do
+  // OOBE de propósito (cadastro básico serve a todo perfil).
   empresas: null,
-  // NÚCLEO-CRM N4: sem gate por usuário/plano (null) — a aba nasce ligada. Se
-  // no futuro o master ligar o kill-switch por empresa, trocar para "contatos".
   contatos: null,
-  // NÚCLEO-CRM N5: sem gate por usuário/plano (null) — a aba nasce ligada. Se
-  // no futuro o master ligar o kill-switch por empresa, trocar para "produtos".
   produtos: null,
-  // NÚCLEO-CRM N6: sem gate por usuário/plano (null) — a aba nasce ligada. Se
-  // no futuro o master ligar o kill-switch por empresa, trocar para "logistica".
-  logistica: null,
-  // Logística → Clientes: sem gate por usuário/plano (null) — nasce ligada, igual Contatos.
-  clientes: null,
+  // OOBE por categoria (W2/W3 PR10072026): Logística É gerida por categoria —
+  // o OOBE grava post-it (enabled true/false) e o /modules/me passa a decidir.
+  // Empresa antiga sem post-it: o painel CATEGORIAS roda 1x no próximo login
+  // do dono e cria os post-its; até lá o item fica oculto (caixa não tem a chave).
+  logistica: "logistica",
+  // Logística → Clientes: mesma porta do módulo Logística (sem chave própria).
+  clientes: "logistica",
   // Bot e Assistente IA usam o MESMO módulo 'bot' do backend (@ModuleAccess('bot'),
   // defaultEnabled=false). Sem o gate aqui a sidebar mostrava os itens e a tela
   // devolvia 403 "Módulo indisponível" — contra o fail-closed (sem acesso = some).
@@ -737,16 +715,9 @@ export function isModuleVisible(
   return true;
 }
 
-// Leva para Configurações → Plano e cobrança (mesmo padrão de "dica" dos avisos do
-// topo: a tela lê hbx:config-sec no mount e abre a seção certa). No trial, o "Assinar
-// agora" cai aqui (catálogo + modal que reusa o cartão da ficha).
-function abrirPlanoECobranca(router: ReturnType<typeof useRouter>) {
-  try { sessionStorage.setItem("hbx:config-sec", "Plano e cobrança"); } catch { /* sem storage */ }
-  router.push("/configuracoes");
-}
-
-// Conta de crédito (modelo grátis): o card leva à seção "Créditos" de Configurações
-// (carteira + recarga), o único destino de cobrança do contratante no modelo de crédito.
+// Modelo crédito: o card leva à seção "Créditos" de Configurações (carteira +
+// recarga), o único destino de cobrança do contratante. (A seção "Plano e
+// cobrança" morreu com o modelo de plano — W3/PR10072026.)
 function abrirCreditos(router: ReturnType<typeof useRouter>) {
   try { sessionStorage.setItem("hbx:config-sec", "Créditos"); } catch { /* sem storage */ }
   router.push("/configuracoes");
@@ -836,26 +807,14 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
   // precisa re-medir quando o rail colapsa/expande (a largura do item muda).
   const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey, rail);
-  // Conta de crédito (modelo grátis/cortesia): o card mostra SALDO de crédito no lugar da
-  // cota de plano — decisão do dono 07/07 (a conta grátis não comprou 2.200 leads/mês).
+  // Modelo crédito (S6: default é conta de crédito): o card da sidebar mostra
+  // SALDO de crédito. Conta empresarial (não-crédito) não tem card — o mais
+  // simples (W3/PR10072026); a cota de plano ("Leads do mês") morreu com o plano.
   const creditsMode = Boolean(plan.creditsAccount) && Boolean(user) && !isCompanySeller(user);
-  // Cota do PLANO da empresa (Leads do mês) — todo mundo menos o vendedor comum, e só quando
-  // NÃO é conta de crédito (a conta de crédito não tem cota de plano).
-  const cardUsage = useCardUsage(Boolean(user) && !isCompanySeller(user) && !creditsMode);
   const creditsSummary = useCreditsSummary(creditsMode);
   const radarNavState = useRadarNavState();
-  // Vendedor (role USER) NUNCA vê plano/cobrança (PAGAMENTOS.md). O backend já
-  // zera os campos, mas aqui escondemos o card inteiro para não sobrar moldura
-  // vazia. Régua canônica (lib/roles) — admin/USERMASTER nunca é seller e vê a
-  // cota do plano da empresa normalmente.
-  const isSeller = isCompanySeller(user);
-  // Trial → CTA de upgrade DIRETO (o dono reclamou que o "cartão" não aparecia pra
-  // assinar). Só quem realmente assina (admin do tenant, inclui USERMASTER/master).
-  const canSubscribe = isTenantAdmin(user);
-  const showUpgrade = plan.isTrial && canSubscribe;
-  const planSub = plan.isTrial
-    ? `Teste · ${plan.trialDays != null ? `${plan.trialDays} dia(s)` : "ativo"}`
-    : (plan.accessLabel || "");
+  // Vendedor (role USER) NUNCA vê cobrança (PAGAMENTOS.md). O backend já zera
+  // os campos, mas aqui escondemos o card inteiro para não sobrar moldura vazia.
 
   return (
     <aside className="side">
@@ -914,13 +873,13 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         );
       })}
       <div className="side-bottom">
-        {!isSeller && (
+        {creditsMode && (
           <div className="plan-card">
             <div>
-              <strong>{creditsMode ? "Créditos" : (plan.title || "Seu plano")}</strong>
-              {planSub && <><br /><small>{planSub}</small></>}
+              <strong>Créditos</strong>
+              {plan.accessLabel && <><br /><small>{plan.accessLabel}</small></>}
             </div>
-            {creditsMode && creditsSummary && (() => {
+            {creditsSummary && (() => {
               // Medidor de crédito: consumo dentro dos lotes ATIVOS ("total concedido ativo").
               const total = creditsSummary.total;
               const restante = creditsSummary.restante;
@@ -937,20 +896,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
                 </div>
               );
             })()}
-            {!creditsMode && cardUsage && (() => {
-              const pct = Math.min(100, Math.round((cardUsage.used / cardUsage.limit) * 100));
-              const danger = cardUsage.remaining <= 0;
-              return (
-                <div className={"plan-card__meter" + (danger ? " is-danger" : "")}>
-                  <div className="plan-card__meter-top">
-                    <span className="plan-card__meter-lbl">Leads do mês</span>
-                    <span className="plan-card__meter-val">{cardUsage.used.toLocaleString("pt-BR")} / {cardUsage.limit.toLocaleString("pt-BR")}</span>
-                  </div>
-                  <div className="plan-card__bar"><div className="plan-card__bar-fill" style={{ width: `${pct}%` }} /></div>
-                </div>
-              );
-            })()}
-            <button className={showUpgrade ? "plan-card__upgrade" : undefined} onClick={() => (creditsMode ? abrirCreditos(router) : abrirPlanoECobranca(router))}>{creditsMode ? "Ver créditos" : (showUpgrade ? "Assinar agora" : "Gerenciar plano")}</button>
+            <button onClick={() => abrirCreditos(router)}>Ver créditos</button>
           </div>
         )}
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
@@ -1240,15 +1186,10 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   async function sairTopo() {
     if (signingOut) return;
     setSigningOut(true);
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      // sessão já inválida — segue limpando o cliente
-    }
     currentUserPromise = null;
-    clearToken();
-    try { localStorage.removeItem("hbx:brain:session-start"); } catch { /* sem storage */ }
-    router.replace("/login");
+    // Helper único (lib/logout.ts): POST best-effort + limpeza + transição de
+    // saída + landing — nada de corte seco pro /login (que morreu como tela).
+    await logout();
   }
 
   async function toggleBot() {

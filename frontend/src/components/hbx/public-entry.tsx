@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { LoginClient } from "@/components/hbx/login-client";
+import { RadarDisc } from "@/components/hbx/radar-disc";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
-import { LoginClient } from "@/app/login/page.client";
+import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+import { getToken } from "@/lib/api";
 
 type StageKey = "radar" | "vendas" | "whatsapp" | "entrega" | "cobranca";
 type IconName =
@@ -84,16 +88,13 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
   );
 }
 
+// Radar REAL do sistema (W1): o mesmo disco da tela /leads
+// (components/hbx/radar-disc.tsx) no lugar do mapa fake.
 function RadarScreen() {
   return (
     <div className="f1-screen f1-radar-screen">
-      <div className="f1-map" aria-hidden="true">
-        <span className="f1-map__ring f1-map__ring--one" />
-        <span className="f1-map__ring f1-map__ring--two" />
-        <span className="f1-map__sweep" />
-        <span className="f1-map__node f1-map__node--one" />
-        <span className="f1-map__node f1-map__node--two" />
-        <span className="f1-map__node f1-map__node--three" />
+      <div className="f1-radar-live" aria-hidden="true">
+        <RadarDisc />
       </div>
       <div className="f1-float-list">
         <article><i /><span><small>Novo sinal</small><strong>Solar Prime</strong></span><b>98%</b></article>
@@ -118,21 +119,19 @@ function SalesScreen() {
   );
 }
 
+// Conversa demo estática (nomes do pool fake da landing — nunca empresa real).
+const WA_DEMO_MESSAGES: WAMessage[] = [
+  { dir: "in", text: "Olá! Quero conhecer o HBX.", time: "09:41" },
+  { dir: "out", text: "Perfeito. Já te mostro a esteira.", time: "09:41", status: "read" },
+  { dir: "in", text: "Pode ser agora?", time: "09:42" },
+];
+
+// WhatsApp REAL do sistema (W1): o mesmo <WhatsAppPreview> usado no app
+// (bot/assistente) com uma conversa demo curta, no lugar do chat fake.
 function WhatsAppScreen() {
   return (
     <div className="f1-screen f1-chat-screen">
-      <aside className="f1-chat-list">
-        <article className="is-current"><i>SP</i><span><b>Solar Prime</b><small>agora</small></span></article>
-        <article><i>CN</i><span><b>Casa Norte</b><small>2 min</small></span></article>
-        <article><i>V</i><span><b>Viva Café</b><small>8 min</small></span></article>
-      </aside>
-      <section className="f1-conversation">
-        <header><i>SP</i><span><b>Solar Prime</b><small>online</small></span></header>
-        <div className="f1-bubble">Olá! Quero conhecer.</div>
-        <div className="f1-bubble is-outgoing">Perfeito. Já te mostro.</div>
-        <div className="f1-typing"><i /><i /><i /></div>
-        <footer><span>Mensagem</span><Icon name="arrow" /></footer>
-      </section>
+      <WhatsAppPreview messages={WA_DEMO_MESSAGES} typing header={{ name: "Solar Prime", status: "online" }} />
     </div>
   );
 }
@@ -206,13 +205,22 @@ function PhoneVisual({ stage }: { stage: StageKey }) {
   );
 }
 
-export function PublicEntry() {
+export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home" | "login" } = {}) {
+  const router = useRouter();
   const [stageIndex, setStageIndex] = useState(0);
   const [manual, setManual] = useState(false);
-  const [screen, setScreen] = useState<"home" | "login">("home");
+  // "/?entrar" chega com o card de login JÁ aberto (SSR — sem flash da home).
+  const [screen, setScreen] = useState<"home" | "login">(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
   const stage = STAGES[stageIndex];
   const ad = ADS[stage.key];
+
+  // Logado nunca vê a landing: cargas de documento são resolvidas pelo boot
+  // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
+  // client-side do Next (o script inline não roda nela).
+  useEffect(() => {
+    if (getToken()) router.replace("/dashboard");
+  }, [router]);
 
   useEffect(() => {
     if (manual || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -352,7 +360,7 @@ export function PublicEntry() {
       </section>
 
       <section className="f1-login-layer" aria-hidden={screen !== "login"} aria-label="Entrar no HBX">
-        {screen === "login" && <LoginClient embedded />}
+        {screen === "login" && <LoginClient />}
       </section>
     </main>
   );

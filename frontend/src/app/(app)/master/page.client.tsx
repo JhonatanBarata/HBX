@@ -10,7 +10,8 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, ModeToggle, currentUserDisplayName, useCurrentUser } from "@/components/hbx/shell";
-import { apiFetch, clearToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { logout } from "@/lib/logout";
 import { useTabParam } from "@/lib/use-tab-param";
 
 import { JanelaCockpit } from "./janela-cockpit";
@@ -229,13 +230,9 @@ export function MasterClient() {
   async function sair() {
     if (signingOut) return;
     setSigningOut(true);
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      // sessão já inválida — segue limpando o cliente
-    }
-    clearToken();
-    router.replace("/login");
+    // Helper único (lib/logout.ts): POST best-effort + limpeza + transição de
+    // saída + landing.
+    await logout();
   }
 
   // perfil demorando (falha de rede/500 — o 401 já redireciona pelo
@@ -262,7 +259,7 @@ export function MasterClient() {
                 </span>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn-teal" onClick={() => window.location.reload()}>Recarregar</button>
-                  <button className="btn-ghost" onClick={() => { clearToken(); router.replace("/login"); }}>Ir para o login</button>
+                  <button className="btn-ghost" onClick={() => { void logout("/?entrar"); }}>Ir para o login</button>
                 </div>
               </div>
             </section>

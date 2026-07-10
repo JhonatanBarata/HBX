@@ -190,7 +190,9 @@ test('updateWelcomeBatchConfig sem nenhum campo valido: no-op, devolve os defaul
   const service = new CreditPackConfigService(fake as any);
 
   const result = await service.updateWelcomeBatchConfig({});
-  assert.equal(result.welcomeCredits, 30);
+  // Default de código do lote de boas-vindas: 50 créditos / 30 dias (dono cravou 50 em 06/07,
+  // modelo CNPJ.biz — este teste tinha ficado com o 30 antigo).
+  assert.equal(result.welcomeCredits, 50);
   assert.equal(result.welcomeExpiryDays, 30);
   assert.equal(fake.globalConfig.length, 0); // nada persistido
 });

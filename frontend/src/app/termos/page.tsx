@@ -41,20 +41,18 @@ export default function TermosPage() {
             <li>A HBX pode recusar, suspender ou encerrar contas que violem estes Termos.</li>
           </ul>
 
-          <h4>4. Planos, pagamento e renovação</h4>
+          <h4>4. Créditos, pagamento e validade</h4>
           <ul>
-            <li>Os planos, preços e limites vigentes são os exibidos na plataforma no momento da contratação.</li>
-            <li>A assinatura é recorrente e se renova automaticamente até o cancelamento.</li>
-            <li>O não pagamento pode levar à suspensão do acesso após aviso.</li>
-            <li>Reajustes serão comunicados previamente e valem para os ciclos seguintes.</li>
+            <li>O uso da plataforma é baseado em créditos pré-pagos: os pacotes, preços e quantidades vigentes são os exibidos na plataforma no momento da recarga.</li>
+            <li>Não há assinatura nem cobrança recorrente: você recarrega quando quiser.</li>
+            <li>Cada recarga tem prazo de validade próprio, informado na compra; créditos expirados não são restituídos.</li>
+            <li>Créditos são debitados apenas quando o serviço correspondente é entregue; entregas que falham são estornadas.</li>
           </ul>
 
-          <h4>5. Período de teste e cancelamento</h4>
+          <h4>5. Encerramento da conta</h4>
           <ul>
-            <li>Quando houver período de teste, suas condições são informadas na contratação.</li>
-            <li>Você pode cancelar a qualquer momento pela plataforma, nas Configurações.</li>
-            <li>O cancelamento encerra a renovação seguinte; o acesso vale até o fim do ciclo já pago.</li>
-            <li>Salvo disposição legal aplicável, valores de ciclos já iniciados não são reembolsados.</li>
+            <li>Você pode parar de usar e encerrar sua conta a qualquer momento pela plataforma, nas Configurações.</li>
+            <li>Salvo disposição legal aplicável, valores de recargas já realizadas não são reembolsados.</li>
           </ul>
 
           <h4>6. Uso aceitável</h4>

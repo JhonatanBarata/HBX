@@ -1,17 +1,12 @@
 import { RegisterPanel } from "./page.client";
 
-// O cadastro continua usando o formulário e as regras comerciais canônicas, mas
-// agora tem uma rota própria: a landing anterior foi removida por completo.
-export default async function RegisterPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const sp = await searchParams;
-  const plan = typeof sp.plan === "string" ? sp.plan : undefined;
+// Cadastro público do modelo crédito — rota própria, card limpo centrado na
+// casca (mesma família do login embutido na landing). A seleção de plano da
+// entrada antiga morreu (W3/PR10072026).
+export default function RegisterPage() {
   return (
     <main className="register-entry hbx-scene">
-      <RegisterPanel selectedPlanKey={plan} />
+      <RegisterPanel />
     </main>
   );
 }

@@ -37,10 +37,6 @@ const CSS_ALLOWED = [
   // entregador, escopo [data-skin="entrega"] — mesma categoria isenta das peles
   // (é onde a Lei permite hex). TSX do app fica limpo (só classes .ent-*).
   /hbx-theme[\\/]entrega\.css$/,
-  // OOBE (07/07): casca ISOLADA do primeiro acesso — paleta própria dark
-  // constante (mock aprovado), padrão mundo-site: NUNCA veste a pele do app.
-  // TSX do OOBE fica limpo (só classes .oobe-*/.hbx-oobe).
-  /hbx-theme[\\/]oobe\.css$/,
 ];
 const TSX_EXEMPT = [/app[\\/]page\.client\.tsx$/, /app[\\/]trabalhe-conosco[\\/]/];
 // Só as PELES de verdade (theme-<nome>.css) — theme.css (base Tailwind) e

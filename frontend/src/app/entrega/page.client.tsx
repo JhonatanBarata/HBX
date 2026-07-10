@@ -170,9 +170,10 @@ export function EntregaHome() {
     typeof window === "undefined" ? null : !jaViuOnboarding(),
   );
 
-  // AUTH: reusa a sessão do app. Sem token → login existente.
+  // AUTH: reusa a sessão do app. Sem token → landing com login aberto
+  // ("/?entrar" — /login morreu como tela, W1 10/07).
   useEffect(() => {
-    if (!getToken()) router.replace("/login");
+    if (!getToken()) router.replace("/?entrar");
   }, [router]);
 
   // B3 (data VIVA) — reavalia a data ao voltar o foco/visibilidade (o PWA que

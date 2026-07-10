@@ -645,7 +645,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               <select className="field-dark" value={form.role} disabled={soCadastro}
                 onChange={e => setForm(f => ({ ...f, role: e.target.value as "USER" | "ADMIN" }))}>
                 <option value="USER">Vendedor</option>
-                <option value="ADMIN">Gerente (não vê cobrança/plano)</option>
+                <option value="ADMIN">Gerente (não vê cobrança)</option>
               </select>
             </div>
             <div style={{ display: "grid", gap: 6 }}>

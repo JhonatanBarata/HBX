@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
+import { CreditMeterService } from '../credits/credit-meter.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 import { emitMasterEvent } from '../common/master-event';
@@ -43,6 +44,9 @@ export class LogisticaService {
     private readonly conversations: ConversationsService,
     private readonly rota: LogisticaRotaService,
     private readonly config: LogisticaConfigService,
+    // CRÉDITO UNIVERSAL (PR10072026): track (nunca débito) da entrega concluída. @Optional()
+    // para não quebrar testes que instanciam o serviço direto; ausente = não mede.
+    @Optional() private readonly creditMeter?: CreditMeterService,
   ) {}
 
   /**
@@ -516,6 +520,17 @@ export class LogisticaService {
     // B1 — realimenta a coordenada do cliente com o GPS de ouro da porta real
     // (best-effort, FORA da tx do confirmar — mesmo padrão do persistirDesfecho).
     await this.realimentarCoordenadaCliente(companyId, entrega.customerProfileId, { lat, lng, accuracy: gps.accuracy });
+
+    // CRÉDITO UNIVERSAL (PR10072026): track da entrega concluída — só na PRIMEIRA confirmação
+    // e INDEPENDENTE da flag de efeitos (medir uso não dispara WhatsApp/cobrança). Idempotente
+    // por id da entrega; best-effort (o meter nunca lança).
+    if (!jaEntregue && this.creditMeter) {
+      void this.creditMeter.meter({
+        companyId,
+        actionKey: 'logistica_delivery',
+        refId: `entrega:${entrega.id}`,
+      });
+    }
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.

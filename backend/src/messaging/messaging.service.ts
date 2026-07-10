@@ -69,6 +69,7 @@ import { WebwhatsBridgeService, type WebwhatsFetchedMessage, type WebwhatsQuoted
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
+import { CreditMeterService } from '../credits/credit-meter.service';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   isCommercialEntitlementActive,
@@ -283,6 +284,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // WEBWHATS-ARQ3 S3: writer ÚNICO da projeção de estado de conexão. @Optional() pelo mesmo
     // motivo (testes instanciam direto); ausente = carimbo de projeção é no-op, sem regressão.
     @Optional() private readonly connectionProjection?: WhatsAppConnectionProjectionService,
+    // CRÉDITO UNIVERSAL (PR10072026): medidor de uso — track (nunca débito) das mensagens
+    // AUTOMÁTICAS enviadas com sucesso. @Optional() pelo mesmo motivo; ausente = não mede.
+    @Optional() private readonly creditMeter?: CreditMeterService,
   ) {}
 
   onModuleInit() {
@@ -8329,6 +8333,40 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // CRÉDITO UNIVERSAL (PR10072026): mede (TRACK — nunca debita, decisão do dono 10/07: WhatsApp
+  // automação não se cobra, "ninguém cobra a não ser que for Meta") toda mensagem AUTOMÁTICA
+  // enviada com sucesso. Allowlist EXPLÍCITA por sourceModule — humano (atendimento_human/
+  // manual, respostas do funil 'vendas', etc.) NUNCA entra; fora da lista = não mede
+  // (fail-safe da regra "humano não conta"). Idempotente por outboundMessage.id (retry do
+  // dispatch não conta 2x). Best-effort puro: o meter nunca lança.
+  private meterAutoSendBestEffort(msg: {
+    id: number;
+    companyId: number;
+    sourceModule: string | null;
+    message?: { senderType?: string | null } | null;
+  }) {
+    if (!this.creditMeter) return;
+    // Guarda DURA da regra "humano não conta" (revisão 10/07): o recovery rotula mensagem de
+    // OPERADOR como sourceModule `hbx_recovery_human` — o prefixo sozinho pegaria humano.
+    // senderType 'human' e sufixos _human/_manual saem SEMPRE, antes da allowlist.
+    const senderType = String(msg?.message?.senderType || '').trim().toLowerCase();
+    if (senderType === 'human') return;
+    const source = String(msg?.sourceModule || '').trim().toLowerCase();
+    if (source.endsWith('_human') || source.endsWith('_manual')) return;
+    const metered =
+      source === 'vendas_prospeccao_bot' ||
+      source === 'atendimento_bot' ||
+      source === 'logistica_entrega' ||
+      source === 'logistica_fechamento' ||
+      source.startsWith('hbx_recovery');
+    if (!metered) return;
+    void this.creditMeter.meter({
+      companyId: msg.companyId,
+      actionKey: 'whatsapp_auto_send',
+      refId: `wa:${msg.id}`,
+    });
+  }
+
   private async sendOne(messageId: number) {
     // lock: flip to SENDING only if still PENDING
     const locked = await this.prisma.outboundMessage.updateMany({
@@ -8536,6 +8574,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
+        this.meterAutoSendBestEffort(msg);
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -8773,6 +8812,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
+        this.meterAutoSendBestEffort(msg);
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',

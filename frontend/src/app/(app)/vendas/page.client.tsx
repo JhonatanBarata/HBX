@@ -822,7 +822,7 @@ export function VendasClient() {
         const e = err as Error & { status?: number };
         setProsp(null);
         setProspError(e?.status === 402
-          ? "Prospecção automática requer plano com Bot IA."
+          ? "Prospecção automática requer o módulo Bot IA liberado."
           : e?.message || "Falha ao consultar a prospecção.");
       });
   }, []);
@@ -1075,9 +1075,11 @@ export function VendasClient() {
                   // /webscraping/radar/standing-order label já vem "Em mãos" pro seller;
                   // aqui a gente reforça no front pra nunca vazar rótulo/valor de cota
                   // financeira da empresa por engano num futuro contrato do backend).
+                  // dataTut "leads-cota": âncora REAL do passo "Seu limite" do tour do
+                  // Radar (a âncora antiga morreu no redesign — reancorada aqui, 10/07).
                   isSellerVnd
-                    ? { icon: "bolt", label: "Em mãos", value: buscarStats.cotaValue || "—", delta: "—" }
-                    : { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—" },
+                    ? { icon: "bolt", label: "Em mãos", value: buscarStats.cotaValue || "—", delta: "—", dataTut: "leads-cota" }
+                    : { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—", dataTut: "leads-cota" },
                 ]} />
               </div>
             </div>

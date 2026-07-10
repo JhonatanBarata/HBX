@@ -1,0 +1,150 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { CreditMeterService } from './credit-meter.service';
+import { getCreditActionDefinition, listCreditActionDefinitions } from './credit-action-catalog';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+
+// CRÉDITO UNIVERSAL (PR10072026) — CreditMeterService: roteamento por modo do catálogo
+// (free = nada; track = escritor de shadow do S2; debit = wallet.debit pós-fato SEM lançar),
+// idempotência delegada por refId→usageKey, e o plug de medição do AiGatewayService.
+// Fakes finos no lugar de CreditsService/CreditWalletService — o meter é camada de roteamento,
+// a mecânica de dinheiro tem os testes próprios (credit-wallet.service.test.ts).
+
+async function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void> | void) {
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    saved[key] = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+function makeFakes() {
+  const shadowCalls: any[] = [];
+  const debitCalls: any[] = [];
+  const credits = {
+    recordShadowDebit: async (companyId: number, userId: number | null, input: any) => {
+      shadowCalls.push({ companyId, userId, ...input });
+    },
+  } as any;
+  const wallet = {
+    debit: async (companyId: number, amount: number, opts: any) => {
+      debitCalls.push({ companyId, amount, ...opts });
+      return { debited: amount, requested: amount, partial: false, balanceAfter: 10 };
+    },
+  } as any;
+  return { credits, wallet, shadowCalls, debitCalls };
+}
+
+test('catálogo: decisões do dono 10/07 cravadas — whatsapp/IA/logística = track, lead = debit', () => {
+  assert.equal(getCreditActionDefinition('lead_delivery')?.mode, 'debit');
+  assert.equal(getCreditActionDefinition('whatsapp_auto_send')?.mode, 'track');
+  assert.equal(getCreditActionDefinition('ai_realtime')?.mode, 'track');
+  assert.equal(getCreditActionDefinition('ai_batch')?.mode, 'track');
+  assert.equal(getCreditActionDefinition('logistica_delivery')?.mode, 'track');
+  // ação fora do catálogo nunca vira preço inventado
+  assert.equal(getCreditActionDefinition('acao_inventada'), null);
+  assert.equal(listCreditActionDefinitions().length, 5);
+});
+
+test('meter: flag mestra OFF = no-op absoluto (nem track, nem debit)', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: undefined }, async () => {
+    const { credits, wallet, shadowCalls, debitCalls } = makeFakes();
+    const meter = new CreditMeterService(credits, wallet);
+    await meter.meter({ companyId: 1, actionKey: 'whatsapp_auto_send', refId: 'wa:1' });
+    assert.equal(shadowCalls.length, 0);
+    assert.equal(debitCalls.length, 0);
+  });
+});
+
+test('meter: track roteia pro escritor de shadow com actionKey/ref/units; nunca toca o wallet', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: 'true' }, async () => {
+    const { credits, wallet, shadowCalls, debitCalls } = makeFakes();
+    const meter = new CreditMeterService(credits, wallet);
+    await meter.meter({ companyId: 7, actionKey: 'whatsapp_auto_send', refId: 'wa:123', userId: 44 });
+    assert.equal(shadowCalls.length, 1);
+    assert.deepEqual(shadowCalls[0], { companyId: 7, userId: 44, leadId: 'wa:123', actionKey: 'whatsapp_auto_send', units: 1 });
+    assert.equal(debitCalls.length, 0, 'track NUNCA debita (decisão do dono: WhatsApp não se cobra)');
+  });
+});
+
+test('meter: ação desconhecida ou inválida = no-op (sem lançar)', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: 'true' }, async () => {
+    const { credits, wallet, shadowCalls, debitCalls } = makeFakes();
+    const meter = new CreditMeterService(credits, wallet);
+    await meter.meter({ companyId: 1, actionKey: 'acao_inventada', refId: 'x' });
+    await meter.meter({ companyId: 0, actionKey: 'ai_realtime', refId: 'x' });
+    await meter.meter({ companyId: 1, actionKey: 'ai_realtime', refId: '' });
+    assert.equal(shadowCalls.length, 0);
+    assert.equal(debitCalls.length, 0);
+  });
+});
+
+test('meter: lead_delivery é RECUSADO (lead debita SÓ pelo caminho assert — nunca 2º débito)', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: 'true' }, async () => {
+    const { credits, wallet, shadowCalls, debitCalls } = makeFakes();
+    const meter = new CreditMeterService(credits, wallet);
+    await meter.meter({ companyId: 3, actionKey: 'lead_delivery', refId: 'abc' });
+    assert.equal(debitCalls.length, 0, 'meter NUNCA debita lead (fura gate R1/god-mode/namespace)');
+    assert.equal(shadowCalls.length, 0);
+  });
+});
+
+test('meter: erro interno é engolido (best-effort absoluto)', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: 'true' }, async () => {
+    const explosive = { recordShadowDebit: async () => { throw new Error('banco fora'); } } as any;
+    const { wallet } = makeFakes();
+    const meter = new CreditMeterService(explosive, wallet);
+    await assert.doesNotReject(meter.meter({ companyId: 1, actionKey: 'ai_realtime', refId: 'r1' }));
+  });
+});
+
+test('gateway: run() com usage emite evento pro listener (companyId válido) e usa default por faixa', async () => {
+  await withEnv({ HBX_AI_GATEWAY_ENABLED: 'false' }, async () => {
+    const events: any[] = [];
+    AiGatewayService.setUsageListener((usage) => events.push(usage));
+    try {
+      await AiGatewayService.run('realtime', 1000, async () => 'ok', { companyId: 9 });
+      await AiGatewayService.run('batch', 1000, async () => 'ok', { companyId: 9 });
+      // sem contexto ou sem empresa → NÃO emite (nunca inventa dono)
+      await AiGatewayService.run('realtime', 1000, async () => 'ok');
+      await AiGatewayService.run('realtime', 1000, async () => 'ok', { companyId: 0 });
+      // fetch RESOLVE em HTTP 500 (Response.ok=false) → NÃO é uso (revisão 10/07)
+      await AiGatewayService.run('realtime', 1000, async () => ({ ok: false, status: 500 }), { companyId: 9 });
+      assert.equal(events.length, 2);
+      assert.equal(events[0].actionKey, 'ai_realtime');
+      assert.equal(events[1].actionKey, 'ai_batch');
+      assert.equal(events[0].companyId, 9);
+      assert.ok(events[0].refId && events[0].refId !== events[1].refId, 'refId único por chamada');
+    } finally {
+      AiGatewayService.setUsageListener(null);
+    }
+  });
+});
+
+test('gateway: erro do fn NÃO emite uso (uso = sucesso) e listener explosivo não derruba a chamada', async () => {
+  await withEnv({ HBX_AI_GATEWAY_ENABLED: 'false' }, async () => {
+    const events: any[] = [];
+    AiGatewayService.setUsageListener(() => { events.push(1); throw new Error('listener podre'); });
+    try {
+      await assert.rejects(
+        AiGatewayService.run('realtime', 1000, async () => { throw new Error('ollama fora'); }, { companyId: 9 }),
+        /ollama fora/,
+      );
+      assert.equal(events.length, 0, 'erro não é uso');
+      const ok = await AiGatewayService.run('realtime', 1000, async () => 'ok', { companyId: 9 });
+      assert.equal(ok.ok, true, 'listener que lança não pode afetar a chamada');
+      assert.equal(events.length, 1);
+    } finally {
+      AiGatewayService.setUsageListener(null);
+    }
+  });
+});

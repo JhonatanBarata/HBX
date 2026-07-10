@@ -37,7 +37,7 @@ export default function PoliticasPage() {
             <li><strong>Dados de acesso:</strong> IP, navegador, datas de login, sessão — no uso contínuo.</li>
             <li><strong>Prospecção (Radar):</strong> nome, telefone e cidade de empresas, de fontes públicas.</li>
             <li><strong>Mensagens (Atendimento):</strong> conteúdo e metadados das conversas via WhatsApp.</li>
-            <li><strong>Financeiros:</strong> histórico de plano e status de pagamento — nunca o número do cartão.</li>
+            <li><strong>Financeiros:</strong> histórico de recargas de crédito e status de pagamento — nunca o número do cartão.</li>
           </ul>
           <p>
             Não coletamos dados sensíveis (saúde, biometria, origem racial, convicção religiosa
@@ -55,7 +55,7 @@ export default function PoliticasPage() {
 
           <h4>4. Com quem compartilhamos</h4>
           <ul>
-            <li><strong>Processador de pagamento</strong> (Mercado Pago) — cobrança das mensalidades.</li>
+            <li><strong>Processador de pagamento</strong> (Mercado Pago) — cobrança das recargas de crédito.</li>
             <li><strong>Infraestrutura de nuvem</strong> — servidores que hospedam a plataforma.</li>
             <li><strong>Serviço de e-mail</strong> — notificações, senhas e avisos.</li>
             <li><strong>Autoridades públicas</strong> — apenas por ordem judicial ou exigência legal.</li>

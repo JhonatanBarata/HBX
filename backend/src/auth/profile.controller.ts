@@ -12,6 +12,7 @@ import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { parsePreferredSegments } from '../users/preferred-segments.util';
 import { topSegment } from '../users/segment-affinity.util';
 import { resolveActorKind, isBillingOwnerActor } from '../access/actor-kind';
+import { MODULE_CATEGORY_MAP, parseCompanyModuleCategories } from '../modules/module-categories';
 
 class ChangePasswordDto {
   @IsString()
@@ -70,6 +71,15 @@ export function sanitizeUser(user: any, masterContext?: any) {
       return [] as string[];
     }
   })();
+  // OOBE POR CATEGORIA (PR10072026/02, 10/07): categorias de módulo escolhidas
+  // pelo dono no primeiro acesso. Lista vazia + dono com acesso ⇒ o portão
+  // pergunta ANTES do ramo (painel CATEGORIAS é o 1º de conteúdo).
+  const companyModuleCategories = parseCompanyModuleCategories(user.company?.moduleCategoriesJson);
+  const modulesPending =
+    actorKind === 'dono' &&
+    Boolean(user.company) &&
+    Boolean(companyAccess?.canUse) &&
+    companyModuleCategories.length === 0;
   const ramoPending =
     actorKind === 'dono' &&
     Boolean(user.company) &&
@@ -77,6 +87,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     // aparecia antes do cartão (pending_checkout) — o certo é pagar primeiro,
     // aí o gate de pagamento (bloqueio-gate) é quem assume.
     Boolean(companyAccess?.canUse) &&
+    // Ramo só faz sentido pra quem escolheu a categoria Radar/Empresas —
+    // cliente só-logística não vê pergunta de ramo (10/07).
+    companyModuleCategories.includes('radar') &&
     companyProspectingSegments.length === 0;
   // Onboarding do ADMIN/dono (Camada 4, 28/06): no 1º login o dono escolhe
   // "sozinho ou com time?" — a escolha ramifica o checklist. Pendente = mesmo
@@ -117,6 +130,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     // Gateado por acesso: tutorial/onboarding é DEPOIS de pagar (igual ao ramo) — sem
     // cartão, o gate de pagamento assume a tela, não o onboarding.
     tutorialPending: !user.tutorialCompletedAt && Boolean(companyAccess?.canUse),
+    // Categorias de módulo (OOBE 10/07): só o dono define. true ⇒ portão pergunta
+    // logo depois da senha (antes do ramo).
+    modulesPending,
     // Ramo-alvo: só o dono define. true ⇒ portão pergunta antes do tutorial.
     ramoPending,
     // Onboarding do dono (Camada 4): true ⇒ portão pergunta "solo ou time?" antes
@@ -154,6 +170,8 @@ export function sanitizeUser(user: any, masterContext?: any) {
           isPlatformInfra: isPlatformInfraCompany(user.company),
           // Ramo-alvo da empresa (default do Radar/Leads). Lista vazia = não definido.
           prospectingSegments: companyProspectingSegments,
+          // Categorias de módulo escolhidas no OOBE (10/07). Vazia = não definido.
+          moduleCategories: companyModuleCategories,
           accessReleased: companyAccess ? companyAccess.canUse : null,
           accessState: billingAudience && companyAccess ? companyAccess.state : null,
           accessStateLabel: billingAudience && companyAccess ? companyAccess.statusLabel : null,
@@ -315,6 +333,32 @@ export class ProfileController {
       hasLocation ? { estado: body?.estado, cidade: body?.cidade } : undefined,
     );
     return { ok: true, prospectingSegments: saved };
+  }
+
+  // Categorias de módulo (OOBE 10/07, PR10072026/02): o DONO escolhe no primeiro
+  // acesso QUAIS categorias quer usar (radar | vendas | whatsapp | logistica |
+  // website). Grava Company.moduleCategoriesJson e materializa post-its em
+  // CompanyModule (enabled=true escolhidas / enabled=false não escolhidas) —
+  // sidebar/tour/guards encolhem sozinhos (fail-closed). Cadastros básicos nunca
+  // são desligados por aqui. Mapa categoria→módulos devolvido na resposta
+  // (fonte única no backend: modules/module-categories.ts).
+  @Post('module-categories')
+  @UseGuards(JwtAuthGuard)
+  async saveModuleCategories(@Req() req: any, @Body() body: { categories?: string[] }) {
+    const user = await this.usersService.findById(req.user.id);
+    if (!user) throw new BadRequestException('Usuario invalido');
+    const role = String(user.role || '').trim().toUpperCase();
+    const isTenantAdminRole = role === 'ADMIN' || role === 'USERMASTER';
+    if (user.isSystemMaster || !isTenantAdminRole || (user as any).canViewBilling === false) {
+      throw new BadRequestException('Apenas o dono define os módulos da empresa.');
+    }
+    const companyId = Number((user as any).companyId || 0);
+    if (!companyId) throw new BadRequestException('Empresa nao encontrada.');
+    const saved = await this.usersService.saveCompanyModuleCategories(
+      companyId,
+      Array.isArray(body?.categories) ? body.categories : [],
+    );
+    return { ok: true, moduleCategories: saved, categoryModuleMap: MODULE_CATEGORY_MAP };
   }
 
   @Patch('display-name')

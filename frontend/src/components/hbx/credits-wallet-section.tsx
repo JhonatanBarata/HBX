@@ -126,7 +126,7 @@ const FAQ_ITEMS: Array<{ q: string; a: string }> = [
   },
 ];
 
-export function CreditsWalletSection({ userEmail = "", userName = "" }: { userEmail?: string; userName?: string } = {}) {
+export function CreditsWalletSection() {
   const [data, setData] = useState<CreditsMeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recarregarMsg, setRecarregarMsg] = useState<string | null>(null);
@@ -287,15 +287,10 @@ export function CreditsWalletSection({ userEmail = "", userName = "" }: { userEm
           )}
           {pagando && (
             <CheckoutPanel
-              planKey="hbx_padrao"
-              email={userEmail}
-              name={userName}
               title={`Recarga — ${pagando.pack.title} (${pagando.pack.credits} créditos)`}
               ctaLabel={`Pagar ${brl(pagando.pack.price)}`}
-              amountOverride={pagando.pack.price}
-              hideCycle
-              reactivation
-              submitOverride={async ({ cardTokenId, paymentMethodId, taxDocument }) => {
+              amount={pagando.pack.price}
+              onSubmit={async ({ cardTokenId, paymentMethodId, taxDocument }) => {
                 const res = await apiFetch<{ ok?: boolean; message?: string; credited?: number }>(
                   "/financeiro/credits/recharge",
                   {

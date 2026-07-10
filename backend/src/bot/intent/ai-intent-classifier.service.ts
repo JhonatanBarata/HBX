@@ -141,7 +141,7 @@ export class AiIntentClassifierService {
    * Retorna `null` quando a IA está desligada, indisponível, deu timeout, ou
    * respondeu INDEFINIDO — nesses casos o caller (Etapa 2) cai no keyword atual.
    */
-  async classify(input: { text: string }): Promise<AiIntentResult | null> {
+  async classify(input: { text: string; companyId?: number | null }): Promise<AiIntentResult | null> {
     const text = String(input?.text || '').trim();
     if (!text) return null;
     if (!this.isEnabled()) return null;
@@ -154,23 +154,28 @@ export class AiIntentClassifierService {
     try {
       // GOVERNOR-IA: faixa realtime (prioridade absoluta). Recusa cedo (fila cheia/espera condenada)
       // → cai no MESMO fallback keyword de sempre (return null aqui = caller usa keyword).
-      const gw = await AiGatewayService.run('realtime', timeoutMs, () =>
-        fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model,
-            stream: false,
-            think: false,
-            format: 'json',
-            options: { temperature: 0.1, num_predict: 80 },
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: `Resposta do lead: ${text}` },
-            ],
+      // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
+      const gw = await AiGatewayService.run(
+        'realtime',
+        timeoutMs,
+        () =>
+          fetch(`${baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              stream: false,
+              think: false,
+              format: 'json',
+              options: { temperature: 0.1, num_predict: 80 },
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user', content: `Resposta do lead: ${text}` },
+              ],
+            }),
+            signal: AbortSignal.timeout(timeoutMs),
           }),
-          signal: AbortSignal.timeout(timeoutMs),
-        }),
+        { companyId: input?.companyId, actionKey: 'ai_realtime' },
       );
       if (gw.refused) {
         this.logger.warn('classificador IA recusado cedo pelo governor (fila cheia) — caindo no keyword');
@@ -225,6 +230,8 @@ export class AiIntentClassifierService {
     neutralKeywords: string[];
     callbackKeywords?: string[];
     humanHandoffKeywords?: string[];
+    /** CRÉDITO UNIVERSAL (PR10072026): empresa dona da conversa — vira medição `ai_realtime`. */
+    companyId?: number | null;
   }): Promise<{
     intent: ProspectingIntentClassification;
     autoReply: ProspectingAutoReplyClassification | null;
@@ -232,7 +239,7 @@ export class AiIntentClassifierService {
   }> {
     const text = String(input?.text || '');
 
-    const ai = await this.classify({ text });
+    const ai = await this.classify({ text, companyId: input?.companyId });
     if (ai?.bot) {
       // IA detectou robô → trata como auto-reply; o handler já silencia nesse caso.
       return { source: 'ai', intent: this.neutralIntent('ai:bot'), autoReply: ai.botKind ?? classifyProspectingAutoReply(text) };
