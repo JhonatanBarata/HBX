@@ -5,15 +5,18 @@
 > `docs/PLANEJAMENTOS/PR10072026/`, diff revisado entre sprints, commit local por sprint,
 > **publish só quando o dono mandar**.
 
-## O modelo FINAL (dono, 10/07 — sobrepõe tudo)
-- **Morre: free trial, extensão, plano-como-produto, assento/vendedor adicional pago.**
-- Só 2 modos de conta:
-  1. **Self-service (crédito)** — entra grátis, welcome, recarrega packs. Usuários ilimitados;
-     a única cobrança é o consumo de crédito.
-  2. **Empresa NEGOCIADA (exceção)** — montada pelo master NA FICHA: módulos (kill-switch),
+## O modelo FINAL (dono, 10/07 — sobrepõe tudo; adendo cortesia 10/07 noite)
+- **Morre: free trial, extensão, plano-como-produto, assento/vendedor adicional pago e
+  CORTESIA como conceito/estado de conta.** Presente/liberação grátis = o master entra na
+  ficha e ADICIONA CRÉDITOS (grant, que já existe). Nada de estado especial com prazo/motivo.
+- Só 2 TIPOS de conta (palavras do dono):
+  1. **Conta CRÉDITO** — entra grátis, welcome, recarrega packs. Usuários ilimitados; a única
+     cobrança é o consumo de crédito; ativa por default (bloqueio só por suspensão/saldo/módulo).
+  2. **Conta EMPRESARIAL (exceção)** — montada pelo master NA FICHA: módulos (kill-switch),
      crédito concedido, preço fixo manual, regras/tetos próprios.
-- **Derivação do modo (sem campo novo):** cobrança manual ativa OU assinatura legada ativa
-  → "Negociada"; resto → "Créditos". Toggle explícito só se o dono pedir depois.
+- Tipo vira campo EXPLÍCITO (`Company.accountType credit|enterprise`, aditivo, default credit;
+  wizard do master cria enterprise; editável na ficha). A derivação provisória do S1
+  (cobrança manual = "Negociada") e o rótulo "Negociada" morrem — rótulo oficial: Empresarial.
 - Regras anti-scraper são requisito do dono ("não posso deixar uma empresa drenar os 28M").
 
 ## Fatos da auditoria 10/07 (base do delta v1→v2)
@@ -86,7 +89,23 @@
 - Funil: cadastros → ativou (1º consumo) → 1ª recarga. Roster: MRR → saldo/consumo 30d.
 - Pronto quando: cockpit não menciona MRR/assinatura.
 
-### S6 — Aposentadoria backend + comissão-freio + vocabulário (risco alto, POR ÚLTIMO)
+### S6 — CORTESIA MORRE: 2 tipos explícitos de conta (adendo do dono 10/07 noite)
+- Migration aditiva: `Company.accountType TEXT NOT NULL DEFAULT 'credit'`
+  ('credit' | 'enterprise'); backfill documentado: cobrança manual/assinatura ativa →
+  'enterprise'. Wizard master cria 'enterprise'; toggle na ficha.
+- `company-access-state.ts` simplifica: conta credit = ativa por default (bloqueio só
+  suspensão/exclusão; consumo gateado por crédito/módulo/teto); estados courtesy/trial/
+  pending_checkout nunca mais atribuídos (legado lê como credit ativa; dado não some).
+- **Enforcement de crédito atrelado ao TIPO**: `isEnforceActiveForCompany` troca o predicado
+  courtesy→`accountType==='credit'` (enterprise segue no cutover 2 chaves). REVISÃO LINHA A
+  LINHA do orquestrador neste ponto (é cobrança).
+- UI: box "Cortesia" some da ficha (presente = grant na Carteira); badge/status "Cortesia"
+  some da lista (status = Ativa/Suspensa + legados em leitura); rótulo "Negociada" →
+  **"Empresarial"** em tudo que o S1 criou; signup cria conta credit ativa.
+- Ledger: grantType `courtesy_internal` FICA no dado/fiscal (não é receita) — só o RÓTULO de
+  UI vira "Concessão interna".
+
+### S7 — Aposentadoria backend + comissão-freio + vocabulário (risco alto, POR ÚLTIMO)
 - Aposentar endpoints de plano/trial que S1–S5 tiraram do front (`company/:id/plan`,
   `plan-taste`, `trial`, `card-quota`, `finance-settings`, PUT plan/modules, política anual).
   Dado NUNCA some; leitura de status legado aceita, escrita nova bloqueada. Testes reescritos.
