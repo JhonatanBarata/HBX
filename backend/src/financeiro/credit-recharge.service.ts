@@ -1,4 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinanceiroService } from './financeiro.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
@@ -144,6 +152,26 @@ export class CreditRechargeService {
     const externalReference = `hbx-credit-recharge-${companyId}-${idempotencyKey}`;
     const mock = this.isMockPayments();
 
+    // FIXER PR10072026 — retry de intenção que JÁ virou cobrança aprovada: devolve o
+    // resultado gravado SEM chamar o gateway. Fecha a janela de migração do formato da
+    // X-Idempotency-Key (pagamento aprovado com a key antiga + reenvio pós-deploy geraria
+    // key NOVA no MP → cartão cobrado 2×) e vira a trava permanente de re-cobrança.
+    const priorCharge = await this.prisma.financeiroCharge.findFirst({
+      where: { externalReference, companyId },
+      select: { id: true, mpPaymentId: true },
+    });
+    if (priorCharge) {
+      const balanceAfter = await this.wallet.getBalance(companyId);
+      return {
+        ok: true,
+        credited: 0, // o crédito entrou na execução que criou a charge (grant idempotente)
+        balanceAfter,
+        paymentId: String(priorCharge.mpPaymentId || (mock ? `mock-${idempotencyKey}` : externalReference)),
+        mock,
+        expiresAt, // aproximação (mesma política de validade); a data exata vive no lote
+      };
+    }
+
     let paymentId: string;
     if (mock) {
       // MOCK (dev): sem gateway; a idempotencyKey do front É a identidade do pagamento.
@@ -190,9 +218,12 @@ export class CreditRechargeService {
                 : {}),
             },
           },
-          // X-Idempotency-Key = intenção do FRONT: retry de rede da MESMA intenção não
-          // cobra 2x (o MP dedupa e devolve o mesmo pagamento). Nunca randomUUID aqui.
-          `credrech-${idempotencyKey}`,
+          // X-Idempotency-Key = intenção do FRONT escopada pela EMPRESA: retry de rede da
+          // MESMA intenção não cobra 2x (o MP dedupa e devolve o mesmo pagamento). O escopo
+          // por companyId é OBRIGATÓRIO — a maioria das empresas usa o token MP do MASTER,
+          // então keys iguais de empresas diferentes colidem na MESMA conta MP e a segunda
+          // empresa receberia o pagamento da primeira como "dedup". Nunca randomUUID aqui.
+          `credrech-${companyId}-${idempotencyKey}`,
         );
       } catch (error: any) {
         this.logger.warn(
@@ -215,7 +246,48 @@ export class CreditRechargeService {
           amount,
         };
       }
-      paymentId = String(payment?.id || `ref-${idempotencyKey}`);
+      // P0.4 — amarração pagamento↔empresa/intenção, fail-closed ANTES de qualquer crédito.
+      // A resposta do MP precisa provar que é O NOSSO pagamento: id presente (NUNCA sintetizar
+      // — id inventado quebraria a idempotência do grant e o rastreio de estorno),
+      // external_reference desta empresa+intenção, valor exato do pack (MP devolve decimal em
+      // reais — comparação em centavos, sem ruído de float) e moeda BRL. Divergência = alerta
+      // action_required + erro; o retry do cliente NÃO recobra (mesma X-Idempotency-Key
+      // devolve o mesmo pagamento no MP).
+      const respPaymentId = String(payment?.id ?? '').trim();
+      const respReference = String(payment?.external_reference ?? '').trim();
+      const respAmount = Number(payment?.transaction_amount);
+      const respCurrency = String(payment?.currency_id ?? '').trim().toUpperCase();
+      const divergence = !respPaymentId
+        ? 'payment_id_ausente'
+        : respReference !== externalReference
+          ? 'external_reference_divergente'
+          : !Number.isFinite(respAmount) || Math.round(respAmount * 100) !== Math.round(amount * 100)
+            ? 'valor_divergente'
+            : respCurrency !== 'BRL'
+              ? 'moeda_divergente'
+              : null;
+      if (divergence) {
+        await this.alertRechargeDivergence(companyId, {
+          reason: divergence,
+          externalReference,
+          paymentId: respPaymentId || null,
+          packKey: pack.key,
+          credits: pack.credits,
+          expected: { externalReference, amount, currency: 'BRL' },
+          received: {
+            paymentId: respPaymentId || null,
+            externalReference: respReference || null,
+            amount: Number.isFinite(respAmount) ? respAmount : null,
+            currency: respCurrency || null,
+            status: String(payment?.status ?? '') || null,
+          },
+        });
+        throw new BadGatewayException({
+          code: 'CREDIT_RECHARGE_RESPONSE_MISMATCH',
+          message: 'Resposta do provedor de pagamento não confere com esta recarga. Nossa equipe foi alertada.',
+        });
+      }
+      paymentId = respPaymentId;
     }
 
     // Pagamento APROVADO daqui pra baixo. Crédito + receita, ambos idempotentes:
@@ -325,7 +397,36 @@ export class CreditRechargeService {
           });
           throw error;
         }
-        // Corrida de retry: outro processo já gravou a MESMA cobrança+ledger — ok, segue.
+        // P0.4 — P2002 SÓ é retry benigno se a linha que já existe for DESTA empresa.
+        // Com o token MP do master compartilhado entre empresas, um mpPaymentId pode
+        // colidir com cobrança de OUTRA empresa — engolir isso viraria falso-sucesso
+        // silencioso cruzando tenants. externalReference embute o companyId, então o
+        // conflito cross-empresa real é o do mpPaymentId (@unique).
+        const conflicting = await this.prisma.financeiroCharge.findFirst({
+          where: mock
+            ? { externalReference }
+            : { OR: [{ externalReference }, { mpPaymentId: paymentId }] },
+          select: { id: true, companyId: true },
+        });
+        if (conflicting && conflicting.companyId !== companyId) {
+          await this.alertRechargeDivergence(companyId, {
+            reason: 'charge_conflito_cross_empresa',
+            externalReference,
+            paymentId,
+            packKey: pack.key,
+            credits: pack.credits,
+            received: {
+              conflictingChargeId: conflicting.id,
+              conflictingCompanyId: conflicting.companyId,
+            },
+          });
+          throw new ConflictException({
+            code: 'CREDIT_RECHARGE_CROSS_COMPANY_CONFLICT',
+            message: 'Conflito de pagamento entre contas detectado. Nossa equipe foi alertada.',
+          });
+        }
+        // Corrida de retry da MESMA empresa: outro processo já gravou a MESMA
+        // cobrança+ledger — ok, segue.
       }
     }
 
@@ -383,6 +484,55 @@ export class CreditRechargeService {
       });
     } catch {
       // emitMasterEvent já é best-effort; guarda extra pra alerta jamais engolir/trocar o erro real.
+    }
+  }
+
+  /**
+   * P0.4 — a resposta/unicidade do pagamento NÃO bate com a intenção desta empresa
+   * (id ausente, external_reference/valor/moeda divergente, ou conflito de unicidade com
+   * cobrança de OUTRA empresa). Fail-closed: quem chama LANÇA depois deste alerta — nada
+   * é creditado em cima de resposta que não prova ser nossa. MasterEvent `action_required`
+   * pra reconciliação manual (o cartão PODE ter sido cobrado no MP). Best-effort PURO,
+   * mesmo contrato do alertRechargeOrphan.
+   */
+  private async alertRechargeDivergence(
+    companyId: number,
+    detail: {
+      reason: string;
+      externalReference: string;
+      paymentId: string | null;
+      packKey: string;
+      credits: number;
+      expected?: Record<string, unknown>;
+      received?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    this.logger.error(
+      `credit_recharge_divergence reason=${detail.reason} company=${companyId} ` +
+        `externalReference=${detail.externalReference} paymentId=${detail.paymentId || '-'} ` +
+        `pack=${detail.packKey}`,
+    );
+    try {
+      await emitMasterEvent(this.prisma, {
+        type: 'credit.recharge_divergence',
+        severity: 'action_required',
+        companyId,
+        // dedup por intenção (externalReference é única por empresa+intenção e existe
+        // mesmo quando o MP não devolveu payment.id); `state` = motivo, então um motivo
+        // NOVO na mesma intenção ainda insere.
+        dedupKey: `credit-recharge-divergence:${detail.externalReference}`,
+        payload: {
+          state: detail.reason,
+          paymentId: detail.paymentId,
+          externalReference: detail.externalReference,
+          packKey: detail.packKey,
+          credits: detail.credits,
+          expected: detail.expected ?? null,
+          received: detail.received ?? null,
+        },
+      });
+    } catch {
+      // Best-effort: alerta jamais engole/troca o erro fail-closed que vem em seguida.
     }
   }
 }

@@ -313,6 +313,35 @@ test('grant: mesma usageKey 2x -> 1 lote só', async () => {
   assert.equal(await service.getBalance(1), 10);
 });
 
+// P0.4 — dedup de usageKey é GLOBAL no ledger: a MESMA chave vinda de OUTRA empresa jamais
+// pode virar `alreadyProcessed` silencioso (falso-sucesso cruzando tenants — o chamador
+// acharia que creditou e ninguém receberia). Tem que ser erro VISÍVEL + alerta do master.
+test('grant: mesma usageKey em OUTRA empresa -> erro visível + MasterEvent, nenhum crédito cruzado', async () => {
+  const { service, fake } = buildService();
+  const events: any[] = [];
+  (fake as any).masterEvent = {
+    findFirst: async () => null,
+    create: async ({ data }: any) => {
+      events.push(data);
+      return data;
+    },
+  };
+
+  const first = await service.grant(1, 10, { usageKey: 'mp:pay-cross' });
+  assert.equal(first.alreadyProcessed, false);
+
+  await assert.rejects(
+    () => service.grant(2, 10, { usageKey: 'mp:pay-cross' }),
+    /outra empresa/,
+  );
+
+  assert.equal(await service.getBalance(1), 10); // carteira original intacta
+  assert.equal(await service.getBalance(2), 0); // nada entrou na empresa errada
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, 'credit.grant_cross_company');
+  assert.equal(JSON.parse(events[0].payloadJson).existingCompanyId, 1);
+});
+
 // Fix B (revisão Opus S1): idempotência SOB CONCORRÊNCIA. Sem o @@unique(usageKey,parentEntryId)
 // + tratamento de P2002, duas chamadas paralelas com a MESMA usageKey passariam as duas no
 // pré-check e debitariam 2×. Este teste PROVA o não-duplo-débito: o saldo cai só 1×.
@@ -348,6 +377,58 @@ test('debit: mesma usageKey cruzando 2 lotes, 2 chamadas paralelas -> total debi
   assert.equal(b.debited, 3);
   // Saldo caiu 3 (não 6): 4 - 3 = 1.
   assert.equal(await service.getBalance(1), 1);
+});
+
+// FIXER PR10072026 — furo espelho do P0.4 no DEBIT: usageKey já registrada por OUTRA empresa
+// não pode virar resultado idempotente silencioso (a empresa certa nunca seria debitada).
+test('debit: mesma usageKey em OUTRA empresa -> erro visível + MasterEvent, nada debitado na errada', async () => {
+  const { service, fake } = buildService();
+  const events: any[] = [];
+  (fake as any).masterEvent = {
+    findFirst: async () => null,
+    create: async ({ data }: any) => {
+      events.push(data);
+      return data;
+    },
+  };
+
+  await service.grant(1, 10, {});
+  await service.grant(2, 10, {});
+  await service.debit(1, 3, { actionKey: 'lead_delivery', usageKey: 'master-debit:cross' });
+
+  await assert.rejects(
+    () => service.debit(2, 3, { actionKey: 'lead_delivery', usageKey: 'master-debit:cross' }),
+    /outra empresa/,
+  );
+  assert.equal(await service.getBalance(1), 7); // só o débito legítimo
+  assert.equal(await service.getBalance(2), 10); // a empresa 2 NÃO foi tocada
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, 'credit.debit_cross_company');
+});
+
+// FIXER PR10072026 — teto global da usageKey: duas chamadas concorrentes podem progredir em
+// lotes DISJUNTOS (o @@unique só trava colisão no MESMO lote); sem o teto relido dentro da tx,
+// a soma committada passava do pedido (reversão de 100 tirando 130 da carteira).
+test('reversePurchase: corrida em lotes DISJUNTOS nunca passa do amount (teto global da usageKey)', async () => {
+  const { service, fake } = buildService();
+  const now = new Date();
+  const recharge = await service.grant(1, 30, {
+    kind: 'recharge',
+    usageKey: 'mp:pay-race',
+    expiresAt: new Date(now.getTime() + 1 * DAY_MS),
+  });
+  await service.grant(1, 200, { expiresAt: new Date(now.getTime() + 30 * DAY_MS) });
+
+  await Promise.all([
+    service.reversePurchase(1, { amount: 100, usageKey: 'mp-reversal:pay-race', preferredLotId: recharge.entryId }),
+    service.reversePurchase(1, { amount: 100, usageKey: 'mp-reversal:pay-race', preferredLotId: recharge.entryId }),
+  ]);
+
+  const totalReversed = fake.entries
+    .filter((e: any) => e.kind === 'purchase_reversal' && e.usageKey === 'mp-reversal:pay-race')
+    .reduce((sum: number, e: any) => sum + Number(e.amount), 0);
+  assert.equal(totalReversed, 100); // exato — nunca 130
+  assert.equal(await service.getBalance(1), 130); // 230 − 100
 });
 
 // ─── 4. Overdraft / parcial (D7) ────────────────────────────────────────────────────────────────
@@ -472,4 +553,103 @@ test('getBalancesByCompanyIds: lista vazia devolve Map vazio sem consultar o ban
   const { service } = buildService();
   const balances = await service.getBalancesByCompanyIds([]);
   assert.equal(balances.size, 0);
+});
+
+// ─── P0.3 (PR10072026 W2) — reversePurchase: estorno/chargeback de recarga ─────────────────────
+
+test('reversePurchase: estorno total tira os créditos do pack, consumindo PRIMEIRO o lote da recarga', async () => {
+  const { service, fake } = buildService();
+  const now = new Date();
+  // Lote alheio que expira ANTES (o FIFO normal consumiria ele primeiro).
+  await service.grant(1, 5, { kind: 'grant', expiresAt: new Date(now.getTime() + 1 * DAY_MS) });
+  const recharge = await service.grant(1, 10, {
+    kind: 'recharge',
+    grantType: 'paid',
+    expiresAt: new Date(now.getTime() + 30 * DAY_MS),
+    usageKey: 'mp:pay-r1',
+  });
+
+  const result = await service.reversePurchase(1, {
+    amount: 10,
+    usageKey: 'mp-reversal:pay-r1',
+    preferredLotId: recharge.entryId,
+  });
+
+  assert.equal(result.reversed, 10);
+  assert.equal(result.shortfall, 0);
+  assert.equal(result.alreadyProcessed, false);
+  assert.equal(result.balanceAfter, 5);
+
+  // O lote da recarga foi zerado; o lote alheio (que expirava antes) ficou intacto.
+  const rechargeLotRaw = fake.entries.find((e: any) => e.id === recharge.entryId);
+  const otherLotRaw = fake.entries.find((e: any) => e.kind === 'grant' && e.amount === 5);
+  assert.equal(rechargeLotRaw?.remaining, 0);
+  assert.equal(otherLotRaw?.remaining, 5);
+});
+
+test('reversePurchase: 20 webhooks duplicados = 1 débito (idempotente por usageKey)', async () => {
+  const { service } = buildService();
+  await service.grant(1, 10, { kind: 'recharge', usageKey: 'mp:pay-r2' });
+
+  const results = [] as Awaited<ReturnType<typeof service.reversePurchase>>[];
+  for (let i = 0; i < 20; i++) {
+    results.push(await service.reversePurchase(1, { amount: 10, usageKey: 'mp-reversal:pay-r2' }));
+  }
+
+  assert.equal(results[0].alreadyProcessed, false);
+  assert.equal(results[0].reversed, 10);
+  for (const dup of results.slice(1)) {
+    assert.equal(dup.alreadyProcessed, true);
+    assert.equal(dup.reversed, 10); // relê o committado, não debita de novo
+  }
+  const balance = await service.getBalance(1);
+  assert.equal(balance, 0);
+  assert.ok(balance >= 0); // nunca negativo
+});
+
+test('reversePurchase: 5 chamadas PARALELAS com a MESMA usageKey -> aplica 1× só', async () => {
+  const { service } = buildService();
+  await service.grant(1, 100, { kind: 'recharge', usageKey: 'mp:pay-r3' });
+
+  await Promise.all(
+    Array.from({ length: 5 }, () =>
+      service.reversePurchase(1, { amount: 10, usageKey: 'mp-reversal:pay-r3' }),
+    ),
+  );
+
+  // Saldo caiu 10 (não 50): a corrida bate no @@unique e vira já-processado.
+  assert.equal(await service.getBalance(1), 90);
+});
+
+test('reversePurchase: shortfall — crédito já consumido vira dívida reportada, saldo nunca negativo', async () => {
+  const { service } = buildService();
+  await service.grant(1, 10, { kind: 'recharge', usageKey: 'mp:pay-r4' });
+  await service.debit(1, 7, { actionKey: 'lead_delivery', usageKey: 'consumo-antes-do-estorno' });
+  assert.equal(await service.getBalance(1), 3);
+
+  const result = await service.reversePurchase(1, { amount: 10, usageKey: 'mp-reversal:pay-r4' });
+
+  assert.equal(result.reversed, 3); // min(saldo, créditos do pack)
+  assert.equal(result.shortfall, 7); // dívida — quem decide o que fazer com ela é o master
+  assert.equal(result.balanceAfter, 0);
+  assert.ok(result.balanceAfter >= 0);
+});
+
+test('reversePurchase: NÃO é revertível por refund (movimento purchase_reversal não é débito operacional)', async () => {
+  const { service } = buildService();
+  await service.grant(1, 10, { kind: 'recharge', usageKey: 'mp:pay-r5' });
+  await service.reversePurchase(1, { amount: 10, usageKey: 'mp-reversal:pay-r5' });
+  assert.equal(await service.getBalance(1), 0);
+
+  // refund só enxerga linhas kind 'debit' — compra estornada não volta sozinha.
+  const refund = await service.refund(1, { usageKey: 'mp-reversal:pay-r5' });
+  assert.equal(refund.refunded, 0);
+  assert.equal(await service.getBalance(1), 0);
+});
+
+test('reversePurchase: validações — amount não-inteiro/<=0 e usageKey vazia lançam', async () => {
+  const { service } = buildService();
+  await assert.rejects(() => service.reversePurchase(1, { amount: 0, usageKey: 'k' }), /inteiro positivo/);
+  await assert.rejects(() => service.reversePurchase(1, { amount: 1.5, usageKey: 'k' }), /inteiro positivo/);
+  await assert.rejects(() => service.reversePurchase(1, { amount: 3, usageKey: '  ' }), /usageKey/);
 });

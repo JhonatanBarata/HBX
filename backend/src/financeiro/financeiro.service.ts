@@ -46,6 +46,8 @@ import { reserveTrialUsageTx } from '../commercial-plans/trial-usage';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MailService } from '../mail/mail.service';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
+import { CreditWalletService } from '../credits/credit-wallet.service';
+import { emitMasterEvent } from '../common/master-event';
 
 const BILLING_GRACE_WINDOW_MS = 48 * 60 * 60 * 1000;
 const BILLING_GRACE_SECOND_NOTICE_MS = 24 * 60 * 60 * 1000;
@@ -90,6 +92,10 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly mailService: MailService,
     private readonly hbxCommissionSync: HbxCommissionSyncService,
+    // P0.3 (PR10072026 W2): estorno/chargeback de RECARGA DE CRÉDITO compensa a carteira.
+    // CreditsModule já é importado pelo FinanceiroModule (invariante S3-p2 preservada:
+    // CreditsModule segue dependendo só do Prisma; a direção é financeiro → credits).
+    private readonly creditWallet: CreditWalletService,
   ) {}
 
   onModuleInit() {
@@ -285,6 +291,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (['approved', 'accredited'].includes(normalized)) return 'approved';
     if (normalized === 'refunded') return 'refunded';
     if (normalized === 'partially_refunded') return 'partially_refunded';
+    // P0.3 — chargeback e mediação viram estados OBSERVÁVEIS (antes caíam em 'pending' e o
+    // chargeback real nem sinalizava). Consumidores auditados: normalizeLifecycle (abaixo),
+    // gates `=== 'approved'` (upgrade/trial-end — inalterados), findReusableCharge (exige
+    // status 'pending' — 'in_mediation' deixa de reutilizar a cobrança, melhora), grace de
+    // assinatura (charged_back entra junto de failed/cancelled) e ledger fiscal (mapeado em
+    // ledgerStatusForProviderStatus p/ os buckets que o fiscal/painel já entendem).
+    if (normalized === 'charged_back') return 'charged_back';
+    if (normalized === 'in_mediation') return 'in_mediation';
     if (['rejected', 'failed'].includes(normalized)) return 'failed';
     if (['cancelled', 'canceled'].includes(normalized)) return 'cancelled';
     return 'pending';
@@ -292,8 +306,22 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
   private normalizeLifecycle(status: string) {
     if (['approved', 'refunded', 'partially_refunded'].includes(status)) return 'paid';
-    if (['failed', 'cancelled'].includes(status)) return 'cancelled';
+    // charged_back: o dinheiro foi tomado de volta — cobrança morta (também bloqueia
+    // refund manual em cima de chargeback: refundFinanceiroChargeById exige lifecycle 'paid').
+    if (['failed', 'cancelled', 'charged_back'].includes(status)) return 'cancelled';
+    // in_mediation fica 'in_progress' (default) — disputa em voo, sem estado final.
     return 'in_progress';
+  }
+
+  // Status que o ledger fiscal (MasterBillingLedgerEntry) entende. Os consumidores do ledger
+  // (revenue-sync/livro-caixa/master-billing-situation) só conhecem os buckets APPROVED /
+  // PENDING / FAILED / CANCELLED / REFUNDED / PARTIALLY_REFUNDED — um 'CHARGED_BACK' cru
+  // sumiria de todos. Economicamente chargeback = estorno total (não compõe base do DAS);
+  // o status fino fica na FinanceiroCharge e o mpStatus cru vai no metadata do ledger.
+  private ledgerStatusForProviderStatus(status: string) {
+    if (status === 'charged_back') return 'refunded';
+    if (status === 'in_mediation') return 'pending';
+    return status;
   }
 
   private parseDate(value: unknown) {
@@ -2347,7 +2375,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     await this.updateLedgerEntryStatus({
       entryId: charge.ledgerEntryId,
-      status,
+      status: this.ledgerStatusForProviderStatus(status),
       paidAt: paidAt || null,
       paymentMethod: this.normalizePaymentMethod(charge.paymentMethod),
       observation:
@@ -2355,9 +2383,13 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           ? 'Pagamento aprovado automaticamente pelo Mercado Pago.'
           : status === 'refunded' || status === 'partially_refunded'
             ? 'Cobrança atualizada com estorno vindo do Mercado Pago.'
-            : status === 'failed'
-              ? 'Cobrança marcada como falha pelo Mercado Pago.'
-              : 'Cobrança atualizada automaticamente pelo Mercado Pago.',
+            : status === 'charged_back'
+              ? 'Chargeback (contestação) recebido do Mercado Pago.'
+              : status === 'in_mediation'
+                ? 'Pagamento em mediação (disputa) no Mercado Pago.'
+                : status === 'failed'
+                  ? 'Cobrança marcada como falha pelo Mercado Pago.'
+                  : 'Cobrança atualizada automaticamente pelo Mercado Pago.',
       metadata: {
         chargeId: charge.id,
         mpPaymentId: paymentId,
@@ -2393,6 +2425,44 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     if (status === 'approved' && paidAt) {
       await this.activateCompanyFromCharge(companyId, charge, paidAt);
+    }
+
+    // P0.3 — chargeback agora SINALIZA (antes virava 'pending' e morria mudo). Best-effort
+    // por contrato do emitMasterEvent; dedup por pagamento.
+    if (status === 'charged_back') {
+      await emitMasterEvent(this.prisma, {
+        type: 'financeiro.chargeback',
+        severity: 'attention',
+        companyId,
+        dedupKey: `financeiro-chargeback:${paymentId}`,
+        payload: { state: 'charged_back', chargeId: charge.id, mpPaymentId: String(paymentId), amount },
+      });
+    }
+
+    // P0.3 — estorno/cancelamento/chargeback de RECARGA DE CRÉDITO compensa a carteira
+    // (idempotente por pagamento; webhook duplicado não debita 2×).
+    if (this.isCreditRechargeCharge(charge)) {
+      if (['refunded', 'cancelled', 'charged_back'].includes(status)) {
+        await this.compensateCreditRechargeReversal(charge, {
+          trigger: 'webhook',
+          providerStatus: String(provider.status || status),
+        });
+      } else if (status === 'partially_refunded') {
+        // Estorno PARCIAL de recarga não compensa automático (proporção é decisão aberta do
+        // dono) — mas nunca passa mudo: alerta com o total estornado até aqui.
+        await emitMasterEvent(this.prisma, {
+          type: 'credit.recharge_reversal',
+          severity: 'attention',
+          companyId,
+          dedupKey: `credit-reversal-partial:${paymentId}`,
+          payload: {
+            state: `partial_refund_no_compensation:${refunded}`,
+            chargeId: charge.id,
+            mpPaymentId: String(paymentId),
+            refundTotal: refunded,
+          },
+        });
+      }
     }
 
     return { updated: true, status, charge: this.serializeCharge(charge) };
@@ -2518,7 +2588,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         createdByUserId: subscription.createdByUserId || null,
         entryType: 'SUBSCRIPTION_CARD',
         entryGroup: 'revenue',
-        status,
+        status: this.ledgerStatusForProviderStatus(status),
         origin: 'financeiro_subscription',
         competence,
         amount,
@@ -2544,15 +2614,17 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     } else {
       await this.updateLedgerEntryStatus({
         entryId: charge.ledgerEntryId,
-        status,
+        status: this.ledgerStatusForProviderStatus(status),
         paidAt: paidAt || null,
         paymentMethod: 'CARD',
         observation:
           status === 'approved'
             ? 'Pagamento recorrente aprovado automaticamente pelo Mercado Pago.'
-            : status === 'failed'
-              ? 'Pagamento recorrente marcado como falho pelo Mercado Pago.'
-              : 'Pagamento recorrente atualizado pelo Mercado Pago.',
+            : status === 'charged_back'
+              ? 'Chargeback (contestação) recebido do Mercado Pago no pagamento recorrente.'
+              : status === 'failed'
+                ? 'Pagamento recorrente marcado como falho pelo Mercado Pago.'
+                : 'Pagamento recorrente atualizado pelo Mercado Pago.',
         metadata: {
           chargeId: charge.id,
           companySubscriptionId: subscription.id,
@@ -2565,7 +2637,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     if (status === 'approved' && paidAt) {
       await this.activateCompanyFromSubscription(subscription, paidAt, provider);
-    } else if (status === 'failed' || status === 'cancelled') {
+    } else if (status === 'failed' || status === 'cancelled' || status === 'charged_back') {
+      // charged_back: dinheiro tomado de volta pelo banco — mesma consequência de pagamento
+      // falho (past_due + janela de graça). Antes caía em 'pending' e não acontecia NADA.
       const updatedSubscription = await this.prisma.companySubscription.update({
         where: { id: subscription.id },
         data: {
@@ -4464,6 +4538,156 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     return charge;
   }
 
+  // ── P0.3 (PR10072026 W2) — estorno/chargeback de RECARGA DE CRÉDITO compensa a carteira ──
+  // A recarga credita na hora (credit-recharge.service.ts, usageKey mp:<paymentId>); até aqui
+  // o estorno devolvia o dinheiro e DEIXAVA os créditos na carteira. Agora: refund/cancel/
+  // chargeback de charge com externalReference 'hbx-credit-recharge-*' debita da carteira
+  // min(saldo, créditos do pack) — idempotente ('mp-reversal:<paymentId>'), nunca negativo;
+  // o que o cliente já consumiu vira dívida ALERTADA ao master (não bloqueia consumo — decisão
+  // aberta do dono).
+
+  private static readonly CREDIT_RECHARGE_REF_PREFIX = 'hbx-credit-recharge-';
+
+  private isCreditRechargeCharge(charge: { externalReference?: string | null }) {
+    return String(charge?.externalReference || '').startsWith(FinanceiroService.CREDIT_RECHARGE_REF_PREFIX);
+  }
+
+  // Identidade estável do pagamento da recarga (é dela que derivam as usageKeys do ledger):
+  // live = mpPaymentId; recarga MOCK (dev) grava mpPaymentId null e o paymentId foi
+  // 'mock-<idempotencyKey>' — recuperamos a key do externalReference
+  // 'hbx-credit-recharge-<companyId>-<idempotencyKey>'.
+  private creditRechargePaymentIdentity(charge: {
+    companyId: number;
+    mpPaymentId?: string | null;
+    externalReference?: string | null;
+  }): string | null {
+    const mpPaymentId = String(charge?.mpPaymentId || '').trim();
+    if (mpPaymentId) return mpPaymentId;
+    const ref = String(charge?.externalReference || '');
+    const prefix = `${FinanceiroService.CREDIT_RECHARGE_REF_PREFIX}${charge.companyId}-`;
+    if (ref.startsWith(prefix)) {
+      const idempotencyKey = ref.slice(prefix.length).trim();
+      if (idempotencyKey) return `mock-${idempotencyKey}`;
+    }
+    return null;
+  }
+
+  /**
+   * Compensação da carteira quando a compra de crédito foi desfeita (webhook do MP OU estorno
+   * manual do master). Best-effort CONTIDO: falha aqui nunca derruba o sync/refund que já
+   * aconteceu (o dinheiro já se moveu no MP) — erro vira MasterEvent action_required + log,
+   * e o próximo webhook duplicado converge (a reversão é idempotente por pagamento).
+   */
+  private async compensateCreditRechargeReversal(
+    charge: {
+      id: string;
+      companyId: number;
+      amount: number;
+      mpPaymentId?: string | null;
+      externalReference?: string | null;
+    },
+    context: { trigger: 'webhook' | 'master_refund'; providerStatus: string; actorUserId?: number | null },
+  ): Promise<void> {
+    try {
+      const paymentIdentity = this.creditRechargePaymentIdentity(charge);
+      if (!paymentIdentity) {
+        await emitMasterEvent(this.prisma, {
+          type: 'credit.recharge_reversal',
+          severity: 'action_required',
+          companyId: charge.companyId,
+          dedupKey: `credit-reversal:${charge.id}`,
+          payload: { state: 'identity_missing', chargeId: charge.id, trigger: context.trigger },
+        });
+        return;
+      }
+
+      // O lote da recarga é a fonte da verdade de QUANTOS créditos a compra valeu (o
+      // providerPayload da charge é sobrescrito pelo webhook — não dá pra confiar nele).
+      const lot = await this.prisma.creditLedgerEntry.findFirst({
+        where: { companyId: charge.companyId, kind: 'recharge', usageKey: `mp:${paymentIdentity}` },
+      });
+      if (!lot) {
+        // Recarga sem lote (grant órfão que nunca entrou): nada a debitar, mas o master vê.
+        await emitMasterEvent(this.prisma, {
+          type: 'credit.recharge_reversal',
+          severity: 'attention',
+          companyId: charge.companyId,
+          dedupKey: `credit-reversal:${paymentIdentity}`,
+          payload: {
+            state: 'lot_not_found',
+            chargeId: charge.id,
+            paymentId: paymentIdentity,
+            trigger: context.trigger,
+          },
+        });
+        return;
+      }
+
+      const result = await this.creditWallet.reversePurchase(charge.companyId, {
+        amount: lot.amount,
+        usageKey: `mp-reversal:${paymentIdentity}`,
+        preferredLotId: lot.id,
+        userId: context.actorUserId ?? null,
+        metadata: {
+          chargeId: charge.id,
+          paymentId: paymentIdentity,
+          trigger: context.trigger,
+          providerStatus: context.providerStatus,
+        },
+      });
+
+      this.logger.log(
+        `credit_recharge_reversal company=${charge.companyId} payment=${paymentIdentity} pack=${lot.amount} ` +
+          `reversed=${result.reversed} shortfall=${result.shortfall} trigger=${context.trigger} ` +
+          `already=${result.alreadyProcessed}`,
+      );
+
+      if (result.shortfall > 0 && !result.alreadyProcessed) {
+        // Crédito já consumido antes do estorno = dívida. NÃO bloqueia consumo automático
+        // (decisão aberta do dono) — registra a dívida em créditos e em R$ pro master agir.
+        const chargeAmount = this.normalizeCurrencyAmount(charge.amount);
+        const debtValue = this.normalizeCurrencyAmount(
+          lot.amount > 0 ? (chargeAmount * result.shortfall) / lot.amount : 0,
+        );
+        await emitMasterEvent(this.prisma, {
+          type: 'credit.recharge_reversal_shortfall',
+          severity: 'action_required',
+          companyId: charge.companyId,
+          dedupKey: `credit-reversal-shortfall:${paymentIdentity}`,
+          payload: {
+            state: 'shortfall',
+            chargeId: charge.id,
+            paymentId: paymentIdentity,
+            packCredits: lot.amount,
+            reversedCredits: result.reversed,
+            debtCredits: result.shortfall,
+            debtValue,
+            chargeAmount,
+            trigger: context.trigger,
+            providerStatus: context.providerStatus,
+          },
+        });
+      }
+    } catch (error: any) {
+      this.logger.error(
+        `credit_recharge_reversal_failed company=${charge.companyId} charge=${charge.id} ` +
+          `trigger=${context.trigger} error=${String(error?.message || error)}`,
+      );
+      await emitMasterEvent(this.prisma, {
+        type: 'credit.recharge_reversal',
+        severity: 'action_required',
+        companyId: charge.companyId,
+        dedupKey: `credit-reversal-failed:${charge.id}`,
+        payload: {
+          state: 'compensation_failed',
+          chargeId: charge.id,
+          trigger: context.trigger,
+          error: String(error?.message || error),
+        },
+      });
+    }
+  }
+
   // ── REEMBOLSO (primitivo compartilhado: F2 exclusão de empresa + F3 botão do master) ──
   // Estorna (total ou parcial) uma cobrança JÁ PAGA: dispara o refund no Mercado Pago,
   // atualiza a FinanceiroCharge (refundAmount/refundedAt/status) e rebaixa o lançamento do
@@ -4563,6 +4787,32 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       `financeiro_refund company=${companyId} charge=${charge.id} amount=${refundValue} total=${newRefundTotal} ` +
         `full=${fullyRefunded} source=${input.source || 'manual'} mp=${mpPaymentId || 'mock'}`,
     );
+
+    // P0.3 — estorno (manual do master / exclusão de empresa) de RECARGA DE CRÉDITO compensa
+    // a carteira, mesma rotina idempotente do webhook (estorno manual + webhook do MP sobre o
+    // MESMO pagamento = 1 débito só).
+    if (this.isCreditRechargeCharge(charge)) {
+      if (fullyRefunded) {
+        await this.compensateCreditRechargeReversal(charge, {
+          trigger: 'master_refund',
+          providerStatus: 'refunded',
+          actorUserId: input.actorUserId ?? null,
+        });
+      } else {
+        await emitMasterEvent(this.prisma, {
+          type: 'credit.recharge_reversal',
+          severity: 'attention',
+          companyId,
+          dedupKey: `credit-reversal-partial:${mpPaymentId || charge.id}`,
+          payload: {
+            state: `partial_refund_no_compensation:${newRefundTotal}`,
+            chargeId: charge.id,
+            refundTotal: newRefundTotal,
+            trigger: 'master_refund',
+          },
+        });
+      }
+    }
 
     return {
       ok: true,

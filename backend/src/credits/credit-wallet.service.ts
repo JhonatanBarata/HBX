@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { emitMasterEvent } from '../common/master-event';
 
 // CRÉDITOS S1 (docs/PLANEJAMENTOS/CREDITOS/S1-SPEC.md) — fundação da carteira de crédito.
 // Sprint 0 fechado 04/07: 1 crédito = 1 lead; saldo em LOTES com expiração FIFO; fail-closed
@@ -13,7 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 export type CreditLotKind = 'grant' | 'recharge' | 'promo';
 export type CreditGrantType = 'paid' | 'courtesy_internal' | 'promo';
-export type CreditMovementKind = 'debit' | 'refund' | 'expire' | 'adjust';
+export type CreditMovementKind = 'debit' | 'refund' | 'expire' | 'adjust' | 'purchase_reversal';
 
 export type CreditLot = {
   id: string;
@@ -61,6 +62,27 @@ export type RefundResult = {
   alreadyProcessed: boolean;
 };
 
+// P0.3 (PR10072026 W2) — reversão de COMPRA de crédito (estorno/chargeback da recarga no MP).
+// Diferente de `refund` (que devolve um débito operacional): aqui o dinheiro SAIU da nossa
+// conta, então os créditos vendidos precisam SAIR da carteira — nunca abaixo de zero.
+// `shortfall` = créditos do pack que o cliente JÁ consumiu antes do estorno (dívida a
+// tratar pelo master; a decisão de bloquear consumo fica com o dono).
+export type PurchaseReversalOptions = {
+  amount: number; // créditos do pack estornado (inteiro > 0)
+  usageKey: string; // 'mp-reversal:<mpPaymentId>' — idempotência da reversão inteira
+  preferredLotId?: string | null; // lote da própria recarga — consumido PRIMEIRO se ainda vivo
+  userId?: number | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type PurchaseReversalResult = {
+  reversed: number;
+  requested: number;
+  shortfall: number;
+  balanceAfter: number;
+  alreadyProcessed: boolean;
+};
+
 export type ExpireLotsResult = {
   expiredEntries: number;
   expiredCredits: number;
@@ -80,6 +102,16 @@ class ConcurrencyRetrySignal extends Error {
   constructor() {
     super('credit-wallet: optimistic lock miss, retry');
     this.name = 'ConcurrencyRetrySignal';
+  }
+}
+
+// Sinal interno: o total committado desta usageKey já cobre o `amount` pedido — outra
+// chamada (ou execução anterior) completou a ação. Aborta a tx sem consumir; o resultado
+// idempotente é relido do ledger. Distinto do P2002 (que só pega colisão no MESMO lote).
+class UsageKeySatisfiedSignal extends Error {
+  constructor() {
+    super('credit-wallet: usageKey já coberta pelo ledger');
+    this.name = 'UsageKeySatisfiedSignal';
   }
 }
 
@@ -209,6 +241,26 @@ export class CreditWalletService {
     if (usageKey) {
       const existing = await this.prisma.creditLedgerEntry.findFirst({ where: { usageKey } });
       if (existing) {
+        if (Number(existing.companyId) !== Number(companyId)) {
+          // P0.4 — a dedup por usageKey é GLOBAL no ledger: chave já registrada em OUTRA
+          // empresa (ex.: colisão de pagamento MP na conta master compartilhada) devolvida
+          // como `alreadyProcessed` seria falso-sucesso silencioso cruzando tenants — o
+          // chamador acharia que creditou e NINGUÉM receberia. Fail-closed: alerta o master
+          // e lança; nenhum crédito entra em nenhuma das duas carteiras.
+          await emitMasterEvent(this.prisma, {
+            type: 'credit.grant_cross_company',
+            severity: 'action_required',
+            companyId,
+            dedupKey: `credit-grant-cross-company:${usageKey}`,
+            payload: {
+              state: 'cross_company_usage_key',
+              usageKey,
+              existingEntryId: existing.id,
+              existingCompanyId: existing.companyId,
+            },
+          });
+          throw new Error(`grant: usageKey já registrada para outra empresa (usageKey=${usageKey})`);
+        }
         return { entryId: existing.id, amount: existing.amount, alreadyProcessed: true };
       }
     }
@@ -266,34 +318,125 @@ export class CreditWalletService {
       where: { usageKey, kind: 'debit' },
     });
     if (existingDebits.length > 0) {
+      const foreign = existingDebits.find((row) => Number(row.companyId) !== Number(companyId));
+      if (foreign) {
+        // Mesmo furo do grant (P0.4): a dedup por usageKey é GLOBAL — chave já registrada em
+        // OUTRA empresa devolvida como resultado idempotente seria falso-sucesso silencioso
+        // cruzando tenants (a empresa certa nunca é debitada e o chamador acha que foi).
+        // Fail-closed: alerta o master e lança.
+        await emitMasterEvent(this.prisma, {
+          type: 'credit.debit_cross_company',
+          severity: 'action_required',
+          companyId,
+          dedupKey: `credit-debit-cross-company:${usageKey}`,
+          payload: {
+            state: 'cross_company_usage_key',
+            usageKey,
+            existingEntryId: foreign.id,
+            existingCompanyId: foreign.companyId,
+          },
+        });
+        throw new Error(`debit: usageKey já registrada para outra empresa (usageKey=${usageKey})`);
+      }
       return this.debitResultFromLedger(companyId, usageKey, amount);
     }
 
     const wallet = await this.ensureWallet(companyId);
     const now = new Date();
 
-    let remainingToDebit = amount;
-    let totalDebited = 0;
+    const { consumed, duplicateDetected } = await this.consumeOpenLots({
+      walletId: wallet.id,
+      companyId,
+      amount,
+      usageKey,
+      movementKind: 'debit',
+      actionKey: opts.actionKey,
+      userId: opts.userId ?? null,
+      metadata: opts.metadata ?? null,
+      now,
+    });
+
+    // Se detectamos duplicata em qualquer ponto, a fonte da verdade é o ledger committado
+    // (o que ESTA chamada gravou + o que a concorrente gravou com a mesma usageKey).
+    if (duplicateDetected) {
+      return this.debitResultFromLedger(companyId, usageKey, amount);
+    }
+
+    const balanceAfter = await this.getBalance(companyId, now);
+    return {
+      debited: consumed,
+      requested: amount,
+      partial: consumed < amount,
+      balanceAfter,
+    };
+  }
+
+  /**
+   * Laço ÚNICO de consumo de lotes (compartilhado por `debit` e `reversePurchase` — P0.3):
+   * consome em FIFO por expiração até `amount`, nunca deixa saldo < 0, e grava uma linha de
+   * movimento (`movementKind`) POR lote consumido, todas com a MESMA usageKey. As garantias
+   * Fix A (decremento + trilha na MESMA tx) e Fix B (@@unique(usageKey, parentEntryId) → P2002
+   * = ação duplicada, rollback, nunca consome 2×) vivem AQUI, uma vez só.
+   * `preferredLotId` (reversão de compra): consome PRIMEIRO o lote indicado (a própria recarga
+   * estornada, se ainda viva), depois segue o FIFO normal.
+   */
+  private async consumeOpenLots(input: {
+    walletId: string;
+    companyId: number;
+    amount: number;
+    usageKey: string;
+    movementKind: 'debit' | 'purchase_reversal';
+    actionKey?: string | null;
+    preferredLotId?: string | null;
+    userId?: number | null;
+    metadata?: Record<string, unknown> | null;
+    now: Date;
+  }): Promise<{ consumed: number; duplicateDetected: boolean }> {
+    let remainingToConsume = input.amount;
+    let totalConsumed = 0;
     let duplicateDetected = false;
 
-    for (let attempt = 0; attempt < MAX_CONCURRENCY_RETRIES && remainingToDebit > 0; attempt++) {
-      const lots = await this.openLotsFifo(wallet.id, now);
+    for (let attempt = 0; attempt < MAX_CONCURRENCY_RETRIES && remainingToConsume > 0; attempt++) {
+      const lots = await this.openLotsFifo(input.walletId, input.now);
       if (lots.length === 0) break;
+      if (input.preferredLotId) {
+        const idx = lots.findIndex((lot) => lot.id === input.preferredLotId);
+        if (idx > 0) lots.unshift(lots.splice(idx, 1)[0]);
+      }
 
       let progressedThisPass = false;
       for (const lot of lots) {
-        if (remainingToDebit <= 0) break;
-        const consume = Math.min(lot.remaining, remainingToDebit);
+        if (remainingToConsume <= 0) break;
+        const consume = Math.min(lot.remaining, remainingToConsume);
         if (consume <= 0) continue;
 
         let committed = false;
+        let consumedNow = 0;
         try {
           // Fix A: decremento + trilha na MESMA transação interativa — atômicos.
           await this.prisma.$transaction(async (tx) => {
+            // Teto GLOBAL da usageKey (FIXER PR10072026): duas chamadas concorrentes com a
+            // MESMA usageKey podem progredir em lotes DISJUNTOS (o @@unique só trava colisão
+            // no MESMO lote) — cada uma partindo do `amount` cheio, a soma committada podia
+            // passar do pedido (ex.: reversão de 100 tirando 130 da carteira). Relê o total
+            // committado DENTRO da tx e nunca consome além de `amount − jáCommittado`.
+            const committedRows = await tx.creditLedgerEntry.findMany({
+              where: { usageKey: input.usageKey, kind: input.movementKind },
+            });
+            const alreadyCommitted = committedRows.reduce((sum, row) => sum + Number(row.amount), 0);
+            if (alreadyCommitted > totalConsumed) {
+              // Há linhas desta usageKey que NÃO são desta chamada — o resultado final tem
+              // que vir do ledger (soma global), não do contador local.
+              duplicateDetected = true;
+            }
+            const allowed = input.amount - alreadyCommitted;
+            if (allowed <= 0) throw new UsageKeySatisfiedSignal();
+            const consumeCapped = Math.min(consume, allowed);
+
             // Optimistic lock: só decrementa se `remaining` ainda é o que lemos.
             const result = await tx.creditLedgerEntry.updateMany({
               where: { id: lot.id, remaining: lot.remaining },
-              data: { remaining: { decrement: consume } },
+              data: { remaining: { decrement: consumeCapped } },
             });
             if (result.count !== 1) {
               // Perdeu a corrida no lote: aborta a transação (rollback do decremento que
@@ -301,29 +444,35 @@ export class CreditWalletService {
               throw new ConcurrencyRetrySignal();
             }
             // Fix B: o @@unique(usageKey, parentEntryId) faz este create bater P2002 se uma
-            // chamada concorrente com a MESMA usageKey já debitou ESTE lote → rollback do
+            // chamada concorrente com a MESMA usageKey já consumiu ESTE lote → rollback do
             // decremento acima (mesma tx) e sinalizamos ação-duplicada lá fora.
             await tx.creditLedgerEntry.create({
               data: {
-                walletId: wallet.id,
-                companyId,
-                kind: 'debit',
-                amount: consume,
+                walletId: input.walletId,
+                companyId: input.companyId,
+                kind: input.movementKind,
+                amount: consumeCapped,
                 remaining: 0,
-                actionKey: opts.actionKey,
-                usageKey,
+                actionKey: input.actionKey ?? null,
+                usageKey: input.usageKey,
                 parentEntryId: lot.id,
-                createdByUserId: opts.userId ?? null,
-                metadataJson: this.json(opts.metadata),
+                createdByUserId: input.userId ?? null,
+                metadataJson: this.json(input.metadata),
               },
             });
+            consumedNow = consumeCapped;
             committed = true;
           });
         } catch (error) {
           if (this.isUniqueConstraintError(error)) {
-            // Ação já processada por uma chamada concorrente (mesma usageKey já debitou este
+            // Ação já processada por uma chamada concorrente (mesma usageKey já consumiu este
             // lote). O decremento foi revertido pelo rollback. Para de tentar e devolve o
-            // resultado idempotente committado — nunca debita em dobro.
+            // resultado idempotente committado — nunca consome em dobro.
+            duplicateDetected = true;
+            break;
+          }
+          if (error instanceof UsageKeySatisfiedSignal) {
+            // O ledger global já cobre o `amount` inteiro — nada mais a consumir aqui.
             duplicateDetected = true;
             break;
           }
@@ -335,8 +484,8 @@ export class CreditWalletService {
         }
 
         if (committed) {
-          remainingToDebit -= consume;
-          totalDebited += consume;
+          remainingToConsume -= consumedNow;
+          totalConsumed += consumedNow;
           progressedThisPass = true;
         }
       }
@@ -348,18 +497,85 @@ export class CreditWalletService {
       }
     }
 
-    // Se detectamos duplicata em qualquer ponto, a fonte da verdade é o ledger committado
-    // (o que ESTA chamada gravou + o que a concorrente gravou com a mesma usageKey).
+    return { consumed: totalConsumed, duplicateDetected };
+  }
+
+  /** Resultado idempotente da reversão de compra: relê as linhas committadas dessa usageKey. */
+  private async purchaseReversalResultFromLedger(
+    companyId: number,
+    usageKey: string,
+    requested: number,
+    alreadyProcessed: boolean,
+    now: Date = new Date(),
+  ): Promise<PurchaseReversalResult> {
+    const rows = await this.prisma.creditLedgerEntry.findMany({
+      where: { usageKey, kind: 'purchase_reversal' },
+    });
+    const reversed = rows.reduce((sum, row) => sum + row.amount, 0);
+    const balanceAfter = await this.getBalance(companyId, now);
+    return {
+      reversed,
+      requested,
+      shortfall: Math.max(0, requested - reversed),
+      balanceAfter,
+      alreadyProcessed,
+    };
+  }
+
+  /**
+   * P0.3 — reversão de COMPRA de crédito (estorno/chargeback de recarga): debita da carteira
+   * min(saldo disponível, `amount`) com movimento append-only `purchase_reversal`, consumindo
+   * PRIMEIRO o lote da própria recarga (`preferredLotId`, se ainda vivo) e depois FIFO normal.
+   * Nunca deixa saldo negativo: o que o cliente já consumiu vira `shortfall` (dívida — quem
+   * decide o que fazer com ela é o chamador/master, não a carteira).
+   *
+   * Idempotente por usageKey ('mp-reversal:<mpPaymentId>'): 20 webhooks duplicados = 1 débito.
+   * Mesmas garantias de dinheiro do `debit` (o laço é o MESMO — `consumeOpenLots`): Fix A
+   * (tx atômica por lote) + Fix B (@@unique no banco, corrida concorrente não dobra).
+   * NÃO é revertível por `refund` (que só enxerga linhas `kind: 'debit'`) — de propósito:
+   * compra estornada não volta sozinha.
+   */
+  async reversePurchase(companyId: number, opts: PurchaseReversalOptions): Promise<PurchaseReversalResult> {
+    if (!isFiniteNonNegativeInt(opts.amount) || opts.amount <= 0) {
+      throw new Error('reversePurchase: amount deve ser inteiro positivo');
+    }
+    const usageKey = String(opts.usageKey || '').trim();
+    if (!usageKey) throw new Error('reversePurchase: usageKey é obrigatório (idempotência)');
+
+    const now = new Date();
+
+    // Pré-check rápido (atalho, NÃO a trava): a trava real é o @@unique + P2002 na tx.
+    const existing = await this.prisma.creditLedgerEntry.findMany({
+      where: { usageKey, kind: 'purchase_reversal' },
+    });
+    if (existing.length > 0) {
+      return this.purchaseReversalResultFromLedger(companyId, usageKey, opts.amount, true, now);
+    }
+
+    const wallet = await this.ensureWallet(companyId);
+    const { consumed, duplicateDetected } = await this.consumeOpenLots({
+      walletId: wallet.id,
+      companyId,
+      amount: opts.amount,
+      usageKey,
+      movementKind: 'purchase_reversal',
+      preferredLotId: opts.preferredLotId ?? null,
+      userId: opts.userId ?? null,
+      metadata: opts.metadata ?? null,
+      now,
+    });
+
     if (duplicateDetected) {
-      return this.debitResultFromLedger(companyId, usageKey, amount);
+      return this.purchaseReversalResultFromLedger(companyId, usageKey, opts.amount, true, now);
     }
 
     const balanceAfter = await this.getBalance(companyId, now);
     return {
-      debited: totalDebited,
-      requested: amount,
-      partial: totalDebited < amount,
+      reversed: consumed,
+      requested: opts.amount,
+      shortfall: Math.max(0, opts.amount - consumed),
       balanceAfter,
+      alreadyProcessed: false,
     };
   }
 

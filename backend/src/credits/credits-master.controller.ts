@@ -1,8 +1,23 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  ParseIntPipe,
+  Post,
+  Put,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { CreditsService, MasterGrantInput } from './credits.service';
+import { CreditWalletService } from './credit-wallet.service';
 import { isCreditsFeatureEnabled } from './credits.flags';
+import { PrismaService } from '../prisma/prisma.service';
+import { emitMasterEvent } from '../common/master-event';
 
 type UpdatePackBody = {
   title?: string;
@@ -13,6 +28,14 @@ type UpdatePackBody = {
   defaultExpiryDays?: number;
 };
 
+// P0.3 (PR10072026 W2) — débito manual do master (contraparte do grant): mesmo contrato de
+// idempotência do grant (token estável por intenção; double-click não debita 2×).
+type MasterManualDebitBody = {
+  amount?: number;
+  reason?: string;
+  idempotencyKey?: string;
+};
+
 // CRÉDITOS S3-PARTE1 — endpoints MASTER: editar catálogo de pacotes de recarga + conceder
 // crédito manual a uma empresa. Mesmo guard/padrão de master-provisioning.controller.ts
 // (JwtAuthGuard, MasterGuard). Atrás de HBX_CREDITS_ENABLED (default OFF) — flag OFF ⇒ 404
@@ -20,7 +43,11 @@ type UpdatePackBody = {
 @Controller('credits/master')
 @UseGuards(JwtAuthGuard, MasterGuard)
 export class CreditsMasterController {
-  constructor(private readonly creditsService: CreditsService) {}
+  constructor(
+    private readonly creditsService: CreditsService,
+    private readonly wallet: CreditWalletService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   private assertEnabled() {
     if (!isCreditsFeatureEnabled()) throw new NotFoundException('Recurso indisponivel');
@@ -99,5 +126,72 @@ export class CreditsMasterController {
     const masterUserId = Number(req.user?.id || 0);
     const result = await this.creditsService.grantToCompanyAsMaster(masterUserId, companyId, body);
     return { ok: true, ...result };
+  }
+
+  // P0.3 (PR10072026 W2) — débito MANUAL do master (ajuste/cobrança de dívida de estorno).
+  // Mesma RBAC do grant (JwtAuthGuard+MasterGuard na classe). Append-only no ledger via
+  // `wallet.debit` (fail-closed, clampa no saldo — nunca negativa) e auditado em MasterEvent.
+  // A lógica mora aqui (não em credits.service.ts) de propósito: aquele arquivo está em
+  // edição viva pela frente F6 (crédito universal).
+  @Post('company/:id/debit')
+  async debitCompany(
+    @Param('id', ParseIntPipe) companyId: number,
+    @Body() body: MasterManualDebitBody,
+    @Req() req: any,
+  ) {
+    this.assertEnabled();
+    const masterUserId = Number(req.user?.id || 0);
+
+    const amount = Number(body?.amount);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new BadRequestException('amount deve ser um inteiro positivo');
+    }
+    const reason = String(body?.reason || '').trim();
+    if (!reason) throw new BadRequestException('reason e obrigatorio');
+    if (reason.length > 500) throw new BadRequestException('reason deve ter ate 500 caracteres');
+    // Idempotência OBRIGATÓRIA (mesmo contrato do grant): débito manual é dinheiro — sem token
+    // estável por intenção, um double-click do master debitaria 2×.
+    const idempotencyKey = String(body?.idempotencyKey || '').trim();
+    if (idempotencyKey.length < 8 || idempotencyKey.length > 80) {
+      throw new BadRequestException('idempotencyKey obrigatoria (8-80 chars, um token por intencao de debito)');
+    }
+
+    const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    // usageKey ESCOPADA por empresa (FIXER PR10072026): a idempotencyKey é digitável por
+    // humano — a mesma key reusada em OUTRA empresa não pode colidir no ledger global e
+    // virar falso-sucesso silencioso (empresa B "debitada" com as linhas da A).
+    const result = await this.wallet.debit(companyId, amount, {
+      actionKey: 'master_manual_debit',
+      usageKey: `master-debit:${companyId}:${idempotencyKey}`,
+      userId: masterUserId,
+      metadata: { reason, source: 'master_manual_debit' },
+    });
+    const clamped = Math.max(0, result.requested - result.debited);
+
+    // Trilha de auditoria do dono; dedup pela intenção (retry idempotente não duplica evento).
+    await emitMasterEvent(this.prisma, {
+      type: 'credit.master_manual_debit',
+      severity: 'info',
+      companyId,
+      dedupKey: `master-debit:${companyId}:${idempotencyKey}`,
+      payload: {
+        state: `debited:${idempotencyKey}`,
+        requested: amount,
+        debited: result.debited,
+        clamped,
+        reason,
+        masterUserId,
+      },
+    });
+
+    return {
+      ok: true,
+      requested: amount,
+      debited: result.debited,
+      clamped,
+      balanceAfter: result.balanceAfter,
+    };
   }
 }

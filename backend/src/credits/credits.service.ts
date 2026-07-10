@@ -181,7 +181,9 @@ export class CreditsService {
     await this.assertCompanyExists(companyId);
     const snapshot = await this.wallet.getWalletSnapshot(companyId);
     const recentRows = await this.prisma.creditLedgerEntry.findMany({
-      where: { companyId, kind: { in: ['debit', 'refund', 'expire', 'adjust'] } },
+      // 'purchase_reversal' (P0.3 W2): estorno de recarga TEM que aparecer no extrato —
+      // sem ele o saldo cai e o master vê "crédito sumido" exatamente na hora de auditar.
+      where: { companyId, kind: { in: ['debit', 'refund', 'expire', 'adjust', 'purchase_reversal'] } },
       orderBy: { createdAt: 'desc' },
       take: Math.max(1, Math.min(100, Math.trunc(limit) || 20)),
     });
