@@ -1899,3 +1899,127 @@
   font-weight: 700;
   margin-bottom: var(--ent-2);
 }
+
+/* ============================================================
+   W6 (10/07) — card de clientes: chips de pendência, débito e
+   duplicidade + filtro da semana. Toda cor em token (5 Leis).
+   ============================================================ */
+
+/* Filtro da semana em balões (1 linha, entre a busca e a lista). */
+[data-skin="entrega"] .ent-filtro-dias {
+  padding: 0 var(--ent-4) var(--ent-3);
+}
+
+/* Linha 2 do card — chips VERMELHOS de pendência (1 linha, sem quebra). */
+[data-skin="entrega"] .ent-card-flags {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-1);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+[data-skin="entrega"] .ent-card-flag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--ent-2);
+  border-radius: var(--ent-radius-pill);
+  background: color-mix(in srgb, var(--ent-danger) 14%, var(--ent-surface));
+  border: 1px solid color-mix(in srgb, var(--ent-danger) 32%, transparent);
+  color: var(--ent-danger);
+  font-family: var(--ent-font);
+  font-size: var(--ent-text-xs);
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-card-flag:active { transform: scale(0.95); }
+[data-skin="entrega"] .ent-card-flag--mais {
+  cursor: default;
+  background: var(--ent-surface-soft);
+  border-color: var(--ent-hairline);
+  color: var(--ent-ink-muted);
+}
+
+/* Linha 3 do card — "Débitos atuais" (só com módulo financeiro ON). */
+[data-skin="entrega"] .ent-card-debito {
+  display: block;
+  width: fit-content;
+  padding: 0;
+  margin-top: 2px;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-family: var(--ent-font);
+  font-size: var(--ent-text-sm);
+  font-weight: 700;
+  color: var(--ent-ink-muted);
+  cursor: pointer;
+}
+[data-skin="entrega"] .ent-card-debito.is-devendo { color: var(--ent-danger); }
+
+/* Pop-up de duplicidade — os DOIS clientes lado a lado. */
+[data-skin="entrega"] .ent-dup {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ent-3);
+  align-content: start;
+  padding: 0 var(--ent-4) var(--ent-4);
+}
+[data-skin="entrega"] .ent-dup-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-2);
+  min-width: 0;
+  padding: var(--ent-3);
+  border-radius: var(--ent-radius);
+  background: var(--ent-surface);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-dup-nome {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text);
+  font-weight: 800;
+  color: var(--ent-ink);
+  overflow-wrap: anywhere;
+}
+[data-skin="entrega"] .ent-dup-label {
+  font-size: var(--ent-text-xs);
+  font-weight: 700;
+  color: var(--ent-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+[data-skin="entrega"] .ent-dup-valor {
+  font-size: var(--ent-text-sm);
+  font-weight: 600;
+  color: var(--ent-ink);
+  overflow-wrap: anywhere;
+}
+[data-skin="entrega"] .ent-dup-valor.is-devendo { color: var(--ent-danger); }
+[data-skin="entrega"] .ent-dup-entregas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-1);
+}
+[data-skin="entrega"] .ent-dup-entrega {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ent-2);
+  padding: var(--ent-1) var(--ent-2);
+  border-radius: var(--ent-radius-sm);
+  background: var(--ent-surface-soft);
+  font-size: var(--ent-text-xs);
+  font-weight: 600;
+  color: var(--ent-ink-soft);
+}
+[data-skin="entrega"] .ent-dup-entrega b {
+  font-family: var(--ent-font-num);
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-dup .ent-erro { grid-column: 1 / -1; }

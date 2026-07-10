@@ -37,20 +37,29 @@ import {
   soDigitos,
 } from "../geo";
 import { fmtMoney, getConfig, type LogisticaConfig } from "../gestao-api";
+import { getIsAdmin } from "../entrega-user";
+import type { ApiError } from "@/lib/api";
 import {
+  type ClienteDetail,
+  type ClienteEntrega,
   type ClienteListItem,
   type ClienteProduto,
   type ExtratoResult,
   type FormaPagamento,
   type MetodoPadrao,
+  type PendenciaCliente,
   type ProdutoOption,
+  PENDENCIA_LABEL,
   criarCliente,
   criarClienteProduto,
   editarCliente,
   editarContatoPrincipal,
   enderecoCurtoCliente,
+  excluirCliente,
   excluirClienteProduto,
   getExtrato,
+  listEntregasCliente,
+  mergeClientes,
   recorrenciaLabel,
   getCliente,
   listClienteProdutos,
@@ -60,7 +69,11 @@ import {
   toggleClienteProduto,
 } from "../clientes-api";
 
-type View = { tela: "lista" } | { tela: "editor"; id: string | null };
+// W6 — alvo de foco ao abrir o editor por um chip de pendência (ou "conta",
+// pelo clique na linha "Débitos atuais").
+type FocusAlvo = PendenciaCliente | "conta";
+
+type View = { tela: "lista" } | { tela: "editor"; id: string | null; focus?: FocusAlvo };
 
 const FORMAS: Array<{ v: FormaPagamento; label: string }> = [
   { v: "aberto", label: "Pergunta na hora" },
@@ -111,12 +124,21 @@ export function EntregaClientes() {
     if (mudou) setReloadKey((k) => k + 1);
   }, []);
 
+  // W6 — alvo ÚNICO do clique em "Débitos atuais" do card. Hoje abre o editor
+  // rolado na seção Conta; o W4 troca este helper por deep-link do
+  // /entrega/financeiro quando a tela existir.
+  const abrirFinanceiroCliente = useCallback((id: string) => {
+    setView({ tela: "editor", id, focus: "conta" });
+  }, []);
+
   return (
     <EntregaScaffold title="Clientes">
       <ClienteLista
         reloadKey={reloadKey}
         onNovo={() => setView({ tela: "editor", id: null })}
         onAbrir={(id) => setView({ tela: "editor", id })}
+        onAbrirFocus={(id, focus) => setView({ tela: "editor", id, focus })}
+        onAbrirConta={abrirFinanceiroCliente}
       />
 
       {/* MOBILE-CASCA/W6 — o editor empilha por CIMA da lista com IR/VOLTAR
@@ -126,7 +148,7 @@ export function EntregaClientes() {
           title={view.id ? "Editar cliente" : "Novo cliente"}
           onClose={() => fechar(false)}
         >
-          <ClienteEditor id={view.id} onSair={fechar} />
+          <ClienteEditor id={view.id} focus={view.focus} onSair={fechar} />
         </CascaView>
       ) : null}
     </EntregaScaffold>
@@ -134,10 +156,37 @@ export function EntregaClientes() {
 }
 
 // ── LISTA + BUSCA ────────────────────────────────────────────────────────────
-function ClienteLista({ reloadKey, onNovo, onAbrir }: { reloadKey: number; onNovo: () => void; onAbrir: (id: string) => void }) {
+function ClienteLista({
+  reloadKey,
+  onNovo,
+  onAbrir,
+  onAbrirFocus,
+  onAbrirConta,
+}: {
+  reloadKey: number;
+  onNovo: () => void;
+  onAbrir: (id: string) => void;
+  onAbrirFocus: (id: string, focus: FocusAlvo) => void;
+  onAbrirConta: (id: string) => void;
+}) {
   const [busca, setBusca] = useState("");
   const [itens, setItens] = useState<ClienteListItem[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  // W6 — filtro da semana (balões): null = "Todos"; senão dia ISO 1..7.
+  const [diaFiltro, setDiaFiltro] = useState<number | null>(null);
+  // W6 — cfg da logística (diasTrabalho pro filtro + moduloFinanceiroAtivo pra
+  // linha de débitos). Best-effort: sem cfg a lista funciona como antes.
+  const [cfg, setCfg] = useState<LogisticaConfig | null>(null);
+  // W6 — papel (merge só admin) + cliente com pop-up de duplicidade aberto.
+  const [admin, setAdmin] = useState(false);
+  const [dup, setDup] = useState<ClienteListItem | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    getConfig().then((c) => { if (vivo) setCfg(c); }, () => { /* sem cfg: segue como antes */ });
+    void getIsAdmin().then((v) => { if (vivo) setAdmin(v); });
+    return () => { vivo = false; };
+  }, []);
 
   const carregar = useCallback(async (q: string) => {
     setErro(null);
@@ -157,6 +206,16 @@ function ClienteLista({ reloadKey, onNovo, onAbrir }: { reloadKey: number; onNov
     return () => clearTimeout(t);
   }, [busca, carregar, reloadKey]);
 
+  // W6 — aplica o filtro do dia: cliente sem diasEntrega só aparece em "Todos"
+  // (campo do W5 pode nem existir ainda — aí o filtro só devolve tudo em Todos).
+  const visiveis = useMemo(() => {
+    if (itens === null) return null;
+    if (diaFiltro == null) return itens;
+    return itens.filter((c) => Array.isArray(c.diasEntrega) && c.diasEntrega.includes(diaFiltro));
+  }, [itens, diaFiltro]);
+
+  const financeiroAtivo = !!cfg?.moduloFinanceiroAtivo;
+
   return (
     <>
       <div className="ent-search">
@@ -171,7 +230,28 @@ function ClienteLista({ reloadKey, onNovo, onAbrir }: { reloadKey: number; onNov
         />
       </div>
 
-      {itens === null ? (
+      {/* W6 — filtro da semana em balões (1 linha): Todos + dias de trabalho. */}
+      <div className="ent-chips ent-chips--fit ent-filtro-dias">
+        <button
+          type="button"
+          className={`ent-chip${diaFiltro == null ? " is-on" : ""}`}
+          onClick={() => setDiaFiltro(null)}
+        >
+          Todos
+        </button>
+        {diasPermitidos(cfg?.diasTrabalho ?? null).map((d) => (
+          <button
+            type="button"
+            key={d.n}
+            className={`ent-chip${diaFiltro === d.n ? " is-on" : ""}`}
+            onClick={() => setDiaFiltro(d.n)}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+
+      {visiveis === null ? (
         <div className="ent-empty">
           <CascaLoading caption="Carregando" />
         </div>
@@ -184,26 +264,92 @@ function ClienteLista({ reloadKey, onNovo, onAbrir }: { reloadKey: number; onNov
             Tentar de novo
           </button>
         </div>
-      ) : itens.length === 0 ? (
+      ) : visiveis.length === 0 ? (
         <div className="ent-empty">
           <div className="ent-empty-icon" aria-hidden="true">
             <I d={ICON_PATHS.clientes} size={40} />
           </div>
-          <div className="ent-empty-title">{busca ? "Nada encontrado" : "Nenhum cliente ainda"}</div>
+          <div className="ent-empty-title">{busca || diaFiltro != null ? "Nada encontrado" : "Nenhum cliente ainda"}</div>
         </div>
       ) : (
         <div className="ent-list">
-          {itens.map((c) => (
-            <button type="button" className="ent-card" key={c.id} onClick={() => onAbrir(c.id)}>
-              <div className="ent-card-main">
-                <div className="ent-card-name">{c.name || "Cliente"}</div>
-                <div className="ent-card-sub">
-                  {enderecoCurtoCliente({ cidade: c.cidade, uf: c.uf }) || "Sem endereço"}
+          {visiveis.map((c) => {
+            // W6 — pendências fail-soft: só chaves conhecidas viram chip.
+            const pend = (c.pendencias ?? []).filter(
+              (p): p is PendenciaCliente => typeof p === "string" && p in PENDENCIA_LABEL,
+            );
+            const temDup = !!c.duplicataDe;
+            // O card deixou de ser <button> (chips clicáveis dentro dele —
+            // button aninhado quebra o parse do SSR); vira div role=button.
+            return (
+              <div
+                role="button"
+                tabIndex={0}
+                className="ent-card"
+                key={c.id}
+                onClick={() => onAbrir(c.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onAbrir(c.id);
+                  }
+                }}
+              >
+                <div className="ent-card-main">
+                  <div className="ent-card-name">{c.name || "Cliente"}</div>
+                  {pend.length > 0 || temDup ? (
+                    <div className="ent-card-flags">
+                      {temDup ? (
+                        <button
+                          type="button"
+                          className="ent-card-flag"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDup(c);
+                          }}
+                        >
+                          Duplicidade
+                        </button>
+                      ) : null}
+                      {pend.slice(0, 2).map((p) => (
+                        <button
+                          type="button"
+                          key={p}
+                          className="ent-card-flag"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAbrirFocus(c.id, p);
+                          }}
+                        >
+                          {PENDENCIA_LABEL[p]}
+                        </button>
+                      ))}
+                      {pend.length > 2 ? (
+                        <span className="ent-card-flag ent-card-flag--mais">+{pend.length - 2}</span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="ent-card-sub">
+                      {enderecoCurtoCliente({ cidade: c.cidade, uf: c.uf }) || "Sem endereço"}
+                    </div>
+                  )}
+                  {financeiroAtivo && typeof c.debitoAtual === "number" ? (
+                    <button
+                      type="button"
+                      className={`ent-card-debito${c.debitoAtual > 0 ? " is-devendo" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAbrirConta(c.id);
+                      }}
+                    >
+                      Débitos atuais: {fmtMoney(c.debitoAtual)}
+                    </button>
+                  ) : null}
                 </div>
+                <span className="ent-card-chevron" aria-hidden="true">›</span>
               </div>
-              <span className="ent-card-chevron" aria-hidden="true">›</span>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -212,12 +358,191 @@ function ClienteLista({ reloadKey, onNovo, onAbrir }: { reloadKey: number; onNov
           Novo cliente
         </button>
       </div>
+
+      {/* W6 — pop-up de comparação/merge de duplicidade. */}
+      {dup && dup.duplicataDe ? (
+        <CascaView title="Duplicidade" onClose={() => setDup(null)}>
+          <DuplicidadeSheet
+            a={dup}
+            bRef={dup.duplicataDe}
+            bItem={itens?.find((x) => x.id === dup.duplicataDe?.id) ?? null}
+            financeiroAtivo={financeiroAtivo}
+            admin={admin}
+            onMerged={() => {
+              setDup(null);
+              void carregar(busca);
+            }}
+          />
+        </CascaView>
+      ) : null}
     </>
   );
 }
 
+// ── W6 — POP-UP DE DUPLICIDADE (comparação lado a lado + merge admin) ────────
+// Dados: os itens da lista + detalhe via GET /nucleo/clientes/:id (WhatsApp e
+// endereço não vêm na lista) + últimas entregas do endpoint do W2 (fail-soft:
+// erro/404 → mostra só a contagem `entregasCount`).
+function DuplicidadeSheet({
+  a,
+  bRef,
+  bItem,
+  financeiroAtivo,
+  admin,
+  onMerged,
+}: {
+  a: ClienteListItem;
+  bRef: { id: string; nome: string };
+  bItem: ClienteListItem | null;
+  financeiroAtivo: boolean;
+  admin: boolean;
+  onMerged: () => void;
+}) {
+  const [det, setDet] = useState<{ a: ClienteDetail | null; b: ClienteDetail | null } | null>(null);
+  const [ents, setEnts] = useState<{ a: ClienteEntrega[] | null; b: ClienteEntrega[] | null }>({ a: null, b: null });
+  // Merge em 2 toques: 1º arma ("Manter" vira "Confirmar"), 2º executa.
+  const [armado, setArmado] = useState<"a" | "b" | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      const [da, db, ea, eb] = await Promise.allSettled([
+        getCliente(a.id),
+        getCliente(bRef.id),
+        listEntregasCliente(a.id, 3),
+        listEntregasCliente(bRef.id, 3),
+      ]);
+      if (!vivo) return;
+      setDet({
+        a: da.status === "fulfilled" ? da.value : null,
+        b: db.status === "fulfilled" ? db.value : null,
+      });
+      setEnts({
+        a: ea.status === "fulfilled" ? ea.value.items : null,
+        b: eb.status === "fulfilled" ? eb.value.items : null,
+      });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [a.id, bRef.id]);
+
+  const manter = useCallback(
+    async (lado: "a" | "b") => {
+      if (armado !== lado) {
+        setArmado(lado);
+        return;
+      }
+      const mantem = lado === "a" ? a.id : bRef.id;
+      const perde = lado === "a" ? bRef.id : a.id;
+      setSalvando(true);
+      setErro(null);
+      try {
+        await mergeClientes(perde, mantem);
+        onMerged();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Falha ao juntar");
+        setSalvando(false);
+        setArmado(null);
+      }
+    },
+    [armado, a.id, bRef.id, onMerged],
+  );
+
+  if (det === null) {
+    return (
+      <div className="ent-empty">
+        <CascaLoading caption="Carregando" />
+      </div>
+    );
+  }
+
+  const colunas: Array<{
+    lado: "a" | "b";
+    nome: string;
+    d: ClienteDetail | null;
+    item: ClienteListItem | null;
+    entregas: ClienteEntrega[] | null;
+  }> = [
+    { lado: "a", nome: a.name || "Cliente", d: det.a, item: a, entregas: ents.a },
+    { lado: "b", nome: bRef.nome || "Cliente", d: det.b, item: bItem, entregas: ents.b },
+  ];
+
+  return (
+    <div className="ent-dup">
+      {colunas.map((col) => {
+        const cidadeUf = [col.d?.cidade ?? col.item?.cidade, col.d?.uf ?? col.item?.uf]
+          .filter(Boolean)
+          .join("/");
+        const qtdEntregas = col.item?.entregasCount ?? col.entregas?.length;
+        return (
+          <div className="ent-dup-col" key={col.lado}>
+            <div className="ent-dup-nome">{col.nome}</div>
+
+            <div className="ent-dup-label">WhatsApp</div>
+            <div className="ent-dup-valor">{col.d?.whatsapp || "—"}</div>
+
+            <div className="ent-dup-label">Endereço</div>
+            <div className="ent-dup-valor">{col.d?.endereco || "—"}</div>
+
+            <div className="ent-dup-label">Cidade/UF</div>
+            <div className="ent-dup-valor">{cidadeUf || "—"}</div>
+
+            <div className="ent-dup-label">Entregas</div>
+            <div className="ent-dup-valor">{qtdEntregas ?? "—"}</div>
+            {col.entregas && col.entregas.length > 0 ? (
+              <div className="ent-dup-entregas">
+                {col.entregas.slice(0, 3).map((en) => {
+                  const data = (en.deliveredAt ?? en.scheduledAt ?? "").slice(0, 10).split("-").reverse().join("/");
+                  return (
+                    <div className="ent-dup-entrega" key={en.id}>
+                      <span>{data}</span>
+                      <b>{fmtMoney(en.valor)}</b>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {financeiroAtivo && typeof col.item?.debitoAtual === "number" ? (
+              <>
+                <div className="ent-dup-label">Débitos atuais</div>
+                <div className={`ent-dup-valor${col.item.debitoAtual > 0 ? " is-devendo" : ""}`}>
+                  {fmtMoney(col.item.debitoAtual)}
+                </div>
+              </>
+            ) : null}
+
+            {admin ? (
+              <button
+                type="button"
+                className={`ent-btn ent-btn--secondary${armado === col.lado ? " ent-btn--danger" : ""}`}
+                onClick={() => void manter(col.lado)}
+                disabled={salvando}
+              >
+                {armado === col.lado ? "Confirmar" : "Manter"}
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+      {erro ? <div className="ent-erro">{erro}</div> : null}
+    </div>
+  );
+}
+
 // ── EDITOR (criar / editar) — 1 coluna, app-like ─────────────────────────────
-function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boolean) => void }) {
+function ClienteEditor({
+  id,
+  focus,
+  onSair,
+}: {
+  id: string | null;
+  focus?: FocusAlvo;
+  onSair: (saved?: boolean) => void;
+}) {
   const editando = id != null;
   const [carregando, setCarregando] = useState<boolean>(editando);
   const [salvando, setSalvando] = useState(false);
@@ -242,6 +567,14 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
   const [cepStatus, setCepStatus] = useState<"idle" | "buscando" | "ok" | "erro">("idle");
   const [confirmarNumero, setConfirmarNumero] = useState(false); // fluxo GPS: "o número está certo?"
   const numeroRef = useRef<HTMLInputElement>(null);
+  // W6 — alvos do foco por chip de pendência (endereco/whatsapp focam o input;
+  // gps/dia/conta só rolam até a seção).
+  const enderecoRef = useRef<HTMLInputElement>(null);
+  const whatsappRef = useRef<HTMLInputElement>(null);
+  const gpsBtnRef = useRef<HTMLButtonElement>(null);
+  const produtosSecRef = useRef<HTMLDivElement>(null);
+  const contaSecRef = useRef<HTMLDivElement>(null);
+  const focusFeito = useRef(false);
 
   // Contrato financeiro.
   const [forma, setForma] = useState<FormaPagamento>("aberto");
@@ -330,6 +663,72 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
       vivo = false;
     };
   }, [editando, id]);
+
+  // W6 — papel: o botão "Excluir cliente" é admin-only (fail-closed no helper).
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    void getIsAdmin().then((v) => {
+      if (vivo) setAdmin(v);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // W6 — foco/scroll no campo pedido pelo chip de pendência, UMA vez, depois
+  // que a ficha carregou (o timeout deixa a transição do CascaView assentar).
+  useEffect(() => {
+    if (carregando || !focus || focusFeito.current) return;
+    focusFeito.current = true;
+    const t = setTimeout(() => {
+      const rolar = (el: HTMLElement | null) => el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (focus === "numero") {
+        rolar(numeroRef.current);
+        numeroRef.current?.focus();
+      } else if (focus === "endereco") {
+        rolar(enderecoRef.current);
+        enderecoRef.current?.focus();
+      } else if (focus === "whatsapp") {
+        rolar(whatsappRef.current);
+        whatsappRef.current?.focus();
+      } else if (focus === "gps") {
+        rolar(gpsBtnRef.current);
+      } else if (focus === "dia") {
+        rolar(produtosSecRef.current);
+      } else if (focus === "conta") {
+        rolar(contaSecRef.current);
+      }
+    }, 320);
+    return () => clearTimeout(t);
+  }, [carregando, focus]);
+
+  // W6 — excluir cliente (admin): 2 toques (Excluir cliente? → Excluir),
+  // DELETE /nucleo/contas/:id; 409 CLIENTE_COM_DEBITO vira aviso inline.
+  const [confirmaExcluir, setConfirmaExcluir] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const [erroExcluir, setErroExcluir] = useState<string | null>(null);
+
+  const excluir = useCallback(async () => {
+    if (!id) return;
+    setExcluindo(true);
+    setErroExcluir(null);
+    try {
+      await excluirCliente(id);
+      // Volta pra lista já re-buscando (o cliente some da listagem).
+      onSair(true);
+    } catch (e) {
+      const err = e as ApiError;
+      const payload = (err.payload ?? {}) as { error?: string; saldo?: number };
+      if (err.status === 409 && payload.error === "CLIENTE_COM_DEBITO") {
+        setErroExcluir(`Deve ${fmtMoney(Number(payload.saldo) || 0)} — quite ou zere antes de excluir`);
+      } else {
+        setErroExcluir(e instanceof Error ? e.message : "Falha ao excluir");
+      }
+      setExcluindo(false);
+      setConfirmaExcluir(false);
+    }
+  }, [id, onSair]);
 
   // Compõe o endereço-texto do backend a partir das partes ("Rua X, 123 - Centro").
   const comporEndereco = useCallback(() => {
@@ -530,7 +929,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
 
         <label className="ent-field">
           <span className="ent-field-label">WhatsApp</span>
-          <input className="ent-input" type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(fmtTelefone(e.target.value))} placeholder="(85) 90000-0000" />
+          <input ref={whatsappRef} className="ent-input" type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(fmtTelefone(e.target.value))} placeholder="(85) 90000-0000" />
         </label>
 
         {/* CEP — a porta de entrada: digitou 8 dígitos, o endereço se preenche. */}
@@ -554,7 +953,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
 
         <label className="ent-field">
           <span className="ent-field-label">Endereço</span>
-          <input className="ent-input" value={logradouro} onChange={(e) => setLogradouro(e.target.value)} placeholder="Rua / Avenida" />
+          <input ref={enderecoRef} className="ent-input" value={logradouro} onChange={(e) => setLogradouro(e.target.value)} placeholder="Rua / Avenida" />
         </label>
 
         <div className="ent-field-row">
@@ -596,6 +995,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         </div>
 
         <button
+          ref={gpsBtnRef}
           type="button"
           className={`ent-btn ent-btn--secondary${coord ? " is-on" : ""}`}
           onClick={() => void usarEsteLocal()}
@@ -682,7 +1082,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
         {/* F1 — CONTA: o "quanto me deve" + extrato (endpoint R2 que só o ERP via). */}
         {editando && extrato ? (
           <>
-            <div className="ent-field-label ent-section">Conta</div>
+            <div ref={contaSecRef} className="ent-field-label ent-section">Conta</div>
             <div className={`ent-saldo${extrato.saldoAberto > 0 ? " is-devendo" : ""}`}>
               <div className="ent-saldo-main">
                 <span className="ent-saldo-label">{extrato.saldoAberto > 0 ? "Em aberto" : "Em dia"}</span>
@@ -729,7 +1129,7 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
 
         {/* PRODUTOS DO CLIENTE — TASK 5a: também no cadastro (lista pendente
             local até o cliente existir de verdade). */}
-        <div className="ent-field-label ent-section">Produtos</div>
+        <div ref={produtosSecRef} className="ent-field-label ent-section">Produtos</div>
         <ProdutosDoCliente
           clienteId={editando ? id! : null}
           catalogo={catalogo}
@@ -737,6 +1137,45 @@ function ClienteEditor({ id, onSair }: { id: string | null; onSair: (saved?: boo
           diasTrabalho={diasTrabalho}
           onMudou={setProdutos}
         />
+
+        {/* W6 — excluir cliente (só edição + só admin), 2 toques, sem textão. */}
+        {editando && admin ? (
+          confirmaExcluir ? (
+            <>
+              <div className="ent-erro">Excluir cliente?</div>
+              <div className="ent-sheet-actions">
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--secondary ent-btn--danger"
+                  onClick={() => void excluir()}
+                  disabled={excluindo}
+                >
+                  Excluir
+                </button>
+                <button
+                  type="button"
+                  className="ent-btn ent-btn--ghost"
+                  onClick={() => setConfirmaExcluir(false)}
+                  disabled={excluindo}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="ent-btn ent-btn--ghost ent-btn--danger"
+              onClick={() => {
+                setErroExcluir(null);
+                setConfirmaExcluir(true);
+              }}
+            >
+              Excluir cliente
+            </button>
+          )
+        ) : null}
+        {erroExcluir ? <div className="ent-erro">{erroExcluir}</div> : null}
 
         {erro ? <div className="ent-erro">{erro}</div> : null}
       </div>

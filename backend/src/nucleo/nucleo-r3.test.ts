@@ -18,6 +18,7 @@ function buildPrismaMock(accounts: any[]) {
     clienteProdutoMoves: [] as any[],
     chargeMoves: [] as any[],
     vendasLeadMoves: [] as any[],
+    debtCaseMoves: [] as any[],
     accountUpdates: [] as any[],
     deleted: [] as string[],
     deletionRecords: [] as any[],
@@ -53,11 +54,14 @@ function buildPrismaMock(accounts: any[]) {
     entrega: {
       updateMany: moveMany(store.entregaMoves),
       findFirst: async () => null,
+      // W5 — debitoAbertoPorClientes (bloqueio do delete por dívida): default SEM dívida.
+      groupBy: async () => [],
     },
     contato: { updateMany: moveMany(store.contatoMoves) },
     clienteProduto: { updateMany: moveMany(store.clienteProdutoMoves) },
-    financeiroCharge: { updateMany: moveMany(store.chargeMoves) },
+    financeiroCharge: { updateMany: moveMany(store.chargeMoves), groupBy: async () => [] },
     vendasLead: { updateMany: moveMany(store.vendasLeadMoves) },
+    debtCase: { updateMany: moveMany(store.debtCaseMoves) },
     deletionRecord: {
       create: async (args: any) => {
         store.deletionRecords.push(args.data);
@@ -106,14 +110,15 @@ test('R3 merge: funde 2 contas → refs migram p/ o vencedor e a perdedora vira 
   assert.ok(res, 'merge retorna resultado');
   assert.equal(res?.winnerId, 'conta-rica', 'a conta mais rica é a base');
   assert.equal(res?.loserId, 'conta-pobre');
-  // as 5 tabelas de refs foram migradas (1 updateMany cada)
+  // as 6 tabelas de refs foram migradas (1 updateMany cada) — W5 somou DebtCase
   assert.equal(store.entregaMoves.length, 1);
   assert.equal(store.contatoMoves.length, 1);
   assert.equal(store.clienteProdutoMoves.length, 1);
   assert.equal(store.chargeMoves.length, 1);
   assert.equal(store.vendasLeadMoves.length, 1);
+  assert.equal(store.debtCaseMoves.length, 1);
   // todas apontam loser → winner
-  for (const m of [store.entregaMoves[0], store.contatoMoves[0], store.chargeMoves[0]]) {
+  for (const m of [store.entregaMoves[0], store.contatoMoves[0], store.chargeMoves[0], store.debtCaseMoves[0]]) {
     assert.equal(m.where.customerProfileId, 'conta-pobre');
     assert.equal(m.data.customerProfileId, 'conta-rica');
   }

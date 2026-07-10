@@ -202,8 +202,15 @@ export class NucleoController {
     return res;
   }
 
-  /** Soft-delete de uma CONTA (snapshot em DeletionRecord + esconde). Company-scoped. */
+  /**
+   * Soft-delete de uma CONTA (snapshot em DeletionRecord + esconde). Company-scoped.
+   * W5 (10/07): ADMIN-only (mesmo padrão do mergeConta acima — apagar cliente é
+   * destrutivo pra base) + cliente com débito em aberto → 409 CLIENTE_COM_DEBITO
+   * (o serviço calcula o saldo SEMPRE, mesmo com o módulo financeiro off).
+   */
   @Delete('contas/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
   async deleteConta(@Req() req: any, @Param('id') id: string, @Body() dto?: SoftDeleteDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.softDeleteConta(companyId, id, {

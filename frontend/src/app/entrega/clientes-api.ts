@@ -22,6 +22,17 @@ export type FormaPagamento = "aberto" | "mensal" | "na_hora" | "pendura";
 export type MetodoPadrao = "pix" | "dinheiro";
 
 // ── Lista (GET /nucleo/clientes) ─────────────────────────────────────────────
+
+// W6 (10/07) — pendências do cadastro que o card mostra como chip vermelho.
+export type PendenciaCliente = "endereco" | "numero" | "gps" | "dia" | "whatsapp";
+export const PENDENCIA_LABEL: Record<PendenciaCliente, string> = {
+  endereco: "Endereço",
+  numero: "Número",
+  gps: "Localização",
+  dia: "Dia",
+  whatsapp: "WhatsApp",
+};
+
 export interface ClienteListItem {
   id: string;
   name: string | null;
@@ -33,6 +44,13 @@ export interface ClienteListItem {
   isFornecedor: boolean;
   origin: string | null;
   contatosCount: number;
+  // W6 (10/07) — contrato do W5 (backend em voo, pode aterrissar depois):
+  // TODOS opcionais e consumidos fail-soft — campo ausente = comportamento atual.
+  pendencias?: PendenciaCliente[];
+  diasEntrega?: number[]; // ISO 1=seg … 7=dom
+  duplicataDe?: { id: string; nome: string } | null;
+  debitoAtual?: number; // só vem com moduloFinanceiroAtivo
+  entregasCount?: number;
 }
 export interface ClientesResult {
   page: number;
@@ -136,6 +154,41 @@ export function editarCliente(id: string, p: EditarClientePayload): Promise<{ id
     method: "PATCH",
     body: JSON.stringify(p),
   });
+}
+
+// ── W6 — Excluir cliente de vez (DELETE /nucleo/contas/:id) ──────────────────
+// 409 chega como ApiError com payload { error: 'CLIENTE_COM_DEBITO', saldo }.
+export function excluirCliente(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/nucleo/contas/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// ── W6 — Merge de duplicata (POST /nucleo/contas/:id/merge) ──────────────────
+// A conta `perdeId` é absorvida pela `into` (admin-only no backend).
+export function mergeClientes(perdeId: string, into: string, motivo?: string): Promise<unknown> {
+  return apiFetch(`/nucleo/contas/${encodeURIComponent(perdeId)}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ into, ...(motivo ? { motivo } : {}) }),
+  });
+}
+
+// ── W6 — Últimas entregas do cliente (GET /logistica/clientes/:id/entregas) ──
+// Endpoint do W2 (mesma frente, em voo): pode ainda não existir → o caller
+// trata erro/404 como "sem lista" e mostra só a contagem (fail-soft).
+export interface ClienteEntrega {
+  id: string;
+  scheduledAt: string | null;
+  deliveredAt: string | null;
+  status: string;
+  valor: number;
+  itens: Array<{ produtoNome: string; qtd: number; valorUnit: number }>;
+}
+export function listEntregasCliente(
+  id: string,
+  limit = 5,
+): Promise<{ items: ClienteEntrega[]; nextCursor?: string | null }> {
+  return apiFetch(`/logistica/clientes/${encodeURIComponent(id)}/entregas?limit=${limit}`);
 }
 
 // ── Editar o telefone/whatsapp do contato principal (PATCH /nucleo/contatos/:id) ──

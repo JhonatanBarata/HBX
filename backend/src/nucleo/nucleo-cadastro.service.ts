@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
 
@@ -562,7 +562,7 @@ export class NucleoCadastroService {
   async listClientes(
     companyId: number,
     params: ListEmpresasParams,
-  ): Promise<ListEmpresasResult> {
+  ): Promise<ListClientesResult> {
     if (!companyId) throw new Error('listClientes: companyId é obrigatório');
     const page = Math.max(1, Math.trunc(Number(params.page) || 1));
     const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(params.pageSize) || 30)));
@@ -603,10 +603,21 @@ export class NucleoCadastroService {
           isCliente: true,
           isFornecedor: true,
           origin: true,
+          // W5 (10/07) — insumos do card de clientes do /entrega (pendências/duplicidade).
+          status: true,
+          endereco: true,
+          numero: true,
+          lat: true,
+          lng: true,
+          phoneNormalized: true,
           _count: { select: { contatos: true } },
         },
       }),
     ]);
+
+    // W5 (10/07) — enriquecimento ADITIVO do card (pendências, dias, duplicata,
+    // débito, entregas). Calculado pra página inteira, sem N+1.
+    const extras = await this.loadClientesCardExtras(companyId, rows);
 
     return {
       page,
@@ -624,8 +635,186 @@ export class NucleoCadastroService {
         isFornecedor: Boolean(row.isFornecedor),
         origin: row.origin ?? null,
         contatosCount: Number(row._count?.contatos || 0),
+        ...(extras.get(row.id) ?? EMPTY_CLIENTE_CARD_EXTRAS),
       })),
     };
+  }
+
+  /**
+   * W5 (10/07) — campos ADITIVOS do card de clientes do /entrega, calculados pra
+   * página inteira sem N+1 (escala single-driver — centenas de clientes):
+   *   pendencias[]  = o que falta no cadastro (ordem fixa endereco→numero→gps→dia→whatsapp);
+   *   diasEntrega[] = união ISO (1=seg…7=dom) dos diasSemana dos vínculos ATIVOS;
+   *   duplicataDe   = par duplicado COMPANY-WIDE (não por página): nome normalizado
+   *                   idêntico OU endereco+numero normalizados idênticos, só entre
+   *                   clientes ativos — sem fuzzy, os DOIS lados apontam um pro outro;
+   *   debitoAtual   = SÓ quando LogisticaConfig.moduloFinanceiroAtivo (senão omitido);
+   *   entregasCount = entregas NÃO-canceladas do cliente.
+   */
+  private async loadClientesCardExtras(
+    companyId: number,
+    rows: Array<{
+      id: string;
+      name: string | null;
+      status: string | null;
+      endereco: string | null;
+      numero: string | null;
+      lat: number | null;
+      lng: number | null;
+      phoneNormalized: string | null;
+    }>,
+  ): Promise<Map<string, ClienteCardExtras>> {
+    const result = new Map<string, ClienteCardExtras>();
+    if (!companyId || !rows.length) return result;
+    const pageIds = rows.map((r) => r.id);
+
+    const [vinculos, entregasAgg, config, dupUniverse] = await Promise.all([
+      this.prisma.clienteProduto.findMany({
+        where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
+        select: { customerProfileId: true, diasSemana: true, frequenciaDias: true },
+      }),
+      this.prisma.entrega.groupBy({
+        by: ['customerProfileId'],
+        where: { companyId, customerProfileId: { in: pageIds }, status: { not: 'cancelada' } },
+        _count: { _all: true },
+      }),
+      this.prisma.logisticaConfig.findFirst({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      }),
+      // Duplicidade é COMPANY-WIDE: o universo é TODO cliente ativo do tenant, não
+      // só a página (senão o par que caiu em outra página passaria batido).
+      this.prisma.customerProfile.findMany({
+        where: { companyId, isCliente: true, status: 'active' },
+        select: { id: true, name: true, endereco: true, numero: true },
+      }),
+    ]);
+
+    const financeiroAtivo = Boolean(config?.moduloFinanceiroAtivo);
+    const debitoMap = financeiroAtivo
+      ? await this.debitoAbertoPorClientes(companyId, pageIds)
+      : new Map<string, number>();
+
+    // vínculos ativos por cliente: dias da semana + "tem recorrência configurada?"
+    const vincByCliente = new Map<string, { dias: Set<number>; temDia: boolean }>();
+    for (const v of vinculos) {
+      let entry = vincByCliente.get(v.customerProfileId);
+      if (!entry) {
+        entry = { dias: new Set<number>(), temDia: false };
+        vincByCliente.set(v.customerProfileId, entry);
+      }
+      const dias = parseDiasSemana(v.diasSemana);
+      for (const d of dias) entry.dias.add(d);
+      if (dias.length > 0 || (Number(v.frequenciaDias) || 0) > 0) entry.temDia = true;
+    }
+
+    const entregasCountMap = new Map<string, number>();
+    for (const g of entregasAgg) {
+      if (g.customerProfileId) {
+        entregasCountMap.set(g.customerProfileId, Number((g as any)._count?._all || 0));
+      }
+    }
+
+    // Índices de duplicidade (igualdade EXATA pós-normalização — sem fuzzy).
+    const byNome = new Map<string, string[]>();
+    const byEndereco = new Map<string, string[]>();
+    const nomeById = new Map<string, string>();
+    const push = (map: Map<string, string[]>, key: string, id: string) => {
+      const list = map.get(key);
+      if (list) list.push(id);
+      else map.set(key, [id]);
+    };
+    for (const c of dupUniverse) {
+      nomeById.set(c.id, String(c.name ?? '').trim());
+      const nk = normalizeDupKey(c.name);
+      if (nk) push(byNome, nk, c.id);
+      const ek = enderecoDupKey(c.endereco, c.numero);
+      if (ek) push(byEndereco, ek, c.id);
+    }
+
+    for (const row of rows) {
+      const vinc = vincByCliente.get(row.id);
+
+      // ordem FIXA do contrato com W6: endereco → numero → gps → dia → whatsapp.
+      const pendencias: ClientePendencia[] = [];
+      if (!String(row.endereco ?? '').trim()) pendencias.push('endereco');
+      if (!String(row.numero ?? '').trim()) pendencias.push('numero');
+      if (row.lat == null || row.lng == null) pendencias.push('gps');
+      if (!vinc?.temDia) pendencias.push('dia'); // sem NENHUM vínculo → pendente
+      if (!String(row.phoneNormalized ?? '').trim()) pendencias.push('whatsapp');
+
+      // duplicata: o OUTRO lado do par (só entre clientes ATIVOS — os dois lados).
+      let duplicataDe: { id: string; nome: string } | null = null;
+      if (row.status === 'active') {
+        const nk = normalizeDupKey(row.name);
+        const ek = enderecoDupKey(row.endereco, row.numero);
+        const candidatos = [
+          ...(nk ? byNome.get(nk) ?? [] : []),
+          ...(ek ? byEndereco.get(ek) ?? [] : []),
+        ];
+        const outro = candidatos.find((id) => id !== row.id);
+        if (outro) duplicataDe = { id: outro, nome: nomeById.get(outro) ?? '' };
+      }
+
+      result.set(row.id, {
+        pendencias,
+        diasEntrega: vinc ? [...vinc.dias].sort((a, b) => a - b) : [],
+        duplicataDe,
+        entregasCount: entregasCountMap.get(row.id) ?? 0,
+        // debitoAtual OMITIDO quando o módulo financeiro está off (contrato W6).
+        ...(financeiroAtivo ? { debitoAtual: round2(debitoMap.get(row.id) ?? 0) } : {}),
+      });
+    }
+    return result;
+  }
+
+  /**
+   * W5 (10/07) — débito em aberto por cliente. ESPELHO EXATO da regra CANÔNICA
+   * `saldoAbertoPorClientes` (backend/src/logistica/logistica.service.ts) —
+   * duplicação CONSCIENTE pra não editar logistica/* hoje (W2 trabalha lá em
+   * paralelo); se a regra mudar lá, espelhar aqui. Regra: Σ FinanceiroCharge
+   * 'pending' com sourceModule logistica_entrega|logistica_fechamento + Σ
+   * Entrega.valor 'entregue' com cobrancaStatus='aguardando_fechamento'.
+   * Read-only, company-scoped, 2 groupBy por request.
+   */
+  private async debitoAbertoPorClientes(
+    companyId: number,
+    clienteIds: string[],
+  ): Promise<Map<string, number>> {
+    const mapa = new Map<string, number>();
+    const ids = Array.from(new Set(clienteIds.filter(Boolean)));
+    if (!companyId || ids.length === 0) return mapa;
+
+    const [pendentes, aguardando] = await Promise.all([
+      this.prisma.financeiroCharge.groupBy({
+        by: ['customerProfileId'],
+        where: {
+          companyId,
+          customerProfileId: { in: ids },
+          status: 'pending',
+          sourceModule: { in: ['logistica_entrega', 'logistica_fechamento'] },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.entrega.groupBy({
+        by: ['customerProfileId'],
+        where: {
+          companyId,
+          customerProfileId: { in: ids },
+          status: 'entregue',
+          cobrancaStatus: 'aguardando_fechamento',
+        },
+        _sum: { valor: true },
+      }),
+    ]);
+
+    const add = (id: string | null, valor: unknown) => {
+      if (!id) return;
+      mapa.set(id, round2((mapa.get(id) ?? 0) + Math.max(0, Number(valor) || 0)));
+    };
+    for (const p of pendentes) add(p.customerProfileId, p._sum?.amount);
+    for (const a of aguardando) add(a.customerProfileId, a._sum?.valor);
+    return mapa;
   }
 
   /**
@@ -1133,17 +1322,35 @@ export class NucleoCadastroService {
     // Atômico: migra refs + preenche buracos do vencedor + snapshot + remove a perdedora.
     const moved = await this.prisma.$transaction(async (tx) => {
       const scope = (customerProfileId: string) => ({ companyId, customerProfileId });
-      const [entregas, contatos, clienteProdutos, charges, leads] = await Promise.all([
+      // W5 (10/07): + DebtCase (FK Cascade — sem o re-aponte, apagar a perdedora
+      // APAGAVA os casos de dívida junto). ClienteProduto migra inteiro: o unique
+      // [companyId, customerProfileId, productId] foi REMOVIDO de propósito (TASK 5
+      // 08/07 — vínculo duplicado do mesmo produto é feature), então não há colisão.
+      // FinanceiroCharge: o unique parcial por entregaId viaja junto com a própria
+      // charge (a linha não muda de entregaId) — também sem colisão.
+      const [entregas, contatos, clienteProdutos, charges, leads, debtCases] = await Promise.all([
         tx.entrega.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.contato.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.clienteProduto.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.financeiroCharge.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.vendasLead.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+        tx.debtCase.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
       ]);
 
       // Papéis são acumulativos (só LIGAM) + preenche campos VAZIOS do vencedor com os
       // da perdedora (não sobrescreve o que o vencedor já tem — ele é a base).
       const fill = buildWinnerFill(winner, loser);
+      // W5 (10/07) — uniques por-tenant ([companyId, phoneNormalized] e o parcial de
+      // cnpj): se o fill vai CARREGAR phone/cnpj da perdedora pro vencedor, solta
+      // primeiro na perdedora (ela ainda existe dentro da transação — sem isso o
+      // update do vencedor colide no unique). Quando os DOIS têm phone, o do vencedor
+      // (destino) é mantido — buildWinnerFill nunca sobrescreve campo preenchido.
+      const clearLoser: Record<string, null> = {};
+      if ('phoneNormalized' in fill) clearLoser.phoneNormalized = null;
+      if ('cnpj' in fill) clearLoser.cnpj = null;
+      if (Object.keys(clearLoser).length) {
+        await tx.customerProfile.update({ where: { id: loser.id }, data: clearLoser });
+      }
       await tx.customerProfile.update({ where: { id: winner.id }, data: fill });
 
       // Snapshot da perdedora ANTES de apagar (padrão DeletionRecord do repo).
@@ -1169,6 +1376,7 @@ export class NucleoCadastroService {
         clienteProdutos: clienteProdutos.count,
         financeiroCharges: charges.count,
         vendasLeads: leads.count,
+        debtCases: debtCases.count,
       };
     });
 
@@ -1193,6 +1401,14 @@ export class NucleoCadastroService {
     });
     if (!row) return null;
     if (row.status === 'deleted') return { id: row.id }; // idempotente
+
+    // W5 (10/07) — dívida BLOQUEIA a exclusão SEMPRE (mesmo com o módulo financeiro
+    // do tenant desligado: débito existente não deixa de existir porque a UI está
+    // off). Regra do saldo = espelho da canônica (debitoAbertoPorClientes).
+    const debito = (await this.debitoAbertoPorClientes(companyId, [row.id])).get(row.id) ?? 0;
+    if (debito > 0) {
+      throw new ConflictException({ error: 'CLIENTE_COM_DEBITO', saldo: debito });
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.deletionRecord.create({
@@ -1310,6 +1526,51 @@ function buildWinnerFill(winner: MergeAccount, loser: MergeAccount): Record<stri
 
 function normalizeDigits(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D+/g, '');
+}
+
+// ── W5 (10/07) — helpers do card de clientes do /entrega ─────────────────────
+
+/**
+ * Normalização da detecção de duplicidade (SEM fuzzy — igualdade EXATA pós-
+ * normalização): lowercase + sem acento + espaços colapsados. Vazio → null
+ * (valor vazio nunca forma par). Exportada pra teste unitário.
+ */
+export function normalizeDupKey(value: string | null | undefined): string | null {
+  const key = String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return key || null;
+}
+
+/**
+ * Chave de duplicidade por endereço: endereco+numero normalizados, e SÓ vale
+ * quando AMBOS são não-vazios (endereço sem número não forma par). Exportada
+ * pra teste unitário.
+ */
+export function enderecoDupKey(
+  endereco: string | null | undefined,
+  numero: string | null | undefined,
+): string | null {
+  const e = normalizeDupKey(endereco);
+  const n = normalizeDupKey(numero);
+  return e && n ? `${e}|${n}` : null;
+}
+
+// Mesma semântica do round2 do LogisticaService (espelho consciente — ver
+// debitoAbertoPorClientes).
+function round2(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+// CSV ISO "1,3,5" (1=seg…7=dom, convenção de ClienteProduto.diasSemana) → int[].
+function parseDiasSemana(csv: string | null | undefined): number[] {
+  return String(csv ?? '')
+    .split(',')
+    .map((s) => Math.trunc(Number(s.trim())))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 7);
 }
 
 // LOGÍSTICA-MOBILE B1 (07/07) — 'geocode' | 'gps_cadastro' passam pelo cadastro vindos
@@ -1465,6 +1726,41 @@ export interface ListEmpresasResult {
   total: number;
   totalPages: number;
   items: EmpresaListItem[];
+}
+
+// ── W5 (10/07) — card de clientes do /entrega: campos ADITIVOS por item ───────
+// Contrato com o W6 (frontend). Nada do EmpresaListItem foi removido/renomeado.
+export type ClientePendencia = 'endereco' | 'numero' | 'gps' | 'dia' | 'whatsapp';
+
+export interface ClienteCardExtras {
+  /** ordem FIXA: endereco → numero → gps → dia → whatsapp */
+  pendencias: ClientePendencia[];
+  /** união ISO (1=seg…7=dom) dos diasSemana dos vínculos ativos, ordenada asc */
+  diasEntrega: number[];
+  /** o OUTRO lado do par duplicado (company-wide, só clientes ativos) ou null */
+  duplicataDe: { id: string; nome: string } | null;
+  /** presente SÓ quando LogisticaConfig.moduloFinanceiroAtivo do tenant */
+  debitoAtual?: number;
+  /** entregas NÃO-canceladas do cliente */
+  entregasCount: number;
+}
+
+// Fallback defensivo (todo row da página tem extras; isto só blinda o spread).
+const EMPTY_CLIENTE_CARD_EXTRAS: ClienteCardExtras = {
+  pendencias: [],
+  diasEntrega: [],
+  duplicataDe: null,
+  entregasCount: 0,
+};
+
+export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {}
+
+export interface ListClientesResult {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  items: ClienteListItem[];
 }
 
 export interface EmpresaContato {
@@ -1679,6 +1975,7 @@ export interface MergeResult {
     clienteProdutos?: number;
     financeiroCharges?: number;
     vendasLeads?: number;
+    debtCases?: number;
   };
   noop?: boolean;
 }
