@@ -122,7 +122,7 @@ const FAQ_ITEMS: Array<{ q: string; a: string }> = [
   },
   {
     q: "Preciso de assinatura pra usar?",
-    a: "Não. Adicionar gente na equipe é grátis e não existe mensalidade obrigatória — você recarrega quando quiser. Pra operação sob medida (implantação assistida, integração com ERP), existe o plano Company.",
+    a: "Não. Crédito é o modelo padrão: adicionar gente na equipe é grátis e não existe mensalidade obrigatória — você recarrega quando quiser. Operação sob medida é conta empresarial, negociada direto com o nosso time.",
   },
 ];
 

@@ -1510,9 +1510,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.buildSearchSignature(existing) !== nextSearchSignature;
   }
 
-  private async cancelQueuedJobsAfterSearchChange(campaignId: string) {
+  // companyId no where: chamado em request de tenant (salvar/iniciar campanha) —
+  // sem ele o tenant-guard acusa unscoped (campaignId já fixa o dono, mas o guard
+  // exige a chave de tenant na raiz do where).
+  private async cancelQueuedJobsAfterSearchChange(campaignId: string, companyId: number) {
     await this.prisma.vendasAutomationJob.updateMany({
-      where: { campaignId, status: { in: ['pending', 'scheduled', 'sending'] } },
+      where: { campaignId, companyId: Number(companyId), status: { in: ['pending', 'scheduled', 'sending'] } },
       data: {
         status: 'canceled',
         archivedAt: new Date(),
@@ -1830,7 +1833,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           },
         });
     if (searchChanged) {
-      await this.cancelQueuedJobsAfterSearchChange(campaign.id);
+      await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
     }
     if (campaign.status === 'running') {
       void this.primeExistingProspectingQueue(campaign.id).catch((error) => {
@@ -2053,7 +2056,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           },
         });
     if (searchChanged) {
-      await this.cancelQueuedJobsAfterSearchChange(campaign.id);
+      await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
     }
 
     this.publishAutomationEvent({

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { unlink } from 'fs/promises';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { withoutTenantScope } from '../prisma/tenant-context';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import type { User } from '@prisma/client';
 import {
@@ -1170,7 +1171,16 @@ export class UsersService {
       { ...target, isActive: false },
       { ...options, action: options?.action || 'delete' },
     );
-    const sellerOnboardingCleanup = await this.collectSellerOnboardingCleanup(userId);
+    // Tenant-guard (W7, 10/07): a cascata inteira é fixada por userId (FK), não por
+    // companyId — inclui desamarrar indicações (referredByUserId) que APONTAM de users
+    // de OUTRAS empresas (rede de indicação HBX), então escopar por companyId quebraria.
+    // O alvo já foi validado no tenant pelo controller (deleteCompanyUser compara
+    // target.companyId com o do caller; rota master é MasterGuard) — bypass explícito.
+    const tenantGuardBypassReason =
+      'hard-delete de usuário: cascata cross-model por userId (alvo já validado no tenant)';
+    const sellerOnboardingCleanup = await withoutTenantScope(tenantGuardBypassReason, () =>
+      this.collectSellerOnboardingCleanup(userId),
+    );
     await this.deleteSellerOnboardingFiles(sellerOnboardingCleanup.attachmentPaths);
 
     // Chip do vendedor (caso Gabrielo, 07/07): captura as instâncias WhatsApp do usuário
@@ -1181,10 +1191,12 @@ export class UsersService {
       whatsappTenantKeys.add(`company-${Number(target.companyId)}-user-${Number(userId)}`);
     }
     try {
-      const activeWhatsappSessions = await this.prisma.whatsAppConnectionSession.findMany({
-        where: { userId, status: 'active' },
-        select: { tenantKey: true },
-      });
+      const activeWhatsappSessions = await withoutTenantScope(tenantGuardBypassReason, () =>
+        this.prisma.whatsAppConnectionSession.findMany({
+          where: { userId, status: 'active' },
+          select: { tenantKey: true },
+        }),
+      );
       for (const session of activeWhatsappSessions || []) {
         const key = String(session?.tenantKey || '').trim();
         if (key) whatsappTenantKeys.add(key);
@@ -1195,7 +1207,7 @@ export class UsersService {
     const hasWebsiteAdminEntryToken = await this.prisma.hasTable('WebsiteAdminEntryToken');
     const hasMasterBillingLedgerEntry = await this.prisma.hasTable('MasterBillingLedgerEntry');
 
-    await this.prisma.$transaction(async (tx) => {
+    await withoutTenantScope(tenantGuardBypassReason, () => this.prisma.$transaction(async (tx) => {
       const deletedAt = new Date();
 
       await tx.user.updateMany({
@@ -1397,7 +1409,7 @@ export class UsersService {
       });
 
       await tx.user.delete({ where: { id: userId } });
-    });
+    }));
     const company = target?.companyId
       ? await this.prisma.company.findUnique({ where: { id: target.companyId }, select: { slug: true } })
       : null;

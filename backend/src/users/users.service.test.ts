@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { LAST_TENANT_ADMIN_MESSAGE, SELF_ACCESS_REMOVAL_MESSAGE, UsersService } from './users.service';
+import { getTenantScopeBypassReason, runWithTenantContext } from '../prisma/tenant-context';
 
 type FakeUser = {
   id: number;
@@ -57,6 +58,8 @@ function createUsersService(input: { users: FakeUser[]; companyKind?: string }) 
       ...user,
     })),
     deletedUserIds: [] as number[],
+    // W7 (tenant-guard): motivo de bypass visto pelas queries da cascata do hard-delete.
+    cascadeBypassReasons: [] as (string | null)[],
   };
   const company = {
     id: 7,
@@ -88,6 +91,7 @@ function createUsersService(input: { users: FakeUser[]; companyKind?: string }) 
       return include ? { ...state.users[index], referredByUser: null } : state.users[index];
     },
     updateMany: async ({ where, data }: any = {}) => {
+      state.cascadeBypassReasons.push(getTenantScopeBypassReason());
       let count = 0;
       state.users = state.users.map((user) => {
         if (where?.referredByUserId !== undefined && Number((user as any).referredByUserId || 0) !== Number(where.referredByUserId)) {
@@ -99,6 +103,7 @@ function createUsersService(input: { users: FakeUser[]; companyKind?: string }) 
       return { count };
     },
     delete: async ({ where }: any) => {
+      state.cascadeBypassReasons.push(getTenantScopeBypassReason());
       state.deletedUserIds.push(Number(where?.id));
       state.users = state.users.filter((user) => Number(user.id) !== Number(where?.id));
       return {};
@@ -235,6 +240,22 @@ test('permite excluir vendedor', async () => {
   await service.hardDeleteUser(2, { actorUserId: 1 });
 
   assert.deepEqual(state.deletedUserIds, [2]);
+});
+
+// W7 (tenant-guard P1.1, 10/07): a cascata do hard-delete é fixada por userId (sem
+// companyId no where) e é chamada em request de tenant (admin excluindo vendedor).
+// O contrato é rodar TODA a cascata sob withoutTenantScope — sem isso o guard acusa
+// unscoped em report e QUEBRA a exclusão em enforce.
+test('hard-delete em request de tenant roda a cascata sob bypass explícito do tenant-guard', async () => {
+  const { service, state } = createUsersService({ users: [activeAdmin(1), activeSeller(2)] });
+
+  await runWithTenantContext({ companyId: 7 }, () => service.hardDeleteUser(2, { actorUserId: 1 }));
+
+  assert.deepEqual(state.deletedUserIds, [2]);
+  assert.ok(state.cascadeBypassReasons.length >= 2); // updateMany(referredBy) + delete
+  for (const reason of state.cascadeBypassReasons) {
+    assert.ok(reason, 'query da cascata rodou SEM o bypass do tenant-guard');
+  }
 });
 
 test('permite rebaixar admin quando existe outro admin ativo', async () => {
