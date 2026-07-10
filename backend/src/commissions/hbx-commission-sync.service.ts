@@ -105,9 +105,21 @@ export class HbxCommissionSyncService {
       return { saleStatus: 'trial_started', commissionStatus: 'pending', recurring: false, eventAt };
     }
 
-    // Pago e cortesia (manual/isenta) confirmam a venda e geram recorrencia.
-    if (access.state === 'paying' || access.state === 'manual' || access.state === 'exempt') {
+    // Receita REAL cobrando (assinatura ativa) confirma a venda e gera recorrencia.
+    if (access.state === 'paying') {
       return { saleStatus: 'sale_confirmed', commissionStatus: 'payable', recurring: true, eventAt };
+    }
+
+    // FREIO comissao-fantasma (MASTER-REFAB S7, 10/07): 'manual'/'exempt' hoje significa conta
+    // CREDITO ativa (accountType credit → exempt) ou liberacao manual de enterprise — cliente
+    // ATIVO sem receita recorrente COBRADA. A venda aparece confirmada no funil do vendedor,
+    // mas comissao paga so nasce de dinheiro real ('paying' acima): aqui fica PENDENTE e sem
+    // recorrencia. A regra antiga (exempt/manual = payable recorrente sobre preco de TABELA)
+    // era pra cortesia-VIP e virou o caminho DEFAULT do signup gratis — comissao sobre cliente
+    // que paga R$0. Comissionar RECARGA de credito e politica NOVA = decisao do dono, nao entra
+    // aqui. keepPaid (abaixo) preserva comissao ja marcada 'paid' — downgrade nunca apaga paidAt.
+    if (access.state === 'manual' || access.state === 'exempt') {
+      return { saleStatus: 'sale_confirmed', commissionStatus: 'pending', recurring: false, eventAt };
     }
 
     if (access.state === 'suspended') {
