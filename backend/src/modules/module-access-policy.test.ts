@@ -220,7 +220,7 @@ test('non-billing blocks pass through unchanged for sellers', () => {
 });
 
 test('seller has ONE rule on any surface: operacional no máximo por padrão, Bot/Website elegíveis, admin areas blocked', () => {
-  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const seller = { role: 'USER', isSystemMaster: false };
 
   // LEI DO DONO 27/06: operacional nasce LIGADO em qualquer superficie (desktop = mobile)
@@ -243,7 +243,7 @@ test('seller has ONE rule on any surface: operacional no máximo por padrão, Bo
 });
 
 test('HBX tenant seller uses the same defaults as a client seller', () => {
-  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
   const seller = { role: 'USER', isSystemMaster: false };
   const company = { companyKind: COMPANY_KIND_TENANT, slug: 'hbx' };
 
@@ -254,7 +254,7 @@ test('HBX tenant seller uses the same defaults as a client seller', () => {
 });
 
 test('seller access governance blocks platform_infra and keeps tenant admin boundary', () => {
-  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
+  const service = new ModulesService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any) as any;
 
   assert.doesNotThrow(() => service.assertCanGovernSellerAccess({
     actor: { role: 'ADMIN', companyId: 10 },

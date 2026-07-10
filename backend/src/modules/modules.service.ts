@@ -78,6 +78,8 @@ import {
   resolveTeamPolicyModuleAllowed,
   serializeTeamPolicyModuleAndAccessRows,
 } from '../team/team-policy-persistence';
+import { CreditWalletService } from '../credits/credit-wallet.service';
+import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 
 type DefaultModuleDef = {
   key: string;
@@ -232,6 +234,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     private readonly companyOperationalStatus: CompanyOperationalStatusService,
     private readonly commercialUsageLimits: CommercialUsageLimitsService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
+    private readonly creditWallet: CreditWalletService,
   ) {}
 
   private async supportsWhatsAppEndpointTable() {
@@ -2851,6 +2854,14 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       referralCode: company.referralCode || null,
       taxDocument: company.taxDocument || null,
       isActive: active,
+      // MASTER-REFAB S1 (fix contradição Cortesia): a ficha (getMasterCompanyDetail) nunca
+      // devolvia o status BRUTO persistido — só `accessState` (vocabulário canônico
+      // projetado). A lista (listMasterOverview) sempre devolveu `status: company.status`
+      // cru; sem este campo aqui, `emCortesia` no front comparava contra `undefined` e o box
+      // Cortesia da ficha sempre dizia "não está em cortesia" mesmo quando o badge da lista
+      // (mesmo campo, endpoint diferente) dizia "Cortesia". Uma única fonte agora: o mesmo
+      // campo bruto nos dois endpoints.
+      status: company.status || null,
       userCount: Number(company?._count?.users || 0),
       selectedPlanKey: company.selectedPlanKey || null,
       monthlyValue,
@@ -3653,6 +3664,20 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // desligado/indisponível → mapa vazio, decorador vira no-op (fallback pro banco).
     const motorInstances = await this.getMotorInstancesCached();
     const motorStateByCompany = motorInstances ? buildMotorStateByCompany(motorInstances) : new Map<number, string>();
+    // MASTER-REFAB S1 — "Módulos ON" tem que contar o EFETIVO (mesma régua da ficha:
+    // post-it da empresa OU, sem post-it, o defaultEnabled do catálogo), não só as linhas
+    // de CompanyModule (que só existem pra quem já tem override — companhia sem post-it
+    // nenhum aparecia com 0/poucos "ON" mesmo operando com o default do master ligado).
+    const assignableSystemModulesForListing = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+      orderBy: { name: 'asc' },
+    });
+    // Coluna "Créditos" honesta: saldo agregado em 1 query (leitura só; flag OFF → null,
+    // front mostra "—" em vez de inventar zero).
+    const creditsEnabled = isCreditsFeatureEnabled();
+    const creditBalanceByCompany = creditsEnabled
+      ? await this.creditWallet.getBalancesByCompanyIds(companies.map((company) => Number(company.id)))
+      : new Map<number, number>();
 
     const result: any[] = [];
     for (const company of companies) {
@@ -3749,10 +3774,22 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         operationalStatus: operationalStatusByCompanyId.get(Number(company.id)) || null,
         tastePlanKey: company.tastePlanKey || null,
         tasteRevertsAt: company.tasteRevertsAt instanceof Date ? company.tasteRevertsAt.toISOString() : null,
+        // MASTER-REFAB S1: saldo agregado da carteira (null = créditos desligados na env).
+        creditsBalance: creditsEnabled ? (creditBalanceByCompany.get(Number(company.id)) ?? 0) : null,
         users: company.users,
-        modules: company.companyModules
-          .filter((row) => row.systemModule.companyAssignable)
-          .map((row) => ({ key: row.systemModule.key, name: row.systemModule.name, enabled: row.enabled })),
+        modules: (() => {
+          const companyModuleByKey = new Map(
+            (company.companyModules || []).map((row) => [row.systemModule.key, row]),
+          );
+          return assignableSystemModulesForListing.map((moduleItem) => {
+            const row = companyModuleByKey.get(moduleItem.key);
+            return {
+              key: moduleItem.key,
+              name: moduleItem.name,
+              enabled: row ? Boolean(row.enabled) : Boolean(moduleItem.defaultEnabled),
+            };
+          });
+        })(),
       });
     }
 

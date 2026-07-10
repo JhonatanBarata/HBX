@@ -17,6 +17,11 @@ type Row = Record<string, any>;
 
 function matchesWhere(row: Row, where: Row): boolean {
   for (const [key, cond] of Object.entries(where || {})) {
+    if (key === 'OR') {
+      const branches = cond as Row[];
+      if (!branches.some((branch) => matchesWhere(row, branch))) return false;
+      continue;
+    }
     const value = row[key];
     if (cond && typeof cond === 'object' && !(cond instanceof Date)) {
       if ('gt' in cond && !(Number(value) > cond.gt)) return false;
@@ -147,6 +152,19 @@ function createFakePrisma() {
       rows.forEach((row) => applyData(row, data));
       record(() => befores.forEach(({ row, snapshot }) => Object.assign(row, snapshot)));
       return { count: rows.length };
+    },
+    // Só o suficiente pra `getBalancesByCompanyIds` (groupBy companyId + soma de remaining).
+    groupBy: async ({ where, _sum }: any) => {
+      const rows = entries.filter((item) => matchesWhere(item, where));
+      const byCompany = new Map<number, number>();
+      for (const row of rows) {
+        const key = Number(row.companyId);
+        byCompany.set(key, (byCompany.get(key) || 0) + (_sum?.remaining ? Number(row.remaining) || 0 : 0));
+      }
+      return Array.from(byCompany.entries()).map(([companyId, sum]) => ({
+        companyId,
+        _sum: { remaining: sum },
+      }));
     },
   };
 
@@ -433,4 +451,25 @@ test('getBalance: empresa sem wallet retorna 0 sem criar nada', async () => {
   const balance = await service.getBalance(999);
   assert.equal(balance, 0);
   assert.equal(fake.wallets.length, 0);
+});
+
+// ─── MASTER-REFAB S1 — saldo em lote pra listagem master ───────────────────────────────────────
+
+test('getBalancesByCompanyIds: soma o saldo de várias empresas em 1 chamada, ignora expirado e lote esgotado', async () => {
+  const { service } = buildService();
+  await service.grant(1, 10, { kind: 'grant' });
+  await service.grant(2, 7, { kind: 'promo' });
+  await service.grant(2, 3, { kind: 'grant', expiresAt: new Date(Date.now() - 1000) }); // já expirado
+  // empresa 3 não recebe nenhum grant -> não deve aparecer no Map (saldo 0 implícito)
+
+  const balances = await service.getBalancesByCompanyIds([1, 2, 3]);
+  assert.equal(balances.get(1), 10);
+  assert.equal(balances.get(2), 7);
+  assert.equal(balances.has(3), false);
+});
+
+test('getBalancesByCompanyIds: lista vazia devolve Map vazio sem consultar o banco', async () => {
+  const { service } = buildService();
+  const balances = await service.getBalancesByCompanyIds([]);
+  assert.equal(balances.size, 0);
 });

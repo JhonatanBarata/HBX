@@ -42,6 +42,8 @@ export type MasterCompany = {
   trialEndsAt?: string | null;
   subscriptionCurrentPeriodStart?: string | null;
   subscriptionCurrentPeriodEnd?: string | null;
+  // MASTER-REFAB S1: saldo agregado da carteira (null = créditos desligados na env).
+  creditsBalance?: number | null;
   whatsappStatus?: string | null;
   whatsappSituation?: {
     mode?: string | null;
@@ -59,19 +61,21 @@ export type MasterCompany = {
     createdAt?: string | null;
   }[];
   modules?: { key: string; name: string; enabled: boolean }[];
-  tastePlanKey?: string | null;
-  tasteRevertsAt?: string | null;
 };
 
+// MASTER-REFAB S1: vocabulário vivo = cortesia/ativa/suspensa/cancelada (os únicos estados que
+// uma ação do /master ainda PRODUZ). Os demais são vocabulário de plano/trial morto — seguem
+// aceitos em LEITURA (empresa antiga persistida com esse status), sempre com o prefixo "Legado:"
+// pra deixar claro que não é uma opção nova, só um fóssil de dado.
 export const STATUS_LABEL: Record<string, string> = {
-  trial: "Trial",
   courtesy: "Cortesia",
-  pending_checkout: "Aguardando checkout",
   active: "Ativa",
-  charging: "Cobrança ativa",
   suspended: "Suspensa",
-  past_due: "Pagamento pendente",
   canceled: "Cancelada",
+  trial: "Legado: Trial",
+  pending_checkout: "Legado: Aguardando checkout",
+  charging: "Legado: Cobrança ativa",
+  past_due: "Legado: Pagamento pendente",
 };
 
 export function statusTagClass(status?: string | null, isActive?: boolean) {

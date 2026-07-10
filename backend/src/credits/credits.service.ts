@@ -169,6 +169,43 @@ export class CreditsService {
     return { ...result, expiresAt, balanceAfter };
   }
 
+  // ── MASTER-REFAB S1 — Carteira na ficha (bloco Financeiro) ───────────────────
+  /**
+   * Saldo + lotes + extrato (últimos movimentos débito/refund/expire/adjust) de UMA empresa,
+   * pra qualquer companyId — diferente de `/credits/me` (que só lê a empresa do próprio
+   * usuário). Leitura pura: nenhuma escrita nova, reusa `CreditWalletService.getWalletSnapshot`
+   * (mesmo caminho de `/credits/me`) + 1 SELECT do ledger.
+   */
+  async getWalletOverviewForMaster(companyId: number, limit = 20) {
+    this.assertFeatureEnabled();
+    await this.assertCompanyExists(companyId);
+    const snapshot = await this.wallet.getWalletSnapshot(companyId);
+    const recentRows = await this.prisma.creditLedgerEntry.findMany({
+      where: { companyId, kind: { in: ['debit', 'refund', 'expire', 'adjust'] } },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(1, Math.min(100, Math.trunc(limit) || 20)),
+    });
+    return {
+      enabled: true,
+      balance: snapshot.balance,
+      lots: snapshot.lots.map((lot) => ({
+        id: lot.id,
+        amount: lot.amount,
+        remaining: lot.remaining,
+        expiresAt: lot.expiresAt ? lot.expiresAt.toISOString() : null,
+        grantType: lot.grantType,
+      })),
+      recent: recentRows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        amount: row.amount,
+        actionKey: row.actionKey || null,
+        sourceRef: row.sourceRef || null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+    };
+  }
+
   // ── /credits/me — leitura role-gated ─────────────────────────────────────────
   /**
    * Audiência de COBRANÇA (master OU dono do tenant): saldo completo + lotes + pacotes

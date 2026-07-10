@@ -167,6 +167,35 @@ export class CreditWalletService {
   }
 
   /**
+   * MASTER-REFAB S1 — saldo de VÁRIAS empresas em 1 query agregada (painel /master não pode
+   * abrir uma wallet por empresa em loop). Mesmo predicado de `openLotsFifo`/`getBalance`
+   * (lotes grant|recharge|promo com remaining>0 e não expirados) — só que somado no banco via
+   * groupBy, não recalculado aqui. Empresa sem nenhum lote aberto simplesmente não aparece no
+   * Map (o chamador trata ausência como saldo 0).
+   */
+  async getBalancesByCompanyIds(companyIds: number[], now: Date = new Date()): Promise<Map<number, number>> {
+    const ids = Array.from(
+      new Set(companyIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)),
+    );
+    const balances = new Map<number, number>();
+    if (!ids.length) return balances;
+    const rows = await this.prisma.creditLedgerEntry.groupBy({
+      by: ['companyId'],
+      where: {
+        companyId: { in: ids },
+        kind: { in: ['grant', 'recharge', 'promo'] },
+        remaining: { gt: 0 },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      _sum: { remaining: true },
+    });
+    for (const row of rows) {
+      balances.set(Number(row.companyId), Number(row._sum.remaining || 0));
+    }
+    return balances;
+  }
+
+  /**
    * Cria um lote de crédito (grant | recharge | promo). Idempotente por usageKey: se já existe
    * uma entrada com a mesma usageKey, é no-op (retorna a entrada já gravada, sem duplicar).
    */

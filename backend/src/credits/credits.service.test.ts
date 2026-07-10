@@ -126,9 +126,13 @@ function createFakePrisma(companyIds: number[] = [1]) {
       const row = entries.find((item) => matchesWhere(item, where));
       return row ? { ...row } : null;
     },
-    findMany: async ({ where }: any) => {
-      const rows = entries.filter((item) => matchesWhere(item, where));
-      return rows.map((row) => ({ ...row }));
+    findMany: async ({ where, orderBy, take }: any) => {
+      let rows = entries.filter((item) => matchesWhere(item, where)).map((row) => ({ ...row }));
+      const order = Array.isArray(orderBy) ? orderBy[0] : orderBy;
+      if (order?.createdAt === 'desc') rows = rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      else if (order?.createdAt === 'asc') rows = rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      if (typeof take === 'number') rows = rows.slice(0, take);
+      return rows;
     },
     count: async ({ where }: any) => {
       return entries.filter((item) => matchesWhere(item, where)).length;
@@ -414,6 +418,34 @@ test('grantToCompanyAsMaster: default de expiração reconfigurado pelo master (
   const result = await service.grantToCompanyAsMaster(999, 1, { amount: 10, grantType: 'paid', usageKey: 'exp-30d' });
   const diffDays = (result.expiresAt!.getTime() - before) / (24 * 60 * 60 * 1000);
   assert.ok(diffDays > 29.9 && diffDays < 30.1, `esperava ~30 dias, obteve ${diffDays}`);
+});
+
+// ─── MASTER-REFAB S1 — bloco Carteira na ficha (GET /credits/master/company/:id) ──────────────
+
+test('getWalletOverviewForMaster: saldo + lotes + extrato de movimentos (débito) de UMA empresa', async () => {
+  const { service, wallet } = buildService();
+  await wallet.grant(1, 20, { kind: 'grant', usageKey: 'seed-grant' });
+  await wallet.debit(1, 5, { actionKey: 'lead_delivery', usageKey: 'debit-1' });
+
+  const overview = await service.getWalletOverviewForMaster(1);
+  assert.equal(overview.enabled, true);
+  assert.equal(overview.balance, 15);
+  assert.equal(overview.lots.length, 1);
+  assert.equal(overview.lots[0].remaining, 15);
+  assert.equal(overview.recent.length, 1);
+  assert.equal(overview.recent[0].kind, 'debit');
+  assert.equal(overview.recent[0].amount, 5);
+});
+
+test('getWalletOverviewForMaster: empresa inexistente e rejeitada (BadRequest, mesma trava do grant)', async () => {
+  const { service } = buildService([1]);
+  await assert.rejects(() => service.getWalletOverviewForMaster(42));
+});
+
+test('flag HBX_CREDITS_ENABLED OFF: getWalletOverviewForMaster recusa (404, mesmo padrão do grant)', async () => {
+  delete process.env.HBX_CREDITS_ENABLED;
+  const { service } = buildService();
+  await assert.rejects(() => service.getWalletOverviewForMaster(1));
 });
 
 // ─── Feature flag OFF ───────────────────────────────────────────────────────────────────────────

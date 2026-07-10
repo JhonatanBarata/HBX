@@ -1,23 +1,27 @@
 "use client";
 
-// Janela 1 — Empresas (CORAÇÃO do /master). v1 + fase 2 COMPLETA
-// (ordem do dono 12/06/2026: "fica de fora nada, ligue tudo").
+// Janela 1 — Empresas (CORAÇÃO do /master).
+// MASTER-REFAB S1 (10/07): o produto só tem 2 modos de conta — Créditos (self-service) e
+// Negociada (montada aqui pelo master). O modelo de catálogo/período de avaliação/degustação
+// e as condições de cobrança à parte morreram desta tela (os endpoints de backend continuam
+// existindo — aposentar é S6 — este arquivo só parou de chamá-los).
 // Contratos ligados (todos já existentes no backend):
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
 //   PUT  /modules/master/company/:id/courtesy            → cortesia
 //   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (HBX Full)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
-//   POST /modules/master/company/:id/trial               → {action: grant|end, days, reason}
 //   PUT  /modules/master/company/:id/suspension          → {suspended, reason}
-//   PUT  /modules/master/company/:id/plan                → {planKey} (ordem explícita)
-//   PUT  /modules/master/company/:id/card-quota          → {monthlyCardLimit, dailyCardLimit}
-//   PUT  /modules/master/company/:id/finance-settings    → {manualDiscountPercent, freeMonths, billingCycle}
+//   PUT  /modules/master/company/:id/card-quota          → {seatCap} (assentos; cards/mês·dia morreram da UI)
+//   PUT  /modules/master/company/:id/finance-settings    → {setupValue, monthlyValueOverride} (Implantação)
 //   PUT  /modules/master/company/:id/global-token-usage  → toggles credencial master
 //   PUT  /modules/master/company/:id/bot-activation      → {armed, channel, reason}
-//   POST /modules/master/company/:id/manual-payment      → registrar pagamento (ordem explícita)
+//   POST /modules/master/company/:id/manual-payment      → registrar pagamento (rota da Negociada)
 //   PUT  .../manual-payment/:entryId/cancel              → cancelar lançamento
-//   POST /master/provisioning/tenants                    → nova empresa
+//   GET  /credits/master/company/:id                     → Carteira (saldo/lotes/extrato)
+//   POST /credits/master/company/:id/grant               → conceder crédito manual
+//   GET  /credits/public-catalog                          → welcomeCredits default (wizard)
+//   POST /master/provisioning/tenants                    → nova empresa (fluxo da Negociada)
 //   PATCH users/master/:id | reset-password | delete     → usuários
 //   master-context assume → via prop do pai (banner global no layout)
 
@@ -89,19 +93,9 @@ type Detail = {
     billingProvider?: string | null;
     courtesyReason?: string | null;
     courtesyEndsAt?: string | null;
-    tastePlanKey?: string | null;
-    tasteRevertsAt?: string | null;
-    tastePreviousPlanKey?: string | null;
-    tasteReason?: string | null;
-    trialStartsAt?: string | null;
-    trialEndsAt?: string | null;
-    selectedPlanKey?: string | null;
     commercialCardsMonthlyLimitOverride?: number | null;
     commercialCardsDailyLimitOverride?: number | null;
     seatCap?: number | null;
-    manualDiscountPercent?: number | null;
-    freeMonths?: number | null;
-    billingCycle?: string | null;
     setupValue?: number | null;
     monthlyValueOverride?: number | null;
     users?: DetailUser[];
@@ -118,19 +112,14 @@ type Detail = {
   };
 } | null;
 
-const PLANOS = [
-  { value: "hbx_lite", label: "HBX List", desc: "Leads básicos, 1 usuário incluso" },
-  { value: "hbx_padrao", label: "HBX Lead Plus", desc: "Leads inteligentes + trial 14d, 2 usuários inclusos" },
-  { value: "hbx_pro", label: "HBX Pro", desc: "Bot IA + atendimento, 3 usuários inclusos" },
-  { value: "hbx_melhor", label: "Implantação", desc: "Empresa, setup assistido, negociado" },
-];
-
+// MASTER-REFAB S1: sem Plano/Ciclo no wizard — a Negociada é montada na ficha (módulos +
+// crédito concedido + cobrança manual), não escolhida num catálogo. planKey/billingCycle
+// simplesmente não são mais enviados; o backend (master-provisioning.service.ts) já assume
+// o default (PADRAO/MONTHLY) quando omitidos — endpoint intacto, só paramos de escolher.
 const PROV_VAZIO = {
   companyName: "",
   slug: "",
   taxDocument: "",
-  planKey: "hbx_padrao",
-  billingCycle: "MONTHLY",
   manualAccess: false,
   adminName: "",
   adminEmail: "",
@@ -138,6 +127,7 @@ const PROV_VAZIO = {
   adminPassword: "",
   seatCap: "",
   monthlyValueOverride: "",
+  initialCredits: "",
 };
 
 type UserEditForm = { id: number; name: string; email: string; username: string; phone: string; role: string; isActive: boolean };
@@ -146,6 +136,35 @@ const EMP_VAZIO = { name: "", primaryContactName: "", contactEmail: "", contactP
 const PAG_VAZIO = { value: "", competence: "", paidAt: "", paymentMethod: "PIX", observation: "", settlePending: true };
 
 const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Implantação", "Website", "Auditoria"] as const;
+
+// Modo da conta (MASTER-REFAB, plano 10/07): derivado, sem campo novo. Cobrança manual ativa
+// OU assinatura MP (billingProvider mercadopago) → Negociada (exceção, montada pelo master);
+// resto → Créditos (self-service). Mesmos campos que a listagem já devolve.
+function modoConta(emp: { paymentMethod?: string | null; billingProvider?: string | null }): "negociada" | "creditos" {
+  const cobrancaManualAtiva = String(emp.paymentMethod || "").trim().toUpperCase() === "MANUAL";
+  const assinaturaMpAtiva = String(emp.billingProvider || "").trim().toLowerCase() === "mercadopago";
+  return cobrancaManualAtiva || assinaturaMpAtiva ? "negociada" : "creditos";
+}
+
+function modoLabel(modo: "negociada" | "creditos") {
+  return modo === "negociada" ? "Negociada" : "Créditos";
+}
+
+type WalletLot = { id: string; amount: number; remaining: number; expiresAt?: string | null; grantType?: string | null };
+type WalletMovement = { id: string; kind: string; amount: number; actionKey?: string | null; sourceRef?: string | null; createdAt: string };
+type WalletOverview = { enabled?: boolean; balance?: number; lots?: WalletLot[]; recent?: WalletMovement[] } | null;
+
+const WALLET_MOVEMENT_LABEL: Record<string, string> = {
+  debit: "Débito",
+  refund: "Estorno",
+  expire: "Expiração",
+  adjust: "Ajuste",
+  grant: "Concessão",
+  recharge: "Recarga",
+  promo: "Promoção",
+};
+
+const WALLET_GRANT_VAZIO = { amount: "", grantType: "courtesy_internal" as "paid" | "courtesy_internal" | "promo", reason: "" };
 
 // Espelha as validações do backend (website.service.ts updateCompanyConfigByMaster
 // — NÃO editar o backend, só refletir aqui pra não deixar o Master submeter algo
@@ -209,7 +228,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [provForm, setProvForm] = useState(PROV_VAZIO);
   const [provBusy, setProvBusy] = useState(false);
   const [provMsg, setProvMsg] = useState<string | null>(null);
-  const [provResult, setProvResult] = useState<{ companyId?: number; adminUserId?: number | null; temporaryPassword?: string | null; passwordDefined?: boolean } | null>(null);
+  const [provResult, setProvResult] = useState<{ companyId?: number; adminUserId?: number | null; temporaryPassword?: string | null; passwordDefined?: boolean; creditsWarning?: string | null } | null>(null);
 
   // cortesia
   const [cortesiaForm, setCortesiaForm] = useState({ reason: "", endsAt: "" });
@@ -242,16 +261,21 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   // comercial (fase 2)
   const [comBusy, setComBusy] = useState<string | null>(null); // qual ação está rodando
   const [comMsg, setComMsg] = useState<string | null>(null);
-  const [trialDias, setTrialDias] = useState("14");
   const [suspReason, setSuspReason] = useState("");
-  const [planoSel, setPlanoSel] = useState("");
-  const [planoArm, setPlanoArm] = useState(false);
+  // monthly/daily seguem no estado só pra round-trip transparente do /card-quota (o backend
+  // SEMPRE reescreve os 3 campos juntos — omitir monthly/daily zeraria overrides existentes
+  // que esta tela não edita mais). A UI mostra só "Assentos".
   const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "", seatCap: "" });
-  const [finForm, setFinForm] = useState({ discount: "", freeMonths: "", billingCycle: "", setupValue: "", parcela: "" });
+  const [finForm, setFinForm] = useState({ setupValue: "", parcela: "" });
 
-  // degustação de plano
-  const [tasteForm, setTasteForm] = useState({ planKey: "", revertsAt: "", reason: "" });
-  const [tasteBusy, setTasteBusy] = useState(false);
+  // carteira (MASTER-REFAB S1)
+  const [wallet, setWallet] = useState<WalletOverview>(null);
+  const [walletGrantOpen, setWalletGrantOpen] = useState(false);
+  const [walletGrantForm, setWalletGrantForm] = useState(WALLET_GRANT_VAZIO);
+  const [walletGrantKey, setWalletGrantKey] = useState("");
+  const [walletGrantBusy, setWalletGrantBusy] = useState(false);
+  const [walletGrantMsg, setWalletGrantMsg] = useState<string | null>(null);
+  const [legadoAssinaturaOpen, setLegadoAssinaturaOpen] = useState(false);
 
   // Website (WEBSITE-KIT Sprint 1, T2): config por empresa via
   // PATCH /website/master/company/:id/config; teste ao vivo via
@@ -289,10 +313,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setCancelArm(null);
     setRefundArm(null);
     setSubCancelArm(false);
-    setPlanoArm(false);
+    setLegadoAssinaturaOpen(false);
     setDelRefund(null);
     setWebsiteMsg(null);
     setWebsiteForm(WEBSITE_VAZIO);
+    setWallet(null);
+    setWalletGrantMsg(null);
+    // Carteira (bloco Financeiro): saldo/lotes/extrato desta empresa. 404 quando os créditos
+    // estão desligados na env — trata como "sem carteira", não como erro.
+    apiFetch<WalletOverview>(`/credits/master/company/${id}`)
+      .then(res => setWallet(res))
+      .catch(() => setWallet(null));
     // F2 — quanto seria reembolsado se esta empresa fosse excluída agora (mostra no confirm).
     apiFetch<{ refund?: DeletionRefundPreview }>(`/companies/master/${id}/deletion-refund-preview`)
       .then(res => setDelRefund(res?.refund || null))
@@ -317,16 +348,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
           reason: String(c?.courtesyReason || ""),
           endsAt: c?.courtesyEndsAt ? String(c.courtesyEndsAt).slice(0, 10) : "",
         });
-        setPlanoSel(String(c?.selectedPlanKey || ""));
         setQuotaForm({
           monthly: c?.commercialCardsMonthlyLimitOverride != null ? String(c.commercialCardsMonthlyLimitOverride) : "",
           daily: c?.commercialCardsDailyLimitOverride != null ? String(c.commercialCardsDailyLimitOverride) : "",
           seatCap: c?.seatCap != null ? String(c.seatCap) : "",
         });
         setFinForm({
-          discount: c?.manualDiscountPercent != null ? String(c.manualDiscountPercent) : "",
-          freeMonths: c?.freeMonths != null ? String(c.freeMonths) : "",
-          billingCycle: String(c?.billingCycle || ""),
           setupValue: c?.setupValue != null ? String(c.setupValue) : "",
           parcela: c?.monthlyValueOverride != null ? String(c.monthlyValueOverride) : "",
         });
@@ -347,10 +374,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setProvBusy(true);
     setProvMsg(null);
     try {
+      // planKey/billingCycle NÃO vão mais no corpo — o backend assume PADRAO/MONTHLY quando
+      // omitidos (mesmo default que o wizard sempre mandou). Negociada é montada na ficha
+      // depois (módulos + crédito), este POST só cria o registro + admin.
       const body: Record<string, unknown> = {
         companyName: provForm.companyName.trim(),
-        planKey: provForm.planKey,
-        billingCycle: provForm.billingCycle,
         manualAccess: provForm.manualAccess,
       };
       if (provForm.slug.trim()) body.slug = provForm.slug.trim();
@@ -371,7 +399,27 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         "/master/provisioning/tenants",
         { method: "POST", body: JSON.stringify(body) },
       );
-      setProvResult(res ? { ...res, passwordDefined: Boolean(provForm.adminPassword.trim()) } : null);
+      // Créditos iniciais (0 = sem concessão): a empresa já existe, então isto é uma 2ª chamada
+      // best-effort — se falhar, a empresa NÃO é desfeita (já foi criada); o master conclui a
+      // concessão manualmente na aba Financeiro > Carteira.
+      const initialCredits = Math.trunc(Number(provForm.initialCredits) || 0);
+      let creditsWarning: string | null = null;
+      if (res?.companyId && initialCredits > 0) {
+        try {
+          await apiFetch(`/credits/master/company/${res.companyId}/grant`, {
+            method: "POST",
+            body: JSON.stringify({
+              amount: initialCredits,
+              grantType: "courtesy_internal",
+              usageKey: `provisioning:${res.companyId}`,
+              metadata: { reason: "Créditos iniciais — criação da empresa (wizard master)" },
+            }),
+          });
+        } catch {
+          creditsWarning = "Empresa criada, mas a concessão de créditos iniciais falhou — conceda na aba Financeiro > Carteira.";
+        }
+      }
+      setProvResult(res ? { ...res, passwordDefined: Boolean(provForm.adminPassword.trim()), creditsWarning } : null);
       setProvForm(PROV_VAZIO);
       setProvOpen(false);
       setProvStep(1);
@@ -392,10 +440,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         setProvMsg("CPF deve ter 11 dígitos e CNPJ 14 dígitos."); return;
       }
     }
-    if (provStep === 4 && provForm.adminEmail.trim() && !provForm.adminEmail.includes("@")) {
+    if (provStep === 2 && provForm.adminEmail.trim() && !provForm.adminEmail.includes("@")) {
       setProvMsg("E-mail do admin inválido."); return;
     }
-    if (provStep === 4 && provForm.adminPassword.trim() && provForm.adminPassword.trim().length < 6) {
+    if (provStep === 2 && provForm.adminPassword.trim() && provForm.adminPassword.trim().length < 6) {
       setProvMsg("A senha do admin deve ter ao menos 6 caracteres."); return;
     }
     setProvMsg(null);
@@ -465,26 +513,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  async function trialAcao(action: "grant" | "end") {
-    if (comBusy || selId == null) return;
-    setComBusy(`trial-${action}`);
-    setComMsg(null);
-    try {
-      await apiFetch(`/modules/master/company/${selId}/trial`, {
-        method: "POST",
-        body: JSON.stringify(action === "grant"
-          ? { action, days: Math.max(1, Number(trialDias) || 14) }
-          : { action }),
-      });
-      setComMsg(action === "grant" ? `✓ Trial concedido (${trialDias} dias).` : "✓ Trial encerrado (vai para checkout).");
-      await recarregarTudo();
-    } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha na ação de trial.");
-    } finally {
-      setComBusy(null);
-    }
-  }
-
   async function setSuspensao(suspended: boolean) {
     if (comBusy || selId == null) return;
     setComBusy("susp");
@@ -523,25 +551,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  async function mudarPlano() {
-    if (comBusy || selId == null || !planoSel) return;
-    setComBusy("plano");
-    setComMsg(null);
-    try {
-      await apiFetch(`/modules/master/company/${selId}/plan`, {
-        method: "PUT",
-        body: JSON.stringify({ planKey: planoSel }),
-      });
-      setComMsg(`✓ Plano alterado para ${PLANOS.find(p => p.value === planoSel)?.label || planoSel}.`);
-      setPlanoArm(false);
-      await recarregarTudo();
-    } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha ao mudar o plano.");
-    } finally {
-      setComBusy(null);
-    }
-  }
-
+  // Assentos (teto de acessos) é o único campo editável aqui agora. monthly/daily viajam
+  // JUNTO no corpo (round-trip do que já veio do backend) porque o endpoint reescreve os 3
+  // campos sempre — nunca reseta um override que esta tela não edita mais.
   async function salvarQuota() {
     if (comBusy || selId == null) return;
     setComBusy("quota");
@@ -552,31 +564,31 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       if (quotaForm.daily !== "") body.dailyCardLimit = Math.max(0, Number(quotaForm.daily) || 0);
       body.seatCap = quotaForm.seatCap === "" ? 0 : Math.max(0, Number(quotaForm.seatCap) || 0);
       await apiFetch(`/modules/master/company/${selId}/card-quota`, { method: "PUT", body: JSON.stringify(body) });
-      setComMsg("✓ Limites atualizados.");
+      setComMsg("✓ Teto de acessos atualizado.");
       await recarregarTudo();
     } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha ao salvar a quota.");
+      setComMsg(err instanceof Error ? err.message : "Falha ao salvar o teto de acessos.");
     } finally {
       setComBusy(null);
     }
   }
 
+  // Só Implantação (setup + parcela acordada) — desconto/meses grátis/ciclo morreram desta
+  // tela junto com "Condições de cobrança". Campos omitidos no corpo NÃO são zerados pelo
+  // backend (fallback pro valor atual da empresa quando `undefined`).
   async function salvarFinanceSettings() {
     if (comBusy || selId == null) return;
     setComBusy("fin");
     setComMsg(null);
     try {
       const body: Record<string, unknown> = {};
-      if (finForm.discount !== "") body.manualDiscountPercent = Number(finForm.discount) || 0;
-      if (finForm.freeMonths !== "") body.freeMonths = Math.max(0, Number(finForm.freeMonths) || 0);
-      if (finForm.billingCycle) body.billingCycle = finForm.billingCycle;
       if (finForm.setupValue !== "") body.setupValue = Math.max(0, Number(finForm.setupValue) || 0);
       if (finForm.parcela !== "") body.monthlyValueOverride = Math.max(0, Number(finForm.parcela) || 0);
       await apiFetch(`/modules/master/company/${selId}/finance-settings`, { method: "PUT", body: JSON.stringify(body) });
-      setComMsg("✓ Condições de cobrança atualizadas.");
+      setComMsg("✓ Implantação atualizada.");
       await recarregarTudo();
     } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha ao salvar as condições.");
+      setComMsg(err instanceof Error ? err.message : "Falha ao salvar a implantação.");
     } finally {
       setComBusy(null);
     }
@@ -684,38 +696,33 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  async function concederTaste(e: React.FormEvent<HTMLFormElement>) {
+  // Carteira — conceder crédito manual (bloco Financeiro). usageKey estável gerada na
+  // ABERTURA do modal (não a cada clique) — double-click não dobra o crédito de graça
+  // (mesma trava de idempotência do backend, comentada em credits.service.ts).
+  async function concederCredito(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (tasteBusy || selId == null) return;
-    setTasteBusy(true);
-    setComMsg(null);
+    if (walletGrantBusy || selId == null) return;
+    const amount = Math.trunc(Number(walletGrantForm.amount) || 0);
+    if (amount <= 0) { setWalletGrantMsg("Informe uma quantidade de créditos positiva."); return; }
+    setWalletGrantBusy(true);
+    setWalletGrantMsg(null);
     try {
-      await apiFetch(`/modules/master/company/${selId}/plan-taste`, {
+      await apiFetch(`/credits/master/company/${selId}/grant`, {
         method: "POST",
-        body: JSON.stringify({ planKey: tasteForm.planKey, revertsAt: new Date(tasteForm.revertsAt).toISOString(), reason: tasteForm.reason.trim() || undefined }),
+        body: JSON.stringify({
+          amount,
+          grantType: walletGrantForm.grantType,
+          usageKey: walletGrantKey,
+          ...(walletGrantForm.reason.trim() ? { metadata: { reason: walletGrantForm.reason.trim() } } : {}),
+        }),
       });
-      setComMsg("✓ Degustação concedida.");
-      setTasteForm({ planKey: "", revertsAt: "", reason: "" });
+      setWalletGrantOpen(false);
+      setWalletGrantForm(WALLET_GRANT_VAZIO);
       await recarregarTudo();
     } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha ao conceder degustação.");
+      setWalletGrantMsg(err instanceof Error ? err.message : "Falha ao conceder o crédito.");
     } finally {
-      setTasteBusy(false);
-    }
-  }
-
-  async function revogarTaste() {
-    if (tasteBusy || selId == null) return;
-    setTasteBusy(true);
-    setComMsg(null);
-    try {
-      await apiFetch(`/modules/master/company/${selId}/plan-taste`, { method: "DELETE", body: JSON.stringify({}) });
-      setComMsg("✓ Degustação encerrada.");
-      await recarregarTudo();
-    } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha ao encerrar degustação.");
-    } finally {
-      setTasteBusy(false);
+      setWalletGrantBusy(false);
     }
   }
 
@@ -905,12 +912,14 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const totais = {
     total: lista.length,
     ativas: lista.filter(c => c.isActive).length,
-    trial: lista.filter(c => String(c.status || "").toLowerCase() === "trial").length,
+    negociadas: lista.filter(c => modoConta(c) === "negociada").length,
     cortesia: lista.filter(c => String(c.status || "").toLowerCase() === "courtesy").length,
   };
   const c = detail?.company;
+  // Mesma régua da lista (status BRUTO devolvido pelo backend em ambos os endpoints — fix
+  // MASTER-REFAB S1: a ficha não devolvia `status`, então este box sempre dizia "não está em
+  // cortesia" mesmo quando o badge da lista dizia "Cortesia").
   const emCortesia = String(c?.status || "").toLowerCase() === "courtesy";
-  const emTrial = String(c?.status || "").toLowerCase() === "trial";
   const suspensa = String(c?.status || "").toLowerCase() === "suspended";
   const ledger = c?.financeHistory || [];
   const auditoria = c?.auditTimeline || [];
@@ -937,6 +946,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             ) : (
               <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem usuário admin inicial (criado sem senha ou não informado).</span>
             )}
+            {provResult.creditsWarning && (
+              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{provResult.creditsWarning}</span>
+            )}
             {!provResult.temporaryPassword && provResult.companyId != null && (
               <button className="btn-teal" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }}
                 onClick={() => {
@@ -955,7 +967,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         {[
           { label: "Empresas", value: companies ? String(totais.total) : "—" },
           { label: "Com acesso ativo", value: companies ? String(totais.ativas) : "—" },
-          { label: "Em trial", value: companies ? String(totais.trial) : "—" },
+          { label: "Negociadas", value: companies ? String(totais.negociadas) : "—" },
           { label: "Em cortesia", value: companies ? String(totais.cortesia) : "—" },
         ].map(k => (
           <div className="kpi" key={k.label}>
@@ -972,7 +984,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         <div className="panel-head">
           <h2>Empresas clientes</h2>
           <div className="meta">
-            <button className="btn-teal" onClick={() => { setProvOpen(true); setProvMsg(null); setProvStep(1); }}>+ Nova empresa</button>
+            <button className="btn-teal" onClick={() => {
+              setProvOpen(true);
+              setProvMsg(null);
+              setProvStep(1);
+              setProvForm(PROV_VAZIO);
+              // Pré-preenche "créditos iniciais" com o lote de boas-vindas padrão
+              // (CreditGlobalConfig.welcomeCredits) — rota pública, sem custo de leitura.
+              apiFetch<{ enabled?: boolean; welcomeCredits?: number }>("/credits/public-catalog")
+                .then(res => setProvForm(f => ({ ...f, initialCredits: res?.enabled ? String(res.welcomeCredits ?? 0) : "0" })))
+                .catch(() => {});
+            }}>+ Nova empresa</button>
           </div>
         </div>
         <div className="tbl-wrap">
@@ -982,7 +1004,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 <th>Empresa</th>
                 <th>Status</th>
                 <th>Cobrança</th>
-                <th>Trial / Período</th>
+                <th>Créditos</th>
                 <th>Usuários</th>
                 <th>Módulos ON</th>
                 <th>WhatsApp</th>
@@ -1005,15 +1027,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </td>
                   <td>
                     <span className={statusTagClass(emp.status, emp.isActive)}>{statusLabel(emp.status)}</span>
-                    {emp.tastePlanKey && <span className="tag warn" style={{ marginLeft: 4, fontSize: "0.6rem" }}>DEGUST.</span>}
+                    <span className={modoConta(emp) === "negociada" ? "tag warn" : "tag teal"} style={{ marginLeft: 4, fontSize: "0.6rem" }}>
+                      {modoLabel(modoConta(emp))}
+                    </span>
                   </td>
                   <td>{emp.paymentMethod || emp.billingProvider || "—"}</td>
                   <td>
-                    {String(emp.status || "").toLowerCase() === "trial"
-                      ? `até ${fmtData(emp.trialEndsAt)}`
-                      : emp.subscriptionCurrentPeriodEnd
-                        ? `até ${fmtData(emp.subscriptionCurrentPeriodEnd)}`
-                        : "—"}
+                    {emp.creditsBalance == null
+                      ? "—"
+                      : emp.creditsBalance === 0
+                        ? <span className="tag warn">sem saldo</span>
+                        : String(emp.creditsBalance)}
                   </td>
                   <td>{emp.users?.length ?? 0}</td>
                   <td>{(emp.modules || []).filter(m => m.enabled).length}</td>
@@ -1073,7 +1097,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       ["E-mail", c.contactEmail],
                       ["Telefone", c.contactPhone],
                       ["Documento", c.taxDocument],
-                      ["Plano", PLANOS.find(p => p.value === c.selectedPlanKey)?.label],
+                      ["Modo", modoConta(c) === "negociada" ? "Negociada (montada pelo master)" : "Créditos (self-service)"],
                       ["Slug", c.slug],
                     ].map(([label, value]) => (
                       <div key={String(label)} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1215,28 +1239,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     )}
 
                     <div style={{ display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Trial</strong>
-                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
-                        {emTrial ? `Em trial até ${fmtData(c.trialEndsAt)}.` : "Sem trial ativo."} Encerrar leva a empresa ao checkout (PR-002 B).
-                      </span>
-                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Dias</label>
-                          <input className="field-dark" type="number" min={1} max={365} style={{ width: 90 }} value={trialDias}
-                            onChange={e => setTrialDias(e.target.value)} />
-                        </div>
-                        <button className="btn-teal" disabled={comBusy != null} onClick={() => trialAcao("grant")}>
-                          {comBusy === "trial-grant" ? "Concedendo…" : emTrial ? "Estender trial" : "Conceder trial"}
-                        </button>
-                        {emTrial && (
-                          <button className="btn-ghost" disabled={comBusy != null} onClick={() => trialAcao("end")}>
-                            {comBusy === "trial-end" ? "…" : "Encerrar trial"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Suspensão</strong>
                       <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{suspensa ? "Empresa SUSPENSA — sem acesso." : "Empresa não está suspensa."}</span>
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
@@ -1276,121 +1278,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       </div>
                     </div>
 
-                    <div style={{ paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Degustação de plano</strong>
-                      {c.tastePlanKey ? (
-                        <React.Fragment>
-                          <div style={{ fontSize: "0.72rem", lineHeight: 1.5 }}>
-                            <span className="tag warn" style={{ marginRight: 6 }}>EM DEGUSTAÇÃO</span>
-                            {PLANOS.find(p => p.value === c.tastePlanKey)?.label || c.tastePlanKey}
-                            {" até "}
-                            <strong>{fmtData(c.tasteRevertsAt)}</strong>
-                            {c.tasteReason && <span className="bv-hint" style={{ marginLeft: 6 }}>— {c.tasteReason}</span>}
-                          </div>
-                          <div>
-                            <button className="btn-ghost btn-danger" disabled={tasteBusy} style={{ minHeight: 26, fontSize: "0.62rem" }}
-                              onClick={revogarTaste}>
-                              {tasteBusy ? "…" : "Encerrar agora"}
-                            </button>
-                          </div>
-                        </React.Fragment>
-                      ) : (
-                        <form onSubmit={concederTaste} style={{ display: "grid", gap: 8 }}>
-                          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                            <div style={{ display: "grid", gap: 4 }}>
-                              <label className="field-label">Plano a degustar</label>
-                              <select className="field-dark" style={{ minWidth: 140 }} required value={tasteForm.planKey}
-                                onChange={e => setTasteForm(f => ({ ...f, planKey: e.target.value }))}>
-                                <option value="">Escolha…</option>
-                                {PLANOS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                              </select>
-                            </div>
-                            <div style={{ display: "grid", gap: 4 }}>
-                              <label className="field-label">Volta em</label>
-                              <input className="field-dark" type="date" required style={{ width: 140 }} value={tasteForm.revertsAt}
-                                onChange={e => setTasteForm(f => ({ ...f, revertsAt: e.target.value }))} />
-                            </div>
-                            <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 140 }}>
-                              <label className="field-label">Motivo (opcional)</label>
-                              <input className="field-dark" maxLength={200} placeholder="Ex.: negociação em andamento"
-                                value={tasteForm.reason} onChange={e => setTasteForm(f => ({ ...f, reason: e.target.value }))} />
-                            </div>
-                            <button className="btn-teal" type="submit" disabled={tasteBusy || !tasteForm.planKey || !tasteForm.revertsAt}>
-                              {tasteBusy ? "…" : "Conceder taste"}
-                            </button>
-                          </div>
-                          <span className="bv-hint">Liga as features do plano agora, de graça. Na data marcada o sistema reverte automaticamente para o plano atual da empresa.</span>
-                        </form>
-                      )}
-                    </div>
-
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Plano</strong>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <select className="field-dark" style={{ minWidth: 160 }} value={planoSel} onChange={e => { setPlanoSel(e.target.value); setPlanoArm(false); }}>
-                          <option value="">Escolha…</option>
-                          {PLANOS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                        </select>
-                        {planoArm ? (
-                          <button className="btn-ghost" style={{ borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }} disabled={comBusy != null} onClick={mudarPlano}>
-                            {comBusy === "plano" ? "Mudando…" : "Confirmar mudança de plano"}
-                          </button>
-                        ) : (
-                          <button className="btn-ghost" disabled={comBusy != null || !planoSel || planoSel === String(c.selectedPlanKey || "")}
-                            onClick={() => setPlanoArm(true)}>Mudar plano</button>
-                        )}
-                      </div>
-                      <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Mudar plano redefine módulos e entitlements pelo catálogo do plano.</span>
-                    </div>
-
-                    <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Limites por empresa (override)</strong>
-                      <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Assentos = teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
+                      <strong style={{ fontSize: "0.76rem" }}>Teto de acessos (assentos)</strong>
+                      <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label className="field-label">Cards/mês</label>
-                          <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="padrão do plano"
-                            value={quotaForm.monthly} onChange={e => setQuotaForm(f => ({ ...f, monthly: e.target.value }))} />
-                        </div>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label className="field-label">Cards/dia</label>
-                          <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="padrão do plano"
-                            value={quotaForm.daily} onChange={e => setQuotaForm(f => ({ ...f, daily: e.target.value }))} />
-                        </div>
                         <div style={{ display: "grid", gap: 4 }}>
                           <label className="field-label">Assentos (teto)</label>
                           <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="sem teto"
                             value={quotaForm.seatCap} onChange={e => setQuotaForm(f => ({ ...f, seatCap: e.target.value }))} />
                         </div>
                         <button className="btn-ghost" disabled={comBusy != null} onClick={salvarQuota}>
-                          {comBusy === "quota" ? "Salvando…" : "Salvar limites"}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Condições de cobrança</strong>
-                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Desconto manual (%)</label>
-                          <input className="field-dark" type="number" min={0} max={100} step="0.01" style={{ width: 130 }}
-                            value={finForm.discount} onChange={e => setFinForm(f => ({ ...f, discount: e.target.value }))} />
-                        </div>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Meses grátis</label>
-                          <input className="field-dark" type="number" min={0} max={24} style={{ width: 100 }}
-                            value={finForm.freeMonths} onChange={e => setFinForm(f => ({ ...f, freeMonths: e.target.value }))} />
-                        </div>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Ciclo</label>
-                          <select className="field-dark" value={finForm.billingCycle} onChange={e => setFinForm(f => ({ ...f, billingCycle: e.target.value }))}>
-                            <option value="">manter</option>
-                            <option value="MONTHLY">Mensal</option>
-                            <option value="ANNUAL">Anual</option>
-                          </select>
-                        </div>
-                        <button className="btn-ghost" disabled={comBusy != null} onClick={salvarFinanceSettings}>
-                          {comBusy === "fin" ? "Salvando…" : "Salvar condições"}
+                          {comBusy === "quota" ? "Salvando…" : "Salvar assentos"}
                         </button>
                       </div>
                     </div>
@@ -1476,18 +1374,71 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
                 {detailTab === "Financeiro" && (
                   <React.Fragment>
+                    <div style={{ padding: "12px 16px 0" }}>
+                      <section className="panel" style={{ marginBottom: 4 }}>
+                        <div className="panel-head">
+                          <h2>Carteira</h2>
+                          <div className="meta">
+                            <button className="btn-teal" style={{ minHeight: 30, fontSize: "0.68rem" }}
+                              onClick={() => {
+                                setWalletGrantKey(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `grant-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+                                setWalletGrantForm(WALLET_GRANT_VAZIO);
+                                setWalletGrantMsg(null);
+                                setWalletGrantOpen(true);
+                              }}>
+                              + Conceder crédito
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{ padding: "12px 16px 16px", display: "grid", gap: 12 }}>
+                          {!wallet && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando carteira…</span>}
+                          {wallet && wallet.enabled === false && (
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Créditos desligados nesta env.</span>
+                          )}
+                          {wallet && wallet.enabled !== false && (
+                            <React.Fragment>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Saldo</span>
+                                <strong style={{ fontSize: "1.3rem", fontFamily: "var(--font-mono)" }}>{wallet.balance ?? 0}</strong>
+                                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>créditos</span>
+                                {(wallet.balance ?? 0) === 0 && <span className="tag warn" style={{ fontSize: "0.62rem" }}>sem saldo</span>}
+                              </div>
+
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)" }}>Lotes</span>
+                                {(wallet.lots || []).length === 0 && (
+                                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem lotes abertos.</span>
+                                )}
+                                {(wallet.lots || []).map(lot => (
+                                  <div key={lot.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "0.72rem" }}>
+                                    <span>{lot.remaining}/{lot.amount} créditos{lot.grantType ? ` · ${lot.grantType}` : ""}</span>
+                                    <span style={{ color: "var(--text-muted)" }}>{lot.expiresAt ? `expira ${fmtData(lot.expiresAt)}` : "não expira"}</span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)" }}>Extrato (últimos movimentos)</span>
+                                {(wallet.recent || []).length === 0 && (
+                                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem movimentos.</span>
+                                )}
+                                {(wallet.recent || []).map(m => (
+                                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "0.72rem" }}>
+                                    <span>{WALLET_MOVEMENT_LABEL[m.kind] || m.kind}{m.actionKey ? ` · ${m.actionKey}` : ""}</span>
+                                    <span style={{ fontFamily: "var(--font-mono)" }}>{m.amount}</span>
+                                    <span style={{ color: "var(--text-muted)" }}>{fmtDataHora(m.createdAt)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </React.Fragment>
+                          )}
+                        </div>
+                      </section>
+                    </div>
+
                     <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }}
                         onClick={() => { setPagForm(PAG_VAZIO); setPagMsg(null); setPagOpen(true); }}>+ Registrar pagamento</button>
-                      {String(c?.billingProvider || "").toLowerCase() === "mercadopago" && (
-                        subCancelArm ? (
-                          <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
-                            disabled={pagBusy} onClick={() => cancelarAssinatura()}>{pagBusy ? "Cancelando…" : "Confirmar cancelamento da assinatura"}</button>
-                        ) : (
-                          <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", color: "var(--hbx-danger)" }}
-                            disabled={pagBusy} onClick={() => setSubCancelArm(true)}>Cancelar assinatura</button>
-                        )
-                      )}
                       {pagMsg && (
                         <span style={{ fontSize: "0.72rem", fontWeight: 700, color: pagMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{pagMsg}</span>
                       )}
@@ -1549,6 +1500,26 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </tbody>
                       </table>
                     </div>
+
+                    {String(c?.billingProvider || "").toLowerCase() === "mercadopago" && (
+                      <div style={{ padding: "12px 16px 16px" }}>
+                        <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                          onClick={() => setLegadoAssinaturaOpen(o => !o)}>
+                          {legadoAssinaturaOpen ? "▾" : "▸"} Legado (assinatura)
+                        </button>
+                        {legadoAssinaturaOpen && (
+                          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            {subCancelArm ? (
+                              <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                                disabled={pagBusy} onClick={() => cancelarAssinatura()}>{pagBusy ? "Cancelando…" : "Confirmar cancelamento da assinatura"}</button>
+                            ) : (
+                              <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", color: "var(--hbx-danger)" }}
+                                disabled={pagBusy} onClick={() => setSubCancelArm(true)}>Cancelar assinatura</button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </React.Fragment>
                 )}
 
@@ -1672,14 +1643,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>Nova empresa cliente</h3>
               <span style={{ color: "var(--text-muted)", cursor: "pointer" }} onClick={() => { setProvOpen(false); setProvStep(1); setProvMsg(null); }}>✕</span>
             </div>
+            <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+              Rota de exceção (Negociada) — o caminho normal é o cliente entrar sozinho pelo self-signup.
+            </span>
 
             <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
-              {["Empresa", "Plano", "Ciclo", "Admin", "Avançado"].map((label, i) => (
+              {["Empresa", "Admin", "Avançado"].map((label, i) => (
                 <React.Fragment key={label}>
                   <span className={`prov-step${provStep === i + 1 ? " is-active" : ""}${provStep > i + 1 ? " is-done" : ""}`}>
                     {i + 1}. {label}
                   </span>
-                  {i < 4 && <span className="prov-step-arrow">›</span>}
+                  {i < 2 && <span className="prov-step-arrow">›</span>}
                 </React.Fragment>
               ))}
             </div>
@@ -1708,35 +1682,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             )}
 
             {provStep === 2 && (
-              <div style={{ display: "grid", gap: 8 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Plano</strong>
-                {PLANOS.map(p => (
-                  <label key={p.value} className={`prov-radio-card${provForm.planKey === p.value ? " is-sel" : ""}`}>
-                    <input type="radio" name="provPlanKey" value={p.value} checked={provForm.planKey === p.value}
-                      onChange={() => setProvForm(f => ({ ...f, planKey: p.value }))} />
-                    <div>
-                      <div style={{ fontSize: "0.78rem", fontWeight: 700 }}>{p.label}</div>
-                      <div className="prov-option-desc">{p.desc}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {provStep === 3 && (
-              <div style={{ display: "grid", gap: 8 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Ciclo de cobrança</strong>
-                {[{ value: "MONTHLY", label: "Mensal" }, { value: "ANNUAL", label: "Anual (20% off)" }].map(opt => (
-                  <label key={opt.value} className={`prov-radio-card${provForm.billingCycle === opt.value ? " is-sel" : ""}`}>
-                    <input type="radio" name="provCycle" value={opt.value} checked={provForm.billingCycle === opt.value}
-                      onChange={() => setProvForm(f => ({ ...f, billingCycle: opt.value }))} />
-                    <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{opt.label}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {provStep === 4 && (
               <div style={{ display: "grid", gap: 10 }}>
                 <strong style={{ fontSize: "0.76rem" }}>Admin inicial</strong>
                 <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
@@ -1770,7 +1715,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </div>
             )}
 
-            {provStep === 5 && (
+            {provStep === 3 && (
               <div style={{ display: "grid", gap: 10 }}>
                 <strong style={{ fontSize: "0.76rem" }}>Avançado</strong>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
@@ -1783,8 +1728,14 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     onChange={e => setProvForm(f => ({ ...f, seatCap: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label className="prov-fld-adv-lbl">Preço/mês override (R$) — vazio = padrão do plano</label>
-                  <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 160 }} placeholder="padrão do plano"
+                  <label className="prov-fld-adv-lbl">Créditos iniciais (0 = sem concessão)</label>
+                  <input className="field-dark" type="number" min={0} style={{ width: 140 }} value={provForm.initialCredits}
+                    onChange={e => setProvForm(f => ({ ...f, initialCredits: e.target.value }))} />
+                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Pré-preenchido com o lote de boas-vindas padrão.</span>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label className="prov-fld-adv-lbl">Preço/mês override (R$) — vazio = sem cobrança automática</label>
+                  <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 160 }} placeholder="vazio = sem cobrança automática"
                     value={provForm.monthlyValueOverride} onChange={e => setProvForm(f => ({ ...f, monthlyValueOverride: e.target.value }))} />
                   <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
                     Override = exceção marcada no registro. Preço 0 → empresa criada em <b>pending_checkout</b> (sem acesso, aguarda contato comercial).
@@ -1808,12 +1759,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 )}
               </div>
               <div>
-                {provStep < 5 && (
+                {provStep < 3 && (
                   <button className="btn-teal" style={{ minHeight: 38 }} onClick={avancarPasso}>
                     Próximo →
                   </button>
                 )}
-                {provStep === 5 && (
+                {provStep === 3 && (
                   <button className="btn-teal" style={{ minHeight: 38 }} disabled={provBusy} onClick={provisionar}>
                     {provBusy ? "Criando…" : "Criar empresa"}
                   </button>
@@ -1904,6 +1855,43 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             </label>
             <button className="btn-teal" type="submit" disabled={pagBusy} style={{ minHeight: 42 }}>
               {pagBusy ? "Registrando…" : "Registrar pagamento"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {walletGrantOpen && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setWalletGrantOpen(false); }}>
+          <form className="hbx-modal" onSubmit={concederCredito}
+            style={{ width: "min(420px, 100%)", display: "grid", gap: 12, padding: 24 }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              Conceder crédito
+              <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setWalletGrantOpen(false)}>✕</span>
+            </h3>
+            {walletGrantMsg && (
+              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{walletGrantMsg}</div>
+            )}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Quantidade de créditos *</label>
+              <input className="field-dark" type="number" min={1} required value={walletGrantForm.amount}
+                onChange={e => setWalletGrantForm(f => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Tipo</label>
+              <select className="field-dark" value={walletGrantForm.grantType}
+                onChange={e => setWalletGrantForm(f => ({ ...f, grantType: e.target.value as typeof f.grantType }))}>
+                <option value="courtesy_internal">Cortesia (concessão grátis)</option>
+                <option value="paid">Pago (recebido fora do sistema)</option>
+                <option value="promo">Promoção</option>
+              </select>
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Motivo (opcional)</label>
+              <input className="field-dark" maxLength={200} placeholder="Ex.: negociação com o cliente"
+                value={walletGrantForm.reason} onChange={e => setWalletGrantForm(f => ({ ...f, reason: e.target.value }))} />
+            </div>
+            <button className="btn-teal" type="submit" disabled={walletGrantBusy} style={{ minHeight: 42 }}>
+              {walletGrantBusy ? "Concedendo…" : "Conceder crédito"}
             </button>
           </form>
         </div>

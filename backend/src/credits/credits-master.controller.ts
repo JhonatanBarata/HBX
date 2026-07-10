@@ -32,6 +32,14 @@ export class CreditsMasterController {
     return { packs: await this.creditsService.listPacksForMaster() };
   }
 
+  // MASTER-REFAB S1 — bloco Carteira na ficha da empresa (saldo/lotes/extrato). Só leitura;
+  // a concessão continua sendo o POST .../grant logo abaixo.
+  @Get('company/:id')
+  async getCompanyWallet(@Param('id', ParseIntPipe) companyId: number) {
+    this.assertEnabled();
+    return this.creditsService.getWalletOverviewForMaster(companyId);
+  }
+
   @Put('packs/:packKey')
   async updatePack(@Param('packKey') packKey: string, @Body() body: UpdatePackBody) {
     this.assertEnabled();
