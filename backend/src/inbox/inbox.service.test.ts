@@ -3042,3 +3042,130 @@ test('C3/Equipe: instância do motor de OUTRO usuário não decora quem não tem
   const m = res.team.find((t: any) => String(t.userId) === '80');
   assert.equal(m.whatsappConnected, true, 'granularidade por usuário: instância de outro user não afeta este');
 });
+
+// ---------------------------------------------------------------------------
+// P1.3: mídia do inbox — assinatura na SAÍDA + upload privado (UUID/magic bytes)
+// ---------------------------------------------------------------------------
+
+import { mkdirSync as p13MkdirSync, mkdtempSync as p13MkdtempSync, rmSync as p13RmSync, writeFileSync as p13WriteFileSync, existsSync as p13ExistsSync, readdirSync as p13ReaddirSync } from 'node:fs';
+import { tmpdir as p13Tmpdir } from 'node:os';
+import { join as p13Join } from 'node:path';
+import { verifyInboxMediaSignature as p13Verify } from '../uploads/inbox-media.util';
+
+function p13WithTempCwd(run: (tempDir: string) => void) {
+  const previousCwd = process.cwd();
+  const previousSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = 'segredo-de-teste-com-32-caracteres!';
+  const tempDir = p13MkdtempSync(p13Join(p13Tmpdir(), 'inbox-media-p13-'));
+  try {
+    process.chdir(tempDir);
+    run(tempDir);
+  } finally {
+    process.chdir(previousCwd);
+    p13RmSync(tempDir, { recursive: true, force: true });
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
+  }
+}
+
+function p13AssertSignedInboxUrl(value: unknown, filename: string) {
+  const url = new URL(`http://x${String(value)}`);
+  assert.equal(url.pathname, `/uploads/inbox/${filename}`);
+  assert.equal(
+    p13Verify(filename, url.searchParams.get('e'), url.searchParams.get('s')),
+    true,
+    `assinatura inválida em: ${String(value)}`,
+  );
+}
+
+test('P1.3 normalizeStoredMediaAssetUrl assina o path cru na saída (arquivo no storage privado)', () => {
+  p13WithTempCwd((tempDir) => {
+    p13MkdirSync(p13Join(tempDir, 'storage', 'inbox'), { recursive: true });
+    p13WriteFileSync(p13Join(tempDir, 'storage', 'inbox', 'anexo.jpg'), 'bytes');
+
+    const service = Object.create(InboxService.prototype) as any;
+    const signed = service.normalizeStoredMediaAssetUrl('/uploads/inbox/anexo.jpg');
+    p13AssertSignedInboxUrl(signed, 'anexo.jpg');
+
+    // valor armazenado com query velha sai re-assinado fresco
+    const resigned = service.normalizeStoredMediaAssetUrl('/uploads/inbox/anexo.jpg?e=1&s=velho');
+    p13AssertSignedInboxUrl(resigned, 'anexo.jpg');
+
+    // URL absoluta armazenada vira path relativo assinado
+    const fromAbsolute = service.normalizeStoredMediaAssetUrl(
+      'https://api.hbxsystem.com.br/uploads/inbox/anexo.jpg',
+    );
+    p13AssertSignedInboxUrl(fromAbsolute, 'anexo.jpg');
+
+    // arquivo que não existe em nenhum dir → null (comportamento preservado)
+    assert.equal(service.normalizeStoredMediaAssetUrl('/uploads/inbox/sumiu.jpg'), null);
+  });
+});
+
+test('P1.3 normalizeStoredMediaAssetUrl aceita arquivo ainda no public legado (transição)', () => {
+  p13WithTempCwd((tempDir) => {
+    p13MkdirSync(p13Join(tempDir, 'public', 'uploads', 'inbox'), { recursive: true });
+    p13WriteFileSync(p13Join(tempDir, 'public', 'uploads', 'inbox', 'legado.ogg'), 'bytes');
+
+    const service = Object.create(InboxService.prototype) as any;
+    const signed = service.normalizeStoredMediaAssetUrl('/uploads/inbox/legado.ogg');
+    p13AssertSignedInboxUrl(signed, 'legado.ogg');
+  });
+});
+
+test('P1.3 uploadConversationMedia grava UUID+ext do MIME no storage privado e devolve URL assinada', async () => {
+  await (async () => {
+    const previousCwd = process.cwd();
+    const previousSecret = process.env.JWT_SECRET;
+    process.env.JWT_SECRET = 'segredo-de-teste-com-32-caracteres!';
+    const tempDir = p13MkdtempSync(p13Join(p13Tmpdir(), 'inbox-upload-p13-'));
+    try {
+      process.chdir(tempDir);
+      const service = Object.create(InboxService.prototype) as any;
+      service.requireCompanyIdFromUser = () => 7;
+      service.assertCanSendInConversation = async () => 'shared';
+      service.prisma = {
+        companyConversation: { findFirst: async () => ({ id: 42, companyId: 7 }) },
+      };
+
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]);
+      const result = await service.uploadConversationMedia({ id: 1 }, 42, {
+        buffer: pngBytes,
+        mimetype: 'image/png',
+        originalname: 'malicioso.html', // originalname NÃO manda na extensão
+        size: pngBytes.length,
+      });
+
+      // nome = uuid.png (extensão do MIME validado)
+      assert.match(
+        String(result.filename),
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/,
+      );
+      p13AssertSignedInboxUrl(result.url, result.filename);
+
+      // gravou no storage privado, nada no public
+      assert.equal(
+        p13ExistsSync(p13Join(tempDir, 'storage', 'inbox', result.filename)),
+        true,
+      );
+      assert.equal(p13ExistsSync(p13Join(tempDir, 'public', 'uploads', 'inbox')), false);
+
+      // magic bytes: HTML mascarado de PNG é recusado e nada é gravado
+      await assert.rejects(
+        service.uploadConversationMedia({ id: 1 }, 42, {
+          buffer: Buffer.from('<html><script>alert(1)</script></html>'),
+          mimetype: 'image/png',
+          originalname: 'foto.png',
+          size: 10,
+        }),
+        /nao corresponde ao tipo/i,
+      );
+      assert.equal(p13ReaddirSync(p13Join(tempDir, 'storage', 'inbox')).length, 1);
+    } finally {
+      process.chdir(previousCwd);
+      p13RmSync(tempDir, { recursive: true, force: true });
+      if (previousSecret === undefined) delete process.env.JWT_SECRET;
+      else process.env.JWT_SECRET = previousSecret;
+    }
+  })();
+});

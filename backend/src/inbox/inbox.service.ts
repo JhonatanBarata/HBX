@@ -10,8 +10,9 @@ import {
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { extname, join } from 'path';
+import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { ConversationsService } from '../messaging/conversations.service';
@@ -60,6 +61,17 @@ import {
 } from '../messaging/webwhats-bridge.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveBackendPublicAssetPath } from '../public-assets';
+// P1.3: mídia do inbox vive em storage privado e sai pro cliente como URL assinada.
+import {
+  buildSignedInboxMediaPath,
+  extractInboxMediaFilename,
+  getInboxMediaFileCandidates,
+  getInboxPrivateMediaDir,
+  inboxUploadExtensionForMime,
+  matchesDeclaredMagicBytes,
+  signInboxMediaUrlIfLocal,
+  stripInboxMediaSignature,
+} from '../uploads/inbox-media.util';
 import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
@@ -1411,6 +1423,13 @@ export class InboxService {
     if (!normalized) return null;
     const localPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
     if (!localPath.startsWith('/uploads/')) return localPath;
+    // P1.3: mídia do inbox mora no storage privado (com fallback pro public legado
+    // durante a transição) — o resolve público não a enxerga mais.
+    const inboxFilename = extractInboxMediaFilename(localPath);
+    if (inboxFilename) {
+      const candidates = getInboxMediaFileCandidates(inboxFilename) || [];
+      return candidates.some((candidate) => existsSync(candidate)) ? localPath : null;
+    }
     const diskPath = resolveBackendPublicAssetPath(localPath);
     if (!diskPath || !existsSync(diskPath)) return null;
     return localPath;
@@ -1444,7 +1463,16 @@ export class InboxService {
       : normalized;
   }
 
+  // P1.3: na SAÍDA dos payloads, path de mídia do inbox vira URL ASSINADA (o valor
+  // armazenado continua o path cru; assinatura/host velhos são descartados e a
+  // assinatura sai sempre fresca).
   private normalizeStoredMediaAssetUrl(value: unknown) {
+    const normalized = this.normalizeStoredMediaAssetUrlRaw(value);
+    if (!normalized) return null;
+    return signInboxMediaUrlIfLocal(normalized);
+  }
+
+  private normalizeStoredMediaAssetUrlRaw(value: unknown) {
     const normalized = this.normalizeMessageMetadataText(value);
     if (!normalized) return null;
     if (this.isInlineBase64MediaValue(normalized)) return null;
@@ -8233,13 +8261,18 @@ export class InboxService {
     const quotedPreview = opts?.quotedContent
       ? String(opts.quotedContent).trim().slice(0, 200)
       : null;
+    // P1.3: o front manda a URL ASSINADA que recebeu do upload — armazenamos o path
+    // cru (assinatura expira; a leitura re-assina na saída).
     const attachment = opts?.attachment
       ? {
           kind: this.normalizeMessageMetadataText(opts.attachment.kind) || undefined,
-          url: this.normalizeMessageMetadataText(opts.attachment.url) || undefined,
-          previewUrl:
-            this.normalizeMessageMetadataText(opts.attachment.previewUrl || opts.attachment.url) ||
+          url:
+            stripInboxMediaSignature(this.normalizeMessageMetadataText(opts.attachment.url)) ||
             undefined,
+          previewUrl:
+            stripInboxMediaSignature(
+              this.normalizeMessageMetadataText(opts.attachment.previewUrl || opts.attachment.url),
+            ) || undefined,
           mimeType: this.normalizeMessageMetadataText(opts.attachment.mimeType) || undefined,
           fileName: this.normalizeMessageMetadataText(opts.attachment.fileName) || undefined,
           fileSize: this.normalizeStoredFileSize(opts.attachment.fileSize),
@@ -8394,17 +8427,27 @@ export class InboxService {
         'Tipo de arquivo nao suportado. Use imagem, MP4, PDF/DOC/XLS/TXT/CSV ou audio MP3/OGG/M4A/WAV/WEBM.',
       );
     }
+    // P1.3: o MIME acima é o DECLARADO pelo cliente — magic bytes barram conteúdo
+    // mascarado nos tipos com assinatura estável (ex.: HTML subido como image/png).
+    if (!matchesDeclaredMagicBytes(file.mimetype, file.buffer)) {
+      throw new BadRequestException('Conteudo do arquivo nao corresponde ao tipo enviado.');
+    }
 
-    const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');
+    // P1.3: storage privado (fora do public servido pelo estático), nome UUID
+    // (não-enumerável) e extensão derivada do MIME validado, nunca do originalname.
+    const uploadDir = getInboxPrivateMediaDir();
     if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
 
-    const safeExt = extname(file.originalname || '').replace(/[^a-zA-Z0-9.]/g, '').slice(0, 6) || '.bin';
-    const filename = `${companyId}_${conversationId}_${Date.now()}${safeExt}`;
+    const filename = `${randomUUID()}${inboxUploadExtensionForMime(file.mimetype)}`;
     const filePath = join(uploadDir, filename);
     writeFileSync(filePath, file.buffer);
 
-    const publicUrl = `/uploads/inbox/${filename}`;
-    return { url: publicUrl, filename, mimeType: file.mimetype, size: file.size };
+    return {
+      url: buildSignedInboxMediaPath(filename),
+      filename,
+      mimeType: file.mimetype,
+      size: file.size,
+    };
   }
 
   // ---------------------------------------------------------------------------

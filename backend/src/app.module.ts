@@ -47,6 +47,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
 import { NucleoModule } from './nucleo/nucleo.module';
 import { LogisticaModule } from './logistica/logistica.module';
 import { CreditsModule } from './credits/credits.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -60,6 +61,11 @@ import { CreditsModule } from './credits/credits.module';
       rootPath: getBackendPublicRoot(),
       serveRoot: '/',
     }),
+    // P1.3: mídia do inbox saiu do public — GET /uploads/inbox/:filename com URL assinada.
+    // Rota de controller entra no router ANTES do middleware do serve-static (que só
+    // registra no onModuleInit), então ela intercepta /uploads/inbox/* mesmo com o
+    // estático servindo a raiz.
+    UploadsModule,
     PrismaModule,
     MailModule,
     UsersModule,

@@ -337,10 +337,12 @@ function fmtResp(secs?: number | null) {
 }
 
 
-// /uploads/inbox/x.jpg → URL servível (proxy /hbx/api em dev). Absoluto passa direto.
+// Mídia do inbox chega ASSINADA do backend (/uploads/inbox/x.jpg?e=…&s=… ou absoluta).
+// Relativo resolve contra o apiBase PRESERVANDO a query (a assinatura é o acesso);
+// absoluto/data/blob passa direto — nunca rebater no apiBase.
 function resolveMediaUrl(u?: string | null) {
   if (!u) return "";
-  if (/^https?:\/\//i.test(u)) return u;
+  if (/^(https?:|data:|blob:)/i.test(u)) return u;
   const base = getApiBase();
   return u.startsWith("/") ? base + u : `${base}/${u}`;
 }

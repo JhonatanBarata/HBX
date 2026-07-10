@@ -629,6 +629,9 @@ function buildRemoteDeployScript(config, mode) {
     '    -v "$HBX_HOST_DOCKER_CLI_PATH:/usr/bin/docker:ro" \\',
     '    -v /var/run/docker.sock:/var/run/docker.sock \\',
     '    -v "$APP_DIR/backend/public/uploads:/app/public/uploads" \\',
+    // P1.3: mídia do inbox mora em storage privado (fora do public) — sem este volume o dir é efêmero
+    // e anexos novos somem no próximo recreate do container.
+    '    -v "$APP_DIR/backend/storage:/app/storage" \\',
     '    hbx_backend:latest',
     '}',
     'verify_backend_api() {',

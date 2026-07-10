@@ -75,6 +75,10 @@ services:
       - "3000:3000"
     volumes:
       - ./backend/public/uploads:/app/public/uploads
+      # P1.3 (PR10072026 W4) — mídia PRIVADA do inbox vive em /app/storage/inbox; sem este
+      # volume o filesystem do container é efêmero e todo anexo recebido entre dois publishes
+      # some no recreate (perda irrecuperável de mídia de cliente).
+      - ./backend/storage:/app/storage
     networks:
       - hbx_net
 

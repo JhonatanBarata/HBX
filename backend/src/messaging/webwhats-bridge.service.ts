@@ -5,6 +5,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { getBackendPublicUploadDir } from '../public-assets';
+// P1.3: mídia do inbox mora em storage privado; fallback público do bridge sai assinado.
+import {
+  extractInboxMediaFilename,
+  getInboxMediaFileCandidates,
+  getInboxPrivateMediaDir,
+  signInboxMediaUrlIfLocal,
+} from '../uploads/inbox-media.util';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
 import { isModalSendReady } from './whatsapp-connection-state';
 import { ZapCheckGuardService } from './zap-check-guard.service';
@@ -1594,6 +1601,14 @@ export class WebwhatsBridgeService {
     const pathname = this.extractMediaPathname(raw);
     if (!pathname || !pathname.startsWith('/uploads/')) return null;
 
+    // P1.3: mídia do inbox vive no dir privado; durante a transição um arquivo antigo
+    // ainda pode estar no public — devolve o primeiro candidato que existe no disco.
+    const inboxFilename = extractInboxMediaFilename(pathname);
+    if (inboxFilename) {
+      const candidates = getInboxMediaFileCandidates(inboxFilename) || [];
+      return candidates.find((candidate) => existsSync(candidate)) || candidates[0] || null;
+    }
+
     const normalizedRelativePath = decodeURIComponent(pathname)
       .replace(/^\/+/, '')
       .split('/')
@@ -1624,7 +1639,12 @@ export class WebwhatsBridgeService {
       || this.normalizeOptionalString(process.env.BACKEND_PUBLIC_URL)
       || `http://localhost:${Number(process.env.APP_PORT || 3000)}`
     ).replace(/\/+$/, '');
-    return `${baseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+    // P1.3: mídia do inbox não é mais estática pública — o fallback vira URL assinada
+    // (o motor busca por HTTP sem cookie; a assinatura na query é o acesso).
+    const localPath = signInboxMediaUrlIfLocal(
+      pathname.startsWith('/') ? pathname : `/${pathname}`,
+    );
+    return `${baseUrl}${localPath}`;
   }
 
   private getMediaPayload(message: WebwhatsFetchedMessage, messageType?: string | null) {
@@ -2145,7 +2165,8 @@ export class WebwhatsBridgeService {
       const keyId = this.normalizeOptionalString(message?.key?.id || message?.id) || String(Date.now());
       const safeKey = keyId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) || String(Date.now());
       const extension = this.mimeToExtension(mimeType, fileName);
-      const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');
+      // P1.3: inbound grava direto no storage privado (nunca mais no public estático).
+      const uploadDir = getInboxPrivateMediaDir();
       if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
       const filename = `${companyId}_${conversationId}_${safeKey}${extension}`;
       const publicUrl = `/uploads/inbox/${filename}`;

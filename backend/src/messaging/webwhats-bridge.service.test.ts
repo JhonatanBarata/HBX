@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+
+import { verifyInboxMediaSignature } from '../uploads/inbox-media.util';
 
 import { WebwhatsBridgeService, WebwhatsProviderError } from './webwhats-bridge.service';
 import { ZapCheckGuardService } from './zap-check-guard.service';
@@ -1171,7 +1173,8 @@ test('resolveInboundMediaAttachment accepts provider data uri responses for rece
       {},
     );
 
-    const storedPath = join(tempDir, 'public', 'uploads', 'inbox', '47_115_MSG-MEDIA-2.ogg');
+    // P1.3: inbound grava no storage privado, não mais no public estático.
+    const storedPath = join(tempDir, 'storage', 'inbox', '47_115_MSG-MEDIA-2.ogg');
     assert.equal(result?.kind, 'audio');
     assert.equal(result?.url, '/uploads/inbox/47_115_MSG-MEDIA-2.ogg');
     assert.equal(result?.previewUrl, '/uploads/inbox/47_115_MSG-MEDIA-2.ogg');
@@ -1221,7 +1224,8 @@ test('resolveInboundMediaAttachment stores received sticker media', async () => 
       {},
     );
 
-    const storedPath = join(tempDir, 'public', 'uploads', 'inbox', '47_115_MSG-STICKER-1.webp');
+    // P1.3: inbound grava no storage privado, não mais no public estático.
+    const storedPath = join(tempDir, 'storage', 'inbox', '47_115_MSG-STICKER-1.webp');
     assert.equal(result?.kind, 'sticker');
     assert.equal(result?.url, '/uploads/inbox/47_115_MSG-STICKER-1.webp');
     assert.equal(result?.mimeType, 'image/webp');
@@ -2000,5 +2004,102 @@ test('syncConversationMessagesDetailed mantém o fetchProfilePictureUrl ao vivo 
     assert.equal(result.avatarUrl, 'https://pps.whatsapp.net/live-fetch.jpg');
   } finally {
     restorePerUserModalEnv(prev);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P1.3: mídia do inbox saiu do public — o envio outbound lê do storage privado
+// (com fallback pro public legado durante a transição) e o fallback por URL
+// pública sai ASSINADO (o motor busca sem cookie).
+// ---------------------------------------------------------------------------
+
+test('resolveOutboundMediaInput reads inbox media from the private storage dir', () => {
+  const previousCwd = process.cwd();
+  const tempDir = mkdtempSync(join(tmpdir(), 'webwhats-outbound-priv-'));
+  const service = new WebwhatsBridgeService({} as any);
+  const mediaBytes = Buffer.from('private outbound media');
+
+  try {
+    process.chdir(tempDir);
+    mkdirSync(join(tempDir, 'storage', 'inbox'), { recursive: true });
+    writeFileSync(join(tempDir, 'storage', 'inbox', 'anexo-privado.jpg'), mediaBytes);
+
+    const result = (service as any).resolveOutboundMediaInput('/uploads/inbox/anexo-privado.jpg');
+    assert.equal(result, mediaBytes.toString('base64'));
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveOutboundMediaInput ignores a stale signature query and still reads from disk', () => {
+  const previousCwd = process.cwd();
+  const tempDir = mkdtempSync(join(tmpdir(), 'webwhats-outbound-signed-'));
+  const service = new WebwhatsBridgeService({} as any);
+  const mediaBytes = Buffer.from('signed url outbound media');
+
+  try {
+    process.chdir(tempDir);
+    mkdirSync(join(tempDir, 'storage', 'inbox'), { recursive: true });
+    writeFileSync(join(tempDir, 'storage', 'inbox', 'anexo-assinado.pdf'), mediaBytes);
+
+    const result = (service as any).resolveOutboundMediaInput(
+      '/uploads/inbox/anexo-assinado.pdf?e=123&s=deadbeef',
+    );
+    assert.equal(result, mediaBytes.toString('base64'));
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveOutboundMediaInput falls back to the legacy public dir during transition', () => {
+  const previousCwd = process.cwd();
+  const tempDir = mkdtempSync(join(tmpdir(), 'webwhats-outbound-legacy-'));
+  const service = new WebwhatsBridgeService({} as any);
+  const mediaBytes = Buffer.from('legacy public media');
+
+  try {
+    process.chdir(tempDir);
+    mkdirSync(join(tempDir, 'public', 'uploads', 'inbox'), { recursive: true });
+    writeFileSync(join(tempDir, 'public', 'uploads', 'inbox', 'anexo-legado.ogg'), mediaBytes);
+
+    const result = (service as any).resolveOutboundMediaInput('/uploads/inbox/anexo-legado.ogg');
+    assert.equal(result, mediaBytes.toString('base64'));
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('buildPublicAssetUrl signs inbox media paths for the motor fallback', () => {
+  const previousSecret = process.env.JWT_SECRET;
+  const previousBase = process.env.PUBLIC_API_BASE_URL;
+  process.env.JWT_SECRET = 'segredo-de-teste-com-32-caracteres!';
+  process.env.PUBLIC_API_BASE_URL = 'https://api.exemplo.com.br';
+  const service = new WebwhatsBridgeService({} as any);
+
+  try {
+    const url = (service as any).buildPublicAssetUrl('/uploads/inbox/anexo-motor.jpg');
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, 'https://api.exemplo.com.br');
+    assert.equal(parsed.pathname, '/uploads/inbox/anexo-motor.jpg');
+    assert.equal(
+      verifyInboxMediaSignature(
+        'anexo-motor.jpg',
+        parsed.searchParams.get('e'),
+        parsed.searchParams.get('s'),
+      ),
+      true,
+    );
+
+    // Asset fora do inbox continua cru (avatars etc. seguem estáticos).
+    const avatarUrl = (service as any).buildPublicAssetUrl('/uploads/avatars/foto.jpg');
+    assert.equal(avatarUrl, 'https://api.exemplo.com.br/uploads/avatars/foto.jpg');
+  } finally {
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
+    if (previousBase === undefined) delete process.env.PUBLIC_API_BASE_URL;
+    else process.env.PUBLIC_API_BASE_URL = previousBase;
   }
 });
