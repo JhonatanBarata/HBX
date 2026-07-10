@@ -1,10 +1,12 @@
 "use client";
 
-// Formulário canônico de cadastro. A rota /register é a única entrada pública
-// para este fluxo. MODELO CRÉDITO É A VIA ÚNICA (W3/PR10072026, dono 10/07):
-// o funil de plano/trial/checkout morreu — cadastro leve (empresa, nome,
-// e-mail, senha, telefone obrigatório, CPF opcional, termos) → confirmação de
-// e-mail/WhatsApp → créditos de boas-vindas. Sem cartão, sem seleção de plano.
+// Formulário canônico de cadastro — card embutido na landing (W5/PR10072026:
+// mesma porta única do login; /register virou redirect pra /?criar preservando
+// a query). MODELO CRÉDITO É A VIA ÚNICA (W3, dono 10/07): o funil de plano/
+// trial/checkout morreu — cadastro leve (empresa, nome, e-mail, senha, telefone
+// obrigatório, CPF opcional, termos) → confirmação de e-mail/WhatsApp →
+// créditos de boas-vindas. Sem cartão, sem seleção de plano. `onEntrar` troca
+// pro card de login SEM navegar (alternância dentro da landing).
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -55,7 +57,7 @@ type WaStartResponse = {
   alreadyConfirmed?: boolean;
 };
 
-export function RegisterPanel() {
+export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
   const router = useRouter();
   const [empresa, setEmpresa] = useState("");
   const [email, setEmail] = useState("");
@@ -517,7 +519,9 @@ export function RegisterPanel() {
           <p style={{ margin: "2px 0 0", fontSize: "0.62rem", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>
             Ao criar a conta, você concorda com os Termos de uso e a Política de privacidade do HBX.
           </p>
-          <div className="alt">Já tem conta? <Link href="/login" className="link" style={{ textDecoration: "none" }}>Entrar</Link></div>
+          <div className="alt">Já tem conta? {onEntrar
+            ? <button type="button" className="link" onClick={onEntrar}>Entrar</button>
+            : <Link href="/?entrar" className="link" style={{ textDecoration: "none" }}>Entrar</Link>}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 4 }}>
             {["Dados protegidos 24/7 com criptografia", "Conformidade LGPD", "Infraestrutura segura e estável"].map(t => (
               <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.62rem", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>

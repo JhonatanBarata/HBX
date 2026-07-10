@@ -377,6 +377,23 @@ html[data-hbx-authed] .public-entry { display: none; }
 .public-entry .login-console--embedded .login-intro__sub { text-shadow: none; }
 @keyframes f1-login-copy-in { from { opacity: 0; transform: translate3d(0, 16px, 0); } to { opacity: 1; transform: none; } }
 @keyframes f1-login-card-in { from { opacity: 0; transform: translate3d(0, 24px, 0) scale(0.98); } to { opacity: 1; transform: none; } }
+/* Cadastro embutido (W5): MESMA casca do card de login, moldura de 480px.
+   O form do funil C1 é mais alto que a viewport em laptop — rola DENTRO da
+   camada (margin auto centraliza quando sobra espaço e encosta no topo quando
+   falta), a landing em si segue sem scroll. Só layout — a pintura é toda do
+   card central (.hbx-scene). */
+.public-entry .login-console--embedded.is-register {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.public-entry .login-console--embedded.is-register .reg-form {
+  width: min(480px, 100%);
+  margin: auto;
+}
 
 @media (max-height: 850px) and (min-width: 901px) {
   .f1-header { height: 70px; }

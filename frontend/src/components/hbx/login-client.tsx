@@ -21,7 +21,7 @@ const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
 type WinG = typeof window & { google?: { accounts?: { id?: GisApi } } };
 
-export function LoginClient() {
+export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,7 +33,7 @@ export function LoginClient() {
   const [confirmPending, setConfirmPending] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
   // Destino de retomada devolvido pelo backend quando a conta ainda não foi confirmada.
-  const [resumeHref, setResumeHref] = useState<string>("/register?resume=1");
+  const [resumeHref, setResumeHref] = useState<string>("/?criar&resume=1");
   const [manterConectado, setManterConectado] = useState(true); // checkbox "Manter conectado" (default = marcado)
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const loginInFlightRef = useRef(false);
@@ -220,7 +220,9 @@ export function LoginClient() {
               <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
             </>
           )}
-          <div className="alt">Ainda não tem conta? <Link href="/register" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link></div>
+          <div className="alt">Ainda não tem conta? {onCriarConta
+            ? <button type="button" className="link" onClick={onCriarConta}>Criar Conta</button>
+            : <Link href="/?criar" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link>}</div>
         </form>
       </main>
     </div>

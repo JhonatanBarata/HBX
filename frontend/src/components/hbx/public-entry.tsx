@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { LoginClient } from "@/components/hbx/login-client";
 import { RadarDisc } from "@/components/hbx/radar-disc";
+import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
 import { getToken } from "@/lib/api";
@@ -205,12 +206,14 @@ function PhoneVisual({ stage }: { stage: StageKey }) {
   );
 }
 
-export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home" | "login" } = {}) {
+type EntryScreen = "home" | "login" | "criar";
+
+export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryScreen } = {}) {
   const router = useRouter();
   const [stageIndex, setStageIndex] = useState(0);
   const [manual, setManual] = useState(false);
-  // "/?entrar" chega com o card de login JÁ aberto (SSR — sem flash da home).
-  const [screen, setScreen] = useState<"home" | "login">(initialScreen);
+  // "/?entrar"/"/?criar" chegam com o card JÁ aberto (SSR — sem flash da home).
+  const [screen, setScreen] = useState<EntryScreen>(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
   const stage = STAGES[stageIndex];
   const ad = ADS[stage.key];
@@ -239,8 +242,16 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
     setThemeModeState(currentMode === "dark" ? "dark" : "light");
   }, []);
 
+  // Navegação client-side pra /?entrar | /?criar (links legados /login e
+  // /register redirecionam pra cá) precisa trocar o card mesmo com o
+  // componente já montado — o estado segue a prop.
   useEffect(() => {
-    if (screen !== "login") return;
+    setScreen(initialScreen);
+  }, [initialScreen]);
+
+  // Foco no primeiro campo dos DOIS cards (login e cadastro usam o mesmo #em).
+  useEffect(() => {
+    if (screen === "home") return;
     const timer = window.setTimeout(() => document.getElementById("em")?.focus(), 620);
     return () => window.clearTimeout(timer);
   }, [screen]);
@@ -254,8 +265,22 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
     setScreen("login");
   }
 
-  function closeLogin() {
+  function openCriar() {
+    setScreen("criar");
+  }
+
+  function closeCard() {
     setScreen("home");
+  }
+
+  // Alternância Entrar ↔ Criar Conta SEM navegar: troca o card e mantém a URL
+  // rasa coerente pra refresh/deep-link (replaceState nativo — o App Router
+  // sincroniza o searchParams).
+  function swapCard(next: "login" | "criar") {
+    setScreen(next);
+    try {
+      window.history.replaceState(null, "", next === "criar" ? "/?criar" : "/?entrar");
+    } catch { /* sem history */ }
   }
 
   function toggleTheme() {
@@ -265,7 +290,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
   }
 
   return (
-    <main className={"public-entry" + (screen === "login" ? " is-login" : "")} data-stage={stage.key}>
+    <main className={"public-entry" + (screen !== "home" ? " is-login" : "")} data-stage={stage.key}>
       <div className="f1-backdrop" aria-hidden="true">
         <span className="f1-orb f1-orb--one" />
         <span className="f1-orb f1-orb--two" />
@@ -274,7 +299,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
       </div>
 
       <header className="f1-header">
-        <Link className="f1-brand" href="/" aria-label="HBX System" onClick={screen === "login" ? closeLogin : undefined}>
+        <Link className="f1-brand" href="/" aria-label="HBX System" onClick={screen !== "home" ? closeCard : undefined}>
           <span className="f1-brand__mark"><i /><i /><i /></span>
           <span>HBX</span>
         </Link>
@@ -288,11 +313,11 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
           </button>
           {screen === "home"
             ? <button className="f1-login" type="button" onClick={openLogin}>Entrar <Icon name="arrow" /></button>
-            : <button className="f1-login" type="button" onClick={closeLogin}>Voltar <Icon name="chevron" /></button>}
+            : <button className="f1-login" type="button" onClick={closeCard}>Voltar <Icon name="chevron" /></button>}
         </nav>
       </header>
 
-      <section className="f1-hero f1-home" aria-hidden={screen === "login"} inert={screen === "login"}>
+      <section className="f1-hero f1-home" aria-hidden={screen !== "home"} inert={screen !== "home"}>
         <div className="f1-copy">
           <div className="f1-kicker"><span /><Icon name="bolt" /> Uma esteira. Do início ao fim.</div>
           <h1 key={stage.key} aria-label={ad.lines.join(" ")} aria-live="polite">
@@ -302,7 +327,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
           </h1>
           <p key={`${stage.key}-subline`}>{ad.subline}</p>
           <div className="f1-cta-row">
-            <button className="f1-primary-cta" type="button" onClick={openLogin}>
+            <button className="f1-primary-cta" type="button" onClick={openCriar}>
               Quero conhecer <Icon name="arrow" />
             </button>
             <a className="f1-round-cta" href="mailto:jhonatan@hbxsystem.com.br?subject=Quero%20conhecer%20o%20HBX" aria-label="Falar por e-mail" title="jhonatan@hbxsystem.com.br">
@@ -359,8 +384,13 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: "home"
         </div>
       </section>
 
-      <section className="f1-login-layer" aria-hidden={screen !== "login"} aria-label="Entrar no HBX">
-        {screen === "login" && <LoginClient />}
+      <section className="f1-login-layer" aria-hidden={screen === "home"} aria-label="Entrar ou criar conta no HBX">
+        {screen === "login" && <LoginClient onCriarConta={() => swapCard("criar")} />}
+        {screen === "criar" && (
+          <div className="hbx-scene login-console--embedded is-register">
+            <RegisterPanel onEntrar={() => swapCard("login")} />
+          </div>
+        )}
       </section>
     </main>
   );

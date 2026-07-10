@@ -25,14 +25,27 @@ export default async function Home({
 }) {
   const params = await searchParams;
   const view = typeof params.ver === "string" ? params.ver : null;
-  if (view === "planos") redirect("/register");
-  // "/?entrar" abre o card de login NA landing (1 login só — W1). "?ver=entrar"
-  // segue vivo como alias do fluxo antigo.
+  // "?ver=planos" era a porta antiga do funil → vira o card de cadastro NA
+  // landing, PRESERVANDO o resto da query (o backend manda /?ver=planos&resume=1
+  // na retomada — o resume tem que chegar no card).
+  if (view === "planos") {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (key === "ver" || value === undefined) continue;
+      for (const item of Array.isArray(value) ? value : [value]) query.append(key, item);
+    }
+    const rest = query.toString();
+    redirect(rest ? `/?criar&${rest}` : "/?criar");
+  }
+  // "/?entrar" abre o card de login NA landing (1 login só — W1); "/?criar"
+  // abre o card de cadastro (W5 — mesma porta única). "?ver=entrar" segue vivo
+  // como alias do fluxo antigo.
+  const openCriar = params.criar !== undefined;
   const openLogin = params.entrar !== undefined || view === "entrar";
   return (
     <>
       <script dangerouslySetInnerHTML={{ __html: AUTH_BOOT }} />
-      <PublicEntry initialScreen={openLogin ? "login" : "home"} />
+      <PublicEntry initialScreen={openCriar ? "criar" : openLogin ? "login" : "home"} />
     </>
   );
 }
