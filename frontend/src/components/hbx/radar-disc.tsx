@@ -9,7 +9,7 @@
 // nomes, sorteados aleatoriamente a cada montagem — nunca nome de empresa
 // real, isso seria dado fabricado).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const RADAR_LABEL_POOL = ["telefones", "sites", "instagram", "facebook", "e-mail", "CNAE", "Microempresa"];
 function pickRadarLabels(count: number): string[] {
@@ -31,7 +31,14 @@ function pickRadarLabels(count: number): string[] {
 // (menor que a bolinha antiga). Rótulos sorteados do RADAR_LABEL_POOL, uma
 // vez por montagem (não re-sorteia a cada render).
 export function RadarDisc({ mini = false }: { mini?: boolean } = {}) {
-  const [labels] = useState(() => pickRadarLabels(3));
+  // SSR-safe (fix 10/07, hydration mismatch na landing): o 1º render — servidor E cliente —
+  // usa os 3 primeiros rótulos do pool (determinístico); o sorteio entra só PÓS-mount
+  // (useEffect roda apenas no cliente). Sem isso o server sorteia um rótulo e o cliente
+  // outro → React descarta a árvore hidratada inteira na entrada pública.
+  const [labels, setLabels] = useState(() => RADAR_LABEL_POOL.slice(0, 3));
+  useEffect(() => {
+    setLabels(pickRadarLabels(3));
+  }, []);
   const blips: Array<{ top: string; left: string; size: number; hot?: boolean; label: string; delay: string }> = [
     { top: "35%", left: "62%", size: 13, hot: true, label: labels[0] || "", delay: "-0.15s" },
     { top: "47%", left: "73%", size: 12, label: labels[1] || "", delay: "-1.05s" },
