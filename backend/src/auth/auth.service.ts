@@ -16,14 +16,12 @@ import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
 import { SESSION_IDLE_TTL_MS } from './session-ttl';
+import { withoutTenantScope } from '../prisma/tenant-context';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
-  COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PLAN_MODULE_KEYS,
   PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
-  buildCommercialPlansCatalog,
-  getCommercialPlanTrialDays,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
   type CommercialPlanKey,
@@ -34,6 +32,7 @@ import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.ser
 import { CreditsService } from '../credits/credits.service';
 import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { isPlatformInfraCompany } from '../common/company-kind';
+import { emitMasterEvent } from '../common/master-event';
 import { resolveCompanyAccessState, normalizeCompanyAccountType } from '../modules/company-access-state';
 import {
   ensureUserTeamPolicyForUser,
@@ -230,102 +229,10 @@ export class AuthService implements OnModuleInit {
     return String(value || '').replace(/\D/g, '');
   }
 
-  private hasRepeatedDigits(value: string) {
-    return /^(\d)\1+$/.test(value);
-  }
-
-  private isValidCpf(value: unknown) {
-    const digits = this.normalizeDigits(value);
-    if (digits.length !== 11 || this.hasRepeatedDigits(digits)) return false;
-    const calculate = (length: number) => {
-      let sum = 0;
-      for (let index = 0; index < length; index += 1) {
-        sum += Number(digits[index]) * (length + 1 - index);
-      }
-      const mod = (sum * 10) % 11;
-      return mod === 10 ? 0 : mod;
-    };
-    return calculate(9) === Number(digits[9]) && calculate(10) === Number(digits[10]);
-  }
-
   private normalizeBrazilPhone(value: unknown) {
     const digits = this.normalizeDigits(value);
     const withoutCountry = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
     return withoutCountry.slice(0, 11);
-  }
-
-  private validateSignupTrialProfile(data: {
-    trialContactName?: string | null;
-    trialTaxDocument?: string | null;
-    trialContactPhone?: string | null;
-    acceptedTerms?: boolean | null;
-  }) {
-    const contactName = this.normalizeText(data.trialContactName);
-    // Telefone e CPF SAÍRAM do cadastro (ordem do dono 19/06: paridade com o
-    // Google + "o HBX pede telefone depois"). São OPCIONAIS aqui — o anti-abuso
-    // de trial por telefone/CPF roda quando o dado de fato chega: na confirmação
-    // por WhatsApp (F6) e/ou no checkout (F7), onde o trial nasce. O cartão
-    // obrigatório (regra "sem cartão, sem app") segue como trava primária.
-    const contactPhone = this.normalizeBrazilPhone(data.trialContactPhone);
-    const taxDocument = this.normalizeDigits(data.trialTaxDocument).slice(0, 11);
-    if (!contactName || contactName.length < 3) {
-      throw new BadRequestException({
-        code: 'TRIAL_CONTACT_NAME_REQUIRED',
-        message: 'Informe seu nome para continuar.',
-      });
-    }
-    // CPF só é validado SE foi informado — o cadastro não exige mais.
-    if (taxDocument && !this.isValidCpf(taxDocument)) {
-      throw new BadRequestException({
-        code: 'TRIAL_TAX_DOCUMENT_INVALID',
-        message: 'CPF inválido. Confira o número informado.',
-      });
-    }
-    if (data.acceptedTerms !== true) {
-      throw new BadRequestException({
-        code: 'TRIAL_TERMS_REQUIRED',
-        message: 'Aceite os termos para continuar.',
-      });
-    }
-    return { contactName, contactPhone, taxDocument };
-  }
-
-  // Anti-abuso de trial = FONTE ÚNICA em commercial-plans/trial-usage.ts (F4
-  // 19/06): a mesma regra roda no signup E no checkout (subscription/create),
-  // onde o trial nasce. Estes wrappers preservam a assinatura usada no signup.
-  private async ensureTrialPhoneAvailableTx(
-    tx: any,
-    companyId: number,
-    phoneNormalized: string,
-    mode: 'reserve' | 'activate',
-  ) {
-    return TrialUsage.ensureTrialPhoneAvailableTx(tx, companyId, phoneNormalized, mode);
-  }
-
-  private async ensureTrialDocumentAvailableTx(
-    tx: any,
-    companyId: number,
-    taxDocumentNormalized: string | null,
-  ) {
-    return TrialUsage.ensureTrialDocumentAvailableTx(tx, companyId, taxDocumentNormalized);
-  }
-
-  private async reserveSignupTrialPhoneTx(
-    tx: any,
-    companyId: number,
-    profile: { contactName: string; contactPhone: string; taxDocument: string },
-    selectedPlanKey: ActiveCommercialPlanKey,
-    selectedByUserId?: number | null,
-  ) {
-    return TrialUsage.reserveTrialUsageTx(tx, {
-      companyId,
-      phoneNormalized: profile.contactPhone,
-      taxDocumentNormalized: profile.taxDocument || null,
-      contactName: profile.contactName,
-      selectedPlanKey,
-      selectedByUserId,
-      source: 'signup_pending',
-    });
   }
 
   private addSessionTtl(date: Date) {
@@ -350,45 +257,8 @@ export class AuthService implements OnModuleInit {
     return normalized === 'PF' ? 'PF' : normalized === 'PJ' ? 'PJ' : null;
   }
 
-  private normalizeTrialModuleSelection(value: string | undefined): 'vendas' | null {
-    const normalized = String(value || '').trim().toLowerCase();
-    return normalized === 'vendas' ? normalized : null;
-  }
-
   private normalizeSelectedPlanKey(value: string | undefined): ActiveCommercialPlanKey {
     return normalizeCommercialPlanKey(value);
-  }
-
-  private normalizePublicSelectedPlanKey(value: string | undefined): ActiveCommercialPlanKey {
-    const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PLAN_KEYS.LITE;
-    if (normalized === COMMERCIAL_PLAN_KEYS.PADRAO) return COMMERCIAL_PLAN_KEYS.PADRAO;
-    if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PLAN_KEYS.PRO;
-    if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return COMMERCIAL_PLAN_KEYS.MELHOR;
-    return COMMERCIAL_PLAN_KEYS.LITE;
-  }
-
-  private resolveTrialModuleForPlan(planKey: ActiveCommercialPlanKey): 'vendas' | null {
-    return (
-      planKey === COMMERCIAL_PLAN_KEYS.LITE ||
-      planKey === COMMERCIAL_PLAN_KEYS.PADRAO ||
-      planKey === COMMERCIAL_PLAN_KEYS.MELHOR
-    )
-      ? 'vendas'
-      : null;
-  }
-
-  private getPublicTrialDaysForPlan(planKey: ActiveCommercialPlanKey) {
-    // Regra unica no catalogo (PR-002 C.1) — nada de prazo hardcoded aqui.
-    return getCommercialPlanTrialDays(planKey);
-  }
-
-  private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | null) {
-    if (trialModuleSelection === 'vendas') {
-      return ['atendimento', 'vendas', 'webscraping'];
-    }
-
-    return [] as string[];
   }
 
   private resolvePlanModuleKeys(planKey: ActiveCommercialPlanKey) {
@@ -699,8 +569,11 @@ export class AuthService implements OnModuleInit {
     username: string;
     companyName: string;
     entityType: 'PF' | 'PJ' | null;
+    // P0.2 (PR10072026 W1): plano morreu no signup público. Os dois campos
+    // ficam no payload SÓ por compat com clients velhos em cache — conta nova
+    // responde sempre null (o resume de conta legada repassa o valor gravado).
     trialModuleSelection: 'vendas' | null;
-    selectedPlanKey: CommercialPlanKey;
+    selectedPlanKey: string | null;
     acquisitionSource: string | null;
     warnings: string[];
     message?: string;
@@ -714,7 +587,7 @@ export class AuthService implements OnModuleInit {
     return {
       ok: true,
       status: 'pending_email_confirmation',
-      message: input.message || 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+      message: input.message || 'Cadastro criado. Confirme seu e-mail para ativar sua conta.',
       email: input.email,
       username: input.username,
       companyName: input.companyName,
@@ -739,12 +612,10 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  private pendingConfirmationSuccessMessage(planKey: CommercialPlanKey) {
-    const trialDays = this.getPublicTrialDaysForPlan(normalizeCommercialPlanKey(planKey));
-    if (trialDays > 0) {
-      return `Cadastro criado. Confirme seu e-mail para começar o trial gratuito de ${trialDays} dias.`;
-    }
-    return 'Cadastro criado. Confirme seu e-mail para seguir para o checkout no Financeiro.';
+  private pendingConfirmationSuccessMessage() {
+    // P0.2 (PR10072026 W1): sem plano no cadastro não existe mais mensagem de
+    // trial/checkout — a confirmação de e-mail é o único próximo passo.
+    return 'Cadastro criado. Confirme seu e-mail para ativar sua conta.';
   }
 
   private async seedDefaultCompanyModulesTx(_tx: any, _companyId: number) {
@@ -760,45 +631,6 @@ export class AuthService implements OnModuleInit {
     // rascunho). Comportamento idêntico ao inline anterior — só converge para a
     // fonte única para que o signup não divirja do provisionamento.
     return seedTenantDefaultProductsTx(tx, companyId, { source: 'auth_signup' });
-  }
-
-  private async syncTrialSelectedModulesTx(
-    tx: any,
-    companyId: number,
-    trialModuleSelection: 'vendas' | null,
-  ) {
-    if (!trialModuleSelection) return;
-
-    const enabledKeys = this.resolveTrialEnabledModuleKeys(trialModuleSelection);
-    const enabledModuleRows = enabledKeys.length
-      ? await tx.systemModule.findMany({
-          where: {
-            companyAssignable: true,
-            key: { in: enabledKeys },
-          },
-          select: { id: true },
-        })
-      : [];
-
-    await tx.companyModule.updateMany({
-      where: { companyId },
-      data: { enabled: false },
-    });
-
-    if (!enabledModuleRows.length) return;
-
-    for (const moduleRow of enabledModuleRows) {
-      await tx.companyModule.upsert({
-        where: {
-          companyId_moduleId: {
-            companyId,
-            moduleId: moduleRow.id,
-          },
-        },
-        update: { enabled: true },
-        create: { companyId, moduleId: moduleRow.id, enabled: true },
-      });
-    }
   }
 
   private async syncPlanModulesTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey) {
@@ -937,14 +769,21 @@ export class AuthService implements OnModuleInit {
       where: { id: companyId },
       select: { selectedPlanKey: true },
     });
-    const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
+    // P0.2 (PR10072026 W1): signup público nasce NEUTRO (selectedPlanKey null).
+    // Sem plano gravado NÃO se ressuscita hbx_padrao pelo normalize: mantém o
+    // pending_checkout sem gravar plano, sem post-it de módulo e sem entitlement
+    // de plano. Só conta LEGADA com plano já gravado segue o fluxo antigo.
+    const rawSelectedPlanKey = String(company?.selectedPlanKey || '').trim();
+    const selectedPlanKey = rawSelectedPlanKey
+      ? this.normalizeSelectedPlanKey(rawSelectedPlanKey)
+      : null;
 
     await tx.company.update({
       where: { id: companyId },
       data: {
         status: 'pending_checkout',
         statusChangedAt: activatedAt,
-        selectedPlanKey,
+        ...(selectedPlanKey ? { selectedPlanKey } : {}),
         trialModuleSelection: null,
         isActive: false,
         trialStartsAt: null,
@@ -954,6 +793,21 @@ export class AuthService implements OnModuleInit {
         deactivatedAt: activatedAt,
       },
     });
+    if (!selectedPlanKey) {
+      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+      // FIXER PR10072026 — com HBX_CREDITS_ENABLED OFF (kill-switch de emergência), conta
+      // nova confirma o e-mail e fica pending_checkout SEM plano, SEM módulo e SEM rota de
+      // checkout self-service (subscription/create aposentado, 410): só o master destrava.
+      // Alerta action_required pra conta não morrer invisível durante o incidente.
+      await emitMasterEvent(this.prisma, {
+        type: 'auth.signup_stranded_credits_off',
+        severity: 'action_required',
+        companyId,
+        dedupKey: `signup-stranded-credits-off:${companyId}`,
+        payload: { state: 'pending_checkout_sem_plano', companyId },
+      });
+      return null;
+    }
     await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
     await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
     await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
@@ -1417,22 +1271,30 @@ export class AuthService implements OnModuleInit {
         },
       });
 
-      await tx.user.updateMany({
-        where: {
-          id: userId,
-          currentSessionId: sessionId,
-        },
-        data: {
-          currentSessionId: null,
-        },
-      });
+      // Fixa a PRÓPRIA linha por PK (id vem do JWT validado) — cross-tenant é
+      // impossível por construção. Escopar por companyId aqui quebraria o master
+      // (linha com companyId NULL, mas store com a empresa assumida), então o
+      // contrato com o tenant-guard é o bypass explícito, não o where.
+      await withoutTenantScope(
+        'logout: limpa currentSessionId do próprio usuário (PK do JWT)',
+        () =>
+          tx.user.updateMany({
+            where: {
+              id: userId,
+              currentSessionId: sessionId,
+            },
+            data: {
+              currentSessionId: null,
+            },
+          }),
+      );
     });
 
     return { ok: true };
   }
 
   // GOOGLE OAUTH — verifica id_token, acha/cria user+empresa, devolve JWT
-  async googleLoginOrSignup(idToken: string, opts?: { selectedPlanKey?: CommercialPlanKey; companyName?: string; userAgent?: string; ip?: string }) {
+  async googleLoginOrSignup(idToken: string, opts?: { companyName?: string; userAgent?: string; ip?: string }) {
     const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
     if (!clientId) throw new ServiceUnavailableException('Login com Google não está configurado neste ambiente.');
 
@@ -1481,24 +1343,15 @@ export class AuthService implements OnModuleInit {
     }
 
     // 4. Cadastro novo via Google
-    return this.signupWithGoogle({ email, name: payload.name || email, googleId, selectedPlanKey: opts?.selectedPlanKey, companyName: opts?.companyName });
+    return this.signupWithGoogle({ email, name: payload.name || email, googleId, companyName: opts?.companyName });
   }
 
-  private async signupWithGoogle(data: { email: string; name: string; googleId: string; selectedPlanKey?: CommercialPlanKey; companyName?: string }) {
+  private async signupWithGoogle(data: { email: string; name: string; googleId: string; companyName?: string }) {
     const { email, name, googleId } = data;
     const username = email;
     const normalizedCompanyName = String(data.companyName || '').trim();
     const displayName = this.companyDisplayName(normalizedCompanyName || name, username);
     const slug = `co_${crypto.randomBytes(9).toString('hex')}`;
-    // F8 (19/06): Google signup default é hbx_padrao (Lead Plus).
-    // normalizePublicSelectedPlanKey cai em LITE quando não informado — sobrescreve
-    // só neste caminho; e-mail usa normalizePublicSelectedPlanKey sem alteração.
-    const selectedPlanKey = data.selectedPlanKey
-      ? this.normalizePublicSelectedPlanKey(data.selectedPlanKey)
-      : COMMERCIAL_PLAN_KEYS.PADRAO;
-    const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
-      ? this.resolveTrialModuleForPlan(selectedPlanKey)
-      : null;
     const randomPassword = crypto.randomBytes(32).toString('hex');
     const hashed = await bcrypt.hash(randomPassword, 12);
     const now = new Date();
@@ -1511,20 +1364,22 @@ export class AuthService implements OnModuleInit {
     const creditsFreeGoogle = isCreditsFeatureEnabled();
 
     const created = await this.prisma.$transaction(async (tx) => {
+      // P0.2 (PR10072026 W1): empresa NEUTRA — sem plano, sem trial derivado de
+      // plano, sem post-it de CompanyModule (módulo vem do default/kill-switch
+      // do master). Estruturalmente IGUAL ao signup por e-mail; a diferença dos
+      // dois fluxos é só identidade/verificação (Google já chega confirmado).
       const company = await tx.company.create({
         data: {
           slug,
           name: displayName,
           entityType: 'PF',
-          trialModuleSelection,
-          selectedPlanKey,
-          assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-          assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+          trialModuleSelection: null,
+          selectedPlanKey: null,
+          assistedSetupRequired: false,
+          assistedSetupStatus: 'not_required',
           assistedSetupCompletedAt: null,
           assistedSetupCompletedByUserId: null,
-          assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
-            ? 'Implantação assistida pendente para liberar automação completa.'
-            : null,
+          assistedSetupNote: null,
           signupUsesPublicEmail: false,
           status: creditsFreeGoogle ? 'active' : 'pending_checkout',
           statusChangedAt: now,
@@ -1540,7 +1395,6 @@ export class AuthService implements OnModuleInit {
 
       await this.seedDefaultCompanyModulesTx(tx, company.id);
       await this.seedDefaultTenantProductsTx(tx, company.id);
-      await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
 
       const user = await tx.user.create({
         data: {
@@ -1579,6 +1433,9 @@ export class AuthService implements OnModuleInit {
     entityType?: 'PF' | 'PJ';
     companyName?: string;
     name?: string;
+    // P0.2 (PR10072026 W1): plano/trial morreram na porta de entrada. Os dois
+    // campos abaixo seguem ACEITOS (clients velhos em cache e chamadores
+    // internos ainda mandam) mas são IGNORADOS — empresa nasce neutra.
     trialModuleSelection?: 'vendas';
     selectedPlanKey?: CommercialPlanKey;
     acquisitionSource?: 'google' | 'instagram' | 'youtube' | 'indicacao' | 'parceiro' | 'outro';
@@ -1636,17 +1493,6 @@ export class AuthService implements OnModuleInit {
     const resolvedName = normalizedName || normalizedCompanyName || username;
     const hashed = await bcrypt.hash(password, 12);
     const entityType = this.normalizeEntityType(data.entityType) || 'PF';
-    const selectedPlanKey = this.normalizePublicSelectedPlanKey(data.selectedPlanKey);
-    const trialModuleSelection = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
-      ? this.resolveTrialModuleForPlan(selectedPlanKey)
-      : null;
-    // Plano com trial coleta o perfil (nome/CPF/telefone/termos) JA no cadastro
-    // para alimentar o checkout (pagador/cartao). O trial em si so e ativado no
-    // checkout, com cartao (regra do dono 16/06) — a confirmacao de e-mail nao
-    // libera mais nada sozinha.
-    const signupTrialProfile = this.getPublicTrialDaysForPlan(selectedPlanKey) > 0
-      ? this.validateSignupTrialProfile(data)
-      : null;
     // CRÉDITOS (cutover 06/07) — modelo grátis pré-pago: com a chavinha ON, o cadastro é direto
     // (sem plano) e EXIGE telefone (verificável por código; base do dedup anti-farra dos 50
     // créditos — regra do dono 06/07). CPF opcional. Fora do modelo grátis nada muda.
@@ -1701,21 +1547,6 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: confirmationExpiresAt,
           },
         });
-        if (signupTrialProfile) {
-          await tx.company.update({
-            where: { id: existingCompany.id },
-            data: {
-              primaryContactName: signupTrialProfile.contactName,
-              contactPhone: signupTrialProfile.contactPhone || null,
-              taxDocument: signupTrialProfile.taxDocument || null,
-            },
-          });
-          // Reserva anti-abuso de trial só quando há telefone (saiu do cadastro
-          // — relocado pro checkout/F6). Sem telefone, nada a reservar aqui.
-          if (signupTrialProfile.contactPhone) {
-            await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, selectedPlanKey, user.id);
-          }
-        }
         if (hasHbxSalesReferral) {
           await tx.company.update({
             where: { id: existingCompany.id },
@@ -1737,29 +1568,31 @@ export class AuthService implements OnModuleInit {
         };
       }
 
+      // P0.2 (PR10072026 W1): empresa NEUTRA — sem plano, sem trial derivado de
+      // plano, sem post-it de CompanyModule (módulo vem do default/kill-switch
+      // do master). Estruturalmente IGUAL ao signupWithGoogle; a diferença dos
+      // dois fluxos é só identidade/verificação (aqui o e-mail confirma depois).
       const company = await tx.company.create({
         data: {
           slug,
           name: displayName,
           entityType: entityType || 'PJ',
-          trialModuleSelection,
-          selectedPlanKey,
-          assistedSetupRequired: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR,
-          assistedSetupStatus: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR ? 'pending' : 'not_required',
+          trialModuleSelection: null,
+          selectedPlanKey: null,
+          assistedSetupRequired: false,
+          assistedSetupStatus: 'not_required',
           assistedSetupCompletedAt: null,
           assistedSetupCompletedByUserId: null,
-          assistedSetupNote: selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR
-            ? 'Implantação assistida pendente para liberar automação completa.'
-            : null,
+          assistedSetupNote: null,
           signupUsesPublicEmail: usesPublicEmail,
           acquisitionSource,
           acquisitionSourceDetail,
-        referralReferrerName,
-        referralCode,
-        primaryContactName: signupTrialProfile?.contactName || resolvedName,
-        contactEmail: email,
-        contactPhone: signupTrialProfile?.contactPhone || freeContactPhone || null,
-        taxDocument: signupTrialProfile?.taxDocument || freeTaxDocument || null,
+          referralReferrerName,
+          referralCode,
+          primaryContactName: resolvedName,
+          contactEmail: email,
+          contactPhone: freeContactPhone || null,
+          taxDocument: freeTaxDocument || null,
           // Estado unico nativo (PR-002 C.1): empresa nasce pending_checkout;
           // "aguardando confirmacao de e-mail" e um fato do USUARIO (token
           // pendente), nao um estado da empresa (DROP — sem espelho legado).
@@ -1774,12 +1607,9 @@ export class AuthService implements OnModuleInit {
 
       await this.seedDefaultCompanyModulesTx(tx, company.id);
       const seededProducts = await this.seedDefaultTenantProductsTx(tx, company.id);
-      await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
 
-      // Trilha de nascimento (multi-tenancy S4), preset self_service. O signup
-      // segue seu funil próprio (módulos do plano via syncPlanModulesTx, acesso
-      // só no checkout com cartão — regra travada 16/06); a trilha só REGISTRA
-      // como nasceu, sem mudar o comportamento do cadastro.
+      // Trilha de nascimento (multi-tenancy S4), preset self_service. A trilha
+      // só REGISTRA como nasceu, sem mudar o comportamento do cadastro.
       const signupLedger = buildProvisioningLedger('self_service', 'auth_signup', [
         { key: 'create_tenant', status: 'done' },
         {
@@ -1806,12 +1636,6 @@ export class AuthService implements OnModuleInit {
           emailConfirmationExpiresAt: confirmationExpiresAt,
         },
       });
-      // Reserva anti-abuso de trial só quando há telefone (saiu do cadastro —
-      // relocado pro checkout/F6). Sem telefone, nada a reservar aqui.
-      if (signupTrialProfile?.contactPhone) {
-        await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, selectedPlanKey, user.id);
-      }
-
       return { attachedToExistingCompany: false, companyId: company.id, companyName: company.name, user };
     });
 
@@ -1854,13 +1678,13 @@ export class AuthService implements OnModuleInit {
       username,
       companyName: created.companyName,
       entityType,
-      trialModuleSelection,
-      selectedPlanKey,
+      trialModuleSelection: null,
+      selectedPlanKey: null,
       acquisitionSource,
       warnings,
       message: delivery.failed
         ? this.emailConfirmationDeliveryFailureMessage()
-        : this.pendingConfirmationSuccessMessage(selectedPlanKey),
+        : this.pendingConfirmationSuccessMessage(),
       previewUrl: delivery.previewUrl,
       confirmUrl: delivery.confirmUrl,
       deliveryFailed: delivery.failed,
@@ -2317,7 +2141,6 @@ export class AuthService implements OnModuleInit {
       companyName: user.company?.name || user.username || email,
       rawToken,
     });
-    const selectedPlanKey = this.normalizePublicSelectedPlanKey(user.company?.selectedPlanKey as any);
     return this.buildPendingEmailConfirmationResponse({
       userId: user.id,
       email,
@@ -2325,7 +2148,9 @@ export class AuthService implements OnModuleInit {
       companyName: user.company?.name || email,
       entityType: (user.company?.entityType as 'PF' | 'PJ' | null) ?? null,
       trialModuleSelection: (user.company?.trialModuleSelection as 'vendas' | null) ?? null,
-      selectedPlanKey,
+      // P0.2 (PR10072026 W1): repassa o que está gravado (legado) sem ressuscitar
+      // plano por normalize — conta neutra segue null.
+      selectedPlanKey: (user.company?.selectedPlanKey as string | null) ?? null,
       acquisitionSource: user.company?.acquisitionSource || null,
       warnings: [],
       message: delivery.failed

@@ -1,8 +1,10 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as bcrypt from 'bcryptjs';
+import { ValidationPipe, type ArgumentMetadata } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { sanitizeUser } from './profile.controller';
+import { GoogleOAuthDto, SignupDto } from './dto/auth.dto';
 import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -918,4 +920,255 @@ test('SEGURANCA: usuário inexistente e senha errada retornam o MESMO 401 genér
   assert.equal(missingErr.getResponse().message, 'Usuário ou senha inválidos');
   assert.equal(wrongErr.getResponse().message, 'Usuário ou senha inválidos');
   assert.deepEqual(missingErr.getResponse(), wrongErr.getResponse());
+});
+
+// ============================================================================
+// W7 (tenant-guard P1.1, 10/07) — logout era o hit real "User.updateMany unscoped"
+// nos logs de prod (tenants 37 e 5). O update fixa a PRÓPRIA linha por PK do JWT
+// (cross-tenant impossível) e precisa rodar sob withoutTenantScope: escopar por
+// companyId quebraria o master (linha companyId NULL + store com empresa assumida).
+// ============================================================================
+test('logout em request de tenant: user.updateMany roda sob bypass explícito do tenant-guard', async () => {
+  const { runWithTenantContext, getTenantScopeBypassReason } = await import('../prisma/tenant-context');
+  const capturas: Array<{ where: any; bypassReason: string | null }> = [];
+  const prisma = {
+    $transaction: async (callback: any) => callback({
+      authSession: {
+        updateMany: async () => ({ count: 1 }),
+      },
+      user: {
+        updateMany: async (args: any) => {
+          capturas.push({ where: args?.where, bypassReason: getTenantScopeBypassReason() });
+          return { count: 1 };
+        },
+      },
+    }),
+  };
+  const service = new AuthService({} as any, {} as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
+
+  const result = await runWithTenantContext({ companyId: 37 }, () =>
+    service.logoutCurrentSession({ id: 10, sessionId: 'sess_1', companyId: 37 }),
+  );
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(capturas.length, 1);
+  // Comportamento intacto: continua condicionado à sessão atual, sem companyId no where.
+  assert.deepEqual(capturas[0].where, { id: 10, currentSessionId: 'sess_1' });
+  // O que mudou: a query roda com o bypass consciente ativo (guard loga o motivo e passa).
+  assert.ok(capturas[0].bypassReason, 'logout rodou SEM o bypass do tenant-guard');
+});
+
+// ============================================================================
+// P0.2 (PR10072026 W1) — SIGNUP NEUTRO: o plano morreu na porta de entrada.
+// Empresa pública (e-mail E Google) nasce sem selectedPlanKey, sem
+// trialModuleSelection e sem NENHUM post-it de CompanyModule (módulo vem do
+// default/kill-switch do master). selectedPlanKey no payload é aceito-e-IGNORADO.
+// ============================================================================
+function buildAuthServiceForNeutralSignup() {
+  const companyCreates: any[] = [];
+  const companyModuleWrites: any[] = [];
+  const systemModuleFinds: any[] = [];
+  const entitlementUpserts: any[] = [];
+  let createdCompanyId = 0;
+  const tx = {
+    company: {
+      findFirst: async () => null,
+      create: async (args: any) => {
+        companyCreates.push(args.data);
+        createdCompanyId = 900 + companyCreates.length;
+        return { id: createdCompanyId, ...args.data };
+      },
+      update: async (args: any) => ({ id: args?.where?.id, ...args?.data }),
+      findUnique: async () => null,
+    },
+    user: {
+      create: async (args: any) => ({ id: 700, ...args.data }),
+      update: async (args: any) => (args?.select
+        ? { id: 700, email: 'novo@cliente.test', companyId: createdCompanyId, role: 'ADMIN', isSystemMaster: false, sessionVersion: 2 }
+        : { id: 700 }),
+    },
+    // Semente de produto default: "já existe" → seeding vira no-op sem criar nada.
+    product: { findFirst: async () => ({ id: 1 }), create: async () => ({ id: 2 }) },
+    systemModule: {
+      findMany: async (args: any) => {
+        systemModuleFinds.push(args);
+        return [];
+      },
+    },
+    companyModule: {
+      updateMany: async (args: any) => {
+        companyModuleWrites.push({ op: 'updateMany', args });
+        return { count: 0 };
+      },
+      upsert: async (args: any) => {
+        companyModuleWrites.push({ op: 'upsert', args });
+        return {};
+      },
+    },
+    companyCommercialEntitlement: {
+      upsert: async (args: any) => {
+        entitlementUpserts.push(args);
+        return {};
+      },
+    },
+    authSession: {
+      updateMany: async () => ({ count: 0 }),
+      create: async () => ({ id: 'sess_neutro' }),
+    },
+  };
+  const prisma = {
+    $transaction: async (input: any) => (typeof input === 'function' ? input(tx) : Promise.all(input)),
+    // ensureUserTeamPolicyForUser: user não encontrado → early-return (fora do foco).
+    user: { findUnique: async () => null },
+    company: {
+      findUnique: async () => ({
+        companyKind: 'tenant',
+        accountType: 'credit',
+        status: 'pending_checkout',
+        isActive: false,
+        trialEndsAt: null,
+        billingGraceEndsAt: null,
+        courtesyEndsAt: null,
+        courtesyReason: null,
+      }),
+    },
+    userTeamPolicy: { findUnique: async () => null },
+  };
+  const usersService = {
+    findByLoginIdentifier: async () => null,
+    findByEmail: async () => null,
+  };
+  const jwtService = { sign: () => 'signed-token' };
+  const mail = {
+    getConfigurationSummary: () => ({ ready: false, mode: 'log' }),
+    sendMail: async () => ({ ok: true, previewUrl: null, errorCode: null, errorMessage: null }),
+  };
+  const emailTemplates = {
+    getTemplateSafe: async () => ({}),
+    renderTemplate: () => ({ subject: 'Confirme', text: 'txt', html: '<p>x</p>' }),
+  };
+  const service = new AuthService(
+    usersService as any,
+    jwtService as any,
+    prisma as any,
+    mail as any,
+    emailTemplates as any,
+    {} as any,
+    {} as any,
+  );
+  return { service, companyCreates, companyModuleWrites, systemModuleFinds, entitlementUpserts };
+}
+
+// Campos que definem o nascimento neutro — os MESMOS nos dois fluxos públicos.
+const NEUTRAL_BIRTH_KEYS = [
+  'selectedPlanKey',
+  'trialModuleSelection',
+  'assistedSetupRequired',
+  'assistedSetupStatus',
+  'assistedSetupNote',
+  'status',
+  'isActive',
+] as const;
+
+test('signup e-mail: empresa nasce NEUTRA (plano null, zero CompanyModule) e IGNORA selectedPlanKey de client velho', async () => {
+  const { service, companyCreates, companyModuleWrites, systemModuleFinds } = buildAuthServiceForNeutralSignup();
+
+  // Client velho em cache manda plano (e ANTES o hbx_padrao exigiria perfil de
+  // trial com acceptedTerms). Cadastro passa e o plano é ignorado.
+  const res: any = await service.signup({
+    companyName: 'Empresa Neutra',
+    name: 'Dono Neutro',
+    email: 'novo@cliente.test',
+    password: 'Segredo123!',
+    selectedPlanKey: 'hbx_padrao' as any,
+    trialModuleSelection: 'vendas',
+  });
+
+  assert.equal(companyCreates.length, 1);
+  assert.equal(companyCreates[0].selectedPlanKey, null);
+  assert.equal(companyCreates[0].trialModuleSelection, null);
+  assert.equal(companyCreates[0].assistedSetupRequired, false);
+  assert.equal(companyCreates[0].assistedSetupStatus, 'not_required');
+  assert.equal(companyCreates[0].assistedSetupNote, null);
+  assert.equal(companyCreates[0].status, 'pending_checkout');
+  // ZERO post-it de módulo no nascimento (nem consulta de SystemModule pra isso).
+  assert.equal(companyModuleWrites.length, 0);
+  assert.equal(systemModuleFinds.length, 0);
+  // Resposta: campos de plano seguem no payload (compat), sempre null.
+  assert.equal(res.status, 'pending_email_confirmation');
+  assert.equal(res.selectedPlanKey, null);
+  assert.equal(res.trialModuleSelection, null);
+});
+
+test('signup Google: empresa nasce NEUTRA e estruturalmente IGUAL à do e-mail (diferença só de verificação)', async () => {
+  const email = buildAuthServiceForNeutralSignup();
+  await email.service.signup({
+    companyName: 'Empresa A',
+    name: 'Dono A',
+    email: 'a@cliente.test',
+    password: 'Segredo123!',
+  });
+
+  const google = buildAuthServiceForNeutralSignup();
+  const res: any = await (google.service as any).signupWithGoogle({
+    email: 'b@cliente.test',
+    name: 'Dono B',
+    googleId: 'google-sub-1',
+    selectedPlanKey: 'hbx_pro', // client velho: aceito-e-ignorado
+  });
+
+  assert.equal(google.companyCreates.length, 1);
+  // Mesma estrutura neutra nos dois fluxos (chavinha OFF no beforeEach).
+  for (const key of NEUTRAL_BIRTH_KEYS) {
+    assert.deepEqual(
+      google.companyCreates[0][key],
+      email.companyCreates[0][key],
+      `campo ${key} divergiu entre Google e e-mail`,
+    );
+  }
+  assert.equal(google.companyCreates[0].selectedPlanKey, null);
+  assert.equal(google.companyCreates[0].trialModuleSelection, null);
+  // ZERO post-it de módulo também no Google.
+  assert.equal(google.companyModuleWrites.length, 0);
+  assert.equal(google.systemModuleFinds.length, 0);
+  // Google já entra logado (identidade confirmada pelo token).
+  assert.equal(res.access_token, 'signed-token');
+});
+
+test('confirmação legada com plano NULL não ressuscita hbx_padrao: sem gravação de plano, sem post-it, sem entitlement', async () => {
+  // Chavinha OFF (beforeEach) → cai no ramo legado do activateConfirmedTrialTx.
+  // Empresa neutra (pós-P0.2): nada de plano pra sincronizar.
+  const service = buildBareAuthService();
+  const { tx, companyUpdates, entitlementUpserts } = buildTrialActivationTx({
+    selectedPlanKey: null,
+    trialModuleSelection: null,
+    primaryContactName: 'Dono Neutro',
+    contactPhone: '19999990000',
+    taxDocument: null,
+  });
+
+  const trialEndsAt = await service.activateConfirmedTrialTx(tx, 7, new Date());
+
+  assert.equal(trialEndsAt, null);
+  assert.equal(companyUpdates.length, 1);
+  assert.equal(companyUpdates[0].status, 'pending_checkout');
+  // NÃO grava selectedPlanKey (o normalize antigo ressuscitava hbx_padrao aqui).
+  assert.equal('selectedPlanKey' in companyUpdates[0], false);
+  // Nenhum entitlement de plano nasce sem plano.
+  assert.equal(entitlementUpserts.length, 0);
+});
+
+// DTO público: selectedPlanKey aceito-e-IGNORADO — nunca 400 (mesma config do
+// ValidationPipe global de main.ts: whitelist + forbidNonWhitelisted + transform).
+test('DTO signup/google: selectedPlanKey de client velho (válido OU lixo) não devolve 400', async () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true });
+  const run = (metatype: any, value: unknown) =>
+    pipe.transform(value, { type: 'body', metatype, data: '' } as ArgumentMetadata);
+
+  const baseSignup = { email: 'velho@cliente.test', password: 'Segredo123!' };
+  // Chave legada válida (client em cache) e valor lixo: os dois passam.
+  await run(SignupDto, { ...baseSignup, selectedPlanKey: 'hbx_lite' });
+  await run(SignupDto, { ...baseSignup, selectedPlanKey: 'qualquer-coisa' });
+  await run(GoogleOAuthDto, { idToken: 'tok', selectedPlanKey: 'hbx_padrao' });
+  await run(GoogleOAuthDto, { idToken: 'tok', selectedPlanKey: 'lixo-em-cache' });
 });

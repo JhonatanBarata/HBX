@@ -1,5 +1,5 @@
-import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
-import { COMMERCIAL_PLAN_KEYS, type CommercialPlanKey } from '../../commercial-plans/commercial-plan-catalog';
+import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { type CommercialPlanKey } from '../../commercial-plans/commercial-plan-catalog';
 
 export class SignupDto {
   @IsOptional()
@@ -17,8 +17,11 @@ export class SignupDto {
   @IsIn(['vendas'])
   trialModuleSelection?: 'vendas';
 
+  // P0.2 (PR10072026 W1): plano morreu no signup público. Campo mantido SÓ por
+  // compat com clients velhos em cache (whitelist derrubaria com 400 se sumisse
+  // daqui) — qualquer string é aceita e o service IGNORA.
   @IsOptional()
-  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  @IsString()
   selectedPlanKey?: CommercialPlanKey;
 
   @IsOptional()
@@ -128,8 +131,9 @@ export class GoogleOAuthDto {
   @IsNotEmpty()
   idToken: string;
 
+  // P0.2 (PR10072026 W1): aceito-e-IGNORADO (compat clients velhos) — ver SignupDto.
   @IsOptional()
-  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  @IsString()
   selectedPlanKey?: CommercialPlanKey;
 
   @IsOptional()

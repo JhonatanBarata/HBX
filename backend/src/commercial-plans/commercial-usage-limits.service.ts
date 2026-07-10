@@ -159,6 +159,12 @@ export class CommercialUsageLimitsService {
     };
   }
 
+  // P0.2 (PR10072026 W1): signup público nasce SEM plano (selectedPlanKey null).
+  // Fallback ÚNICO e deliberado: resolveCommercialPlanKeyForCapabilities projeta
+  // plano-null em hbx_padrao — perfil de quotas único da conta crédito (caps
+  // diários anti-abuso continuam; count-based é telemetria desde R5, o gate real
+  // de consumo é o saldo de crédito). Override por empresa (colunas *Override)
+  // segue ganhando de qualquer perfil.
   private async getCompanyPlan(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },

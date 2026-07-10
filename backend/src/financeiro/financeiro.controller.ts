@@ -1,13 +1,21 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, GoneException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { FinanceiroService } from './financeiro.service';
 import {
   ChangeFinanceiroPlanDto,
   ChangeFinanceiroSubscriptionCardDto,
-  CreateFinanceiroSubscriptionDto,
   RefundFinanceiroChargeDto,
 } from './dto/financeiro.dto';
+
+// MASTER-REFAB S7 / P0.2 (PR10072026 W1): aposentadoria do checkout de plano
+// self-service. Grep no tree atual: ZERO chamadores no front (o checkout-panel
+// virou recarga de créditos) e zero uso enterprise/master (master usa cancel/
+// refund próprios; a recorrência MP EXISTENTE segue viva via webhook +
+// subscription/sync — não é esta rota que a processa). Era também o destino do
+// funil-fantasma do fallback de plano em conta crédito — morre junto com ele.
+export const RETIRED_SUBSCRIPTION_CREATE_MESSAGE =
+  'Contratação de plano por assinatura foi descontinuada. Conta de crédito usa recarga (Carteira); conta empresarial é montada pelo master.';
 
 @Controller('financeiro')
 @UseGuards(JwtAuthGuard)
@@ -25,8 +33,8 @@ export class FinanceiroController {
   }
 
   @Post('subscription/create')
-  createSubscription(@Req() req: any, @Body() dto: CreateFinanceiroSubscriptionDto) {
-    return this.financeiroService.createSubscriptionForUser(req.user, dto);
+  createSubscription() {
+    throw new GoneException(RETIRED_SUBSCRIPTION_CREATE_MESSAGE);
   }
 
   @Post('subscription/cancel')

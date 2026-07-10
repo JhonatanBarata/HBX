@@ -88,8 +88,9 @@ export class AuthController {
   @Post('google')
   @Throttle({ default: { limit: 10, ttl: 60 } })
   async googleOAuth(@Body() dto: GoogleOAuthDto, @Req() req: any) {
+    // P0.2 (PR10072026 W1): dto.selectedPlanKey é aceito-e-IGNORADO (compat com
+    // clients velhos em cache) — plano morreu na porta de entrada.
     return this.authService.googleLoginOrSignup(dto.idToken, {
-      selectedPlanKey: dto.selectedPlanKey,
       companyName: dto.companyName,
       userAgent: req?.headers?.['user-agent'],
       ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
