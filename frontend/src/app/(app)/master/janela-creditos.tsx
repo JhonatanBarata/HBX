@@ -12,6 +12,10 @@
 //   Config                — CreditGlobalConfig (welcomeCredits/welcomeExpiryDays/defaultExpiryDays
 //                         + GUARDRAILS S3: dailyDeliveryCapDefault). Renomeada de "Bônus de
 //                         cadastro" (10/07) — já não é só bônus, é config global mesmo.
+//                         + S4 (10/07): Política de indicação migrada da Self-Checkout morta
+//                         (guia Política) — é a única parte dela viva no runtime (financeiro
+//                         calcula desconto de indicação na cobrança). Desconto anual/trial/
+//                         módulos-por-plano/assentos NÃO migraram (modelo morto, sem UI até S6).
 //   Recargas             — histórico de notificações de pagamento (ex-janela-pagamentos.tsx).
 //
 // Endpoints:
@@ -23,6 +27,10 @@
 //   PUT  /credits/master/config/delivery-cap        → teto diário default anti-scraper (GUARDRAILS S3)
 //   POST /credits/master/company/:id/grant          → concessão manual (S3-PARTE1)
 //   GET  /master/payment-notifications/history       → guia Recargas (ex-janela-pagamentos.tsx)
+//   GET  /modules/master/global-integrations         → lê referralDiscount* (ex-Self-Checkout)
+//   PUT  /modules/master/billing-policy               → grava só os campos referralDiscount* daqui
+//                                                        (annualPlanDiscountPercent fica intocado —
+//                                                        não migrou, sem UI de propósito)
 //
 // Idempotência OBRIGATÓRIA na concessão (Fix II do S3-PARTE1): usageKey UUID gerada 1x na
 // abertura da intenção (double-click não duplica; 2 concessões legítimas usam tokens diferentes).
@@ -356,6 +364,52 @@ export function JanelaCreditos({ companies, reload }: {
     }
   }
 
+  // ── Política de indicação (S4 — migrada da Self-Checkout morta) ────────────────────────────
+  // Único pedaço da guia "Política" com efeito vivo no runtime: financeiro.service calcula o
+  // desconto de indicação na cobrança de empresas com assinatura/ciclo ativo (buildReferralSnapshot).
+  // O desconto anual (mesmo endpoint) NÃO migrou — modelo de plano morreu, sem UI de propósito.
+  const [refActive, setRefActive] = useState(false);
+  const [refPercent, setRefPercent] = useState("");
+  const [refMode, setRefMode] = useState("ONCE");
+  const [refBusy, setRefBusy] = useState(false);
+  const [refMsg, setRefMsg] = useState<string | null>(null);
+  const [refLoadError, setRefLoadError] = useState<string | null>(null);
+
+  const carregarPoliticaIndicacao = useCallback(() => {
+    apiFetch<{ referralDiscountActive?: boolean; referralDiscountPercent?: number; referralDiscountMode?: string }>(
+      "/modules/master/global-integrations",
+    )
+      .then(res => {
+        setRefActive(Boolean(res?.referralDiscountActive));
+        setRefPercent(res?.referralDiscountPercent != null ? String(res.referralDiscountPercent) : "");
+        setRefMode(String(res?.referralDiscountMode || "ONCE"));
+        setRefLoadError(null);
+      })
+      .catch((err: unknown) => {
+        const status = (err as ApiError)?.status;
+        setRefLoadError(isFeatureFlagStatus(status) ? null : ((err as ApiError)?.message || "Falha ao carregar a política de indicação."));
+      });
+  }, []);
+
+  useEffect(() => { carregarPoliticaIndicacao(); }, [carregarPoliticaIndicacao]);
+
+  async function salvarPoliticaIndicacao() {
+    if (refBusy) return;
+    setRefBusy(true);
+    setRefMsg(null);
+    try {
+      const body: Record<string, unknown> = { referralDiscountActive: refActive, referralDiscountMode: refMode };
+      if (refPercent !== "") body.referralDiscountPercent = Number(String(refPercent).replace(",", ".")) || 0;
+      await apiFetch("/modules/master/billing-policy", { method: "PUT", body: JSON.stringify(body) });
+      setRefMsg("✓ Política de indicação salva.");
+    } catch (e) {
+      reportError(e);
+      setRefMsg(e instanceof Error ? e.message : "Falha ao salvar a política de indicação.");
+    } finally {
+      setRefBusy(false);
+    }
+  }
+
   const empresasOrdenadas = (companies || [])
     .slice()
     .sort((a, b) => (a.creditsBalance ?? 0) - (b.creditsBalance ?? 0)); // sem saldo primeiro
@@ -615,6 +669,34 @@ export function JanelaCreditos({ companies, reload }: {
             </div>
             <button className="btn-teal" disabled={dailyCapBusy} onClick={salvarDailyCapDefault}>
               {dailyCapBusy ? "Salvando…" : "Salvar teto diário default"}
+            </button>
+          </div>
+          {/* S4 (10/07) — Política de indicação, migrada da Self-Checkout morta. Desconto anual
+              (mesmo endpoint) não migrou: modelo de plano morreu, fica sem UI até a aposentadoria (S6). */}
+          <div className="sc-body">
+            <span className="sc-note">Desconto aplicado na cobrança de empresas indicadas (assinatura/ciclo ativo).</span>
+            {refLoadError && <div className="sc-msg is-warn">{refLoadError}</div>}
+            {refMsg && <div className={"sc-msg " + (refMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{refMsg}</div>}
+            <div className="sc-field sc-field--sep">
+              <label className="sc-check">
+                <input type="checkbox" checked={refActive} onChange={e => setRefActive(e.target.checked)} />
+                Desconto por indicação ativo
+              </label>
+            </div>
+            <div className="sc-field">
+              <label className="field-label">Desconto da indicação (%)</label>
+              <input className="field-dark" inputMode="decimal" value={refPercent}
+                onChange={e => setRefPercent(e.target.value)} placeholder="0" />
+            </div>
+            <div className="sc-field">
+              <label className="field-label">Modo da indicação</label>
+              <select className="field-dark" value={refMode} onChange={e => setRefMode(e.target.value)}>
+                <option value="ONCE">Uma vez</option>
+                <option value="RECURRING">Recorrente</option>
+              </select>
+            </div>
+            <button className="btn-teal" disabled={refBusy} onClick={salvarPoliticaIndicacao}>
+              {refBusy ? "Salvando…" : "Salvar política de indicação"}
             </button>
           </div>
         </section>

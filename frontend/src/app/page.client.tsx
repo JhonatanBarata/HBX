@@ -299,9 +299,12 @@ export function MarketingClient() {
           return;
         }
         // CRÉDITOS (cutover 06/07) — /register sem ?plan= (modelo grátis não tem
-        // plano pra decidir): a rota /register cai em /?ver=planos e, com a
-        // chavinha ON, pula direto pro form de cadastro (sem passar pela pitch).
-        if (ver === "planos" && !plan) {
+        // plano pra decidir): a rota /register cai em /?ver=planos&auto=register e,
+        // com a chavinha ON, pula direto pro form de cadastro (sem passar pela pitch).
+        // S4 (10/07 — fix vitrine vazia): o atalho SÓ dispara com ?auto=register
+        // explícito. Visita direta a /?ver=planos (landing, /planos, link externo)
+        // sem esse flag fica na pitch + régua de packs (era isso que sumia em prod).
+        if (ver === "planos" && !plan && params.get("auto") === "register") {
           fetchCreditStorefront().then((sf) => {
             if (!alive || !sf.enabled) return;
             setFreeRegisterOpen(true);

@@ -1,8 +1,11 @@
 "use client";
 
 // Janela Sistema — fase 3 do /master (ordem do dono 12/06/2026: "ligue tudo").
-// Catálogo de módulos saiu daqui (21/06): a fonte única de módulo por plano é a
-// janela Self-Checkout (PlanModuleConfig). Subabas: Credenciais/Exclusões/Reclamações.
+// Catálogo de módulos saiu daqui (21/06). S4 (10/07): a janela Self-Checkout MORREU
+// (modelo de plano-catálogo acabou) — a política de indicação (única parte viva no
+// runtime) migrou pra Créditos → Config; desconto anual/PlanModuleConfig ficaram sem
+// UI de propósito (endpoints backend intactos até a aposentadoria em S6). Esta janela
+// não edita nenhum dos dois. Subabas: Credenciais/Exclusões/Reclamações.
 // Contratos ligados (ModulesController, todos JWT+MasterGuard):
 //   GET     modules/master/global-integrations     → política + bibliotecas
 //   PUT     modules/master/billing-policy          → desconto anual/assento extra/indicação
@@ -25,8 +28,8 @@ import { MetaTemplatesEditor } from "@/components/hbx/meta-templates-editor";
 import { MasterWhatsappChip } from "./master-whatsapp-chip";
 import { fmtDataHora } from "./page.client";
 
-// "Planos" e "Política comercial" saíram daqui (18-19/06): viraram a janela
-// Self-Checkout (sem duplicar editor de plano/preço/desconto).
+// "Planos" e "Política comercial" saíram daqui (18-19/06) — foram pra Self-Checkout,
+// que morreu no S4 (10/07); indicação está em Créditos → Config agora.
 const SUBTABS = ["Credenciais", "Exclusões", "Reclamações"];
 
 type CredWa = { key?: string; label?: string; phoneNumberId?: string; wabaId?: string; displayNumber?: string; accessTokenPreview?: string | null; configured?: boolean; accessToken?: string };

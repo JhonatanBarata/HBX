@@ -16,6 +16,10 @@ export default async function RegisterPage({
   const plan = typeof sp.plan === "string" ? sp.plan : undefined;
   const hbxLead = typeof sp.hbxLead === "string" ? sp.hbxLead : undefined;
   if (plan) params.set("plan", plan);
+  // S4 (10/07): sem plano específico, /register pula a pitch e abre o form direto —
+  // sinalizado por ?auto=register (só ESTA rota liga o atalho). Visita direta a
+  // /?ver=planos (landing, /planos, links externos) fica na pitch/régua normal.
+  else params.set("auto", "register");
   if (hbxLead) params.set("hbxLead", hbxLead);
   redirect(`/?${params.toString()}`);
 }

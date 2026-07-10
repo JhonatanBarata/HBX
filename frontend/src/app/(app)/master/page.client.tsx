@@ -20,7 +20,6 @@ import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaOnline } from "./janela-online";
 import { JanelaIntegracoes } from "./janela-integracoes";
-import { JanelaSelfCheckout } from "./janela-self-checkout";
 import { JanelaSistema } from "./janela-sistema";
 import { JanelaTickets } from "./janela-tickets";
 
@@ -108,7 +107,6 @@ const JANELAS = [
   { id: "cockpit", label: "Cockpit", icon: "vendas" },
   { id: "empresas", label: "Empresas", icon: "users" },
   { id: "online", label: "Quem está online", icon: "clock" },
-  { id: "self-checkout", label: "Self-Checkout", icon: "money" },
   { id: "creditos", label: "Créditos", icon: "money" },
   { id: "integracoes", label: "Integrações", icon: "config" },
   { id: "emails", label: "E-mails", icon: "mail" },
@@ -360,7 +358,6 @@ export function MasterClient() {
             <JanelaEmpresas companies={companies} error={companiesError} reload={reloadCompanies} assumirContexto={assumirContexto} />
           )}
           {janela === "online" && <JanelaOnline />}
-          {janela === "self-checkout" && <JanelaSelfCheckout />}
           {janela === "creditos" && <JanelaCreditos companies={companies} reload={reloadCompanies} />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
           {janela === "emails" && <JanelaEmails />}
