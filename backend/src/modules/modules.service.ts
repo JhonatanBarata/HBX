@@ -67,6 +67,7 @@ import {
 } from './module-access-policy';
 import {
   isCompanyAccessReleased,
+  normalizeCompanyAccountType,
   normalizeStoredCompanyStatus,
   resolveCompanyAccessState,
   storedCompanyStatusFromAccessState,
@@ -1782,6 +1783,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           id: true,
           companyKind: true,
           slug: true,
+          accountType: true,
           status: true,
           selectedPlanKey: true,
           trialEndsAt: true,
@@ -1901,6 +1903,11 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       id?: number | null;
       slug?: string | null;
       companyKind?: string | null;
+      // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState bifurca por accountType ANTES
+      // de olhar status/datas — sem este campo aqui, toda empresa (inclusive enterprise real)
+      // normaliza pro default 'credit' e as transições de paywall legado (trial vencido →
+      // suspended, overdue sem graça → mantém overdue) param de ser materializadas.
+      accountType?: string | null;
       status?: string | null;
       isActive?: boolean | null;
       trialEndsAt?: Date | string | null;
@@ -1915,6 +1922,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           id: companyId,
           slug: companySnapshot?.slug || null,
           companyKind: companySnapshot?.companyKind || null,
+          accountType: companySnapshot?.accountType || null,
           status: companySnapshot?.status || null,
           isActive: Boolean(companySnapshot?.isActive),
           trialEndsAt: this.parseDateValue(companySnapshot?.trialEndsAt),
@@ -1928,6 +1936,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
             id: true,
             slug: true,
             companyKind: true,
+            accountType: true,
             status: true,
             isActive: true,
             trialEndsAt: true,
@@ -2241,6 +2250,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       select: {
         slug: true,
         companyKind: true,
+        accountType: true,
         status: true,
         isActive: true,
         selectedPlanKey: true,
@@ -2345,6 +2355,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       select: {
         slug: true,
         companyKind: true,
+        accountType: true,
         status: true,
         isActive: true,
         selectedPlanKey: true,
@@ -2528,6 +2539,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         select: {
           slug: true,
           companyKind: true,
+          accountType: true,
           status: true,
           isActive: true,
           selectedPlanKey: true,
@@ -2612,6 +2624,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
           select: {
             companyKind: true,
             slug: true,
+            accountType: true,
             status: true,
             isActive: true,
             selectedPlanKey: true,
@@ -2862,6 +2875,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       // (mesmo campo, endpoint diferente) dizia "Cortesia". Uma única fonte agora: o mesmo
       // campo bruto nos dois endpoints.
       status: company.status || null,
+      // MASTER-REFAB S6 (10/07 noite): tipo explícito de conta (credit|enterprise) — mesma
+      // régua nos dois endpoints (lista e ficha), igual o `status` acima já fazia.
+      accountType: normalizeCompanyAccountType((company as any).accountType),
       userCount: Number(company?._count?.users || 0),
       selectedPlanKey: company.selectedPlanKey || null,
       monthlyValue,
@@ -3720,6 +3736,9 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         taxDocument: company.taxDocument || null,
         isActive: status.active,
         status: company.status,
+        // MASTER-REFAB S6 (10/07 noite): tipo explícito de conta (credit|enterprise) — a lista
+        // e a ficha (buildMasterCompanySummary) devolvem a mesma régua.
+        accountType: normalizeCompanyAccountType((company as any).accountType),
         paymentMethod: company.paymentMethod,
         billingProvider: company.billingProvider,
         trialStartsAt: company.trialStartsAt,
@@ -4966,6 +4985,43 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, companyId, courtesy: active };
   }
 
+  // MASTER-REFAB S6 (10/07 noite): toggle enxuto Crédito|Empresarial — PUT dedicado, sem
+  // side-effect em módulo/crédito/preço (isso continua na ficha, campo a campo). platform_infra
+  // não participa (não é conta self-service nem exceção comercial).
+  async setCompanyAccountTypeByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { accountType?: string },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (isPlatformInfraCompany(company)) {
+      throw new BadRequestException('Empresa de infraestrutura nao tem tipo de conta.');
+    }
+
+    const previousAccountType = normalizeCompanyAccountType((company as any).accountType);
+    const nextAccountType = normalizeCompanyAccountType(dto?.accountType);
+    if (previousAccountType === nextAccountType) {
+      return { ok: true, companyId, accountType: nextAccountType };
+    }
+
+    await (this.prisma.company as any).update({
+      where: { id: companyId },
+      data: { accountType: nextAccountType },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: 'COMPANY_ACCOUNT_TYPE_SET',
+      metadata: { previousAccountType, currentAccountType: nextAccountType },
+    });
+
+    return { ok: true, companyId, accountType: nextAccountType };
+  }
+
   // Suspender/Reativar (PR-002 Fase B): acao unica de alto nivel.
   // Reativacao e deterministica pelas datas: cortesia vigente > assinatura
   // vigente > trial vigente > pending_checkout (nada a reativar sem pagar —
@@ -5006,6 +5062,27 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         }),
         this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
       ]);
+    } else if (normalizeCompanyAccountType((company as any).accountType) === 'credit') {
+      // MASTER-REFAB S6 (10/07 noite): conta credit não tem mais sub-estado pra decidir
+      // reativação por datas (cortesia/assinatura/trial morreram como conceito) — ela é ATIVA
+      // por default, então reativar é só voltar pra `active` direto (o teto real é o saldo de
+      // crédito, gateado à parte). Sem isso o fallback antigo (nenhuma data válida →
+      // pending_checkout + isActive=false) deixava a conta "reativada" mas ainda bloqueada.
+      resultingStatus = 'active';
+      await this.prisma.$transaction(async (tx) => {
+        await tx.company.update({
+          where: { id: companyId },
+          data: {
+            status: resultingStatus,
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            isActive: true,
+            deactivatedAt: null,
+          },
+        });
+        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+      });
     } else {
       const courtesyEndsAt = (company as any).courtesyEndsAt instanceof Date ? (company as any).courtesyEndsAt : null;
       const courtesyValid = Boolean(
@@ -5018,7 +5095,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       const trialValid = Boolean(company.trialEndsAt instanceof Date && company.trialEndsAt.getTime() >= now.getTime());
 
       // Reativacao deterministica pelas datas; o estado unico decide tudo, sem
-      // espelho legado (DROP do PR-002).
+      // espelho legado (DROP do PR-002). Só se aplica a conta enterprise (S6) — a
+      // máquina de estados legada continua vigente pra ela.
       resultingStatus = courtesyValid ? 'courtesy' : subscriptionValid ? 'active' : trialValid ? 'trial' : 'pending_checkout';
 
       await this.prisma.$transaction(async (tx) => {

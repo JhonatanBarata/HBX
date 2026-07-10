@@ -44,7 +44,24 @@ export type CompanyAccessSnapshot = {
   billingGraceEndsAt?: Date | string | null;
   courtesyEndsAt?: Date | string | null;
   courtesyReason?: string | null;
+  // MASTER-REFAB S6 (10/07 noite): tipo explícito de conta. Ausente/valor desconhecido
+  // normaliza pro default da coluna ('credit') — nunca trata como enterprise por omissão.
+  accountType?: string | null;
 };
+
+// 2 tipos, sem meio-termo (ordem literal do dono 10/07: "só vão ter 2 tipos: conta crédito ou
+// conta empresarial"). Fonte única — quem precisar responder "é conta de crédito?" usa isto,
+// nunca re-deriva de courtesy/exempt-manual (esse critério MORREU com a cortesia).
+export type CompanyAccountType = 'credit' | 'enterprise';
+
+const COMPANY_ACCOUNT_TYPES = new Set<CompanyAccountType>(['credit', 'enterprise']);
+
+export function normalizeCompanyAccountType(value: unknown): CompanyAccountType {
+  const normalized = String(value || '').trim().toLowerCase();
+  return COMPANY_ACCOUNT_TYPES.has(normalized as CompanyAccountType)
+    ? (normalized as CompanyAccountType)
+    : 'credit';
+}
 
 export type CompanyAccessState = {
   state: CompanyAccessStateKey;
@@ -74,8 +91,12 @@ const STORED_COMPANY_STATUSES = new Set<StoredCompanyStatus>([
 
 const STATUS_LABELS: Record<CompanyAccessStateKey, string> = {
   platform_infra: 'Infraestrutura da plataforma',
-  exempt: 'Cortesia (sem prazo)',
-  manual: 'Cortesia',
+  // MASTER-REFAB S6: cortesia morreu como palavra — 'exempt' agora é o estado de leitura da
+  // conta CREDIT ativa (permanente, sem prazo; era "cortesia sem prazo") e, residualmente, de
+  // enterprise legada na mesma condição. 'manual' só sobra pra enterprise legada com prazo
+  // (liberação manual temporária — courtesyEndsAt setado) — nunca mais atribuído a conta nova.
+  exempt: 'Ativa',
+  manual: 'Liberação manual',
   paying: 'Adimplente',
   trial: 'Trial ativo',
   trial_ending: 'Trial vencendo',
@@ -140,12 +161,13 @@ export function normalizeStoredCompanyStatus(value: unknown): StoredCompanyStatu
     : null;
 }
 
-// Cortesia = modelo GRÁTIS de crédito (decisão do dono 07/07): a conta NÃO tem cota de
-// plano; o teto real é o saldo de crédito. As duas leituras de Company.status='courtesy'
-// ainda vigente são `exempt` (cortesia sem prazo, ex.: tenant interno) e `manual` (cortesia
-// com prazo não vencido). platform_infra e overdue (cortesia VENCIDA) ficam de fora. Predicado
-// ÚNICO pra o backend não re-derivar esse critério em cada módulo (credits.service /
-// commercial-plans.service / commercial-usage-limits).
+// LEGADO pós-S6 (10/07 noite): antes da conta `accountType` explícita, "é conta de crédito?"
+// se respondia checando o access-state (exempt/manual). Isso morreu como fonte de verdade —
+// quem quer saber "é conta de crédito" agora lê `Company.accountType` direto
+// (normalizeCompanyAccountType), ver credits.service.ts/commercial-plans.service.ts. Função
+// mantida só porque 'exempt'/'manual' ainda são estados de LEITURA válidos (credit ativa
+// permanente + enterprise legada com liberação manual temporária) — não usar em código novo
+// como proxy de accountType.
 export function isCourtesyCreditsAccessState(state: CompanyAccessStateKey): boolean {
   return state === 'exempt' || state === 'manual';
 }
@@ -216,6 +238,28 @@ export function resolveCompanyAccessState(
   if (!company) return buildResult('suspended', 'inactive');
 
   const stored = normalizeStoredCompanyStatus(company.status);
+
+  // MASTER-REFAB S6 (10/07 noite, ordem literal do dono): cortesia morre como conceito de
+  // conta. Conta `credit` (default da coluna) é ATIVA por default — bloqueio SÓ por suspensão
+  // ou exclusão (as duas gravam status='suspended', ver companies.service.ts archiveByMaster/
+  // removeByMaster/orphan-cleanup — checar só o status cobre as duas). Consumo continua gateado
+  // por crédito/módulo/teto em OUTRO lugar (isso já existe, não re-derivado aqui).
+  //
+  // Estados legados courtesy/trial/pending_checkout — NUNCA MAIS atribuídos a conta nova — leem
+  // como ativa pra conta credit: o dado não some (colunas ficam, só param de pesar na leitura).
+  // Reusa a MESMA visão 'exempt' que o modelo grátis já produzia pra conta credit permanente
+  // (courtesy sem prazo) — comportamento IDÊNTICO em todo consumidor deste motor (module-
+  // access-policy, entitlements com fallback manual, commissions, master-billing-situation
+  // etc.), só o rótulo deixou de dizer "cortesia".
+  if (normalizeCompanyAccountType(company.accountType) === 'credit') {
+    if (stored === 'suspended') return buildResult('suspended');
+    return buildResult('exempt');
+  }
+
+  // Conta `enterprise`: mantém a máquina de estados legada inteira — courtesy (manual/exempt),
+  // trial, grace, overdue, pending_checkout, suspended — decidida pelas datas como sempre foi.
+  // "Estados vivos que fazem sentido" (PLANO.md): nada removido daqui, só deixou de ser o
+  // caminho padrão (a exceção agora é montada explicitamente na ficha pelo master).
   if (stored) return resolveFromStoredStatus(stored, company, nowMs);
 
   // Pos-DROP, status e NOT NULL no banco (default pending_checkout) — este

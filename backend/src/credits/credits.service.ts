@@ -12,7 +12,7 @@ import {
 import { isCreditsEnforceEnabled, isCreditsFeatureEnabled, isCreditsShadowEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { loadUserTeamPolicyRuntime, resolveTeamPolicyStoredLimit } from '../team/team-policy-persistence';
-import { resolveCompanyAccessState, isCourtesyCreditsAccessState } from '../modules/company-access-state';
+import { normalizeCompanyAccountType } from '../modules/company-access-state';
 
 // CRÉDITOS S3-PARTE1 — camada de orquestração entre o ledger (S1, CreditWalletService) e o
 // catálogo de pacotes (credit-pack-catalog.ts). Tudo aqui respeita HBX_CREDITS_ENABLED
@@ -530,46 +530,38 @@ export class CreditsService {
       where: { id: companyIdNum },
       select: {
         creditsEnforceEnabled: true,
-        status: true,
-        courtesyEndsAt: true,
-        companyKind: true,
-        slug: true,
+        accountType: true,
       },
     }).catch(() => null);
     if (!company) return false;
 
-    // Modelo GRÁTIS (cortesia) — decisão do dono 07/07 (decisão A): a conta NÃO tem cota de
-    // plano; o teto REAL é o saldo de crédito. Por isso o débito real nasce LIGADO por default
-    // em código assim que o módulo de crédito está ON (HBX_CREDITS_ENABLED) — cortesia NÃO
-    // depende do cutover global `HBX_CREDITS_ENFORCE`, que existe pra migrar empresas PAGAS do
-    // plano pro crédito. Empresa paga (status active/paying) segue na cota do plano até o dono
-    // decidir a migração.
-    if (isCreditsFeatureEnabled() && this.isCourtesyCreditsCompany(company)) return true;
+    // MASTER-REFAB S6 (10/07 noite): o gatilho do débito real deixou de ser o access-state
+    // courtesy (exempt/manual) e virou o TIPO EXPLÍCITO da conta. Conta `credit` NÃO tem cota
+    // de plano; o teto REAL é o saldo de crédito. Por isso o débito real nasce LIGADO por
+    // default assim que o módulo de crédito está ON (HBX_CREDITS_ENABLED) — igual comportamento
+    // que a courtesy já tinha desde `5e10b0d8`, só lido do campo em vez de re-derivar do estado
+    // comercial. Conta `enterprise` segue APENAS no cutover legado (2 chaves) abaixo.
+    if (isCreditsFeatureEnabled() && this.isCreditAccountTypeCompany(company)) return true;
 
-    // Caminho legado do cutover por-empresa (gate 2 chaves R1): empresa paga já migrada.
+    // Caminho legado do cutover por-empresa (gate 2 chaves R1): conta enterprise já migrada.
     if (!isCreditsEnforceEnabled()) return false;
     return Boolean((company as any)?.creditsEnforceEnabled);
   }
 
-  // Cortesia (modelo grátis) = access state exempt/manual (Company.status='courtesy' não
-  // vencida), nunca platform_infra. Fonte única: resolveCompanyAccessState (mesmo motor do
-  // resto do backend) + predicado isCourtesyCreditsAccessState, sem re-derivar status cru.
-  private isCourtesyCreditsCompany(company: {
-    status?: string | null;
-    courtesyEndsAt?: Date | null;
-    companyKind?: string | null;
-    slug?: string | null;
-  }): boolean {
-    return isCourtesyCreditsAccessState(resolveCompanyAccessState(company as any).state);
+  // Fonte única: Company.accountType (normalizeCompanyAccountType) — nunca re-derivar de
+  // courtesy/exempt-manual (esse critério morreu com a cortesia, ver company-access-state.ts).
+  private isCreditAccountTypeCompany(company: { accountType?: string | null }): boolean {
+    return normalizeCompanyAccountType(company?.accountType) === 'credit';
   }
 
   /**
-   * Método PÚBLICO reusável (decisão do dono 07/07): "esta empresa é uma conta de CRÉDITO
-   * (modelo grátis/cortesia)?". Verdadeiro só com o módulo de crédito ON (HBX_CREDITS_ENABLED)
-   * E a empresa em cortesia vigente (exempt/manual). Existe pra outros serviços perguntarem
-   * SEM duplicar o critério exempt/manual — hoje consumido pelo CommercialUsageLimitsService
-   * (fronteira cota-de-plano × crédito). Best-effort: empresa inexistente/erro → false (nunca
-   * trata como conta de crédito por engano, nunca quebra o fluxo de venda).
+   * Método PÚBLICO reusável: "esta empresa é uma conta de CRÉDITO?" — verdadeiro só com o
+   * módulo de crédito ON (HBX_CREDITS_ENABLED) E `accountType === 'credit'` (MASTER-REFAB S6,
+   * 10/07 noite — era cortesia vigente/exempt-manual, virou o campo explícito). Existe pra
+   * outros serviços perguntarem sem duplicar o critério — hoje consumido pelo
+   * CommercialUsageLimitsService (fronteira cota-de-plano × crédito). Best-effort: empresa
+   * inexistente/erro → false (nunca trata como conta de crédito por engano, nunca quebra o
+   * fluxo de venda).
    */
   async isCreditsAccountCompany(companyId: number): Promise<boolean> {
     if (!isCreditsFeatureEnabled()) return false;
@@ -577,10 +569,10 @@ export class CreditsService {
     if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return false;
     const company = await this.prisma.company.findUnique({
       where: { id: companyIdNum },
-      select: { status: true, courtesyEndsAt: true, companyKind: true, slug: true },
+      select: { accountType: true },
     }).catch(() => null);
     if (!company) return false;
-    return this.isCourtesyCreditsCompany(company);
+    return this.isCreditAccountTypeCompany(company);
   }
 
   // Master (isSystemMaster) operando um tenant é god-mode em TODA a superfície de cota

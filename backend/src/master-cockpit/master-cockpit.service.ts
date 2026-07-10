@@ -671,6 +671,10 @@ export class MasterCockpitService {
         name: true,
         slug: true,
         companyKind: true,
+        // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState lê accountType antes de
+        // status — sem ele aqui, TODA empresa (inclusive enterprise real) normaliza pro
+        // default 'credit' e o roster (MRR/billable) mente pra TODO mundo.
+        accountType: true,
         status: true,
         isActive: true,
         paymentMethod: true,
@@ -738,6 +742,7 @@ export class MasterCockpitService {
       const snapshot: CompanyAccessSnapshot = {
         companyKind: c.companyKind,
         slug: c.slug,
+        accountType: (c as any).accountType,
         status: c.status,
         isActive: c.isActive,
         paymentMethod: c.paymentMethod,

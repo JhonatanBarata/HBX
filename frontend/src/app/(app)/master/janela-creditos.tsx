@@ -78,8 +78,10 @@ type PackForm = {
 
 type GrantType = "paid" | "courtesy_internal" | "promo";
 
+// MASTER-REFAB S6 (10/07 noite): cortesia morre como palavra na UI — o VALOR gravado
+// (courtesy_internal) não muda (semântica fiscal fica), só o rótulo vira "Concessão interna".
 const GRANT_TYPES: { value: GrantType; label: string }[] = [
-  { value: "courtesy_internal", label: "Cortesia interna" },
+  { value: "courtesy_internal", label: "Concessão interna" },
   { value: "paid", label: "Pago (fora do checkout)" },
   { value: "promo", label: "Promoção" },
 ];

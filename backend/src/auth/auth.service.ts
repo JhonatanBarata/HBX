@@ -34,7 +34,7 @@ import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.ser
 import { CreditsService } from '../credits/credits.service';
 import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { isPlatformInfraCompany } from '../common/company-kind';
-import { resolveCompanyAccessState } from '../modules/company-access-state';
+import { resolveCompanyAccessState, normalizeCompanyAccountType } from '../modules/company-access-state';
 import {
   ensureUserTeamPolicyForUser,
   loadUserTeamPolicyRuntime,
@@ -110,15 +110,22 @@ export class AuthService implements OnModuleInit {
     try {
       const company = await this.prisma.company.findUnique({
         where: { id },
-        select: { status: true, contactPhone: true, taxDocument: true },
+        select: { status: true, accountType: true, contactPhone: true, taxDocument: true },
       });
-      // O welcome é brinde de NASCIMENTO self-service: `courtesy` (modelo grátis já ativado na
-      // confirmação/Google) ou `pending_checkout` (recém-nascida pré-ativação). Empresa viva em
-      // qualquer outro estado (active/trial/overdue/suspended) confirmando identidade de um usuário
-      // novo NÃO ganha lote — senão todo tenant pago antigo ganharia 50 créditos de graça no
-      // primeiro confirm pós-chavinha. (usageKey welcome:<id> já dedupa, mas o filtro é semântico.)
+      // O welcome é brinde de NASCIMENTO self-service (MASTER-REFAB S6 10/07 noite: a conta
+      // ativada na confirmação/Google nasce direto `active`, não mais `courtesy` — o filtro por
+      // STATUS cru ficou errado pra distinguir "tenant de crédito novo" de "tenant pago antigo
+      // que também está com status=active"). Filtro correto agora é o TIPO: só accountType
+      // 'credit' ganha lote — tenant enterprise (cobrança manual/MP) NUNCA ganha, senão todo
+      // tenant pago antigo ganharia 50 créditos de graça no primeiro confirm pós-chavinha.
+      // (usageKey welcome:<id> já dedupa por empresa, mas o filtro evita a tentativa à toa.)
+      const accountType = normalizeCompanyAccountType(company?.accountType);
+      if (accountType !== 'credit') {
+        this.logger.log(`welcome_batch_skipped_account_type company=${id} accountType=${accountType}`);
+        return;
+      }
       const companyStatus = String(company?.status || '').trim().toLowerCase();
-      if (companyStatus && companyStatus !== 'courtesy' && companyStatus !== 'pending_checkout') {
+      if (companyStatus === 'suspended') {
         this.logger.log(`welcome_batch_skipped_status company=${id} status=${companyStatus}`);
         return;
       }
@@ -899,18 +906,21 @@ export class AuthService implements OnModuleInit {
     // furo que vazou pra VPS. NUNCA reintroduzir a concessao de trial neste
     // ponto sem passar pelo checkout. (Nome mantido por compatibilidade dos
     // chamadores; hoje so prepara o pending_checkout.)
-    // CRÉDITOS (cutover 06/07) — modelo GRÁTIS pré-pago: confirmar identidade ATIVA a conta como
-    // `courtesy` PERMANENTE (courtesyEndsAt null → estado 'exempt' = liberado, módulos default-on
-    // pelo kill-switch). NÃO reabre o furo do "trial sem cartão" travado em 16/06: aquilo era
-    // acesso TEMPORÁRIO por TEMPO sem pagar; aqui o acesso é a cortesia do modelo grátis e o LIMITE
-    // real é o SALDO de crédito (gate S2/R1), não o relógio. NÃO desabilita companyModule (o path
+    // CRÉDITOS (cutover 06/07; MASTER-REFAB S6 10/07 noite — cortesia morre como conceito) —
+    // modelo GRÁTIS pré-pago: confirmar identidade ATIVA a conta `credit` (accountType nasce
+    // 'credit' por default da coluna — nada a setar aqui) direto como `active` (estado 'exempt'
+    // na leitura = liberado, módulos default-on pelo kill-switch; ver company-access-state.ts).
+    // Era `status: 'courtesy'` — cortesia NUNCA MAIS é atribuída a conta nova (ordem literal do
+    // dono). NÃO reabre o furo do "trial sem cartão" travado em 16/06: aquilo era acesso
+    // TEMPORÁRIO por TEMPO sem pagar; aqui o acesso é do modelo grátis e o LIMITE real é o
+    // SALDO de crédito (gate S2/R1), não o relógio. NÃO desabilita companyModule (o path
     // pending_checkout abaixo faz isso, o que no kill-switch apagaria os módulos do grátis). Gated
     // pela chavinha — com ela OFF, cai no fluxo pending_checkout de sempre (regressão zero).
     if (isCreditsFeatureEnabled()) {
       await tx.company.update({
         where: { id: companyId },
         data: {
-          status: 'courtesy',
+          status: 'active',
           statusChangedAt: activatedAt,
           courtesyEndsAt: null,
           trialModuleSelection: null,
@@ -1143,6 +1153,7 @@ export class AuthService implements OnModuleInit {
           where: { id: Number(requestedCompanyId) },
           select: {
             companyKind: true,
+            accountType: true,
             status: true,
             isActive: true,
             trialEndsAt: true,
@@ -1209,6 +1220,7 @@ export class AuthService implements OnModuleInit {
         where: { id: Number(companyId) },
         select: {
           companyKind: true,
+          accountType: true,
           status: true,
           isActive: true,
           trialEndsAt: true,
@@ -1490,11 +1502,12 @@ export class AuthService implements OnModuleInit {
     const randomPassword = crypto.randomBytes(32).toString('hex');
     const hashed = await bcrypt.hash(randomPassword, 12);
     const now = new Date();
-    // CRÉDITOS (cutover 06/07) — Google JÁ É identidade confirmada (nunca passa pelo confirmEmail →
-    // activateConfirmedTrialTx nunca roda pra ele). Com a chavinha ON, a empresa nasce direto
-    // `courtesy` ATIVA (mesmo estado que a confirmação de email produz no modelo grátis); sem isso o
-    // usuário Google ganharia os 50 créditos mas ficaria PRESO no pending_checkout. Chavinha OFF →
-    // fluxo de sempre (pending_checkout), regressão zero.
+    // CRÉDITOS (cutover 06/07; MASTER-REFAB S6 10/07 noite) — Google JÁ É identidade confirmada
+    // (nunca passa pelo confirmEmail → activateConfirmedTrialTx nunca roda pra ele). Com a
+    // chavinha ON, a empresa nasce direto `active` (accountType 'credit' por default da coluna
+    // — mesmo estado que a confirmação de email produz no modelo grátis, era `courtesy`); sem
+    // isso o usuário Google ganharia os 50 créditos mas ficaria PRESO no pending_checkout.
+    // Chavinha OFF → fluxo de sempre (pending_checkout), regressão zero.
     const creditsFreeGoogle = isCreditsFeatureEnabled();
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -1513,7 +1526,7 @@ export class AuthService implements OnModuleInit {
             ? 'Implantação assistida pendente para liberar automação completa.'
             : null,
           signupUsesPublicEmail: false,
-          status: creditsFreeGoogle ? 'courtesy' : 'pending_checkout',
+          status: creditsFreeGoogle ? 'active' : 'pending_checkout',
           statusChangedAt: now,
           isActive: creditsFreeGoogle,
           courtesyEndsAt: null,
@@ -2180,6 +2193,7 @@ export class AuthService implements OnModuleInit {
         company: {
           select: {
             companyKind: true,
+            accountType: true,
             status: true,
             isActive: true,
             selectedPlanKey: true,
@@ -2249,6 +2263,7 @@ export class AuthService implements OnModuleInit {
         company: {
           select: {
             companyKind: true,
+            accountType: true,
             status: true,
             isActive: true,
             selectedPlanKey: true,

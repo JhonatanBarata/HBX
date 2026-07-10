@@ -18,8 +18,14 @@ import {
 
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-test('pending_checkout/PENDING blocks operational modules', () => {
+// MASTER-REFAB S6 (10/07 noite): pending_checkout/trial/courtesy só continuam pesando pra conta
+// `enterprise` (a máquina de estados legada) — conta `credit` (default) é ativa por default e
+// não é mais bloqueada por nenhum desses. Os testes de paywall legado abaixo marcam
+// `accountType: 'enterprise'` explicitamente pra deixar claro QUAL tipo de conta estão testando.
+
+test('pending_checkout/PENDING blocks operational modules (conta enterprise)', () => {
   const policy = resolveCompanyModuleAccessPolicy({
+    accountType: 'enterprise',
     status: 'pending_checkout',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
   });
@@ -30,8 +36,37 @@ test('pending_checkout/PENDING blocks operational modules', () => {
   assert.deepEqual([...policy.moduleKeys], []);
 });
 
-test('active_trial/TRIAL/trialing releases padrao commercial modules', () => {
+test('S6: conta credit NUNCA é bloqueada por pending_checkout/overdue legado (cortesia/trial/pending_checkout morreram como estado de conta credit)', () => {
+  const pending = resolveCompanyModuleAccessPolicy({
+    accountType: 'credit',
+    status: 'pending_checkout',
+    selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+  });
+  assert.equal(pending.active, true);
+  assert.equal(pending.pendingCheckout, false);
+  assert.equal(pending.blockedCode, null);
+
+  const overdue = resolveCompanyModuleAccessPolicy({
+    accountType: 'credit',
+    status: 'overdue',
+    selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+  });
+  assert.equal(overdue.active, true);
+  assert.equal(overdue.blockedCode, null);
+
+  // Suspensão continua bloqueando TODA conta (é o único bloqueio que sobra pra credit).
+  const suspended = resolveCompanyModuleAccessPolicy({
+    accountType: 'credit',
+    status: 'suspended',
+    selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+  });
+  assert.equal(suspended.active, false);
+  assert.equal(suspended.blockedCode, 'subscription_inactive');
+});
+
+test('active_trial/TRIAL/trialing releases padrao commercial modules (conta enterprise)', () => {
   const policy = resolveCompanyModuleAccessPolicy({
+    accountType: 'enterprise',
     status: 'trial',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
     trialEndsAt: future,
@@ -81,8 +116,9 @@ test('commercial plan catalog keeps new HBX names and premium entitlements', () 
   assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE), true);
 });
 
-test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus', () => {
+test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus (conta enterprise — courtesy com prazo é liberação manual temporária, S6)', () => {
   const courtesyLite = resolveCompanyModuleAccessPolicy({
+    accountType: 'enterprise',
     status: 'courtesy',
     courtesyEndsAt: future,
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
@@ -94,6 +130,7 @@ test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus'
 
   // Cortesia permanente (sem prazo) e sem plano escolhido projeta Lead Plus.
   const fallback = resolveCompanyModuleAccessPolicy({
+    accountType: 'enterprise',
     status: 'courtesy',
     selectedPlanKey: null,
   });
@@ -120,8 +157,9 @@ test('platform_infra company does not receive commercial modules', () => {
   assert.equal(policy.blockedCode, 'platform_infra_company');
 });
 
-test('HBX tenant follows normal courtesy module policy without slug privilege', () => {
+test('HBX tenant follows normal courtesy module policy without slug privilege (conta enterprise)', () => {
   const policy = resolveCompanyModuleAccessPolicy({
+    accountType: 'enterprise',
     companyKind: COMPANY_KIND_TENANT,
     slug: 'hbx',
     status: 'courtesy',
@@ -137,8 +175,9 @@ test('HBX tenant follows normal courtesy module policy without slug privilege', 
   assert.equal(policy.moduleKeys.has('atendimento'), false);
 });
 
-test('courtesy (sem prazo = isenta) is released as exempt with plan modules and no billing block', () => {
+test('courtesy (sem prazo = isenta) is released as exempt with plan modules and no billing block (conta enterprise)', () => {
   const policy = resolveCompanyModuleAccessPolicy({
+    accountType: 'enterprise',
     companyKind: COMPANY_KIND_TENANT,
     status: 'courtesy',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
@@ -401,7 +440,7 @@ test('R2 flag ON: master desligou módulo X da empresa (post-it enabled=false) �
   });
 });
 
-test('R2 flag ON: empresa overdue/pending_checkout continua com tudo bloqueado (inadimplência ≠ paywall de tier)', () => {
+test('R2 flag ON: empresa enterprise overdue/pending_checkout continua com tudo bloqueado (inadimplência ≠ paywall de tier)', () => {
   withKillSwitchFlag('true', () => {
     const snapshot = buildSnapshot([
       { key: 'atendimento', defaultEnabled: true },
@@ -410,7 +449,7 @@ test('R2 flag ON: empresa overdue/pending_checkout continua com tudo bloqueado (
     ]);
 
     const pendingCheckout = resolveCompanyModuleAccessPolicy(
-      { status: 'pending_checkout', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      { accountType: 'enterprise', status: 'pending_checkout', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
       Date.now(),
       snapshot,
     );
@@ -420,7 +459,7 @@ test('R2 flag ON: empresa overdue/pending_checkout continua com tudo bloqueado (
     assert.deepEqual([...pendingCheckout.moduleKeys], []);
 
     const overdue = resolveCompanyModuleAccessPolicy(
-      { status: 'overdue', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      { accountType: 'enterprise', status: 'overdue', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
       Date.now(),
       snapshot,
     );
@@ -429,7 +468,7 @@ test('R2 flag ON: empresa overdue/pending_checkout continua com tudo bloqueado (
     assert.deepEqual([...overdue.moduleKeys], []);
 
     const suspended = resolveCompanyModuleAccessPolicy(
-      { status: 'suspended', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
+      { accountType: 'enterprise', status: 'suspended', selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO },
       Date.now(),
       snapshot,
     );

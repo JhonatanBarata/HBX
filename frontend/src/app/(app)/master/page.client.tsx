@@ -34,6 +34,9 @@ export type MasterCompany = {
   taxDocument?: string | null;
   isActive?: boolean;
   status?: string | null;
+  // MASTER-REFAB S6 (10/07 noite): tipo explícito de conta — fonte única, substitui a
+  // derivação por cobrança (paymentMethod/billingProvider) que o S1 usava.
+  accountType?: "credit" | "enterprise" | string | null;
   paymentMethod?: string | null;
   billingProvider?: string | null;
   trialStartsAt?: string | null;
@@ -61,32 +64,49 @@ export type MasterCompany = {
   modules?: { key: string; name: string; enabled: boolean }[];
 };
 
-// MASTER-REFAB S1: vocabulário vivo = cortesia/ativa/suspensa/cancelada (os únicos estados que
-// uma ação do /master ainda PRODUZ). Os demais são vocabulário de plano/trial morto — seguem
-// aceitos em LEITURA (empresa antiga persistida com esse status), sempre com o prefixo "Legado:"
-// pra deixar claro que não é uma opção nova, só um fóssil de dado.
+// MASTER-REFAB S6 (10/07 noite): cortesia morreu como conceito de conta — vocabulário vivo do
+// /master agora é só Ativa/Suspensa (os únicos 2 que uma ação do master ainda PRODUZ). Tudo
+// mais é fóssil de dado (empresa antiga persistida com status legado, nunca mais atribuído a
+// conta nova) — sempre com o prefixo "Legado:" pra deixar claro que não é opção nova.
 export const STATUS_LABEL: Record<string, string> = {
-  courtesy: "Cortesia",
   active: "Ativa",
   suspended: "Suspensa",
-  canceled: "Cancelada",
+  canceled: "Legado: Cancelada",
+  courtesy: "Legado: Cortesia",
   trial: "Legado: Trial",
   pending_checkout: "Legado: Aguardando checkout",
   charging: "Legado: Cobrança ativa",
   past_due: "Legado: Pagamento pendente",
 };
 
-export function statusTagClass(status?: string | null, isActive?: boolean) {
+export function statusTagClass(status?: string | null, isActive?: boolean, accountType?: string | null) {
   const s = String(status || "").toLowerCase();
-  if (s === "courtesy" || s === "active" || s === "charging") return "tag teal";
+  if (s === "suspended" || isActive === false) return "tag red";
+  // Conta credit não tem sub-estado que pese na leitura (S6, backend company-access-state.ts):
+  // qualquer status != suspenso é Ativa — o dado legado fica no banco, só parou de aparecer
+  // como "Cortesia"/"Trial"/etc. Só a conta empresarial preserva o vocabulário legado abaixo.
+  if ((accountType || "credit") === "credit") return "tag teal";
+  if (s === "active" || s === "charging") return "tag teal";
   if (s === "pending_checkout" || s === "past_due") return "tag warn";
-  if (s === "suspended" || s === "canceled" || isActive === false) return "tag red";
+  if (s === "canceled") return "tag red";
   return "tag";
 }
 
-export function statusLabel(status?: string | null) {
+export function statusLabel(status?: string | null, accountType?: string | null) {
   const s = String(status || "").toLowerCase();
-  return STATUS_LABEL[s] || (status ? String(status) : "—");
+  if (s === "suspended") return "Suspensa";
+  if ((accountType || "credit") === "credit") return "Ativa";
+  return STATUS_LABEL[s] || (status ? `Legado: ${status}` : "—");
+}
+
+// Badge de TIPO (Crédito|Empresarial) — mostrado ao lado do badge de status (S6, rótulo
+// "Negociada" do S1 morreu, vira "Empresarial" em tudo).
+export function accountTypeLabel(accountType?: string | null) {
+  return accountType === "enterprise" ? "Empresarial" : "Crédito";
+}
+
+export function accountTypeTagClass(accountType?: string | null) {
+  return accountType === "enterprise" ? "tag warn" : "tag teal";
 }
 
 export function fmtData(iso?: string | null) {

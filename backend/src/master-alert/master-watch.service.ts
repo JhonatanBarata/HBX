@@ -122,6 +122,11 @@ export class MasterWatchService implements OnModuleInit, OnModuleDestroy {
         name: true,
         slug: true,
         companyKind: true,
+        // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState bifurca por accountType antes
+        // de olhar pra courtesy/trial/overdue — sem selecionar o campo, TODA empresa (inclusive
+        // enterprise real) normalizava pro default 'credit' aqui e a detecção de transição de
+        // estado morria silenciosamente.
+        accountType: true,
         status: true,
         isActive: true,
         paymentMethod: true,
@@ -138,6 +143,7 @@ export class MasterWatchService implements OnModuleInit, OnModuleDestroy {
         const snapshot: CompanyAccessSnapshot = {
           companyKind: company.companyKind,
           slug: company.slug,
+          accountType: (company as any).accountType,
           status: company.status,
           isActive: company.isActive,
           paymentMethod: company.paymentMethod,

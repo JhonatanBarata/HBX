@@ -93,7 +93,17 @@ model Company {
   status                  String    @default("pending_checkout")
   statusChangedAt         DateTime?
   statusChangedByUserId   Int?
-  // Cortesia (funde liberacao manual + isenta): prazo opcional; sem prazo = permanente.
+  // MASTER-REFAB S6 (10/07 noite, ordem literal do dono): cortesia morre como CONCEITO de
+  // conta — só existem 2 tipos explícitos. 'credit' = self-service, ativa por default, teto
+  // real é o saldo de crédito (bloqueio só suspensão/exclusão). 'enterprise' = exceção montada
+  // pelo master na ficha (módulos/crédito/preço manuais, mantém a máquina de estados legada).
+  // Migration ADITIVA `20260710010000_company_account_type` faz o backfill (cobrança manual
+  // ativa OU assinatura MP ativa OU platform_infra → enterprise); daqui pra frente o código
+  // seta explícito (signup → credit, wizard master → enterprise).
+  accountType             String    @default("credit")
+  // Cortesia (funde liberacao manual + isenta): prazo opcional; sem prazo = permanente. Campo
+  // FICA (dado fiscal/legado) — não é mais gravado por conta nova (S6); só empresa enterprise
+  // legada ainda pode estar num estado que o lê (ver company-access-state.ts).
   courtesyEndsAt          DateTime?
   courtesyReason          String?
   tastePlanKey            String?   // degustação temporária (master concede)

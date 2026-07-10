@@ -106,7 +106,9 @@ test('checkCompanyStateTransitions: mesmo estado em 2 ticks seguidos = 1 evento 
 });
 
 test('checkCompanyStateTransitions: estado MUDOU entre ticks = 2º evento é inserido e roteado', async () => {
-  const company = buildCompanyRow({ status: 'trial' });
+  // MASTER-REFAB S6 (10/07 noite): trial/overdue só pesam pra conta enterprise — conta credit
+  // (default) lê ambos como "ativa" (mesmo estado 'exempt'), sem transição pra detectar.
+  const company = buildCompanyRow({ accountType: 'enterprise', status: 'trial' });
   const prismaMock = buildPrismaMock({ companies: [company] });
   const webwhats = buildWebwhatsMock(null);
   const masterAlert = buildMasterAlertStub();

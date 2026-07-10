@@ -651,6 +651,7 @@ export class UsersService {
           name: true,
           commissionDueBusinessDays: true,
           companyKind: true,
+          accountType: true,
           status: true,
           isActive: true,
           selectedPlanKey: true,

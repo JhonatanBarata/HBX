@@ -134,6 +134,9 @@ test('provisionTenant persists initial products and support channels for the ten
   });
 
   assert.equal(companyCreates.length, 1);
+  // MASTER-REFAB S6 (10/07 noite): TODA empresa criada pelo wizard master é a exceção —
+  // accountType 'enterprise' explícito, independente do checkbox "acesso manual".
+  assert.equal(companyCreates[0].accountType, 'enterprise');
   assert.equal(companyCreates[0].supportEmail, 'suporte@produto.com');
   assert.equal(companyCreates[0].replyToEmail, 'responder@produto.com');
   assert.equal(companyCreates[0].supportWhatsapp, '+55 11 97777-0000');

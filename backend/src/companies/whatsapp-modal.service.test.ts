@@ -252,8 +252,11 @@ test('pairing-code rejeita telefone invalido', async () => {
 });
 
 test('pairing-code no trial HBX Lead Plus exige o telefone informado na ativacao', async () => {
-  // Pos-DROP: trial e o estado unico persistido (status='trial' + data).
+  // Pos-DROP: trial e o estado unico persistido (status='trial' + data). MASTER-REFAB S6
+  // (10/07 noite): trial só é vocabulário vivo pra conta enterprise — conta credit (default)
+  // nunca mais tem trial, então este cenário exige o tipo explícito.
   const service = createService(createCompany({
+    accountType: 'enterprise',
     status: 'trial',
     trialEndsAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
     isActive: true,

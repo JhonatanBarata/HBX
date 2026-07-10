@@ -180,6 +180,14 @@ class SetSuspensionDto {
   reason?: string;
 }
 
+// MASTER-REFAB S6 (10/07 noite): toggle enxuto do tipo explícito de conta (2 valores, sem
+// meio-termo — "só vão ter 2 tipos: conta crédito ou conta empresarial").
+class SetAccountTypeDto {
+  @IsString()
+  @IsIn(['credit', 'enterprise'])
+  accountType!: string;
+}
+
 class SetCompanyPlanDto {
   @IsString()
   @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR])
@@ -742,6 +750,18 @@ export class ModulesController {
     @Body() dto: SetCourtesyDto,
   ) {
     return this.modulesService.setCompanyCourtesyByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  // MASTER-REFAB S6 (10/07 noite): toggle Crédito|Empresarial na ficha — PUT enxuto (padrão dos
+  // PUTs vizinhos), substitui a derivação por cobrança do S1.
+  @Put('master/company/:companyId/account-type')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  setCompanyAccountType(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: SetAccountTypeDto,
+  ) {
+    return this.modulesService.setCompanyAccountTypeByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/bot-activation')

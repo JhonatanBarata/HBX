@@ -34,7 +34,7 @@ import {
 } from './commercial-plan-catalog';
 // R4 (FASE 2 — REMOÇÃO): seat-billing.util não é mais consumido aqui — assento
 // grátis, computeCompanyCommercialAmount não soma mais custo por cabeça.
-import { resolveCompanyAccessState, isCourtesyCreditsAccessState } from '../modules/company-access-state';
+import { resolveCompanyAccessState, normalizeCompanyAccountType } from '../modules/company-access-state';
 import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { MasterAlertService } from '../master-alert/master-alert.service';
 import { MailService } from '../mail/mail.service';
@@ -354,11 +354,13 @@ export class CommercialPlansService {
     const canSeeLeadIntelligence = tier !== 'list';
     const canSeeCompanyData = tier === 'full';
 
-    // Conta de CRÉDITO (modelo grátis): cortesia (exempt/manual) com o módulo de crédito ON.
-    // O limite dela é o saldo de crédito, não a cota do plano — o front usa isto para trocar o
-    // card de plano por saldo (decisão do dono 07/07). platform_infra nunca é conta de crédito.
+    // Conta de CRÉDITO: accountType==='credit' com o módulo de crédito ON (MASTER-REFAB S6,
+    // 10/07 noite — era cortesia/exempt-manual, virou o campo explícito). O limite dela é o
+    // saldo de crédito, não a cota do plano — o front usa isto para trocar o card de plano por
+    // saldo (decisão do dono 07/07). platform_infra nunca é conta de crédito (backfill do S6 já
+    // classifica platform_infra como enterprise, mas o `!platformInfra` fica como cinto extra).
     const creditsAccount = !platformInfra && isCreditsFeatureEnabled() &&
-      isCourtesyCreditsAccessState(companyAccess.state);
+      normalizeCompanyAccountType(company?.accountType) === 'credit';
 
     return {
       planKey,

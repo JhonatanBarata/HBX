@@ -261,6 +261,10 @@ export class RadarCorePresentationMixin {
       where: { id: context.companyId },
       select: {
         status: true,
+        // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState lê accountType antes de
+        // status/datas — sem ele aqui, empresa enterprise bloqueada (overdue/trial vencido)
+        // normalizava pro default 'credit' e reganhava acesso à busca por engano.
+        accountType: true,
         isActive: true,
         selectedPlanKey: true,
         trialEndsAt: true,
@@ -336,6 +340,7 @@ export class RadarCorePresentationMixin {
       select: {
         id: true,
         status: true,
+        accountType: true,
         isActive: true,
         selectedPlanKey: true,
         trialEndsAt: true,

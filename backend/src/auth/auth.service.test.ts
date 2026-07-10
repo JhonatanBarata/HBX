@@ -326,9 +326,12 @@ test('gate de login: trial vigente entra direto no dashboard', async () => {
   assert.equal(result.requiresCheckout, false);
 });
 
-test('gate de login: trial vencido cai no dashboard (bloqueio-gate captura)', async () => {
+test('gate de login: trial vencido cai no dashboard (bloqueio-gate captura) — conta enterprise', async () => {
+  // MASTER-REFAB S6 (10/07 noite): trial só bloqueia conta enterprise — conta credit (default)
+  // nunca mais tem trial vivo, lê como ativa. accountType explícito exercita o caminho legado.
   const { service } = buildAuthServiceForLogin({
     companyKind: 'tenant',
+    accountType: 'enterprise',
     status: 'trial',
     isActive: true,
     trialEndsAt: inDays(-1),
@@ -339,9 +342,10 @@ test('gate de login: trial vencido cai no dashboard (bloqueio-gate captura)', as
   assert.equal(result.requiresCheckout, true);
 });
 
-test('gate de login: pending_checkout cai no dashboard (bloqueio-gate captura)', async () => {
+test('gate de login: pending_checkout cai no dashboard (bloqueio-gate captura) — conta enterprise', async () => {
   const { service } = buildAuthServiceForLogin({
     companyKind: 'tenant',
+    accountType: 'enterprise',
     status: 'pending_checkout',
     isActive: false,
   });
@@ -354,6 +358,7 @@ test('gate de login: pending_checkout cai no dashboard (bloqueio-gate captura)',
 test('gate de login: overdue dentro da graca mantem acesso', async () => {
   const { service } = buildAuthServiceForLogin({
     companyKind: 'tenant',
+    accountType: 'enterprise',
     status: 'overdue',
     isActive: true,
     billingGraceEndsAt: inDays(3),
@@ -363,10 +368,11 @@ test('gate de login: overdue dentro da graca mantem acesso', async () => {
   assert.equal(result.requiresCheckout, false);
 });
 
-test('gate de login: overdue sem graca e suspended caem no dashboard (bloqueio-gate captura)', async () => {
+test('gate de login: overdue sem graca e suspended caem no dashboard (bloqueio-gate captura) — conta enterprise', async () => {
   for (const status of ['overdue', 'suspended']) {
     const { service } = buildAuthServiceForLogin({
       companyKind: 'tenant',
+      accountType: 'enterprise',
       status,
       isActive: false,
     });
@@ -375,6 +381,29 @@ test('gate de login: overdue sem graca e suspended caem no dashboard (bloqueio-g
     assert.equal(result.next, '/dashboard');
     assert.equal(result.requiresCheckout, true);
   }
+});
+
+test('gate de login: S6 — conta credit NUNCA bloqueia por trial/pending_checkout/overdue legado (só suspensão)', async () => {
+  for (const status of ['trial', 'pending_checkout', 'overdue']) {
+    const { service } = buildAuthServiceForLogin({
+      companyKind: 'tenant',
+      accountType: 'credit',
+      status,
+      isActive: false,
+      trialEndsAt: inDays(-1),
+    });
+    const result = await loginAsAdmin(service);
+    assert.equal(result.requiresCheckout, false, `conta credit em status legado "${status}" não deveria exigir checkout`);
+  }
+
+  const { service: suspendedService } = buildAuthServiceForLogin({
+    companyKind: 'tenant',
+    accountType: 'credit',
+    status: 'suspended',
+    isActive: false,
+  });
+  const suspendedResult = await loginAsAdmin(suspendedService);
+  assert.equal(suspendedResult.requiresCheckout, true); // suspensão é o ÚNICO bloqueio de conta credit
 });
 
 // Gate do vendedor (PR-002 D.2/D.4): login cai direto em Vendas e nunca
@@ -443,6 +472,9 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
     id: 77,
     name: 'Cliente A',
     companyKind: 'tenant',
+    // MASTER-REFAB S6 (10/07 noite): trial só é vocabulário vivo pra conta enterprise — este
+    // teste exercita o accessState/accessStateLabel legado, precisa do tipo explícito.
+    accountType: 'enterprise',
     isActive: true,
     status: 'trial',
     onboardingStatus: 'active_trial',
@@ -479,6 +511,7 @@ test('sanitizeUser: USERMASTER (dono) e reconhecido como admin, identico a ADMIN
     id: 77,
     name: 'Cliente A',
     companyKind: 'tenant',
+    accountType: 'enterprise', // MASTER-REFAB S6: trial só é vivo pra conta enterprise
     isActive: true,
     status: 'trial',
     onboardingStatus: 'active_trial',
@@ -623,10 +656,12 @@ test('plano sem trial (List) confirma e segue direto para o checkout', async () 
   assert.equal(companyUpdates[0].status, 'pending_checkout');
 });
 
-test('CRÉDITOS: com a chavinha ON a confirmação ATIVA a conta como courtesy (modelo grátis, sem checkout)', async () => {
-  // Cutover 06/07: no modelo grátis, confirmar identidade não vai mais pro checkout — ativa a
-  // empresa como `courtesy` PERMANENTE (courtesyEndsAt null → 'exempt' = liberado, módulos default-on
-  // pelo kill-switch). NÃO é trial (não reabre o furo 16/06): o limite real é o SALDO de crédito.
+test('CRÉDITOS: com a chavinha ON a confirmação ATIVA a conta direto (accountType credit, sem checkout)', async () => {
+  // Cutover 06/07 + MASTER-REFAB S6 (10/07 noite): no modelo grátis, confirmar identidade não vai
+  // mais pro checkout — ativa a empresa como `active` (era `courtesy`; cortesia morreu como
+  // conceito de conta — accountType nasce 'credit' pelo default da coluna, nada a escrever aqui).
+  // Lê como 'exempt' (liberado, módulos default-on pelo kill-switch). NÃO é trial (não reabre o
+  // furo 16/06): o limite real é o SALDO de crédito.
   const prev = process.env.HBX_CREDITS_ENABLED;
   process.env.HBX_CREDITS_ENABLED = 'true';
   try {
@@ -643,9 +678,12 @@ test('CRÉDITOS: com a chavinha ON a confirmação ATIVA a conta como courtesy (
 
     assert.equal(trialEndsAt, null);
     assert.equal(companyUpdates.length, 1);
-    assert.equal(companyUpdates[0].status, 'courtesy');
+    assert.equal(companyUpdates[0].status, 'active');
     assert.equal(companyUpdates[0].isActive, true);
     assert.equal(companyUpdates[0].courtesyEndsAt, null);
+    // não escreve accountType — o default 'credit' da coluna já cobre (S6, escrita explícita
+    // só existe no wizard master, que cria 'enterprise').
+    assert.equal('accountType' in companyUpdates[0], false);
     // modelo grátis NÃO cria entitlements de pending_checkout nem desabilita módulos.
     assert.equal(entitlementUpserts.length, 0);
   } finally {
@@ -684,19 +722,36 @@ test('resume: e-mail não confirmado → awaiting_email + resendAvailableAt (coo
   assert.equal(r.resendAvailableAt, new Date(sentAt.getTime() + 60_000).toISOString());
 });
 
-test('resume: confirmado + pending_checkout → awaiting_payment (sem cooldown)', async () => {
+test('resume: confirmado + pending_checkout → awaiting_payment (sem cooldown) — conta enterprise', async () => {
+  // MASTER-REFAB S6 (10/07 noite): pending_checkout só barra conta enterprise (a exceção
+  // montada pelo master, ainda aguardando configuração de cobrança) — conta credit (default)
+  // nunca fica presa em pending_checkout.
   const service = buildAuthServiceForResume({
     id: 6,
     email: 'pagar@cliente.test',
     emailConfirmedAt: new Date(),
     emailConfirmationSentAt: null,
-    company: { companyKind: 'tenant', status: 'pending_checkout', isActive: false, selectedPlanKey: 'hbx_padrao' },
+    company: { companyKind: 'tenant', accountType: 'enterprise', status: 'pending_checkout', isActive: false, selectedPlanKey: 'hbx_padrao' },
   });
 
   const r = await service.resolveOnboardingResume('poll-token');
 
   assert.equal(r.step, 'awaiting_payment');
   assert.equal(r.resendAvailableAt, null);
+});
+
+test('resume: confirmado + conta credit em pending_checkout legado → done (S6: nunca fica presa)', async () => {
+  const service = buildAuthServiceForResume({
+    id: 60,
+    email: 'gratis@cliente.test',
+    emailConfirmedAt: new Date(),
+    emailConfirmationSentAt: null,
+    company: { companyKind: 'tenant', accountType: 'credit', status: 'pending_checkout', isActive: false, selectedPlanKey: null },
+  });
+
+  const r = await service.resolveOnboardingResume('poll-token');
+
+  assert.equal(r.step, 'done');
 });
 
 test('resume: confirmado + trial vigente → done', async () => {

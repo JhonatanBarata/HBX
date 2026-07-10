@@ -50,6 +50,8 @@ type CompanyModalFields = {
     status: string | null;
   } | null;
   status?: string | null;
+  // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState lê accountType antes de status.
+  accountType?: string | null;
   selectedPlanKey: string | null;
   contactPhone: string | null;
   isActive: boolean | null;
@@ -3605,6 +3607,7 @@ export class WhatsAppModalService {
           },
         },
         status: true,
+        accountType: true,
         selectedPlanKey: true,
         contactPhone: true,
         isActive: true,

@@ -333,6 +333,11 @@ export class MasterProvisioningService {
           name: plan.tenant.name,
           slug: plan.tenant.slug,
           companyKind: COMPANY_KIND_TENANT,
+          // MASTER-REFAB S6 (10/07 noite): TODA empresa criada pelo wizard master é a exceção
+          // — accountType 'enterprise' explícito (a rota normal é o self-signup, que nasce
+          // 'credit' por default). Não depende do checkbox "acesso manual": o wizard inteiro É
+          // o caminho da conta empresarial.
+          accountType: 'enterprise',
           selectedPlanKey: plan.commercial.planKey,
           // Estado unico nativo (DROP): provisionamento com acesso manual nasce
           // em cortesia; senao, trial (preserva o acesso 'trialing' anterior).

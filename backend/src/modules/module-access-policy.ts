@@ -13,6 +13,9 @@ export type ModuleAccessCompanySnapshot = {
   companyKind?: string | null;
   slug?: string | null;
   status?: string | null;
+  // MASTER-REFAB S6 (10/07 noite): tipo explícito de conta — repassado pro
+  // resolveCompanyAccessState (company-access-state.ts), fonte única do bloqueio.
+  accountType?: string | null;
   selectedPlanKey?: string | null;
   trialEndsAt?: Date | string | null;
   billingGraceEndsAt?: Date | string | null;

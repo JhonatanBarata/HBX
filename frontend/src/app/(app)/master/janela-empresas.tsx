@@ -1,14 +1,17 @@
 "use client";
 
 // Janela 1 — Empresas (CORAÇÃO do /master).
-// MASTER-REFAB S1 (10/07): o produto só tem 2 modos de conta — Créditos (self-service) e
-// Negociada (montada aqui pelo master). O modelo de catálogo/período de avaliação/degustação
-// e as condições de cobrança à parte morreram desta tela (os endpoints de backend continuam
-// existindo — aposentar é S6 — este arquivo só parou de chamá-los).
+// MASTER-REFAB S6 (10/07 noite, ordem literal do dono): cortesia morre como conceito — só 2
+// TIPOS explícitos de conta, `accountType` vindo do backend: Crédito (self-service, ativa por
+// default) e Empresarial (exceção montada aqui pelo master; era "Negociada" no S1). O box
+// Cortesia da ficha SOME (presente = conceder crédito na Carteira, aba Financeiro). O modelo de
+// catálogo/período de avaliação/degustação e as condições de cobrança à parte morreram desta
+// tela (os endpoints de backend continuam existindo — aposentar é S7 — este arquivo só parou de
+// chamá-los; o endpoint de cortesia idem, fica órfão).
 // Contratos ligados (todos já existentes no backend):
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
-//   PUT  /modules/master/company/:id/courtesy            → cortesia
+//   PUT  /modules/master/company/:id/account-type        → toggle Crédito|Empresarial (S6)
 //   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (HBX Full)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
 //   PUT  /modules/master/company/:id/suspension          → {suspended, reason}
@@ -17,12 +20,12 @@
 //   PUT  /modules/master/company/:id/finance-settings    → {setupValue, monthlyValueOverride} (Implantação)
 //   PUT  /modules/master/company/:id/global-token-usage  → toggles credencial master
 //   PUT  /modules/master/company/:id/bot-activation      → {armed, channel, reason}
-//   POST /modules/master/company/:id/manual-payment      → registrar pagamento (rota da Negociada)
+//   POST /modules/master/company/:id/manual-payment      → registrar pagamento (rota Empresarial)
 //   PUT  .../manual-payment/:entryId/cancel              → cancelar lançamento
 //   GET  /credits/master/company/:id                     → Carteira (saldo/lotes/extrato)
 //   POST /credits/master/company/:id/grant               → conceder crédito manual
 //   GET  /credits/public-catalog                          → welcomeCredits default (wizard)
-//   POST /master/provisioning/tenants                    → nova empresa (fluxo da Negociada)
+//   POST /master/provisioning/tenants                    → nova empresa (fluxo Empresarial)
 //   PATCH users/master/:id | reset-password | delete     → usuários
 //   master-context assume → via prop do pai (banner global no layout)
 
@@ -31,7 +34,7 @@ import React, { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useTabParam } from "@/lib/use-tab-param";
 
-import { fmtData, fmtDataHora, statusLabel, statusTagClass, type MasterCompany } from "./page.client";
+import { accountTypeLabel, accountTypeTagClass, fmtData, fmtDataHora, statusLabel, statusTagClass, type MasterCompany } from "./page.client";
 
 type DetailUser = {
   id: number;
@@ -85,6 +88,8 @@ type Detail = {
     name?: string;
     slug?: string | null;
     status?: string | null;
+    // MASTER-REFAB S6 (10/07 noite): tipo explícito de conta — fonte única.
+    accountType?: "credit" | "enterprise" | string | null;
     isActive?: boolean;
     primaryContactName?: string | null;
     contactEmail?: string | null;
@@ -114,10 +119,11 @@ type Detail = {
   };
 } | null;
 
-// MASTER-REFAB S1: sem Plano/Ciclo no wizard — a Negociada é montada na ficha (módulos +
-// crédito concedido + cobrança manual), não escolhida num catálogo. planKey/billingCycle
-// simplesmente não são mais enviados; o backend (master-provisioning.service.ts) já assume
-// o default (PADRAO/MONTHLY) quando omitidos — endpoint intacto, só paramos de escolher.
+// MASTER-REFAB S1/S6: sem Plano/Ciclo no wizard — a conta Empresarial é montada na ficha
+// (módulos + crédito concedido + cobrança manual), não escolhida num catálogo. planKey/
+// billingCycle simplesmente não são mais enviados; o backend (master-provisioning.service.ts)
+// já assume o default (PADRAO/MONTHLY) quando omitidos — endpoint intacto, só paramos de
+// escolher (o accountType='enterprise' desta empresa é setado direto no backend, sem input).
 const PROV_VAZIO = {
   companyName: "",
   slug: "",
@@ -139,18 +145,6 @@ const PAG_VAZIO = { value: "", competence: "", paidAt: "", paymentMethod: "PIX",
 
 const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Implantação", "Website", "Auditoria"] as const;
 
-// Modo da conta (MASTER-REFAB, plano 10/07): derivado, sem campo novo. Cobrança manual ativa
-// OU assinatura MP (billingProvider mercadopago) → Negociada (exceção, montada pelo master);
-// resto → Créditos (self-service). Mesmos campos que a listagem já devolve.
-function modoConta(emp: { paymentMethod?: string | null; billingProvider?: string | null }): "negociada" | "creditos" {
-  const cobrancaManualAtiva = String(emp.paymentMethod || "").trim().toUpperCase() === "MANUAL";
-  const assinaturaMpAtiva = String(emp.billingProvider || "").trim().toLowerCase() === "mercadopago";
-  return cobrancaManualAtiva || assinaturaMpAtiva ? "negociada" : "creditos";
-}
-
-function modoLabel(modo: "negociada" | "creditos") {
-  return modo === "negociada" ? "Negociada" : "Créditos";
-}
 
 type WalletLot = { id: string; amount: number; remaining: number; expiresAt?: string | null; grantType?: string | null };
 type WalletMovement = { id: string; kind: string; amount: number; actionKey?: string | null; sourceRef?: string | null; createdAt: string };
@@ -163,6 +157,14 @@ const WALLET_MOVEMENT_LABEL: Record<string, string> = {
   adjust: "Ajuste",
   grant: "Concessão",
   recharge: "Recarga",
+  promo: "Promoção",
+};
+
+// MASTER-REFAB S6 (10/07 noite): o VALOR gravado (courtesy_internal) não muda — semântica
+// fiscal fica —, só o rótulo de UI vira "Concessão interna" (cortesia morre como palavra).
+const WALLET_GRANT_TYPE_LABEL: Record<string, string> = {
+  courtesy_internal: "Concessão interna",
+  paid: "Pago",
   promo: "Promoção",
 };
 
@@ -232,10 +234,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [provMsg, setProvMsg] = useState<string | null>(null);
   const [provResult, setProvResult] = useState<{ companyId?: number; adminUserId?: number | null; temporaryPassword?: string | null; passwordDefined?: boolean; creditsWarning?: string | null } | null>(null);
 
-  // cortesia
-  const [cortesiaForm, setCortesiaForm] = useState({ reason: "", endsAt: "" });
-  const [cortesiaBusy, setCortesiaBusy] = useState(false);
-  const [cortesiaMsg, setCortesiaMsg] = useState<string | null>(null);
+  // tipo de conta (MASTER-REFAB S6, 10/07 noite) — toggle Crédito|Empresarial
+  const [accountTypeBusy, setAccountTypeBusy] = useState(false);
+  const [accountTypeMsg, setAccountTypeMsg] = useState<string | null>(null);
 
   // bot chave-mestra
   const [botBusy, setBotBusy] = useState(false);
@@ -305,7 +306,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setSelId(id);
     setDetail(null);
     setDetailError(null);
-    setCortesiaMsg(null);
+    setAccountTypeMsg(null);
     setUserMsg(null);
     setModuloMsg(null);
     setComMsg(null);
@@ -349,10 +350,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       .then(res => {
         setDetail(res);
         const c = res?.company;
-        setCortesiaForm({
-          reason: String(c?.courtesyReason || ""),
-          endsAt: c?.courtesyEndsAt ? String(c.courtesyEndsAt).slice(0, 10) : "",
-        });
         setQuotaForm({
           monthly: c?.commercialCardsMonthlyLimitOverride != null ? String(c.commercialCardsMonthlyLimitOverride) : "",
           daily: c?.commercialCardsDailyLimitOverride != null ? String(c.commercialCardsDailyLimitOverride) : "",
@@ -381,8 +378,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setProvMsg(null);
     try {
       // planKey/billingCycle NÃO vão mais no corpo — o backend assume PADRAO/MONTHLY quando
-      // omitidos (mesmo default que o wizard sempre mandou). Negociada é montada na ficha
-      // depois (módulos + crédito), este POST só cria o registro + admin.
+      // omitidos (mesmo default que o wizard sempre mandou). A conta Empresarial é montada na
+      // ficha depois (módulos + crédito), este POST só cria o registro + admin.
       const body: Record<string, unknown> = {
         companyName: provForm.companyName.trim(),
         manualAccess: provForm.manualAccess,
@@ -477,25 +474,23 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  async function salvarCortesia(active: boolean) {
-    if (cortesiaBusy || selId == null) return;
-    setCortesiaBusy(true);
-    setCortesiaMsg(null);
+  // MASTER-REFAB S6 (10/07 noite): toggle enxuto do tipo de conta — substitui o box Cortesia
+  // (presente = conceder crédito na Carteira, aba Financeiro).
+  async function salvarAccountType(accountType: "credit" | "enterprise") {
+    if (accountTypeBusy || selId == null) return;
+    setAccountTypeBusy(true);
+    setAccountTypeMsg(null);
     try {
-      await apiFetch(`/modules/master/company/${selId}/courtesy`, {
+      await apiFetch(`/modules/master/company/${selId}/account-type`, {
         method: "PUT",
-        body: JSON.stringify({
-          active,
-          ...(cortesiaForm.reason.trim() ? { reason: cortesiaForm.reason.trim() } : {}),
-          ...(active && cortesiaForm.endsAt ? { endsAt: cortesiaForm.endsAt } : {}),
-        }),
+        body: JSON.stringify({ accountType }),
       });
-      setCortesiaMsg(active ? "✓ Cortesia ativada." : "✓ Cortesia encerrada.");
+      setAccountTypeMsg(`✓ Tipo de conta: ${accountTypeLabel(accountType)}.`);
       await recarregarTudo();
     } catch (err) {
-      setCortesiaMsg(err instanceof Error ? err.message : "Falha ao salvar a cortesia.");
+      setAccountTypeMsg(err instanceof Error ? err.message : "Falha ao salvar o tipo de conta.");
     } finally {
-      setCortesiaBusy(false);
+      setAccountTypeBusy(false);
     }
   }
 
@@ -938,14 +933,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const totais = {
     total: lista.length,
     ativas: lista.filter(c => c.isActive).length,
-    negociadas: lista.filter(c => modoConta(c) === "negociada").length,
-    cortesia: lista.filter(c => String(c.status || "").toLowerCase() === "courtesy").length,
+    empresariais: lista.filter(c => (c.accountType || "credit") === "enterprise").length,
   };
   const c = detail?.company;
-  // Mesma régua da lista (status BRUTO devolvido pelo backend em ambos os endpoints — fix
-  // MASTER-REFAB S1: a ficha não devolvia `status`, então este box sempre dizia "não está em
-  // cortesia" mesmo quando o badge da lista dizia "Cortesia").
-  const emCortesia = String(c?.status || "").toLowerCase() === "courtesy";
+  const accountType = (c?.accountType || "credit") as "credit" | "enterprise";
   const suspensa = String(c?.status || "").toLowerCase() === "suspended";
   const ledger = c?.financeHistory || [];
   const auditoria = c?.auditTimeline || [];
@@ -993,8 +984,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         {[
           { label: "Empresas", value: companies ? String(totais.total) : "—" },
           { label: "Com acesso ativo", value: companies ? String(totais.ativas) : "—" },
-          { label: "Negociadas", value: companies ? String(totais.negociadas) : "—" },
-          { label: "Em cortesia", value: companies ? String(totais.cortesia) : "—" },
+          { label: "Empresariais", value: companies ? String(totais.empresariais) : "—" },
         ].map(k => (
           <div className="kpi" key={k.label}>
             <span className="kpi-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M17 19c0-2.8-2.2-5-5-5s-5 2.2-5 5M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /></svg></span>
@@ -1052,9 +1042,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
                   </td>
                   <td>
-                    <span className={statusTagClass(emp.status, emp.isActive)}>{statusLabel(emp.status)}</span>
-                    <span className={modoConta(emp) === "negociada" ? "tag warn" : "tag teal"} style={{ marginLeft: 4, fontSize: "0.6rem" }}>
-                      {modoLabel(modoConta(emp))}
+                    <span className={statusTagClass(emp.status, emp.isActive, emp.accountType)}>{statusLabel(emp.status, emp.accountType)}</span>
+                    <span className={accountTypeTagClass(emp.accountType)} style={{ marginLeft: 4, fontSize: "0.6rem" }}>
+                      {accountTypeLabel(emp.accountType)}
                     </span>
                   </td>
                   <td>{emp.paymentMethod || emp.billingProvider || "—"}</td>
@@ -1084,7 +1074,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 <h2 id="master-company-detail-title">{c?.name || (selId != null ? `Empresa #${selId}` : "Detalhe da empresa")}</h2>
               </div>
               <div className="master-company-detail-actions">
-                {c && <span className={statusTagClass(c.status, c.isActive)}>{statusLabel(c.status)}</span>}
+                {c && <span className={statusTagClass(c.status, c.isActive, c.accountType)}>{statusLabel(c.status, c.accountType)}</span>}
+                {c && <span className={accountTypeTagClass(c.accountType)}>{accountTypeLabel(c.accountType)}</span>}
                 <button type="button" className="btn-ghost master-company-detail-close" onClick={() => setSelId(null)}>
                   Fechar
                 </button>
@@ -1100,7 +1091,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   <div className="panel-head">
                     <h2>{c.name}</h2>
                     <div className="meta">
-                      <span className={statusTagClass(c.status, c.isActive)}>{statusLabel(c.status)}</span>
+                      <span className={statusTagClass(c.status, c.isActive, c.accountType)}>{statusLabel(c.status, c.accountType)}</span>
+                      <span className={accountTypeTagClass(c.accountType)}>{accountTypeLabel(c.accountType)}</span>
                       <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.64rem" }}
                         onClick={() => {
                           setEmpForm({
@@ -1123,7 +1115,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       ["E-mail", c.contactEmail],
                       ["Telefone", c.contactPhone],
                       ["Documento", c.taxDocument],
-                      ["Modo", modoConta(c) === "negociada" ? "Negociada (montada pelo master)" : "Créditos (self-service)"],
+                      ["Tipo", c.accountType === "enterprise" ? "Empresarial (montada pelo master)" : "Crédito (self-service)"],
                       ["Slug", c.slug],
                     ].map(([label, value]) => (
                       <div key={String(label)} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1137,38 +1129,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         Assumir contexto desta empresa
                       </button>
                     )}
-                  </div>
-                </section>
-
-                <section className="panel">
-                  <div className="panel-head"><h2>Cortesia</h2></div>
-                  <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10 }}>
-                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-                      Cortesia é a única liberação grátis do sistema. {emCortesia
-                        ? `Ativa${c.courtesyEndsAt ? ` até ${fmtData(c.courtesyEndsAt)}` : " (permanente)"}${c.courtesyReason ? ` — ${c.courtesyReason}` : ""}.`
-                        : "Esta empresa não está em cortesia."}
-                    </span>
-                    {cortesiaMsg && (
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: cortesiaMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{cortesiaMsg}</div>
-                    )}
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Motivo</label>
-                      <input className="field-dark" maxLength={200} placeholder="Ex.: Empresa interna HBX"
-                        value={cortesiaForm.reason} onChange={e => setCortesiaForm(f => ({ ...f, reason: e.target.value }))} />
-                    </div>
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Fim (vazio = permanente)</label>
-                      <input className="field-dark" type="date"
-                        value={cortesiaForm.endsAt} onChange={e => setCortesiaForm(f => ({ ...f, endsAt: e.target.value }))} />
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button className="btn-teal" disabled={cortesiaBusy} onClick={() => salvarCortesia(true)}>
-                        {cortesiaBusy ? "Salvando…" : emCortesia ? "Atualizar cortesia" : "Ativar cortesia"}
-                      </button>
-                      {emCortesia && (
-                        <button className="btn-ghost" disabled={cortesiaBusy} onClick={() => salvarCortesia(false)}>Encerrar</button>
-                      )}
-                    </div>
                   </div>
                 </section>
 
@@ -1282,6 +1242,25 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                             {comBusy === "susp" ? "…" : "Suspender empresa"}
                           </button>
                         )}
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
+                      <strong style={{ fontSize: "0.76rem" }}>Tipo de conta</strong>
+                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                        Crédito = self-service, ativa por default (teto real é o saldo). Empresarial = exceção montada aqui (módulos/crédito/preço manuais).
+                      </span>
+                      {accountTypeMsg && (
+                        <div style={{ fontSize: "0.72rem", fontWeight: 700, color: accountTypeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{accountTypeMsg}</div>
+                      )}
+                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                        <select className="field-dark" style={{ minHeight: 32, fontSize: "0.7rem", width: 160 }}
+                          value={accountType} disabled={accountTypeBusy}
+                          onChange={e => salvarAccountType(e.target.value as "credit" | "enterprise")}>
+                          <option value="credit">Crédito</option>
+                          <option value="enterprise">Empresarial</option>
+                        </select>
+                        {accountTypeBusy && <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Salvando…</span>}
                       </div>
                     </div>
 
@@ -1449,7 +1428,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                 )}
                                 {(wallet.lots || []).map(lot => (
                                   <div key={lot.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "0.72rem" }}>
-                                    <span>{lot.remaining}/{lot.amount} créditos{lot.grantType ? ` · ${lot.grantType}` : ""}</span>
+                                    <span>{lot.remaining}/{lot.amount} créditos{lot.grantType ? ` · ${WALLET_GRANT_TYPE_LABEL[lot.grantType] || lot.grantType}` : ""}</span>
                                     <span style={{ color: "var(--text-muted)" }}>{lot.expiresAt ? `expira ${fmtData(lot.expiresAt)}` : "não expira"}</span>
                                   </div>
                                 ))}
@@ -1682,7 +1661,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <span style={{ color: "var(--text-muted)", cursor: "pointer" }} onClick={() => { setProvOpen(false); setProvStep(1); setProvMsg(null); }}>✕</span>
             </div>
             <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Rota de exceção (Negociada) — o caminho normal é o cliente entrar sozinho pelo self-signup.
+              Rota de exceção (Empresarial) — o caminho normal é o cliente entrar sozinho pelo self-signup.
             </span>
 
             <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
@@ -1758,7 +1737,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 <strong style={{ fontSize: "0.76rem" }}>Avançado</strong>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
                   <input type="checkbox" checked={provForm.manualAccess} onChange={e => setProvForm(f => ({ ...f, manualAccess: e.target.checked }))} />
-                  Acesso manual (cortesia desde o início)
+                  Acesso liberado desde a criação (sem checkout)
                 </label>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label className="prov-fld-adv-lbl">Assentos / teto de acessos (vazio = sem teto)</label>
@@ -1918,7 +1897,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Tipo</label>
               <select className="field-dark" value={walletGrantForm.grantType}
                 onChange={e => setWalletGrantForm(f => ({ ...f, grantType: e.target.value as typeof f.grantType }))}>
-                <option value="courtesy_internal">Cortesia (concessão grátis)</option>
+                <option value="courtesy_internal">Concessão interna (grátis)</option>
                 <option value="paid">Pago (recebido fora do sistema)</option>
                 <option value="promo">Promoção</option>
               </select>
