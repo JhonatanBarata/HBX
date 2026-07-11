@@ -5317,6 +5317,104 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, companyId, dailyDeliveryCapOverride: (updated as any).dailyDeliveryCapOverride ?? null };
   }
 
+  /**
+   * MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto que junta o que já
+   * existia espalhado na ficha (ordem literal do dono, 10/07 ~23h: "Queria apenas uma
+   * 'chavinha' no master, um ativador, onde eu libero contratos empresariais ali (combino um
+   * valor fixo com a empresa, e libero full os módulos (mantendo as limitações de abuso,
+   * scraping de leads principalmente)"). Sequência idempotente (2ª chamada não duplica nada):
+   * 1) accountType='enterprise' — REUSA o caminho do S6 (setCompanyAccountTypeByMaster), mesma
+   *    validação/normalização/auditoria; já é idempotente (não regrava se já é enterprise).
+   * 2) Libera FULL os módulos comerciais: TODO SystemModule companyAssignable (fora os
+   *    aposentados) — upsert enabled=true E masterEnabled=true (teto W1: effective =
+   *    masterEnabled && enabled). Módulos estruturais (master/exclusoes) já nascem
+   *    companyAssignable=false — não entram aqui.
+   * 3) monthlyValue informado → persiste em monthlyValueOverride (MESMO campo do
+   *    finance-settings). NÃO cria cobrança nem dispara nada live — só guarda o combinado; a
+   *    cobrança continua sendo o manual-payment existente. null/ausente = não mexe.
+   * 4) dailyDeliveryCap informado → persiste em dailyDeliveryCapOverride (GUARDRAILS S3). 0 =
+   *    SEM teto só para esta empresa; null/ausente = não mexe (herda o default global). O teto
+   *    NUNCA é desligado automaticamente por este endpoint — só quando o master manda 0
+   *    explícito (mesma semântica de updateCompanyDailyDeliveryCapByMaster). O throttle de busca
+   *    e o próprio guardrail (commercial-usage-limits.service.ts) continuam intactos — nenhum
+   *    bypass novo, enterprise se sujeita ao MESMO cap/throttle que conta credit.
+   */
+  async setCompanyEnterpriseContractByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { monthlyValue?: number | null; dailyDeliveryCap?: number | null },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await this.ensureDefaultSystemModules();
+
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (isPlatformInfraCompany(company)) {
+      throw new BadRequestException('Empresa de infraestrutura nao tem contrato empresarial.');
+    }
+
+    // 1) Tipo de conta — reusa o caminho do S6 (não duplica validação/normalização/auditoria).
+    await this.setCompanyAccountTypeByMaster(masterUserId, companyId, { accountType: 'enterprise' });
+
+    // 2) Módulos full — companyAssignable, fora os aposentados. upsert idempotente (unique
+    //    companyId+moduleId) — repetir a ação não duplica linha, só reafirma enabled/masterEnabled.
+    const assignableModules = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+      select: { id: true, key: true },
+    });
+    for (const moduleItem of assignableModules) {
+      await this.prisma.companyModule.upsert({
+        where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
+        update: { enabled: true, masterEnabled: true },
+        create: { companyId, moduleId: moduleItem.id, enabled: true, masterEnabled: true },
+      });
+    }
+
+    // 3) Valor fixo mensal combinado — null/ausente = não mexe (mesmo normalizador de
+    //    updateCompanyFinanceSettingsByMaster).
+    const normMoney = (v: unknown) =>
+      v === null || v === undefined || v === ''
+        ? null
+        : Math.max(0, Math.round((Number(v) || 0) * 100) / 100);
+    const rawMonthly = dto?.monthlyValue;
+    const monthlyValueOverride = rawMonthly === undefined || rawMonthly === null
+      ? ((company as any).monthlyValueOverride ?? null)
+      : normMoney(rawMonthly);
+
+    // 4) Teto diário anti-scraper — null/ausente = não mexe; 0 = sem teto só aqui; N>0 = teto
+    //    próprio. NUNCA desliga sozinho (só quando o master manda 0 explícito).
+    const rawCap = dto?.dailyDeliveryCap;
+    const dailyDeliveryCap = rawCap === undefined || rawCap === null
+      ? ((company as any).dailyDeliveryCapOverride ?? null)
+      : Math.max(0, Math.trunc(Number(rawCap) || 0));
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { monthlyValueOverride, dailyDeliveryCapOverride: dailyDeliveryCap } as any,
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: 'COMPANY_ENTERPRISE_CONTRACT_ACTIVATED',
+      metadata: {
+        modulesOn: assignableModules.length,
+        monthlyValueOverride,
+        dailyDeliveryCapOverride: dailyDeliveryCap,
+      },
+    });
+
+    return {
+      ok: true,
+      companyId,
+      accountType: 'enterprise',
+      modulesOn: assignableModules.length,
+      monthlyValueOverride,
+      dailyDeliveryCap,
+    };
+  }
+
   private normalizeVendasComplaintStatus(value: unknown) {
     const status = String(value || '').trim().toLowerCase();
     const allowed = ['new', 'reviewing', 'refunded', 'denied', 'resolved'];

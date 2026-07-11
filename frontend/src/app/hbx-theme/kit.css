@@ -539,8 +539,13 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .ctx-msg { font-size: 0.72rem; font-weight: 700; }
 .ctx-msg.ok { color: var(--hbx-brand-strong); }
 .ctx-msg.err { color: var(--hbx-danger); }
+.ctx-msg.warn { color: var(--hbx-warning); }
+/* utility de cor muted (token) — substitui color inline em hint/nota (5 Leis) */
+.txt-muted { color: var(--text-muted); }
 /* rótulo de campo no painel (ícone + texto discreto) */
 .ctx-field-lbl { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
+/* divisor de seção dentro do painel de detalhe (Comercial/Financeiro) — substitui borderTop inline repetido (5 Leis, MASTER-REFAB S8) */
+.ctx-section { border-top: 1px solid var(--border-hairline); padding-top: 12px; display: grid; gap: 8px; }
 /* textarea de observação no painel */
 .ctx-obs { resize: vertical; font-family: var(--font-body); }
 .task { display: flex; gap: 9px; align-items: flex-start; padding: 7px 0; }

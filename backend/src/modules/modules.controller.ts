@@ -179,6 +179,25 @@ class SetAccountTypeDto {
   accountType!: string;
 }
 
+// MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto que junta accountType
+// enterprise (S6) + módulos full (teto W1) + valor fixo (finance-settings) + teto diário (S3).
+// Ambos opcionais; ausente/null = não mexe no valor já gravado (dailyDeliveryCap=0 é o único
+// jeito de zerar o teto — mesma semântica de UpdateMasterCompanyDeliveryCapDto).
+class ActivateEnterpriseContractDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  monthlyValue?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999999)
+  dailyDeliveryCap?: number | null;
+}
+
 class CompleteAssistedSetupDto {
   @IsOptional()
   @IsString()
@@ -707,6 +726,20 @@ export class ModulesController {
     @Body() dto: SetAccountTypeDto,
   ) {
     return this.modulesService.setCompanyAccountTypeByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto (ordem literal do dono
+  // — "combino um valor fixo com a empresa, e libero full os módulos, mantendo as limitações de
+  // abuso"). Junta accountType enterprise (S6) + libera módulos full (teto W1) + valor fixo
+  // opcional (finance-settings) + teto diário opcional (GUARDRAILS S3) — nenhum bypass novo.
+  @Post('master/company/:companyId/enterprise-contract')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  activateCompanyEnterpriseContract(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: ActivateEnterpriseContractDto,
+  ) {
+    return this.modulesService.setCompanyEnterpriseContractByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/bot-activation')

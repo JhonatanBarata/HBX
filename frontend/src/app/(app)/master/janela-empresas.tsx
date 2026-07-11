@@ -12,6 +12,7 @@
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
 //   PUT  /modules/master/company/:id/account-type        → toggle Crédito|Empresarial (S6)
+//   POST /modules/master/company/:id/enterprise-contract → chavinha: tipo+módulos full+valor+teto num gesto (S8)
 //   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (TETO/masterEnabled — W1 PR10072026)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
 //   PUT  /modules/master/company/:id/suspension          → {suspended, reason}
@@ -241,6 +242,13 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const [accountTypeMsg, setAccountTypeMsg] = useState<string | null>(null);
 
+  // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto (tipo + módulos full +
+  // valor fixo + teto num só POST). Só aparece quando a empresa ainda é conta Crédito.
+  const [entContractBusy, setEntContractBusy] = useState(false);
+  const [entContractMsg, setEntContractMsg] = useState<string | null>(null);
+  const [entContractArm, setEntContractArm] = useState(false);
+  const [entContractForm, setEntContractForm] = useState({ monthlyValue: "", dailyDeliveryCap: "" });
+
   // bot chave-mestra
   const [botBusy, setBotBusy] = useState(false);
   const [botMsg, setBotMsg] = useState<string | null>(null);
@@ -310,6 +318,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setDetail(null);
     setDetailError(null);
     setAccountTypeMsg(null);
+    setEntContractMsg(null);
+    setEntContractArm(false);
+    setEntContractForm({ monthlyValue: "", dailyDeliveryCap: "" });
     setUserMsg(null);
     setModuloMsg(null);
     setComMsg(null);
@@ -494,6 +505,36 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       setAccountTypeMsg(err instanceof Error ? err.message : "Falha ao salvar o tipo de conta.");
     } finally {
       setAccountTypeBusy(false);
+    }
+  }
+
+  // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 POST que liga tipo de conta +
+  // TODOS os módulos + (opcional) valor fixo mensal + teto diário. Limites anti-abuso (S3)
+  // continuam valendo — este botão não afrouxa nada, só junta 4 ações num gesto.
+  async function ativarContratoEmpresarial() {
+    if (entContractBusy || selId == null) return;
+    setEntContractBusy(true);
+    setEntContractMsg(null);
+    try {
+      const body: Record<string, number> = {};
+      if (entContractForm.monthlyValue.trim() !== "") {
+        body.monthlyValue = Math.max(0, Number(String(entContractForm.monthlyValue).replace(",", ".")) || 0);
+      }
+      if (entContractForm.dailyDeliveryCap.trim() !== "") {
+        body.dailyDeliveryCap = Math.max(0, Number(entContractForm.dailyDeliveryCap) || 0);
+      }
+      const res = await apiFetch<{ modulesOn?: number }>(`/modules/master/company/${selId}/enterprise-contract`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setEntContractMsg(`✓ Contrato empresarial ativado — ${res?.modulesOn ?? 0} módulo(s) liberado(s) full.`);
+      setEntContractArm(false);
+      setEntContractForm({ monthlyValue: "", dailyDeliveryCap: "" });
+      await recarregarTudo();
+    } catch (err) {
+      setEntContractMsg(err instanceof Error ? err.message : "Falha ao ativar o contrato empresarial.");
+    } finally {
+      setEntContractBusy(false);
     }
   }
 
@@ -1271,6 +1312,58 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </select>
                         {accountTypeBusy && <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Salvando…</span>}
                       </div>
+                    </div>
+
+                    {/* MASTER-REFAB S8 (10/07) — chavinha: 1 gesto liga tipo + módulos full +
+                        valor fixo + teto diário. Some quando já é Empresarial (os campos de
+                        edição contínua são os que já existem: Implantação > Parcela e Teto de
+                        acessos > Teto diário de leads, mais acima/abaixo nesta mesma aba).
+                        className="ctx-section"/"hint"/"ctx-msg" (kit.css) — zero style visual
+                        inline novo (5 Leis, catraca do check-pele). */}
+                    <div className="ctx-section">
+                      <strong style={{ fontSize: "0.76rem" }}>Contrato empresarial</strong>
+                      {accountType === "credit" ? (
+                        <>
+                          <span className="hint">
+                            1 gesto: vira conta Empresarial, libera TODOS os módulos e (opcional) grava o valor fixo mensal e o teto diário combinados com o cliente.
+                          </span>
+                          {entContractMsg && (
+                            <div className={`ctx-msg ${entContractMsg.startsWith("✓") ? "ok" : "err"}`}>{entContractMsg}</div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <label className="field-label">Valor fixo mensal (R$)</label>
+                              <input className="field-dark" type="number" min={0} style={{ width: 130 }} placeholder="opcional"
+                                disabled={entContractBusy}
+                                value={entContractForm.monthlyValue} onChange={e => setEntContractForm(f => ({ ...f, monthlyValue: e.target.value }))} />
+                            </div>
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <label className="field-label">Teto diário de leads</label>
+                              <input className="field-dark" type="number" min={0} style={{ width: 130 }} placeholder="500 (padrão)"
+                                disabled={entContractBusy}
+                                value={entContractForm.dailyDeliveryCap} onChange={e => setEntContractForm(f => ({ ...f, dailyDeliveryCap: e.target.value }))} />
+                            </div>
+                          </div>
+                          <span className="hint">Limites anti-abuso continuam valendo.</span>
+                          {entContractArm ? (
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "0.68rem", fontWeight: 700 }}>Confirma ativar contrato empresarial?</span>
+                              <button className="btn-teal" disabled={entContractBusy} onClick={ativarContratoEmpresarial}>
+                                {entContractBusy ? "Ativando…" : "Confirmar"}
+                              </button>
+                              <button className="btn-ghost" disabled={entContractBusy} onClick={() => setEntContractArm(false)}>Cancelar</button>
+                            </div>
+                          ) : (
+                            <button className="btn-teal" style={{ maxWidth: 220 }} onClick={() => setEntContractArm(true)}>
+                              Ativar contrato empresarial
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <span className="hint">
+                          Ativo — módulos liberados full. Valor fixo mensal e teto diário ficam editáveis em Implantação e em Teto de acessos, mais abaixo. Limites anti-abuso continuam valendo.
+                        </span>
+                      )}
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
