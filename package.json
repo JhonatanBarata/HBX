@@ -20,7 +20,6 @@
 		"diffs:watch": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/watch-diffs.ps1",
 		"cleanup:hbx-extra": "node ./scripts/cleanup-hbx-extra-engines-vps.js",
 		"radar:elastic:validate": "node ./scripts/validate-radar-elastic-governor.js",
-		"rollout:email-lab:check": "node ./scripts/validate-email-lab-rollout.js",
 		"engines:up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-hbx-engines.ps1",
 		"engines:down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-hbx-engines.ps1",
 		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",

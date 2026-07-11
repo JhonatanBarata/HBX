@@ -26,6 +26,7 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch } from "@/lib/api";
 import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
+import { CopilotoPanel } from "./copiloto-panel";
 
 type RadarLeadEvent = {
   id: string;
@@ -131,6 +132,11 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
 
+  // Copiloto (LEADS-FINAL/05): flag do backend + sinal de rascunho pro campo de
+  // digitação. Desligar a flag → o painel nem aparece (fail-closed limpo).
+  const [copilotoEnabled, setCopilotoEnabled] = useState(false);
+  const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
+
   const load = useCallback(async () => {
     // set-state SÓ após o await (nada síncrono no corpo) → evita react-hooks/set-state-in-effect
     // quando o efeito chama load(); `loading` já nasce true no useState acima.
@@ -160,6 +166,10 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
         setCanAtendimento(atend?.accessible === true);
       })
       .catch(() => setCanAtendimento(false));
+    // Flag do Copiloto (fail-closed: erro/ausente → painel some).
+    apiFetch<{ ok?: boolean; enabled?: boolean }>("/assistente/copiloto")
+      .then(res => setCopilotoEnabled(res?.enabled === true))
+      .catch(() => setCopilotoEnabled(false));
   }, []);
 
   const lead = data?.item || null;
@@ -188,25 +198,40 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
     }
   }
 
+  // Grava uma anotação NEUTRA no histórico do lead (eventType 'note': não debita,
+  // não muda status, não reivindica posse) e recarrega. Reusado pelo compose manual
+  // e pelo Copiloto (salvar resumo / próxima ação como anotação).
+  const postNote = useCallback(async (text: string) => {
+    const body = text.trim();
+    if (!body) return;
+    await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(leadId)}/event`, {
+      method: "POST",
+      body: JSON.stringify({ eventType: "note", note: body }),
+    });
+    await load(); // refetch traz o novo evento pro histórico
+  }, [leadId, load]);
+
   async function saveNote() {
     const text = noteText.trim();
     if (!text || noteBusy) return;
     setNoteBusy(true);
     setNoteError(null);
     try {
-      // eventType 'note' = NEUTRO no backend (não debita, não muda status, não reivindica posse).
-      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(leadId)}/event`, {
-        method: "POST",
-        body: JSON.stringify({ eventType: "note", note: text }),
-      });
+      await postNote(text);
       setNoteText("");
-      await load(); // refetch traz o novo evento pro histórico
     } catch (err) {
       setNoteError(err instanceof Error ? err.message : "Não consegui salvar a nota.");
     } finally {
       setNoteBusy(false);
     }
   }
+
+  // Copiloto → rascunho: preenche o campo de digitação do WhatsApp e leva pra aba.
+  // NUNCA envia (o humano aperta enviar). Bump no seq re-dispara o efeito no painel.
+  const handleCopilotoDraft = useCallback((text: string) => {
+    setCenterTab("whatsapp");
+    setDraftSignal((cur) => ({ text, seq: cur.seq + 1 }));
+  }, []);
 
   return (
     <div className="content lead-detail-page">
@@ -272,8 +297,26 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
             />
           </section>
 
-          {/* ── CENTRO: abas Anotações | WhatsApp (Glass Pill) + histórico ── */}
+          {/* ── CENTRO: Copiloto (topo) + abas Anotações | WhatsApp + histórico ── */}
           <section className="lead-detail-col lead-detail-col--center">
+            {copilotoEnabled && (
+              <CopilotoPanel
+                phone={lead.phone || null}
+                name={lead.name}
+                ficha={{
+                  nome: lead.name,
+                  razaoSocial: lead.razaoSocial,
+                  cnpj: lead.cnpj,
+                  cnae: lead.cnae,
+                  segmento: lead.segment || lead.businessCategory,
+                  cidade: lead.city,
+                  uf: lead.state,
+                  situacao: lead.companySituation,
+                }}
+                onDraft={handleCopilotoDraft}
+                onSaveNote={postNote}
+              />
+            )}
             <div className="glass-pill-track lead-detail-tabs" role="tablist" aria-label="Anotações e WhatsApp">
               <GlassPill {...centerPill} />
               <button
@@ -314,7 +357,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
                     </button>
                   </div>
                 ) : (
-                  <ConversationPanel key={lead.phone} phone={lead.phone} name={lead.name} />
+                  <ConversationPanel key={lead.phone} phone={lead.phone} name={lead.name} draftSignal={draftSignal} />
                 )
               ) : (
                 <div className="lead-detail-history">

@@ -1246,6 +1246,23 @@ html, body { height: 100%; }
 .lead-detail-history { display: grid; gap: 10px; }
 .lead-detail-noconn { display: grid; gap: 12px; justify-items: center; padding: 28px 16px; text-align: center; }
 
+/* ── Copiloto no lead (LEADS-FINAL/05): painel IA no topo do miolo ───────── */
+.copiloto { flex-shrink: 0; display: grid; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border-hairline); }
+.copiloto__head { display: flex; align-items: center; gap: 8px; }
+.copiloto__spark { display: inline-flex; color: var(--hbx-brand-strong); }
+.copiloto__title { margin: 0; font-family: var(--font-display); font-size: 0.82rem; font-weight: 800; }
+.copiloto__toggle { margin-left: auto; }
+.copiloto__body { display: grid; gap: 8px; }
+.copiloto__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.copiloto__hint { margin: 0; }
+.copiloto__err { padding: 6px 0; }
+.copiloto__result { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); background: var(--hbx-surface-soft); }
+.copiloto__bullets { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 0.78rem; line-height: 1.45; }
+.copiloto__sugestao { display: grid; gap: 3px; font-size: 0.82rem; }
+.copiloto__motivo { margin: 2px 0 0; }
+.copiloto__result-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.copiloto__savemsg { margin: 0; }
+
 /* ── Leads: cabeçalho banco (linha fininha com Total no Brasil) ─────────── */
 .leads-bank-strip { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--border-hairline); }
 .leads-bank-strip__num { font-family: var(--font-display); font-size: 0.96rem; font-weight: 800; color: var(--text-strong); }

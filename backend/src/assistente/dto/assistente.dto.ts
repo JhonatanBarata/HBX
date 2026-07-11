@@ -42,3 +42,42 @@ export type SandboxDto = {
 export type PublishDto = {
   on?: boolean;
 };
+
+// ── COPILOTO NO LEAD (LEADS-FINAL/05) ──────────────────────────────────────
+// O front manda o CONTEXTO pronto (ultimas mensagens + ficha RFB) — o backend
+// so gera texto. Nada aqui toca Webwhats; a coleta das mensagens é feita no
+// front pelas rotas de leitura ja existentes do Atendimento.
+export type CopilotoMensagemDto = {
+  // 'lead' | 'voce' (ou direction bruto 'inbound'|'outbound').
+  autor?: string;
+  direcao?: string;
+  texto?: string;
+};
+
+export type CopilotoFichaDto = {
+  nome?: string;
+  razaoSocial?: string;
+  cnpj?: string;
+  cnae?: string;
+  segmento?: string;
+  cidade?: string;
+  uf?: string;
+  situacao?: string;
+};
+
+export type CopilotoRascunhoDto = {
+  mensagens?: CopilotoMensagemDto[];
+  ficha?: CopilotoFichaDto;
+  // Pedido opcional do vendedor ("responder que temos desconto", etc.).
+  instrucao?: string;
+};
+
+export type CopilotoResumoDto = {
+  mensagens?: CopilotoMensagemDto[];
+  ficha?: CopilotoFichaDto;
+};
+
+export type CopilotoSugestaoDto = {
+  mensagens?: CopilotoMensagemDto[];
+  ficha?: CopilotoFichaDto;
+};

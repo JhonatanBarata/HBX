@@ -199,6 +199,11 @@ test('sandbox: fonte NAO referencia Webwhats/Conversations/Messaging/socket', ()
     'assistente.module.ts',
     'assistente-flow.ts',
     'assistente-seeds.ts',
+    // COPILOTO (LEADS-FINAL/05) + o cliente Ollama compartilhado: mesma lei —
+    // geram texto, NUNCA tocam o chip.
+    'assistente-ollama.ts',
+    'copiloto.service.ts',
+    'copiloto.controller.ts',
   ];
   const proibidos = [
     /ConversationsService/,

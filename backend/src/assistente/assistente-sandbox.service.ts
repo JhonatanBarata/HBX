@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import { assistenteModel, callAssistenteOllama } from './assistente-ollama';
 import {
   compileSystemPrompt,
   compileConditions,
@@ -28,42 +28,9 @@ import {
 // ENABLED, default OFF) — o sandbox NUNCA publica.
 // ============================================================================
 
-function envStr(name: string, fallback: string) {
-  const value = String(process.env[name] || '').trim();
-  return value || fallback;
-}
-function envInt(name: string, fallback: number) {
-  const parsed = Number.parseInt(String(process.env[name] || ''), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-function envOn(name: string) {
-  return ['true', '1', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
-}
-
-// Mesmo endpoint/model do classificador do bot (ai-intent-classifier.service.ts):
-// reuso, nao IA nova.
-function ollamaBaseUrl() {
-  return envStr('HBX_LLM_CLASSIFIER_URL', 'http://host.docker.internal:11434').replace(/\/+$/, '');
-}
-
-// ── Envs PROPRIAS do assistente (desacopladas do classificador do bot) ─────
-// Bot e Assistente podem precisar de modelos diferentes (bench 4b x 7b por
-// frente — ver docs/PLANEJAMENTOS/IA-VPS/PLANO.md). Cadeia de fallback:
-//   HBX_ASSISTENTE_MODEL -> HBX_LLM_CLASSIFIER_MODEL -> 'qwen2.5:7b'
-//   HBX_ASSISTENTE_TIMEOUT_MS -> HBX_LLM_CLASSIFIER_TIMEOUT_MS -> 12000
-// Sem nenhuma env nova setada, comportamento IDENTICO ao anterior (cai nas
-// mesmas envs do classificador). URL e flag liga/desliga continuam
-// compartilhadas de proposito (1 Ollama so, 1 ambiente de IA so).
-function assistenteModel() {
-  const own = String(process.env.HBX_ASSISTENTE_MODEL || '').trim();
-  if (own) return own;
-  return envStr('HBX_LLM_CLASSIFIER_MODEL', 'qwen2.5:7b');
-}
-function assistenteTimeoutMs() {
-  const own = Number.parseInt(String(process.env.HBX_ASSISTENTE_TIMEOUT_MS || ''), 10);
-  if (Number.isFinite(own) && own > 0) return own;
-  return envInt('HBX_LLM_CLASSIFIER_TIMEOUT_MS', 12000);
-}
+// Envs/modelo/timeout/URL da frente assistente + a chamada real ao Ollama LOCAL
+// vivem em ./assistente-ollama (compartilhado com o Copiloto do lead — mesma IA,
+// mesma faixa realtime do GOVERNOR-IA, zero Webwhats).
 
 export type SandboxTurn = { role: 'user' | 'assistant'; content: string };
 
@@ -177,45 +144,14 @@ export class AssistenteSandboxService {
 
   // Chamada REAL ao Ollama LOCAL — mesmo /api/chat, host e model do classificador
   // do bot. NAO e Webwhats: e o motor de IA local (:11434, OpenAI/Ollama-compat).
+  // A montagem/chamada (envs proprias + faixa realtime do GOVERNOR-IA) vive no
+  // helper compartilhado ./assistente-ollama; aqui so contamos o guard anti-chip.
   private async defaultOllamaChat(
     messages: Array<{ role: string; content: string }>,
     meta?: { companyId?: number | null },
   ): Promise<string> {
     this.guard.ollamaCalls += 1;
-    if (!envOn('HBX_LLM_CLASSIFIER_ENABLED')) {
-      // IA desligada no ambiente → sem chamada; o caller cai no roteiro.
-      throw new Error('classificador IA desligado (HBX_LLM_CLASSIFIER_ENABLED)');
-    }
-    const baseUrl = ollamaBaseUrl();
-    const model = assistenteModel();
-    const timeoutMs = assistenteTimeoutMs();
-
-    // GOVERNOR-IA: faixa realtime (assistente é interação ao vivo). Recusa cedo (fila cheia/espera
-    // condenada) lança o MESMO tipo de erro que já cai no roteiro no `reply()` — o contrato de
-    // degradação (nunca envio real, sempre roteiro/fallback) fica intacto.
     // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
-    const gw = await AiGatewayService.run(
-      'realtime',
-      timeoutMs,
-      () =>
-        fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model,
-            stream: false,
-            think: false,
-            options: { temperature: 0.4, num_predict: 220 },
-            messages,
-          }),
-          signal: AbortSignal.timeout(timeoutMs),
-        }),
-      { companyId: meta?.companyId, actionKey: 'ai_realtime' },
-    );
-    if (gw.refused) throw new Error('governor recusou a chamada de IA (fila cheia) — caindo no roteiro');
-    const response = gw.value;
-    if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
-    const data = (await response.json()) as { message?: { content?: string } };
-    return String(data?.message?.content || '');
+    return callAssistenteOllama(messages, { companyId: meta?.companyId, actionKey: 'ai_realtime' });
   }
 }

@@ -4,6 +4,8 @@ import { ModulesAccessModule } from '../modules/modules.module';
 import { AssistenteController } from './assistente.controller';
 import { AssistenteService } from './assistente.service';
 import { AssistenteSandboxService } from './assistente-sandbox.service';
+import { CopilotoController } from './copiloto.controller';
+import { CopilotoService } from './copiloto.service';
 
 // WORM-14 — Assistente IA (wizard + fluxo em lista + sandbox "Teste sua IA").
 //
@@ -16,8 +18,8 @@ import { AssistenteSandboxService } from './assistente-sandbox.service';
 // API crua de motor.
 @Module({
   imports: [PrismaModule, ModulesAccessModule],
-  controllers: [AssistenteController],
-  providers: [AssistenteService, AssistenteSandboxService],
+  controllers: [AssistenteController, CopilotoController],
+  providers: [AssistenteService, AssistenteSandboxService, CopilotoService],
   exports: [AssistenteService],
 })
 export class AssistenteModule {}

@@ -792,9 +792,13 @@ function fmtMsgTime(iso: string | null | undefined): string {
 export function ConversationPanel({
   phone,
   name,
+  draftSignal,
 }: {
   phone: string;
   name?: string | null;
+  // LEADS-FINAL/05 — Copiloto: injeta um RASCUNHO no campo de digitação (só
+  // preenche, NUNCA envia). `seq` muda a cada clique pra re-disparar o efeito.
+  draftSignal?: { text: string; seq: number };
 }) {
   const [tab, setTab] = useState<"whatsapp" | "email">("whatsapp");
   const tabPill = useGlassPill<HTMLButtonElement>(tab);
@@ -852,6 +856,24 @@ export function ConversationPanel({
       endRef.current.scrollTop = endRef.current.scrollHeight;
     }
   }, [messages, tab]);
+
+  // Copiloto (LEADS-FINAL/05): rascunho vindo de fora → preenche o campo de
+  // digitação e garante a aba WhatsApp + a conversa aberta pro composer aparecer.
+  // GUARDRAIL: só PREENCHE o draft; jamais chama enviar(). O setState sai do corpo
+  // síncrono do efeito (queueMicrotask) — mesmo cuidado do react-hooks/set-state.
+  const lastDraftSeq = useRef(0);
+  useEffect(() => {
+    if (!draftSignal || draftSignal.seq === lastDraftSeq.current) return;
+    lastDraftSeq.current = draftSignal.seq;
+    const text = draftSignal.text;
+    if (!text) return;
+    const alreadyOpen = opened;
+    queueMicrotask(() => {
+      setDraft(text);
+      setTab("whatsapp");
+      if (!alreadyOpen) void resolveThread();
+    });
+  }, [draftSignal, opened, resolveThread]);
 
   async function carregarMaisAntigas() {
     if (!convoId || !nextBefore || olderBusy) return;
