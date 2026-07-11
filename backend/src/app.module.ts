@@ -50,6 +50,7 @@ import { NucleoModule } from './nucleo/nucleo.module';
 import { LogisticaModule } from './logistica/logistica.module';
 import { CreditsModule } from './credits/credits.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { FinanceiroTenantModule } from './financeiro-tenant/financeiro-tenant.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { UploadsModule } from './uploads/uploads.module';
     NucleoModule,
     LogisticaModule,
     CreditsModule,
+    FinanceiroTenantModule,
   ],
   controllers: [AppController],
   providers: [

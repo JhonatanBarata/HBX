@@ -218,6 +218,13 @@ export class VendasController {
     return this.vendasService.resolveCancellationCaseForUser(req.user, leadId, dto || ({} as ResolveCancellationCaseDto));
   }
 
+  // FINANCEIRO-UNIVERSAL (Fase 1): venda fechada vira conta-a-receber no financeiro
+  // central. Admin/Master-only (gate no service). Idempotente por lead.
+  @Post('lead/:leadId/gerar-cobranca')
+  gerarCobrancaFromLead(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: { dueDate?: string | null }) {
+    return this.vendasService.gerarCobrancaFromLead(req.user, leadId, body || {});
+  }
+
   @Post('commission/payout')
   createCommissionPayout(@Req() req: any, @Body() dto: CreateCommissionPayoutDto) {
     return this.vendasService.createCommissionPayoutForUser(req.user, dto || {});

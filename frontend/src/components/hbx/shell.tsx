@@ -297,6 +297,11 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
 export const NAV_LINKS = [
   { id: "dash", label: "Dashboard", href: "/dashboard", group: "Informações" },
   { id: "relat", label: "Relatórios", href: "/relatorios", group: "Informações" },
+  // FINANCEIRO-UNIVERSAL (Fase 1): financeiro do TENANT na casca central — "quem me
+  // deve" + extrato + baixar cobrança, de QUALQUER módulo (logística + vendas), não
+  // preso ao app de entrega. Kill-switch, não paywall (null nos 2 gates); a tela
+  // trava @Admin (LEI DO VENDEDOR: vendedor vê estado neutro, sem valores).
+  { id: "financeiro", label: "Financeiro", href: "/financeiro", group: "Informações" },
   // 2 LUGARES, não 3 ilhas (27/06, ordem do dono). O vendedor tem 2 modos: CAÇAR
   // (achar empresa → trabalhar → fechar = um movimento só) e ATENDER (responder
   // quem chama no WhatsApp). Então: VENDAS = o funil inteiro (o Radar/"Buscar
@@ -646,6 +651,9 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   // Concierge IA: kill-switch por módulo (master liga por empresa), NÃO paywall.
   concierge: null,
   relat: "vendas",
+  // Financeiro do tenant = kill-switch, NÃO paywall (null). A trava real é @Admin
+  // na tela + backend (LEI DO VENDEDOR), não um tier de plano.
+  financeiro: null,
   // Website não é um tier de plano (webscraping/vendas/atendimento_chat) — é
   // módulo companyAssignable ligado pelo MASTER por empresa (monthlyPrice: 0
   // hoje). O gate real vive em NAV_MODULE_KEY (/modules/me), não em entitlement.
@@ -691,6 +699,10 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // master libera empresa-a-empresa. Fail-closed: sem accessible:true, some.
   concierge: "concierge",
   relat: "vendas",
+  // Financeiro do tenant: sem gate por usuário aqui (null) — a tela decide por
+  // ROLE (@Admin) e o backend é @Admin. Visível pra admin de tenant vendas OU
+  // logística; vendedor vê o item mas a tela mostra estado neutro sem valores.
+  financeiro: null,
   website: "website",
   config: null,
 };

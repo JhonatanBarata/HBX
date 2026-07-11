@@ -1,0 +1,67 @@
+/* FINANCEIRO-UNIVERSAL (Fase 1) — classes da tela /financeiro (casca central).
+   5 Leis: todo visual nasce aqui em classe/token central; a tela NÃO usa style
+   inline. Só tokens var(--*), zero hex solto. Reusa .panel/.tbl/.kpi do tema. */
+
+.fin-page {
+  display: grid;
+  gap: var(--space-4, 16px);
+}
+
+.fin-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3, 14px);
+}
+
+@media (max-width: 640px) {
+  .fin-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fin-note {
+  padding: var(--space-5, 24px);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.fin-err {
+  padding: 18px;
+  color: var(--hbx-danger);
+  font-weight: 700;
+  font-size: 0.76rem;
+}
+
+.fin-tr-static {
+  cursor: default;
+}
+
+.fin-td-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 18px 12px;
+}
+
+.fin-td-actions {
+  text-align: right;
+}
+
+.fin-sum {
+  padding: 12px 16px 4px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.fin-st {
+  font-weight: 700;
+}
+.fin-st.paid {
+  color: var(--hbx-success, var(--text-muted));
+}
+.fin-st.open {
+  color: var(--hbx-warning, var(--text-muted));
+}
+.fin-st.muted {
+  color: var(--text-muted);
+}

@@ -273,6 +273,39 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
     }
   }
 
+  // FINANCEIRO-UNIVERSAL (Fase 1): gera uma conta-a-receber no Financeiro central
+  // a partir do card (só modo lead). Persiste o valor no card ANTES (pra a cobrança
+  // ler o valor certo) e chama o endpoint idempotente. Admin-only no backend.
+  async function gerarCobranca() {
+    if (mode.kind !== "lead" || busy) return;
+    if (!(valorNum > 0)) { setError("Informe o valor combinado antes de gerar a cobrança."); return; }
+    setBusy(true);
+    setError(null);
+    setSavedMsg(null);
+    try {
+      await persistCadastro();
+      await apiFetch(`/vendas/lead/${encodeURIComponent(mode.leadId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(prodId ? { productId: Number(prodId) } : {}),
+          ...(sellsHbx && planSel ? { salePlanKey: planSel } : {}),
+          ...(valorNum > 0 ? { saleValue: valorNum } : {}),
+          ...(setupNum > 0 ? { setupValue: setupNum } : {}),
+        }),
+      });
+      const res = await apiFetch<{ chargeId: string; amount: number; alreadyExists: boolean }>(
+        `/vendas/lead/${encodeURIComponent(mode.leadId)}/gerar-cobranca`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      setSavedMsg(res?.alreadyExists ? "✓ Cobrança já existia — atualizada no Financeiro." : "✓ Cobrança gerada no Financeiro.");
+      onDone?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível gerar a cobrança.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function copiar() {
     if (!link) return;
     navigator.clipboard?.writeText(link.message || link.registerUrl).then(
@@ -445,6 +478,16 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
               {mode.kind === "lead" && (
                 <button className="fv-btn fv-btn-ghost" onClick={salvarNoCard} disabled={busy}>
                   {sellsHbx ? "Salvar plano/valor no card" : "Salvar produto/valor no card"}
+                </button>
+              )}
+              {mode.kind === "lead" && (
+                <button
+                  className="fv-btn fv-btn-ghost"
+                  onClick={gerarCobranca}
+                  disabled={busy || valorNum <= 0}
+                  title={valorNum <= 0 ? "Informe o valor combinado" : "Gera uma conta a receber no Financeiro"}
+                >
+                  Gerar cobrança no Financeiro
                 </button>
               )}
               {savedMsg && <p className="fv-foot-note">{savedMsg}</p>}

@@ -8436,6 +8436,144 @@ export class VendasService {
     };
   }
 
+  /**
+   * FINANCEIRO-UNIVERSAL (Fase 1) — Vendas vira DINHEIRO: gera uma conta-a-receber
+   * (FinanceiroCharge sourceModule='vendas_fechamento') a partir do card, no MESMO
+   * trilho que a logística já usa. A cobrança aparece no financeiro central
+   * (/financeiro) e pode ser baixada por lá. NÃO toca MP, NÃO dispara WhatsApp.
+   *
+   * Idempotente por externalReference='vendas_fechamento:<leadId>' (campo já @unique
+   * no schema — zero coluna nova): rechamar devolve a cobrança existente. Exige
+   * saleValue>0 no card e um telefone (pra materializar o CustomerProfile, a mesma
+   * "conta" que a logística linka). ADMIN-only (gate no controller — LEI DO VENDEDOR).
+   */
+  async gerarCobrancaFromLead(
+    user: any,
+    leadId: string,
+    dto?: { dueDate?: string | null },
+  ): Promise<{
+    chargeId: string;
+    amount: number;
+    dueDate: string | null;
+    customerProfileId: string;
+    alreadyExists: boolean;
+  }> {
+    const context = await this.resolveVendasUserContext(user);
+    // LEI DO VENDEDOR: gerar cobrança é lidar com dinheiro → só Admin/Master
+    // (mesmo gate dos casos de cancelamento/comissão). Vendedor não gera cobrança.
+    this.assertVendasPermission(context.canManageTeam, 'Apenas Admin/Master gera cobrança do card.');
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: String(leadId || '').trim() }),
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        saleValue: true,
+        customerProfileId: true,
+        sourceType: true,
+        shortNote: true,
+      },
+    });
+    if (!existing) throw new NotFoundException('Lead comercial nao encontrado.');
+
+    const amount = Math.round((Number(existing.saleValue) || 0) * 100) / 100;
+    if (!(amount > 0)) {
+      throw new BadRequestException('Defina o valor da venda no card antes de gerar a cobrança.');
+    }
+
+    const customerProfileId =
+      existing.customerProfileId ||
+      (await this.ensureCustomerProfile({
+        companyId: context.companyId,
+        name: existing.name,
+        phone: existing.phone,
+        email: existing.email,
+        sourceType: existing.sourceType === 'webscraping' ? 'webscraping' : 'manual',
+        shortNote: existing.shortNote,
+      }));
+    if (!customerProfileId) {
+      throw new BadRequestException('Cadastre um telefone no card para gerar a cobrança.');
+    }
+
+    const externalReference = `vendas_fechamento:${existing.id}`;
+    const prior = await this.prisma.financeiroCharge.findFirst({
+      where: { externalReference, companyId: context.companyId },
+      select: { id: true, amount: true, dueDate: true },
+    });
+    if (prior) {
+      return {
+        chargeId: prior.id,
+        amount: prior.amount,
+        dueDate: prior.dueDate ? prior.dueDate.toISOString() : null,
+        customerProfileId,
+        alreadyExists: true,
+      };
+    }
+
+    const dueDate = dto?.dueDate ? this.parseDate(dto.dueDate) : null;
+    const description = `Venda — ${this.normalizeText(existing.name) || 'cliente'}`;
+    try {
+      const charge = await this.prisma.financeiroCharge.create({
+        data: {
+          companyId: context.companyId,
+          amount,
+          currency: 'BRL',
+          description,
+          billingCycle: 'ONCE',
+          paymentMethod: 'MANUAL',
+          status: 'pending',
+          lifecycle: 'in_progress',
+          sourceModule: 'vendas_fechamento',
+          customerProfileId,
+          dueDate,
+          externalReference,
+          createdByUserId: Number(user?.id) || null,
+        },
+        select: { id: true },
+      });
+      await this.prisma.vendasLeadTimelineEvent
+        .create({
+          data: {
+            leadId: existing.id,
+            ...this.buildTimelineEvent({
+              eventType: 'charge_created',
+              title: 'Cobrança gerada',
+              description: `Conta a receber de ${amount.toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+              })} criada no financeiro.`,
+              createdByUserId: Number(user?.id) || null,
+            }),
+          },
+        })
+        .catch(() => null);
+      return {
+        chargeId: charge.id,
+        amount,
+        dueDate: dueDate ? dueDate.toISOString() : null,
+        customerProfileId,
+        alreadyExists: false,
+      };
+    } catch (e: any) {
+      // Corrida no externalReference @unique (P2002) → relê e devolve a existente.
+      const raced = await this.prisma.financeiroCharge.findFirst({
+        where: { externalReference, companyId: context.companyId },
+        select: { id: true, amount: true, dueDate: true },
+      });
+      if (raced) {
+        return {
+          chargeId: raced.id,
+          amount: raced.amount,
+          dueDate: raced.dueDate ? raced.dueDate.toISOString() : null,
+          customerProfileId,
+          alreadyExists: true,
+        };
+      }
+      throw e;
+    }
+  }
+
   async updateLeadForUser(user: any, leadId: string, dto: UpdateVendasLeadDto) {
     const context = await this.resolveVendasUserContext(user);
     this.assertVendasPermission(context.access?.canEditCards, 'Acesso para editar card bloqueado pela politica da equipe.');

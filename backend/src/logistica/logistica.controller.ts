@@ -274,8 +274,16 @@ export class LogisticaController {
    * entregas concluídas, quanto RECEBIDO (charges quitados no dia) e quanto A
    * RECEBER (pending com vencimento no dia). Read-only, company-scoped. Não toca
    * dinheiro nem dispara nada. Só charges da logística (não a assinatura HBX).
+   *
+   * ADMIN-only (RolesGuard + @Admin) — recebido/a-receber são VALORES (LEI DO
+   * VENDEDOR: só Admin vê dinheiro). Sem este gate o entregador USER da empresa
+   * lia o caixa do dia, já que 'logistica' é company-level e não filtra por cargo.
+   * Mesmo padrão dos vizinhos (saldos/extrato/fechar-mes). O card do frontend já é
+   * admin-only; este gate alinha o backend.
    */
   @Get('resumo-dia')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
   resumoDia(@Req() req: any, @Query('date') date?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.service.resumoDia(companyId, date);
