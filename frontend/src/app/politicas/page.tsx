@@ -55,10 +55,13 @@ export default function PoliticasPage() {
               contínuo de posição e <strong>não compartilhamos sua localização com terceiros</strong>.
             </li>
             <li>
-              <strong>Microfone (opcional, no aplicativo):</strong> se você ativar a confirmação
-              de entrega por voz, o áudio é processado no próprio aparelho para reconhecer o
-              comando — não gravamos nem armazenamos áudio nos nossos servidores. Negar o acesso
-              ao microfone não bloqueia nenhuma função.
+              <strong>Microfone (opcional, no aplicativo):</strong> usado apenas quando você
+              inicia uma ação de voz — confirmar uma entrega por comando de voz ou gravar uma
+              mensagem de áudio para enviar no Atendimento. Áudios que você grava para enviar são
+              transmitidos ao destinatário como parte da própria mensagem que você envia; o
+              reconhecimento de voz pode usar o serviço de fala do sistema do seu aparelho. Não
+              acessamos o microfone em segundo plano e negar o acesso não bloqueia nenhuma função
+              essencial.
             </li>
             <li><strong>Financeiros:</strong> histórico de recargas de crédito e status de pagamento — nunca o número do cartão.</li>
           </ul>

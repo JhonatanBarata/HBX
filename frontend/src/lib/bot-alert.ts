@@ -34,7 +34,15 @@ const CREDIT_RE = /cr[ée]dito|saldo/i;
 // aparece como 'parado', e isso PRECISA avisar.
 const INTENTIONALLY_STOPPED = new Set(["parado", "pausado", "done", "canceled"]);
 
-export function deriveBotAlert(live: ProspLive | null, loadErr: string | null): BotAlert | null {
+// shellMode: na casca Android (Play), o aviso de "sem crédito" NÃO pode orientar
+// recarga nem oferecer CTA de compra — bem digital só via Play Billing e a política
+// proíbe até apontar canal externo (steering). O aviso ainda APARECE (é informativo:
+// o motor parou), só sai sem a copy de recarga e sem o botão.
+export function deriveBotAlert(
+  live: ProspLive | null,
+  loadErr: string | null,
+  shellMode = false,
+): BotAlert | null {
   if (!live) return null; // sem live: o painel já mostra a tela cheia "Prospecção indisponível"
 
   const campaign = live.campaign;
@@ -63,13 +71,19 @@ export function deriveBotAlert(live: ProspLive | null, loadErr: string | null): 
 
   // ── 2. Sem crédito ──
   if ((isError || !!lastError) && CREDIT_RE.test(combinedText)) {
-    return {
-      kind: "no_credit",
-      title: "Sem créditos",
-      message: "A busca de novos leads parou por falta de créditos. Recarregue para o motor voltar a prospectar.",
-      ctaLabel: "Ver créditos",
-      cta: "credits",
-    };
+    return shellMode
+      ? {
+          kind: "no_credit",
+          title: "Sem créditos",
+          message: "A busca de novos leads está pausada por falta de créditos.",
+        }
+      : {
+          kind: "no_credit",
+          title: "Sem créditos",
+          message: "A busca de novos leads parou por falta de créditos. Recarregue para o motor voltar a prospectar.",
+          ctaLabel: "Ver créditos",
+          cta: "credits",
+        };
   }
 
   // ── 3. Fila de leads vazia ──

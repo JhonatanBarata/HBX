@@ -22,6 +22,7 @@ import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
 import { apiFetch } from "@/lib/api";
 import { deriveBotAlert, type BotAlertKind } from "@/lib/bot-alert";
+import { useHbxShell } from "@/lib/hbx-shell";
 import {
   useProspectingConfig,
   isProspConfigComplete,
@@ -67,7 +68,8 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   // ── Pop-up de aviso do motor (sem crédito / não configurado / fila vazia / erro) ──
   // Derivação pura do live/loadErr já carregado pelo poll de 10s — nenhuma chamada nova.
   const router = useRouter();
-  const botAlert = useMemo(() => deriveBotAlert(live, loadErr), [live, loadErr]);
+  const shellMode = useHbxShell();
+  const botAlert = useMemo(() => deriveBotAlert(live, loadErr, shellMode), [live, loadErr, shellMode]);
   const currentAlertKind: BotAlertKind | null = botAlert?.kind ?? null;
   const [dismissedAlertKind, setDismissedAlertKind] = useState<BotAlertKind | null>(null);
   // "não re-incomodar": mesmo kind no próximo poll fica quieto; kind novo ou problema

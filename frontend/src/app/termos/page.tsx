@@ -51,7 +51,7 @@ export default function TermosPage() {
 
           <h4>5. Encerramento da conta</h4>
           <ul>
-            <li>Você pode parar de usar e encerrar sua conta a qualquer momento pela plataforma, nas Configurações.</li>
+            <li>Você pode parar de usar e encerrar sua conta a qualquer momento pela página de <a href="/excluir-conta">exclusão de conta</a>.</li>
             <li>Salvo disposição legal aplicável, valores de recargas já realizadas não são reembolsados.</li>
           </ul>
 

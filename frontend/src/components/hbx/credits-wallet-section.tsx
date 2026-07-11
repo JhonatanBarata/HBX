@@ -235,11 +235,11 @@ export function CreditsWalletSection() {
                 </span>
               )}
             </div>
-            {/* MODO-SHELL: sem CTA de recarga na casca — UMA linha neutra no
-                lugar da vitrine (sem link, sem URL, sem preço). */}
-            {shellMode ? (
-              <span className="sc-note">Recargas pelo site.</span>
-            ) : (
+            {/* MODO-SHELL: sem CTA de recarga na casca. NADA que nomeie um canal
+                de compra (site/URL/preço) — política de pagamentos da Play proíbe
+                até "steering" (apontar pagamento externo de bem digital). O hero
+                segue mostrando saldo/validade; aqui não renderiza nada. */}
+            {shellMode ? null : (
               <button
                 className="btn-teal"
                 onClick={() => recargaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
