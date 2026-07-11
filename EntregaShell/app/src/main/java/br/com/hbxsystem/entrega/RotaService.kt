@@ -293,10 +293,26 @@ class RotaService : Service() {
     }
 
     private fun iniciarForeground(notif: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID_ROTA, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        } else {
-            startForeground(NOTIF_ID_ROTA, notif)
+        // Android 14+ (API 34): startForeground com TYPE_LOCATION SEM a permissão de
+        // localização concedida no instante lança SecurityException e DERRUBA o app —
+        // acontece se a permissão foi revogada, ou no restart STICKY após o processo
+        // ser morto. Sem localização o serviço não tem função (o listener já é no-op),
+        // então em vez de crashar: encerra o serviço de forma limpa.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ID_ROTA, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            } else {
+                startForeground(NOTIF_ID_ROTA, notif)
+            }
+        } catch (e: Exception) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                }
+            } catch (_: Exception) {
+                /* já parado — ignora */
+            }
+            stopSelf()
         }
     }
 
