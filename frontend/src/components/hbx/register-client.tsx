@@ -155,7 +155,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
     try { hbxLead = new URLSearchParams(window.location.search).get("hbxLead"); } catch { /* sem url */ }
     if (!hbxLead) return;
     let alive = true;
-    apiFetch<{ hasPrefill?: boolean; companyNameSuggested?: string | null; name?: string | null; email?: string | null; phone?: string | null; cpf?: string | null }>(
+    apiFetch<{ hasPrefill?: boolean; companyNameSuggested?: string | null; name?: string | null; email?: string | null; phone?: string | null }>(
       `/vendas/handoff/${encodeURIComponent(hbxLead)}/prefill`,
     )
       .then((r) => {
@@ -164,7 +164,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
         if (r.name) setNome((v) => v || String(r.name));
         if (r.email) setEmail((v) => v || String(r.email));
         if (r.phone) setFreeTelefone((v) => v || String(r.phone));
-        if (r.cpf) setFreeCpf((v) => v || String(r.cpf).replace(/\D/g, ""));
+        // CPF nao vem mais do prefill (rota publica nao expoe PII): cliente digita.
         setPrefillActive(true);
       })
       .catch(() => { /* lead sem prefill/expirado: segue o cadastro normal */ });

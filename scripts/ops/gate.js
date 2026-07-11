@@ -35,6 +35,12 @@ const steps = [
     args: ['run', 'test:credits'],
   },
   {
+    label: 'backend: test:golive-critical (RBAC, webhook idempotente, signup-risk, seller-access, status operacional, planos)',
+    cwd: path.join(repoRoot, 'backend'),
+    command: 'npm',
+    args: ['run', 'test:golive-critical'],
+  },
+  {
     label: 'backend: test:tenant-guard (unit — trava de tenant sem banco)',
     cwd: path.join(repoRoot, 'backend'),
     command: 'npm',
@@ -45,6 +51,10 @@ const steps = [
     cwd: path.join(repoRoot, 'backend'),
     command: 'node',
     args: ['--test', 'dist/prisma/tenant-isolation.integration.test.js'],
+    // node --test sai 0 mesmo quando o teste faz t.skip (sem Postgres). Sem isto o
+    // gate ficava VERDE em silencio sem provar isolamento. Capturamos a saida e, se
+    // o node --test reportou skip / nenhum teste efetivo, avisamos EXPLICITAMENTE.
+    detectSkip: true,
   },
   {
     label: 'frontend: lint (0 errors)',

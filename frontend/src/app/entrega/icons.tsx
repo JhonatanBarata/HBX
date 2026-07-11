@@ -46,6 +46,15 @@ export const ICON_PATHS = {
     "M12 19v4",
     "M8 23h8",
   ],
+  // Lixeira (tampa + corpo) — botão "limpar" da seleção de dias no pop-up
+  // "Gerar entregas". Mesma família de traço 1.8; nasce central (Leis nº1/nº2).
+  trash: [
+    "M3 6h18",
+    "M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2",
+    "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6",
+    "M10 11v6",
+    "M14 11v6",
+  ],
 } as const;
 
 export function I({ d, size = 24 }: { d?: readonly string[]; size?: number }): React.JSX.Element {

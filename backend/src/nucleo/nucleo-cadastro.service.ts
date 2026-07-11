@@ -1101,6 +1101,14 @@ export class NucleoCadastroService {
       source: 'manual',
     });
 
+    // MULTILOCAL (11/07) — conta criada fora da ficha (manual/import/ingestão) não pode
+    // nascer sem LocalEntrega: semeia o LOCAL PRINCIPAL a partir do endereço do perfil,
+    // SÓ quando o input trouxe algum campo de endereço (sem endereço → nada a semear). Se
+    // a conta já existia (idempotência) e já tinha principal, isto SINCRONIZA sem duplicar.
+    if (hasAnyEnderecoField(input)) {
+      await this.seedOrSyncLocalPrincipal(companyId, contaId);
+    }
+
     return { contaId, contatoId };
   }
 
@@ -1219,6 +1227,14 @@ export class NucleoCadastroService {
       data,
       select: { id: true },
     });
+
+    // MULTILOCAL (11/07) — editar endereço no PERFIL espelha no LOCAL PRINCIPAL: se há
+    // principal, atualiza; se não há e a conta passou a ter endereço, cria (seed). Só
+    // roda quando o update mexeu em algum campo de endereço. Idempotente, nunca duplica.
+    if (enderecoFieldsTouched(input)) {
+      await this.seedOrSyncLocalPrincipal(companyId, found.id);
+    }
+
     return { id: updated.id };
   }
 
@@ -1253,6 +1269,71 @@ export class NucleoCadastroService {
       uf: input.uf ?? existing?.uf,
       cep: input.cep ?? existing?.cep,
     });
+  }
+
+  /**
+   * MULTILOCAL (11/07) — semeia/sincroniza o LOCAL PRINCIPAL a partir do endereço do
+   * PERFIL (CustomerProfile). O card de clientes do /entrega lê endereço/número/gps do
+   * LOCAL principal; contas criadas/importadas FORA da ficha (createConta manual, import
+   * de planilha, ingestão do Radar) nasciam SEM LocalEntrega → o card acendia pendência
+   * falsa mesmo com endereço no perfil, e editar o endereço no perfil não refletia no local.
+   *
+   * IDEMPOTENTE e sem duplicar (a ficha/front já faz upsert do principal pelos endpoints de
+   * local): se já existe um principal ATIVO → ATUALIZA (sync); senão, e havendo endereço no
+   * perfil → CRIA principal (seed), mas SÓ quando não há nenhum local ativo (preserva a
+   * invariante "1 principal por conta" — jamais cria um 2º). geoFonte do local = a do perfil.
+   * Best-effort: NUNCA lança (não trava o cadastro) — espelha `maybeResolveServerGeo`.
+   */
+  private async seedOrSyncLocalPrincipal(companyId: number, customerProfileId: string): Promise<void> {
+    if (!companyId || !customerProfileId) return;
+    try {
+      const perfil = await this.prisma.customerProfile.findFirst({
+        where: { id: customerProfileId, companyId },
+        select: {
+          endereco: true, numero: true, bairro: true, cidade: true,
+          uf: true, cep: true, lat: true, lng: true, geoFonte: true,
+        },
+      });
+      if (!perfil) return;
+
+      const data = {
+        endereco: perfil.endereco || null,
+        numero: perfil.numero || null,
+        bairro: perfil.bairro || null,
+        cidade: perfil.cidade || null,
+        uf: perfil.uf || null, // já normalizado (uppercase) na escrita do perfil
+        cep: perfil.cep || null,
+        lat: perfil.lat ?? null,
+        lng: perfil.lng ?? null,
+        geoFonte: normalizeGeoFonteInput(perfil.geoFonte),
+      };
+
+      const principal = await this.prisma.localEntrega.findFirst({
+        where: { companyId, customerProfileId, ativo: true, isPrincipal: true },
+        select: { id: true },
+      });
+      if (principal) {
+        // SYNC: atualiza o principal existente — nunca cria um 2º (sem duplicar).
+        await this.prisma.localEntrega.update({ where: { id: principal.id }, data });
+        return;
+      }
+
+      // SEED: só quando o perfil tem endereço E não há NENHUM local ativo. A invariante
+      // garante que "sem principal ativo" ⇒ "sem locais ativos"; a contagem é o cinto de
+      // segurança pra jamais criar um 2º local que ficaria sem principal.
+      if (!hasAnyEnderecoField(perfil)) return;
+      const ativos = await this.prisma.localEntrega.count({
+        where: { companyId, customerProfileId, ativo: true },
+      });
+      if (ativos > 0) return;
+      await this.prisma.localEntrega.create({
+        data: { companyId, customerProfileId, apelido: null, ...data, isPrincipal: true, ativo: true },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[nucleo] seedOrSyncLocalPrincipal company=${companyId} conta=${customerProfileId}: ${String((err as any)?.message || err)}`,
+      );
+    }
   }
 
   /**
@@ -1920,6 +2001,58 @@ function parseDiasSemana(csv: string | null | undefined): number[] {
 // é gravado SOMENTE pelo confirmarEntrega (LogisticaService) — nunca aqui.
 function normalizeGeoFonteInput(v: string | null | undefined): 'geocode' | 'gps_cadastro' | 'cidade' | null {
   return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' ? v : null;
+}
+
+// MULTILOCAL (11/07) — "a conta tem endereço?" pro seed do LOCAL PRINCIPAL: qualquer
+// campo de endereço não-vazio (ou coordenada numérica válida) conta. Conta sem NENHUM
+// campo de endereço → nada a semear (o card do /entrega não acende pendência falsa).
+function hasAnyEnderecoField(input: {
+  endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+}): boolean {
+  const filled = (v: string | null | undefined) => typeof v === 'string' && v.trim().length > 0;
+  return (
+    filled(input.endereco) ||
+    filled(input.numero) ||
+    filled(input.bairro) ||
+    filled(input.cidade) ||
+    filled(input.uf) ||
+    filled(input.cep) ||
+    hasNumericCoord(input.lat, input.lng)
+  );
+}
+
+// MULTILOCAL (11/07) — o update MEXEU em algum campo de endereço? (presença no body,
+// `!== undefined` — inclui limpar pra vazio). É o gate do sync do LOCAL PRINCIPAL no
+// updateConta: só sincroniza o local quando o endereço do perfil foi de fato tocado.
+function enderecoFieldsTouched(input: {
+  endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geoFonte?: string | null;
+}): boolean {
+  return (
+    input.endereco !== undefined ||
+    input.numero !== undefined ||
+    input.bairro !== undefined ||
+    input.cidade !== undefined ||
+    input.uf !== undefined ||
+    input.cep !== undefined ||
+    input.lat !== undefined ||
+    input.lng !== undefined ||
+    input.geoFonte !== undefined
+  );
 }
 
 // B-backend (08/07) — recorte do CustomerProfile que `maybeResolveServerGeo` precisa pra

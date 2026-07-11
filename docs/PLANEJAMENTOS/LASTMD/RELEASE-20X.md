@@ -19,15 +19,28 @@ mesma pasta.
     (2,4 MB, jarsigner "jar verified", cert CN=HBX System). Upload key nova fora do git; keystore antigo
     tirado do índice (segue no disco pro sideload legado).
 
-## 🔴 Antes de subir o .aab (ordem)
+## ✅ Verificação adversarial do Sprint 1 (28 agentes) — `VERIFICACAO-SPRINT1.md`
+**VEREDITO: GO-COM-RESSALVAS.** Zero bloqueador de upload MECÂNICO (assinado fora do git,
+applicationId imutável certo, SDK 35, WebView raiz). 19/22 achados confirmados. **5 fixes já
+CORRIGIDOS E COMMITADOS** (`df1a55a0` frontend + commit Android): (1) casca não mostra mais "Recargas
+pelo site." [anti-steering, era o gate nº1] · (2) aviso "Sem créditos" do bot sem CTA de compra na
+casca · (3) política de microfone honesta [Data Safety] · (4) termos apontam /excluir-conta real ·
+(5) RotaService não crasha mais no Android 14+ (startForeground location sem permissão).
+Refutados (não eram blocker): full-screen-intent trava publicação (não — só declaração), timing de
+permissão no boot, severidade do mic.
+
+## 🔴 Antes de subir o .aab (ordem) — só-do-dono
 1. **BACKUP da upload key FORA DO PC** — `EntregaShell/keystore-release/hbx-upload.jks` +
    `keystore.properties` (senha dentro). Perdeu depois do 1º upload = só reset via Play App Signing.
-2. **VALIDAR EM APARELHO** (não testado — só build): voz Web Speech funciona no WebView? (senão tirar
-   RECORD_AUDIO antes do Data safety) · insets edge-to-edge Android 15 · upload de arquivo · ícone
-   renderizado · no APK, Configurações→Créditos e bloqueio-de-acesso mostram ZERO R$/CTA (é o que o
-   revisor vê).
-3. **Publicar o backlog local** (ver gate abaixo) pra `www.hbxsystem.com.br` servir o front do modo-shell
-   e a página `/excluir-conta` — as URLs que a Play Console exige.
+2. **Publicar o backlog local** (ver gate abaixo) — o `.aab` lê `www.hbxsystem.com.br` AO VIVO. Os
+   fixes de billing (df1a55a0) precisam estar PUBLICADOS antes de qualquer revisor abrir, senão ele vê
+   a compra. Também serve `/excluir-conta` e `/politicas` (URLs que o Console exige).
+3. **VALIDAR EM APARELHO** (o .aab foi buildado, NÃO testado): voz Web Speech funciona no WebView?
+   (esperado: não → remover RECORD_AUDIO do manifest:9 + MainActivity.kt:404-408 antes do .aab final,
+   é higiene de Data Safety, não blocker) · insets edge-to-edge Android 15 · upload de foto · tela
+   offline · persistência de login após restart · rota→notificação→takeover de chegada.
+4. Formulários pós-upload no Console (roteiro pronto em `RELEASE-20X/PLAY-GUIA-DONO.md`): FGS location
+   + vídeo, full-screen intent, Data Safety, conta demo, 12 testers × 14d.
 
 ## ⏳ Sprints em fila (1 por vez)
 - **S2 comercial (delta, dinheiro — Fable direto):** invariantes I-1/I-2 nos toggles S6/S8 (limpar campo

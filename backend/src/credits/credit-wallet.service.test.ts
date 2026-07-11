@@ -109,6 +109,16 @@ function createFakePrisma() {
       record(() => Object.assign(row, before));
       return { ...row };
     },
+    // Reserva atômica da dívida de chargeback (optimistic lock no campo): match + write sem await
+    // no meio, como o UPDATE ... WHERE condicional do Postgres — a corrida se resolve por quem
+    // executa a microtask primeiro (o perdedor casa 0 linhas).
+    updateMany: async ({ where, data }: any) => {
+      const rows = wallets.filter((item) => matchesWhere(item, where));
+      const befores = rows.map((row) => ({ row, snapshot: { ...row } }));
+      rows.forEach((row) => applyData(row, data));
+      record(() => befores.forEach(({ row, snapshot }) => Object.assign(row, snapshot)));
+      return { count: rows.length };
+    },
   };
 
   const creditLedgerEntry = {
@@ -726,4 +736,26 @@ test('settleChargebackDebtFromBalance: sem dívida ou sem saldo é no-op', async
   const r = await service.settleChargebackDebtFromBalance(1, { usageKey: 'k2' });
   assert.equal(r.settled, 0);
   assert.equal(r.debtAfter, 10);
+});
+
+test('hold: 2 settle CONCORRENTES sobre a MESMA divida nao queimam credito em dobro (reserva atomica)', async () => {
+  const { service } = buildService();
+  // Saldo 200 (2 lotes de 100); os grants disparam settle interno, mas sem divida ainda = no-op.
+  await service.grant(1, 100, { kind: 'recharge', usageKey: 'mp:rc1' }); // e1
+  await service.grant(1, 100, { kind: 'recharge', usageKey: 'mp:rc2' }); // e2
+  // Divida de 50 (chargeback de credito ja consumido em outra recarga).
+  await service.registerChargebackDebt(1, { amount: 50, usageKey: 'chargeback-debt:race', parentLotId: 'e1' });
+  assert.equal(await service.getBalance(1), 200);
+  assert.equal(await service.getChargebackDebt(1), 50);
+
+  // Duas quitacoes concorrentes com usageKeys DISTINTAS (como 2 grants simultaneos): a reserva
+  // atomica (updateMany condicional) garante que so uma vence a divida.
+  await Promise.all([
+    service.settleChargebackDebtFromBalance(1, { usageKey: 'chargeback-settle:grant:A' }),
+    service.settleChargebackDebtFromBalance(1, { usageKey: 'chargeback-settle:grant:B' }),
+  ]);
+
+  // So 50 quitados no total: divida 0, saldo 150. (Com o bug antigo, cada um queimava 50 -> saldo 100.)
+  assert.equal(await service.getChargebackDebt(1), 0);
+  assert.equal(await service.getBalance(1), 150);
 });

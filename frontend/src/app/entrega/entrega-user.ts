@@ -21,6 +21,10 @@ import { isTenantAdmin, type RoleUser } from "@/lib/roles";
 
 type PerfilUser = NonNullable<RoleUser> & {
   company?: { name?: string | null } | null;
+  // /profile/current-user (sanitizeUser) já expõe isSystemMaster: o master
+  // assumindo o contexto de um tenant. Usado pra NÃO disparar requests que o
+  // backend barra pro master (ex.: module-categories/options → 400).
+  isSystemMaster?: boolean;
 };
 
 let perfilPromise: Promise<PerfilUser | null> | null = null;
@@ -43,6 +47,11 @@ function getPerfil(): Promise<PerfilUser | null> {
 /** true se o usuário logado é admin do TENANT (dono/USERMASTER/ADMIN). */
 export function getIsAdmin(): Promise<boolean> {
   return getPerfil().then((u) => (u ? isTenantAdmin(u) : false));
+}
+
+/** true se o usuário logado é o system master (assumindo contexto ou não). */
+export function getIsSystemMaster(): Promise<boolean> {
+  return getPerfil().then((u) => u?.isSystemMaster === true);
 }
 
 const LS_EMPRESA_NOME = "hbx:entrega:empresa-nome";

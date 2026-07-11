@@ -1694,6 +1694,21 @@ export class LogisticaService {
     });
     if (!cliente) return null;
 
+    // Regra M4 (a mesma do listRota/saldos): financeiro do tenant OFF = dinheiro
+    // não aparece em lugar NENHUM. O histórico "o que/quando/hora/msg" segue vivo,
+    // mas valor/valorUnit/cobrancaStatus são omitidos. Best-effort: config ausente
+    // = default seguro (false).
+    let moduloFinanceiroAtivo = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] histórico loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+
     const take = clampLimit(opts.limit, 30, 100);
     const cursor = String(opts.cursor || '').trim() || null;
 
@@ -1744,9 +1759,10 @@ export class LogisticaService {
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         status: r.status,
-        valor: r.valor,
+        // M4: financeiro OFF → dinheiro some (valor/cobrança null), resto fica.
+        valor: moduloFinanceiroAtivo ? r.valor : null,
         receiptMethod: r.receiptMethod ?? null,
-        cobrancaStatus: r.cobrancaStatus,
+        cobrancaStatus: moduloFinanceiroAtivo ? r.cobrancaStatus : null,
         whatsappStatus: r.whatsappStatus ?? null,
         whatsappMotivo: r.whatsappMotivo ?? null,
         itens:
@@ -1754,7 +1770,7 @@ export class LogisticaService {
             ? r.itens.map((it) => ({
                 produtoNome: it.product?.name ?? null,
                 qtd: it.qtdEntregue ?? it.qtdPrevista,
-                valorUnit: it.valorUnit ?? 0,
+                valorUnit: moduloFinanceiroAtivo ? (it.valorUnit ?? 0) : null,
               }))
             : r.product
               ? [
@@ -1763,7 +1779,11 @@ export class LogisticaService {
                     // valorUnit derivado do valor/quantidade da própria entrega.
                     produtoNome: r.product.name,
                     qtd: r.quantidade,
-                    valorUnit: r.quantidade > 0 ? round2((Number(r.valor) || 0) / r.quantidade) : round2(Number(r.valor) || 0),
+                    valorUnit: !moduloFinanceiroAtivo
+                      ? null
+                      : r.quantidade > 0
+                        ? round2((Number(r.valor) || 0) / r.quantidade)
+                        : round2(Number(r.valor) || 0),
                   },
                 ]
               : [],
@@ -2299,8 +2319,9 @@ export interface FinanceiroClienteDTO {
 // W2 (contrato nº4) — histórico de entregas do cliente (extrato de ENTREGAS).
 export interface HistoricoEntregaItemLinha {
   produtoNome: string | null;
+  // M4: null quando o financeiro do tenant está OFF (dinheiro não aparece).
+  valorUnit: number | null;
   qtd: number;
-  valorUnit: number;
 }
 
 export interface HistoricoEntregaItem {
@@ -2308,9 +2329,10 @@ export interface HistoricoEntregaItem {
   scheduledAt: string | null;
   deliveredAt: string | null;
   status: string;
-  valor: number;
+  // M4: valor e cobrancaStatus são null com o financeiro do tenant OFF.
+  valor: number | null;
   receiptMethod: string | null;
-  cobrancaStatus: string;
+  cobrancaStatus: string | null;
   whatsappStatus: string | null;
   whatsappMotivo: string | null;
   itens: HistoricoEntregaItemLinha[];

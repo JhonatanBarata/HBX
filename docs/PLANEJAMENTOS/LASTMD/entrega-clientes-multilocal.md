@@ -5,7 +5,9 @@ Planos: `docs/PLANEJAMENTOS/PR10072026/` (W5/W6 card) e `docs/PLANEJAMENTOS/MULT
 
 ## Estado
 - ✅ **Card de clientes** publicado e testado ao vivo (chips de pendência clicáveis, duplicidade/merge, filtro semana, excluir admin + 409 se deve).
-- ✅ **Multi-local + multi-telefone** FEITO e VERIFICADO (`tsc` limpo backend inteiro; **162 testes verdes** = 92 logística + 70 núcleo). NÃO commitado/publicado.
+- ✅ **Multi-local + multi-telefone** FEITO e VERIFICADO. NÃO commitado/publicado.
+- ✅ **3 refinamentos multi-local FECHADOS** (11/07): preview por local, planejador de rota lê geo do local, seed/sync do local principal no createConta/updateConta.
+- ✅ **Verificação autoritativa:** `tsc` limpo backend inteiro + `tsc`/check-pele limpos no front; **170 testes verdes** (logística + núcleo, +8 dos refinamentos, 0 falhas).
 - ✅ **Financeiro LIGADO no banco da empresa 5** (HBX, user 6 ADMIN) — dono já vê linha de débito + aba Financeiro.
 
 ## FALTA
@@ -15,15 +17,13 @@ Planos: `docs/PLANEJAMENTOS/PR10072026/` (W5/W6 card) e `docs/PLANEJAMENTOS/MULT
 - Multi-local está pronto na árvore, entra na próxima consolidação. **Migration `20260710150000_local_entrega_multi` aplica sozinha no deploy** (`backend/scripts/start-prod.sh:32` = `prisma migrate deploy`).
 
 ### 2. QA ao vivo pós-publish (VPS/Chrome — só depois do publish)
-- Criar cliente com 2 endereços → gerar dia → conferir 2 paradas na rota.
+- Criar cliente com 2 endereços → gerar dia → conferir 2 paradas na rota (ordem pela porta certa).
 - Merge de 2 clientes → confirmar que NENHUM telefone some.
 - Toggle "Financeiro do cliente" nos Ajustes liga/desliga.
 - Card: 409 CLIENTE_COM_DEBITO com dívida real + linha "Débitos atuais" visível (empresa 5 já tem financeiro ON).
 
-### 3. Refinamentos multi-local ABERTOS (só afetam cliente com 2+ endereços; 1-local NÃO regride)
-- (a) `getDiaPreview` agrupa por cliente, não por local → pop-up "Gerar entregas" sub-representa multi-local.
-- (b) `logistica-rota.service.ts` (planejador NN+2opt/ETA) ordena pelo geo do PERFIL, não do local da entrega.
-- (c) Editar endereço via PATCH `/nucleo/contas/:id` (perfil) NÃO sincroniza com o local principal; cliente criado por caminho que não seja a ficha nasce sem local → 3 pendências acesas. (W-D já roteia edição via ficha com upsert do local.)
+### 3. Follow-up opcional (1 pendência residual)
+- Contas nascidas pela INGESTÃO do Radar (`upsertContaFromCnpj`/`upsertContaFromRadarWebLead` no nucleo) ainda criam `CustomerProfile` sem `LocalEntrega` → se um lead ingerido virar cliente sem passar pela ficha, o card pode acender pendência falsa até ganhar local. Corrigir = chamar `seedOrSyncLocalPrincipal` (guardado por endereço presente) também nesses upserts. Baixa prioridade.
 
 ## Regras
 - **NÃO mexer mais no tree do dono** sem ordem (ele consolida tudo; 3-way preserva). NÃO reverter o que não criei.

@@ -4123,10 +4123,18 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // PR10072026 W1: o master escreve o TETO (masterEnabled), nunca mais a camada
     // da empresa (`enabled` fica com OOBE/admin). Efetivo = masterEnabled && enabled.
 
+    // W1-FIX (11/07): o master reganha a alavanca de LIGAR. Só escrever o teto
+    // deixava uma linha legada `enabled=false` (OFF que o próprio master gravou
+    // antes da migração, com masterEnabled backfillado=true) presa em efetivo-OFF,
+    // sem NENHUM caminho no painel /master pra reativar. Agora: LIGAR o teto força
+    // também a camada da empresa (`enabled=true`) — a intenção explícita do master
+    // é "ligado pra esta empresa"; BAIXAR o teto só derruba `masterEnabled` (o
+    // efetivo = masterEnabled && enabled já bloqueia, e preserva o `enabled` do
+    // tenant pra quando o master religar).
     const result = await this.prisma.companyModule.upsert({
       where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
-      update: { masterEnabled: Boolean(enabled) },
-      create: { companyId, moduleId: moduleItem.id, masterEnabled: Boolean(enabled) },
+      update: enabled ? { masterEnabled: true, enabled: true } : { masterEnabled: false },
+      create: { companyId, moduleId: moduleItem.id, masterEnabled: Boolean(enabled), enabled: true },
     });
 
     await this.masterContextService.registerSupportAction({

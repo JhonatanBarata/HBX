@@ -4643,14 +4643,15 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           `already=${result.alreadyProcessed}`,
       );
 
-      if (result.shortfall > 0 && !result.alreadyProcessed) {
+      if (result.shortfall > 0) {
         // Crédito já consumido antes do estorno = DÍVIDA. Decisão do dono 10/07: BLOQUEIA novas
-        // entregas até quitar. Persiste a dívida na carteira (o choke de entrega lê e trava) e
-        // alerta o master em créditos e R$. Idempotente por paymentId (webhook duplicado não dobra).
-        const chargeAmount = this.normalizeCurrencyAmount(charge.amount);
-        const debtValue = this.normalizeCurrencyAmount(
-          lot.amount > 0 ? (chargeAmount * result.shortfall) / lot.amount : 0,
-        );
+        // entregas até quitar. Persiste a dívida na carteira (o choke de entrega lê e trava).
+        // IMPORTANTE (revisão adversarial go-live 11/07): registrar a dívida SEMPRE que houver
+        // shortfall — NÃO amarrar a `!alreadyProcessed`. registerChargebackDebt já é idempotente por
+        // usageKey (chargeback-debt:<paymentId> + @@unique); se a 1ª execução revertesse o lote mas
+        // falhasse ANTES de gravar a dívida, o retry do webhook (reversePurchase alreadyProcessed=true)
+        // pularia o registro pra sempre e a empresa receberia leads de graça pós-estorno. O guard
+        // `!alreadyProcessed` fica só no alerta do master (evitar ruído de evento duplicado).
         await this.creditWallet.registerChargebackDebt(charge.companyId, {
           amount: result.shortfall,
           usageKey: `chargeback-debt:${paymentIdentity}`,
@@ -4664,25 +4665,31 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
             providerStatus: context.providerStatus,
           },
         });
-        await emitMasterEvent(this.prisma, {
-          type: 'credit.recharge_reversal_shortfall',
-          severity: 'action_required',
-          companyId: charge.companyId,
-          dedupKey: `credit-reversal-shortfall:${paymentIdentity}`,
-          payload: {
-            state: 'shortfall',
-            chargeId: charge.id,
-            paymentId: paymentIdentity,
-            packCredits: lot.amount,
-            reversedCredits: result.reversed,
-            debtCredits: result.shortfall,
-            debtValue,
-            chargeAmount,
-            hold: true,
-            trigger: context.trigger,
-            providerStatus: context.providerStatus,
-          },
-        });
+        if (!result.alreadyProcessed) {
+          const chargeAmount = this.normalizeCurrencyAmount(charge.amount);
+          const debtValue = this.normalizeCurrencyAmount(
+            lot.amount > 0 ? (chargeAmount * result.shortfall) / lot.amount : 0,
+          );
+          await emitMasterEvent(this.prisma, {
+            type: 'credit.recharge_reversal_shortfall',
+            severity: 'action_required',
+            companyId: charge.companyId,
+            dedupKey: `credit-reversal-shortfall:${paymentIdentity}`,
+            payload: {
+              state: 'shortfall',
+              chargeId: charge.id,
+              paymentId: paymentIdentity,
+              packCredits: lot.amount,
+              reversedCredits: result.reversed,
+              debtCredits: result.shortfall,
+              debtValue,
+              chargeAmount,
+              hold: true,
+              trigger: context.trigger,
+              providerStatus: context.providerStatus,
+            },
+          });
+        }
       }
     } catch (error: any) {
       this.logger.error(

@@ -120,11 +120,12 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPermissionRequest(request: PermissionRequest) {
                     // Mic da Web Speech API (confirmação de entrega por voz). Só
-                    // concede áudio quando a página atual é do nosso host — nunca
-                    // pra origem estranha que o WebView eventualmente carregue.
+                    // concede áudio quando a ORIGEM do próprio request é do nosso
+                    // host — checar a URL da página (webView.url) abriria a brecha
+                    // de um iframe de origem estranha numa página nossa ganhar o mic.
                     val pedeAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
-                    val hostAtual = this@MainActivity.webView.url?.let { Uri.parse(it).host }
-                    val hostConfiavel = hostAtual == ALLOWED_HOST || hostAtual == ALLOWED_HOST_ROOT
+                    val hostOrigem = request.origin?.let { runCatching { Uri.parse(it.toString()).host }.getOrNull() }
+                    val hostConfiavel = hostOrigem == ALLOWED_HOST || hostOrigem == ALLOWED_HOST_ROOT
                     if (pedeAudio && hostConfiavel) {
                         request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
                     } else {

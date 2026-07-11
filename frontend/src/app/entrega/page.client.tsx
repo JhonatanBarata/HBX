@@ -165,11 +165,19 @@ export function EntregaHome() {
   // ROTA-AUTOPILOT F4 — confirmação bloqueante quando o GPS não bate com o
   // endereço cadastrado; a Promise segura o onEntregue até Sim/Não.
   const [gpsAviso, setGpsAviso] = useState<{ resolve: (ok: boolean) => void } | null>(null);
-  // M9 — onboarding do 1º acesso (3 telas visuais). Lazy init no cliente evita
-  // efeito só para setar estado e mantém o primeiro paint estável.
-  const [onboarding, setOnboarding] = useState<boolean | null>(() =>
-    typeof window === "undefined" ? null : !jaViuOnboarding(),
-  );
+  // M9 — onboarding do 1º acesso (3 telas visuais). HIDRATAÇÃO (fix React 418): o
+  // init NÃO pode ler o cliente (jaViuOnboarding lê localStorage). Com lazy init o
+  // server renderizava o scaffold e o 1º render do client renderizava
+  // <Onboarding/> pra quem é 1ª vez → árvores diferentes = mismatch de
+  // hidratação (erro 418) e paint quebrado. Agora começa `null` (igual nos dois
+  // lados → cai no scaffold, MESMO do server) e o valor real entra num effect
+  // pós-mount. Para quem já viu (recorrente) nada muda; 1ª vez vê o scaffold por
+  // 1 frame antes do onboarding (o scaffold já é um spinner de load — sem susto).
+  const [onboarding, setOnboarding] = useState<boolean | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lê localStorage (jaViuOnboarding), indisponível no SSR, 1x pós-mount; é o que torna a hidratação segura, não estado derivado.
+    setOnboarding(!jaViuOnboarding());
+  }, []);
 
   // AUTH: reusa a sessão do app. Sem token → landing com login aberto
   // ("/?entrar" — /login morreu como tela, W1 10/07).

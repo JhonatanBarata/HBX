@@ -296,6 +296,9 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         // MULTILOCAL (10/07) — em qual local do cliente este vínculo entrega (null =
         // perfil/legado). É a chave da sub-agregação por local no gerarDia.
         localId: true,
+        // MULTILOCAL (11/07) — apelido do local ("Casa"|"Loja"…) pro preview mostrar
+        // 1 linha por (cliente, local). gerarDia ignora; só o getDiaPreview lê.
+        local: { select: { apelido: true } },
         productId: true,
         qtdPadrao: true,
         precoAcordado: true,
@@ -466,6 +469,12 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
    * produto): é o espelho fiel do que `gerarDia` realmente materializa em
    * EntregaItem — se o cliente tem 2 vínculos do mesmo produto vencendo hoje,
    * o preview mostra 2 linhas (o front pode agrupar na exibição se quiser).
+   *
+   * MULTILOCAL (11/07) — o preview agora ESPELHA o agrupamento do gerarDia: 1
+   * linha por (cliente, LOCAL), não mais 1 por cliente (que somava itens de
+   * todos os locais numa linha só, sub-representando o multi-local). Cada linha
+   * ganha localId/localApelido (opcionais); cliente com 1 local (pós-backfill)
+   * = 1 linha idêntica ao anterior, com localApelido null.
    */
   async getDiaPreview(companyId: number, dateInput?: string): Promise<DiaPreviewResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
@@ -475,17 +484,33 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
 
     const { porCliente } = await this.buscarVencidosPorCliente(companyId, dia, dayEnd, dow);
 
-    const clientes: DiaPreviewClienteDTO[] = Array.from(porCliente.entries()).map(
-      ([customerProfileId, vencidos]) => ({
-        customerProfileId,
-        nome: String(vencidos[0]?.customerProfile?.name ?? '').trim(),
-        itens: vencidos.map((v) => ({
-          productId: v.productId,
-          nome: String(v.product?.name ?? '').trim(),
-          qtd: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
-        })),
-      }),
-    );
+    const clientes: DiaPreviewClienteDTO[] = [];
+    for (const [customerProfileId, vencidos] of porCliente) {
+      // Sub-agrupa por LOCAL — MESMA chave do gerarDia (localId ?? '' como
+      // sentinela; um cuid real nunca é vazio). 1 grupo = 1 linha do preview.
+      const porLocal = new Map<string, typeof vencidos>();
+      for (const v of vencidos) {
+        const chave = v.localId ?? '';
+        const arr = porLocal.get(chave);
+        if (arr) arr.push(v);
+        else porLocal.set(chave, [v]);
+      }
+
+      for (const vencidosDoLocal of porLocal.values()) {
+        clientes.push({
+          customerProfileId,
+          nome: String(vencidosDoLocal[0]?.customerProfile?.name ?? '').trim(),
+          // MULTILOCAL — a porta desta linha (null = perfil/legado) + o apelido.
+          localId: vencidosDoLocal[0]?.localId ?? null,
+          localApelido: vencidosDoLocal[0]?.local?.apelido ?? null,
+          itens: vencidosDoLocal.map((v) => ({
+            productId: v.productId,
+            nome: String(v.product?.name ?? '').trim(),
+            qtd: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+          })),
+        });
+      }
+    }
 
     return { date: dia.toISOString().slice(0, 10), clientes };
   }
@@ -694,6 +719,10 @@ export interface DiaPreviewItemDTO {
 export interface DiaPreviewClienteDTO {
   customerProfileId: string;
   nome: string;
+  // MULTILOCAL (11/07) — a porta desta linha do preview (aditivo, backward-compat):
+  // localId null = perfil/legado; localApelido null quando o local não tem apelido.
+  localId?: string | null;
+  localApelido?: string | null;
   itens: DiaPreviewItemDTO[];
 }
 

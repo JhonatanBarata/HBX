@@ -18,11 +18,12 @@ Estado de categoria (CORREÇÃO 11/07, pós-revisão): `enabled` = ALGUM módulo
    Categoria `locked` NUNCA vira ligável pelo tenant (front esconde ou mostra desabilitada com texto mínimo).
 2. **POST `/profile/module-categories`** (existente) — agora: (a) respeita teto — módulo com `masterEnabled=false` NUNCA recebe `enabled=true` (skip silencioso + retorno lista o que foi pulado); (b) grava auditoria (mesmo mecanismo do MODULE_TOGGLED do master, ator = user do tenant); (c) segue re-chamável (mín. 1 categoria; continua atualizando `Company.moduleCategoriesJson`); (d) CORREÇÃO 11/07 — escrita por INTENÇÃO (`planCategoryModuleWrites`): categoria presente que já tem módulo ON não é reescrita (preserva mix parcial); categoria omitida só desliga se estava efetivamente ligada e NÃO travada (locked omitida = no-op, nunca mata módulo vivo).
 3. **PUT `/modules/master/company/:companyId`** (existente) — passa a escrever `masterEnabled` (teto). Resposta/listagem do master expõe `masterEnabled` + `companyEnabled` (camada empresa) + `effective`.
-4. **GET `/logistica/clientes/:id/entregas?limit=&cursor=`** (W2; JwtAuthGuard, tenant-scoped):
+4. **GET `/logistica/clientes/:id/entregas?limit=&cursor=`** (W2; tenant-scoped):
    `{ items: [{ id, scheduledAt, deliveredAt, status, valor, receiptMethod, cobrancaStatus, whatsappStatus, whatsappMotivo, itens: [{ produtoNome, qtd, valorUnit }] }], nextCursor }` — ordenado desc por `deliveredAt ?? scheduledAt`; usa índice `[companyId, customerProfileId, scheduledAt]`.
+   CORREÇÃO 11/07 (pós-revisão): **ADMIN-only** (RolesGuard+@Admin) — LEI DO VENDEDOR (visão gerencial do dono; 'logistica' é company-level e não filtra por cargo, então sem o gate o vendedor USER puxaria o histórico com dinheiro). **Regra M4**: com `moduloFinanceiroAtivo=false`, `valor`/`valorUnit`/`cobrancaStatus` vêm `null` (data/itens/whatsapp ficam) — o dinheiro não aparece com o financeiro OFF.
 5. **POST `/logistica/charges/:id/quitar`** (W2; ADMIN/dono): marca FinanceiroCharge `pending`→paga (`paidAt=now`), só charges `sourceModule` `logistica_*` da própria empresa; idempotente (já paga → devolve estado, 200). `{ id, status, paidAt }`.
-6. **GET `/logistica/financeiro/saldos`** (W2; mesmo gate do resumo/extrato + `moduloFinanceiroAtivo`):
-   `{ clientes: [{ customerProfileId, nome, saldoAberto, aguardandoFechamento }] }` (só quem tem valor > 0; reusa `saldoAbertoPorClientes`).
+6. **GET `/logistica/financeiro/saldos`** (W2; **ADMIN-only** RolesGuard+@Admin — CORREÇÃO 11/07, LEI DO VENDEDOR — + `moduloFinanceiroAtivo` fail-closed):
+   `{ moduloFinanceiroAtivo, clientes: [{ customerProfileId, nome, saldoAberto, aguardandoFechamento }] }` (só quem tem valor > 0; reusa `saldoAbertoPorClientes`; OFF → lista vazia).
 
 ## Detecção "só-logística" (front, W4)
 `soLogistica(mods) = logistica accessible && nenhum de {vendas, atendimento, webscraping, website, bot} accessible` (via `/modules/me` cacheado).

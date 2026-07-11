@@ -41,6 +41,12 @@ export interface DiaPreviewCliente {
   customerProfileId: string;
   nome: string;
   itens: DiaPreviewItem[];
+  // MULTILOCAL 11/07 — o preview passou a vir 1 por (cliente, LOCAL). localId
+  // identifica o local (null/ausente = cliente de local único, idêntico a
+  // antes) e localApelido é o rótulo curto (ex. "Loja") mostrado discreto na
+  // linha; null/ausente = nada muda, linha igual a hoje.
+  localId?: string | null;
+  localApelido?: string | null;
 }
 
 export interface DiaPreview {
@@ -163,6 +169,6 @@ export function quitarCharge(id: string): Promise<QuitarChargeResult> {
 }
 
 // "R$ 12,00" — mesmo formato do resto do app (vírgula decimal).
-export function fmtMoney(v: number): string {
+export function fmtMoney(v: number | null | undefined): string {
   return `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`;
 }

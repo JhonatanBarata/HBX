@@ -327,9 +327,11 @@ function ArrivalSheetBody({
     });
   };
 
-  // VOZ-ENTREGUE — "entregue"/"confirmar"/"confirma" chama o MESMO
-  // confirmarEntregue do botão (mantém a checagem de GPS que já existe no
-  // page); "não entregue" abre o mesmo sub-fluxo de motivo do botão ghost.
+  // VOZ-ENTREGUE — o comando DELIBERADO "confirmar entrega" (verbo de confirmação
+  // + palavra de entrega, sem negação; ver classificarComandoVoz) chama o MESMO
+  // confirmarEntregue do botão (mantém a checagem de GPS que já existe no page);
+  // "não/num/nem entregue" abre o mesmo sub-fluxo de motivo do botão ghost.
+  // Palavra solta "entregue" NÃO confirma — é ação live (WhatsApp + cobrança).
   // vozArmada combina os 3 gates: trava externa opcional (vozAtiva), sub-
   // fluxo atual (nunca escuta durante "Por quê?") e o toggle do ícone
   // (vozLigada) — sem os 3, tocar no ícone pra silenciar não faria nada.
@@ -499,7 +501,8 @@ function ArrivalSheetBody({
                 className={`ent-voz${vozOuvindo ? " is-on" : ""}`}
                 onClick={() => setVozLigada((v) => !v)}
                 aria-pressed={vozLigada}
-                aria-label={vozLigada ? "Desligar confirmação por voz" : "Ligar confirmação por voz"}
+                aria-label={vozLigada ? "Desligar confirmação por voz" : "Confirmar por voz — diga: confirmar entrega"}
+                title="Diga: confirmar entrega"
                 disabled={submitting}
               >
                 <I d={ICON_PATHS.mic} size={18} />

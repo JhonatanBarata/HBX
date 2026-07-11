@@ -341,3 +341,205 @@ test('getCliente: SEM contato principal → whatsapp cai pro phone da conta (leg
   assert.deepEqual(res?.telefones, []);
   assert.deepEqual(res?.locais, []);
 });
+
+// ── SEED/SYNC do LOCAL PRINCIPAL a partir do PERFIL (11/07) ───────────────────
+// Conta criada/editada FORA da ficha (createConta manual/import) nascia sem
+// LocalEntrega → o card do /entrega acendia pendência falsa; e editar o endereço
+// no perfil não refletia no local. createConta com endereço semeia 1 principal;
+// updateConta mexendo em endereço sincroniza o principal (sem duplicar).
+function buildSyncMock(seed: { profiles?: any[]; locais?: any[]; contatos?: any[] } = {}) {
+  const store = {
+    profiles: (seed.profiles ?? []).map((p) => ({ ...p })),
+    locais: (seed.locais ?? []).map((l) => ({ ...l })),
+    contatos: (seed.contatos ?? []).map((c) => ({ ...c })),
+  };
+  let pid = store.profiles.length;
+  let lid = store.locais.length;
+  let cid = store.contatos.length;
+
+  const prisma: any = {
+    customerProfile: {
+      findFirst: async (args: any) => {
+        const w = args?.where || {};
+        return (
+          store.profiles.find(
+            (p) =>
+              (w.companyId == null || p.companyId === w.companyId) &&
+              (w.id == null || p.id === w.id) &&
+              (w.cnpj == null || p.cnpj === w.cnpj) &&
+              (w.document == null || p.document === w.document) &&
+              (w.phoneNormalized == null || p.phoneNormalized === w.phoneNormalized),
+          ) || null
+        );
+      },
+      create: async (args: any) => {
+        const row = { id: `p${++pid}`, companyId: 7, ...args.data };
+        store.profiles.push(row);
+        return { id: row.id };
+      },
+      update: async (args: any) => {
+        const row = store.profiles.find((p) => p.id === args.where.id);
+        if (row) Object.assign(row, args.data);
+        return { id: args.where.id };
+      },
+    },
+    contato: {
+      findFirst: async (args: any) => {
+        const w = args?.where || {};
+        return (
+          store.contatos.find(
+            (c) =>
+              (w.companyId == null || c.companyId === w.companyId) &&
+              (w.customerProfileId == null || c.customerProfileId === w.customerProfileId) &&
+              (w.isPrincipal == null || c.isPrincipal === w.isPrincipal),
+          ) || null
+        );
+      },
+      create: async (args: any) => {
+        const row = { id: `k${++cid}`, ...args.data };
+        store.contatos.push(row);
+        return { id: row.id };
+      },
+      update: async (args: any) => {
+        const row = store.contatos.find((c) => c.id === args.where.id);
+        if (row) Object.assign(row, args.data);
+        return { id: args.where.id };
+      },
+      updateMany: async () => ({ count: 0 }),
+    },
+    localEntrega: {
+      findFirst: async (args: any) => {
+        const w = args?.where || {};
+        return (
+          store.locais.find(
+            (l) =>
+              (w.companyId == null || l.companyId === w.companyId) &&
+              (w.customerProfileId == null || l.customerProfileId === w.customerProfileId) &&
+              (w.ativo == null || l.ativo === w.ativo) &&
+              (w.isPrincipal == null || l.isPrincipal === w.isPrincipal),
+          ) || null
+        );
+      },
+      count: async (args: any) => {
+        const w = args?.where || {};
+        return store.locais.filter(
+          (l) =>
+            (w.companyId == null || l.companyId === w.companyId) &&
+            (w.customerProfileId == null || l.customerProfileId === w.customerProfileId) &&
+            (w.ativo == null || l.ativo === w.ativo),
+        ).length;
+      },
+      create: async (args: any) => {
+        const row = { id: `l${++lid}`, ...args.data };
+        store.locais.push(row);
+        return { id: row.id };
+      },
+      update: async (args: any) => {
+        const row = store.locais.find((l) => l.id === args.where.id);
+        if (row) Object.assign(row, args.data);
+        return { id: args.where.id };
+      },
+    },
+  };
+  return { prisma, store };
+}
+
+test('createConta: com endereço → semeia 1 LOCAL PRINCIPAL a partir do perfil', async () => {
+  const { prisma, store } = buildSyncMock();
+  const svc = new NucleoCadastroService(prisma as any);
+  await svc.createConta(7, {
+    nome: 'Dona Maria',
+    whatsapp: '85999990000',
+    endereco: 'Rua A',
+    numero: '10',
+    bairro: 'Centro',
+    cidade: 'Fortaleza',
+    uf: 'ce',
+    cep: '60000-000',
+    lat: -3.73,
+    lng: -38.52,
+    geoFonte: 'gps_cadastro',
+  });
+  assert.equal(store.locais.length, 1, 'exatamente 1 local semeado');
+  const l = store.locais[0];
+  assert.equal(l.isPrincipal, true);
+  assert.equal(l.ativo, true);
+  assert.equal(l.endereco, 'Rua A');
+  assert.equal(l.numero, '10');
+  assert.equal(l.uf, 'CE', 'uf normalizada no perfil');
+  assert.equal(l.lat, -3.73);
+  assert.equal(l.lng, -38.52);
+  assert.equal(l.geoFonte, 'gps_cadastro', 'geoFonte do local = a do perfil');
+});
+
+test('createConta: SEM nenhum campo de endereço → NÃO semeia local', async () => {
+  const { prisma, store } = buildSyncMock();
+  const svc = new NucleoCadastroService(prisma as any);
+  await svc.createConta(7, { nome: 'Sem Endereço', whatsapp: '85988880000' });
+  assert.equal(store.locais.length, 0, 'nada a semear');
+});
+
+test('updateConta: mexeu no endereço e conta SEM principal → cria principal (seed)', async () => {
+  const { prisma, store } = buildSyncMock({
+    profiles: [{ id: 'c1', companyId: 7, name: 'Zé', tipo: 'pf' }],
+  });
+  const svc = new NucleoCadastroService(prisma as any);
+  await svc.updateConta(7, 'c1', {
+    endereco: 'Rua Nova',
+    numero: '99',
+    cidade: 'Fortaleza',
+    uf: 'CE',
+    lat: -3.73,
+    lng: -38.52,
+    geoFonte: 'gps_cadastro',
+  });
+  assert.equal(store.locais.length, 1, 'passou a ter endereço → cria principal');
+  assert.equal(store.locais[0].isPrincipal, true);
+  assert.equal(store.locais[0].endereco, 'Rua Nova');
+});
+
+test('updateConta: mexeu no endereço e JÁ tem principal → atualiza, NÃO duplica', async () => {
+  const { prisma, store } = buildSyncMock({
+    profiles: [{ id: 'c1', companyId: 7, name: 'Zé', tipo: 'pf', endereco: 'Rua Velha', numero: '1' }],
+    locais: [
+      { id: 'l1', companyId: 7, customerProfileId: 'c1', endereco: 'Rua Velha', numero: '1', isPrincipal: true, ativo: true },
+    ],
+  });
+  const svc = new NucleoCadastroService(prisma as any);
+  await svc.updateConta(7, 'c1', { endereco: 'Rua Nova', numero: '99' });
+  assert.equal(store.locais.length, 1, 'não duplica — sincroniza o principal existente');
+  assert.equal(store.locais[0].id, 'l1');
+  assert.equal(store.locais[0].endereco, 'Rua Nova');
+  assert.equal(store.locais[0].numero, '99');
+});
+
+test('updateConta: NÃO mexeu em endereço → não toca em local nenhum', async () => {
+  const { prisma, store } = buildSyncMock({
+    profiles: [{ id: 'c1', companyId: 7, name: 'Zé', tipo: 'pf', endereco: 'Rua Velha' }],
+  });
+  const svc = new NucleoCadastroService(prisma as any);
+  await svc.updateConta(7, 'c1', { nome: 'Zé da Silva' });
+  assert.equal(store.locais.length, 0, 'update só de nome não semeia local');
+});
+
+test('createConta idempotente: conta reimportada que JÁ tem principal → sincroniza sem duplicar', async () => {
+  const { prisma, store } = buildSyncMock({
+    profiles: [{ id: 'c1', companyId: 7, name: 'Zé', tipo: 'pf', phoneNormalized: '85999990000', endereco: 'Rua Velha' }],
+    locais: [
+      { id: 'l1', companyId: 7, customerProfileId: 'c1', endereco: 'Rua Velha', isPrincipal: true, ativo: true },
+    ],
+  });
+  const svc = new NucleoCadastroService(prisma as any);
+  await svc.createConta(7, {
+    nome: 'Zé',
+    whatsapp: '85999990000',
+    endereco: 'Rua Nova',
+    numero: '99',
+    lat: -3.73,
+    lng: -38.52,
+    geoFonte: 'gps_cadastro',
+  });
+  assert.equal(store.locais.length, 1, 'não cria 2º local');
+  assert.equal(store.locais[0].endereco, 'Rua Nova', 'principal sincronizado');
+  assert.equal(store.locais[0].numero, '99');
+});

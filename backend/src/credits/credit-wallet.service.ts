@@ -696,39 +696,64 @@ export class CreditWalletService {
     opts: { usageKey: string; userId?: number | null; metadata?: Record<string, unknown> | null },
   ): Promise<{ settled: number; debtAfter: number }> {
     const wallet = await this.prisma.creditWallet.findUnique({ where: { companyId } });
-    const debt = Math.max(0, Number(wallet?.chargebackDebtCredits || 0));
-    if (!wallet || debt <= 0) return { settled: 0, debtAfter: debt };
+    if (!wallet) return { settled: 0, debtAfter: 0 };
 
     const now = new Date();
-    const balance = await this.getBalance(companyId, now);
-    const toSettle = Math.min(debt, balance);
-    if (toSettle <= 0) return { settled: 0, debtAfter: debt };
+    const base = String(opts.usageKey || '').trim() || `chargeback-settle:${wallet.id}`;
+    let settled = 0;
 
-    const usageKey = String(opts.usageKey || '').trim() || `chargeback-settle:${wallet.id}:${debt}`;
-    const { consumed } = await this.consumeOpenLots({
-      walletId: wallet.id,
-      companyId,
-      amount: toSettle,
-      usageKey,
-      movementKind: 'debit',
-      actionKey: 'chargeback_settlement',
-      userId: opts.userId ?? null,
-      metadata: opts.metadata ?? null,
-      now,
-    });
-    if (consumed <= 0) return { settled: 0, debtAfter: debt };
+    // Concorrência (revisão adversarial go-live 11/07): dois grants simultâneos NÃO podem quitar a
+    // MESMA dívida em dobro — sem trava, cada um lia debt=50 e consumia 50 de lotes DISJUNTOS
+    // (usageKeys distintas), destruindo 50 créditos reais do cliente. Cada iteração RESERVA a dívida
+    // ATOMICAMENTE antes de consumir: `updateMany` condicional (WHERE chargebackDebtCredits = valor
+    // lido) é optimistic lock no campo → só 1 corredor vence (count=1); o perdedor relê a dívida já
+    // menor e reserva só o que sobra. Consome exatamente o reservado; se o saldo caiu no meio (outro
+    // débito) e consumiu menos, DEVOLVE o não-consumido à dívida (nunca perde dívida nem queima
+    // crédito além do consumido). Mesmo teto de retries do consumeOpenLots.
+    for (let attempt = 0; attempt < MAX_CONCURRENCY_RETRIES; attempt++) {
+      const fresh = await this.prisma.creditWallet.findUnique({ where: { companyId } });
+      const debt = Math.max(0, Number(fresh?.chargebackDebtCredits || 0));
+      if (debt <= 0) break;
 
-    // Decrementa só o que foi de fato consumido; clampa em 0 (corrida de duas quitações não deixa
-    // a dívida negativa).
-    const updated = await this.prisma.creditWallet.update({
-      where: { companyId },
-      data: { chargebackDebtCredits: { decrement: consumed } },
-    });
-    if (updated.chargebackDebtCredits < 0) {
-      await this.prisma.creditWallet.update({ where: { companyId }, data: { chargebackDebtCredits: 0 } });
-      return { settled: consumed, debtAfter: 0 };
+      const balance = await this.getBalance(companyId, now);
+      const claim = Math.min(debt, balance);
+      if (claim <= 0) break;
+
+      const reserved = await this.prisma.creditWallet.updateMany({
+        where: { companyId, chargebackDebtCredits: debt },
+        data: { chargebackDebtCredits: { decrement: claim } },
+      });
+      if (reserved.count !== 1) continue; // perdeu a corrida: outro settle mexeu na dívida — relê
+
+      let consumed = 0;
+      try {
+        const r = await this.consumeOpenLots({
+          walletId: wallet.id,
+          companyId,
+          amount: claim,
+          usageKey: `${base}:r${attempt}`,
+          movementKind: 'debit',
+          actionKey: 'chargeback_settlement',
+          userId: opts.userId ?? null,
+          metadata: opts.metadata ?? null,
+          now,
+        });
+        consumed = r.consumed;
+      } finally {
+        if (consumed < claim) {
+          // devolve à dívida o que a reserva pegou mas o saldo não cobriu (ou erro no meio):
+          // reserva-e-devolve nunca perde dívida nem queima crédito além do efetivamente consumido.
+          await this.prisma.creditWallet.update({
+            where: { companyId },
+            data: { chargebackDebtCredits: { increment: claim - consumed } },
+          });
+        }
+      }
+      settled += consumed;
+      if (consumed <= 0) break;
     }
-    return { settled: consumed, debtAfter: updated.chargebackDebtCredits };
+
+    return { settled, debtAfter: await this.getChargebackDebt(companyId) };
   }
 
   /**

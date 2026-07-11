@@ -8984,11 +8984,9 @@ export class VendasService {
     const lead = await this.prisma.vendasLead.findUnique({
       where: { id: normalizedLeadId },
       select: {
-        companyId: true,
         name: true,
         email: true,
         phone: true,
-        phoneNormalized: true,
         salePlanKey: true,
         saleStatus: true,
       },
@@ -8999,26 +8997,11 @@ export class VendasService {
     if (!lead || !hasHandoff) {
       throw new NotFoundException('Link de contratacao nao encontrado ou expirado.');
     }
-    // CPF mora no CustomerProfile (canonico, keyed por telefone) — gravado pelo
-    // pre-cadastro do fechamento. ATENCAO: o lead guarda o telefone COM DDI 55
-    // ("5519...") e o CustomerProfile pode guardar SEM ("19..."), entao caso por
-    // VARIANTES (com/sem 55) — telefone unico nao casa. Sem relacao obrigatoria.
-    let cpf: string | null = null;
-    const rawDigits = String(lead.phoneNormalized || lead.phone || '').replace(/\D/g, '');
-    if (rawDigits) {
-      const variants = new Set<string>([
-        rawDigits,
-        rawDigits.slice(-13),
-        rawDigits.slice(-11),
-      ]);
-      if (rawDigits.length === 11) variants.add(`55${rawDigits}`);
-      const profile = await this.prisma.customerProfile.findFirst({
-        where: { companyId: lead.companyId, phoneNormalized: { in: Array.from(variants) } },
-        orderBy: [{ updatedAt: 'desc' }],
-        select: { document: true },
-      });
-      cpf = this.normalizeText(profile?.document) || null;
-    }
+    // Rota PUBLICA (sem login) + link ?hbxLead= que trafega em claro: NAO expor CPF
+    // aqui. CPF eh PII de identificacao unica (LGPD); o cliente digita no cadastro
+    // (campo editavel). Prefill fica so no contato basico que a propria pessoa
+    // preenche. Repor CPF com seguranca exige endurecer o token (HMAC + expiracao +
+    // uso-unico) — ver decisao de go-live.
     const name = this.normalizeText(lead.name) || null;
     return {
       hasPrefill: true,
@@ -9026,7 +9009,6 @@ export class VendasService {
       name,
       email: this.normalizeText(lead.email) || null,
       phone: this.normalizeText(lead.phone) || null,
-      cpf,
       planKey: this.normalizeText(lead.salePlanKey) || null,
     };
   }

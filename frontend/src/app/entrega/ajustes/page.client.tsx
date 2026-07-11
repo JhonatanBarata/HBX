@@ -38,7 +38,7 @@ import {
   salvarCategoriasModulos,
   useEntregaMods,
 } from "../entrega-mods";
-import { getIsAdmin } from "../entrega-user";
+import { getIsAdmin, getIsSystemMaster } from "../entrega-user";
 import { EntregaScaffold } from "../EntregaScaffold";
 import {
   type LogisticaConfig,
@@ -158,10 +158,15 @@ export function EntregaAjustes() {
   const [cats, setCats] = useState<CategoriaModulo[] | null>(null);
   useEffect(() => {
     let vivo = true;
-    void getIsAdmin().then((v) => {
+    void Promise.all([getIsAdmin(), getIsSystemMaster()]).then(([v, master]) => {
       if (!vivo) return;
       setAdmin(v);
       if (!v) return;
+      // Master assumindo contexto de tenant: o backend barra
+      // module-categories/options com 400 (o front já engolia, mas poluía o
+      // console). Não dispara o request — cats fica null, a seção "Módulos"
+      // não aparece (comportamento idêntico ao de hoje, sem o 400).
+      if (master) return;
       getCategoriasModulos().then(
         (r) => {
           if (vivo) setCats(r.categories);

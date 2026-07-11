@@ -476,12 +476,21 @@ const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
 // fixa — só precisa ser a MESMA em todo processo desta app; não colide com nada
 // de domínio, é só um inteiro qualquer. Só Postgres tem pg_advisory_xact_lock.
 const RUNTIME_SCHEMA_ENSURE_LOCK_KEY = 918273;
-// Teto generoso: em boot normal (single-instance, sem disputa) o lock é
-// adquirido na hora e os 23 ensures rodam em segundos. Os dois valores abaixo só
-// existem pra não prender o boot pra sempre se o Postgres travar — estourar
-// qualquer um dos dois cai no catch de "lock indisponível" (fail-open) mais
-// abaixo, NUNCA derruba o boot por causa do lock em si.
-const RUNTIME_SCHEMA_ENSURE_LOCK_TX_TIMEOUT_MS = 30_000;
+// maxWait = quanto ESPERAR pra ADQUIRIR o lock (boot concorrente): curto; se não
+// pegar, cai no fail-open (roda os ensures sem lock). timeout = quanto a transação
+// que SEGURA o lock pode ficar aberta enquanto os 23 ensures rodam. Os ensures
+// rodam via conexão própria (this.$executeRawUnsafe, fora de `tx`) mas são
+// AWAITADOS dentro do callback, então o timeout limita a duração TOTAL deles.
+// GENEROSO de propósito (5min, não 30s): em boot normal são segundos, mas sob
+// disputa real — um ALTER esperando lock de linha de um relatório/psql aberto —
+// pode levar minutos, e 30s derrubava o boot (o caso 04/07). ATENÇÃO: se o timeout
+// estourar DEPOIS de o lock ter sido adquirido, o boot FALHA de propósito (o catch
+// abaixo re-lança) — NÃO dá pra fail-open aqui porque os ensures continuam rodando
+// na conexão própria e re-rodá-los dispararia o MESMO DDL 2× concorrente. Boot que
+// falha nesse ponto = DB genuinamente travado > 5min → o orquestrador reinicia. Só
+// o caminho "não conseguiu adquirir o lock" (maxWait/erro antes de adquirir) é
+// fail-open; a espera do DDL em si tem teto duro.
+const RUNTIME_SCHEMA_ENSURE_LOCK_TX_TIMEOUT_MS = 300_000;
 const RUNTIME_SCHEMA_ENSURE_LOCK_TX_MAX_WAIT_MS = 10_000;
 
 // Kill-switch aditivo (default OFF = roda 100% como hoje). Quando true, pula os
@@ -609,9 +618,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       return;
     } catch (error) {
       if (lockAcquired) {
-        // Lock ok — o erro veio de DENTRO de um ensure (DDL real falhou).
-        // runRuntimeSchemaEnsure já logou o "[schema-runtime-ensure] failed...";
-        // propaga igual ao comportamento de sempre (ensure falhar = boot falha).
+        // Lock JÁ adquirido: o erro é de DENTRO de um ensure (DDL real falhou) OU o
+        // timeout da tx estourou com os ensures ainda rodando. Nos dois casos o boot
+        // FALHA (não fail-open): a DDL falha é fatal como sempre; e re-rodar os ensures
+        // sem lock dispararia o MESMO DDL 2× concorrente (eles seguem na conexão
+        // própria). runRuntimeSchemaEnsure já logou o "failed..." quando foi ensure.
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);

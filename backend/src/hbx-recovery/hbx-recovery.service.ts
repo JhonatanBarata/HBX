@@ -3222,7 +3222,14 @@ export class HbxRecoveryService {
       include: { customer: true },
     });
 
-    const targetNetPaid = Math.max(0, Number((amount - refunded).toFixed(2)));
+    // P0: só reduz a dívida do cliente com dinheiro EFETIVAMENTE aprovado pelo MP.
+    // O webhook do MP é atacável (company_id na query) e dispara em vários estados
+    // (pending/in_process/rejected também). transaction_amount já vem preenchido em
+    // pending → sem este gate, um pagamento não-aprovado baixava a dívida integral.
+    // date_approved só é setado na aprovação; estorno/chargeback preservam date_approved
+    // mas aumentam `refunded` → netPaid cai e dispara a reversão corretamente.
+    const wasApproved = Boolean(provider.date_approved);
+    const targetNetPaid = wasApproved ? Math.max(0, Number((amount - refunded).toFixed(2))) : 0;
     const applied = Math.max(0, Number(updated.appliedToCustomerAmount || 0));
     const reversed = Math.max(0, Number(updated.reversedAmount || 0));
     const currentNet = Math.max(0, Number((applied - reversed).toFixed(2)));

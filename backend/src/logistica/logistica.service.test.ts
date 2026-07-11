@@ -1728,6 +1728,7 @@ test('W2 histórico: entrega legada sem EntregaItem → 1 item sintético; com i
     },
   ];
   const prisma = {
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'Dona Maria' }) },
     entrega: { findMany: async () => rows },
   } as any;
@@ -1778,6 +1779,7 @@ test('W2 histórico: cliente de outra empresa → null (404, sem vazar); página
   });
   let capturedArgs: any = null;
   const prisma = {
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'Dona Maria' }) },
     entrega: {
       findMany: async (args: any) => {
@@ -1799,6 +1801,7 @@ test('W2 histórico: cliente de outra empresa → null (404, sem vazar); página
 test('W2 histórico: limit é clampado (0/negativo → default 30; acima de 100 → 100)', async () => {
   const captured: number[] = [];
   const prisma = {
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'X' }) },
     entrega: {
       findMany: async (args: any) => {
@@ -1812,4 +1815,40 @@ test('W2 histórico: limit é clampado (0/negativo → default 30; acima de 100 
   await service.historicoEntregasCliente(1, 'conta-1', { limit: 500 });
   await service.historicoEntregasCliente(1, 'conta-1', {});
   assert.deepEqual(captured, [30, 100, 30], 'clamp: default 30, teto 100');
+});
+
+// ── W2 histórico — gate M4: financeiro OFF esconde o dinheiro (mas não o resto) ──
+test('W2 histórico: moduloFinanceiroAtivo OFF → valor/valorUnit/cobrancaStatus null; data/itens/whatsapp ficam', async () => {
+  const rows = [
+    {
+      id: 'e1', status: 'entregue', quantidade: 2, valor: 20,
+      scheduledAt: new Date('2026-07-08T09:00:00Z'),
+      deliveredAt: new Date('2026-07-08T11:00:00Z'),
+      receiptMethod: 'pix', cobrancaStatus: 'lancada',
+      whatsappStatus: 'enviado', whatsappMotivo: null,
+      createdAt: new Date('2026-07-08T08:00:00Z'),
+      product: { name: 'Galão 20L' },
+      itens: [{ qtdPrevista: 2, qtdEntregue: 2, valorUnit: 10, product: { name: 'Galão 20L' } }],
+    },
+  ];
+  const prisma = {
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
+    customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'Dona Maria' }) },
+    entrega: { findMany: async () => rows },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.historicoEntregasCliente(1, 'conta-1', {});
+  const it = res?.items[0];
+
+  // Dinheiro some (regra M4).
+  assert.equal(it?.valor, null, 'valor null com financeiro OFF');
+  assert.equal(it?.cobrancaStatus, null, 'cobrancaStatus null com financeiro OFF');
+  assert.equal(it?.itens[0].valorUnit, null, 'valorUnit null com financeiro OFF');
+  // O resto do histórico ("o que/quando/hora/msg") continua vivo.
+  assert.equal(it?.status, 'entregue');
+  assert.ok(it?.deliveredAt, 'data/hora da entrega preservada');
+  assert.equal(it?.itens[0].produtoNome, 'Galão 20L', 'nome do produto preservado');
+  assert.equal(it?.itens[0].qtd, 2, 'quantidade preservada');
+  assert.equal(it?.whatsappStatus, 'enviado', 'desfecho do WhatsApp preservado');
 });

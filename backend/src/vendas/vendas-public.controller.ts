@@ -1,4 +1,5 @@
 import { Controller, Get, Param } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import { VendasService } from './vendas.service';
 
@@ -12,6 +13,9 @@ export class VendasPublicController {
   constructor(private readonly vendasService: VendasService) {}
 
   @Get('handoff/:leadId/prefill')
+  // Rota publica sem login: teto dedicado (10/60s por IP) em vez de herdar o
+  // global frouxo (120/60s), pra estreitar varredura por leadId.
+  @Throttle({ default: { limit: 10, ttl: 60 } })
   getHbxHandoffPrefill(@Param('leadId') leadId: string) {
     return this.vendasService.getHbxHandoffPrefill(leadId);
   }

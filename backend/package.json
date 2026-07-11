@@ -12,6 +12,7 @@
     "prebuild": "npm run prisma:generate",
     "build": "tsc -p tsconfig.json",
     "test:credits": "npm run build && node --test dist/credits/credit-meter.service.test.js dist/credits/credit-pack-catalog.test.js dist/credits/credit-pack-config.service.test.js dist/credits/credit-wallet.service.test.js dist/credits/credits.service.test.js dist/credits/credits-master-debit.controller.test.js dist/financeiro/financeiro-credit-reversal.test.js dist/commercial-plans/commercial-usage-limits.service.test.js",
+    "test:golive-critical": "npm run build && node --test dist/auth/roles.guard.test.js dist/integrations/external-webhook-ledger.service.test.js dist/auth/signup-risk.test.js dist/access/seller-access-governance.test.js dist/companies/company-operational-status.service.test.js dist/companies/company-operational-status.presentation.test.js dist/commercial-plans/plan-proration.util.test.js dist/commercial-plans/seat-billing.util.test.js dist/commercial-plans/trial-usage.test.js",
     "test:master-event": "npm run build && node --test dist/common/master-event.test.js",
     "test:master-cockpit": "npm run build && node --test dist/master-cockpit/master-cockpit.service.test.js",
     "test:master-alert": "npm run build && node --test dist/master-alert/master-alert.routes.test.js dist/master-alert/master-alert.service.test.js dist/master-alert/master-watch.service.test.js",

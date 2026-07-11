@@ -214,13 +214,15 @@ export interface ClienteEntrega {
   scheduledAt: string | null;
   deliveredAt: string | null;
   status: string;
-  valor: number;
+  // M4: valor/valorUnit/cobrancaStatus vêm null quando o financeiro do tenant
+  // está OFF (o dinheiro some do histórico; data/itens/whatsapp continuam).
+  valor: number | null;
   receiptMethod?: string | null;
   cobrancaStatus?: string | null;
   // enviado | falhou | pulado | null (R4 — desfecho persistido do aviso).
   whatsappStatus?: string | null;
   whatsappMotivo?: string | null;
-  itens: Array<{ produtoNome: string | null; qtd: number; valorUnit: number }>;
+  itens: Array<{ produtoNome: string | null; qtd: number; valorUnit: number | null }>;
 }
 export function listEntregasCliente(
   id: string,

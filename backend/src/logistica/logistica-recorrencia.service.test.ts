@@ -642,7 +642,47 @@ test('getDiaPreview: agrupa por cliente, traz nomes e NÃO escreve nada (read-on
   assert.equal(preview.clientes[0].customerProfileId, 'conta-1');
   assert.equal(preview.clientes[0].nome, 'Dona Maria');
   assert.deepEqual(preview.clientes[0].itens, [{ productId: 10, nome: 'Galão 20L', qtd: 2 }]);
+  // MULTILOCAL — cliente sem local (legado) = 1 linha com localId/apelido null.
+  assert.equal(preview.clientes[0].localId ?? null, null);
+  assert.equal(preview.clientes[0].localApelido ?? null, null);
   // READ-ONLY de verdade: nenhuma Entrega criada, nenhum vínculo avançado.
+  assert.equal(entregas.length, 0);
+  assert.equal(cpUpdates.length, 0);
+});
+
+// MULTILOCAL (11/07) — o preview espelha o gerarDia: 1 linha por (cliente, LOCAL).
+// Antes, um cliente com 2 portas vencendo no mesmo dia virava 1 linha só (somava
+// itens dos 2 locais), sub-representando o multi-local. Agora são 2 linhas, cada
+// uma com seu localId + apelido do LocalEntrega.
+test('getDiaPreview MULTILOCAL: cliente com 2 locais no mesmo dia → 2 linhas (1 por local, com apelido)', async () => {
+  const dia = '2026-07-06'; // segunda
+  const vinculos = [
+    {
+      id: 'cp-A', customerProfileId: 'conta-1', localId: 'loc-casa', local: { apelido: 'Casa' },
+      productId: 10, qtdPadrao: 2, precoAcordado: null, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 20, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-B', customerProfileId: 'conta-1', localId: 'loc-loja', local: { apelido: 'Loja' },
+      productId: 20, qtdPadrao: 1, precoAcordado: null, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 20, name: 'Água com gás', price: 8, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, cpUpdates } = buildPrismaMock(vinculos);
+  const preview = await svc(prisma).getDiaPreview(1, dia);
+
+  assert.equal(preview.clientes.length, 2, 'mesmo cliente, 2 locais = 2 linhas de preview');
+  const casa = preview.clientes.find((c) => c.localId === 'loc-casa');
+  const loja = preview.clientes.find((c) => c.localId === 'loc-loja');
+  assert.ok(casa && loja, 'as 2 linhas trazem o localId de cada porta');
+  assert.equal(casa!.nome, 'Dona Maria');
+  assert.equal(casa!.localApelido, 'Casa');
+  assert.equal(loja!.localApelido, 'Loja');
+  assert.deepEqual(casa!.itens, [{ productId: 10, nome: 'Galão 20L', qtd: 2 }]);
+  assert.deepEqual(loja!.itens, [{ productId: 20, nome: 'Água com gás', qtd: 1 }]);
+  // READ-ONLY: nada materializado.
   assert.equal(entregas.length, 0);
   assert.equal(cpUpdates.length, 0);
 });

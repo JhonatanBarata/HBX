@@ -188,6 +188,11 @@ export class LogisticaRotaService {
         status: true,
         rotaOrdem: true,
         scheduledAt: true,
+        // MULTILOCAL (11/07) — geo da PORTA da entrega: quando há um LOCAL, a rota
+        // ordena pela coordenada DELE (cada endereço do cliente tem a sua). Sem o
+        // local, todas as paradas do cliente cairiam no geo do principal e a rota
+        // multi-local ordenaria pela porta errada. MESMO select/regra do listRota.
+        local: { select: { apelido: true, lat: true, lng: true } },
         customerProfile: { select: { name: true, lat: true, lng: true } },
       },
     });
@@ -443,10 +448,14 @@ export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResul
 function toStop(r: ParadaRow): Stop {
   return {
     id: r.id,
-    lat: r.customerProfile?.lat ?? null,
-    lng: r.customerProfile?.lng ?? null,
+    // MULTILOCAL (11/07) — PREFERE o geo do LOCAL quando a entrega tem um (cada
+    // porta tem sua coordenada); senão cai no perfil (legado). MESMA regra que o
+    // listRota aplica. Só a FONTE do lat/lng muda — o NN/2-opt segue intacto.
+    lat: r.local ? (r.local.lat ?? null) : (r.customerProfile?.lat ?? null),
+    lng: r.local ? (r.local.lng ?? null) : (r.customerProfile?.lng ?? null),
     status: r.status,
-    nome: r.customerProfile?.name ?? null,
+    // Rótulo da parada: apelido do local ("Casa"|"Loja") quando presente, senão o nome do cliente.
+    nome: r.local?.apelido ?? r.customerProfile?.name ?? null,
     rotaOrdem: r.rotaOrdem ?? null,
   };
 }
@@ -503,6 +512,9 @@ interface ParadaRow {
   status: string;
   rotaOrdem: number | null;
   scheduledAt: Date | null;
+  // MULTILOCAL (11/07) — o LOCAL da entrega (null = perfil/legado); seu geo tem
+  // prioridade sobre o do perfil na roteirização.
+  local: { apelido: string | null; lat: number | null; lng: number | null } | null;
   customerProfile: { name: string | null; lat: number | null; lng: number | null } | null;
 }
 

@@ -282,7 +282,10 @@ export class CreditsService {
       }),
       this.prisma.creditLedgerEntry.groupBy({
         by: ['companyId'],
-        where: { kind: 'debit' },
+        // "Último consumo" = só entrega de lead. Sem o filtro de actionKey, a quitação de dívida de
+        // chargeback (débito actionKey 'chargeback_settlement') apareceria como se a empresa tivesse
+        // consumido um lead (revisão adversarial go-live 11/07). Mesmo filtro do checkSellerCreditCap.
+        where: { kind: 'debit', actionKey: 'lead_delivery' },
         _max: { createdAt: true },
       }),
     ]);

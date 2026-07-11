@@ -14,6 +14,7 @@ function buildPrismaMock() {
   const store = { profiles: [] as any[], contatos: [] as any[] };
   let pid = 0;
   let cid = 0;
+  let lid = 0;
 
   const matchProfile = (p: any, w: any) =>
     (w.companyId == null || p.companyId === w.companyId) &&
@@ -60,6 +61,14 @@ function buildPrismaMock() {
         return { id: args.where.id };
       },
       updateMany: async () => ({ count: 0 }),
+    },
+    // MULTILOCAL (11/07) — createConta agora semeia o LOCAL PRINCIPAL quando a linha tem
+    // endereço; mock mínimo pra o seed não estourar (o import não afere locais).
+    localEntrega: {
+      findFirst: async () => null,
+      count: async () => 0,
+      create: async () => ({ id: `l${++lid}` }),
+      update: async (args: any) => ({ id: args.where.id }),
     },
   };
   return { prisma, store };

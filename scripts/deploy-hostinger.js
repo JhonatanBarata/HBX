@@ -646,6 +646,20 @@ function buildRemoteDeployScript(config, mode) {
     '  done',
     '  if ! docker inspect -f "{{.State.Running}}" hbx-backend 2>/dev/null | grep -q true; then echo "ERRO: hbx-backend caiu durante o deploy."; docker logs --tail 120 hbx-backend 2>&1 || true; exit 1; fi',
     '}',
+    // FIX REAL da race: State.Running=true acontece ANTES do Node subir, porque start-prod.sh roda
+    // "prisma migrate deploy" DENTRO do container apos wait_for_database. Se a migration falha ou o
+    // Node entra em restart-loop, o container fica "running" mas /health nunca responde 200 — e o
+    // deploy passava falsamente. Aqui batemos HTTP de verdade no backend (127.0.0.1:3000/health via
+    // curl) e REPROVAMOS o deploy (exit 1) se nunca vier 200. Assim migration falha = deploy falha.
+    'verify_backend_http() {',
+    '  echo "Validando backend via HTTP em http://127.0.0.1:3000/health (migration/boot real)..."',
+    '  for i in $(seq 1 "$BACKEND_VERIFY_ATTEMPTS"); do',
+    '    if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then echo "Backend HTTP OK: /health respondeu 200 (tentativa $i/$BACKEND_VERIFY_ATTEMPTS)."; return 0; fi',
+    '    echo "Aguardando backend HTTP /health ($i/$BACKEND_VERIFY_ATTEMPTS)..."',
+    '    sleep 3',
+    '  done',
+    '  echo "ERRO: backend nao respondeu 200 em /health apos $BACKEND_VERIFY_ATTEMPTS tentativas (migration falhou ou restart-loop). Deploy reprovado."; docker logs --tail 150 hbx-backend 2>&1 || true; exit 1',
+    '}',
     'verify_hbx_engines() {',
     '  echo "Validando variaveis dos motores HBX..."',
     '  for i in $(seq 1 "$BACKEND_VERIFY_ATTEMPTS"); do',
@@ -676,6 +690,7 @@ function buildRemoteDeployScript(config, mode) {
       'start_hbx_engines',
       'start_hbx_backend',
       'verify_backend_api',
+      'verify_backend_http',
       'echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."',
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping',
       'verify_hbx_engines',
@@ -689,6 +704,7 @@ function buildRemoteDeployScript(config, mode) {
     lines.push('remove_compose_service_containers backend webscraping hbx-scraping-engine hbx-engine-watchdog $(hbx_engine_names)');
     lines.push('start_hbx_engines');
     lines.push('start_hbx_backend');
+    lines.push('verify_backend_http');
     lines.push('echo "Prisma migrate deploy roda dentro do container hbx-backend via backend/scripts/start-prod.sh, usando DATABASE_URL=hbx-postgres."');
     lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping');
     lines.push('verify_hbx_engines');

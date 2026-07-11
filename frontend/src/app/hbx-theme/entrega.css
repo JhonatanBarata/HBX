@@ -383,6 +383,15 @@
   min-width: 0;
   white-space: nowrap;
 }
+/* Botão-lixeira que limpa a seleção de dias no pop-up "Gerar entregas":
+   reusa .ent-chip (mesma altura/forma), só troca o texto pelo ícone. Compacto
+   (padding-inline enxuto → não empurra pra 2ª linha) e cor discreta (muted) —
+   é um "limpar", não um "excluir perigoso"; nunca vermelho gritante. */
+[data-skin="entrega"] .ent-chip--limpar {
+  padding-inline: var(--ent-2);
+  color: var(--ent-ink-muted);
+}
+[data-skin="entrega"] .ent-chip--limpar:hover { color: var(--ent-ink-soft); }
 /* linha de chips logo abaixo do stepper (recebimento na folha de chegada) */
 [data-skin="entrega"] .ent-stepper + .ent-chips { margin-top: var(--ent-4); }
 /* dots de posição do swipe (X de N) */
@@ -523,6 +532,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* MULTILOCAL 11/07 — apelido do local ao lado do nome na prévia "Gerar
+   entregas": discreto (suave, sem o peso do nome), mesma pegada do ".ent-stop-addr"
+   da rota. Só aparece quando há apelido; sem ele a linha fica igual a antes. */
+[data-skin="entrega"] .ent-row-local {
+  font-weight: 600;
+  color: var(--ent-ink-soft);
 }
 [data-skin="entrega"] .ent-row-tag {
   flex: 0 0 auto;

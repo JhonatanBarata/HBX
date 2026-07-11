@@ -409,11 +409,14 @@ export function useCurrentUser(): CurrentUser | null {
 }
 
 export function currentUserDisplayName(user: CurrentUser | null): string {
-  return user?.name || user?.username || user?.email || "Mariana Souza";
+  // Fallback NEUTRO: nunca fabricar identidade real durante loading/erro (o usuário
+  // não pode operar achando que está em outro contexto). Nome/apelido/email reais
+  // ou "Usuário" honesto — nada de nome-fantasma.
+  return user?.name || user?.username || user?.email || "Usuário";
 }
 
 export function currentUserRoleLabel(user: CurrentUser | null): string {
-  if (!user) return "Gerente Comercial";
+  if (!user) return "Usuário";
   return USER_KIND_LABEL[String(user.userKind || "")] || "Usuário";
 }
 

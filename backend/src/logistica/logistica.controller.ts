@@ -200,8 +200,15 @@ export class LogisticaController {
    * W2 (contrato nº4) — HISTÓRICO de entregas de UM cliente: data/hora, itens,
    * valor, desfecho do WhatsApp e da cobrança. Read-only, company-scoped, cursor
    * (?limit=&cursor=; default 30, máx 100). Cliente de outra empresa → 404.
+   *
+   * ADMIN-only (RolesGuard + @Admin) — é a visão gerencial do dono (LEI DO
+   * VENDEDOR: só Admin vê valores; 'logistica' é company-level, então sem este
+   * gate o vendedor USER da empresa puxaria o histórico com dinheiro). O gate de
+   * moduloFinanceiroAtivo (regra M4) vive no serviço: OFF → sem campos de valor.
    */
   @Get('clientes/:id/entregas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
   async historicoEntregas(
     @Req() req: any,
     @Param('id') id: string,
@@ -238,11 +245,15 @@ export class LogisticaController {
 
   /**
    * W2 (contrato nº6) — SALDOS em aberto por cliente ("quem me deve"): só quem
-   * tem saldoAberto>0 || aguardandoFechamento>0, com nome. Mesmo gate dos
-   * endpoints financeiros vizinhos (resumo-dia/extrato: autenticado na empresa)
+   * tem saldoAberto>0 || aguardandoFechamento>0, com nome. ADMIN-only (RolesGuard
+   * + @Admin) — carteira de devedores é visão do dono (LEI DO VENDEDOR: só Admin
+   * vê valores; sem este gate o vendedor USER da empresa puxaria a carteira, já
+   * que 'logistica' é company-level e não filtra por cargo).
    * + moduloFinanceiroAtivo FAIL-CLOSED (OFF → lista vazia, dinheiro não aparece).
    */
   @Get('financeiro/saldos')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
   saldosFinanceiro(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.service.saldosFinanceiro(companyId);

@@ -54,10 +54,57 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-// Palavra-chave por INCLUSÃO (.includes) — o negativo é testado ANTES do
-// positivo porque "não entregue" contém "entregue" dentro da própria frase.
-const PALAVRAS_NAO_ENTREGUE = ["não entregue", "nao entregue", "não entreguei"];
-const PALAVRAS_ENTREGUE = ["entregue", "confirmar", "confirma"];
+// ── Classificador PURO do comando de voz (exportado p/ testar sem browser) ────
+// VIÉS DE SEGURANÇA MÁXIMO: "entregue" dispara AÇÃO LIVE E IRREVERSÍVEL (marca
+// entregue + WhatsApp ao cliente no chip do tenant + cobrança). O positivo só
+// pode nascer de um COMANDO DELIBERADO — nunca de uma palavra solta que apareça
+// em conversa/pergunta/negação de terceiro perto do celular escutando.
+//
+// Histórico das armadilhas (revisão adversarial 11/07):
+//   · substring: "não FOI entregue" caía no positivo "entregue";
+//   · palavra solta "entregue" em fala curta: "foi entregue?", "esse já
+//     entreguei" (outra parada), rádio de fundo — todos confirmavam;
+//   · negação coloquial BR "num"/"nem" ("num foi entregue") escapava e confirmava.
+//
+// Regra atual (à prova dessas): normaliza (sem acento) e exige, pro POSITIVO, os
+// DOIS pedaços do comando juntos — um VERBO DE CONFIRMAÇÃO ("confirmar"/"confirma"/
+// "confirmado"…) E uma palavra de ENTREGA ("entrega"/"entregue"…), sem NENHUMA
+// negação. Ambiente não junta os dois: "foi entregue?" não tem verbo de
+// confirmação; "confirma o pedido de amanhã" não tem palavra de entrega. O
+// NEGATIVO (→ nao_entregue) é negação + palavra de entrega. O resto → null.
+// UX: o motorista confirma dizendo "confirmar entrega" (a folha mostra a dica).
+const VOZ_NEG_TOKENS = ["nao", "num", "nem", "nunca", "jamais", "negativo"];
+const VOZ_CONFIRMA_TOKENS = ["confirmar", "confirma", "confirmado", "confirmada", "confirmei", "confirmo"];
+const VOZ_ENTREGA_TOKENS = ["entrega", "entregue", "entreguei", "entregou", "entregar"];
+
+export function normalizarTranscript(s: string): string {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "") // tira acento (não → nao)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function classificarComandoVoz(transcriptRaw: string): "entregue" | "nao_entregue" | null {
+  const t = normalizarTranscript(transcriptRaw);
+  if (!t) return null;
+  const palavras = t.split(" ");
+  const tem = (arr: readonly string[]) => arr.some((w) => palavras.includes(w));
+
+  const temNegacao = tem(VOZ_NEG_TOKENS);
+  const ehPergunta = String(transcriptRaw).includes("?"); // pergunta ("foi entregue?") ≠ comando
+  const temEntrega = tem(VOZ_ENTREGA_TOKENS);
+
+  // Negação REAL + palavra de entrega → motorista relatando falha ("não/num/nem entregue").
+  if (temNegacao && temEntrega) return "nao_entregue";
+  // Negação sem entrega, ou pergunta → nunca confirma (freio); não abre nada.
+  if (temNegacao || ehPergunta) return null;
+  // POSITIVO só com comando DELIBERADO de 2 partes: verbo de confirmação + entrega.
+  if (tem(VOZ_CONFIRMA_TOKENS) && temEntrega) return "entregue";
+  return null;
+}
 
 // Anti-duplo-disparo: depois de casar uma palavra, ignora novos matches por
 // ~2s (a mesma fala/eco não dispara a ação 2×).
@@ -66,9 +113,9 @@ const DEBOUNCE_MS = 2000;
 export interface UseVozComandoOpts {
   /** Liga/desliga o reconhecimento (folha aberta, fora do sub-fluxo "não entregue", toggle do motorista…). */
   ativo: boolean;
-  /** "entregue" / "confirmar" / "confirma". */
+  /** Comando deliberado de confirmação: verbo (confirmar/confirma…) + "entrega/entregue", sem negação. Ex.: "confirmar entrega". */
   onEntregue: () => void;
-  /** "não entregue" / "nao entregue" / "não entreguei". */
+  /** Negação + entrega: "não/num/nem entregue", "não entreguei". */
   onNaoEntregue: () => void;
 }
 
@@ -80,9 +127,11 @@ export interface UseVozComandoResult {
 }
 
 /**
- * Hook fino: ouve "entregue"/"confirmar"/"confirma" (→ onEntregue) e "não
- * entregue"/variações (→ onNaoEntregue) enquanto `ativo`. pt-BR, contínuo,
- * só resultado final. Para sozinho no silêncio → religa no `onend` enquanto
+ * Hook fino: ouve o comando deliberado "confirmar entrega" (verbo de confirmação
+ * + palavra de entrega → onEntregue) e negação de entrega ("não/num/nem entregue"
+ * → onNaoEntregue) enquanto `ativo`. pt-BR, contínuo, só resultado final. Palavra
+ * solta ("entregue") NÃO confirma — é ação live. Para sozinho no silêncio → religa
+ * no `onend` enquanto
  * `ativo` continuar true (flag em ref pra não religar depois de desmontar/
  * desligar). `not-allowed` (permissão negada) degrada pra suportado=false —
  * sem ícone morto na tela; demais erros deixam o `onend` religar.
@@ -125,17 +174,13 @@ export function useVozComando({ ativo, onEntregue, onNaoEntregue }: UseVozComand
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         if (!res.isFinal) continue;
-        const transcript = (res[0]?.transcript ?? "").toLowerCase();
+        const transcript = res[0]?.transcript ?? "";
         if (!transcript || Date.now() < bloqueadoAteRef.current) continue;
-        if (PALAVRAS_NAO_ENTREGUE.some((p) => transcript.includes(p))) {
-          bloqueadoAteRef.current = Date.now() + DEBOUNCE_MS;
-          onNaoEntregueRef.current();
-          continue;
-        }
-        if (PALAVRAS_ENTREGUE.some((p) => transcript.includes(p))) {
-          bloqueadoAteRef.current = Date.now() + DEBOUNCE_MS;
-          onEntregueRef.current();
-        }
+        const comando = classificarComandoVoz(transcript);
+        if (!comando) continue;
+        bloqueadoAteRef.current = Date.now() + DEBOUNCE_MS;
+        if (comando === "nao_entregue") onNaoEntregueRef.current();
+        else onEntregueRef.current();
       }
     };
 
