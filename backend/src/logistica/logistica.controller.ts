@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { LogisticaService } from './logistica.service';
+import { isScoreFiadoEnabled } from './logistica-score.flags';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
@@ -198,6 +199,35 @@ export class LogisticaController {
   async extrato(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.extratoCliente(companyId, id);
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  // ── S4 SCORE-DE-FIADO (11/07) — DORMENTE atrás de HBX_SCORE_FIADO_ENABLED ───
+
+  /**
+   * Score de pontualidade de UM cliente ("esse cliente merece fiado?"), computado
+   * on-the-fly de FinanceiroCharge (dueDate × paidAt/status) — SEM persistência.
+   *
+   * FLAG GLOBAL (default OFF): sem HBX_SCORE_FIADO_ENABLED o endpoint responde
+   * 404 ANTES de tocar o serviço (mesmo padrão dos endpoints de crédito com a
+   * feature OFF) — deploy inerte, zero query nova.
+   *
+   * ADMIN-only (RolesGuard + @Admin) — score é leitura de VALORES/comportamento
+   * de pagamento (LEI DO VENDEDOR: só Admin vê; 'logistica' é company-level,
+   * sem este gate o entregador USER puxaria o histórico de fiado). O gate de
+   * moduloFinanceiroAtivo (regra M4) vive no serviço, FAIL-CLOSED: OFF → score
+   * null sem consultar charge. Read-only, company-scoped; cliente de outra
+   * empresa → 404. v1 é INFORMATIVO: não bloqueia nada (o teto continua sendo
+   * o limiteFiado manual).
+   */
+  @Get('clientes/:id/score')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async scoreCliente(@Req() req: any, @Param('id') id: string) {
+    if (!isScoreFiadoEnabled()) throw new NotFoundException('Recurso indisponível');
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.scoreFiadoCliente(companyId, id);
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
   }

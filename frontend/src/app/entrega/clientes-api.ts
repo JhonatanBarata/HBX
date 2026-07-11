@@ -383,6 +383,44 @@ export function getExtrato(clienteId: string): Promise<ExtratoResult> {
   return apiFetch<ExtratoResult>(`/logistica/clientes/${encodeURIComponent(clienteId)}/extrato`);
 }
 
+// ── S4 — Score de fiado (GET /logistica/clientes/:id/score) ──────────────────
+// DORMENTE no backend (HBX_SCORE_FIADO_ENABLED, default OFF): com a flag
+// desligada o endpoint responde 404 — aqui isso vira null em SILÊNCIO (feature
+// OFF = ficha sem selo, nunca erro). Admin-only no backend (LEI DO VENDEDOR);
+// qualquer outra falha (403 de não-admin, rede) o chamador também engole
+// (mesmo best-effort do getExtrato). v1 é informativo: nada bloqueia.
+export interface ScoreFiadoInsumos {
+  fechadas: number;
+  emDia: number;
+  atrasoLeve: number;
+  atrasoGrave: number;
+  vencidasEmAberto: number;
+}
+export interface ScoreFiadoResult {
+  clienteId: string;
+  moduloFinanceiroAtivo: boolean;
+  // 0–100; null = sem base (historico_insuficiente) ou financeiro OFF.
+  score: number | null;
+  motivo: "historico_insuficiente" | "financeiro_off" | null;
+  insumos: ScoreFiadoInsumos | null;
+}
+
+export function getScoreFiado(clienteId: string): Promise<ScoreFiadoResult | null> {
+  return apiFetch<ScoreFiadoResult>(`/logistica/clientes/${encodeURIComponent(clienteId)}/score`).catch(
+    (e: unknown) => {
+      if ((e as { status?: number })?.status === 404) return null; // feature OFF/cliente sem ficha
+      throw e;
+    },
+  );
+}
+
+/** Faixa do selo (cor via classe central .ent-score da skin entrega). */
+export function faixaScoreFiado(score: number): "bom" | "medio" | "ruim" {
+  if (score >= 80) return "bom";
+  if (score >= 50) return "medio";
+  return "ruim";
+}
+
 // ── Catálogo de produtos (GET /logistica/produtos) ───────────────────────────
 export interface ProdutoOption {
   id: number;

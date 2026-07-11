@@ -2065,6 +2065,125 @@ export class LogisticaService {
 
     return { moduloFinanceiroAtivo: true, clientes };
   }
+
+  // ── S4 SCORE-DE-FIADO (11/07) — pontualidade do cliente final ────────────────
+  /**
+   * "Esse cliente merece fiado?" respondido com o dado que já nasce aqui dentro:
+   * os FinanceiroCharge da logística (customerProfileId + sourceModule
+   * logistica_*), comparando dueDate × paidAt/status. Computado ON-THE-FLY —
+   * SEM persistência, SEM migration, read-only, company-scoped. Quem gate a
+   * feature (HBX_SCORE_FIADO_ENABLED, 404 com OFF) é o CONTROLLER — este método
+   * nem chega a rodar com a flag desligada (zero query nova no deploy inerte).
+   *
+   * FÓRMULA v1 (simples e explicável, sem IA — S4-score-de-fiado.md):
+   *   começa em 100; pagamento em dia +2 cada; atraso leve (≤7d) −5 cada;
+   *   atraso grave (>7d) −15 cada; charge vencida EM ABERTO hoje −20 cada;
+   *   teto 100, piso 0. Atraso em DIAS DE CALENDÁRIO (paidAt × dueDate, fuso
+   *   local — mesma convenção de dia do resolveDayRange); "vencida" segue o
+   *   corte do recovery: dueDate ESTRITAMENTE antes do início de HOJE (charge
+   *   que vence hoje ainda não é atraso).
+   *
+   * Mínimo de histórico: com menos de 3 charges FECHADAS (pagas) → score null
+   * com motivo 'historico_insuficiente' (não se rotula cliente com 2 dados).
+   *
+   * ⚠️ Cobrança mensal: entregas 'aguardando_fechamento' ainda NÃO viraram
+   * charge — não existem aqui e portanto NÃO contam como atraso (só a fatura
+   * fechada no fechar-mês entra, quando vencer/for paga). Charges canceladas/
+   * estornadas ficam fora da conta (nem punem nem premiam).
+   *
+   * GATE moduloFinanceiroAtivo FAIL-CLOSED (regra M4, a mesma do extrato):
+   * módulo financeiro do tenant OFF → devolve score null com motivo
+   * 'financeiro_off' SEM consultar charge nenhum (dinheiro não roda em lugar
+   * nenhum). LEI DO VENDEDOR: o endpoint é Admin-only (controller).
+   */
+  async scoreFiadoCliente(companyId: number, clienteId: string): Promise<ScoreFiadoResult | null> {
+    if (!companyId || !clienteId) return null;
+    const cliente = await this.prisma.customerProfile.findFirst({
+      where: { id: String(clienteId).trim(), companyId },
+      select: { id: true },
+    });
+    if (!cliente) return null;
+
+    // Mesma leitura best-effort do extrato: config ausente = default seguro (false).
+    let moduloFinanceiroAtivo = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] score loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+    if (!moduloFinanceiroAtivo) {
+      return {
+        clienteId: cliente.id,
+        moduloFinanceiroAtivo: false,
+        score: null,
+        motivo: 'financeiro_off',
+        insumos: null,
+      };
+    }
+
+    // Só charges da LOGÍSTICA deste cliente (a assinatura HBX não entra). Mesmo
+    // teto do extrato (500 mais recentes) — custo limitado, sem varrer histórico
+    // infinito. NÃO usa HbxRecoveryCustomer.paymentHistoryScore (enviesado: só
+    // cobre quem já caiu no funil de dívida).
+    const charges = await this.prisma.financeiroCharge.findMany({
+      where: {
+        companyId,
+        customerProfileId: cliente.id,
+        sourceModule: { in: ['logistica_entrega', 'logistica_fechamento'] },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 500,
+      select: { status: true, lifecycle: true, dueDate: true, paidAt: true },
+    });
+
+    const inicioHoje = resolveDayRange().start;
+    let emDia = 0;
+    let atrasoLeve = 0;
+    let atrasoGrave = 0;
+    let vencidasEmAberto = 0;
+
+    for (const c of charges) {
+      const paga = c.lifecycle === 'paid' || c.status === 'approved';
+      if (paga) {
+        // Pago-na-hora nasce quitado (paidAt=dueDate≈agora) → 0 dias → em dia.
+        // Defensivo: paga sem dueDate/paidAt (charge legada) = sem prova de
+        // atraso → conta como em dia.
+        const atrasoDias = diasDeAtrasoCalendario(c.dueDate, c.paidAt);
+        if (atrasoDias <= 0) emDia++;
+        else if (atrasoDias <= 7) atrasoLeve++;
+        else atrasoGrave++;
+        continue;
+      }
+      // Vencida EM ABERTO hoje: pending com dueDate estritamente antes do início
+      // de hoje (convenção do recovery). Pending futura/de hoje: ainda não é
+      // atraso, fica fora. Cancelada/estornada/failed: fora da conta.
+      if (c.status === 'pending' && c.dueDate && c.dueDate.getTime() < inicioHoje.getTime()) {
+        vencidasEmAberto++;
+      }
+    }
+
+    const fechadas = emDia + atrasoLeve + atrasoGrave;
+    const insumos: ScoreFiadoInsumos = { fechadas, emDia, atrasoLeve, atrasoGrave, vencidasEmAberto };
+
+    // Mínimo de histórico: menos de 3 charges fechadas = sem base pra rotular.
+    if (fechadas < 3) {
+      return {
+        clienteId: cliente.id,
+        moduloFinanceiroAtivo: true,
+        score: null,
+        motivo: 'historico_insuficiente',
+        insumos,
+      };
+    }
+
+    const bruto = 100 + emDia * 2 - atrasoLeve * 5 - atrasoGrave * 15 - vencidasEmAberto * 20;
+    const score = Math.max(0, Math.min(100, bruto));
+    return { clienteId: cliente.id, moduloFinanceiroAtivo: true, score, motivo: null, insumos };
+  }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -2150,6 +2269,19 @@ function clampLimit(v: number | undefined, def: number, max: number): number {
 }
 
 // F1 — total do saldo em aberto (pendente + mensal a fechar), arredondado.
+// S4 SCORE-DE-FIADO — atraso em DIAS DE CALENDÁRIO (fuso local, mesma convenção
+// de dia do resolveDayRange): pagou no mesmo dia do vencimento = 0 (em dia);
+// no dia seguinte = 1. Sem dueDate ou sem paidAt não há prova de atraso → 0.
+function diasDeAtrasoCalendario(dueDate: Date | null, paidAt: Date | null): number {
+  if (!dueDate || !paidAt) return 0;
+  const dia = (d: Date) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x.getTime();
+  };
+  return Math.round((dia(paidAt) - dia(dueDate)) / 86_400_000);
+}
+
 function somaSaldo(s: { pendente: number; aguardando: number } | undefined): number {
   return round2((s?.pendente ?? 0) + (s?.aguardando ?? 0));
 }
@@ -2505,4 +2637,29 @@ export interface SaldosClienteRow {
 export interface SaldosFinanceiroResult {
   moduloFinanceiroAtivo: boolean;
   clientes: SaldosClienteRow[];
+}
+
+// ── S4 SCORE-DE-FIADO — pontualidade do cliente final (computado on-the-fly) ──
+// Os INSUMOS são o "porquê" do número (o front mostra sem caixa-preta):
+//   fechadas         = charges pagas (base do mínimo de 3);
+//   emDia            = pagas até o dia do vencimento (+2 cada);
+//   atrasoLeve       = pagas com 1–7 dias de atraso (−5 cada);
+//   atrasoGrave      = pagas com >7 dias de atraso (−15 cada);
+//   vencidasEmAberto = 'pending' vencidas antes de hoje (−20 cada).
+export interface ScoreFiadoInsumos {
+  fechadas: number;
+  emDia: number;
+  atrasoLeve: number;
+  atrasoGrave: number;
+  vencidasEmAberto: number;
+}
+
+export interface ScoreFiadoResult {
+  clienteId: string;
+  // M4: financeiro do tenant OFF → fail-closed (score null, insumos null).
+  moduloFinanceiroAtivo: boolean;
+  // 0–100; null quando não dá pra afirmar nada (ver motivo).
+  score: number | null;
+  motivo: 'historico_insuficiente' | 'financeiro_off' | null;
+  insumos: ScoreFiadoInsumos | null;
 }

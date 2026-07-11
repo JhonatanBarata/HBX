@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
+import { isResumoDiarioEnabled } from './resumo-diario.flags';
 
 /**
  * LOGÍSTICA-MOBILE M5 (05/07) — REGRAS DO ADMIN.
@@ -107,6 +108,12 @@ export class LogisticaConfigService {
     // de vencimento no zap). Gravar é livre; EFEITO só existe com a flag global
     // HBX_COBRANCA_WHATS_ENABLED ligada (o serviço de aviso checa as duas).
     if (input.cobrancaWhatsAtiva !== undefined) data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
+    // S3 RESUMO-DIÁRIO (11/07) — toggle POR TENANT + hora local (0-23) do resumo
+    // do dono no zap. Gravar é livre; EFEITO só com HBX_RESUMO_DIARIO_ENABLED
+    // global ligada (o scheduler checa as duas). A marca resumoDiarioUltimoEnvio
+    // NÃO entra aqui de propósito — é interna do scheduler, nunca editável via API.
+    if (input.resumoDiarioAtivo !== undefined) data.resumoDiarioAtivo = !!input.resumoDiarioAtivo;
+    if (input.resumoDiarioHora !== undefined) data.resumoDiarioHora = clampInt(input.resumoDiarioHora, 0, 23, 7);
 
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
@@ -309,6 +316,12 @@ function serializeConfig(c: any): LogisticaConfigDTO {
     // decidir se mostra o card — flag OFF = card some, deploy inerte na UI).
     cobrancaWhatsAtiva: !!c.cobrancaWhatsAtiva,
     cobrancaWhatsDisponivel: isCobrancaWhatsEnabled(),
+    // S3 RESUMO-DIÁRIO — mesmo padrão: toggle+hora do tenant e o DERIVADO da env
+    // (resumoDiarioDisponivel NÃO é coluna; OFF = a UI esconde o card inteiro).
+    // resumoDiarioUltimoEnvio fica FORA do DTO (marca interna do scheduler).
+    resumoDiarioAtivo: !!c.resumoDiarioAtivo,
+    resumoDiarioHora: typeof c.resumoDiarioHora === 'number' ? c.resumoDiarioHora : 7,
+    resumoDiarioDisponivel: isResumoDiarioEnabled(),
   };
 }
 
@@ -332,6 +345,9 @@ export interface UpdateLogisticaConfigInput {
   avisoChegandoDistanciaM?: number;
   // S2 COBRANÇA-WHATS — toggle por tenant (efeito só com a env global ligada).
   cobrancaWhatsAtiva?: boolean;
+  // S3 RESUMO-DIÁRIO — toggle por tenant + hora local 0-23 (efeito só com a env).
+  resumoDiarioAtivo?: boolean;
+  resumoDiarioHora?: number;
 }
 
 export interface LogisticaConfigDTO {
@@ -354,4 +370,8 @@ export interface LogisticaConfigDTO {
   // S2 COBRANÇA-WHATS — toggle do tenant + derivado da env (read-only pro front).
   cobrancaWhatsAtiva: boolean;
   cobrancaWhatsDisponivel: boolean;
+  // S3 RESUMO-DIÁRIO — toggle+hora do tenant + derivado da env (read-only pro front).
+  resumoDiarioAtivo: boolean;
+  resumoDiarioHora: number;
+  resumoDiarioDisponivel: boolean;
 }

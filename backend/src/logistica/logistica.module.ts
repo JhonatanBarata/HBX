@@ -12,6 +12,7 @@ import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
+import { ResumoDiarioService } from './resumo-diario.service';
 import { LogisticaController } from './logistica.controller';
 
 /**
@@ -33,6 +34,12 @@ import { LogisticaController } from './logistica.controller';
  * tenant (LogisticaConfig.cobrancaWhatsAtiva, default false). Provider entra
  * AQUI (regra do S2: nada em app.module.ts); envio só pelo caminho blindado
  * (ConversationsService, já exportado pelo MessagingModule importado acima).
+ *
+ * S3 RESUMO-DIÁRIO (11/07): ResumoDiarioService = resumo do negócio no WhatsApp
+ * do DONO (telefone VERIFICADO do cadastro), 1 msg/empresa/dia na hora escolhida.
+ * DORMENTE atrás de HBX_RESUMO_DIARIO_ENABLED (default OFF — scheduler nem arma)
+ * + toggle por tenant (LogisticaConfig.resumoDiarioAtivo, default false). Mesmas
+ * regras do S2: provider AQUI, envio SÓ pelo caminho blindado.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule],
@@ -44,6 +51,7 @@ import { LogisticaController } from './logistica.controller';
     LogisticaConfigService,
     LogisticaRecoveryService,
     LogisticaCobrancaAvisoService,
+    ResumoDiarioService,
   ],
   exports: [
     LogisticaService,

@@ -411,6 +411,19 @@ export class UpdateLogisticaConfigDto {
   @IsOptional()
   @IsBoolean()
   cobrancaWhatsAtiva?: boolean;
+
+  // S3 RESUMO-DIÁRIO (11/07) — toggle POR TENANT do resumo do dono no WhatsApp
+  // + hora LOCAL do envio (0-23). Gravar é livre; efeito só com a flag global
+  // HBX_RESUMO_DIARIO_ENABLED ligada (default OFF, dormente).
+  @IsOptional()
+  @IsBoolean()
+  resumoDiarioAtivo?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  resumoDiarioHora?: number;
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).

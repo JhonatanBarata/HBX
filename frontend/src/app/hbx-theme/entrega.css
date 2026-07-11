@@ -2303,3 +2303,62 @@
     margin-inline: auto;
   }
 }
+
+/* ============================================================
+   S4 SCORE-DE-FIADO (11/07) — selo "Fiado: 87/100" na seção Conta da ficha
+   (clientes/page.client.tsx). DORMENTE: o elemento só existe quando o backend
+   tem HBX_SCORE_FIADO_ENABLED ligado (flag OFF → 404 → sem selo). Cor POR
+   FAIXA (bom/médio/ruim) só com token existente da pele
+   (--ent-success/--ent-warning/--ent-danger) — zero hex/inline (Lei nº1);
+   pill na mesma receita do .ent-card-flag, linha na do .ent-extrato-row.
+   ============================================================ */
+[data-skin="entrega"] .ent-score {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ent-2);
+  padding: var(--ent-2) var(--ent-3);
+  border-radius: var(--ent-radius-sm);
+  background: var(--ent-surface-soft);
+  border: 1px solid var(--ent-hairline);
+}
+[data-skin="entrega"] .ent-score-selo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--ent-3);
+  border-radius: var(--ent-radius-pill);
+  border: 1px solid var(--ent-hairline);
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text-sm);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+[data-skin="entrega"] .ent-score.is-bom .ent-score-selo {
+  background: color-mix(in srgb, var(--ent-success) 16%, var(--ent-surface));
+  border-color: color-mix(in srgb, var(--ent-success) 32%, transparent);
+  color: var(--ent-success);
+}
+[data-skin="entrega"] .ent-score.is-medio .ent-score-selo {
+  background: color-mix(in srgb, var(--ent-warning) 14%, var(--ent-surface));
+  border-color: color-mix(in srgb, var(--ent-warning) 32%, transparent);
+  color: var(--ent-warning);
+}
+[data-skin="entrega"] .ent-score.is-ruim .ent-score-selo {
+  background: color-mix(in srgb, var(--ent-danger) 14%, var(--ent-surface));
+  border-color: color-mix(in srgb, var(--ent-danger) 32%, transparent);
+  color: var(--ent-danger);
+}
+/* O "porquê" do número (insumos), curto e discreto à direita. */
+[data-skin="entrega"] .ent-score-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: var(--ent-text-xs);
+  font-weight: 600;
+  color: var(--ent-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

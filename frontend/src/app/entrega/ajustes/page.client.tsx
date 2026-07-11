@@ -66,6 +66,9 @@ const PREVIEW_VARS = {
   empresa: "Água LTDA",
 };
 
+// S3 — opções do seletor de hora do resumo diário (hora local 0-23).
+const HORAS_RESUMO = Array.from({ length: 24 }, (_, h) => h);
+
 type WhatsAppCenterPayload = {
   company?: {
     contactPhone?: string | null;
@@ -617,6 +620,43 @@ export function EntregaAjustes() {
                 </button>
                 {cfg.cobrancaWhatsAtiva && !cfg.pixChave ? (
                   <div className="ent-hint">Preencha a chave Pix acima para o aviso levar o copia e cola</div>
+                ) : null}
+              </>
+            ) : null}
+
+            {/* ── S3 — RESUMO DO DIA NO WHATSAPP (dormente): card SÓ existe quando o
+                backend diz que a feature global está ligada (resumoDiarioDisponivel,
+                derivado de HBX_RESUMO_DIARIO_ENABLED). Admin-only, mesmo gate do card
+                S2 acima. Toggle do TENANT + hora do envio; o resumo vai pro WhatsApp
+                verificado do cadastro, pelo chip da própria empresa. */}
+            {admin && cfg.resumoDiarioDisponivel ? (
+              <>
+                <div className="ent-field-label ent-section">Resumo do dia no WhatsApp</div>
+                <button
+                  type="button"
+                  className="ent-toggle"
+                  onClick={() => void patch({ resumoDiarioAtivo: !cfg.resumoDiarioAtivo })}
+                  aria-pressed={!!cfg.resumoDiarioAtivo}
+                  disabled={salvando}
+                >
+                  <span className="ent-toggle-label">Receber resumo diário</span>
+                  <span className={`ent-switch${cfg.resumoDiarioAtivo ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+                {cfg.resumoDiarioAtivo ? (
+                  <label className="ent-field">
+                    <span className="ent-field-label">Horário</span>
+                    <select
+                      className="ent-input"
+                      value={String(cfg.resumoDiarioHora ?? 7)}
+                      onChange={(e) => void patch({ resumoDiarioHora: Number(e.target.value) })}
+                      disabled={salvando}
+                      aria-label="Horário do resumo diário"
+                    >
+                      {HORAS_RESUMO.map((h) => (
+                        <option key={h} value={h}>{`${h}h`}</option>
+                      ))}
+                    </select>
+                  </label>
                 ) : null}
               </>
             ) : null}

@@ -51,6 +51,7 @@ import {
   type MetodoPadrao,
   type PendenciaCliente,
   type ProdutoOption,
+  type ScoreFiadoResult,
   type TelefoneCliente,
   PENDENCIA_LABEL,
   criarCliente,
@@ -67,7 +68,9 @@ import {
   excluirClienteProduto,
   excluirLocal,
   excluirTelefone,
+  faixaScoreFiado,
   getExtrato,
+  getScoreFiado,
   listEntregasCliente,
   mergeClientes,
   recorrenciaLabel,
@@ -611,6 +614,9 @@ export function ClienteEditor({
   const [cobrancaWhatsDisponivel, setCobrancaWhatsDisponivel] = useState(false);
   const [extrato, setExtrato] = useState<ExtratoResult | null>(null);
   const [extratoAberto, setExtratoAberto] = useState(false);
+  // S4 — score de fiado (DORMENTE no backend): 404 (flag OFF) e qualquer outra
+  // falha viram null em silêncio → a seção Conta fica exatamente como hoje.
+  const [scoreFiado, setScoreFiado] = useState<ScoreFiadoResult | null>(null);
 
   // Estado do contato principal (pra editar telefone quando já existe).
   const [contatoPrincipalId, setContatoPrincipalId] = useState<string | null>(null);
@@ -662,13 +668,20 @@ export function ClienteEditor({
         // F1 — a seção Conta segue a LEI do módulo financeiro (OFF → dinheiro não
         // aparece em lugar NENHUM): só busca o extrato com o módulo ON. Tudo
         // best-effort: falha na config/extrato não trava a ficha (fica sem saldo).
-        const [c, cps, ext] = await Promise.all([
+        const [c, cps, ext, scr] = await Promise.all([
           getCliente(id),
           listClienteProdutos(id),
           cfgAtual?.moduloFinanceiroAtivo ? getExtrato(id).catch(() => null) : Promise.resolve(null),
+          // S4 — score de fiado junto do extrato, MESMO gate (financeiro do
+          // tenant ON) + silencioso: 404 = flag global OFF, 403 = não-admin —
+          // nos dois casos a ficha simplesmente não ganha o selo.
+          cfgAtual?.moduloFinanceiroAtivo
+            ? getScoreFiado(id).catch(() => null)
+            : Promise.resolve<ScoreFiadoResult | null>(null),
         ]);
         if (!vivo) return;
         setExtrato(ext);
+        setScoreFiado(scr);
         setNome(c.name || "");
         setWhatsapp(fmtTelefone(c.whatsapp || ""));
         setWhatsappOriginal(fmtTelefone(c.whatsapp || ""));
@@ -1285,6 +1298,26 @@ export function ClienteEditor({
                 <div className="ent-saldo-sub">{fmtMoney(extrato.aguardandoFechamento)} fecham no mês</div>
               ) : null}
             </div>
+            {/* S4 — selo de fiado (DORMENTE: só existe com a flag global ON no
+                backend + admin + 3 charges fechadas; score null = nada muda). */}
+            {scoreFiado != null && scoreFiado.score != null && scoreFiado.insumos != null ? (
+              <div className={`ent-score is-${faixaScoreFiado(scoreFiado.score)}`}>
+                <span className="ent-score-selo">Fiado: {scoreFiado.score}/100</span>
+                <span className="ent-score-sub">
+                  {[
+                    `${scoreFiado.insumos.emDia} em dia`,
+                    scoreFiado.insumos.atrasoLeve + scoreFiado.insumos.atrasoGrave > 0
+                      ? `${scoreFiado.insumos.atrasoLeve + scoreFiado.insumos.atrasoGrave} atrasadas`
+                      : null,
+                    scoreFiado.insumos.vencidasEmAberto > 0
+                      ? `${scoreFiado.insumos.vencidasEmAberto} vencidas`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </div>
+            ) : null}
             {extrato.charges.length > 0 ? (
               <>
                 <button

@@ -112,6 +112,12 @@ export interface LogisticaConfig {
   // patchar): false/ausente = feature dormente → a UI esconde o card inteiro.
   cobrancaWhatsAtiva?: boolean;
   cobrancaWhatsDisponivel?: boolean;
+  // S3 RESUMO-DIÁRIO — resumo do negócio no WhatsApp do dono (telefone verificado
+  // do cadastro), na hora local escolhida (0-23). resumoDiarioDisponivel é DERIVADO
+  // da env global no backend (read-only, não patchar): false/ausente = card some.
+  resumoDiarioAtivo?: boolean;
+  resumoDiarioHora?: number;
+  resumoDiarioDisponivel?: boolean;
 }
 
 export function getConfig(): Promise<LogisticaConfig> {
