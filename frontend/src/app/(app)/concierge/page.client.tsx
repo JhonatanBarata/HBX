@@ -106,51 +106,63 @@ export function ConciergeClient() {
   // Bootstrap: reidrata o rascunho ativo (sobrevive reload) + chips de sugestão.
   useEffect(() => {
     let alive = true;
+    // Semente do cockpit ("Buscar parecidos" — LEAD-COCKPIT), lida ANTES do
+    // bootstrap. Chave single-use: sempre consumida numa visita. Se presente,
+    // "Buscar parecidos" é intenção explícita de uma busca NOVA deste lead —
+    // não reidratamos o rascunho antigo; resetamos e semeamos com segmento+cidade.
+    let seedText = "";
+    try {
+      const raw = sessionStorage.getItem("hbx:concierge-seed");
+      if (raw) {
+        sessionStorage.removeItem("hbx:concierge-seed");
+        seedText = buildConciergeSeedPhrase(JSON.parse(raw));
+      }
+    } catch { seedText = ""; }
+
     (async () => {
-      let baseDraft: Draft | null = null;
       try {
         const res = await apiFetch<ApiReply>("/concierge");
         if (!alive) return;
         if (res?.code === "feature_disabled") { setDisabled(true); return; }
-        if (res?.draft) {
-          baseDraft = res.draft;
-          setDraft(res.draft);
-          const restored: Msg[] = (res.draft.transcript || []).map((t) => ({ dir: t.role === "user" ? "out" : "in", text: t.content }));
-          setMsgs(restored);
-        } else if (res?.reply) {
-          setMsgs([{ dir: "in", text: res.reply }]);
+        // Com semente, o rascunho antigo é descartado logo abaixo (reset) —
+        // não restaura transcript pra não piscar a conversa velha.
+        if (!seedText) {
+          if (res?.draft) {
+            setDraft(res.draft);
+            const restored: Msg[] = (res.draft.transcript || []).map((t) => ({ dir: t.role === "user" ? "out" : "in", text: t.content }));
+            setMsgs(restored);
+          } else if (res?.reply) {
+            setMsgs([{ dir: "in", text: res.reply }]);
+          }
         }
         setChips(res?.chips ?? []);
         if (typeof res?.aiOnline === "boolean") setAiOnline(res.aiOnline);
         if (res?.suggestions) setSuggestions(res.suggestions);
       } catch {
-        setMsgs([{ dir: "in", text: "Não consegui carregar agora. Recarregue a página ou use o formulário do Radar." }]);
+        if (!seedText) setMsgs([{ dir: "in", text: "Não consegui carregar agora. Recarregue a página ou use o formulário do Radar." }]);
       } finally {
         if (alive) setLoading(false);
       }
 
-      // Semente do cockpit ("Buscar parecidos" — LEAD-COCKPIT). Chave single-use:
-      // sempre consome (remove) numa visita ao Concierge. Só semeia quando NÃO há
-      // conversa em andamento (draft com transcript) — nunca atropela. Semeadura =
-      // UMA mensagem pelo caminho normal (POST /concierge/message); NÃO dispara
-      // busca (a busca só sai no Confirmar). Fail-soft: erro → dica pra digitar.
-      if (!alive) return;
-      let seedText = "";
-      try {
-        const raw = sessionStorage.getItem("hbx:concierge-seed");
-        if (raw) {
-          sessionStorage.removeItem("hbx:concierge-seed");
-          seedText = buildConciergeSeedPhrase(JSON.parse(raw));
-        }
-      } catch { seedText = ""; }
-      const hasActiveConvo = Boolean(baseDraft && (baseDraft.transcript?.length || 0) > 0);
-      if (!seedText || hasActiveConvo) return;
-      setMsgs((prev) => [...prev, { dir: "out", text: seedText }]);
+      // Semeadura: reseta o rascunho atual (inclusive uma busca CONCLUÍDA que
+      // sobrevive ao reload) e injeta a frase do lead pelo caminho normal
+      // (POST /concierge/message). NÃO dispara busca — a busca real só sai no
+      // Confirmar. Fail-soft: erro → dica pra digitar.
+      if (!alive || !seedText) return;
       setBusy(true);
       try {
+        let seedDraftId: string | undefined;
+        try {
+          const reset = await apiFetch<ApiReply>("/concierge/reset", { method: "POST", body: JSON.stringify({}) });
+          if (!alive) return;
+          seedDraftId = reset?.draft?.id;
+          setDraft(reset?.draft ?? null);
+          setRun(null);
+        } catch { /* segue mesmo sem reset — o backend cria rascunho novo na mensagem */ }
+        setMsgs([{ dir: "out", text: seedText }]);
         const seeded = await apiFetch<ApiReply>("/concierge/message", {
           method: "POST",
-          body: JSON.stringify({ draftId: baseDraft?.id, message: seedText }),
+          body: JSON.stringify({ draftId: seedDraftId, message: seedText }),
         });
         if (alive) applyReply(seeded);
       } catch (e) {
