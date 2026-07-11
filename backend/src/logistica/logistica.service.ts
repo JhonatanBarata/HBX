@@ -110,6 +110,20 @@ export class LogisticaService {
         // eles o carrossel numera tudo "Parada 1" e ignora o 2-opt (bagunça).
         rotaOrdem: true,
         etaAt: true,
+        // MULTILOCAL (10/07) — o LOCAL desta entrega (endereço/geo próprios). Quando
+        // presente, a rota usa o endereço/geo do local; o cliente (id/nome/saldo)
+        // segue do perfil (a cobrança é da CONTA — inalterada).
+        localId: true,
+        local: {
+          select: {
+            apelido: true,
+            endereco: true,
+            cidade: true,
+            uf: true,
+            lat: true,
+            lng: true,
+          },
+        },
         customerProfile: {
           select: {
             id: true,
@@ -150,16 +164,32 @@ export class LogisticaService {
     // F1 — a MESMA leitura traz o Pix do tenant (chave/nome/cidade do BR Code).
     let moduloFinanceiroAtivo = false;
     let pix: RotaPix | null = null;
+    // AVISO-CHEGANDO — o app só arma o 2º anel (~500m) quando avisoChegandoAtivo
+    // é true (effectsEnabled global E o toggle da empresa) — evita POST inútil
+    // com o recurso OFF. Defaults seguros (false/500) se a leitura falhar.
+    let avisoChegandoAtivo = false;
+    let avisoChegandoDistanciaM = 500;
     try {
       const cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
-        select: { moduloFinanceiroAtivo: true, pixChave: true, pixNome: true, pixCidade: true },
+        select: {
+          moduloFinanceiroAtivo: true,
+          pixChave: true,
+          pixNome: true,
+          pixCidade: true,
+          avisoChegandoEnabled: true,
+          avisoChegandoDistanciaM: true,
+        },
       });
       moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
       // O QR só existe com o módulo ON e a chave configurada (regra do M4 preservada:
       // financeiro OFF = nenhum pagamento aparece na entrega, nunca).
       if (moduloFinanceiroAtivo && cfg?.pixChave) {
         pix = { chave: cfg.pixChave, nome: cfg.pixNome ?? null, cidade: cfg.pixCidade ?? null };
+      }
+      avisoChegandoAtivo = this.effectsEnabled && !!cfg?.avisoChegandoEnabled;
+      if (typeof cfg?.avisoChegandoDistanciaM === 'number' && cfg.avisoChegandoDistanciaM > 0) {
+        avisoChegandoDistanciaM = cfg.avisoChegandoDistanciaM;
       }
     } catch (e: any) {
       this.logger.warn(`[logistica] listRota loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
@@ -187,6 +217,8 @@ export class LogisticaService {
       effectsEnabled: this.effectsEnabled,
       moduloFinanceiroAtivo,
       pix,
+      avisoChegandoAtivo,
+      avisoChegandoDistanciaM,
       items: rows.map((r) => ({
         id: r.id,
         status: r.status,
@@ -202,14 +234,20 @@ export class LogisticaService {
         // e numera "Parada N" por rotaOrdem; o término lê etaAt da última parada).
         rotaOrdem: r.rotaOrdem ?? null,
         etaAt: r.etaAt ? r.etaAt.toISOString() : null,
+        // MULTILOCAL (10/07) — apelido do local ("Casa"|"Loja"…) pro card da rota;
+        // null quando a entrega não tem local (usa o perfil).
+        localApelido: r.local?.apelido ?? null,
         cliente: {
           id: r.customerProfile.id,
           nome: r.customerProfile.name ?? null,
-          endereco: r.customerProfile.endereco ?? null,
-          cidade: r.customerProfile.cidade ?? null,
-          uf: r.customerProfile.uf ?? null,
-          lat: r.customerProfile.lat ?? null,
-          lng: r.customerProfile.lng ?? null,
+          // MULTILOCAL — endereço/geo vêm do LOCAL da entrega quando presente (cada
+          // porta tem sua coordenada); sem local = perfil (legado). id/nome/saldoAberto
+          // SEGUEM do perfil (a cobrança é da CONTA — NÃO muda).
+          endereco: r.local ? (r.local.endereco ?? null) : (r.customerProfile.endereco ?? null),
+          cidade: r.local ? (r.local.cidade ?? null) : (r.customerProfile.cidade ?? null),
+          uf: r.local ? (r.local.uf ?? null) : (r.customerProfile.uf ?? null),
+          lat: r.local ? (r.local.lat ?? null) : (r.customerProfile.lat ?? null),
+          lng: r.local ? (r.local.lng ?? null) : (r.customerProfile.lng ?? null),
           phone: r.customerProfile.phone ?? null,
           // M4 — a folha de chegada decide os chips por aqui (só 'aberto' mostra).
           formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
@@ -297,6 +335,18 @@ export class LogisticaService {
       }
     }
 
+    // MULTILOCAL (10/07) — local opcional: valida que é do MESMO cliente+empresa
+    // (isolamento duro). Inválido/de outro cliente → null (cai no endereço do
+    // perfil) — mesmo padrão leniente do contato/produto acima.
+    let localId: string | null = null;
+    if (input.localId) {
+      const local = await this.prisma.localEntrega.findFirst({
+        where: { id: String(input.localId).trim(), companyId, customerProfileId: conta.id },
+        select: { id: true },
+      });
+      localId = local?.id ?? null;
+    }
+
     const quantidade = Math.max(1, Math.trunc(Number(input.quantidade) || 1));
     // Valor: explícito > preço do produto > preço padrão do cliente > 0.
     const valorBase =
@@ -312,6 +362,8 @@ export class LogisticaService {
         companyId,
         customerProfileId: conta.id,
         contatoId,
+        // MULTILOCAL — ONDE entrega (null = perfil/legado), já validado do cliente.
+        localId,
         productId,
         quantidade,
         valor,
@@ -336,6 +388,8 @@ export class LogisticaService {
       where: { id: String(id).trim(), companyId },
       select: {
         id: true, status: true, customerProfileId: true, contatoId: true, valor: true,
+        // MULTILOCAL (10/07) — o local da entrega decide ONDE o GPS de ouro converge.
+        localId: true,
         cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true,
       },
     });
@@ -517,9 +571,15 @@ export class LogisticaService {
       throw e;
     }
 
-    // B1 — realimenta a coordenada do cliente com o GPS de ouro da porta real
-    // (best-effort, FORA da tx do confirmar — mesmo padrão do persistirDesfecho).
-    await this.realimentarCoordenadaCliente(companyId, entrega.customerProfileId, { lat, lng, accuracy: gps.accuracy });
+    // B1 — realimenta a coordenada da porta real com o GPS de ouro (best-effort,
+    // FORA da tx do confirmar — mesmo padrão do persistirDesfecho). MULTILOCAL
+    // (10/07): quando a entrega tem um LOCAL, o pino que converge é o do LOCAL (cada
+    // porta tem sua coordenada própria); sem local = o do perfil (legado).
+    if (entrega.localId) {
+      await this.realimentarCoordenadaLocal(companyId, entrega.localId, { lat, lng, accuracy: gps.accuracy });
+    } else {
+      await this.realimentarCoordenadaCliente(companyId, entrega.customerProfileId, { lat, lng, accuracy: gps.accuracy });
+    }
 
     // CRÉDITO UNIVERSAL (PR10072026): track da entrega concluída — só na PRIMEIRA confirmação
     // e INDEPENDENTE da flag de efeitos (medir uso não dispara WhatsApp/cobrança). Idempotente
@@ -625,6 +685,37 @@ export class LogisticaService {
       });
     } catch (e: any) {
       this.logger.warn(`[logistica] realimentarCoordenada cliente=${customerProfileId} falhou: ${String(e?.message || e)}`);
+    }
+  }
+
+  // ── B1 + MULTILOCAL — realimenta o GPS de ouro no LOCAL da entrega ──────────
+  /**
+   * MULTILOCAL (10/07) — espelho de realimentarCoordenadaCliente para quando a
+   * entrega tem um LOCAL: o GPS PRECISO (accuracy<=60m) da porta real atualiza
+   * LocalEntrega.lat/lng + geoFonte='gps_entrega' (cada endereço do cliente
+   * converge sozinho). NUNCA sobrescreve 'gps_cadastro' (decisão humana intocável,
+   * mesma regra do perfil). company-scoped; best-effort FORA da tx do confirmar:
+   * falha aqui NUNCA reverte a entrega.
+   */
+  private async realimentarCoordenadaLocal(
+    companyId: number,
+    localId: string,
+    gps: { lat: number | null; lng: number | null; accuracy?: number },
+  ): Promise<void> {
+    if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') return;
+    if (typeof gps.accuracy !== 'number' || !Number.isFinite(gps.accuracy) || gps.accuracy > 60) return;
+    try {
+      const local = await this.prisma.localEntrega.findFirst({
+        where: { id: localId, companyId },
+        select: { geoFonte: true },
+      });
+      if (!local || local.geoFonte === 'gps_cadastro') return; // decisão humana intocável.
+      await this.prisma.localEntrega.update({
+        where: { id: localId },
+        data: { lat: gps.lat, lng: gps.lng, geoFonte: 'gps_entrega' },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[logistica] realimentarCoordenadaLocal local=${localId} falhou: ${String(e?.message || e)}`);
     }
   }
 
@@ -947,6 +1038,145 @@ export class LogisticaService {
       this.logger.warn(`[logistica] montarVarsAviso entrega=${entregaId} falhou: ${String(e?.message || e)}`);
     }
     return vars;
+  }
+
+  // ── EFEITO 1b: WhatsApp "chegando" (~500m) — MESMO caminho blindado ──────────
+  /**
+   * AVISO-CHEGANDO (11/07) — ESPELHO de dispararWhatsappEntregue (MESMO
+   * queueOutboundForCompany, MESMA normalização E.164, MESMA montarVarsAviso),
+   * com 2 diferenças:
+   *
+   *   TRAVA TRIPLA — effectsEnabled (a MESMA flag HBX_LOGISTICA_ENABLED) E
+   *   config.avisoChegandoEnabled E consentimento por cliente (avisarEntrega — o
+   *   MESMO opt-out do aviso "entregue": quem não quer um, não quer o outro).
+   *   Qualquer um OFF → no-op silencioso (log + 'pulado'). INDEPENDENTE do aviso
+   *   "entregue" (avisoWhatsEnabled): a empresa pode ligar só um dos dois.
+   *
+   *   IDEMPOTÊNCIA RACE-SAFE — CLAIM-antes-de-enviar via updateMany(WHERE
+   *   avisoChegandoAt IS NULL). Só quem "ganha" o claim (count===1) segue pro
+   *   envio; 2 chamadas simultâneas do app (bug de re-render, rede lenta) NUNCA
+   *   disparam 2 WhatsApp. Se o enqueue falhar DEPOIS do claim, o motivo devolvido
+   *   é 'falhou' e a entrega FICA marcada como avisada — de propósito (melhor
+   *   perder 1 aviso do que arriscar reenvio em loop).
+   *
+   * Chamado por `avisarChegando` (público), que já resolveu a Entrega (id +
+   * customerProfileId + contatoId) — MESMO shape de parâmetro do entregue.
+   */
+  private async dispararWhatsappChegando(
+    companyId: number,
+    entrega: { id: string; customerProfileId: string; contatoId: string | null },
+  ): Promise<WhatsappResult> {
+    // Trava 1 — kill switch global (a MESMA flag do confirmar/entregue). Barato
+    // (sem I/O): checa ANTES de tocar o banco.
+    if (!this.effectsEnabled) {
+      this.logger.log(`[logistica] entrega=${entrega.id} aviso chegando pulado — ${LogisticaService.FLAG} off.`);
+      return { status: 'pulado', motivo: 'flag_off' };
+    }
+
+    // A CONTA manda: telefone, nome e o opt-out (avisarEntrega — o MESMO campo
+    // do aviso "entregue"; 1 preferência do cliente cobre os dois).
+    const conta = await this.prisma.customerProfile.findFirst({
+      where: { id: entrega.customerProfileId, companyId },
+      select: { name: true, phone: true, phoneNormalized: true, avisarEntrega: true },
+    });
+
+    // Trava 2+3 — config.avisoChegandoEnabled (global, INDEPENDENTE do
+    // avisoWhatsEnabled do entregue) + avisarEntrega (cliente).
+    const aviso = await this.config.resolverAvisoChegando(companyId, conta?.avisarEntrega);
+    if (!aviso.habilitado) {
+      this.logger.log(`[logistica] entrega=${entrega.id} aviso chegando desligado (global/cliente) — pulado (no-op).`);
+      return { status: 'pulado', motivo: 'aviso_off' };
+    }
+
+    // Idempotência RACE-SAFE — CLAIM antes de enviar: só quem vira null→now
+    // segue pro envio. status precisa seguir aberta (agendada/em_rota) — uma
+    // entrega já entregue/cancelada não recebe "tô chegando" fora de hora.
+    const claim = await this.prisma.entrega.updateMany({
+      where: { id: entrega.id, companyId, avisoChegandoAt: null, status: { in: ['agendada', 'em_rota'] } },
+      data: { avisoChegandoAt: new Date() },
+    });
+    if (claim.count === 0) {
+      this.logger.log(`[logistica] entrega=${entrega.id} aviso chegando já enviado (ou entrega fechada) — pulado (no-op).`);
+      return { status: 'pulado', motivo: 'ja_avisado' };
+    }
+
+    // Destinatário: MESMA resolução do entregue (contato da entrega → principal
+    // da conta → telefone da conta).
+    let contact = '';
+    let nome = String(conta?.name || '').trim();
+    let contato: { nome: string | null; whatsapp: string | null; phone: string | null } | null = null;
+    if (entrega.contatoId) {
+      contato = await this.prisma.contato.findFirst({
+        where: { id: entrega.contatoId, companyId },
+        select: { nome: true, whatsapp: true, phone: true },
+      });
+    } else {
+      try {
+        contato = await resolvePrincipalContato(this.prisma as any, companyId, entrega.customerProfileId);
+      } catch (e: any) {
+        this.logger.warn(`[logistica] entrega=${entrega.id} chegando resolvePrincipalContato falhou: ${String(e?.message || e)}`);
+      }
+    }
+    if (contato) {
+      contact = String(contato.whatsapp || contato.phone || '').trim();
+      if (contato.nome) nome = String(contato.nome).trim();
+    }
+    if (!contact) {
+      contact = String(conta?.phoneNormalized || conta?.phone || '').trim();
+    }
+    if (!contact) {
+      this.logger.log(`[logistica] entrega=${entrega.id} chegando sem telefone — pulado (no-op).`);
+      return { status: 'pulado', motivo: 'sem_telefone' };
+    }
+
+    // MESMA normalização E.164 BR do entregue (o telefone cru não tem DDI).
+    contact = normalizeBrPhoneE164(contact) || contact;
+
+    // MESMAS variáveis (itens/qtd/produto/empresa) do aviso "entregue" — o texto
+    // do "chegando" pode citar o que está vindo.
+    const vars = await this.montarVarsAviso(companyId, entrega.id, nome);
+
+    // Template do admin (avisoChegandoTemplate) OU o fallback fixo.
+    const body = aviso.template
+      ? renderTemplateAviso(aviso.template, vars)
+      : `${nome ? `Olá, ${nome}! ` : 'Olá! '}Estou a caminho com a sua entrega. Já estou chegando!`;
+
+    // Guard defensivo: template que renderiza vazio não vira mensagem em branco.
+    const finalBody = body.trim() || 'Estou a caminho com a sua entrega. Já estou chegando!';
+
+    // MESMO caminho blindado (queueOutboundForCompany) — disjuntor, 1-número=1-
+    // conexão, gate de conexão viva, warmup e outbox com retry. NUNCA API crua,
+    // NUNCA socket novo. sourceModule/variables.event diferenciam de 'entregue'.
+    await this.conversations.queueOutboundForCompany(companyId, {
+      to: contact,
+      contactId: contact,
+      body: finalBody,
+      messageType: 'text',
+      sourceModule: 'logistica_chegando',
+      senderType: 'system',
+      variables: { module: 'logistica', event: 'chegando', entregaId: entrega.id },
+      flowState: { botActive: false, humanAssigned: false, flowResult: null },
+    });
+    return { status: 'enviado', motivo: null };
+  }
+
+  /**
+   * AVISO-CHEGANDO — entrada PÚBLICA (chamada pelo controller). Resolve a
+   * Entrega (company-scoped) e delega pro caminho blindado acima. Best-effort:
+   * qualquer exceção do disparo vira 'falhou' (nunca propaga) — o endpoint
+   * sempre responde { ok: true }, o app não reenvia.
+   */
+  async avisarChegando(companyId: number, id: string): Promise<WhatsappResult> {
+    if (!companyId || !id) return { status: 'pulado', motivo: 'invalido' };
+    const entrega = await this.prisma.entrega.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: { id: true, customerProfileId: true, contatoId: true },
+    });
+    if (!entrega) return { status: 'pulado', motivo: 'nao_encontrada' };
+    return this.dispararWhatsappChegando(companyId, entrega).catch((e: any) => {
+      this.logger.warn(`[logistica] whatsapp chegando falhou entrega=${entrega.id}: ${String(e?.message || e)}`);
+      return { status: 'falhou' as WhatsappStatus, motivo: 'erro' };
+    });
   }
 
   // ── EFEITO 2: cobrança conforme o CONTRATO do cliente (R2 — financeiro de verdade) ─
@@ -1855,6 +2085,9 @@ export interface CreateEntregaInput {
   valor?: number;
   scheduledAt?: string;
   notes?: string;
+  // MULTILOCAL (10/07) — local de entrega opcional (validado como do mesmo
+  // cliente+empresa no serviço); null/ausente = endereço do perfil (legado).
+  localId?: string;
 }
 
 export interface RotaCliente {
@@ -1901,6 +2134,9 @@ export interface RotaItem {
   deliveredLng: number | null;
   cobrancaStatus: string;
   notes: string | null;
+  // MULTILOCAL (10/07) — rótulo curto do local desta entrega ("Casa"|"Loja"…), null
+  // quando a entrega não tem local (usa o endereço/geo do perfil).
+  localApelido: string | null;
   cliente: RotaCliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
   produto: RotaProduto | null;
@@ -1921,6 +2157,10 @@ export interface RotaResult {
   effectsEnabled: boolean;
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
+  // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST
+  // inútil com o recurso OFF). avisoChegandoDistanciaM é o raio configurado (m).
+  avisoChegandoAtivo: boolean;
+  avisoChegandoDistanciaM: number;
   items: RotaItem[];
 }
 

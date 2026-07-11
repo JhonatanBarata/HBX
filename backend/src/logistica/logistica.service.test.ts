@@ -75,12 +75,23 @@ function buildPrismaMock(
         return { id: entrega.id, ...args.data };
       },
       // R4 — claim atômico do teto do reenvio: só passa false→true 1 vez.
+      // AVISO-CHEGANDO — claim idempotente (avisoChegandoAt null→now), também
+      // guardado por status (só agendada/em_rota "ganha" o claim).
       updateMany: async (args: any) => {
-        const wantsReenvio = args?.data?.avisoReenviado === true;
-        const guardFalse = args?.where?.avisoReenviado === false;
+        const data = args?.data || {};
+        const where = args?.where || {};
+        const wantsReenvio = data.avisoReenviado === true;
+        const guardFalse = where.avisoReenviado === false;
         if (wantsReenvio && guardFalse) {
           if (entrega.avisoReenviado === true) return { count: 0 }; // já reenviado
           entrega.avisoReenviado = true;
+          return { count: 1 };
+        }
+        if (data.avisoChegandoAt !== undefined && where.avisoChegandoAt === null) {
+          const statusPermitido: string[] = where.status?.in ?? [];
+          const statusOk = statusPermitido.length === 0 || statusPermitido.includes(entrega.status);
+          if (entrega.avisoChegandoAt != null || !statusOk) return { count: 0 }; // já avisado/entrega fechada
+          entrega.avisoChegandoAt = data.avisoChegandoAt;
           return { count: 1 };
         }
         return { count: 0 };
@@ -222,14 +233,35 @@ function buildConversationsMock() {
 
 // M5 — LogisticaConfigService mock: resolverAviso decide o 2-níveis de aviso.
 // habilitado padrão = true (avisa), template null (usa a msg fixa de fallback).
-function buildConfigMock(over: { habilitado?: boolean; template?: string | null } = {}) {
+// AVISO-CHEGANDO — resolverAvisoChegando é o MESMO padrão, mas com override
+// PRÓPRIO (chegandoHabilitado/chegandoTemplate) e default OFF (feature opt-in;
+// os testes do "chegando" passam chegandoHabilitado:true explicitamente).
+function buildConfigMock(
+  over: {
+    habilitado?: boolean;
+    template?: string | null;
+    chegandoHabilitado?: boolean;
+    chegandoTemplate?: string | null;
+  } = {},
+) {
   const calls: any[] = [];
+  const chegandoCalls: any[] = [];
   return {
     calls,
+    chegandoCalls,
     config: {
       resolverAviso: async (companyId: number, avisarCliente: boolean | null | undefined) => {
         calls.push({ companyId, avisarCliente });
         return { habilitado: over.habilitado ?? true, template: over.template ?? null };
+      },
+      // Faithful ao merge REAL (globalOk && clienteOk): permite os testes (c)
+      // config-OFF e (d) cliente-opt-out ficarem DISTINTOS de verdade (não só
+      // 2 nomes pro mesmo booleano canned).
+      resolverAvisoChegando: async (companyId: number, avisarCliente: boolean | null | undefined) => {
+        chegandoCalls.push({ companyId, avisarCliente });
+        const clienteOk = avisarCliente !== false;
+        const globalOk = over.chegandoHabilitado ?? false;
+        return { habilitado: globalOk && clienteOk, template: over.chegandoTemplate ?? null };
       },
     } as any,
   };
@@ -444,6 +476,162 @@ test('confirmarEntrega: flag ON mas aviso OFF (global/cliente) → NÃO chama Wh
   assert.equal(res?.whatsappSent, false);
   // A cobrança é independente do aviso — segue lançando (avulso, valor > 0).
   assert.equal(chargesCreated.length, 1, 'a cobrança não depende do aviso');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── AVISO-CHEGANDO (11/07) — "tô chegando" a ~500m, MESMO caminho blindado ───
+// Espelha os testes do WhatsApp-entregue: trava tripla (flag + config + cliente)
+// + idempotência RACE-SAFE por claim (avisoChegandoAt). MESMO caminho blindado
+// (queueOutboundForCompany) — nunca API crua/socket/loop.
+
+test('avisarChegando: as 3 travas ON → envia via queue (caminho blindado)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config, chegandoCalls } = buildConfigMock({ chegandoHabilitado: true });
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.avisarChegando(1, 'entrega-1');
+
+  assert.equal(res.status, 'enviado');
+  assert.equal(calls.length, 1, 'deve chamar queueOutboundForCompany exatamente 1 vez');
+  assert.equal(calls[0].companyId, 1);
+  assert.equal(calls[0].payload.sourceModule, 'logistica_chegando');
+  assert.equal(calls[0].payload.variables.event, 'chegando');
+  assert.equal(calls[0].payload.to, '+5588999999999');
+  assert.equal(chegandoCalls.length, 1, 'resolverAvisoChegando foi consultado');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('avisarChegando: flag HBX_LOGISTICA_ENABLED OFF → NO-OP silencioso (nem consulta o config)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  delete process.env.HBX_LOGISTICA_ENABLED; // default OFF
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config, chegandoCalls } = buildConfigMock({ chegandoHabilitado: true }); // mesmo com config ON…
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.avisarChegando(1, 'entrega-1');
+
+  assert.equal(res.status, 'pulado');
+  assert.equal(res.motivo, 'flag_off');
+  assert.equal(calls.length, 0, 'queueOutboundForCompany NÃO deve ser chamado com a flag OFF');
+  // Trava 1 é barata (sem I/O) e checa ANTES de tudo: nem chega a consultar o config.
+  assert.equal(chegandoCalls.length, 0, 'resolverAvisoChegando não deve ser consultado com a flag OFF');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('avisarChegando: flag ON mas config.avisoChegandoEnabled OFF → NO-OP', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega(),
+    // cliente QUER receber — quem bloqueia aqui é o toggle global do admin.
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock({ chegandoHabilitado: false }); // admin não ligou o "chegando"
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.avisarChegando(1, 'entrega-1');
+
+  assert.equal(res.status, 'pulado');
+  assert.equal(res.motivo, 'aviso_off');
+  assert.equal(calls.length, 0, 'config OFF → queueOutboundForCompany NÃO deve ser chamado');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('avisarChegando: flag+config ON mas cliente opt-out (avisarEntrega=false) → NO-OP', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega(),
+    // admin LIGOU o "chegando" — quem bloqueia aqui é o opt-out do cliente
+    // (MESMO campo do aviso "entregue": quem não quer um, não quer o outro).
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', avisarEntrega: false },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock({ chegandoHabilitado: true });
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.avisarChegando(1, 'entrega-1');
+
+  assert.equal(res.status, 'pulado');
+  assert.equal(res.motivo, 'aviso_off');
+  assert.equal(calls.length, 0, 'cliente opt-out → queueOutboundForCompany NÃO deve ser chamado');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('avisarChegando: idempotente — 2ª chamada NÃO reenfileira (claim race-safe, count 0)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock({ chegandoHabilitado: true });
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res1 = await service.avisarChegando(1, 'entrega-1');
+  const res2 = await service.avisarChegando(1, 'entrega-1'); // 2ª chamada (ex.: 2 crossings do anel)
+
+  assert.equal(res1.status, 'enviado');
+  assert.equal(res2.status, 'pulado');
+  assert.equal(res2.motivo, 'ja_avisado');
+  // O CLAIM (updateMany WHERE avisoChegandoAt IS NULL) garante 1 SÓ envio mesmo
+  // sob 2 chamadas — a 2ª nunca chega a enfileirar (teste do freio de chip banido).
+  assert.equal(calls.length, 1, 'a 2ª chamada NÃO deve reenfileirar — teto de 1 aviso por entrega');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('avisarChegando: entrega já ENTREGUE (fora de agendada/em_rota) → claim perde, NO-OP', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega({ status: 'entregue' }),
+    { id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999', avisarEntrega: true },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock({ chegandoHabilitado: true });
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.avisarChegando(1, 'entrega-1');
+
+  assert.equal(res.status, 'pulado');
+  assert.equal(res.motivo, 'ja_avisado');
+  assert.equal(calls.length, 0, 'entrega fora de agendada/em_rota → claim não passa, sem WhatsApp');
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;

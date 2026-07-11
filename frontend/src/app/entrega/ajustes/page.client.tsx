@@ -13,6 +13,7 @@
 // Toda cor/forma vive em entrega.css (.ent-* / A4); zero hex/inline (5 Leis).
 // ================================================================
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { CascaLoading, isFullscreenActive, isFullscreenSupported, toggleCascaFullscreen } from "@/components/casca";
@@ -20,6 +21,7 @@ import { subscribeToThemeMode } from "@/components/hbx/shell";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch } from "@/lib/api";
 import { logout } from "@/lib/logout";
+import { soLogistica } from "@/lib/so-logistica";
 import { fetchWhatsAppModalStatus } from "@/lib/whatsapp-connection-flow";
 import { WhatsAppConnectButton } from "@/components/hbx/whatsapp-connect-button";
 import { WhatsAppConectarSheet } from "@/components/casca/screens/whatsapp-conectar-sheet";
@@ -27,6 +29,16 @@ import { toLocalDigits } from "@/lib/br-phone";
 
 import { QrCanvas } from "../../(app)/logistica/instalar/QrCanvas";
 import { DIAS_SEMANA, parseDiasTrabalho } from "../entrega-api";
+import {
+  CATEGORIA_LABEL,
+  type CategoriaModulo,
+  type CategoriaModuloKey,
+  getCategoriasModulos,
+  refreshEntregaMods,
+  salvarCategoriasModulos,
+  useEntregaMods,
+} from "../entrega-mods";
+import { getIsAdmin } from "../entrega-user";
 import { EntregaScaffold } from "../EntregaScaffold";
 import {
   type LogisticaConfig,
@@ -138,6 +150,68 @@ export function EntregaAjustes() {
   );
   const escuro = modeAttr === "dark";
 
+  // W4 (PR10072026) — seção "Módulos" (admin-only) + linha "Abrir o HBX
+  // completo" quando só-logística (a volta que saiu da tab bar).
+  const mods = useEntregaMods();
+  const soLog = soLogistica(mods);
+  const [admin, setAdmin] = useState(false);
+  const [cats, setCats] = useState<CategoriaModulo[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    void getIsAdmin().then((v) => {
+      if (!vivo) return;
+      setAdmin(v);
+      if (!v) return;
+      getCategoriasModulos().then(
+        (r) => {
+          if (vivo) setCats(r.categories);
+        },
+        () => {
+          /* sem opções (erro/gate): a seção não aparece */
+        },
+      );
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  // Toggle de categoria: otimista + rollback; POST leva o CONJUNTO COMPLETO
+  // recomputado (todas as ligadas — inclui a `logistica` escondida, que
+  // garante o mínimo de 1 exigido pelo backend). Depois de salvar,
+  // refreshEntregaMods() faz a tab bar/header refletirem NA HORA.
+  const toggleCategoria = useCallback(
+    async (key: CategoriaModuloKey) => {
+      if (!cats) return;
+      const anterior = cats;
+      const otimista = cats.map((c) => (c.key === key ? { ...c, enabled: !c.enabled } : c));
+      setCats(otimista);
+      setSalvando(true);
+      setSalvo(false);
+      setErro(null);
+      try {
+        const ligadas = otimista.filter((c) => c.enabled && !c.locked).map((c) => c.key);
+        await salvarCategoriasModulos(ligadas);
+        await refreshEntregaMods();
+        // Re-lê as opções (verdade do backend — módulo travado pode ter sido pulado).
+        try {
+          const r = await getCategoriasModulos();
+          setCats(r.categories);
+        } catch {
+          /* mantém o otimista */
+        }
+        setSalvo(true);
+        setTimeout(() => setSalvo(false), 1800);
+      } catch (e) {
+        setCats(anterior);
+        setErro(e instanceof Error ? e.message : "Falha ao salvar");
+      } finally {
+        setSalvando(false);
+      }
+    },
+    [cats],
+  );
+
   const carregar = useCallback(async () => {
     setErro(null);
     try {
@@ -150,6 +224,7 @@ export function EntregaAjustes() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
     void carregar();
   }, [carregar]);
 
@@ -339,6 +414,51 @@ export function EntregaAjustes() {
               Salvar mensagem
             </button>
 
+            {/* ── AVISO-CHEGANDO: "tô chegando" a ~500m (independente do acima) ── */}
+            <div className="ent-field-label ent-section">Aviso de chegada</div>
+            <button
+              type="button"
+              className="ent-toggle"
+              onClick={() => {
+                if (!waPronto) return;
+                void patch({ avisoChegandoEnabled: !cfg.avisoChegandoEnabled });
+              }}
+              aria-pressed={cfg.avisoChegandoEnabled}
+              disabled={salvando || waVerificando || !waPronto}
+              title={waPronto ? undefined : "Conecte o WhatsApp ou a Meta para ativar este aviso"}
+            >
+              <span className="ent-toggle-label">Avisar cliente quando estiver chegando</span>
+              <span className={`ent-switch${cfg.avisoChegandoEnabled && waPronto ? " is-on" : ""}`} aria-hidden="true" />
+            </button>
+            <label className="ent-field">
+              <span className="ent-field-label">Mensagem de chegada</span>
+              <textarea
+                className="ent-input ent-textarea"
+                defaultValue={cfg.avisoChegandoTemplate ?? ""}
+                onBlur={(e) => void patch({ avisoChegandoTemplate: e.target.value.trim() })}
+                rows={3}
+                placeholder="Ex.: {saudacao} {cliente}! Estou a caminho, já estou chegando!"
+                aria-label="Mensagem do aviso de chegada"
+              />
+            </label>
+            <label className="ent-field">
+              <span className="ent-field-label">Distância do aviso (m)</span>
+              <input
+                className="ent-input"
+                type="number"
+                inputMode="numeric"
+                min={100}
+                max={2000}
+                defaultValue={cfg.avisoChegandoDistanciaM}
+                onBlur={(e) =>
+                  void patch({
+                    avisoChegandoDistanciaM: Math.max(100, Math.min(2000, Number(e.target.value) || cfg.avisoChegandoDistanciaM)),
+                  })
+                }
+                aria-label="Distância do aviso de chegada em metros"
+              />
+            </label>
+
             {/* ── REGRAS: rota + recorrência ────────────────────────────── */}
             <div className="ent-field-label ent-section">Rota e chegada</div>
             <div className="ent-field-row">
@@ -381,7 +501,7 @@ export function EntregaAjustes() {
               <span className={`ent-switch${cfg.gerarDiaAutomatico ? " is-on" : ""}`} aria-hidden="true" />
             </button>
 
-            {/* ── TASK 4a — dias de trabalho (multiselect ISO 1..7, 1 linha) ── */}
+            {/* ── TASK 4a — dias de trabalho (multiselect ISO 1..7, chips que quebram em linha) ── */}
             <div className="ent-field-label ent-section">Dias de trabalho</div>
             <div className="ent-chips ent-chips--fit">
               {DIAS_SEMANA.map((d) => {
@@ -404,6 +524,24 @@ export function EntregaAjustes() {
             {/* ── FECHAR MÊS ─────────────────────────────────────────────── */}
             <div className="ent-field-label ent-section">Cobrança</div>
             <FecharMesBtn />
+
+            {/* MULTILOCAL 10/07 (W-E) — liga o financeiro do cliente (saldo,
+                fiado, fechamento) no /entrega. Admin-only: MESMO gate da seção
+                "Módulos" abaixo (admin) — o entregador comum não decide isso
+                pela empresa. patch() já é o helper único da tela; o backend
+                PATCH /logistica/config já aceita moduloFinanceiroAtivo. */}
+            {admin ? (
+              <button
+                type="button"
+                className="ent-toggle"
+                onClick={() => void patch({ moduloFinanceiroAtivo: !cfg.moduloFinanceiroAtivo })}
+                aria-pressed={cfg.moduloFinanceiroAtivo}
+                disabled={salvando}
+              >
+                <span className="ent-toggle-label">Financeiro do cliente</span>
+                <span className={`ent-switch${cfg.moduloFinanceiroAtivo ? " is-on" : ""}`} aria-hidden="true" />
+              </button>
+            ) : null}
 
             {/* ── F1 — PIX NA ENTREGA (BR Code direto, taxa zero) ─────────── */}
             <div className="ent-field-label ent-section">Pix na entrega</div>
@@ -474,9 +612,39 @@ export function EntregaAjustes() {
           </button>
         ) : null}
 
+        {/* ── W4 — MÓDULOS (admin-only): liga/desliga categorias do tenant.
+            `locked` (teto do master) e a própria `logistica` não aparecem. ── */}
+        {admin && cats ? (
+          <>
+            <div className="ent-field-label ent-section">Módulos</div>
+            {cats
+              .filter((c) => !c.locked && c.key !== "logistica")
+              .map((c) => (
+                <button
+                  type="button"
+                  key={c.key}
+                  className="ent-toggle"
+                  onClick={() => void toggleCategoria(c.key)}
+                  aria-pressed={c.enabled}
+                  disabled={salvando}
+                >
+                  <span className="ent-toggle-label">{CATEGORIA_LABEL[c.key]}</span>
+                  <span className={`ent-switch${c.enabled ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+              ))}
+          </>
+        ) : null}
+
         {/* ── INSTALAR APP ─────────────────────────────────────────────── */}
         <div className="ent-field-label ent-section">Instalar o app</div>
         <InstalarApp />
+
+        {/* ── W4 — só-logística: a volta pro HBX que saiu da tab bar. ──── */}
+        {soLog ? (
+          <Link href="/dashboard" className="ent-btn ent-btn--ghost">
+            Abrir o HBX completo
+          </Link>
+        ) : null}
 
         {/* ── SAIR ─────────────────────────────────────────────────────── */}
         <button type="button" className="ent-btn ent-btn--ghost ent-sair" onClick={sair}>
@@ -553,6 +721,7 @@ function InstalarApp() {
   const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lê window.location (indisponível no SSR) 1x no mount; efeito legítimo, não estado derivado.
     if (typeof window !== "undefined") setOrigin(window.location.origin);
   }, []);
 

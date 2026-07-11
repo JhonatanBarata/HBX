@@ -270,6 +270,8 @@ model Company {
   contatos               Contato[]
   entregas               Entrega[]
   clienteProdutos        ClienteProduto[]
+  // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
+  locaisEntrega          LocalEntrega[]
   logisticaConfig        LogisticaConfig?
   // CRÉDITOS S1 (fundação da carteira, docs/PLANEJAMENTOS/CREDITOS): relação inversa mínima.
   // Módulo credits vive atrás de HBX_CREDITS_ENABLED (default OFF); sem enforcement neste sprint.
@@ -984,6 +986,9 @@ model CustomerProfile {
   contatos             Contato[]
   entregas             Entrega[]
   clienteProdutos      ClienteProduto[]
+  // MULTILOCAL (10/07) — N endereços de entrega da mesma CONTA (cobrança segue 1 só,
+  // por customerProfileId; multi-local é só ONDE se entrega). Back-relation aditiva.
+  locais               LocalEntrega[]
   // NÚCLEO-CRM R2 (05/07) — cobranças linkadas a este cliente (extrato/fechar-mês).
   financeiroCharges    FinanceiroCharge[]
 
@@ -1046,6 +1051,11 @@ model Entrega {
   contatoId         String?
   product           Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   productId         Int?
+  // MULTILOCAL (10/07) — ONDE esta entrega vai (opcional). null = usa o endereço/geo
+  // do perfil (legado). SetNull: apagar o local não apaga a entrega. Validado no
+  // serviço como sendo do mesmo cliente+empresa.
+  local             LocalEntrega? @relation(fields: [localId], references: [id], onDelete: SetNull)
+  localId           String?
   quantidade        Int      @default(1)
   valor             Float    @default(0)
   status            String   @default("agendada") // agendada | em_rota | entregue | cancelada
@@ -1071,6 +1081,11 @@ model Entrega {
   whatsappMotivo    String?  // razão curta quando falhou/pulado (sem_telefone | aviso_off | erro …)
   cobrancaOutcome   String?  // lancada | aguardando_fechamento | nao_contabilizado | isenta | falhou | null
   avisoReenviado    Boolean  @default(false)
+  // AVISO-CHEGANDO (11/07) — trava de idempotência do "tô chegando" a ~500m: null =
+  // ainda não avisou. Claim RACE-SAFE via updateMany(WHERE avisoChegandoAt IS NULL) —
+  // ver dispararWhatsappChegando (logistica.service.ts). INDEPENDENTE do aviso
+  // "entregue" (whatsappStatus acima) — a empresa pode ligar só um dos dois.
+  avisoChegandoAt   DateTime?
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
   idempotencyKey    String?  @unique
@@ -1099,6 +1114,10 @@ model ClienteProduto {
   customerProfileId String
   product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId         Int
+  // MULTILOCAL (10/07) — em qual local do cliente este vínculo entrega (opcional).
+  // null = local principal/perfil (legado). SetNull: apagar o local não apaga o vínculo.
+  local             LocalEntrega? @relation(fields: [localId], references: [id], onDelete: SetNull)
+  localId           String?
   qtdPadrao         Int      @default(1)
   precoAcordado     Float?   // vence o preço do catálogo/precoPadrao do cliente
   frequenciaDias    Int?     // 7 = semanal (OU use diasSemana; não os dois)
@@ -1116,6 +1135,38 @@ model ClienteProduto {
   @@index([companyId, ativo, proximaData])
   @@index([companyId, customerProfileId])
   @@index([companyId, productId])
+}
+
+// MULTILOCAL (10/07, docs/PLANEJAMENTOS/MULTILOCAL-10072026/CONTRATOS.md) — 1 CONTA
+// (CustomerProfile) pode receber em N endereços, cobrada 1 vez só. A cobrança segue da
+// CONTA (FinanceiroCharge.customerProfileId); multi-local é só ONDE se entrega — NADA de
+// cobrança muda. Tabela nova, isolada e aditiva. Backfill materializa 1 local principal
+// por cliente que já tem endereço/geo no perfil (ver migration local_entrega_multi).
+model LocalEntrega {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  apelido           String?  // "Casa" | "Loja" | "Depósito" — rótulo curto, opcional
+  endereco          String?
+  numero            String?
+  bairro            String?
+  cidade            String?
+  uf                String?
+  cep               String?
+  lat               Float?
+  lng               Float?
+  geoFonte          String?  // geocode | gps_cadastro | gps_entrega (mesma convenção do perfil)
+  isPrincipal       Boolean  @default(false)
+  ativo             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  entregas          Entrega[]
+  clienteProdutos   ClienteProduto[]
+
+  @@index([companyId, customerProfileId])
+  @@index([companyId, customerProfileId, isPrincipal])
 }
 
 // LOGÍSTICA-MOBILE M2 (05/07) — item de uma Entrega (multi-produto).
@@ -1167,6 +1218,14 @@ model LogisticaConfig {
   pixChave              String?
   pixNome               String?
   pixCidade             String?
+  // AVISO-CHEGANDO (11/07) — "tô chegando" no WhatsApp a ~N metros. Reusa o MESMO
+  // motor/consentimento do aviso "entregue" (dispararWhatsappChegando), mas é um
+  // toggle INDEPENDENTE (avisoWhatsEnabled acima cobre só o "entregue" — a empresa
+  // pode ligar um, o outro, os dois ou nenhum). DEFAULT FALSE (feature nova, opt-in
+  // — ao contrário do avisoWhatsEnabled legado, que nasce true).
+  avisoChegandoEnabled  Boolean  @default(false)
+  avisoChegandoTemplate String?  // texto do admin; null = fallback fixo do serviço
+  avisoChegandoDistanciaM Int    @default(500) // raio do "tô chegando" (clamp 100–2000 no serviço)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -4240,6 +4299,16 @@ model CreditWallet {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // P0.3 HOLD DE CHARGEBACK (decisão do dono 10/07: "bloquear entrega até quitar"). NÃO é saldo
+  // negativo — é uma DÍVIDA à parte: quando um estorno/chargeback reverte uma recarga cujos
+  // créditos o cliente JÁ consumiu (shortfall do reversePurchase), o valor não-coberto vira
+  // dívida aqui e BLOQUEIA novas entregas de lead até ser quitado por crédito novo (recarga paga
+  // ou concessão do master → settleChargebackDebtFromBalance). Único estado mutável de dinheiro da
+  // carteira (o saldo continua 100% derivado do ledger append-only) — de propósito: o choke de
+  // entrega é caminho quente e precisa de uma leitura barata (1 coluna), não de um Σ do ledger a
+  // cada lead. O RASTRO append-only vive no ledger (kind='chargeback_debt' / 'chargeback_settlement').
+  chargebackDebtCredits Int @default(0)
+
   entries CreditLedgerEntry[]
 }
 
@@ -4257,7 +4326,7 @@ model CreditLedgerEntry {
   walletId  String
   companyId Int // denormalizado p/ índice/consulta sem join
 
-  kind String // grant | recharge | promo (LOTES) · debit | refund | expire | adjust (movimentos)
+  kind String // grant | recharge | promo (LOTES) · debit | refund | expire | adjust | purchase_reversal | chargeback_debt | chargeback_settlement (movimentos)
 
   amount    Int // sempre positivo; o `kind` dá o sinal semântico
   remaining Int @default(0) // SÓ lotes: começa = amount, cai ao consumir. Movimentos ficam 0.

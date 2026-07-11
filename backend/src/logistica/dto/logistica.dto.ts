@@ -40,6 +40,13 @@ export class CreateEntregaDto {
   @IsInt()
   productId?: number;
 
+  // MULTILOCAL (10/07) — onde entregar (LocalEntrega) — opcional. O serviço valida
+  // que o local é do MESMO cliente+empresa; ausente/inválido = endereço do perfil.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  localId?: string;
+
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -364,6 +371,26 @@ export class UpdateLogisticaConfigDto {
   @IsString()
   @MaxLength(40)
   pixCidade?: string;
+
+  // AVISO-CHEGANDO (11/07) — toggle global INDEPENDENTE do avisoWhatsEnabled
+  // (entregue): a empresa liga um, o outro, os dois ou nenhum. DEFAULT false.
+  @IsOptional()
+  @IsBoolean()
+  avisoChegandoEnabled?: boolean;
+
+  // Template do aviso "chegando" (~500m). Mesmas variáveis do template "entregue"
+  // ({saudacao} {cliente} {itens} {qtd} {produto} {empresa}). Vazio → fallback fixo.
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  avisoChegandoTemplate?: string;
+
+  // Raio do "tô chegando" em metros — clamp 100..2000 no serviço (default 500).
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(2000)
+  avisoChegandoDistanciaM?: number;
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).

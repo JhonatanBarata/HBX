@@ -63,6 +63,10 @@ export interface RotaItem {
   // M3 — ordem/ETA da rota. Podem não vir se a rota não foi planejada ainda.
   rotaOrdem?: number | null;
   etaAt?: string | null;
+  // MULTILOCAL 10/07 (W-E) — apelido do LocalEntrega da parada (ex. "Loja"),
+  // quando a entrega tem localId apontando pra um local com apelido; null/
+  // ausente = sem apelido — o card mostra só o endereço de sempre.
+  localApelido?: string | null;
 }
 
 // F1 — Pix direto do tenant (BR Code no app). Só vem com módulo financeiro ON
@@ -79,6 +83,10 @@ export interface RotaResult {
   effectsEnabled: boolean;
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
+  // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST
+  // inútil com o recurso OFF); avisoChegandoDistanciaM é o raio configurado (m).
+  avisoChegandoAtivo?: boolean;
+  avisoChegandoDistanciaM?: number;
   items: RotaItem[];
 }
 
@@ -143,6 +151,16 @@ export function cancelarEntrega(id: string, motivo?: string) {
     method: "POST",
     body: JSON.stringify({ motivo }),
   });
+}
+
+// AVISO-CHEGANDO — dispara o "tô chegando" (~500m) pelo caminho blindado do
+// backend (trava tripla + idempotência por claim, ver logistica.service.ts).
+// Fire-and-forget: o app só cruza o anel 1× por parada (useGeofence); o
+// backend é quem decide enviar/pular. Engole erro — o app NUNCA reenvia.
+export function avisarChegando(id: string): Promise<void> {
+  return apiFetch(`/logistica/entregas/${encodeURIComponent(id)}/chegando`, { method: "POST" })
+    .then(() => undefined)
+    .catch(() => undefined);
 }
 
 // ── helpers de exibição / geo ────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -57,6 +58,8 @@ import {
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('logistica')
 export class LogisticaController {
+  private readonly logger = new Logger(LogisticaController.name);
+
   constructor(
     private readonly service: LogisticaService,
     private readonly recorrencia: LogisticaRecorrenciaService,
@@ -112,6 +115,25 @@ export class LogisticaController {
     const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
+  }
+
+  /**
+   * AVISO-CHEGANDO — dispara o "tô chegando" (~500m) pelo caminho BLINDADO
+   * (queueOutboundForCompany). Trava tripla (flag + config + opt-out do cliente)
+   * + idempotência por claim (avisoChegandoAt). SEMPRE { ok: true }: não vaza se
+   * pulou/enviou (o app não precisa saber) nem erro interno (best-effort, o app
+   * não reenvia — evita qualquer retry/loop no cliente). Company-scoped, MESMO
+   * padrão de guard de confirmar/cancelar (sem Admin — é o app do entregador).
+   */
+  @Post('entregas/:id/chegando')
+  async avisarChegando(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    try {
+      await this.service.avisarChegando(companyId, id);
+    } catch (e: any) {
+      this.logger.warn(`[logistica] POST chegando entrega=${id} falhou: ${String(e?.message || e)}`);
+    }
+    return { ok: true };
   }
 
   /**

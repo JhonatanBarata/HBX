@@ -96,16 +96,69 @@ export interface LogisticaConfig {
   pixChave: string | null;
   pixNome: string | null;
   pixCidade: string | null;
+  // AVISO-CHEGANDO — toggle INDEPENDENTE do avisoWhatsEnabled (entregue): a
+  // empresa liga um, o outro, os dois ou nenhum. DEFAULT false (opt-in).
+  avisoChegandoEnabled: boolean;
+  avisoChegandoTemplate: string | null;
+  avisoChegandoDistanciaM: number;
 }
 
 export function getConfig(): Promise<LogisticaConfig> {
   return apiFetch<LogisticaConfig>("/logistica/config");
 }
 
+// W4 (PR10072026) — leitura CACHEADA do config pra tab bar (que remonta a cada
+// navegação) não martelar GET /logistica/config. TTL curto; erro devolve o
+// último bom (ou null — quem chama trata como "financeiro OFF", fail-closed).
+let cfgCache: { at: number; data: LogisticaConfig } | null = null;
+export async function getConfigCached(): Promise<LogisticaConfig | null> {
+  if (cfgCache && Date.now() - cfgCache.at < 60_000) return cfgCache.data;
+  try {
+    const data = await getConfig();
+    cfgCache = { at: Date.now(), data };
+    return data;
+  } catch {
+    return cfgCache?.data ?? null;
+  }
+}
+
 export function patchConfig(partial: Partial<LogisticaConfig>): Promise<LogisticaConfig> {
   return apiFetch<LogisticaConfig>("/logistica/config", {
     method: "PATCH",
     body: JSON.stringify(partial),
+  });
+}
+
+// ── W4 (PR10072026) — Financeiro fase 1 (endpoints do W2) ────────────────────
+
+/** "Quem me deve" (GET /logistica/financeiro/saldos) — só quem tem valor > 0. */
+export interface SaldoClienteFin {
+  customerProfileId: string;
+  nome: string | null;
+  saldoAberto: number;
+  aguardandoFechamento: number;
+}
+export interface SaldosFinanceiroResult {
+  moduloFinanceiroAtivo: boolean;
+  clientes: SaldoClienteFin[];
+}
+
+export function getSaldosFinanceiro(): Promise<SaldosFinanceiroResult> {
+  return apiFetch<SaldosFinanceiroResult>("/logistica/financeiro/saldos");
+}
+
+/** Baixa manual do fiado (POST /logistica/charges/:id/quitar — ADMIN, idempotente). */
+export interface QuitarChargeResult {
+  id: string;
+  status: string;
+  paidAt: string | null;
+  alreadyPaid: boolean;
+}
+
+export function quitarCharge(id: string): Promise<QuitarChargeResult> {
+  return apiFetch<QuitarChargeResult>(`/logistica/charges/${encodeURIComponent(id)}/quitar`, {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 

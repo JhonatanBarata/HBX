@@ -91,6 +91,17 @@ export class LogisticaConfigService {
       const cidade = semAcento(String(input.pixCidade ?? '').trim());
       data.pixCidade = cidade ? cidade.slice(0, 15) : null;
     }
+    // AVISO-CHEGANDO (11/07) — toggle INDEPENDENTE do avisoWhatsEnabled (entregue):
+    // a empresa liga um, o outro, os dois ou nenhum. Mesmo tratamento de template
+    // (trim+slice) do templateAviso; distância clampada 100–2000m (default 500).
+    if (input.avisoChegandoEnabled !== undefined) data.avisoChegandoEnabled = !!input.avisoChegandoEnabled;
+    if (input.avisoChegandoTemplate !== undefined) {
+      const t = String(input.avisoChegandoTemplate ?? '').trim();
+      data.avisoChegandoTemplate = t ? t.slice(0, 1000) : null;
+    }
+    if (input.avisoChegandoDistanciaM !== undefined) {
+      data.avisoChegandoDistanciaM = clampInt(input.avisoChegandoDistanciaM, 100, 2000, 500);
+    }
 
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
@@ -154,6 +165,39 @@ export class LogisticaConfigService {
       this.logger.warn(`[logistica] resolverAviso company=${companyId} falhou: ${String(e?.message || e)}`);
       // fallback seguro = mantém o comportamento atual (avisa, msg fixa).
       return { habilitado: clienteOk, template: null };
+    }
+  }
+
+  /**
+   * AVISO-CHEGANDO (11/07) — espelho de `resolverAviso`, mas pro toggle/template
+   * do "chegando" (avisoChegandoEnabled/avisoChegandoTemplate) — INDEPENDENTE do
+   * avisoWhatsEnabled do "entregue" (a empresa liga um, o outro, os dois ou
+   * nenhum). O consentimento POR CLIENTE é o MESMO campo (avisarEntrega): quem
+   * não quer aviso de entrega também não recebe o "chegando".
+   *
+   * Diferente de resolverAviso (fallback "avisa" no erro — comportamento legado
+   * que já existia): aqui o fallback de erro é FAIL-CLOSED (habilitado=false).
+   * "Chegando" é feature NOVA opt-in — uma falha de leitura nunca pode "ligar"
+   * um WhatsApp que o admin não configurou.
+   */
+  async resolverAvisoChegando(
+    companyId: number,
+    avisarEntregaCliente: boolean | null | undefined,
+  ): Promise<{ habilitado: boolean; template: string | null }> {
+    const clienteOk = avisarEntregaCliente !== false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { avisoChegandoEnabled: true, avisoChegandoTemplate: true },
+      });
+      // Sem config ainda = default do schema (avisoChegandoEnabled=false) → NÃO avisa
+      // (opt-in — diferente do avisoWhatsEnabled legado, que nasce true).
+      const globalOk = cfg ? cfg.avisoChegandoEnabled : false;
+      return { habilitado: globalOk && clienteOk, template: cfg?.avisoChegandoTemplate ?? null };
+    } catch (e: any) {
+      this.logger.warn(`[logistica] resolverAvisoChegando company=${companyId} falhou: ${String(e?.message || e)}`);
+      // fallback SEGURO = feature opt-in → erro de leitura NÃO liga sozinho.
+      return { habilitado: false, template: null };
     }
   }
 }
@@ -252,6 +296,9 @@ function serializeConfig(c: any): LogisticaConfigDTO {
     pixChave: c.pixChave ?? null,
     pixNome: c.pixNome ?? null,
     pixCidade: c.pixCidade ?? null,
+    avisoChegandoEnabled: !!c.avisoChegandoEnabled,
+    avisoChegandoTemplate: c.avisoChegandoTemplate ?? null,
+    avisoChegandoDistanciaM: c.avisoChegandoDistanciaM ?? 500,
   };
 }
 
@@ -270,6 +317,9 @@ export interface UpdateLogisticaConfigInput {
   pixChave?: string | null;
   pixNome?: string | null;
   pixCidade?: string | null;
+  avisoChegandoEnabled?: boolean;
+  avisoChegandoTemplate?: string | null;
+  avisoChegandoDistanciaM?: number;
 }
 
 export interface LogisticaConfigDTO {
@@ -286,4 +336,7 @@ export interface LogisticaConfigDTO {
   pixChave: string | null;
   pixNome: string | null;
   pixCidade: string | null;
+  avisoChegandoEnabled: boolean;
+  avisoChegandoTemplate: string | null;
+  avisoChegandoDistanciaM: number;
 }

@@ -14,6 +14,7 @@ import { GestaoDia } from "./GestaoDia";
 import { I, ICON_PATHS } from "./icons";
 import { Onboarding, jaViuOnboarding } from "./Onboarding";
 import {
+  avisarChegando,
   cancelarEntrega,
   distanciaMetros,
   enderecoCurto,
@@ -223,6 +224,7 @@ export function EntregaHome() {
   // a parada que estava só na fila (escondida do carrossel) vira "entregue" no
   // servidor. Sem isso, ao sair da fila ela reapareceria como "agendada".
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega a rota quando a fila offline esvazia (ver comentário acima); efeito legítimo
     if (sync.sincronizados > 0) void carregar();
   }, [sync.sincronizados, carregar]);
 
@@ -272,9 +274,20 @@ export function EntregaHome() {
     setSheetAberta(true);
   }, []);
 
+  // AVISO-CHEGANDO — 2º anel (~500m), só armado quando o backend liga o recurso
+  // (rota.avisoChegandoAtivo — trava tripla + idempotência vivem lá). O POST é
+  // fire-and-forget e best-effort; o guard de "1× por parada" é do useGeofence.
+  const aproximacao = useMemo(() => {
+    if (!rota?.avisoChegandoAtivo) return undefined;
+    return {
+      raioM: rota.avisoChegandoDistanciaM ?? 500,
+      onAproximar: (id: string) => void avisarChegando(id),
+    };
+  }, [rota]);
+
   // B2 — `posicaoEntregador` é a MESMA leitura do watchPosition do geofence
   // (zero watcher novo): o mapa embutido usa pra desenhar a bolinha ao vivo.
-  const { posicao: posicaoEntregador } = useGeofence(alvo, view === "rota" && !sheetAberta, onChegada);
+  const { posicao: posicaoEntregador } = useGeofence(alvo, view === "rota" && !sheetAberta, onChegada, aproximacao);
 
   // WEB-BRIDGE — alimenta o serviço nativo de GPS de fundo (casca Android) com
   // a rota inteira sempre que ela muda; em navegador comum (sem HBXShell) os
@@ -741,7 +754,7 @@ export function EntregaHome() {
               )}
               {autoNav.rotulo === "abrindo" && !shellDisponivel() ? (
                 <div className="ent-countdown-hint">
-                  Iniciou a navegação? Volte pro HBX — o Maps vira janelinha.
+                  Iniciou a navegação? Volte pro app — o Maps vira janelinha.
                 </div>
               ) : null}
               <button
@@ -983,7 +996,12 @@ function ViewRota({
                     que nunca chegava e deixava TODO card como "Parada 1". */}
                 <span className="ent-stop-badge">Parada {i + 1}</span>
                 <div className="ent-stop-name">{p.cliente.nome ?? "Cliente"}</div>
-                <div className="ent-stop-addr">{enderecoCurto(p.cliente)}</div>
+                {/* MULTILOCAL 10/07 (W-E) — apelido do local (ex. "· Loja") junto do
+                    endereço, discreto (herda o ent-stop-addr já suave); null = nada muda. */}
+                <div className="ent-stop-addr">
+                  {enderecoCurto(p.cliente)}
+                  {p.localApelido ? ` · ${p.localApelido}` : ""}
+                </div>
                 <div className="ent-stop-items">
                   <b>{p.itens.length > 0 ? p.itens.reduce((s, it) => s + it.qtdPrevista, 0) : p.quantidade}</b>
                   <span>{p.produto?.nome ?? p.itens[0]?.produto?.nome ?? "itens"}</span>

@@ -160,6 +160,12 @@ export interface PosicaoAoVivo {
   accuracy?: number;
 }
 
+// AVISO-CHEGANDO — 2º anel opcional (~500m), MESMO watchPosition do de chegada.
+export interface GeofenceAproximacao {
+  raioM: number;
+  onAproximar: (id: string) => void;
+}
+
 /**
  * Geofence FOREGROUND: observa a posição e, ao entrar no raio do alvo, chama
  * onChegada UMA vez por alvo (guarda por id — swipe para outra parada rearma).
@@ -167,23 +173,33 @@ export interface PosicaoAoVivo {
  * B2 — também devolve a ÚLTIMA posição lida (`posicao`): o mapa embutido usa
  * pra desenhar a bolinha do entregador ao vivo. ZERO watcher novo — é o MESMO
  * watchPosition de sempre, só exposto pra quem quiser ler.
+ * AVISO-CHEGANDO — `aproximacao` (opcional) é um 2º anel MAIOR (~500m) no MESMO
+ * watchPosition: dispara `onAproximar` UMA vez por alvo, com o MESMO guard-por-id
+ * do disparo de chegada (rearma no swipe). Zero watcher novo.
  */
 export function useGeofence(
   alvo: GeofenceAlvo | null,
   ativo: boolean,
   onChegada: (id: string) => void,
+  aproximacao?: GeofenceAproximacao | null,
 ): { posicao: PosicaoAoVivo | null } {
   const disparadoRef = useRef<string | null>(null);
+  const aproximadoRef = useRef<string | null>(null);
   const cbRef = useRef(onChegada);
+  // eslint-disable-next-line react-hooks/refs -- padrão "latest ref" pra evitar closure velha no watchPosition abaixo
   cbRef.current = onChegada;
+  const aproximacaoRef = useRef(aproximacao);
+  // eslint-disable-next-line react-hooks/refs -- mesmo padrão "latest ref" do cbRef acima
+  aproximacaoRef.current = aproximacao;
   const [posicao, setPosicao] = useState<PosicaoAoVivo | null>(null);
 
   useEffect(() => {
     if (!ativo || !alvo) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
 
-    // Alvo trocou (swipe) → rearma o disparo.
+    // Alvo trocou (swipe) → rearma os dois disparos (chegada + aproximação).
     if (disparadoRef.current !== alvo.id) disparadoRef.current = null;
+    if (aproximadoRef.current !== alvo.id) aproximadoRef.current = null;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -194,6 +210,13 @@ export function useGeofence(
           accuracy: typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : undefined,
         });
         const dist = distanciaMetros(atual, { lat: alvo.lat, lng: alvo.lng });
+        // AVISO-CHEGANDO — anel MAIOR e INDEPENDENTE do de chegada (checagem própria,
+        // guard próprio); não interfere no disparo de chegada logo abaixo.
+        const aprox = aproximacaoRef.current;
+        if (aprox && dist <= aprox.raioM && aproximadoRef.current !== alvo.id) {
+          aproximadoRef.current = alvo.id;
+          aprox.onAproximar(alvo.id);
+        }
         if (dist <= alvo.raioM && disparadoRef.current !== alvo.id) {
           disparadoRef.current = alvo.id;
           cbRef.current(alvo.id);
@@ -291,6 +314,7 @@ export function useOfflineSync(): OfflineSync {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
     void refreshContagem();
     void syncNow();
     const onOnline = () => void syncNow();
