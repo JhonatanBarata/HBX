@@ -544,6 +544,9 @@ function buildRemoteDeployScript(config, mode) {
     '  ensure_frontend_compose_file',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml build $BUILD_NO_CACHE_ARG frontend',
     '  docker rm -f hbx-frontend frontend 2>/dev/null || true',
+    // Limpa tambem containers frontend renomeados com hash pelo compose v2 num recreate
+    // anterior falho (ex: 6708d8b5b9e2_hbx-frontend) — senao o proximo up da name conflict.
+    '  docker ps -aq --filter "name=hbx-frontend" | xargs -r docker rm -f 2>/dev/null || true',
     '  free_frontend_port',
     '  run_filtered $DC --env-file .env -f docker-compose.frontend.yml up -d frontend',
     '  echo "Frontend Docker iniciado; verificacao HTTP pulada no publish normal."',
