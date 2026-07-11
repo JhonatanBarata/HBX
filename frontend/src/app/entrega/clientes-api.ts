@@ -330,6 +330,8 @@ export interface FinanceiroPayload {
   diaFechamento?: number;
   // F1 — teto de fiado (R$). null limpa (sem limite).
   limiteFiado?: number | null;
+  // S2 COBRANÇA-WHATS — opt-out do aviso de cobrança no zap (toggle da ficha).
+  avisarCobranca?: boolean;
 }
 export interface FinanceiroResult {
   id: string;
@@ -338,6 +340,8 @@ export interface FinanceiroResult {
   contabilizar: boolean;
   diaFechamento: number | null;
   limiteFiado: number | null;
+  // S2 COBRANÇA-WHATS — fail-soft: backend antigo não devolve o campo.
+  avisarCobranca?: boolean;
 }
 
 export function salvarFinanceiro(id: string, p: FinanceiroPayload): Promise<FinanceiroResult> {

@@ -604,6 +604,11 @@ export function ClienteEditor({
   const [contabilizar, setContabilizar] = useState(true);
   // F1 — teto de fiado (vazio = sem limite) + o extrato da conta ("quanto me deve").
   const [limiteFiado, setLimiteFiado] = useState<string>("");
+  // S2 COBRANÇA-WHATS — opt-out por cliente do aviso de cobrança; o toggle só
+  // aparece quando o backend diz que a feature global está ligada (derivado
+  // cobrancaWhatsDisponivel do GET /logistica/config — dormente = some).
+  const [avisarCobranca, setAvisarCobranca] = useState(true);
+  const [cobrancaWhatsDisponivel, setCobrancaWhatsDisponivel] = useState(false);
   const [extrato, setExtrato] = useState<ExtratoResult | null>(null);
   const [extratoAberto, setExtratoAberto] = useState(false);
 
@@ -643,7 +648,12 @@ export function ClienteEditor({
       let cfgAtual: LogisticaConfig | null = null;
       try {
         cfgAtual = await getConfig();
-        if (vivo) setDiasTrabalho(cfgAtual.diasTrabalho);
+        if (vivo) {
+          setDiasTrabalho(cfgAtual.diasTrabalho);
+          // S2 — feature global de cobrança por zap ligada? (fail-soft: backend
+          // antigo/flag OFF = undefined/false → o toggle da ficha nem aparece).
+          setCobrancaWhatsDisponivel(Boolean(cfgAtual.cobrancaWhatsDisponivel));
+        }
       } catch {
         /* sem config: segue sem restrição de dias */
       }
@@ -711,6 +721,8 @@ export function ClienteEditor({
         setDiaFechamento(c.diaFechamento ? String(c.diaFechamento) : "");
         setContabilizar(c.contabilizar !== false);
         setLimiteFiado(c.limiteFiado != null ? String(c.limiteFiado) : "");
+        // S2 — default true (backend antigo sem o campo = avisa, mesmo default do schema).
+        setAvisarCobranca(c.avisarCobranca !== false);
         setContatoPrincipalId(c.contatoPrincipalId);
         setProdutos(cps);
       } catch (e) {
@@ -933,6 +945,10 @@ export function ClienteEditor({
         contabilizar,
         limiteFiado: limiteTexto && Number.isFinite(limiteNum) && limiteNum >= 0 ? limiteNum : null,
         ...(forma === "mensal" && diaNum ? { diaFechamento: diaNum } : {}),
+        // S2 — opt-out do aviso de cobrança (campo aditivo; backend antigo com
+        // whitelist estrita só o veria após o deploy do S2 — mandar sempre é ok
+        // porque front e backend sobem juntos no publish).
+        avisarCobranca,
       } as const;
 
       const enderecoFinal = comporEndereco();
@@ -1053,7 +1069,7 @@ export function ClienteEditor({
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId, localPrincipalId,
     comporEndereco, numero, bairro, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
-    limiteFiado, produtos, onSair, onCriado,
+    limiteFiado, avisarCobranca, produtos, onSair, onCriado,
   ]);
 
   if (carregando) {
@@ -1241,6 +1257,20 @@ export function ClienteEditor({
           <span className="ent-toggle-label">Entra na contabilidade</span>
           <span className={`ent-switch${contabilizar ? " is-on" : ""}`} aria-hidden="true" />
         </button>
+
+        {/* S2 — opt-out do aviso de cobrança no zap. Só aparece com a feature
+            global ligada (cobrancaWhatsDisponivel do config); dormente = some. */}
+        {cobrancaWhatsDisponivel ? (
+          <button
+            type="button"
+            className="ent-toggle"
+            onClick={() => setAvisarCobranca((v) => !v)}
+            aria-pressed={avisarCobranca}
+          >
+            <span className="ent-toggle-label">Avisar cobrança no WhatsApp</span>
+            <span className={`ent-switch${avisarCobranca ? " is-on" : ""}`} aria-hidden="true" />
+          </button>
+        ) : null}
 
         {/* F1 — CONTA: o "quanto me deve" + extrato (endpoint R2 que só o ERP via). */}
         {editando && extrato ? (

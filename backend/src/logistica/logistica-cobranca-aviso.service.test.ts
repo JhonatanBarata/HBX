@@ -297,7 +297,7 @@ test('S2 (extra): avisarLancamento envia valor + referência + Pix copia-e-cola 
     assert.equal(payload.senderType, 'system', 'senderType system (gate anti-bot do queueOutbound)');
     assert.equal(payload.sourceModule, 'logistica_cobranca');
     assert.equal(payload.messageType, 'text');
-    assert.equal(payload.to, '5511999990000', 'telefone E.164 do cliente');
+    assert.equal(payload.to, '+5511999990000', 'telefone E.164 do cliente (normalizeBrPhoneE164)');
     assert.ok(payload.body.includes('R$ 20,00'), 'valor no formato BR');
     assert.ok(payload.body.includes('Entrega — Dona Maria'), 'referência = description do charge');
     assert.ok(payload.body.includes('Pix copia e cola'), 'bloco do Pix presente');

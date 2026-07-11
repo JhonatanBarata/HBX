@@ -596,6 +596,30 @@ export function EntregaAjustes() {
             {cfg.pixChave ? (
               <div className="ent-hint">QR aparece na chegada quando o pagamento é Pix</div>
             ) : null}
+
+            {/* ── S2 — COBRANÇA POR WHATSAPP (dormente): o card SÓ existe quando o
+                backend diz que a feature global está ligada (cobrancaWhatsDisponivel,
+                derivado de HBX_COBRANCA_WHATS_ENABLED). Admin-only, mesmo gate do
+                "Financeiro do cliente". Toggle do TENANT: aviso ao lançar a cobrança
+                + lembrete no vencimento, com o Pix acima no copia-e-cola. */}
+            {admin && cfg.cobrancaWhatsDisponivel ? (
+              <>
+                <div className="ent-field-label ent-section">Cobrança por WhatsApp</div>
+                <button
+                  type="button"
+                  className="ent-toggle"
+                  onClick={() => void patch({ cobrancaWhatsAtiva: !cfg.cobrancaWhatsAtiva })}
+                  aria-pressed={!!cfg.cobrancaWhatsAtiva}
+                  disabled={salvando}
+                >
+                  <span className="ent-toggle-label">Avisar cobrança e vencimento</span>
+                  <span className={`ent-switch${cfg.cobrancaWhatsAtiva ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+                {cfg.cobrancaWhatsAtiva && !cfg.pixChave ? (
+                  <div className="ent-hint">Preencha a chave Pix acima para o aviso levar o copia e cola</div>
+                ) : null}
+              </>
+            ) : null}
           </>
         ) : null}
 
