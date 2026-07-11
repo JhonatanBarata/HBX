@@ -92,19 +92,15 @@ function normalizePairingPhone(raw: string | null | undefined): string {
   return "";
 }
 
-// Saudação por horário LOCAL — MESMA regra do backend (5–11 Bom dia · 12–17 Boa tarde · resto Boa noite).
-function saudacaoPorHorario(now: Date): string {
-  const h = now.getHours();
-  if (h >= 5 && h < 12) return "Bom dia";
-  if (h >= 12 && h < 18) return "Boa tarde";
-  return "Boa noite";
-}
-
 // Espelha renderTemplateAviso do backend (substitui variáveis, remove chave
-// desconhecida, limpa espaço órfão). Determinístico p/ o exemplo.
+// desconhecida, limpa espaço órfão). DETERMINÍSTICO p/ o exemplo — a prévia usa
+// uma saudação FIXA de propósito: computar por horário (new Date()) no render
+// divergia entre SSR e hidratação (o servidor renderiza num horário, o cliente
+// hidrata em outro/timezone) e dava erro de hidratação do React (418). A saudação
+// REAL do envio é resolvida por horário no backend; aqui é só amostra.
 function renderPreview(template: string): string {
   const map: Record<string, string> = {
-    saudacao: saudacaoPorHorario(new Date()),
+    saudacao: "Bom dia",
     cliente: PREVIEW_VARS.cliente,
     quantidade: PREVIEW_VARS.quantidade,
     produto: PREVIEW_VARS.produto,
