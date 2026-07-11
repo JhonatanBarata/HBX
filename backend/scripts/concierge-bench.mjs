@@ -32,7 +32,7 @@ try {
   console.error('dist/concierge/concierge-slots.js nao encontrado — rode `npm run build` no backend antes.');
   process.exit(1);
 }
-const { buildExtractorMessages, sanitizeAiSlots, safeParseConciergeJson } = slotsModule;
+const { buildExtractorMessages, sanitizeAiSlots, safeParseConciergeJson, applyDeterministicGuards } = slotsModule;
 
 const OLLAMA_URL = (process.env.HBX_BENCH_OLLAMA_URL || 'http://localhost:11434').replace(/\/+$/, '');
 const MODEL = process.env.HBX_BENCH_MODEL || 'qwen3:4b-instruct';
@@ -81,6 +81,7 @@ const singular = (value) => normalize(value).replace(/s\b/g, '');
 // Sinônimos consagrados do gabarito (§3 "aceita sinônimo normalizado").
 const SEGMENT_SYNONYMS = [
   ['dentistas', 'odontologia', 'clinicas odontologicas', 'consultorios odontologicos'],
+  ['oticas', 'opticas'],
   ['advocacia', 'advogados', 'escritorios de advocacia', 'advocacia trabalhista', 'advogados trabalhistas'],
   ['mercados', 'mercadinhos', 'mercearias', 'supermercados'],
   ['oficinas mecanicas', 'mecanicas', 'oficinas'],
@@ -202,7 +203,9 @@ async function main() {
       const startedAt = Date.now();
       try {
         const raw = await callOllama(testCase.phrase);
-        const sanitized = sanitizeAiSlots(safeParseConciergeJson(raw));
+        let sanitized = sanitizeAiSlots(safeParseConciergeJson(raw));
+        // Mesmo pós-processo do runtime (guardas determinísticas do service).
+        if (sanitized) sanitized = applyDeterministicGuards(sanitized, testCase.phrase);
         if (!sanitized) {
           results.push({ id: testCase.id, pass: false, errors: ['JSON inválido da IA'], ms: Date.now() - startedAt });
           continue;

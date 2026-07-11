@@ -23,7 +23,7 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import { CreditsService } from '../credits/credits.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { getCreditActionDefinition } from '../credits/credit-action-catalog';
-import { buildExtractorMessages, channelsToRadarPreferred, computeMissingFields, ConciergeChannel, CONCIERGE_CHANNELS, ConciergeSlots, emptySlots, mergeSlots, safeParseConciergeJson, sanitizeAiSlots, slotsExecutionHash, BRAZIL_UFS } from './concierge-slots';
+import { applyDeterministicGuards, buildExtractorMessages, channelsToRadarPreferred, computeMissingFields, ConciergeChannel, CONCIERGE_CHANNELS, ConciergeSlots, emptySlots, mergeSlots, safeParseConciergeJson, sanitizeAiSlots, slotsExecutionHash, BRAZIL_UFS } from './concierge-slots';
 import { callConciergeExtractor, conciergeAiEnabled, conciergeFeatureEnabled, conciergeModel } from './concierge-ollama';
 
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24h (§2.1)
@@ -449,10 +449,10 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     };
     const first = await callConciergeExtractor(buildExtractorMessages(context, text), { companyId });
     let sanitized = sanitizeAiSlots(safeParseConciergeJson(first));
-    if (sanitized) return sanitized;
+    if (sanitized) return applyDeterministicGuards(sanitized, text);
     const second = await callConciergeExtractor(buildExtractorMessages(context, text, { retry: true }), { companyId });
     sanitized = sanitizeAiSlots(safeParseConciergeJson(second));
-    return sanitized; // null → caller cai no fluxo por chips
+    return sanitized ? applyDeterministicGuards(sanitized, text) : null; // null → fluxo por chips
   }
 
   /** Cidade SEMPRE validada contra a lista real (código, §2.2 item 4). */
@@ -468,8 +468,19 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     const normalize = (value: string) =>
       String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
     const target = normalize(slots.city);
-    const exact = (result?.items || []).find((item) => normalize(item) === target);
-    if (exact) return { slots: { ...slots, city: exact, cityValidated: true }, invalidCity: null, suggestions: [] };
+    // A lista real vem como "Cidade - UF" (E2E 11/07: "Curitiba" não casava com
+    // "Curitiba - PR"). Casa pelo item inteiro OU só pela parte da cidade; ao
+    // casar, adota o item CANÔNICO (o normalizador do Radar aceita "Cidade - UF")
+    // e resolve a UF deterministicamente pelo sufixo — código, não IA (§2.2#7).
+    const exact = (result?.items || []).find((item) => {
+      const whole = normalize(item);
+      return whole === target || normalize(String(item).split(' - ')[0]) === target;
+    });
+    if (exact) {
+      const suffix = String(exact).split(' - ')[1]?.trim().toUpperCase() || null;
+      const state = slots.state || (suffix && (BRAZIL_UFS as readonly string[]).includes(suffix) ? suffix : null);
+      return { slots: { ...slots, city: exact, state, cityValidated: true }, invalidCity: null, suggestions: [] };
+    }
     const invalid = slots.city;
     return {
       slots: { ...slots, city: null, cityValidated: false },

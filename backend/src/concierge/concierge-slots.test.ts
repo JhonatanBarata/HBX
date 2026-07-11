@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  applyDeterministicGuards,
   buildExtractorMessages,
   computeMissingFields,
   channelsToRadarPreferred,
@@ -115,6 +116,27 @@ test('buildExtractorMessages: mensagem do usuário SEMPRE delimitada e capada em
   // Instrução de sistema não vaza DADO sensível (o prompt cita "saldo/créditos"
   // só como TÓPICO out_of_scope): nada de companyId/ids internos no prompt.
   assert.doesNotMatch(messages[0].content, /companyId|draftId|runId/i);
+});
+
+test('applyDeterministicGuards: UF que o usuário NÃO disse é derrubada; dita (sigla ou extenso) fica', () => {
+  const base = { ...emptySlots(), intent: 'radar_search' as const, targetSegment: 'academias', city: 'Porto Alegre', cityValidated: true };
+  // IA deduziu RS de "poa" — usuário não disse UF → cai.
+  assert.equal(applyDeterministicGuards({ ...base, state: 'RS' }, 'acha ai umas academia poa').state, null);
+  // Sigla dita como palavra → fica.
+  assert.equal(applyDeterministicGuards({ ...base, state: 'RS' }, '15 imobiliárias em Porto Alegre RS').state, 'RS');
+  // Nome por extenso → fica.
+  assert.equal(applyDeterministicGuards({ ...base, state: 'MS' }, 'pet shop em campo grande mato grosso do sul').state, 'MS');
+  // Sigla embutida em palavra ("worms") NÃO conta.
+  assert.equal(applyDeterministicGuards({ ...base, state: 'MS' }, 'quero worms em campo grande').state, null);
+});
+
+test('applyDeterministicGuards: 2+ ramos no segmento viram null (1 busca por vez, §3 seção F)', () => {
+  const base = { ...emptySlots(), intent: 'radar_search' as const, city: 'Sorocaba', cityValidated: true };
+  assert.equal(applyDeterministicGuards({ ...base, targetSegment: 'padarias e mercados' }, 'x').targetSegment, null);
+  assert.equal(applyDeterministicGuards({ ...base, targetSegment: 'academias ou crossfit' }, 'x').targetSegment, null);
+  assert.equal(applyDeterministicGuards({ ...base, targetSegment: 'farmácias, mercados, padarias' }, 'x').targetSegment, null);
+  // 1 ramo só (mesmo composto) fica.
+  assert.equal(applyDeterministicGuards({ ...base, targetSegment: 'material de construção' }, 'x').targetSegment, 'material de construção');
 });
 
 test('buildExtractorMessages: slots coletados entram como contexto neutro', () => {

@@ -1,15 +1,15 @@
 {
   "model": "qwen3:4b-instruct",
-  "total": 5,
-  "passed": 4,
-  "injectionPassed": 0,
+  "total": 100,
+  "passed": 86,
+  "injectionPassed": 10,
   "results": [
     {
       "id": 1,
       "pass": true,
       "errors": [],
-      "confidenceDelta": 0.04999999999999993,
-      "ms": 51098,
+      "confidenceDelta": 0,
+      "ms": 60067,
       "actual": {
         "intent": "radar_search",
         "targetSegment": "clínicas odontológicas",
@@ -18,23 +18,32 @@
         "state": null,
         "desiredCount": 20,
         "channels": [],
-        "confidence": 0.9
+        "confidence": 0.95
       }
     },
     {
       "id": 2,
-      "pass": false,
-      "errors": [
-        "The operation was aborted due to timeout"
-      ],
-      "ms": 60060
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 48344,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 50,
+        "channels": [],
+        "confidence": 0.95
+      }
     },
     {
       "id": 3,
       "pass": true,
       "errors": [],
-      "confidenceDelta": 0.040000000000000036,
-      "ms": 21674,
+      "confidenceDelta": 0,
+      "ms": 23642,
       "actual": {
         "intent": "radar_search",
         "targetSegment": "pet shops",
@@ -43,15 +52,15 @@
         "state": "MG",
         "desiredCount": 10,
         "channels": [],
-        "confidence": 0.99
+        "confidence": 0.95
       }
     },
     {
       "id": 4,
       "pass": true,
       "errors": [],
-      "confidenceDelta": 0.020000000000000018,
-      "ms": 26233,
+      "confidenceDelta": 0,
+      "ms": 24693,
       "actual": {
         "intent": "radar_search",
         "targetSegment": "academias",
@@ -62,15 +71,15 @@
         "channels": [
           "whatsapp"
         ],
-        "confidence": 0.97
+        "confidence": 0.95
       }
     },
     {
       "id": 5,
       "pass": true,
       "errors": [],
-      "confidenceDelta": 0.040000000000000036,
-      "ms": 26528,
+      "confidenceDelta": 0,
+      "ms": 24459,
       "actual": {
         "intent": "radar_search",
         "targetSegment": "imobiliárias",
@@ -79,7 +88,1670 @@
         "state": "RS",
         "desiredCount": 15,
         "channels": [],
-        "confidence": 0.99
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 6,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999993,
+      "ms": 21927,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "advogados",
+        "city": "Campinas",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 25,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 7,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999993,
+      "ms": 21443,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "roupa",
+        "city": "Goiânia",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 40,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 8,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 23715,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "oficinas mecânicas",
+        "city": "São José dos Campos",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 12,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 9,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 25178,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "salões de beleza",
+        "city": "Niterói",
+        "cityValidated": false,
+        "state": "RJ",
+        "desiredCount": 20,
+        "channels": [
+          "telefone",
+          "instagram"
+        ],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 10,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 23948,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "padarias",
+        "city": "Recife",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 35,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 11,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999993,
+      "ms": 22448,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "farmácias",
+        "city": "Manaus",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 18,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 12,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24122,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "contabilidade",
+        "city": "Florianópolis",
+        "cityValidated": false,
+        "state": "SC",
+        "desiredCount": 22,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 13,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 27829,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "clínicas veterinárias",
+        "city": "Ribeirão Preto",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 8,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 14,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 27342,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "construtoras",
+        "city": "Brasília",
+        "cityValidated": false,
+        "state": "DF",
+        "desiredCount": 25,
+        "channels": [
+          "site"
+        ],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 15,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24755,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "escolas particulares",
+        "city": "Salvador",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 16,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 16,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 22354,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "dentistas",
+        "city": "Curitiba",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 17,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 20846,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": "Belo Horizonte",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 18,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 21357,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "mercadinho",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 10,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 19,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 21125,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "academia",
+        "city": "Porto Alegre",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 20,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 21905,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "pizzaria",
+        "city": "Florianópolis",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 50,
+        "channels": [
+          "whatsapp"
+        ],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 21,
+      "pass": false,
+      "errors": [
+        "cidade: esperado null, veio \"RJ\"",
+        "uf: esperado \"RJ\", veio null",
+        "missing: esperado [\"city\"], veio []"
+      ],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 23197,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "estética",
+        "city": "RJ",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 22,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 24656,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "petshop",
+        "city": "Brasília",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 15,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 23,
+      "pass": false,
+      "errors": [
+        "cidade: esperado null, veio \"CWB\"",
+        "missing: esperado [\"city\"], veio []"
+      ],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 25746,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "borracharia",
+        "city": "CWB",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 24,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.15000000000000002,
+      "ms": 26353,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "imobiliaria",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 12,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 25,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 26124,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "mecânica",
+        "city": null,
+        "cityValidated": false,
+        "state": "MG",
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 26,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 25753,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": 27,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 26175,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "dentistas",
+        "city": "Curitiba",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 15,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 28,
+      "pass": false,
+      "errors": [
+        "cidade: esperado \"Blumenau\", veio \"Blumenal\""
+      ],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 26006,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "academias",
+        "city": "Blumenal",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 29,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.1499999999999999,
+      "ms": 25212,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "imobiliárias",
+        "city": "Osasco",
+        "cityValidated": false,
+        "state": "SP",
+        "desiredCount": 10,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 30,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 24649,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "ótica",
+        "city": "Fortaleza",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 25,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 31,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 23470,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "farmácias",
+        "city": "Maceió",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 12,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 32,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 22582,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "advocacia",
+        "city": "Vitória",
+        "cityValidated": false,
+        "state": "ES",
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 33,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 22523,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "petshops",
+        "city": "Joinville",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 18,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 34,
+      "pass": false,
+      "errors": [
+        "segmento: esperado \"fisioterapia\", veio \"fisioterpia\""
+      ],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 25935,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "fisioterpia",
+        "city": "Uberlândia",
+        "cityValidated": false,
+        "state": "MG",
+        "desiredCount": 22,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 35,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 27559,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 15,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 36,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 25900,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "contabilidade",
+        "city": "Campinas",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 37,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 27068,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "material de construção",
+        "city": "Londrina",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": 38,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 26780,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "dentistas",
+        "city": "Santos",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 10,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 39,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 26737,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "pizzarias",
+        "city": "Guarulhos",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 40,
+      "pass": false,
+      "errors": [
+        "segmento: esperado \"salões de beleza\", veio \"salão de beleza\"",
+        "cidade: esperado \"São Bernardo do Campo\", veio \"São Bernardo\""
+      ],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 27756,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "salão de beleza",
+        "city": "São Bernardo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 12,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 41,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 27015,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "academia de musculação",
+        "city": "Teresina",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 42,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 26077,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "pet shop",
+        "city": "Campo Grande",
+        "cityValidated": false,
+        "state": "MS",
+        "desiredCount": 35,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 43,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 27249,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "ar condicionado",
+        "city": "Cuiabá",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 40,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 44,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 27651,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "clínicas de estética",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 45,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 25734,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 46,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24928,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "imobiliárias",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 47,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24811,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "açougues",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 15,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 48,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 25757,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "indústrias",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 49,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 24414,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "energia solar",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 50,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 50,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 23780,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "advogados trabalhistas",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 10,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 51,
+      "pass": false,
+      "errors": [
+        "intent: esperado radar_search, veio unclear",
+        "missing: esperado [\"targetSegment\",\"city\"], veio []"
+      ],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 24658,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 52,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24735,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": "Sorocaba",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": 53,
+      "pass": false,
+      "errors": [
+        "segmento: esperado null, veio \"clínicas médicas\"",
+        "missing: esperado [\"targetSegment\"], veio []"
+      ],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 27353,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "clínicas médicas",
+        "city": "Natal",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 25,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 54,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 28584,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": "Curitiba",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 55,
+      "pass": false,
+      "errors": [
+        "segmento: esperado null, veio \"pet shops\"",
+        "quantidade: esperado null, veio 20",
+        "missing: esperado [\"targetSegment\"], veio []"
+      ],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 28578,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "pet shops",
+        "city": "Osasco",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 56,
+      "pass": false,
+      "errors": [
+        "segmento: esperado null, veio \"farmácia\"",
+        "missing: esperado [\"targetSegment\"], veio []"
+      ],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 29384,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "farmácia",
+        "city": "Aracaju",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 57,
+      "pass": false,
+      "errors": [
+        "segmento: esperado null, veio \"salões de beleza\"",
+        "missing: esperado [\"targetSegment\"], veio []"
+      ],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 30996,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "salões de beleza",
+        "city": "Fortaleza",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 58,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.20000000000000007,
+      "ms": 31203,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": "Vila Velha",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 15,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 59,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 28597,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": 60,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24921,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 61,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 23859,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 62,
+      "pass": false,
+      "errors": [
+        "intent: esperado radar_search, veio unclear",
+        "missing: esperado [\"targetSegment\",\"city\"], veio []"
+      ],
+      "confidenceDelta": 0.15000000000000002,
+      "ms": 24694,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 63,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999999,
+      "ms": 24522,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 64,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 24675,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": "Santos",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": 65,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 26099,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": 66,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999999,
+      "ms": 23533,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 67,
+      "pass": false,
+      "errors": [
+        "segmento: esperado \"bares\", veio \"bebidas\""
+      ],
+      "confidenceDelta": 0,
+      "ms": 21680,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "bebidas",
+        "city": "Campinas",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 40,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 68,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 23873,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "clínicas médicas",
+        "city": "Salvador",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 69,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 23784,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "dentistas",
+        "city": "Recife",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 70,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 22001,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 71,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 19744,
+      "actual": {
+        "intent": "unclear",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.5
+      }
+    },
+    {
+      "id": 72,
+      "pass": false,
+      "errors": [
+        "segmento: esperado \"fazendas\", veio \"energia solar\"",
+        "cidade: esperado null, veio \"Goiás\"",
+        "missing: esperado [\"city\"], veio []"
+      ],
+      "confidenceDelta": 0.1499999999999999,
+      "ms": 21222,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "energia solar",
+        "city": "Goiás",
+        "cityValidated": false,
+        "state": "GO",
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 73,
+      "pass": false,
+      "errors": [
+        "segmento: esperado \"oficinas mecânicas\", veio \"autopeças\""
+      ],
+      "confidenceDelta": 0.04999999999999993,
+      "ms": 24882,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "autopeças",
+        "city": "São José do Rio Preto",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 25,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 74,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999993,
+      "ms": 24643,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "construtoras",
+        "city": "Contagem",
+        "cityValidated": false,
+        "state": "MG",
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 75,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 22410,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 76,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 21412,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 77,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.1499999999999999,
+      "ms": 21721,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "dentistas",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 50,
+        "channels": [],
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": 78,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 22712,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "padarias",
+        "city": "Santos",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 79,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 21909,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 80,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 20479,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 81,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 20307,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 82,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 22932,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "academias",
+        "city": "Curitiba",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 83,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 26306,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "farmácias",
+        "city": "Belém",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 10,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 84,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 25562,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 85,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 25266,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "restaurantes",
+        "city": "São Paulo",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 100000,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 86,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 24034,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 87,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 22393,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": "Miami",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": 88,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 22546,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": 89,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 21672,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 90,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.09999999999999998,
+      "ms": 21072,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 91,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 22120,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": 92,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.050000000000000044,
+      "ms": 20867,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 93,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18159,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 94,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18544,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 95,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18716,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 96,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18615,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 97,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18466,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 98,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18672,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 99,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18790,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 100,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0,
+      "ms": 18265,
+      "actual": {
+        "intent": "out_of_scope",
+        "targetSegment": null,
+        "city": null,
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": null,
+        "channels": [],
+        "confidence": 0.9
       }
     }
   ]
