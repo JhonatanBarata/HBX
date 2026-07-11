@@ -198,6 +198,7 @@ function ResumoDiaCard({ onFecharMes }: { onFecharMes: () => void }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
 
   const fecharMes = useCallback(() => {
@@ -272,6 +273,7 @@ export function LogisticaClient() {
       .finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
 
   // "Gerar entregas de hoje" (admin): materializa as entregas recorrentes vencidas.

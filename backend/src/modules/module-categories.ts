@@ -61,3 +61,73 @@ export function parseCompanyModuleCategories(raw: unknown): ModuleCategoryKey[] 
     return [];
   }
 }
+
+// ─── CORREÇÃO 11/07 (pós-revisão PR10072026) — escrita por INTENÇÃO ─────────
+//
+// O POST /profile/module-categories manda só o CONJUNTO de categorias ligadas.
+// Gravar cegamente enabled=false em todo módulo fora do conjunto desligava
+// módulos VIVOS por efeito colateral (categoria parcial — ex.: atendimento ON
+// + bot OFF — era reportada como desligada pelo options e sumia do POST; o
+// próximo toggle de QUALQUER outra categoria matava o atendimento da empresa).
+// Regra nova, por categoria, comparando a INTENÇÃO (target) com o estado atual:
+//   · target ON  + algum módulo já ON → NADA (preserva o mix por módulo; o
+//     options reporta categoria parcial como ligada — semântica ANY)
+//   · target ON  + tudo OFF           → liga todos (teto do master pula → skipped)
+//   · target OFF + categoria travada  → NADA (tenant não governa locked; a UI a
+//     esconde, logo ausência no POST não é intenção) — módulos ON viram skipped
+//   · target OFF + algum módulo ON    → desliga todos (toggle real do usuário)
+//   · target OFF + tudo já OFF        → NADA (idempotente)
+
+export type CategoryModuleState = {
+  key: string;
+  // Linha de CompanyModule ? (masterEnabled && enabled) : SystemModule.defaultEnabled.
+  effective: boolean;
+  // Linha com masterEnabled === false (teto do master).
+  ceilingOff: boolean;
+  // Módulo fora do catálogo/companyAssignable (categoria vira locked, fail-closed).
+  missing?: boolean;
+};
+
+export type CategoryWritePlan = {
+  writes: Array<{ moduleKey: string; enabled: boolean }>;
+  skippedModuleKeys: string[];
+};
+
+export function planCategoryModuleWrites(
+  target: boolean,
+  modules: CategoryModuleState[],
+): CategoryWritePlan {
+  const writes: CategoryWritePlan['writes'] = [];
+  const skippedModuleKeys: string[] = [];
+  const anyOn = modules.some((m) => !m.missing && m.effective);
+  const locked = modules.some((m) => m.missing || m.ceilingOff);
+
+  if (target) {
+    if (anyOn) return { writes, skippedModuleKeys }; // já ligada (mesmo parcial)
+    for (const m of modules) {
+      if (m.missing) continue;
+      if (m.ceilingOff) {
+        skippedModuleKeys.push(m.key);
+        continue;
+      }
+      writes.push({ moduleKey: m.key, enabled: true });
+    }
+    return { writes, skippedModuleKeys };
+  }
+
+  if (locked) {
+    // Categoria travada não é governável pelo tenant: nada é escrito; o que
+    // está ON e ficou intocado entra em skipped (informativo pro front).
+    for (const m of modules) {
+      if (!m.missing && m.effective) skippedModuleKeys.push(m.key);
+    }
+    return { writes, skippedModuleKeys };
+  }
+
+  if (!anyOn) return { writes, skippedModuleKeys }; // já desligada
+  for (const m of modules) {
+    if (m.missing) continue;
+    writes.push({ moduleKey: m.key, enabled: false });
+  }
+  return { writes, skippedModuleKeys };
+}

@@ -58,6 +58,7 @@ export function useEmpresaNome(): string {
     let vivo = true;
     try {
       const cache = localStorage.getItem(LS_EMPRESA_NOME);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lê localStorage (indisponível no SSR) 1x no mount; efeito legítimo
       if (cache) setNome(cache);
     } catch {
       /* sem storage */

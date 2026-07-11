@@ -85,6 +85,7 @@ export function AssistenteClient() {
       setLoading(false);
     }
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar, não estado derivado.
   useEffect(() => { void load(); }, [load]);
 
   const empresaPadrao = user?.company?.name || "";
@@ -312,6 +313,7 @@ function Editor({ assistente, publishEnabled, onRefazer, onSaved }: {
   const [published, setPublished] = useState(assistente.published);
   const [note, setNote] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- resincroniza o editor quando a prop `assistente` muda; efeito legítimo
   useEffect(() => { setFluxo(assistente.fluxo || emptyFluxo()); setPublished(assistente.published); }, [assistente]);
 
   const mutate = useCallback((next: Fluxo) => { setFluxo(next); setDirty(true); }, []);

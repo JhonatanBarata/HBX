@@ -51,7 +51,9 @@ function buildController(opts?: { balance?: number; companyExists?: boolean }) {
     },
   };
 
-  const controller = new CreditsMasterController({} as any, wallet, prisma);
+  // PR11072026 W1 acrescentou o 4º parâmetro (CreditActionConfigService) ao construtor —
+  // fora do escopo deste teste (catálogo de ações), fake vazio basta.
+  const controller = new CreditsMasterController({} as any, wallet, prisma, {} as any);
   return { controller, debitCalls, masterEvents };
 }
 

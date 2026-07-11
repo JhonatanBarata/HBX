@@ -372,3 +372,170 @@ export class UpdateContatoDto {
   @IsBoolean()
   isPrincipal?: boolean;
 }
+
+// ── MULTILOCAL (10/07) — CRUD de LocalEntrega (N endereços de entrega por CONTA) ──
+//
+// A CONTA (customerProfileId) segue com UMA cobrança; multi-local é só ONDE se
+// entrega. companyId sai do JWT; customerProfileId vem da ROTA (:id), nunca do body.
+export class CreateLocalDto {
+  // rótulo curto e opcional ("Casa" | "Loja" | "Depósito").
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  apelido?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  endereco?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  numero?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  bairro?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cidade?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  uf?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  cep?: string;
+
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+
+  // Origem do pino (mesma convenção do perfil). 'gps_entrega' é EXCLUSIVO do confirmar
+  // (LogisticaService), nunca aceito aqui — o serviço ignora qualquer outro valor.
+  @IsOptional()
+  @IsString()
+  @IsIn(['geocode', 'gps_cadastro'])
+  geoFonte?: string;
+
+  // Marca este local como principal (desmarca os outros). O 1º local nasce principal
+  // mesmo sem esta flag (regra do serviço).
+  @IsOptional()
+  @IsBoolean()
+  isPrincipal?: boolean;
+}
+
+// Editar local (parcial) — os MESMOS campos, todos opcionais.
+export class UpdateLocalDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  apelido?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  endereco?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  numero?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  bairro?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cidade?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  uf?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  cep?: string;
+
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['geocode', 'gps_cadastro'])
+  geoFonte?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrincipal?: boolean;
+}
+
+// ── MULTILOCAL (10/07) — CRUD de telefones (via Contato) ─────────────────────────
+//
+// Um "telefone" é um Contato carregando whatsapp/phone. Exige ao menos um número
+// (validado no serviço); sem `nome`, o próprio número vira o rótulo. companyId sai do
+// JWT; customerProfileId vem da ROTA (:id) no POST.
+export class CreateTelefoneDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  nome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  whatsapp?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrincipal?: boolean;
+}
+
+// Editar telefone (parcial) — reusa a edição de Contato no serviço.
+export class UpdateTelefoneDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(160)
+  nome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  whatsapp?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrincipal?: boolean;
+}

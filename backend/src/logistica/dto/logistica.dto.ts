@@ -211,6 +211,13 @@ export class CreateClienteProdutoDto {
   @IsOptional()
   @IsBoolean()
   ativo?: boolean;
+
+  // MULTILOCAL (10/07) — em qual LocalEntrega este vínculo é entregue (default =
+  // local principal do cliente). O serviço valida que o local é do mesmo cliente.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  localId?: string;
 }
 
 // Update: todos opcionais (PATCH parcial). customerProfileId/productId NÃO mudam
@@ -246,6 +253,12 @@ export class UpdateClienteProdutoDto {
   @IsOptional()
   @IsBoolean()
   ativo?: boolean;
+
+  // MULTILOCAL (10/07) — trocar o local de entrega deste vínculo (valida cliente).
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  localId?: string;
 }
 
 // ── LOGÍSTICA-MOBILE M2 — gerar entregas do dia ──────────────────────────────

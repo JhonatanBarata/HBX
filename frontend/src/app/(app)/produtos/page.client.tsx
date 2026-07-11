@@ -236,6 +236,7 @@ export function ProdutosClient() {
       .finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
 
   async function inativar(p: Produto) {

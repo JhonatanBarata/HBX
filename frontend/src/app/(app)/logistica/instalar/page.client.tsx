@@ -29,6 +29,7 @@ export function LogisticaInstalarClient() {
   const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lê window.location (indisponível no SSR) 1x no mount; efeito legítimo, não estado derivado.
     if (typeof window !== "undefined") setOrigin(window.location.origin);
   }, []);
 

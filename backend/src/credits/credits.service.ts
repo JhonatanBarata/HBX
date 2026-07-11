@@ -670,14 +670,21 @@ export class CreditsService {
    * `CommercialUsageLimitsService`) sabe o role de quem está agindo; se não informado,
    * assume o pior caso (vendedor) e nunca vaza financeiro por omissão.
    */
-  private throwBlocked(reason: 'no_balance' | 'seller_cap_monthly' | 'seller_cap_daily', isBillingAudienceUser: boolean) {
+  private throwBlocked(
+    reason: 'no_balance' | 'seller_cap_monthly' | 'seller_cap_daily' | 'chargeback_debt',
+    isBillingAudienceUser: boolean,
+  ) {
     if (isBillingAudienceUser) {
+      const message =
+        reason === 'no_balance'
+          ? 'Saldo de créditos esgotado. Recarregue para continuar recebendo leads.'
+          : reason === 'chargeback_debt'
+            ? 'Há uma recarga estornada com créditos já consumidos. Regularize a pendência com uma nova recarga para voltar a receber leads.'
+            : 'Teto de créditos do vendedor atingido no período.';
       throw new ConflictException({
         ok: false,
-        code: 'CREDIT_BALANCE_EXHAUSTED',
-        message: reason === 'no_balance'
-          ? 'Saldo de créditos esgotado. Recarregue para continuar recebendo leads.'
-          : 'Teto de créditos do vendedor atingido no período.',
+        code: reason === 'chargeback_debt' ? 'CREDIT_CHARGEBACK_DEBT' : 'CREDIT_BALANCE_EXHAUSTED',
+        message,
         reason,
       });
     }
@@ -717,6 +724,14 @@ export class CreditsService {
 
     const isBillingAudienceUser = Boolean(input?.isBillingAudienceUser);
     const now = new Date();
+
+    // P0.3 HOLD — recarga estornada/chargeback cujos créditos já foram consumidos vira DÍVIDA que
+    // BLOQUEIA novas entregas até ser quitada por crédito novo (decisão do dono 10/07). Fail-closed
+    // a favor do caixa: nunca entrega de graça depois de um estorno. Bloqueio de EMPRESA — vem
+    // antes do teto individual do vendedor. Quitação: settleChargebackDebtFromBalance (via grant).
+    if ((await this.wallet.getChargebackDebt(companyIdNum)) > 0) {
+      this.throwBlocked('chargeback_debt', isBillingAudienceUser);
+    }
 
     // S4 — teto individual do vendedor ANTES do débito da empresa.
     const cap = await this.checkSellerCreditCap(companyIdNum, userId, now);

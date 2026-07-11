@@ -4644,12 +4644,26 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       );
 
       if (result.shortfall > 0 && !result.alreadyProcessed) {
-        // Crédito já consumido antes do estorno = dívida. NÃO bloqueia consumo automático
-        // (decisão aberta do dono) — registra a dívida em créditos e em R$ pro master agir.
+        // Crédito já consumido antes do estorno = DÍVIDA. Decisão do dono 10/07: BLOQUEIA novas
+        // entregas até quitar. Persiste a dívida na carteira (o choke de entrega lê e trava) e
+        // alerta o master em créditos e R$. Idempotente por paymentId (webhook duplicado não dobra).
         const chargeAmount = this.normalizeCurrencyAmount(charge.amount);
         const debtValue = this.normalizeCurrencyAmount(
           lot.amount > 0 ? (chargeAmount * result.shortfall) / lot.amount : 0,
         );
+        await this.creditWallet.registerChargebackDebt(charge.companyId, {
+          amount: result.shortfall,
+          usageKey: `chargeback-debt:${paymentIdentity}`,
+          parentLotId: lot.id,
+          sourceRef: paymentIdentity,
+          userId: context.actorUserId ?? null,
+          metadata: {
+            chargeId: charge.id,
+            paymentId: paymentIdentity,
+            trigger: context.trigger,
+            providerStatus: context.providerStatus,
+          },
+        });
         await emitMasterEvent(this.prisma, {
           type: 'credit.recharge_reversal_shortfall',
           severity: 'action_required',
@@ -4664,6 +4678,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
             debtCredits: result.shortfall,
             debtValue,
             chargeAmount,
+            hold: true,
             trigger: context.trigger,
             providerStatus: context.providerStatus,
           },

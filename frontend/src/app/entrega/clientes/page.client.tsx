@@ -20,6 +20,7 @@
 //  ZERO jargão ERP, ZERO texto explicativo em parágrafo (Lei do plano).
 // ================================================================
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CascaLoading, CascaView, showCascaToast } from "@/components/casca";
@@ -46,17 +47,26 @@ import {
   type ClienteProduto,
   type ExtratoResult,
   type FormaPagamento,
+  type LocalCliente,
   type MetodoPadrao,
   type PendenciaCliente,
   type ProdutoOption,
+  type TelefoneCliente,
   PENDENCIA_LABEL,
   criarCliente,
   criarClienteProduto,
+  criarLocal,
+  criarTelefone,
   editarCliente,
   editarContatoPrincipal,
+  editarLocal,
+  editarLocalClienteProduto,
+  editarTelefone,
   enderecoCurtoCliente,
   excluirCliente,
   excluirClienteProduto,
+  excluirLocal,
+  excluirTelefone,
   getExtrato,
   listEntregasCliente,
   mergeClientes,
@@ -230,7 +240,7 @@ function ClienteLista({
         />
       </div>
 
-      {/* W6 — filtro da semana em balões (1 linha): Todos + dias de trabalho. */}
+      {/* W6 — filtro da semana em balões (quebram em linha, tamanho natural): Todos + dias de trabalho. */}
       <div className="ent-chips ent-chips--fit ent-filtro-dias">
         <button
           type="button"
@@ -544,6 +554,10 @@ function ClienteEditor({
   onSair: (saved?: boolean) => void;
 }) {
   const editando = id != null;
+  // W4 (PR10072026) — botão "Financeiro" da ficha → detalhe financeiro do
+  // cliente na tela /entrega/financeiro (deep-link ?cliente=ID). NÃO confundir
+  // com o contrato de cobrança (salvarFinanceiro/seção Forma de pagamento).
+  const router = useRouter();
   const [carregando, setCarregando] = useState<boolean>(editando);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -590,6 +604,13 @@ function ClienteEditor({
   const [contatoPrincipalId, setContatoPrincipalId] = useState<string | null>(null);
   const [whatsappOriginal, setWhatsappOriginal] = useState("");
 
+  // MULTILOCAL 10/07 — outros telefones (Contato) + outros endereços
+  // (LocalEntrega) da ficha; o WhatsApp/bloco de endereço acima seguem sendo
+  // o PRINCIPAL de cada lista (contatoPrincipalId acima / localPrincipalId).
+  const [telefones, setTelefones] = useState<TelefoneCliente[]>([]);
+  const [locais, setLocais] = useState<LocalCliente[]>([]);
+  const [localPrincipalId, setLocalPrincipalId] = useState<string | null>(null);
+
   // Produtos do cliente. TASK 5a — deixou de ser exclusivo do modo edição:
   // em modo criar começa em [] e vira a LISTA LOCAL PENDENTE (ProdutosDoCliente
   // guarda ali até o salvar() criar os vínculos de verdade).
@@ -634,18 +655,50 @@ function ClienteEditor({
         setNome(c.name || "");
         setWhatsapp(fmtTelefone(c.whatsapp || ""));
         setWhatsappOriginal(fmtTelefone(c.whatsapp || ""));
+        // MULTILOCAL 10/07 — locais[]/telefones[] são aditivos e fail-soft (backend
+        // sem os campos novos ainda = listas vazias, endereço cai no fallback legado
+        // abaixo). `locais` chega com o principal primeiro (contrato W-C).
+        const locaisArr = Array.isArray(c.locais) ? c.locais : [];
+        const telefonesArr = Array.isArray(c.telefones) ? c.telefones : [];
+        const localPrincipal = locaisArr.find((l) => l.isPrincipal) ?? locaisArr[0] ?? null;
+        setLocais(locaisArr);
+        setTelefones(telefonesArr);
+        setLocalPrincipalId(localPrincipal?.id ?? null);
         // B3 — o backend agora traz número/bairro em coluna própria (dupla escrita).
         // Reconstrói os campos a partir das partes: a rua fica SÓ com o logradouro
         // (não o texto composto inteiro), então reeditar não reanexa o número.
-        setCep(formatarCep(c.cep || ""));
-        const partes = separarEndereco(c.endereco, c.numero, c.bairro);
-        setLogradouro(partes.logradouro);
-        setNumero(partes.numero);
-        setBairro(partes.bairro);
-        setCidade(c.cidade || "");
-        setUf(c.uf || "");
-        setCoord(typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng } : null);
-        setCoordFonte(c.geoFonte === "geocode" || c.geoFonte === "gps_cadastro" ? c.geoFonte : null);
+        // MULTILOCAL 10/07 — com locais[] presente, o bloco único passa a editar o
+        // local PRINCIPAL (não mais o endereço solto da conta); sem locais (legado/
+        // backend antigo), cai no fallback de sempre.
+        if (localPrincipal) {
+          setCep(formatarCep(localPrincipal.cep || ""));
+          const partes = separarEndereco(localPrincipal.endereco, localPrincipal.numero, localPrincipal.bairro);
+          setLogradouro(partes.logradouro);
+          setNumero(partes.numero);
+          setBairro(partes.bairro);
+          setCidade(localPrincipal.cidade || "");
+          setUf(localPrincipal.uf || "");
+          setCoord(
+            typeof localPrincipal.lat === "number" && typeof localPrincipal.lng === "number"
+              ? { lat: localPrincipal.lat, lng: localPrincipal.lng }
+              : null,
+          );
+          setCoordFonte(
+            localPrincipal.geoFonte === "geocode" || localPrincipal.geoFonte === "gps_cadastro"
+              ? localPrincipal.geoFonte
+              : null,
+          );
+        } else {
+          setCep(formatarCep(c.cep || ""));
+          const partes = separarEndereco(c.endereco, c.numero, c.bairro);
+          setLogradouro(partes.logradouro);
+          setNumero(partes.numero);
+          setBairro(partes.bairro);
+          setCidade(c.cidade || "");
+          setUf(c.uf || "");
+          setCoord(typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng } : null);
+          setCoordFonte(c.geoFonte === "geocode" || c.geoFonte === "gps_cadastro" ? c.geoFonte : null);
+        }
         setForma((c.formaPagamento as FormaPagamento) || "aberto");
         setMetodo((c.metodoPadrao as MetodoPadrao) || "");
         setDiaFechamento(c.diaFechamento ? String(c.diaFechamento) : "");
@@ -663,6 +716,47 @@ function ClienteEditor({
       vivo = false;
     };
   }, [editando, id]);
+
+  // MULTILOCAL 10/07 — recarrega só o necessário após CRUD de telefone/endereço
+  // (add/tornar principal/remover nas listas secundárias): sem o spinner cheio
+  // da carga inicial, só resincroniza WhatsApp/bloco de endereço (podem ter
+  // trocado de "quem é o principal") + as duas listas.
+  const recarregarFicha = useCallback(async () => {
+    if (!id) return;
+    try {
+      const c = await getCliente(id);
+      const locaisArr = Array.isArray(c.locais) ? c.locais : [];
+      const telefonesArr = Array.isArray(c.telefones) ? c.telefones : [];
+      const localPrincipal = locaisArr.find((l) => l.isPrincipal) ?? locaisArr[0] ?? null;
+      setLocais(locaisArr);
+      setTelefones(telefonesArr);
+      setLocalPrincipalId(localPrincipal?.id ?? null);
+      setContatoPrincipalId(c.contatoPrincipalId);
+      setWhatsapp(fmtTelefone(c.whatsapp || ""));
+      setWhatsappOriginal(fmtTelefone(c.whatsapp || ""));
+      if (localPrincipal) {
+        setCep(formatarCep(localPrincipal.cep || ""));
+        const partes = separarEndereco(localPrincipal.endereco, localPrincipal.numero, localPrincipal.bairro);
+        setLogradouro(partes.logradouro);
+        setNumero(partes.numero);
+        setBairro(partes.bairro);
+        setCidade(localPrincipal.cidade || "");
+        setUf(localPrincipal.uf || "");
+        setCoord(
+          typeof localPrincipal.lat === "number" && typeof localPrincipal.lng === "number"
+            ? { lat: localPrincipal.lat, lng: localPrincipal.lng }
+            : null,
+        );
+        setCoordFonte(
+          localPrincipal.geoFonte === "geocode" || localPrincipal.geoFonte === "gps_cadastro"
+            ? localPrincipal.geoFonte
+            : null,
+        );
+      }
+    } catch {
+      /* recarregar é best-effort: falha não derruba a ficha já carregada */
+    }
+  }, [id]);
 
   // W6 — papel: o botão "Excluir cliente" é admin-only (fail-closed no helper).
   const [admin, setAdmin] = useState(false);
@@ -854,6 +948,26 @@ function ClienteEditor({
         });
         contaId = criada.contaId;
 
+        // MULTILOCAL 10/07 — o 1º local nasce PRINCIPAL sozinho (contrato W-C).
+        // Best-effort: se o endpoint ainda não estiver no ar, o cadastro legado
+        // (endereco/numero/... na própria conta, acima) já cobre o essencial.
+        if (enderecoFinal || cepFinal || coord) {
+          try {
+            await criarLocal(contaId, {
+              endereco: enderecoFinal || undefined,
+              numero: numero.trim() || undefined,
+              bairro: bairro.trim() || undefined,
+              cidade: cidade.trim() || undefined,
+              uf: uf.trim() || undefined,
+              cep: cepFinal,
+              ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+              ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
+            });
+          } catch {
+            /* best-effort — não trava o cadastro do cliente */
+          }
+        }
+
         // TASK 5a — produtos montados AINDA no cadastro (lista local pendente
         // do ProdutosDoCliente): agora que a conta existe, cria os vínculos de
         // verdade. Best-effort por item — um produto falhar NÃO desfaz o
@@ -893,6 +1007,29 @@ function ClienteEditor({
         if (contatoPrincipalId && whatsapp.trim() !== whatsappOriginal.trim()) {
           await editarContatoPrincipal(contatoPrincipalId, whatsapp.trim());
         }
+
+        // MULTILOCAL 10/07 — upsert do local PRINCIPAL: já existe → edita; senão
+        // (legado sem locais ainda) cria o 1º (nasce principal sozinho). Best-effort
+        // — o editarCliente acima já gravou o endereço legado da conta de qualquer jeito.
+        try {
+          const payloadLocal = {
+            endereco: enderecoFinal || undefined,
+            numero: numero.trim() || undefined,
+            bairro: bairro.trim() || undefined,
+            cidade: cidade.trim() || undefined,
+            uf: uf.trim() || undefined,
+            cep: cepFinal,
+            ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+            ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
+          };
+          if (localPrincipalId) {
+            await editarLocal(localPrincipalId, payloadLocal);
+          } else if (enderecoFinal || cepFinal || coord) {
+            await criarLocal(id, payloadLocal);
+          }
+        } catch {
+          /* best-effort — não trava a edição do cliente */
+        }
       }
 
       // Forma de pagamento (endpoint ADMIN separado). Sempre grava — é o contrato.
@@ -906,7 +1043,7 @@ function ClienteEditor({
       setSalvando(false);
     }
   }, [
-    podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId,
+    podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId, localPrincipalId,
     comporEndereco, numero, bairro, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
     limiteFiado, produtos, onSair,
   ]);
@@ -931,6 +1068,15 @@ function ClienteEditor({
           <span className="ent-field-label">WhatsApp</span>
           <input ref={whatsappRef} className="ent-input" type="tel" inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(fmtTelefone(e.target.value))} placeholder="(85) 90000-0000" />
         </label>
+
+        {/* MULTILOCAL 10/07 — outros telefones do cliente (o WhatsApp acima É
+            o principal); só em edição, precisa da conta já existir. */}
+        {editando && id ? (
+          <>
+            <div className="ent-field-label ent-section">Telefones</div>
+            <TelefonesDoCliente clienteId={id} telefones={telefones} onRecarregar={() => void recarregarFicha()} />
+          </>
+        ) : null}
 
         {/* CEP — a porta de entrada: digitou 8 dígitos, o endereço se preenche. */}
         <label className="ent-field">
@@ -1010,6 +1156,15 @@ function ClienteEditor({
           <div className="ent-map">
             <iframe title="Mapa do endereço" src={mapaEmbedUrl(coord)} loading="lazy" />
           </div>
+        ) : null}
+
+        {/* MULTILOCAL 10/07 — outros endereços do cliente (o bloco acima edita
+            o PRINCIPAL); só em edição, precisa da conta já existir. */}
+        {editando && id ? (
+          <>
+            <div className="ent-field-label ent-section">Endereços</div>
+            <EnderecosDoCliente clienteId={id} locais={locais} onRecarregar={() => void recarregarFicha()} />
+          </>
         ) : null}
 
         {/* FORMA DE PAGAMENTO */}
@@ -1124,6 +1279,14 @@ function ClienteEditor({
                 ) : null}
               </>
             ) : null}
+            {/* W4 — detalhe financeiro completo (entregas + baixa manual). */}
+            <button
+              type="button"
+              className="ent-btn ent-btn--secondary"
+              onClick={() => router.push(`/entrega/financeiro?cliente=${encodeURIComponent(id!)}`)}
+            >
+              Financeiro
+            </button>
           </>
         ) : null}
 
@@ -1135,6 +1298,7 @@ function ClienteEditor({
           catalogo={catalogo}
           produtos={produtos ?? []}
           diasTrabalho={diasTrabalho}
+          locais={locais}
           onMudou={setProdutos}
         />
 
@@ -1200,12 +1364,14 @@ function ProdutosDoCliente({
   catalogo,
   produtos,
   diasTrabalho,
+  locais,
   onMudou,
 }: {
   clienteId: string | null;
   catalogo: ProdutoOption[];
   produtos: ClienteProduto[];
   diasTrabalho: string | null;
+  locais: LocalCliente[];
   onMudou: (p: ClienteProduto[]) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -1221,6 +1387,15 @@ function ProdutosDoCliente({
   // TASK 6a — só os dias configurados em Ajustes entram no multiselect
   // (vazio/null = sem restrição configurada, mostra os 7 de sempre).
   const diasPermitidosLista = useMemo(() => diasPermitidos(diasTrabalho), [diasTrabalho]);
+
+  // MULTILOCAL 10/07 — "entregar em [local]": só aparece com 2+ locais ativos
+  // (1 local só = sem ambiguidade, zero UI extra — Lei do "zero textão").
+  const locaisAtivos = useMemo(() => locais.filter((l) => l.ativo !== false), [locais]);
+  const localPrincipalId = useMemo(
+    () => locaisAtivos.find((l) => l.isPrincipal)?.id ?? locaisAtivos[0]?.id ?? "",
+    [locaisAtivos],
+  );
+  const [localId, setLocalId] = useState("");
 
   // TASK 5b — o backend não bloqueia mais produto repetido (o @@unique saiu):
   // qualquer produto do catálogo fica sempre selecionável, inclusive já vinculado.
@@ -1240,6 +1415,9 @@ function ProdutosDoCliente({
       const frequenciaNum = modo === "dias" && freq.trim() ? Math.max(1, Number(freq)) : null;
       const precoNum = preco.trim() ? Math.max(0, Number(preco.replace(",", "."))) : null;
       const qtdNum = Math.max(1, Number(qtd) || 1);
+      // MULTILOCAL 10/07 — só manda localId em modo edição (create/pendente não
+      // tem locais carregados: cliente ainda não existe).
+      const localIdFinal = clienteId ? localId || localPrincipalId || undefined : undefined;
 
       let novo: ClienteProduto;
       if (!clienteId) {
@@ -1255,17 +1433,31 @@ function ProdutosDoCliente({
           diasSemana: diasSemanaCsv,
           proximaData: null,
           ativo: true,
+          localId: null,
           produto: cat ? { id: cat.id, nome: cat.nome, unidade: cat.unidade, precoCatalogo: cat.precoCatalogo } : null,
         };
       } else {
-        novo = await criarClienteProduto({
+        const payloadBase = {
           customerProfileId: clienteId,
           productId: pid,
           qtdPadrao: qtdNum,
           ...(diasSemanaCsv ? { diasSemana: diasSemanaCsv } : {}),
           ...(!diasSemanaCsv && frequenciaNum ? { frequenciaDias: frequenciaNum } : {}),
           ...(precoNum != null ? { precoAcordado: precoNum } : {}),
-        });
+        };
+        try {
+          novo = await criarClienteProduto(localIdFinal ? { ...payloadBase, localId: localIdFinal } : payloadBase);
+        } catch (errLocal) {
+          // MULTILOCAL 10/07 — o backend pode ainda não whitelistar localId neste
+          // DTO (400 forbidNonWhitelisted, W-B em voo): tenta de novo sem, pra não
+          // travar o cadastro do produto. Some sozinho quando o campo aterrissar.
+          const ap = errLocal as ApiError;
+          if (localIdFinal && ap?.status === 400) {
+            novo = await criarClienteProduto(payloadBase);
+          } else {
+            throw errLocal;
+          }
+        }
       }
       onMudou([...produtos, novo]);
       setAddOpen(false);
@@ -1275,12 +1467,13 @@ function ProdutosDoCliente({
       setFreq("");
       setDiasSemana([]);
       setPreco("");
+      setLocalId("");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao adicionar");
     } finally {
       setSalvando(false);
     }
-  }, [clienteId, productId, qtd, modo, freq, diasSemana, preco, produtos, catalogo, onMudou]);
+  }, [clienteId, productId, qtd, modo, freq, diasSemana, preco, produtos, catalogo, localId, localPrincipalId, onMudou]);
 
   const alternar = useCallback(
     async (p: ClienteProduto) => {
@@ -1294,6 +1487,24 @@ function ProdutosDoCliente({
         onMudou(produtos.map((x) => (x.id === p.id ? atualizado : x)));
       } catch {
         /* falha de toggle não derruba a ficha */
+      }
+    },
+    [clienteId, produtos, onMudou],
+  );
+
+  // MULTILOCAL 10/07 — trocar o local de um vínculo JÁ existente (o update
+  // manda localId, igual ao create em `adicionar` acima).
+  const mudarLocal = useCallback(
+    async (p: ClienteProduto, novoLocalId: string) => {
+      if (!clienteId) {
+        onMudou(produtos.map((x) => (x.id === p.id ? { ...x, localId: novoLocalId } : x)));
+        return;
+      }
+      try {
+        const atualizado = await editarLocalClienteProduto(p.id, novoLocalId);
+        onMudou(produtos.map((x) => (x.id === p.id ? atualizado : x)));
+      } catch {
+        /* falha ao mudar local não derruba a ficha */
       }
     },
     [clienteId, produtos, onMudou],
@@ -1331,6 +1542,21 @@ function ProdutosDoCliente({
                 {p.qtdPadrao} {p.produto?.unidade || "un"} · {recorrenciaLabel(p)}
                 {p.precoAcordado != null ? ` · R$ ${p.precoAcordado.toFixed(2)}` : ""}
               </div>
+              {/* MULTILOCAL 10/07 — "entregar em [local]" só com 2+ locais ativos. */}
+              {locaisAtivos.length > 1 ? (
+                <select
+                  className="ent-input ent-prod-local"
+                  aria-label="Entregar em"
+                  value={p.localId || localPrincipalId}
+                  onChange={(e) => void mudarLocal(p, e.target.value)}
+                >
+                  {locaisAtivos.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.apelido || enderecoCurtoCliente(l) || "Endereço"}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
             <div className="ent-prod-actions">
               <button type="button" className="ent-chip" onClick={() => void alternar(p)}>
@@ -1361,6 +1587,21 @@ function ProdutosDoCliente({
             <span className="ent-field-label">Quantidade</span>
             <input className="ent-input" type="number" inputMode="numeric" min={1} value={qtd} onChange={(e) => setQtd(e.target.value)} />
           </label>
+
+          {/* MULTILOCAL 10/07 — "entregar em [local]" só com 2+ locais ativos
+              (1 local só = principal por padrão, zero UI extra). */}
+          {locaisAtivos.length > 1 ? (
+            <label className="ent-field">
+              <span className="ent-field-label">Entregar em</span>
+              <select className="ent-input" value={localId || localPrincipalId} onChange={(e) => setLocalId(e.target.value)}>
+                {locaisAtivos.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.apelido || enderecoCurtoCliente(l) || "Endereço"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           {/* RECORRÊNCIA — 2 modos: a cada N dias OU dias fixos da semana. */}
           <div className="ent-field-label ent-section">Quando entregar</div>
@@ -1431,6 +1672,451 @@ function ProdutosDoCliente({
           disabled={catalogo.length === 0}
         >
           ＋ Adicionar produto
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── MULTILOCAL 10/07 — TELEFONES DO CLIENTE (Contato, N por conta) ───────────
+// O WhatsApp do topo do editor É o principal (mesmo Contato de sempre, editado
+// por editarContatoPrincipal); aqui só os OUTROS — adicionar, tornar principal
+// (troca atômica no backend) e remover. Só existe em edição (precisa da conta).
+function TelefonesDoCliente({
+  clienteId,
+  telefones,
+  onRecarregar,
+}: {
+  clienteId: string;
+  telefones: TelefoneCliente[];
+  onRecarregar: () => void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [nome, setNome] = useState("");
+  const [numero, setNumero] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+
+  const outros = useMemo(() => telefones.filter((t) => !t.isPrincipal), [telefones]);
+
+  const adicionar = useCallback(async () => {
+    if (!numero.trim()) {
+      setErro("Informe o telefone");
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    try {
+      await criarTelefone(clienteId, { nome: nome.trim() || undefined, whatsapp: numero.trim() });
+      setAddOpen(false);
+      setNome("");
+      setNumero("");
+      onRecarregar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Falha ao adicionar telefone");
+    } finally {
+      setSalvando(false);
+    }
+  }, [clienteId, nome, numero, onRecarregar]);
+
+  const tornarPrincipal = useCallback(
+    async (t: TelefoneCliente) => {
+      setOcupadoId(t.id);
+      setErro(null);
+      try {
+        await editarTelefone(t.id, { isPrincipal: true });
+        onRecarregar();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Falha ao tornar principal");
+      } finally {
+        setOcupadoId(null);
+      }
+    },
+    [onRecarregar],
+  );
+
+  const remover = useCallback(
+    async (t: TelefoneCliente) => {
+      if (typeof window !== "undefined" && !window.confirm("Remover este telefone?")) return;
+      setOcupadoId(t.id);
+      setErro(null);
+      try {
+        await excluirTelefone(t.id);
+        onRecarregar();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Falha ao remover telefone");
+      } finally {
+        setOcupadoId(null);
+      }
+    },
+    [onRecarregar],
+  );
+
+  return (
+    <div className="ent-multi-list">
+      {outros.map((t) => (
+        <div className="ent-multi-row" key={t.id}>
+          <div className="ent-multi-main">
+            <div className="ent-multi-name">{t.nome || "Telefone"}</div>
+            <div className="ent-multi-sub">{fmtTelefone(t.whatsapp || t.phone || "")}</div>
+          </div>
+          <div className="ent-multi-actions">
+            <button type="button" className="ent-chip" onClick={() => void tornarPrincipal(t)} disabled={ocupadoId === t.id}>
+              Tornar principal
+            </button>
+            <button
+              type="button"
+              className="ent-multi-remove"
+              aria-label="Remover telefone"
+              onClick={() => void remover(t)}
+              disabled={ocupadoId === t.id}
+            >
+              −
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {erro ? <div className="ent-erro">{erro}</div> : null}
+
+      {addOpen ? (
+        <div className="ent-multi-add">
+          <label className="ent-field">
+            <span className="ent-field-label">Nome</span>
+            <input className="ent-input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Opcional" />
+          </label>
+          <label className="ent-field">
+            <span className="ent-field-label">Telefone</span>
+            <input
+              className="ent-input"
+              type="tel"
+              inputMode="tel"
+              value={numero}
+              onChange={(e) => setNumero(fmtTelefone(e.target.value))}
+              placeholder="(85) 90000-0000"
+            />
+          </label>
+          <div className="ent-sheet-actions">
+            <button type="button" className="ent-btn ent-btn--primary" onClick={() => void adicionar()} disabled={salvando}>
+              {salvando ? "Adicionando…" : "Adicionar telefone"}
+            </button>
+            <button type="button" className="ent-btn ent-btn--ghost" onClick={() => setAddOpen(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="ent-btn ent-btn--add" onClick={() => setAddOpen(true)}>
+          ＋ Telefone
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── MULTILOCAL 10/07 — ENDEREÇOS DO CLIENTE (LocalEntrega, N por conta) ──────
+// O bloco de endereço do topo do editor edita o local PRINCIPAL; aqui só os
+// OUTROS — adicionar (mesmo CEP/GPS inteligente do bloco principal), tornar
+// principal (troca atômica no backend) e remover. A COBRANÇA não muda — é
+// sempre da CONTA, nunca do local (CONTRATOS.md); isto é só "pra onde entregar".
+function EnderecosDoCliente({
+  clienteId,
+  locais,
+  onRecarregar,
+}: {
+  clienteId: string;
+  locais: LocalCliente[];
+  onRecarregar: () => void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [apelido, setApelido] = useState("");
+  const [cep, setCep] = useState("");
+  const [logradouro, setLogradouro] = useState("");
+  const [numero, setNumero] = useState("");
+  const [bairro, setBairro] = useState("");
+  const [cidade, setCidade] = useState("");
+  const [uf, setUf] = useState("");
+  const [coord, setCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [coordFonte, setCoordFonte] = useState<"geocode" | "gps_cadastro" | null>(null);
+  const [cepStatus, setCepStatus] = useState<"idle" | "buscando" | "ok" | "erro">("idle");
+  const [capturandoGps, setCapturandoGps] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+
+  const outros = useMemo(() => locais.filter((l) => !l.isPrincipal), [locais]);
+
+  const limpar = useCallback(() => {
+    setApelido("");
+    setCep("");
+    setLogradouro("");
+    setNumero("");
+    setBairro("");
+    setCidade("");
+    setUf("");
+    setCoord(null);
+    setCoordFonte(null);
+    setCepStatus("idle");
+  }, []);
+
+  // Mesmo caminho do bloco principal (ver resolverCep em ClienteEditor): CEP →
+  // ViaCEP preenche rua/bairro/cidade/UF + Nominatim solta o pino aproximado.
+  const resolverCep = useCallback(async (cepValor: string) => {
+    setCepStatus("buscando");
+    const end = await buscarCep(cepValor);
+    if (!end) {
+      setCepStatus("erro");
+      return;
+    }
+    setLogradouro(end.logradouro);
+    setBairro(end.bairro);
+    setCidade(end.cidade);
+    setUf(end.uf);
+    setCepStatus("ok");
+    const q = [end.logradouro, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(", ");
+    const pt = await geocodar(q);
+    if (pt) {
+      setCoord(pt);
+      setCoordFonte("geocode");
+    }
+  }, []);
+
+  const onCepChange = useCallback(
+    (v: string) => {
+      const f = formatarCep(v);
+      setCep(f);
+      if (soDigitos(f).length === 8) void resolverCep(f);
+      else setCepStatus("idle");
+    },
+    [resolverCep],
+  );
+
+  // Ao sair do campo Número, refina o pino com o endereço completo (mesma
+  // lógica de refinarPino do bloco principal).
+  const refinarPino = useCallback(async () => {
+    if (!logradouro.trim() || !cidade.trim()) return;
+    const rua = `${logradouro.trim()}${numero.trim() ? `, ${numero.trim()}` : ""}`;
+    const q = [rua, bairro.trim(), cidade.trim(), uf.trim()].filter(Boolean).join(", ");
+    const pt = await geocodar(q);
+    if (pt) {
+      setCoord(pt);
+      setCoordFonte("geocode");
+    }
+  }, [logradouro, numero, bairro, cidade, uf]);
+
+  const usarEsteLocal = useCallback(async () => {
+    setCapturandoGps(true);
+    setErro(null);
+    try {
+      const pos = await getPosicaoUma();
+      setCoord(pos);
+      setCoordFonte("gps_cadastro");
+      const end = await reverseGeocodar(pos);
+      if (end) {
+        if (end.cep) setCep(formatarCep(end.cep));
+        if (end.logradouro) setLogradouro(end.logradouro);
+        if (end.numero) setNumero(end.numero);
+        if (end.bairro) setBairro(end.bairro);
+        if (end.cidade) setCidade(end.cidade);
+        if (end.uf) setUf(end.uf);
+        setCepStatus(end.cep ? "ok" : "idle");
+      }
+    } catch {
+      setErro("Não consegui pegar o local. Ative o GPS e tente de novo.");
+    } finally {
+      setCapturandoGps(false);
+    }
+  }, []);
+
+  const adicionar = useCallback(async () => {
+    const enderecoFinal = [[logradouro.trim(), numero.trim()].filter(Boolean).join(", "), bairro.trim()]
+      .filter(Boolean)
+      .join(" - ")
+      .slice(0, 240);
+    if (!enderecoFinal && !cep.trim() && !coord) {
+      setErro("Preencha o endereço");
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    try {
+      await criarLocal(clienteId, {
+        apelido: apelido.trim() || undefined,
+        endereco: enderecoFinal || undefined,
+        numero: numero.trim() || undefined,
+        bairro: bairro.trim() || undefined,
+        cidade: cidade.trim() || undefined,
+        uf: uf.trim() || undefined,
+        cep: cep.trim() || undefined,
+        ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+        ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
+      });
+      setAddOpen(false);
+      limpar();
+      onRecarregar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Falha ao adicionar endereço");
+    } finally {
+      setSalvando(false);
+    }
+  }, [clienteId, apelido, logradouro, numero, bairro, cidade, uf, cep, coord, coordFonte, limpar, onRecarregar]);
+
+  const tornarPrincipal = useCallback(
+    async (l: LocalCliente) => {
+      setOcupadoId(l.id);
+      setErro(null);
+      try {
+        await editarLocal(l.id, { isPrincipal: true });
+        onRecarregar();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Falha ao tornar principal");
+      } finally {
+        setOcupadoId(null);
+      }
+    },
+    [onRecarregar],
+  );
+
+  const remover = useCallback(
+    async (l: LocalCliente) => {
+      if (typeof window !== "undefined" && !window.confirm("Remover este endereço?")) return;
+      setOcupadoId(l.id);
+      setErro(null);
+      try {
+        await excluirLocal(l.id);
+        onRecarregar();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Falha ao remover endereço");
+      } finally {
+        setOcupadoId(null);
+      }
+    },
+    [onRecarregar],
+  );
+
+  return (
+    <div className="ent-multi-list">
+      {outros.map((l) => (
+        <div className="ent-multi-row" key={l.id}>
+          <div className="ent-multi-main">
+            <div className="ent-multi-name">{l.apelido || "Endereço"}</div>
+            <div className="ent-multi-sub">{enderecoCurtoCliente(l) || "—"}</div>
+          </div>
+          <div className="ent-multi-actions">
+            <button type="button" className="ent-chip" onClick={() => void tornarPrincipal(l)} disabled={ocupadoId === l.id}>
+              Tornar principal
+            </button>
+            <button
+              type="button"
+              className="ent-multi-remove"
+              aria-label="Remover endereço"
+              onClick={() => void remover(l)}
+              disabled={ocupadoId === l.id}
+            >
+              −
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {erro ? <div className="ent-erro">{erro}</div> : null}
+
+      {addOpen ? (
+        <div className="ent-multi-add">
+          <label className="ent-field">
+            <span className="ent-field-label">Apelido</span>
+            <input className="ent-input" value={apelido} onChange={(e) => setApelido(e.target.value)} placeholder="Casa, Loja…" />
+          </label>
+
+          <label className="ent-field">
+            <span className="ent-field-label">CEP</span>
+            <input
+              className="ent-input"
+              type="text"
+              inputMode="numeric"
+              value={cep}
+              onChange={(e) => onCepChange(e.target.value)}
+              placeholder="00000-000"
+              maxLength={9}
+            />
+            {cepStatus === "buscando" ? (
+              <span className="ent-hint">Buscando endereço…</span>
+            ) : cepStatus === "erro" ? (
+              <span className="ent-erro">CEP não encontrado — preencha à mão</span>
+            ) : null}
+          </label>
+
+          <label className="ent-field">
+            <span className="ent-field-label">Endereço</span>
+            <input className="ent-input" value={logradouro} onChange={(e) => setLogradouro(e.target.value)} placeholder="Rua / Avenida" />
+          </label>
+
+          <div className="ent-field-row">
+            <label className="ent-field ent-field--num">
+              <span className="ent-field-label">Número</span>
+              <input
+                className="ent-input"
+                type="text"
+                inputMode="numeric"
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+                onBlur={() => void refinarPino()}
+                placeholder="123"
+              />
+            </label>
+            <label className="ent-field ent-field--grow">
+              <span className="ent-field-label">Bairro</span>
+              <input className="ent-input" value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Centro" />
+            </label>
+          </div>
+
+          <div className="ent-field-row">
+            <label className="ent-field ent-field--grow">
+              <span className="ent-field-label">Cidade</span>
+              <input className="ent-input" value={cidade} onChange={(e) => setCidade(e.target.value)} />
+            </label>
+            <label className="ent-field ent-field--uf">
+              <span className="ent-field-label">UF</span>
+              <input className="ent-input" value={uf} onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className={`ent-btn ent-btn--secondary${coord ? " is-on" : ""}`}
+            onClick={() => void usarEsteLocal()}
+            disabled={capturandoGps}
+          >
+            <I d={ICON_PATHS.nav} size={20} />
+            {capturandoGps ? "Pegando local…" : "Localização Atual"}
+          </button>
+
+          {coord ? (
+            <div className="ent-map">
+              <iframe title="Mapa do endereço" src={mapaEmbedUrl(coord)} loading="lazy" />
+            </div>
+          ) : null}
+
+          <div className="ent-sheet-actions">
+            <button type="button" className="ent-btn ent-btn--primary" onClick={() => void adicionar()} disabled={salvando}>
+              {salvando ? "Adicionando…" : "Adicionar endereço"}
+            </button>
+            <button
+              type="button"
+              className="ent-btn ent-btn--ghost"
+              onClick={() => {
+                setAddOpen(false);
+                limpar();
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="ent-btn ent-btn--add" onClick={() => setAddOpen(true)}>
+          ＋ Endereço
         </button>
       )}
     </div>

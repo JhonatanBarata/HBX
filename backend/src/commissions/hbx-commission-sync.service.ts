@@ -364,7 +364,17 @@ export class HbxCommissionSyncService {
   private async updateLeadFromCompany(lead: any, company: any, state: HbxClientState, options: SyncOptions) {
     const percent = await this.resolveCommissionPercent(lead);
     const caps = await this.resolveSellerCaps(lead);
-    const baseAmount = this.resolvePlanAmount(company);
+    // FURO 3 (11/07, decisão do dono): preço de tabela é só DEFAULT quando o card não tem valor.
+    // Antes o sync sobrescrevia saleValue/commissionBaseAmount com o catálogo a CADA rodada e
+    // matava o valor NEGOCIADO gravado pela vendedora (Enterprise "a partir de R$445,90" virava
+    // tabela). saleValue > 0 e diferente do catálogo = negociado → é a base da comissão; o
+    // catálogo só preenche card sem valor. Comparação por diferença (não flag) é conservadora:
+    // nunca rebaixa valor existente, mesmo que a tabela mude depois.
+    const catalogAmount = this.resolvePlanAmount(company);
+    const negotiatedAmount = this.money(lead?.saleValue);
+    const baseAmount = negotiatedAmount > 0 && negotiatedAmount !== catalogAmount
+      ? negotiatedAmount
+      : catalogAmount;
     // Teto por fechamento: a comissão mensal nunca passa do teto do vendedor.
     const commissionAmount = applyCommissionCap(this.money((baseAmount * percent) / 100), caps.monthlyCap);
     const dueBusinessDays = await this.resolveCommissionDueBusinessDays(Number(lead?.companyId || 0));
@@ -945,5 +955,88 @@ export class HbxCommissionSyncService {
       createdSetupReceivables,
       skippedSetupReceivables,
     };
+  }
+
+  // FURO 2 (11/07, decisão do dono): recarga de crédito passa a COMISSIONAR — a receita variável
+  // do modelo de crédito entra no incentivo do vendedor. NASCE DESARMADA: % global via env
+  // HBX_COMMISSION_RECHARGE_PERCENT (ausente/0 = nenhum receivable; o dono crava o número depois).
+  private resolveRechargeCommissionPercent() {
+    const raw = Number(process.env.HBX_COMMISSION_RECHARGE_PERCENT || 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.min(100, raw);
+  }
+
+  /**
+   * Comissão sobre recarga PAGA. Base = valor REAL cobrado (nunca tabela). Vendedor = lead já
+   * VINCULADO pelo sync (`commissionLinkedCompanyId`) — recarga de empresa sem vendedor não gera
+   * nada. Idempotente por charge: `@@unique([leadId, cycleKey, kind])` com cycleKey
+   * `recharge:<chargeId>` e kind 'recharge'. BEST-EFFORT ABSOLUTO: nunca lança — comissão jamais
+   * quebra uma recarga que o cartão já pagou. Sem cascata de indicação e sem teto mensal aqui:
+   * política fina é decisão futura do dono; hoje é % simples sobre o pago.
+   */
+  async createRechargeCommission(input: {
+    companyId: number;
+    chargeId: number | string;
+    amount: number;
+    source?: string;
+  }) {
+    try {
+      const percent = this.resolveRechargeCommissionPercent();
+      if (!percent) return { created: false, reason: 'disarmed' as const };
+      const companyId = Math.trunc(Number(input.companyId || 0));
+      const chargeRef = String(input.chargeId ?? '').trim();
+      const paidAmount = this.money(input.amount);
+      if (!companyId || !chargeRef || paidAmount <= 0) {
+        return { created: false, reason: 'invalid_input' as const };
+      }
+      const lead = await this.prisma.vendasLead.findFirst({
+        where: { commissionLinkedCompanyId: companyId, assignedUserId: { not: null } },
+        orderBy: [{ commissionLinkedAt: 'desc' }],
+        select: {
+          id: true,
+          companyId: true,
+          assignedUserId: true,
+          assignedByUserId: true,
+          createdByUserId: true,
+        },
+      });
+      if (!lead) return { created: false, reason: 'no_linked_lead' as const };
+
+      const cycleKey = `recharge:${chargeRef}`.slice(0, 120);
+      const amount = this.money((paidAmount * percent) / 100);
+      if (amount <= 0) return { created: false, reason: 'zero_amount' as const };
+
+      const exists = await this.prisma.vendasCommissionReceivable.findFirst({
+        where: { leadId: lead.id, cycleKey, kind: 'recharge' },
+        select: { id: true },
+      });
+      if (exists) return { created: false, reason: 'already_exists' as const };
+
+      const dueBusinessDays = await this.resolveCommissionDueBusinessDays(Number(lead.companyId || 0));
+      await this.prisma.vendasCommissionReceivable.create({
+        data: {
+          companyId: Number(lead.companyId || 0),
+          leadId: lead.id,
+          sellerUserId: Number(lead.assignedUserId || 0) || null,
+          linkedCompanyId: companyId,
+          cycleKey,
+          kind: 'recharge',
+          status: 'payable',
+          baseAmount: paidAmount,
+          commissionPercent: percent,
+          amount,
+          dueAt: this.addBusinessDays(new Date(), dueBusinessDays),
+          source: String(input.source || 'credit_recharge').slice(0, 120),
+          createdByUserId: Number(lead.assignedByUserId || lead.createdByUserId || 0) || null,
+        },
+      });
+      return { created: true as const, amount };
+    } catch (error: any) {
+      if (String(error?.code || '') === 'P2002') return { created: false, reason: 'already_exists' as const };
+      this.logger.warn(
+        `commission_recharge_failed company=${input?.companyId} charge=${input?.chargeId} error=${String(error?.message || error)}`,
+      );
+      return { created: false, reason: 'error' as const };
+    }
   }
 }

@@ -45,6 +45,7 @@ export function NegocioSheet({
   // (useWaOpenMode nas páginas de Vendas/Leads), então esta escolha vive só aqui.
   const [waChoice, setWaChoice] = useState(false);
   // Fecha a escolha ao fechar a folha, pra não reabrir "aberta" no próximo lead.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reseta estado local ao fechar a folha; efeito legítimo de sincronização
   useEffect(() => { if (!open) setWaChoice(false); }, [open]);
 
   // Segura o último detalhe durante a animação de saída: o pai zera `sel` no

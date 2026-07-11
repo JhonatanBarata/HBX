@@ -4,13 +4,26 @@
 // Navegação interna do app /entrega.
 //
 // Mantém as páginas que o Rota já tinha (Rota, Clientes, Produtos, Ajustes)
-// e uma saída para o HBX, mas usa a MESMA linguagem visual da casca central:
-// .casca-tabbar, .casca-tab e .casca-tab__label.
+// e usa a MESMA linguagem visual da casca central: .casca-tabbar, .casca-tab
+// e .casca-tab__label.
+//
+// W4 (PR10072026) — o 5º item é DINÂMICO:
+//   · só-logística → o item "HBX" some (de-HBX; a volta vive em Ajustes →
+//     "Abrir o HBX completo"); se o módulo financeiro do tenant está ativo,
+//     entra a aba "Financeiro" (/entrega/financeiro) no lugar.
+//   · com outros módulos → "HBX" continua, mas o destino é /dashboard (o
+//     redirect module-aware do mobile-shell decide a tela; nunca mais o
+//     /vendas hardcoded que dava 403 pro entregador).
 // ================================================================
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
+import { soLogistica } from "@/lib/so-logistica";
+
+import { useEntregaMods } from "./entrega-mods";
+import { getConfigCached } from "./gestao-api";
 import { I, ICON_PATHS } from "./icons";
 
 const TABS = [
@@ -27,6 +40,21 @@ function isActive(href: string, pathname: string): boolean {
 
 export function EntregaTabBar() {
   const pathname = usePathname() || "";
+  const mods = useEntregaMods();
+  const soLog = soLogistica(mods);
+
+  // Gate da aba Financeiro = moduloFinanceiroAtivo do config (leitura cacheada
+  // — a tab bar remonta a cada navegação). Fail-closed: sem config, sem aba.
+  const [financeiroOn, setFinanceiroOn] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    void getConfigCached().then((c) => {
+      if (vivo) setFinanceiroOn(!!c?.moduloFinanceiroAtivo);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   return (
     <nav className="casca-tabbar" aria-label="Navegação do app de entrega">
@@ -44,10 +72,23 @@ export function EntregaTabBar() {
           </Link>
         );
       })}
-      <Link href="/vendas" className="casca-tab" aria-label="Voltar para o HBX">
-        <I d={ICON_PATHS.hbx} size={20} />
-        <span className="casca-tab__label">HBX</span>
-      </Link>
+      {soLog ? (
+        financeiroOn ? (
+          <Link
+            href="/entrega/financeiro"
+            className={"casca-tab" + (isActive("/entrega/financeiro", pathname) ? " is-on" : "")}
+            aria-current={isActive("/entrega/financeiro", pathname) ? "page" : undefined}
+          >
+            <I d={ICON_PATHS.financeiro} size={20} />
+            <span className="casca-tab__label">Financeiro</span>
+          </Link>
+        ) : null
+      ) : (
+        <Link href="/dashboard" className="casca-tab" aria-label="Voltar para o HBX">
+          <I d={ICON_PATHS.hbx} size={20} />
+          <span className="casca-tab__label">HBX</span>
+        </Link>
+      )}
     </nav>
   );
 }

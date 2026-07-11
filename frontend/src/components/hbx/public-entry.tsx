@@ -239,6 +239,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
   useEffect(() => {
     const currentMode = document.documentElement.getAttribute("data-theme-mode");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lê o atributo do DOM (indisponível no SSR) 1x no mount; efeito legítimo
     setThemeModeState(currentMode === "dark" ? "dark" : "light");
   }, []);
 
@@ -246,6 +247,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   // /register redirecionam pra cá) precisa trocar o card mesmo com o
   // componente já montado — o estado segue a prop.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resincroniza a tela quando a prop `initialScreen` muda; efeito legítimo
     setScreen(initialScreen);
   }, [initialScreen]);
 

@@ -366,7 +366,6 @@ export function GerencialClient() {
   useEffect(() => {
     if (aba !== 4 || team !== null) return;
     recarregarEquipe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba, team]);
 
   const carregar = useCallback(() => {

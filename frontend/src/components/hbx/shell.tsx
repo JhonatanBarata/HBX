@@ -653,18 +653,21 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   automacao: "vendas",
   atend: "atendimento",
   // Cadastros básicos (empresas/contatos/produtos) = SEM gate (null, sempre
-  // visíveis). NÃO dar chave própria aqui: /modules/me resolve "sem post-it"
-  // pela CAIXA DO PLANO (modules.service.ts:2435), e nenhuma caixa contém esses
-  // módulos — a chave faria os 3 sumirem de TODA empresa sem post-it (provado
-  // em 10/07 no localhost). Eles também ficam FORA do mapa de categorias do
-  // OOBE de propósito (cadastro básico serve a todo perfil).
+  // visíveis). Eles ficam FORA do mapa de categorias do OOBE de propósito
+  // (cadastro básico serve a todo perfil). CORREÇÃO 11/07 (backend): "sem
+  // post-it" agora resolve por SystemModule.defaultEnabled quando a chave está
+  // fora da caixa do plano (resolveModuleDefaultWithoutOverride) — a armadilha
+  // de 10/07 ("chave própria fazia os 3 sumirem de toda empresa sem post-it")
+  // morreu, mas o null continua certo: cadastro básico não tem gate por usuário.
   empresas: null,
   contatos: null,
   produtos: null,
   // OOBE por categoria (W2/W3 PR10072026): Logística É gerida por categoria —
-  // o OOBE grava post-it (enabled true/false) e o /modules/me passa a decidir.
-  // Empresa antiga sem post-it: o painel CATEGORIAS roda 1x no próximo login
-  // do dono e cria os post-its; até lá o item fica oculto (caixa não tem a chave).
+  // o OOBE grava post-it (enabled true/false) e o /modules/me decide.
+  // CORREÇÃO 11/07: empresa antiga SEM post-it segue defaultEnabled=true
+  // ("nasce ligado") — o item aparece e o /logistica abre (antes o backend caía
+  // na caixa do plano, que não tem 'logistica', e o app de entrega dava 403 até
+  // o dono completar o painel CATEGORIAS no desktop).
   logistica: "logistica",
   // Logística → Clientes: mesma porta do módulo Logística (sem chave própria).
   clientes: "logistica",
@@ -1298,7 +1301,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   // Limpa o filtro ao navegar de página
   useEffect(() => {
     handleSearch("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   // ⌘K / Ctrl+K foca o campo de busca

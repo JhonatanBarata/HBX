@@ -165,6 +165,7 @@ export function NumberField({ label, hint, value, min, max, onChange }: { label:
   // Sincroniza quando o valor externo muda E o campo não está em foco
   // (ex: reload do poll). Usa comparação com lastProp pra não usar useEffect.
   const [lastProp, setLastProp] = useState(value);
+  // eslint-disable-next-line react-hooks/refs -- leitura de ref durante o render é intencional (ver comentário acima); trocar `focused` por state re-renderiza a cada foco/blur, mudando comportamento
   if (!focused.current && value !== lastProp) {
     setLastProp(value);
     setRaw(String(value));

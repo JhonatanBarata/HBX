@@ -37,6 +37,7 @@ export function RadarDisc({ mini = false }: { mini?: boolean } = {}) {
   // outro → React descarta a árvore hidratada inteira na entrada pública.
   const [labels, setLabels] = useState(() => RADAR_LABEL_POOL.slice(0, 3));
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sorteio só PÓS-mount (ver comentário acima) pra não quebrar a hidratação; lazy init rodaria no servidor também
     setLabels(pickRadarLabels(3));
   }, []);
   const blips: Array<{ top: string; left: string; size: number; hot?: boolean; label: string; delay: string }> = [

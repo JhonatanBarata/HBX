@@ -280,6 +280,7 @@ function FinanceiroEditor({ clienteId }: { clienteId: string }) {
       .finally(() => setLoading(false));
   }, [clienteId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou trocar de cliente; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
 
   async function patch(body: Partial<FinanceiroCliente>) {
@@ -384,6 +385,7 @@ function ExtratoPanel({ clienteId }: { clienteId: string }) {
 
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch ao montar/trocar cliente (guarda `alive`); efeito legítimo
     setLoading(true);
     apiFetch<ExtratoResult>(`/logistica/clientes/${clienteId}/extrato`)
       .then((res) => { if (alive) { setExt(res); setError(null); } })
@@ -476,6 +478,7 @@ function ClienteProdutosDrawer({
       .finally(() => setLoading(false));
   }, [cliente.id]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou trocar de cliente; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
 
   // Liga/desliga o aviso de entrega deste cliente (PATCH /logistica/cliente/:id/aviso).
@@ -837,6 +840,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
       .finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou mudar filtro/página; efeito legítimo, não estado derivado.
   useEffect(() => { load(onlyClientes, query, page); }, [load, onlyClientes, query, page]);
 
   function submitSearch(e: React.FormEvent) {

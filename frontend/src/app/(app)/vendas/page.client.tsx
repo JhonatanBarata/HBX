@@ -1023,7 +1023,6 @@ export function VendasClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen]);
 
   const summary = board?.summary;
@@ -1271,6 +1270,7 @@ export function VendasClient() {
                           data-tone={stage.tone}
                           onDragEnter={e => { e.preventDefault(); if (dragOverStage !== stage.key) setDragOverStage(stage.key); }}
                           onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverStage !== stage.key) setDragOverStage(stage.key); }}
+                          // eslint-disable-next-line react-hooks/refs -- soltarNaEtapa só roda no handler onDrop (evento real), nunca durante o render
                           onDrop={e => { e.preventDefault(); soltarNaEtapa(stage.key); }}
                         >
                           <header className="vnd-pipe-col__head">

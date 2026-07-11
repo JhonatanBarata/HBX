@@ -2,10 +2,28 @@ import asyncio
 from types import SimpleNamespace
 
 from app.schemas import EnrichLeadRequest, SearchRequest
+from app.search.enrichment.provider_router import LeadEnrichmentProviderRouter
 from app.services.discovery import _is_allowed_url, build_directory_seed_urls, build_intent_discovery_queries, build_social_queries, discover_social_profiles, discover_urls
 from app.services.filters import is_blocked_lead_source_domain, is_social_signal_domain
 from app.services.search_service import SearchService
 from app.services.social import is_valid_social_profile_url, normalize_social_url
+
+
+async def _run_engine_only(self, request, hbx_engine_provider):
+    return await hbx_engine_provider()
+
+
+def _isolate_enrich_lead_from_live_providers(monkeypatch) -> None:
+    """`enrich_lead` roteia por `LeadEnrichmentProviderRouter`, que tem suite
+    propria (test_provider_router_serper.py) e cai pra internet REAL
+    (DuckDuckGoProvider/WebSearchService) sempre que acha o resultado do motor
+    "insuficiente" -- exatamente o caso de testes que esperam None/rejeicao.
+    Sem isolar, o fallback (e o cache de classe do router, compartilhado entre
+    testes) vaza dado real e não-deterministico pro assert. Aqui os testes
+    exercitam só o motor core (_enrich_lead_core), como já faziam antes do
+    router existir; o router em si é testado à parte."""
+    monkeypatch.setattr(LeadEnrichmentProviderRouter, "run", _run_engine_only)
+    monkeypatch.setattr(SearchService, "enrich_identity_lookup", lambda *args, **kwargs: {"stats": {"rows": 0}})
 
 
 def test_instagram_is_social_signal_not_blocked_lead_source() -> None:
@@ -1310,6 +1328,7 @@ def test_lead_plus_enrichment_finds_social_and_confirms_email(monkeypatch) -> No
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1371,6 +1390,7 @@ def test_identity_search_finds_confraria_social_without_phone_in_snippet(monkeyp
 
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1414,9 +1434,9 @@ def test_enrich_lead_reads_social_links_from_existing_website(monkeypatch) -> No
             return [FakePage()]
 
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
-    monkeypatch.setattr(SearchService, "enrich_identity_lookup", lambda *args, **kwargs: {"stats": {"rows": 0}})
     monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
     monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1462,9 +1482,9 @@ def test_enrich_lead_discovers_website_before_external_social_search(monkeypatch
     monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
     monkeypatch.setattr(SearchService, "probe_direct_website_for_contact", fake_probe_website)
     monkeypatch.setattr(SearchService, "discover_website_for_contact", lambda *args, **kwargs: (None, 0, None))
-    monkeypatch.setattr(SearchService, "enrich_identity_lookup", lambda *args, **kwargs: {"stats": {"rows": 0}})
     monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
     monkeypatch.setattr(SearchService, "enrich_identity_search", lambda *args, **kwargs: {})
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1629,6 +1649,7 @@ def test_identity_search_accepts_hidden_facebook_result_with_handle_and_query(mo
             return []
 
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1674,6 +1695,7 @@ def test_identity_search_rejects_hidden_facebook_without_city_handle(monkeypatch
             return []
 
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1866,6 +1888,7 @@ def test_identity_search_rejects_low_confidence_required_social_candidate(monkey
 
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
     monkeypatch.setattr(SearchService, "guessed_social_url_for_contact", lambda *args, **kwargs: (None, 0))
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1888,6 +1911,7 @@ def test_identity_search_rejects_low_confidence_required_social_candidate(monkey
 
 def test_required_social_does_not_accept_guessed_official_handle(monkeypatch) -> None:
     monkeypatch.setattr(SearchService, "search_social_profile_candidates", lambda *args, **kwargs: [])
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(
@@ -1964,6 +1988,7 @@ def test_required_social_keeps_trying_preferred_second_channel(monkeypatch) -> N
             return []
 
     monkeypatch.setattr("app.services.search_service.DDGS", FakeDDGS)
+    _isolate_enrich_lead_from_live_providers(monkeypatch)
 
     response = asyncio.run(
         SearchService().enrich_lead(

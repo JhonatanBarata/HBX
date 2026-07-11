@@ -27,6 +27,12 @@ export type RadarPostDeliveryAiSaneamentoInput = {
   city?: string | null;
   state?: string | null;
   segment?: string | null;
+  /**
+   * CRÉDITO UNIVERSAL (PR11072026): empresa que puxou o lead pra Vendas (`context.companyId` de
+   * `importRadarLeadToVendasForUser`) — tenant REAL, já validado por `resolveContext` antes da
+   * entrega. Repassado ao gateway de IA só como medição `ai_batch` (track, nunca cobra).
+   */
+  companyId?: number | null;
 };
 
 export type RadarPostDeliveryAiSaneamentoHost = {
@@ -146,6 +152,7 @@ export class RadarPostDeliveryAiSaneamentoService {
       city: input.city || null,
       state: input.state || null,
       segmentHint: input.segment || null,
+      companyId: input.companyId ?? null,
     });
 
     if (!result.ok) return { status: 'partial_error', reason: 'ia_indisponivel_ou_degradada' };

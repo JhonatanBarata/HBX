@@ -471,6 +471,26 @@ const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
   },
 ];
 
+// G1 (GOLIVE-DELTA, docs/PLANEJAMENTOS/GOLIVE-DELTA/G1-DDL-BOOT-LOCK.md): lock
+// consultivo transacional em torno dos 23 blocos de DDL do boot. Chave arbitrária
+// fixa — só precisa ser a MESMA em todo processo desta app; não colide com nada
+// de domínio, é só um inteiro qualquer. Só Postgres tem pg_advisory_xact_lock.
+const RUNTIME_SCHEMA_ENSURE_LOCK_KEY = 918273;
+// Teto generoso: em boot normal (single-instance, sem disputa) o lock é
+// adquirido na hora e os 23 ensures rodam em segundos. Os dois valores abaixo só
+// existem pra não prender o boot pra sempre se o Postgres travar — estourar
+// qualquer um dos dois cai no catch de "lock indisponível" (fail-open) mais
+// abaixo, NUNCA derruba o boot por causa do lock em si.
+const RUNTIME_SCHEMA_ENSURE_LOCK_TX_TIMEOUT_MS = 30_000;
+const RUNTIME_SCHEMA_ENSURE_LOCK_TX_MAX_WAIT_MS = 10_000;
+
+// Kill-switch aditivo (default OFF = roda 100% como hoje). Quando true, pula os
+// 23 runtime schema ensures inteiros — pensado pro dia em que virarem migrations
+// formais em prisma/migrations (ainda não virou: fora de escopo do G1).
+function isRuntimeSchemaEnsureSkipped() {
+  return String(process.env.HBX_SKIP_RUNTIME_SCHEMA_ENSURES || '').trim().toLowerCase() === 'true';
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
@@ -543,6 +563,69 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       console.log('Prisma runtime target:', describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()));
     } catch (e) {}
     await this.$connect();
+
+    if (isRuntimeSchemaEnsureSkipped()) {
+      this.logger.warn(
+        '[schema-runtime-ensure] HBX_SKIP_RUNTIME_SCHEMA_ENSURES=true — pulando os 23 runtime schema ensures neste boot',
+      );
+      return;
+    }
+
+    await this.runRuntimeSchemaEnsuresWithAdvisoryLock();
+  }
+
+  // G1 (GOLIVE-DELTA): mesma sequência de sempre (runAllRuntimeSchemaEnsures, sem
+  // NENHUMA linha de DDL alterada), agora envolta num lock consultivo transacional
+  // Postgres — serializa boots concorrentes. Fail-open: se o lock não puder ser
+  // adquirido (SQLite/teste, erro de permissão, timeout etc.), roda os ensures do
+  // MESMO jeito de antes desta mudança, sem lock nenhum.
+  private async runRuntimeSchemaEnsuresWithAdvisoryLock() {
+    if (this.isSqliteUrl()) {
+      await this.runAllRuntimeSchemaEnsures();
+      return;
+    }
+
+    let lockAcquired = false;
+    try {
+      await this.$transaction(
+        async (tx) => {
+          await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${RUNTIME_SCHEMA_ENSURE_LOCK_KEY})`);
+          lockAcquired = true;
+          this.logger.warn(`[schema-runtime-ensure] advisory lock adquirido (key=${RUNTIME_SCHEMA_ENSURE_LOCK_KEY})`);
+          // As chamadas abaixo rodam via this.$executeRawUnsafe (fora de `tx`,
+          // conexão própria do pool) — o que importa é que a TRANSAÇÃO que
+          // segura o lock só comita quando este callback retornar, ou seja,
+          // depois que TODOS os ensures terminarem. É isso que serializa um
+          // segundo boot concorrente: ele fica bloqueado no pg_advisory_xact_lock
+          // (nível Postgres) até este commit, não importa em qual conexão o DDL
+          // de cima realmente rodou.
+          await this.runAllRuntimeSchemaEnsures();
+        },
+        {
+          timeout: RUNTIME_SCHEMA_ENSURE_LOCK_TX_TIMEOUT_MS,
+          maxWait: RUNTIME_SCHEMA_ENSURE_LOCK_TX_MAX_WAIT_MS,
+        },
+      );
+      return;
+    } catch (error) {
+      if (lockAcquired) {
+        // Lock ok — o erro veio de DENTRO de um ensure (DDL real falhou).
+        // runRuntimeSchemaEnsure já logou o "[schema-runtime-ensure] failed...";
+        // propaga igual ao comportamento de sempre (ensure falhar = boot falha).
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[schema-runtime-ensure] advisory lock indisponível, seguindo sem lock (fail-open): ${message}`,
+      );
+    }
+
+    // Fail-open: lock/transação indisponível — roda os ensures sem lock,
+    // IDÊNTICO ao comportamento de antes desta mudança.
+    await this.runAllRuntimeSchemaEnsures();
+  }
+
+  private async runAllRuntimeSchemaEnsures() {
     await this.runRuntimeSchemaEnsure('company-commission-settings-columns', () => this.ensureCompanyCommissionSettingsColumns());
     await this.runRuntimeSchemaEnsure('regua-cargo-access-columns', () => this.ensureReguaCargoAccessColumns());
     await this.runRuntimeSchemaEnsure('user-tutorial-onboarding-column', () => this.ensureTutorialOnboardingColumn());
@@ -688,10 +771,16 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ALTER TABLE "User"
       ADD COLUMN IF NOT EXISTS "tutorialCompletedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP
     `);
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "User"
-      ALTER COLUMN "tutorialCompletedAt" DROP DEFAULT
-    `);
+    // G1 (GOLIVE-DELTA): short-circuit — sem isso, o ALTER abaixo roda TODO boot
+    // mesmo já resolvido (DROP DEFAULT não tem "IF EXISTS" nativo). Só dispara se
+    // a coluna ainda tiver default hoje; fail-open (hasColumnDefault) mantém o
+    // comportamento de sempre em qualquer incerteza.
+    if (await this.hasColumnDefault('User', 'tutorialCompletedAt')) {
+      await this.$executeRawUnsafe(`
+        ALTER TABLE "User"
+        ALTER COLUMN "tutorialCompletedAt" DROP DEFAULT
+      `);
+    }
   }
 
   // Ramo-alvo da empresa (dono, 14/06): coluna nullable simples. Empresas
@@ -818,6 +907,30 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     } catch {
       this.schemaCapabilityCache.set(cacheKey, false);
       return false;
+    }
+  }
+
+  // G1 (GOLIVE-DELTA): suporte ao short-circuit de ensureTutorialOnboardingColumn
+  // (ALTER COLUMN ... DROP DEFAULT não tem "IF EXISTS" nativo no Postgres). Fail-open
+  // em qualquer incerteza (SQLite/teste, erro de query, coluna não encontrada):
+  // devolve true pra manter o comportamento de rodar o DROP DEFAULT (que é no-op
+  // se já não houver default — nunca muda o schema resultante).
+  private async hasColumnDefault(tableName: string, columnName: string) {
+    const normalizedTableName = String(tableName || '').trim();
+    const normalizedColumnName = String(columnName || '').trim();
+    if (!normalizedTableName || !normalizedColumnName) return true;
+    if (this.isSqliteUrl()) return true;
+
+    try {
+      const escapedTableName = normalizedTableName.replace(/'/g, "''");
+      const escapedColumnName = normalizedColumnName.replace(/'/g, "''");
+      const rows = (await this.$queryRawUnsafe(
+        `SELECT column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${escapedTableName}' AND column_name = '${escapedColumnName}' LIMIT 1`,
+      )) as Array<{ column_default?: unknown }>;
+      const row = Array.isArray(rows) ? rows[0] : undefined;
+      return Boolean(row && row.column_default !== null && row.column_default !== undefined);
+    } catch {
+      return true;
     }
   }
 

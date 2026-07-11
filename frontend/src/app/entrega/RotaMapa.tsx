@@ -62,6 +62,7 @@ export function RotaMapa({ paradas, indiceAtual, onSelecionarParada, posicaoEntr
   const meuMarkerRef = useRef<maplibregl.Marker | null>(null);
   const fitFeitoRef = useRef(false);
   const onSelecionarRef = useRef(onSelecionarParada);
+  // eslint-disable-next-line react-hooks/refs -- padrão "latest ref" pra evitar closure velha no useEffect do mapa abaixo
   onSelecionarRef.current = onSelecionarParada;
 
   const [pronto, setPronto] = useState(false);
@@ -102,6 +103,7 @@ export function RotaMapa({ paradas, indiceAtual, onSelecionarParada, posicaoEntr
     } catch {
       // WebGL indisponível/bloqueado — degrada gracioso (container some).
       host.removeChild(glEl);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fallback síncrono quando o construtor do MapLibre lança (sem WebGL); efeito legítimo
       setFalhou(true);
       return;
     }
@@ -163,7 +165,7 @@ export function RotaMapa({ paradas, indiceAtual, onSelecionarParada, posicaoEntr
     if (!el) return;
 
     pinsRef.current.forEach(({ marker }) => marker.remove());
-    pinsRef.current = pontos.map(({ p, i, lat, lng }) => {
+    pinsRef.current = pontos.map(({ i, lat, lng }) => {
       const pinEl = document.createElement("div");
       pinEl.className = "ent-map-rota__pin" + (i === indiceAtual ? " is-current" : "");
       const num = document.createElement("span");

@@ -26,7 +26,8 @@ const GERAR_DIA_BOOT_DELAY_MS = 30_000;
  *  2) "Gerar entregas do dia" (POST /logistica/gerar-dia): varre os vínculos
  *     ATIVOS vencidos (proximaData <= dia OU dia bate no diasSemana) e materializa
  *     `Entrega` + `EntregaItem`, avançando `proximaData`. É IDEMPOTENTE por
- *     [companyId, customerProfileId, dia]: rodar 2× no mesmo dia = 1 entrega/cliente.
+ *     [companyId, customerProfileId, localId, dia]: rodar 2× no mesmo dia = 1
+ *     entrega por (cliente, local). (MULTILOCAL 10/07 — antes era só cliente+dia.)
  *
  * ── BACKWARD-COMPAT (regra dura do M2) ───────────────────────────────────────
  * Ao criar a Entrega, além de gravar os `EntregaItem`, mantemos `Entrega.quantidade`
@@ -141,6 +142,11 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     const proximaData =
       parseDateOrNull(input.proximaData) ?? (frequenciaDias || diasSemana ? startOfDay(new Date()) : null);
 
+    // MULTILOCAL (10/07) — em qual local este vínculo é entregue. Valida contra o
+    // MESMO cliente+empresa; inválido/de-outro-cliente → null (o gerar-dia cai no
+    // grupo "sem local", agregando com o principal — leniência igual ao contato/produto).
+    const localId = await this.resolveLocalDoCliente(companyId, conta.id, input.localId);
+
     // TASK 5 (08/07) — @@unique([companyId, customerProfileId, productId]) foi
     // REMOVIDO do schema: o mesmo produto pode ser vinculado 2× ao mesmo cliente
     // (ex.: 1 galão na segunda, outro na sexta, vínculos separados). Sem índice
@@ -160,22 +166,46 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         diasSemana,
         proximaData,
         ativo: input.ativo !== false,
+        localId,
       },
       select: cpSelect,
     });
     return serializeClienteProduto(created);
   }
 
+  /**
+   * MULTILOCAL — resolve o localId a gravar num vínculo: só aceita um LocalEntrega
+   * do MESMO cliente+empresa; qualquer outra coisa (vazio, inexistente, de outro
+   * cliente) vira null (default = grupo sem-local no gerar-dia, que pós-backfill
+   * agrega com o principal). Não lança — leniência igual à do contato na entrega.
+   */
+  private async resolveLocalDoCliente(
+    companyId: number,
+    customerProfileId: string,
+    localId?: string | null,
+  ): Promise<string | null> {
+    const want = String(localId || '').trim();
+    if (!want) return null;
+    const loc = await this.prisma.localEntrega.findFirst({
+      where: { id: want, companyId, customerProfileId },
+      select: { id: true },
+    });
+    return loc?.id ?? null;
+  }
+
   async update(companyId: number, id: string, input: UpdateClienteProdutoInput): Promise<ClienteProdutoDTO | null> {
     if (!companyId || !id) return null;
     const existing = await this.prisma.clienteProduto.findFirst({
       where: { id: String(id).trim(), companyId },
-      select: { id: true },
+      select: { id: true, customerProfileId: true },
     });
     if (!existing) return null;
 
     const data: Record<string, unknown> = {};
     if (input.qtdPadrao != null) data.qtdPadrao = Math.max(1, Math.trunc(Number(input.qtdPadrao)));
+    // MULTILOCAL — trocar o local do vínculo (valida contra o cliente dono; inválido → null).
+    if (input.localId !== undefined)
+      data.localId = await this.resolveLocalDoCliente(companyId, existing.customerProfileId, input.localId);
     if (input.precoAcordado !== undefined)
       data.precoAcordado =
         input.precoAcordado != null && Number.isFinite(Number(input.precoAcordado))
@@ -263,6 +293,9 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       select: {
         id: true,
         customerProfileId: true,
+        // MULTILOCAL (10/07) — em qual local do cliente este vínculo entrega (null =
+        // perfil/legado). É a chave da sub-agregação por local no gerarDia.
+        localId: true,
         productId: true,
         qtdPadrao: true,
         precoAcordado: true,
@@ -290,10 +323,15 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
 
   /**
    * Materializa as entregas recorrentes vencidas do dia. IDEMPOTENTE por
-   * [companyId, customerProfileId, dia]: se já existe QUALQUER entrega do cliente
-   * naquele dia (gerada por recorrência OU agendada à mão), NÃO cria outra — e
-   * ainda assim avança proximaData de CADA vínculo vencido, pra não ficar "preso"
-   * no passado.
+   * [companyId, customerProfileId, localId, dia]: se já existe QUALQUER entrega do
+   * cliente NESTE LOCAL naquele dia (gerada por recorrência OU agendada à mão), NÃO
+   * cria outra — e ainda assim avança proximaData de CADA vínculo vencido, pra não
+   * ficar "preso" no passado.
+   *
+   * MULTILOCAL (10/07) — a agregação agora é por (cliente, LOCAL): sub-agrupa os
+   * vínculos vencidos do cliente por localId e cria 1 Entrega por local (com o
+   * localId gravado). Cliente com 1 local (todos após backfill) = 1 grupo só =
+   * comportamento idêntico ao anterior (cliente+dia).
    *
    * TASK 5 (08/07) — AGREGAÇÃO: antes, 1 Entrega por cliente/dia levava só o item
    * do PRIMEIRO vínculo vencido e os demais eram SILENCIOSAMENTE PERDIDOS (o
@@ -315,73 +353,97 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     let avancados = 0;
 
     for (const [customerProfileId, vencidos] of porCliente) {
-      // Idempotência: já existe entrega do cliente NESTE dia? (qualquer origem)
-      const existente = await this.prisma.entrega.findFirst({
-        where: {
-          companyId,
-          customerProfileId,
-          scheduledAt: { gte: dia, lte: dayEnd },
-        },
-        select: { id: true },
-      });
+      // MULTILOCAL (10/07) — sub-agrupa os vencidos do cliente POR LOCAL: 1 Entrega
+      // por (cliente, local), com a agregação multi-item (TASK 5) preservada DENTRO
+      // de cada local. Cliente com 1 local (todos após backfill) = 1 grupo só →
+      // comportamento IDÊNTICO ao anterior. localId ausente/legado (null) forma seu
+      // próprio grupo e cai no fallback do perfil na rota (chave '' = sentinela; um
+      // cuid real nunca é vazio).
+      const porLocal = new Map<string, typeof vencidos>();
+      for (const v of vencidos) {
+        const chave = v.localId ?? '';
+        const arr = porLocal.get(chave);
+        if (arr) arr.push(v);
+        else porLocal.set(chave, [v]);
+      }
 
-      if (existente) {
-        puladas++;
-      } else {
-        const itens = vencidos.map((v) => ({
-          productId: v.productId,
-          qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
-          valorUnit: resolveValorUnit(v),
-        }));
-        const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
-        const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
+      for (const vencidosDoLocal of porLocal.values()) {
+        const localId = vencidosDoLocal[0].localId ?? null;
 
-        // BUGFIX (09/07) — BUG 1: a Entrega nascia com contatoId=null; sem contato
-        // gravado, o aviso "entregue" caía no CustomerProfile.phone (podendo estar
-        // desatualizado — caso Josefino: o WhatsApp certo estava no Contato principal,
-        // não no telefone da conta). Resolve o contato principal/mais-recente ANTES
-        // de criar a Entrega — best-effort: falha aqui não pode travar o gerar-dia
-        // (contatoId fica null, dispararWhatsappEntregue tem seu próprio fallback).
-        let contatoId: string | null = null;
-        try {
-          contatoId = await resolvePrincipalContatoId(this.prisma as any, companyId, customerProfileId);
-        } catch (e: any) {
-          this.logger.warn(
-            `[logistica] gerar-dia resolvePrincipalContato cliente=${customerProfileId} falhou: ${String(e?.message || e)}`,
-          );
-        }
-
-        await this.prisma.entrega.create({
-          data: {
+        // Idempotência por [companyId, customerProfileId, localId, dia]: já existe
+        // entrega do cliente NESTE LOCAL neste dia? (qualquer origem). Sem o localId
+        // na chave, o 2º local do cliente seria pulado (a checagem antiga era só
+        // cliente+dia). localId null = "IS NULL" (entregas legadas/sem local).
+        const existente = await this.prisma.entrega.findFirst({
+          where: {
             companyId,
             customerProfileId,
-            contatoId,
-            // productId escalar legado = o do 1º vínculo (backward-compat N6; o
-            // N6 real — montarVarsAviso/listRota — já prioriza `itens` sobre este
-            // campo quando `itens.length > 0`, que é sempre o caso aqui).
-            productId: vencidos[0].productId,
-            quantidade, // backward-compat: escalar coerente com a SOMA dos itens
-            valor, // idem
-            status: 'agendada',
-            scheduledAt: dia,
-            cobrancaStatus: 'pendente',
-            itens: { create: itens },
+            localId,
+            scheduledAt: { gte: dia, lte: dayEnd },
           },
           select: { id: true },
         });
-        criadas++;
-      }
 
-      // Avança proximaData de TODOS os vínculos vencidos (mesmo quando pulou —
-      // não deixa nenhum vínculo preso no passado).
-      for (const v of vencidos) {
-        const proxima = nextProximaData(v, dia, dow);
-        if (proxima) {
-          await this.prisma.clienteProduto.update({
-            where: { id: v.id },
-            data: { proximaData: proxima },
+        if (existente) {
+          puladas++;
+        } else {
+          const itens = vencidosDoLocal.map((v) => ({
+            productId: v.productId,
+            qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+            valorUnit: resolveValorUnit(v),
+          }));
+          const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
+          const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
+
+          // BUGFIX (09/07) — BUG 1: a Entrega nascia com contatoId=null; sem contato
+          // gravado, o aviso "entregue" caía no CustomerProfile.phone (podendo estar
+          // desatualizado — caso Josefino: o WhatsApp certo estava no Contato principal,
+          // não no telefone da conta). Resolve o contato principal/mais-recente ANTES
+          // de criar a Entrega — best-effort: falha aqui não pode travar o gerar-dia
+          // (contatoId fica null, dispararWhatsappEntregue tem seu próprio fallback).
+          let contatoId: string | null = null;
+          try {
+            contatoId = await resolvePrincipalContatoId(this.prisma as any, companyId, customerProfileId);
+          } catch (e: any) {
+            this.logger.warn(
+              `[logistica] gerar-dia resolvePrincipalContato cliente=${customerProfileId} falhou: ${String(e?.message || e)}`,
+            );
+          }
+
+          await this.prisma.entrega.create({
+            data: {
+              companyId,
+              customerProfileId,
+              contatoId,
+              // MULTILOCAL — a Entrega herda o local do vínculo (null = perfil/legado).
+              localId,
+              // productId escalar legado = o do 1º vínculo (backward-compat N6; o
+              // N6 real — montarVarsAviso/listRota — já prioriza `itens` sobre este
+              // campo quando `itens.length > 0`, que é sempre o caso aqui).
+              productId: vencidosDoLocal[0].productId,
+              quantidade, // backward-compat: escalar coerente com a SOMA dos itens
+              valor, // idem
+              status: 'agendada',
+              scheduledAt: dia,
+              cobrancaStatus: 'pendente',
+              itens: { create: itens },
+            },
+            select: { id: true },
           });
-          avancados++;
+          criadas++;
+        }
+
+        // Avança proximaData de TODOS os vínculos vencidos DESTE local (mesmo quando
+        // pulou — não deixa nenhum vínculo preso no passado).
+        for (const v of vencidosDoLocal) {
+          const proxima = nextProximaData(v, dia, dow);
+          if (proxima) {
+            await this.prisma.clienteProduto.update({
+              where: { id: v.id },
+              data: { proximaData: proxima },
+            });
+            avancados++;
+          }
         }
       }
     }
@@ -546,6 +608,7 @@ const cpSelect = {
   diasSemana: true,
   proximaData: true,
   ativo: true,
+  localId: true,
   product: { select: { id: true, name: true, unidade: true, price: true, priceCents: true } },
 } as const;
 
@@ -560,6 +623,7 @@ function serializeClienteProduto(r: any): ClienteProdutoDTO {
     diasSemana: r.diasSemana ?? null,
     proximaData: r.proximaData ? r.proximaData.toISOString() : null,
     ativo: r.ativo,
+    localId: r.localId ?? null,
     produto: r.product
       ? {
           id: r.product.id,
@@ -585,6 +649,7 @@ export interface CreateClienteProdutoInput {
   diasSemana?: string;
   proximaData?: string;
   ativo?: boolean;
+  localId?: string;
 }
 
 export interface UpdateClienteProdutoInput {
@@ -594,6 +659,7 @@ export interface UpdateClienteProdutoInput {
   diasSemana?: string;
   proximaData?: string;
   ativo?: boolean;
+  localId?: string;
 }
 
 export interface ClienteProdutoDTO {
@@ -606,6 +672,7 @@ export interface ClienteProdutoDTO {
   diasSemana: string | null;
   proximaData: string | null;
   ativo: boolean;
+  localId: string | null;
   produto: { id: number; nome: string; unidade: string | null; precoCatalogo: number | null } | null;
 }
 

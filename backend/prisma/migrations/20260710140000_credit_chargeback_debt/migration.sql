@@ -1,0 +1,15 @@
+-- P0.3 HOLD DE CHARGEBACK (docs/PLANEJAMENTOS/GOLIVE-DELTA — decisão do dono 10/07:
+-- "bloquear entrega até quitar"). ADITIVA E NÃO-DESTRUTIVA: adiciona 1 coluna nova com DEFAULT 0;
+-- nenhuma coluna/linha existente muda de comportamento.
+--
+-- CreditWallet.chargebackDebtCredits INTEGER NOT NULL DEFAULT 0:
+--   Dívida de crédito gerada quando um estorno/chargeback reverte uma recarga cujos créditos o
+--   cliente JÁ consumiu (o `shortfall` do reversePurchase, que a carteira nunca deixa virar saldo
+--   negativo). Enquanto > 0, o choke de entrega (assertAndDebitLeadDelivery) BLOQUEIA novas
+--   entregas de lead. É quitada por crédito NOVO (recarga paga / concessão do master), que abate a
+--   dívida do saldo antes de liberar. NÃO é saldo — o saldo continua derivado do ledger
+--   append-only; esta coluna é só o agregado barato pro caminho quente. O rastro auditável vive no
+--   ledger (kind='chargeback_debt' na criação da dívida, 'chargeback_settlement' na quitação).
+--
+-- Toda carteira existente fica no DEFAULT 0 (nenhuma dívida retroativa) — sem UPDATE. Idempotente.
+ALTER TABLE "CreditWallet" ADD COLUMN IF NOT EXISTS "chargebackDebtCredits" INTEGER NOT NULL DEFAULT 0;

@@ -6,16 +6,17 @@ Auditoria-base (10/07, sessão Claude): bypass real do master via `POST /profile
 
 ## Modelo novo (W1)
 `CompanyModule` ganha `masterEnabled Boolean @default(true)` (TETO — só o /master escreve). `enabled` vira a camada da EMPRESA (OOBE/admin escrevem). **Efetivo do override = `masterEnabled && enabled`**; ausência de linha continua = `SystemModule.defaultEnabled`. Backfill: `masterEnabled=true` em todas as linhas existentes (master re-trava pelo painel se quiser).
+CORREÇÃO 11/07 (pós-revisão): o gate (`canUserAccessModule`) e o `/modules/me` honram de fato o "sem linha = defaultEnabled" pra chave FORA do universo do plano (logistica/empresas/contatos/produtos — `resolveModuleDefaultWithoutOverride`); antes o fallback era só a caixa do plano e empresa antiga sem post-it tomava 403 MODULE_ACCESS_DENIED no `/logistica` inteiro. Chave vendável por plano (atendimento/vendas/webscraping/cadastro) segue a caixa do plano, como antes.
 
 ## Categorias (fonte única `module-categories.ts`)
 `radar→[webscraping]`, `vendas→[vendas]`, `whatsapp→[atendimento,bot]`, `logistica→[logistica]`, `website→[website]`.
-Estado de categoria: `enabled` = TODOS os módulos dela com efetivo ON; `locked` = QUALQUER módulo dela com `masterEnabled=false`.
+Estado de categoria (CORREÇÃO 11/07, pós-revisão): `enabled` = ALGUM módulo dela com efetivo ON (semântica ANY — categoria parcial, ex. atendimento ON + bot OFF, conta como ligada; com a régua antiga "TODOS ON" a parcial sumia do POST e o save desligava módulo vivo por efeito colateral); `locked` = QUALQUER módulo dela com `masterEnabled=false`.
 
 ## API — contratos (W1 implementa; W3/W4 consomem)
 1. **GET `/profile/module-categories/options`** (dono/admin, mesmo gate do POST):
    `{ categories: [{ key: 'radar'|'vendas'|'whatsapp'|'logistica'|'website', enabled: boolean, locked: boolean }] }`
    Categoria `locked` NUNCA vira ligável pelo tenant (front esconde ou mostra desabilitada com texto mínimo).
-2. **POST `/profile/module-categories`** (existente) — agora: (a) respeita teto — módulo com `masterEnabled=false` NUNCA recebe `enabled=true` (skip silencioso + retorno lista o que foi pulado); (b) grava auditoria (mesmo mecanismo do MODULE_TOGGLED do master, ator = user do tenant); (c) segue re-chamável (mín. 1 categoria; continua atualizando `Company.moduleCategoriesJson`).
+2. **POST `/profile/module-categories`** (existente) — agora: (a) respeita teto — módulo com `masterEnabled=false` NUNCA recebe `enabled=true` (skip silencioso + retorno lista o que foi pulado); (b) grava auditoria (mesmo mecanismo do MODULE_TOGGLED do master, ator = user do tenant); (c) segue re-chamável (mín. 1 categoria; continua atualizando `Company.moduleCategoriesJson`); (d) CORREÇÃO 11/07 — escrita por INTENÇÃO (`planCategoryModuleWrites`): categoria presente que já tem módulo ON não é reescrita (preserva mix parcial); categoria omitida só desliga se estava efetivamente ligada e NÃO travada (locked omitida = no-op, nunca mata módulo vivo).
 3. **PUT `/modules/master/company/:companyId`** (existente) — passa a escrever `masterEnabled` (teto). Resposta/listagem do master expõe `masterEnabled` + `companyEnabled` (camada empresa) + `effective`.
 4. **GET `/logistica/clientes/:id/entregas?limit=&cursor=`** (W2; JwtAuthGuard, tenant-scoped):
    `{ items: [{ id, scheduledAt, deliveredAt, status, valor, receiptMethod, cobrancaStatus, whatsappStatus, whatsappMotivo, itens: [{ produtoNome, qtd, valorUnit }] }], nextCursor }` — ordenado desc por `deliveredAt ?? scheduledAt`; usa índice `[companyId, customerProfileId, scheduledAt]`.

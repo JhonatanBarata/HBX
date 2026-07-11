@@ -129,6 +129,7 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
   }, [id]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou trocar de empresa; efeito legítimo
     load();
   }, [load]);
 
@@ -269,6 +270,7 @@ export function EmpresasClient() {
       .finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou mudar filtro/página; efeito legítimo, não estado derivado.
   useEffect(() => { load(query, uf, page); }, [load, query, uf, page]);
 
   function submitSearch(e: React.FormEvent) {

@@ -362,30 +362,26 @@
   transition: transform var(--ent-motion-fast), background var(--ent-motion-fast);
 }
 [data-skin="entrega"] .ent-chip:active { transform: scale(0.96); }
+/* Selecionado = pílula preenchida (par soft/strong da marca), não só troca de
+   cor do texto — o dono reprovou o estado "seco" (dias/filtro somem na tela). */
 [data-skin="entrega"] .ent-chip.is-on {
+  background: var(--ent-chip-on-surface);
   color: var(--ent-chip-on-ink);
+  border-color: color-mix(in srgb, var(--ent-brand) 30%, transparent);
 }
-/* ---------- CHIPS EM 1 LINHA SÓ (dias da semana / variáveis da mensagem) ----------
-   TASKS 4/6/7 — nowrap + flex:1 1 0 divide a largura em partes iguais entre os
-   chips (7 dias OU as 5 variáveis) pra caber numa única fileira no mobile;
-   overflow-x:auto é a rede de segurança se o viewport for muito estreito (o
-   alvo é caber os 7 sem precisar rolar). */
+/* ---------- CHIPS DE SELEÇÃO COMPACTOS (dias da semana / variáveis / filtro) ----------
+   Antes (TASKS 4/6/7): nowrap + flex:1 1 0 espremia 7-8 chips numa fileira só,
+   cortando "Todos" e encolhendo a fonte pra 11px — leitura ruim, cara de
+   quebrado (reprovado pelo dono 11/07: "feios, cortados, fora do padrão"). Agora
+   QUEBRAM em 2 linhas com tamanho natural — mesmo material do grupo "Forma de
+   pagamento", que é o padrão de chip do app; sem esmagar nem cortar texto. */
 [data-skin="entrega"] .ent-chips--fit {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  flex-wrap: wrap;
 }
-[data-skin="entrega"] .ent-chips--fit::-webkit-scrollbar { display: none; }
 [data-skin="entrega"] .ent-chips--fit .ent-chip {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
-  padding-left: var(--ent-1);
-  padding-right: var(--ent-1);
-  font-size: var(--ent-text-xs);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 /* linha de chips logo abaixo do stepper (recebimento na folha de chegada) */
 [data-skin="entrega"] .ent-stepper + .ent-chips { margin-top: var(--ent-4); }
@@ -755,7 +751,7 @@
   gap: var(--ent-4);
   width: 100%;
   min-height: var(--ent-tap-lg);
-  padding: var(--ent-3) var(--ent-4);
+  padding: var(--ent-4);
   background: var(--ent-surface);
   border-radius: var(--ent-radius);
   border: 1px solid var(--ent-hairline);
@@ -1910,12 +1906,13 @@
   padding: 0 var(--ent-4) var(--ent-3);
 }
 
-/* Linha 2 do card — chips VERMELHOS de pendência (1 linha, sem quebra). */
+/* Linha 2 do card — chips VERMELHOS de pendência (1 linha, sem quebra).
+   Respiro entre nome↔erros e entre os erros (dono 11/07: "apertado os erros"). */
 [data-skin="entrega"] .ent-card-flags {
   display: flex;
   align-items: center;
-  gap: var(--ent-1);
-  margin-top: 2px;
+  gap: var(--ent-2);
+  margin-top: var(--ent-2);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -1923,8 +1920,8 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  padding: 0 var(--ent-2);
+  min-height: 24px;
+  padding: 0 var(--ent-3);
   border-radius: var(--ent-radius-pill);
   background: color-mix(in srgb, var(--ent-danger) 14%, var(--ent-surface));
   border: 1px solid color-mix(in srgb, var(--ent-danger) 32%, transparent);
@@ -2102,3 +2099,89 @@
 
 /* "Marcar pago" dentro da linha de cobranca respira do texto acima. */
 [data-skin="entrega"] .ent-extrato-row .ent-chip { margin-top: var(--ent-1); }
+
+/* ============================================================
+   MULTILOCAL 10/07 (W-D) — TELEFONES + ENDEREÇOS na ficha do cliente: N
+   Contatos (telefones) e N LocalEntrega (endereços) por conta, cobrança
+   sempre ÚNICA (docs/PLANEJAMENTOS/MULTILOCAL-10072026/CONTRATOS.md). Mesma
+   receita visual de .ent-prod-* (linha nome/sub + ações + "+" tracejado);
+   classe própria (.ent-multi-*) pra não confundir com produto. Toda cor/forma
+   em token (Lei nº1) — zero hex/inline.
+   ============================================================ */
+[data-skin="entrega"] .ent-multi-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-multi-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ent-3);
+  padding: var(--ent-3) var(--ent-4);
+  background: var(--ent-surface-soft);
+  border-radius: var(--ent-radius-sm);
+}
+[data-skin="entrega"] .ent-multi-main { flex: 1 1 auto; min-width: 0; }
+[data-skin="entrega"] .ent-multi-name {
+  font-size: var(--ent-text);
+  font-weight: 700;
+  color: var(--ent-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-multi-sub {
+  font-size: var(--ent-text-sm);
+  color: var(--ent-ink-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-skin="entrega"] .ent-multi-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--ent-2);
+}
+/* Botão de remover — mesma métrica/estado do "−" de produto (.ent-prod-remove). */
+[data-skin="entrega"] .ent-multi-remove {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-sm);
+  border: 1px solid var(--ent-line-strong);
+  background: var(--ent-surface);
+  color: var(--ent-ink-muted);
+  font-size: var(--ent-title);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast), color var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-multi-remove:active {
+  transform: scale(0.92);
+  background: var(--ent-surface-soft);
+  color: var(--ent-danger);
+}
+[data-skin="entrega"] .ent-multi-remove[disabled] { opacity: 0.5; cursor: default; }
+/* Caixa do "+ telefone"/"+ endereço" — mesma receita do .ent-prod-add. */
+[data-skin="entrega"] .ent-multi-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  padding: var(--ent-4);
+  background: var(--ent-surface-soft);
+  border-radius: var(--ent-radius);
+  border: 1px solid var(--ent-hairline);
+}
+/* Seletor "Entregar em" embutido na linha do produto (ProdutosDoCliente),
+   compacto — só aparece com 2+ locais ativos no cliente. */
+[data-skin="entrega"] .ent-prod-local {
+  margin-top: var(--ent-2);
+  min-height: 32px;
+  padding: 0 var(--ent-3);
+  font-size: var(--ent-text-sm);
+}

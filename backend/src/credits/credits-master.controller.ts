@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { CreditsService, MasterGrantInput } from './credits.service';
 import { CreditWalletService } from './credit-wallet.service';
+import { CreditActionConfigService } from './credit-action-config.service';
 import { isCreditsFeatureEnabled } from './credits.flags';
 import { PrismaService } from '../prisma/prisma.service';
 import { emitMasterEvent } from '../common/master-event';
@@ -47,6 +49,7 @@ export class CreditsMasterController {
     private readonly creditsService: CreditsService,
     private readonly wallet: CreditWalletService,
     private readonly prisma: PrismaService,
+    private readonly actionConfig: CreditActionConfigService,
   ) {}
 
   private assertEnabled() {
@@ -91,6 +94,32 @@ export class CreditsMasterController {
     this.assertEnabled();
     const pack = await this.creditsService.updatePackAsMaster(packKey, body || {});
     return { ok: true, pack };
+  }
+
+  // PR11072026 W1 — catálogo de AÇÕES de crédito (base em código + overlay editável no
+  // master, mesmo padrão dos packs acima). `lead_delivery` é SÓ LEITURA (o service rejeita
+  // qualquer PUT/DELETE de override nela — cobrança fixa no caminho assert do lead).
+  @Get('action-catalog')
+  async listActionCatalog() {
+    this.assertEnabled();
+    return { actions: this.actionConfig.listForMaster() };
+  }
+
+  @Put('action-catalog/:actionKey')
+  async updateActionCatalog(
+    @Param('actionKey') actionKey: string,
+    @Body() body: { mode?: string; cost?: number },
+  ) {
+    this.assertEnabled();
+    const action = await this.actionConfig.setOverride(actionKey, body || {});
+    return { ok: true, action };
+  }
+
+  @Delete('action-catalog/:actionKey')
+  async resetActionCatalog(@Param('actionKey') actionKey: string) {
+    this.assertEnabled();
+    const action = await this.actionConfig.clearOverride(actionKey);
+    return { ok: true, action };
   }
 
   @Put('config/expiry-default')

@@ -16,8 +16,11 @@ import { useRouter } from "next/navigation";
 import { CascaToastHost } from "@/components/casca";
 import { HbxMarkViva } from "@/components/casca/hbx-mark";
 import { getToken } from "@/lib/api";
+import { soLogistica } from "@/lib/so-logistica";
 
 import { EntregaTabBar } from "./EntregaTabBar";
+import { useEntregaMods } from "./entrega-mods";
+import { useEmpresaNome } from "./entrega-user";
 import { I, ICON_PATHS } from "./icons";
 
 export function EntregaScaffold({
@@ -42,13 +45,28 @@ export function EntregaScaffold({
     if (!getToken()) router.replace("/?entrar");
   }, [router]);
 
+  // W4 (PR10072026) — de-HBX quando SÓ-LOGÍSTICA: o header mostra o NOME DA
+  // EMPRESA do cliente (cache + localStorage em entrega-user.ts) no lugar da
+  // marca »HBX, e o título do documento vira "Entregas". Fail-closed: enquanto
+  // os módulos não carregam (ou o usuário tem outros módulos), HBX como hoje.
+  const mods = useEntregaMods();
+  const soLog = soLogistica(mods);
+  const empresaNome = useEmpresaNome();
+  useEffect(() => {
+    if (soLog) document.title = "Entregas";
+  }, [soLog]);
+
   return (
     <div className="casca">
       <div className="casca-top">
         {/* título sai do visual (ordem do dono) mas fica pra leitor de tela;
             a marca »HBX viva é a MESMA da casca central (components/casca/hbx-mark) */}
         <h1 className="casca-top__title hbx-sr-only">{title}</h1>
-        <HbxMarkViva />
+        {soLog ? (
+          empresaNome ? <div className="ent-top-empresa">{empresaNome}</div> : null
+        ) : (
+          <HbxMarkViva />
+        )}
         {headerActions ? <div className="casca-top__actions">{headerActions}</div> : null}
       </div>
 

@@ -177,6 +177,7 @@ export function AgendaClient() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar/mudar filtro; efeito legítimo
     load(tipoFilter);
   }, [load, tipoFilter]);
 

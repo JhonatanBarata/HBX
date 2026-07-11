@@ -25,9 +25,10 @@ import {
   CATEGORY_MANAGED_MODULE_KEYS,
   MODULE_CATEGORY_KEYS,
   MODULE_CATEGORY_MAP,
-  moduleKeysForCategories,
   normalizeModuleCategories,
   parseCompanyModuleCategories,
+  planCategoryModuleWrites,
+  type CategoryModuleState,
   type ModuleCategoryKey,
 } from '../modules/module-categories';
 import { effectiveCompanyModuleEnabled } from '../modules/module-access-policy';
@@ -907,6 +908,15 @@ export class UsersService {
   // recebe enabled=true (skip; devolvido em skippedModuleKeys); desligar
   // (enabled=false) continua permitido. (b) toda chamada grava auditoria com ator
   // do tenant (evento análogo ao MODULE_TOGGLED do master, mesma trilha da ficha).
+  //
+  // CORREÇÃO 11/07 (pós-revisão): a escrita agora é por INTENÇÃO, não cega —
+  // categoria omitida do POST só desliga módulos se ela estava efetivamente
+  // LIGADA (algum módulo ON) e não está travada pelo master; categoria presente
+  // que já tem módulo ON não é reescrita (preserva mix parcial, ex.: atendimento
+  // ON + bot OFF). Regra única em planCategoryModuleWrites (module-categories.ts).
+  // Antes, ligar QUALQUER categoria em /configuracoes ou /entrega/ajustes gravava
+  // enabled=false em todo módulo de categoria parcial/travada — matava o
+  // Atendimento da empresa sem ninguém pedir.
   async saveCompanyModuleCategories(
     companyId: number,
     categories: unknown,
@@ -916,10 +926,10 @@ export class UsersService {
     if (!clean.length) {
       throw new BadRequestException('Escolha pelo menos uma categoria.');
     }
-    const enabledKeys = moduleKeysForCategories(clean);
+    const chosen = new Set<ModuleCategoryKey>(clean);
     const managedModules = await this.prisma.systemModule.findMany({
       where: { key: { in: CATEGORY_MANAGED_MODULE_KEYS }, companyAssignable: true },
-      select: { id: true, key: true },
+      select: { id: true, key: true, defaultEnabled: true },
     });
     const [existingRows, previousCompany] = await Promise.all([
       this.prisma.companyModule.findMany({
@@ -932,33 +942,58 @@ export class UsersService {
       }),
     ]);
     const rowByModuleId = new Map(existingRows.map((row) => [row.moduleId, row]));
+    const moduleByKey = new Map(
+      managedModules.map((m) => [String(m.key || '').trim().toLowerCase(), m]),
+    );
     const previousCategories = parseCompanyModuleCategories((previousCompany as any)?.moduleCategoriesJson);
 
+    // Plano de escrita por categoria: intenção (POST) × estado efetivo atual
+    // (linha ? masterEnabled && enabled : defaultEnabled) — mesma régua do GET
+    // /profile/module-categories/options.
     const skippedModuleKeys: string[] = [];
+    const pendingWrites: Array<{ moduleId: number; moduleKey: string; enabled: boolean; previousEnabled: boolean | null }> = [];
+    for (const categoryKey of MODULE_CATEGORY_KEYS) {
+      const states: CategoryModuleState[] = (MODULE_CATEGORY_MAP[categoryKey] || []).map((moduleKey) => {
+        const systemModule = moduleByKey.get(moduleKey);
+        if (!systemModule) return { key: moduleKey, effective: false, ceilingOff: false, missing: true };
+        const row = rowByModuleId.get(systemModule.id);
+        return {
+          key: moduleKey,
+          effective: row ? effectiveCompanyModuleEnabled(row) : Boolean(systemModule.defaultEnabled),
+          ceilingOff: Boolean(row && (row as any).masterEnabled === false),
+        };
+      });
+      const plan = planCategoryModuleWrites(chosen.has(categoryKey), states);
+      skippedModuleKeys.push(...plan.skippedModuleKeys);
+      for (const write of plan.writes) {
+        const systemModule = moduleByKey.get(write.moduleKey);
+        if (!systemModule) continue;
+        const existing = rowByModuleId.get(systemModule.id);
+        pendingWrites.push({
+          moduleId: systemModule.id,
+          moduleKey: write.moduleKey,
+          enabled: write.enabled,
+          previousEnabled: existing ? Boolean(existing.enabled) : null,
+        });
+      }
+    }
+
     const moduleChanges: Array<{ moduleKey: string; previousEnabled: boolean | null; enabled: boolean }> = [];
     await this.prisma.$transaction(async (tx) => {
       await tx.company.update({
         where: { id: companyId },
         data: { moduleCategoriesJson: clean } as any,
       });
-      for (const moduleRow of managedModules) {
-        const moduleKey = String(moduleRow.key || '').trim().toLowerCase();
-        const enabled = enabledKeys.has(moduleKey);
-        const existing = rowByModuleId.get(moduleRow.id);
-        // TETO (W1): masterEnabled=false nunca vira enabled=true por aqui.
-        if (enabled && existing && (existing as any).masterEnabled === false) {
-          skippedModuleKeys.push(moduleKey);
-          continue;
-        }
+      for (const write of pendingWrites) {
         await tx.companyModule.upsert({
-          where: { companyId_moduleId: { companyId, moduleId: moduleRow.id } },
-          update: { enabled },
-          create: { companyId, moduleId: moduleRow.id, enabled },
+          where: { companyId_moduleId: { companyId, moduleId: write.moduleId } },
+          update: { enabled: write.enabled },
+          create: { companyId, moduleId: write.moduleId, enabled: write.enabled },
         });
         moduleChanges.push({
-          moduleKey,
-          previousEnabled: existing ? Boolean(existing.enabled) : null,
-          enabled,
+          moduleKey: write.moduleKey,
+          previousEnabled: write.previousEnabled,
+          enabled: write.enabled,
         });
       }
     });
@@ -1006,10 +1041,13 @@ export class UsersService {
   }
 
   // PR10072026 W1 — GET /profile/module-categories/options: estado por categoria
-  // pro tenant decidir o que dá pra ligar. `enabled` = TODOS os módulos da
-  // categoria com efetivo ON (masterEnabled && enabled; sem linha = defaultEnabled);
-  // `locked` = QUALQUER módulo da categoria com teto do master OFF (nunca vira
-  // ligável pelo tenant). Módulo ausente do catálogo conta como locked (fail-closed).
+  // pro tenant decidir o que dá pra ligar. CORREÇÃO 11/07: `enabled` = ALGUM
+  // módulo da categoria com efetivo ON (masterEnabled && enabled; sem linha =
+  // defaultEnabled) — semântica ANY. Com a régua antiga (TODOS ON), categoria
+  // parcial (ex.: atendimento ON + bot OFF) era reportada desligada, sumia do
+  // POST e o save desligava o módulo vivo por efeito colateral. `locked` =
+  // QUALQUER módulo da categoria com teto do master OFF (nunca vira ligável pelo
+  // tenant). Módulo ausente do catálogo conta como locked (fail-closed).
   async getCompanyModuleCategoryOptions(
     companyId: number,
   ): Promise<{ categories: Array<{ key: ModuleCategoryKey; enabled: boolean; locked: boolean }> }> {
@@ -1028,12 +1066,11 @@ export class UsersService {
 
     const categories = MODULE_CATEGORY_KEYS.map((key) => {
       const moduleKeys = MODULE_CATEGORY_MAP[key] || [];
-      let enabled = moduleKeys.length > 0;
+      let enabled = false;
       let locked = false;
       for (const moduleKey of moduleKeys) {
         const systemModule = moduleByKey.get(moduleKey);
         if (!systemModule) {
-          enabled = false;
           locked = true;
           continue;
         }
@@ -1041,7 +1078,7 @@ export class UsersService {
         const effective = row
           ? effectiveCompanyModuleEnabled(row)
           : Boolean(systemModule.defaultEnabled);
-        if (!effective) enabled = false;
+        if (effective) enabled = true;
         if (row && (row as any).masterEnabled === false) locked = true;
       }
       return { key, enabled, locked };

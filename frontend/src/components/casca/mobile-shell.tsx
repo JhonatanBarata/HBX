@@ -302,10 +302,35 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
     return () => cancelAnimationFrame(raf);
   }, [isMobile, booted]);
 
-  // Redirect mobile /dashboard → /vendas (a aba inicial do celular é Vendas).
+  // Redirect mobile /dashboard MODULE-AWARE (W4 PR10072026 — mata o /vendas-403
+  // do entregador só-logística): vendas acessível → /vendas; só-logística →
+  // /entrega; senão a primeira aba visível da tab bar (fallback /empresas).
+  // Espera os módulos carregarem (o loader `redirecting` abaixo segura o flash)
+  // e dispara 1x por passagem no /dashboard (guard por ref — sem loop).
+  const user = useCurrentUser();
+  const ent = useEntitlements();
+  const mods = useMyModules();
+  const redirected = useRef(false);
   useEffect(() => {
-    if (isMobile && pathname === "/dashboard") router.replace("/vendas");
-  }, [isMobile, pathname, router]);
+    if (!isMobile || pathname !== "/dashboard") {
+      redirected.current = false;
+      return;
+    }
+    if (!mods.loaded || redirected.current) return;
+    redirected.current = true;
+    let destino = "/empresas";
+    if (mods.byKey["vendas"]?.accessible === true) {
+      destino = "/vendas";
+    } else if (soLogistica(mods)) {
+      destino = "/entrega";
+    } else {
+      const primeira = CASCA_TABS.find(
+        (t) => t.key !== "mais" && isCascaTabVisible(t, ent, user, mods),
+      );
+      if (primeira) destino = primeira.href;
+    }
+    router.replace(destino);
+  }, [isMobile, pathname, mods, ent, user, router]);
 
   // Fecha qualquer toast pendente ao trocar de rota (não arrasta aviso de uma
   // tela pra outra).

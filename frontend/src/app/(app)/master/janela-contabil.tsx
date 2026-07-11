@@ -384,8 +384,8 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
     if (!window.confirm(`Fechar o Livro Caixa de ${anoAtual}? Os lançamentos ficam congelados — correção só via estorno.`)) return;
     setFecharAnoBusy(true);
     setFecharAnoMsg(null);
-    apiFetch(`/master/contabil/livro-caixa/fechar/${anoAtual}`, { method: "POST", body: JSON.stringify({}) })
-      .then((res: any) => {
+    apiFetch<{ congelados?: number }>(`/master/contabil/livro-caixa/fechar/${anoAtual}`, { method: "POST", body: JSON.stringify({}) })
+      .then((res) => {
         setFecharAnoMsg(`Ano fechado — ${res?.congelados ?? 0} lançamento(s) congelado(s).`);
         return carregarLancamentos();
       })
@@ -461,6 +461,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
   // Pré-preenche o simulador com os números reais do mês assim que chegam.
   useEffect(() => {
     if (!mes) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pré-preenche o simulador 1x quando os dados do mês chegam, sem sobrescrever edição manual; efeito legítimo
     if (!simReceita) setSimReceita(String(Math.round(mes.receitaCaixaCents / 100)));
     if (!simProlabore) setSimProlabore(String(Math.round(mes.folhaMesCents / 100)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -723,7 +724,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               <span>⚠</span>
               <span>
                 <strong>Fator R abaixo de 28%</strong> — no cenário simulado, o total de tributos fica <strong>{brl(custoDoErro)}</strong> maior
-                do que ajustando o pró-labore pelo histórico real (coluna "com histórico real" ao lado). Ajuste o pró-labore acima do
+                do que ajustando o pró-labore pelo histórico real (coluna &quot;com histórico real&quot; ao lado). Ajuste o pró-labore acima do
                 recomendado para recuperar a faixa.
               </span>
             </div>

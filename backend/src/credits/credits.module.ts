@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CreditWalletService } from './credit-wallet.service';
 import { CreditPackConfigService } from './credit-pack-config.service';
+import { CreditActionConfigService } from './credit-action-config.service';
 import { CreditMeterService } from './credit-meter.service';
 import { CreditsService } from './credits.service';
 import { CreditsController } from './credits.controller';
@@ -18,7 +19,7 @@ import { MasterGuard } from '../auth/guards/master.guard';
 @Module({
   imports: [PrismaModule],
   controllers: [CreditsController, CreditsMasterController, CreditsPublicController],
-  providers: [CreditWalletService, CreditPackConfigService, CreditsService, CreditMeterService, MasterGuard],
-  exports: [CreditWalletService, CreditPackConfigService, CreditsService, CreditMeterService],
+  providers: [CreditWalletService, CreditPackConfigService, CreditActionConfigService, CreditsService, CreditMeterService, MasterGuard],
+  exports: [CreditWalletService, CreditPackConfigService, CreditActionConfigService, CreditsService, CreditMeterService],
 })
 export class CreditsModule {}

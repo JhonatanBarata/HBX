@@ -318,7 +318,7 @@ function formatBits(maskIndex: number): number[] {
   let rem = data << 10;
   const g = 0b10100110111;
   for (let i = 14; i >= 10; i--) if ((rem >> i) & 1) rem ^= g << (i - 10);
-  let bits = ((data << 10) | rem) ^ 0b101010000010010;
+  const bits = ((data << 10) | rem) ^ 0b101010000010010;
   const out: number[] = [];
   for (let i = 14; i >= 0; i--) out.push((bits >> i) & 1);
   return out;

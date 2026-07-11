@@ -6,9 +6,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinanceiroService } from './financeiro.service';
+import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
 import { CreditWalletService } from '../credits/credit-wallet.service';
@@ -78,6 +80,9 @@ export class CreditRechargeService {
     private readonly wallet: CreditWalletService,
     private readonly packConfig: CreditPackConfigService,
     private readonly financeiro: FinanceiroService,
+    // FURO 2 (11/07): comissão sobre recarga. @Optional pra não quebrar DI/testes antigos —
+    // ausente = recarga segue sem comissionar (mesmo efeito do % desarmado).
+    @Optional() private readonly commissionSync?: HbxCommissionSyncService,
   ) {}
 
   // Mesma régua do financeiro.service (isMockPaymentsProvider): mock SÓ em dev.
@@ -427,6 +432,25 @@ export class CreditRechargeService {
         }
         // Corrida de retry da MESMA empresa: outro processo já gravou a MESMA
         // cobrança+ledger — ok, segue.
+      }
+    }
+
+    // FURO 2 (11/07, decisão do dono): recarga PAGA entra no incentivo do vendedor — comissão
+    // sobre o valor REAL cobrado. Desarmada por default (HBX_COMMISSION_RECHARGE_PERCENT=0) e
+    // BEST-EFFORT: nunca quebra uma recarga que o cartão já pagou; idempotente por charge no
+    // próprio sync (kind 'recharge', cycleKey `recharge:<chargeId>`).
+    if (this.commissionSync) {
+      const chargeRow = await this.prisma.financeiroCharge.findFirst({
+        where: { externalReference },
+        select: { id: true, amount: true },
+      }).catch(() => null);
+      if (chargeRow) {
+        await this.commissionSync.createRechargeCommission({
+          companyId,
+          chargeId: chargeRow.id,
+          amount: Number(chargeRow.amount || amount),
+          source: 'credit_recharge',
+        }).catch(() => undefined);
       }
     }
 

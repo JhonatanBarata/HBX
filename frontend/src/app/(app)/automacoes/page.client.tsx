@@ -95,6 +95,7 @@ export function AutomacoesClient() {
 
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch paralelo ao montar (guarda `alive` contra race/unmount); efeito legítimo
     void Promise.allSettled([loadCad(), loadGat(), loadRot()]).then(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [loadCad, loadGat, loadRot]);

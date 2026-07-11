@@ -1488,7 +1488,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 // ancorado, .be-saved-menu__pop). Zero CSS novo duplicado.
                 <div className="be-saved-menu__pop hbx-pop" role="menu">
                   {savedSearches.length === 0 ? (
-                    <p className="radar-saved__empty">Nenhuma pesquisa salva ainda. Monte um filtro e clique em "Salvar filtro".</p>
+                    <p className="radar-saved__empty">Nenhuma pesquisa salva ainda. Monte um filtro e clique em &quot;Salvar filtro&quot;.</p>
                   ) : (
                     <ul className="radar-saved__list">
                       {savedSearches.map(s => (

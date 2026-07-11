@@ -3239,8 +3239,10 @@ export class RadarCoreDeliveryMixin {
    * Etapa 7 (IA 7b pós-entrega só-aditiva): agenda o saneamento em memória, sem bloquear a
    * resposta da entrega. `RadarPostDeliveryAiSaneamentoService.enqueue` já é no-op se a flag
    * `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default) — chamada sempre segura.
+   * `companyId` (CRÉDITO UNIVERSAL, PR11072026): empresa dona da importação, já validada por
+   * `resolveContext` no caller — repassado só como medição `ai_batch`, nunca inventado.
    */
-  private enqueueRadarPostDeliveryAiSaneamento(row: any) {
+  private enqueueRadarPostDeliveryAiSaneamento(row: any, companyId?: number | null) {
     const radarLeadId = String(row?.id || '').trim();
     const name = String(row?.name || '').trim();
     if (!radarLeadId || !name) return;
@@ -3251,6 +3253,7 @@ export class RadarCoreDeliveryMixin {
         city: row?.city || null,
         state: row?.state || null,
         segment: row?.segment || null,
+        companyId: companyId ?? null,
       },
       {
         loadRadarLeadPoolRow: (id: string) => (this.prisma as any).radarLeadPool.findUnique({
@@ -3537,7 +3540,9 @@ export class RadarCoreDeliveryMixin {
     // Etapa 7 da árvore mestra: dispara DEPOIS que a entrega já respondeu (fire-and-forget,
     // igual ao padrão L4/web-enrichment desta mesma função) — nunca atrasa nem falha a
     // entrega. No-op silencioso se `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default).
-    this.enqueueRadarPostDeliveryAiSaneamento(leadRow);
+    // companyId REAL da importação (context.companyId, validado por resolveContext) — vira
+    // medição ai_batch (CRÉDITO UNIVERSAL, PR11072026).
+    this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
     // NÚCLEO-CRM N2 — materializa Conta(PJ)+Contato(dono) na espinha a partir do CNPJ do lead
     // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`
     // (default OFF → no-op total). NUNCA quebra o pull (a função engole o próprio erro).

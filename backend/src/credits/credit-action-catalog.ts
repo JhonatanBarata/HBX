@@ -83,13 +83,77 @@ export function normalizeCreditActionKey(value: unknown): CreditActionKey | null
   return keys.includes(normalized) ? (normalized as CreditActionKey) : null;
 }
 
-/** Ação fora do catálogo → null (o meter trata como "não medir", nunca inventa preço). */
-export function getCreditActionDefinition(actionKey: unknown): CreditActionDefinition | null {
+export function listCreditActionKeys(): CreditActionKey[] {
+  return Object.values(CREDIT_ACTION_KEYS) as CreditActionKey[];
+}
+
+/** Definição BASE (em código, sem overlay) — usada pelo master pra mostrar "padrão" vs "editado". */
+export function getCreditActionBaseDefinition(actionKey: unknown): CreditActionDefinition | null {
   const key = normalizeCreditActionKey(actionKey);
   if (!key) return null;
   return { ...CREDIT_ACTION_BASE[key] };
 }
 
+// ── Overlay editável (PR11072026 W1 — mesmo padrão do commercial-plan-catalog /
+// credit-pack-catalog: base em CÓDIGO + override em memória, hidratado no boot/edição
+// pelo CreditActionConfigService a partir de `CreditActionConfig`). `lead_delivery` NUNCA
+// tem override persistido (rejeitado no set do service) e `whatsapp_auto_send` nunca
+// persiste mode='debit' (idem) — mas o merge aqui é puramente mecânico, defesa em
+// profundidade fica no service (validação no set) e no meter (recusa hardcoded do lead).
+export type CreditActionOverride = {
+  mode?: CreditActionMode;
+  cost?: number;
+};
+
+const CREDIT_ACTION_OVERRIDES = new Map<CreditActionKey, CreditActionOverride>();
+
+/** Substitui o overlay inteiro (idempotente — chamado no boot e a cada PUT/DELETE do master). */
+export function applyCreditActionOverrides(
+  entries: Array<{ actionKey: unknown; override: CreditActionOverride | null | undefined }>,
+) {
+  CREDIT_ACTION_OVERRIDES.clear();
+  for (const entry of entries || []) {
+    const key = normalizeCreditActionKey(entry?.actionKey);
+    if (!key) continue;
+    const ov = entry?.override;
+    if (!ov || typeof ov !== 'object') continue;
+    const clean: CreditActionOverride = {};
+    if (ov.mode === 'free' || ov.mode === 'track' || ov.mode === 'debit') clean.mode = ov.mode;
+    if (ov.cost != null && Number.isFinite(Number(ov.cost))) clean.cost = Math.max(1, Math.trunc(Number(ov.cost)));
+    // configJson corrompido/vazio (JSON.parse falhou no service) vira override SEM nenhum
+    // campo válido — não registra: senão getCreditActionOverride devolveria `{}` (objeto
+    // truthy) em vez de null, e a UI do master mostraria "editado" pra uma linha que na
+    // prática nunca teve override real gravado.
+    if (Object.keys(clean).length === 0) continue;
+    CREDIT_ACTION_OVERRIDES.set(key, clean);
+  }
+}
+
+export function clearCreditActionOverrides() {
+  CREDIT_ACTION_OVERRIDES.clear();
+}
+
+export function getCreditActionOverride(actionKey: unknown): CreditActionOverride | null {
+  const key = normalizeCreditActionKey(actionKey);
+  if (!key) return null;
+  return CREDIT_ACTION_OVERRIDES.get(key) || null;
+}
+
+/** Ação fora do catálogo → null (o meter trata como "não medir", nunca inventa preço).
+ * Aplica o overlay (base + override, override ganha) quando houver. */
+export function getCreditActionDefinition(actionKey: unknown): CreditActionDefinition | null {
+  const key = normalizeCreditActionKey(actionKey);
+  if (!key) return null;
+  const base = CREDIT_ACTION_BASE[key];
+  const override = CREDIT_ACTION_OVERRIDES.get(key);
+  if (!override) return { ...base };
+  return {
+    ...base,
+    mode: override.mode ?? base.mode,
+    cost: override.cost ?? base.cost,
+  };
+}
+
 export function listCreditActionDefinitions(): CreditActionDefinition[] {
-  return (Object.values(CREDIT_ACTION_KEYS) as CreditActionKey[]).map((key) => ({ ...CREDIT_ACTION_BASE[key] }));
+  return (Object.values(CREDIT_ACTION_KEYS) as CreditActionKey[]).map((key) => getCreditActionDefinition(key)!);
 }

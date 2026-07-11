@@ -194,6 +194,7 @@ export function WizardFecharMes({
       .finally(() => setCarregando(false));
   }, [competencia]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou trocar de competência; efeito legítimo, não estado derivado.
   useEffect(() => { carregar(); }, [carregar]);
 
   // Sequência de passos — Fase 0 encurta pra PGDAS-D zerado + fechamento.
@@ -211,6 +212,7 @@ export function WizardFecharMes({
   const passoAtual = passos[Math.min(passoIdx, passos.length - 1)];
 
   // Se o conjunto de passos mudar (ex.: pró-labore passou a > 0), reancora.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reancora passoIdx só quando a quantidade de passos muda; precisa persistir entre renders, efeito legítimo
   useEffect(() => { setPassoIdx((i) => Math.min(i, passos.length - 1)); }, [passos.length]);
 
   const avancar = useCallback(() => setPassoIdx((i) => Math.min(i + 1, passos.length - 1)), [passos.length]);
@@ -475,6 +477,7 @@ function PassoPgdasd({
   const autopostAtivo = Boolean(serpro?.enabled && serpro?.credencialConfigurada);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- limpa a validação ao esvaziar o campo (debounce abaixo trata o resto); efeito legítimo
     if (!dasGoverno.trim()) { setCheck(null); return; }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
@@ -567,6 +570,7 @@ function SerproAutopostCard({
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Falha ao armar."));
   }, [competencia]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou trocar de competência; efeito legítimo, não estado derivado.
   useEffect(() => { armar(); }, [armar]);
 
   const transmitir = useCallback(() => {

@@ -97,6 +97,14 @@ export type AiSaneamentoInput = {
   city?: string | null;
   state?: string | null;
   segmentHint?: string | null;
+  /**
+   * CRÉDITO UNIVERSAL (PR11072026): empresa dona da entrega, quando existir — vira medição
+   * `ai_batch` (track, nunca cobra). SÓ o disparo pós-entrega (`saneiaComNota` via
+   * RadarPostDeliveryAiSaneamentoService) tem tenant real (`context.companyId` da entrega);
+   * o worker manual/batch do owner (`saneia` via `aiSaneamentoForMaster`) varre TODO o pool
+   * sem dono — nunca inventa, fica undefined.
+   */
+  companyId?: number | null;
 };
 
 export type AiSaneamentoResult = {
@@ -152,7 +160,7 @@ export class AiSaneamentoService {
     const name = String(input?.name || '').trim();
     if (!name) return { ok: false, nomeLimpo: null, segmento: null };
 
-    const parsed = await this.callOllama(name, SYSTEM_PROMPT, buildUserPrompt(input));
+    const parsed = await this.callOllama(name, SYSTEM_PROMPT, buildUserPrompt(input), input.companyId);
     if (!parsed) return { ok: false, nomeLimpo: null, segmento: null };
 
     const nomeLimpo = String((parsed as any).nome_limpo || '').trim() || null;
@@ -172,7 +180,7 @@ export class AiSaneamentoService {
     const name = String(input?.name || '').trim();
     if (!name) return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
 
-    const parsed = await this.callOllama(name, SYSTEM_PROMPT_COM_NOTA, buildUserPrompt(input));
+    const parsed = await this.callOllama(name, SYSTEM_PROMPT_COM_NOTA, buildUserPrompt(input), input.companyId);
     if (!parsed) return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
 
     const nomeLimpo = String((parsed as any).nome_limpo || '').trim() || null;
@@ -192,7 +200,12 @@ export class AiSaneamentoService {
    * timeout e resolução de IPv4; só o prompt de sistema muda. Devolve o objeto JSON já
    * parseado (ou `null` em qualquer falha — offline, timeout, HTTP != ok, JSON inválido).
    */
-  private async callOllama(name: string, systemPrompt: string, userPrompt: string): Promise<Record<string, unknown> | null> {
+  private async callOllama(
+    name: string,
+    systemPrompt: string,
+    userPrompt: string,
+    companyId?: number | null,
+  ): Promise<Record<string, unknown> | null> {
     const baseUrl = await resolvePreferIPv4BaseUrl(ollamaBaseUrl());
     const model = envStr('HBX_AI_SANEAMENTO_MODEL', 'qwen2.5:7b');
     const timeoutMs = envInt('HBX_AI_SANEAMENTO_TIMEOUT_MS', 20000);
@@ -231,6 +244,7 @@ export class AiSaneamentoService {
             }),
             signal: controller.signal,
           }),
+          { companyId, actionKey: 'ai_batch' },
         );
         if (gw.refused) {
           this.logger.warn(`saneamento IA recusado cedo pelo governor (fila cheia) para "${name}"`);

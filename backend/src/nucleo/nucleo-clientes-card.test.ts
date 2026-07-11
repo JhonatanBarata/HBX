@@ -44,6 +44,10 @@ type MockOpts = {
   config?: any; // LogisticaConfig
   chargesPendentes?: any[]; // groupBy FinanceiroCharge pending
   entregasAguardando?: any[]; // groupBy Entrega aguardando_fechamento
+  // MULTILOCAL (10/07) — locais ativos (principal primeiro) usados p/ endereco/numero/gps.
+  // undefined → default espelha o endereço de cada pageRow (paridade com o backfill);
+  // [] → nenhum local ativo (as 3 pendências acendem).
+  principalLocais?: any[];
 };
 
 function buildPrismaMock(opts: MockOpts) {
@@ -66,6 +70,22 @@ function buildPrismaMock(opts: MockOpts) {
       },
     },
     clienteProduto: { findMany: async () => opts.vinculos ?? [] },
+    localEntrega: {
+      // MULTILOCAL — default: 1 local principal ativo por cliente da página, ESPELHANDO
+      // o endereço do perfil (paridade com o backfill) — mantém os testes legados estáveis.
+      findMany: async (_args: any) =>
+        opts.principalLocais !== undefined
+          ? opts.principalLocais
+          : opts.pageRows.map((r) => ({
+              customerProfileId: r.id,
+              endereco: r.endereco,
+              numero: r.numero,
+              lat: r.lat,
+              lng: r.lng,
+              isPrincipal: true,
+              createdAt: new Date(),
+            })),
+    },
     entrega: {
       groupBy: async (args: any) =>
         args?.where?.cobrancaStatus === 'aguardando_fechamento'
@@ -115,6 +135,51 @@ test('W5 listClientes: pendências na ordem fixa endereco→numero→gps→dia�
   assert.deepEqual(res.items[0].pendencias, ['endereco', 'numero', 'gps', 'dia', 'whatsapp']);
   assert.deepEqual(res.items[0].diasEntrega, []);
   assert.equal(res.items[0].entregasCount, 0);
+});
+
+// ── MULTILOCAL (10/07) — endereco/numero/gps olham o LOCAL PRINCIPAL ───────────
+test('MULTILOCAL card: SEM local ativo → acende endereco+numero+gps (ignora o perfil)', async () => {
+  // o PERFIL tem endereço/numero/gps completos, mas NÃO há local ativo → as 3 acendem.
+  const row = baseRow();
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    principalLocais: [], // nenhum local ativo
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '1', frequenciaDias: null }], // limpa "dia"
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.deepEqual(res.items[0].pendencias, ['endereco', 'numero', 'gps'], 'sem local → as 3, na ordem');
+});
+
+test('MULTILOCAL card: pendências olham o LOCAL principal, não o perfil', async () => {
+  // PERFIL sem endereço/gps; LOCAL principal COM endereço/numero/gps → nada acende
+  // (dia limpo por vínculo, whatsapp presente). Prova que a fonte virou o local.
+  const row = baseRow({ endereco: null, numero: null, lat: null, lng: null });
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    principalLocais: [
+      { customerProfileId: 'c1', endereco: 'Rua Nova', numero: '99', lat: -3, lng: -39, isPrincipal: true, createdAt: new Date() },
+    ],
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '1', frequenciaDias: null }],
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.deepEqual(res.items[0].pendencias, [], 'local completo → nenhuma das 3 acende');
+});
+
+test('MULTILOCAL card: local principal com endereço PARCIAL acende só o que falta', async () => {
+  const row = baseRow();
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    // tem endereco, falta numero e gps
+    principalLocais: [
+      { customerProfileId: 'c1', endereco: 'Rua Nova', numero: null, lat: null, lng: null, isPrincipal: true, createdAt: new Date() },
+    ],
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '1', frequenciaDias: null }],
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.deepEqual(res.items[0].pendencias, ['numero', 'gps']);
 });
 
 test('W5 listClientes: vínculo ativo com diasSemana limpa pendência "dia" e une os dias', async () => {

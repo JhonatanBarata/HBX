@@ -19,6 +19,8 @@ function buildPrismaMock(accounts: any[]) {
     chargeMoves: [] as any[],
     vendasLeadMoves: [] as any[],
     debtCaseMoves: [] as any[],
+    localMoves: [] as any[], // MULTILOCAL — locais da perdedora migram
+    contatoCreates: [] as any[], // MULTILOCAL — telefone do perdedor preservado
     accountUpdates: [] as any[],
     deleted: [] as string[],
     deletionRecords: [] as any[],
@@ -57,11 +59,20 @@ function buildPrismaMock(accounts: any[]) {
       // W5 — debitoAbertoPorClientes (bloqueio do delete por dívida): default SEM dívida.
       groupBy: async () => [],
     },
-    contato: { updateMany: moveMany(store.contatoMoves) },
+    contato: {
+      updateMany: moveMany(store.contatoMoves),
+      // rescue do telefone do perdedor: por padrão o vencedor NÃO tem o número.
+      findFirst: async () => null,
+      create: async (args: any) => {
+        store.contatoCreates.push(args.data);
+        return { id: 'novo-contato', ...args.data };
+      },
+    },
     clienteProduto: { updateMany: moveMany(store.clienteProdutoMoves) },
     financeiroCharge: { updateMany: moveMany(store.chargeMoves), groupBy: async () => [] },
     vendasLead: { updateMany: moveMany(store.vendasLeadMoves) },
     debtCase: { updateMany: moveMany(store.debtCaseMoves) },
+    localEntrega: { updateMany: moveMany(store.localMoves) },
     deletionRecord: {
       create: async (args: any) => {
         store.deletionRecords.push(args.data);
@@ -117,6 +128,7 @@ test('R3 merge: funde 2 contas → refs migram p/ o vencedor e a perdedora vira 
   assert.equal(store.chargeMoves.length, 1);
   assert.equal(store.vendasLeadMoves.length, 1);
   assert.equal(store.debtCaseMoves.length, 1);
+  assert.equal(store.localMoves.length, 1, 'MULTILOCAL — locais migram loser → winner');
   // todas apontam loser → winner
   for (const m of [store.entregaMoves[0], store.contatoMoves[0], store.chargeMoves[0], store.debtCaseMoves[0]]) {
     assert.equal(m.where.customerProfileId, 'conta-pobre');
@@ -153,6 +165,55 @@ test('R3 merge: conta de OUTRO tenant → null (isolamento)', async () => {
   const service = new NucleoCadastroService(prisma);
   const res = await service.mergeContas(7, 'a', 'b'); // b é de outra empresa
   assert.equal(res, null, 'não funde cross-tenant');
+});
+
+// ── MULTILOCAL (10/07) — o merge NUNCA perde telefone nem local ───────────────
+test('MULTILOCAL merge: telefone do PERDEDOR (profile.phone) vira Contato no vencedor', async () => {
+  const winner = {
+    id: 'w', companyId: 7, tipo: 'pf', name: 'Maria', cnpj: null, document: null,
+    phone: '5588111', phoneNormalized: '5588111', email: 'w@x.com', endereco: 'Rua A',
+    cidade: 'For', uf: 'CE', cep: '600', lat: -4, lng: -38, status: 'active',
+    isLead: false, isCliente: true, isFornecedor: false, origin: 'manual', createdAt: new Date('2026-01-01'),
+  };
+  const loser = {
+    id: 'l', companyId: 7, tipo: 'pf', name: 'Maria Silva', cnpj: null, document: null,
+    phone: '5588222', phoneNormalized: '5588222', email: null, endereco: null,
+    cidade: null, uf: null, cep: null, lat: null, lng: null, status: 'active',
+    isLead: false, isCliente: true, isFornecedor: false, origin: 'radar', createdAt: new Date('2026-02-01'),
+  };
+  // winner tem MAIS dado → vence e mantém o phone dele; o phone do loser (5588222) não
+  // existe no vencedor (nem profile nem Contato) → deve virar Contato não-principal.
+  const { prisma, store } = buildPrismaMock([winner, loser]);
+  const service = new NucleoCadastroService(prisma);
+  const res = await service.mergeContas(7, 'l', 'w');
+
+  assert.equal(res?.winnerId, 'w');
+  assert.equal(store.localMoves.length, 1, 'locais da perdedora migram');
+  assert.equal(store.contatoCreates.length, 1, 'telefone do perdedor preservado');
+  assert.equal(store.contatoCreates[0].whatsapp, '5588222');
+  assert.equal(store.contatoCreates[0].isPrincipal, false, 'preservado como NÃO-principal');
+  assert.equal(store.contatoCreates[0].customerProfileId, 'w', 'no vencedor');
+});
+
+test('MULTILOCAL merge: telefone do perdedor JÁ presente no vencedor → não duplica', async () => {
+  const winner = {
+    id: 'w', companyId: 7, tipo: 'pf', name: 'Maria', cnpj: null, document: null,
+    phone: '5588111', phoneNormalized: '5588111', email: 'w@x.com', endereco: 'Rua A',
+    cidade: 'For', uf: 'CE', cep: '600', lat: -4, lng: -38, status: 'active',
+    isLead: false, isCliente: true, isFornecedor: false, origin: 'manual', createdAt: new Date('2026-01-01'),
+  };
+  const loser = {
+    id: 'l', companyId: 7, tipo: 'pf', name: 'Maria Silva', cnpj: null, document: null,
+    phone: '5588222', phoneNormalized: '5588222', email: null, endereco: null,
+    cidade: null, uf: null, cep: null, lat: null, lng: null, status: 'active',
+    isLead: false, isCliente: true, isFornecedor: false, origin: 'radar', createdAt: new Date('2026-02-01'),
+  };
+  const { prisma, store } = buildPrismaMock([winner, loser]);
+  // o vencedor JÁ tem esse telefone como Contato (ex.: o Contato migrado do loser).
+  prisma.contato.findFirst = async () => ({ id: 'ja-existe' });
+  const service = new NucleoCadastroService(prisma);
+  await service.mergeContas(7, 'l', 'w');
+  assert.equal(store.contatoCreates.length, 0, 'não cria Contato duplicado');
 });
 
 // ── (c) SOFT-DELETE — esconde + grava snapshot ────────────────────────────────

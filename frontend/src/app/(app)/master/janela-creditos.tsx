@@ -53,7 +53,7 @@ import { useTabParam } from "@/lib/use-tab-param";
 import type { MasterCompany } from "./page.client";
 import { fmtDataHora } from "./page.client";
 
-const GUIAS = ["Visão geral", "Empresas", "Packs", "Config", "Recargas"] as const;
+const GUIAS = ["Visão geral", "Empresas", "Packs", "Ações", "Config", "Recargas"] as const;
 type Guia = (typeof GUIAS)[number];
 
 type CreditPack = {
@@ -102,6 +102,24 @@ type GlobalConfig = {
   welcomeExpiryDays?: number;
   dailyDeliveryCapDefault?: number;
 };
+
+// PR11072026 W1 — catálogo de AÇÕES metradas pelo crédito (base em código + overlay
+// editável aqui). `lead_delivery` é SÓ LEITURA (cobrança fixa no caminho de entrega do lead).
+type CreditActionMode = "free" | "track" | "debit";
+
+type CreditActionItem = {
+  actionKey: string;
+  label: string;
+  base: { mode: CreditActionMode; cost: number };
+  override: { mode: CreditActionMode; cost: number } | null;
+  effective: { mode: CreditActionMode; cost: number };
+};
+
+const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
+  { value: "free", label: "Grátis" },
+  { value: "track", label: "Medir" },
+  { value: "debit", label: "Debitar" },
+];
 
 function toForm(p: CreditPack | null): PackForm {
   return {
@@ -225,6 +243,7 @@ export function JanelaCreditos({ companies, reload }: {
   // histórias diferentes pro dono — não podem cair na mesma dica de "confira a flag".
   const [packsLoadError, setPacksLoadError] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setPackKey é setter de useState (identidade estável); deps `[]` já corretas
   const carregarPacks = useCallback(() => {
     apiFetch<{ packs?: CreditPack[] }>("/credits/master/packs")
       .then(res => {
@@ -244,6 +263,7 @@ export function JanelaCreditos({ companies, reload }: {
 
   useEffect(() => {
     const atual = (packs || []).find(p => p.key === packKey) || null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resincroniza o form ao trocar de pack/recarregar a lista; efeito legítimo
     setPackForm(toForm(atual));
   }, [packKey, packs]);
 
@@ -278,6 +298,80 @@ export function JanelaCreditos({ companies, reload }: {
 
   const pausado = packForm.status === "paused";
 
+  // ── Ações (catálogo de ações de crédito — PR11072026 W1) ───────────────────────────────────
+  const [actions, setActions] = useState<CreditActionItem[] | null>(null);
+  const [actionsLoadError, setActionsLoadError] = useState<string | null>(null);
+  const [actionForms, setActionForms] = useState<Record<string, { mode: CreditActionMode; cost: string }>>({});
+  const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setActionForms é setter de useState (identidade estável); deps `[]` já corretas
+  const carregarAcoes = useCallback(() => {
+    apiFetch<{ actions?: CreditActionItem[] }>("/credits/master/action-catalog")
+      .then(res => {
+        const list = Array.isArray(res?.actions) ? res.actions : [];
+        setActions(list);
+        setActionsLoadError(null);
+        setActionForms(prev => {
+          const next = { ...prev };
+          for (const a of list) next[a.actionKey] = { mode: a.effective.mode, cost: String(a.effective.cost) };
+          return next;
+        });
+      })
+      .catch((err: unknown) => {
+        setActions([]);
+        const status = (err as ApiError)?.status;
+        setActionsLoadError(isFeatureFlagStatus(status) ? null : ((err as ApiError)?.message || "Falha ao carregar o catálogo de ações."));
+      });
+  }, []);
+
+  useEffect(() => { carregarAcoes(); }, [carregarAcoes]);
+
+  function aplicarAcaoAtualizada(item: CreditActionItem) {
+    setActions(prev => (prev || []).map(a => (a.actionKey === item.actionKey ? item : a)));
+    setActionForms(prev => ({ ...prev, [item.actionKey]: { mode: item.effective.mode, cost: String(item.effective.cost) } }));
+  }
+
+  async function salvarAcao(actionKey: string) {
+    if (actionBusyKey) return;
+    const form = actionForms[actionKey];
+    const cost = Number(form?.cost);
+    if (!Number.isInteger(cost) || cost < 1) { setActionMsg("Custo deve ser um número inteiro >= 1."); return; }
+    setActionBusyKey(actionKey);
+    setActionMsg(null);
+    try {
+      const res = await apiFetch<{ action?: CreditActionItem }>(`/credits/master/action-catalog/${encodeURIComponent(actionKey)}`, {
+        method: "PUT",
+        body: JSON.stringify({ mode: form.mode, cost }),
+      });
+      if (res?.action) aplicarAcaoAtualizada(res.action);
+      setActionMsg("✓ Ação salva.");
+    } catch (e) {
+      reportError(e);
+      setActionMsg(e instanceof Error ? e.message : "Falha ao salvar a ação.");
+    } finally {
+      setActionBusyKey(null);
+    }
+  }
+
+  async function restaurarAcao(actionKey: string) {
+    if (actionBusyKey) return;
+    setActionBusyKey(actionKey);
+    setActionMsg(null);
+    try {
+      const res = await apiFetch<{ action?: CreditActionItem }>(`/credits/master/action-catalog/${encodeURIComponent(actionKey)}`, {
+        method: "DELETE",
+      });
+      if (res?.action) aplicarAcaoAtualizada(res.action);
+      setActionMsg("✓ Ação restaurada ao padrão.");
+    } catch (e) {
+      reportError(e);
+      setActionMsg(e instanceof Error ? e.message : "Falha ao restaurar a ação.");
+    } finally {
+      setActionBusyKey(null);
+    }
+  }
+
   // ── Config global (welcomeCredits/welcomeExpiryDays/defaultExpiryDays) ─────────────────────
   const [welcomeCredits, setWelcomeCredits] = useState("");
   const [welcomeExpiryDays, setWelcomeExpiryDays] = useState("");
@@ -292,6 +386,7 @@ export function JanelaCreditos({ companies, reload }: {
   const [dailyCapBusy, setDailyCapBusy] = useState(false);
   const [dailyCapMsg, setDailyCapMsg] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- os 4 setters usados são de useState (identidade estável); deps `[]` já corretas
   const carregarConfig = useCallback(() => {
     apiFetch<GlobalConfig>("/credits/master/config")
       .then(res => {
@@ -379,6 +474,7 @@ export function JanelaCreditos({ companies, reload }: {
   const [refMsg, setRefMsg] = useState<string | null>(null);
   const [refLoadError, setRefLoadError] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- os 3 setters usados são de useState (identidade estável); deps `[]` já corretas
   const carregarPoliticaIndicacao = useCallback(() => {
     apiFetch<{ referralDiscountActive?: boolean; referralDiscountPercent?: number; referralDiscountMode?: string }>(
       "/modules/master/global-integrations",
@@ -622,6 +718,81 @@ export function JanelaCreditos({ companies, reload }: {
                 </div>
               </React.Fragment>
             )}
+          </div>
+        </section>
+      )}
+
+      {guia === "Ações" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Catálogo de ações</h2>
+            <div className="meta">1 crédito = 1 unidade medida</div>
+          </div>
+          {actionsLoadError && <div className="sc-intro"><div className="sc-msg is-warn">{actionsLoadError}</div></div>}
+          {actionMsg && <div className="sc-intro"><div className={"sc-msg " + (actionMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{actionMsg}</div></div>}
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr><th>Ação</th><th>Modo</th><th>Custo</th><th>Status</th><th>Ação</th></tr>
+              </thead>
+              <tbody>
+                {actions === null && (
+                  <tr><td colSpan={5} className="muted-note">Carregando…</td></tr>
+                )}
+                {actions !== null && actions.length === 0 && (
+                  <tr><td colSpan={5} className="muted-note">{actionsLoadError || "Nenhuma ação encontrada."}</td></tr>
+                )}
+                {(actions || []).map(a => {
+                  const isLead = a.actionKey === "lead_delivery";
+                  const isWhatsapp = a.actionKey === "whatsapp_auto_send";
+                  const form = actionForms[a.actionKey] || { mode: a.effective.mode, cost: String(a.effective.cost) };
+                  const busy = actionBusyKey === a.actionKey;
+                  return (
+                    <tr key={a.actionKey}>
+                      <td>
+                        <div className="co">
+                          <strong>{a.label}</strong>
+                          {isLead && <span className="sub2">cobrado na entrega do lead</span>}
+                        </div>
+                      </td>
+                      <td>
+                        {isLead ? (
+                          <span className="tag">{a.effective.mode}</span>
+                        ) : (
+                          <select className="field-dark" value={form.mode}
+                            onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, mode: e.target.value as CreditActionMode } }))}>
+                            {MODE_OPTIONS.filter(o => !(isWhatsapp && o.value === "debit")).map(o => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                      <td>
+                        {isLead ? (
+                          <span>{a.effective.cost}</span>
+                        ) : (
+                          <input className="field-dark" style={{ maxWidth: 80 }} inputMode="numeric" value={form.cost}
+                            onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, cost: e.target.value } }))} />
+                        )}
+                      </td>
+                      <td>
+                        <span className={a.override ? "tag teal" : "tag"}>{a.override ? "editado" : "padrão"}</span>
+                      </td>
+                      <td>
+                        {!isLead && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
+                              onClick={() => salvarAcao(a.actionKey)}>{busy ? "…" : "Salvar"}</button>
+                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !a.override}
+                              onClick={() => restaurarAcao(a.actionKey)}>Restaurar padrão</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </section>
       )}

@@ -65,6 +65,35 @@ export function listClientes(query?: string): Promise<ClientesResult> {
   return apiFetch<ClientesResult>(`/nucleo/clientes${qs}`);
 }
 
+// ── MULTILOCAL 10/07 — N telefones (Contato) + N endereços (LocalEntrega) por
+// conta; a COBRANÇA continua ÚNICA (por customerProfileId) — isto é só "por
+// onde se fala"/"pra onde se entrega", ver docs/PLANEJAMENTOS/MULTILOCAL-10072026/
+// CONTRATOS.md. Campos OPCIONAIS no ClienteDetail (fail-soft: backend sem os
+// campos novos ainda = undefined, a ficha cai no comportamento de sempre).
+export interface TelefoneCliente {
+  id: string;
+  nome: string | null;
+  whatsapp: string | null;
+  phone: string | null;
+  isPrincipal: boolean;
+}
+
+export interface LocalCliente {
+  id: string;
+  apelido: string | null;
+  endereco: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  lat: number | null;
+  lng: number | null;
+  geoFonte: string | null;
+  isPrincipal: boolean;
+  ativo?: boolean;
+}
+
 // ── Detalhe / ficha (GET /nucleo/clientes/:id — A3) ──────────────────────────
 export interface ClienteDetail {
   id: string;
@@ -94,6 +123,9 @@ export interface ClienteDetail {
   diaFechamento: number | null;
   limiteFiado: number | null;
   contatoPrincipalId: string | null;
+  // MULTILOCAL 10/07 — principal primeiro; ausente/undefined em backend antigo.
+  locais?: LocalCliente[];
+  telefones?: TelefoneCliente[];
 }
 
 export function getCliente(id: string): Promise<ClienteDetail> {
@@ -174,21 +206,29 @@ export function mergeClientes(perdeId: string, into: string, motivo?: string): P
 }
 
 // ── W6 — Últimas entregas do cliente (GET /logistica/clientes/:id/entregas) ──
-// Endpoint do W2 (mesma frente, em voo): pode ainda não existir → o caller
-// trata erro/404 como "sem lista" e mostra só a contagem (fail-soft).
+// Endpoint do W2 (contrato nº4): histórico paginado por cursor. W4 usa a lista
+// completa no extrato do /entrega/financeiro (data/hora + itens + valor +
+// desfecho do WhatsApp); a duplicidade continua usando só as 3 primeiras.
 export interface ClienteEntrega {
   id: string;
   scheduledAt: string | null;
   deliveredAt: string | null;
   status: string;
   valor: number;
-  itens: Array<{ produtoNome: string; qtd: number; valorUnit: number }>;
+  receiptMethod?: string | null;
+  cobrancaStatus?: string | null;
+  // enviado | falhou | pulado | null (R4 — desfecho persistido do aviso).
+  whatsappStatus?: string | null;
+  whatsappMotivo?: string | null;
+  itens: Array<{ produtoNome: string | null; qtd: number; valorUnit: number }>;
 }
 export function listEntregasCliente(
   id: string,
   limit = 5,
+  cursor?: string | null,
 ): Promise<{ items: ClienteEntrega[]; nextCursor?: string | null }> {
-  return apiFetch(`/logistica/clientes/${encodeURIComponent(id)}/entregas?limit=${limit}`);
+  const qs = `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+  return apiFetch(`/logistica/clientes/${encodeURIComponent(id)}/entregas${qs}`);
 }
 
 // ── Editar o telefone/whatsapp do contato principal (PATCH /nucleo/contatos/:id) ──
@@ -196,6 +236,84 @@ export function editarContatoPrincipal(id: string, whatsapp: string): Promise<{ 
   return apiFetch<{ id: string }>(`/nucleo/contatos/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({ whatsapp }),
+  });
+}
+
+// ── MULTILOCAL 10/07 — Telefones do cliente (Contato), lista completa da ficha ──
+// GET /nucleo/clientes/:id já devolve `telefones[]`; aqui só o CRUD (W-C). O
+// WhatsApp do topo do editor É o principal (mesmo Contato de sempre, editado por
+// editarContatoPrincipal acima) — isto aqui cobre só os OUTROS telefones.
+export interface CriarTelefonePayload {
+  nome?: string;
+  whatsapp?: string;
+  phone?: string;
+  isPrincipal?: boolean;
+}
+// Retorno do backend é só {id} (padrão do repo pra mutation de nucleo — igual
+// editarContatoPrincipal acima); quem quiser os dados atualizados recarrega a
+// ficha (getCliente), não lê campo daqui.
+export function criarTelefone(clienteId: string, p: CriarTelefonePayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/nucleo/clientes/${encodeURIComponent(clienteId)}/telefones`, {
+    method: "POST",
+    body: JSON.stringify(p),
+  });
+}
+
+export type EditarTelefonePayload = CriarTelefonePayload;
+export function editarTelefone(id: string, p: EditarTelefonePayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/nucleo/telefones/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(p),
+  });
+}
+
+// 400/409 se for o único principal — o chamador mostra a mensagem do backend.
+export function excluirTelefone(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/nucleo/telefones/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// ── MULTILOCAL 10/07 — Endereços do cliente (LocalEntrega), N locais/1 conta ──
+// GET /nucleo/clientes/:id já devolve `locais[]` (principal primeiro). O bloco
+// de endereço único do editor passa a editar o PRINCIPAL (upsert no page.client);
+// aqui é o CRUD dos OUTROS locais + trocar qual é o principal (troca atômica
+// no backend). A cobrança NUNCA muda — é sempre da CONTA (CONTRATOS.md).
+export interface CriarLocalPayload {
+  apelido?: string;
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  cep?: string;
+  lat?: number;
+  lng?: number;
+  geoFonte?: "geocode" | "gps_cadastro";
+  isPrincipal?: boolean;
+}
+// Retorno do backend é só {id} (mesmo padrão de criarTelefone/editarTelefone
+// acima); quem quiser os dados atualizados recarrega a ficha (getCliente).
+export function criarLocal(clienteId: string, p: CriarLocalPayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/nucleo/clientes/${encodeURIComponent(clienteId)}/locais`, {
+    method: "POST",
+    body: JSON.stringify(p),
+  });
+}
+
+export type EditarLocalPayload = CriarLocalPayload;
+export function editarLocal(id: string, p: EditarLocalPayload): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/nucleo/locais/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(p),
+  });
+}
+
+// 400 se for o único local ativo com ClienteProduto ativo apontando pra ele —
+// o chamador mostra a mensagem do backend.
+export function excluirLocal(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/nucleo/locais/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 
@@ -278,6 +396,9 @@ export interface ClienteProduto {
   diasSemana: string | null;
   proximaData: string | null;
   ativo: boolean;
+  // MULTILOCAL 10/07 — "entregar em [local]" (default = local principal do
+  // cliente); opcional/fail-soft (backend sem o campo ainda = undefined).
+  localId?: string | null;
   produto: { id: number; nome: string; unidade: string | null; precoCatalogo: number | null } | null;
 }
 
@@ -294,6 +415,8 @@ export interface CriarClienteProdutoPayload {
   // Recorrência por dia da semana (convenção ISO do backend: 1=seg … 7=dom),
   // ex.: "1,3,5" = seg/qua/sex. Modo alternativo a frequenciaDias.
   diasSemana?: string;
+  // MULTILOCAL 10/07 — em qual LocalEntrega do cliente este vínculo entrega.
+  localId?: string;
 }
 
 export function criarClienteProduto(p: CriarClienteProdutoPayload): Promise<ClienteProduto> {
@@ -307,6 +430,16 @@ export function toggleClienteProduto(id: string, ativo: boolean): Promise<Client
   return apiFetch<ClienteProduto>(`/logistica/cliente-produtos/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({ ativo }),
+  });
+}
+
+// MULTILOCAL 10/07 — "entregar em [local]" de um vínculo JÁ existente (o
+// create manda localId no payload de criarClienteProduto acima; isto cobre o
+// UPDATE, mesmo endpoint PATCH genérico).
+export function editarLocalClienteProduto(id: string, localId: string | null): Promise<ClienteProduto> {
+  return apiFetch<ClienteProduto>(`/logistica/cliente-produtos/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ localId }),
   });
 }
 

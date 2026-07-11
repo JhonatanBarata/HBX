@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
 
@@ -668,7 +668,7 @@ export class NucleoCadastroService {
     if (!companyId || !rows.length) return result;
     const pageIds = rows.map((r) => r.id);
 
-    const [vinculos, entregasAgg, config, dupUniverse] = await Promise.all([
+    const [vinculos, entregasAgg, config, dupUniverse, locaisAtivos] = await Promise.all([
       this.prisma.clienteProduto.findMany({
         where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
         select: { customerProfileId: true, diasSemana: true, frequenciaDias: true },
@@ -688,7 +688,31 @@ export class NucleoCadastroService {
         where: { companyId, isCliente: true, status: 'active' },
         select: { id: true, name: true, endereco: true, numero: true },
       }),
+      // MULTILOCAL (10/07) — endereco/numero/gps do card passam a olhar o LOCAL PRINCIPAL
+      // (após backfill = o antigo endereço do perfil). isPrincipal desc + createdAt asc:
+      // a 1ª linha de cada cliente é o principal (ou, na falta da flag, o mais antigo ativo).
+      this.prisma.localEntrega.findMany({
+        where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
+        orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
+        select: { customerProfileId: true, endereco: true, numero: true, lat: true, lng: true },
+      }),
     ]);
+
+    // Local principal (ou mais antigo ativo) por cliente — 1ª ocorrência vence.
+    const principalLocalByCliente = new Map<
+      string,
+      { endereco: string | null; numero: string | null; lat: number | null; lng: number | null }
+    >();
+    for (const l of locaisAtivos) {
+      if (!principalLocalByCliente.has(l.customerProfileId)) {
+        principalLocalByCliente.set(l.customerProfileId, {
+          endereco: l.endereco,
+          numero: l.numero,
+          lat: l.lat,
+          lng: l.lng,
+        });
+      }
+    }
 
     const financeiroAtivo = Boolean(config?.moduloFinanceiroAtivo);
     const debitoMap = financeiroAtivo
@@ -736,10 +760,17 @@ export class NucleoCadastroService {
       const vinc = vincByCliente.get(row.id);
 
       // ordem FIXA do contrato com W6: endereco → numero → gps → dia → whatsapp.
+      // MULTILOCAL (10/07) — endereco/numero/gps olham o LOCAL PRINCIPAL do cliente.
+      // Sem NENHUM local ativo → as 3 acendem (o cadastro do endereço migrou pro local).
       const pendencias: ClientePendencia[] = [];
-      if (!String(row.endereco ?? '').trim()) pendencias.push('endereco');
-      if (!String(row.numero ?? '').trim()) pendencias.push('numero');
-      if (row.lat == null || row.lng == null) pendencias.push('gps');
+      const local = principalLocalByCliente.get(row.id) ?? null;
+      if (!local) {
+        pendencias.push('endereco', 'numero', 'gps');
+      } else {
+        if (!String(local.endereco ?? '').trim()) pendencias.push('endereco');
+        if (!String(local.numero ?? '').trim()) pendencias.push('numero');
+        if (local.lat == null || local.lng == null) pendencias.push('gps');
+      }
       if (!vinc?.temDia) pendencias.push('dia'); // sem NENHUM vínculo → pendente
       if (!String(row.phoneNormalized ?? '').trim()) pendencias.push('whatsapp');
 
@@ -863,15 +894,28 @@ export class NucleoCadastroService {
         contabilizar: true,
         diaFechamento: true,
         limiteFiado: true,
+        // MULTILOCAL (10/07) — a ficha agora traz TODOS os contatos (telefones[]),
+        // principal primeiro. O whatsapp da ficha continua vindo do principal (abaixo).
         contatos: {
-          where: { isPrincipal: true },
-          take: 1,
-          select: { id: true, nome: true, whatsapp: true, phone: true },
+          orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
+          select: { id: true, nome: true, whatsapp: true, phone: true, isPrincipal: true },
+        },
+        // MULTILOCAL (10/07) — N locais de entrega (só ativos), principal primeiro.
+        locais: {
+          where: { ativo: true },
+          orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
+          select: {
+            id: true, apelido: true, endereco: true, numero: true, bairro: true,
+            cidade: true, uf: true, cep: true, lat: true, lng: true, geoFonte: true,
+            isPrincipal: true, ativo: true,
+          },
         },
       },
     });
     if (!row) return null;
-    const principal = row.contatos?.[0] ?? null;
+    // principal = o contato marcado (preserva EXATAMENTE a semântica anterior:
+    // sem principal → null e o whatsapp cai pro phone da conta).
+    const principal = row.contatos?.find((c) => c.isPrincipal) ?? null;
 
     return {
       id: row.id,
@@ -901,6 +945,30 @@ export class NucleoCadastroService {
       diaFechamento: row.diaFechamento ?? null,
       limiteFiado: row.limiteFiado ?? null,
       contatoPrincipalId: principal?.id ?? null,
+      // MULTILOCAL (10/07) — aditivos: locais de entrega (principal primeiro) e a lista
+      // de telefones (Contatos). Cobrança segue 1 só por CONTA — isto é só ONDE/COM QUEM.
+      locais: (row.locais ?? []).map((l) => ({
+        id: l.id,
+        apelido: l.apelido ?? null,
+        endereco: l.endereco ?? null,
+        numero: l.numero ?? null,
+        bairro: l.bairro ?? null,
+        cidade: l.cidade ?? null,
+        uf: l.uf ?? null,
+        cep: l.cep ?? null,
+        lat: l.lat ?? null,
+        lng: l.lng ?? null,
+        geoFonte: l.geoFonte ?? null,
+        isPrincipal: Boolean(l.isPrincipal),
+        ativo: Boolean(l.ativo),
+      })),
+      telefones: (row.contatos ?? []).map((c) => ({
+        id: c.id,
+        nome: c.nome,
+        whatsapp: c.whatsapp ?? null,
+        phone: c.phone ?? null,
+        isPrincipal: Boolean(c.isPrincipal),
+      })),
     };
   }
 
@@ -1269,6 +1337,238 @@ export class NucleoCadastroService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // MULTILOCAL (10/07, docs/PLANEJAMENTOS/MULTILOCAL-10072026) — CRUD de LocalEntrega
+  // (N endereços de entrega por CONTA) + CRUD de telefones (via Contato). Company-scoped
+  // (companyId sempre do JWT), SEM @Admin — o próprio entregador cadastra local/telefone
+  // do cliente. A cobrança segue 1 só por CONTA (customerProfileId); multi-local é apenas
+  // ONDE se entrega. Escrita consciente, sem cron/boot, sem WhatsApp.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Cria um LOCAL de entrega para o cliente `:id`. O 1º local ativo do cliente nasce
+   * PRINCIPAL; `isPrincipal=true` (ou ser o primeiro) desmarca os demais atomicamente.
+   * Company-scoped: cliente inexistente/de outro tenant → null (o controller → 404).
+   */
+  async createLocal(
+    companyId: number,
+    customerProfileId: string,
+    input: LocalInput,
+  ): Promise<{ id: string } | null> {
+    if (!companyId || !customerProfileId) return null;
+    const conta = await this.prisma.customerProfile.findFirst({
+      where: { id: String(customerProfileId).trim(), companyId },
+      select: { id: true },
+    });
+    if (!conta) return null;
+
+    // 1º local ativo nasce principal (ou quando o cliente pede explicitamente).
+    const ativosCount = await this.prisma.localEntrega.count({
+      where: { companyId, customerProfileId: conta.id, ativo: true },
+    });
+    const isPrincipal = input.isPrincipal === true || ativosCount === 0;
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (isPrincipal) {
+        // trocar principal é ATÔMICO: desmarca o(s) principal(is) atual(is) na mesma tx.
+        await tx.localEntrega.updateMany({
+          where: { companyId, customerProfileId: conta.id, isPrincipal: true },
+          data: { isPrincipal: false },
+        });
+      }
+      return tx.localEntrega.create({
+        data: {
+          companyId,
+          customerProfileId: conta.id,
+          apelido: input.apelido?.trim() || null,
+          endereco: input.endereco || null,
+          numero: input.numero || null,
+          bairro: input.bairro || null,
+          cidade: input.cidade || null,
+          uf: (input.uf || '').toUpperCase() || null,
+          cep: input.cep || null,
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+          geoFonte: normalizeGeoFonteInput(input.geoFonte),
+          isPrincipal,
+          ativo: true,
+        },
+        select: { id: true },
+      });
+    });
+    return { id: created.id };
+  }
+
+  /**
+   * Edita um LOCAL (parcial). Promover a principal (`isPrincipal=true`) move a flag
+   * ATOMICAMENTE (desmarca os demais do mesmo cliente). Não rebaixamos direto via PATCH
+   * (`isPrincipal=false` é ignorado) — a troca se faz promovendo OUTRO local, nunca
+   * deixando o cliente sem principal. Company-scoped → null (404).
+   */
+  async updateLocal(companyId: number, id: string, input: LocalInput): Promise<{ id: string } | null> {
+    if (!companyId || !id) return null;
+    const found = await this.prisma.localEntrega.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: { id: true, customerProfileId: true, isPrincipal: true },
+    });
+    if (!found) return null;
+
+    const data: any = {};
+    if (input.apelido !== undefined) data.apelido = input.apelido?.trim() || null;
+    if (input.endereco !== undefined) data.endereco = input.endereco || null;
+    if (input.numero !== undefined) data.numero = input.numero || null;
+    if (input.bairro !== undefined) data.bairro = input.bairro || null;
+    if (input.cidade !== undefined) data.cidade = input.cidade || null;
+    if (input.uf !== undefined) data.uf = (input.uf || '').toUpperCase() || null;
+    if (input.cep !== undefined) data.cep = input.cep || null;
+    if (input.lat !== undefined) data.lat = input.lat;
+    if (input.lng !== undefined) data.lng = input.lng;
+    if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+
+    const promote = input.isPrincipal === true && !found.isPrincipal;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (promote) {
+        await tx.localEntrega.updateMany({
+          where: { companyId, customerProfileId: found.customerProfileId, isPrincipal: true, NOT: { id: found.id } },
+          data: { isPrincipal: false },
+        });
+        data.isPrincipal = true;
+      }
+      await tx.localEntrega.update({ where: { id: found.id }, data });
+    });
+    return { id: found.id };
+  }
+
+  /**
+   * Soft-delete de um LOCAL (ativo=false). Barra excluir o ÚNICO local ativo do cliente
+   * quando há `ClienteProduto` ativo apontando pra ele (400 curto — o vínculo ficaria
+   * órfão). Se o local removido era o principal e sobrou local ativo, promove o mais
+   * antigo. Idempotente (já inativo → no-op). Company-scoped → null (404).
+   */
+  async deleteLocal(companyId: number, id: string): Promise<{ id: string } | null> {
+    if (!companyId || !id) return null;
+    const found = await this.prisma.localEntrega.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: { id: true, customerProfileId: true, isPrincipal: true, ativo: true },
+    });
+    if (!found) return null;
+    if (!found.ativo) return { id: found.id }; // já inativo — idempotente
+
+    // demais locais ATIVOS do cliente (exclui o atual).
+    const outrosAtivos = await this.prisma.localEntrega.findMany({
+      where: { companyId, customerProfileId: found.customerProfileId, ativo: true, NOT: { id: found.id } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+
+    // é o ÚNICO local ativo? então não pode sumir se há vínculo ATIVO apontando pra ele.
+    if (outrosAtivos.length === 0) {
+      const vinculo = await this.prisma.clienteProduto.findFirst({
+        where: { companyId, localId: found.id, ativo: true },
+        select: { id: true },
+      });
+      if (vinculo) {
+        throw new BadRequestException({ error: 'LOCAL_UNICO_COM_VINCULO' });
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.localEntrega.update({
+        where: { id: found.id },
+        data: { ativo: false, isPrincipal: false },
+      });
+      // era o principal e sobrou local ativo → promove o mais antigo (atômico).
+      if (found.isPrincipal && outrosAtivos.length > 0) {
+        await tx.localEntrega.update({
+          where: { id: outrosAtivos[0].id },
+          data: { isPrincipal: true },
+        });
+      }
+    });
+    return { id: found.id };
+  }
+
+  /**
+   * Adiciona um TELEFONE (Contato) ao cliente `:id`. Exige ao menos um número (whatsapp
+   * OU phone — 400 curto sem número). Sem `nome`, o próprio número identifica o Contato
+   * (nome é obrigatório no schema). `isPrincipal=true` rebaixa o principal anterior.
+   * Reusa `addContato` (valida o tenant). Company-scoped → null (404). SEM @Admin.
+   */
+  async addTelefone(
+    companyId: number,
+    customerProfileId: string,
+    input: TelefoneInput,
+  ): Promise<{ id: string } | null> {
+    if (!companyId || !customerProfileId) return null;
+    const whats = normalizeDigits(input.whatsapp) || null;
+    const ph = normalizeDigits(input.phone) || null;
+    if (!whats && !ph) {
+      throw new BadRequestException({ error: 'TELEFONE_SEM_NUMERO' });
+    }
+    const nome = String(input.nome ?? '').trim() || whats || ph || '';
+    return this.addContato(companyId, {
+      customerProfileId,
+      nome,
+      whatsapp: input.whatsapp ?? null,
+      phone: input.phone ?? null,
+      isPrincipal: input.isPrincipal,
+    });
+  }
+
+  /**
+   * Remove um TELEFONE (Contato). Não deixa ZERAR o principal quando é o ÚNICO contato
+   * do cliente (400 curto). Removendo o principal havendo outros, promove o próximo (mais
+   * antigo). Snapshot em DeletionRecord (padrão do repo). Company-scoped → null (404).
+   */
+  async deleteTelefone(companyId: number, id: string): Promise<{ id: string } | null> {
+    if (!companyId || !id) return null;
+    const row = await this.prisma.contato.findFirst({
+      where: { id: String(id).trim(), companyId },
+      select: {
+        id: true, companyId: true, customerProfileId: true, nome: true, cargo: true,
+        whatsapp: true, phone: true, email: true, isPrincipal: true, source: true,
+      },
+    });
+    if (!row) return null;
+
+    if (row.isPrincipal) {
+      const total = await this.prisma.contato.count({
+        where: { companyId, customerProfileId: row.customerProfileId },
+      });
+      if (total <= 1) {
+        throw new BadRequestException({ error: 'TELEFONE_PRINCIPAL_UNICO' });
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.deletionRecord.create({
+        data: {
+          moduleKey: 'nucleo',
+          entityType: 'Contato',
+          entityId: row.id,
+          companyId,
+          motivo: null,
+          snapshot: JSON.stringify(row),
+          deletedByUserId: null,
+        },
+      });
+      await tx.contato.delete({ where: { id: row.id } });
+      // era o principal e sobraram contatos → promove o mais antigo (mantém 1 principal).
+      if (row.isPrincipal) {
+        const next = await tx.contato.findFirst({
+          where: { companyId, customerProfileId: row.customerProfileId },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true },
+        });
+        if (next) {
+          await tx.contato.update({ where: { id: next.id }, data: { isPrincipal: true } });
+        }
+      }
+    });
+    return { id: row.id };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // NÚCLEO-CRM R3 (05/07) — INTEGRIDADE da espinha (PLANO-ROBUSTEZ).
   //
   // (b) MERGE de contas duplicadas (radar×manual): funde a conta `sourceId` na
@@ -1328,13 +1628,16 @@ export class NucleoCadastroService {
       // 08/07 — vínculo duplicado do mesmo produto é feature), então não há colisão.
       // FinanceiroCharge: o unique parcial por entregaId viaja junto com a própria
       // charge (a linha não muda de entregaId) — também sem colisão.
-      const [entregas, contatos, clienteProdutos, charges, leads, debtCases] = await Promise.all([
+      const [entregas, contatos, clienteProdutos, charges, leads, debtCases, locais] = await Promise.all([
         tx.entrega.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.contato.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.clienteProduto.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.financeiroCharge.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.vendasLead.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
         tx.debtCase.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
+        // MULTILOCAL (10/07) — os locais de entrega da perdedora migram pro vencedor
+        // (mesma CONTA agora; a cobrança sempre foi 1 só por customerProfileId).
+        tx.localEntrega.updateMany({ where: scope(loser.id), data: { customerProfileId: winner.id } }),
       ]);
 
       // Papéis são acumulativos (só LIGAM) + preenche campos VAZIOS do vencedor com os
@@ -1352,6 +1655,41 @@ export class NucleoCadastroService {
         await tx.customerProfile.update({ where: { id: loser.id }, data: clearLoser });
       }
       await tx.customerProfile.update({ where: { id: winner.id }, data: fill });
+
+      // MULTILOCAL (10/07) — NENHUM telefone some no merge. Os Contatos da perdedora já
+      // migraram (updateMany acima); falta o CustomerProfile.phone DELA: se esse número
+      // não ficou representado no vencedor — nem como phone da conta APÓS o fill, nem como
+      // Contato — vira um Contato NÃO-principal no vencedor. Erra pro lado de PRESERVAR.
+      const loserPhone = normalizeDigits(loser.phoneNormalized || loser.phone) || null;
+      if (loserPhone) {
+        const winnerPhoneAfter =
+          normalizeDigits(
+            String(('phoneNormalized' in fill ? fill.phoneNormalized : (winner.phoneNormalized ?? winner.phone)) ?? ''),
+          ) || null;
+        if (winnerPhoneAfter !== loserPhone) {
+          const jaContato = await tx.contato.findFirst({
+            where: {
+              companyId,
+              customerProfileId: winner.id,
+              OR: [{ whatsapp: loserPhone }, { phone: loserPhone }],
+            },
+            select: { id: true },
+          });
+          if (!jaContato) {
+            await tx.contato.create({
+              data: {
+                companyId,
+                customerProfileId: winner.id,
+                nome: String(loser.name ?? '').trim() || loserPhone,
+                whatsapp: loserPhone,
+                phone: null,
+                isPrincipal: false,
+                source: 'manual',
+              },
+            });
+          }
+        }
+      }
 
       // Snapshot da perdedora ANTES de apagar (padrão DeletionRecord do repo).
       await tx.deletionRecord.create({
@@ -1377,6 +1715,7 @@ export class NucleoCadastroService {
         financeiroCharges: charges.count,
         vendasLeads: leads.count,
         debtCases: debtCases.count,
+        locais: locais.count,
       };
     });
 
@@ -1824,6 +2163,57 @@ export interface ClienteDetail {
   diaFechamento: number | null;
   limiteFiado: number | null;
   contatoPrincipalId: string | null;
+  // MULTILOCAL (10/07) — aditivos: N locais de entrega (principal primeiro, só ativos)
+  // e a lista de telefones (Contatos). Cobrança segue 1 só por CONTA.
+  locais: LocalEntregaDTO[];
+  telefones: ClienteTelefone[];
+}
+
+// ── MULTILOCAL (10/07) — DTOs de leitura (ficha do cliente) ──────────────────
+export interface LocalEntregaDTO {
+  id: string;
+  apelido: string | null;
+  endereco: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  lat: number | null;
+  lng: number | null;
+  geoFonte: string | null;
+  isPrincipal: boolean;
+  ativo: boolean;
+}
+
+export interface ClienteTelefone {
+  id: string;
+  nome: string;
+  whatsapp: string | null;
+  phone: string | null;
+  isPrincipal: boolean;
+}
+
+// ── MULTILOCAL (10/07) — inputs de escrita (CRUD locais/telefones) ───────────
+export interface LocalInput {
+  apelido?: string | null;
+  endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geoFonte?: string | null;
+  isPrincipal?: boolean;
+}
+
+export interface TelefoneInput {
+  nome?: string | null;
+  whatsapp?: string | null;
+  phone?: string | null;
+  isPrincipal?: boolean;
 }
 
 // ── N4 — tipos da janela "Contatos" (pessoas) e escrita manual ─────────────
@@ -1976,6 +2366,7 @@ export interface MergeResult {
     financeiroCharges?: number;
     vendasLeads?: number;
     debtCases?: number;
+    locais?: number;
   };
   noop?: boolean;
 }

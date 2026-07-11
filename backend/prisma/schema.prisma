@@ -4383,3 +4383,18 @@ model CreditGlobalConfig {
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
+
+// PR11072026 W1 (docs/PLANEJAMENTOS/PR11072026/01-OVERLAY-CATALOGO-ACOES.md) — overlay
+// editável do CATÁLOGO DE AÇÕES metradas pelo crédito (credit-action-catalog.ts). Mesmo
+// padrão EXATO de CreditPackConfig: base em CÓDIGO + override aqui, hidratado no
+// boot/edição (credit-action-config.service.ts) pros getters síncronos do catálogo.
+// `lead_delivery` nunca tem linha aqui (rejeitado no set — cobrança fixa no caminho
+// assert); `whatsapp_auto_send` nunca persiste mode=debit (rejeitado no set). Migration
+// ADITIVA (só esta tabela nova).
+model CreditActionConfig {
+  id         Int      @id @default(autoincrement())
+  actionKey  String   @unique
+  configJson String   @default("{}") // { mode: free|track|debit, cost: number }
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}

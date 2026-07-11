@@ -245,7 +245,7 @@ export function BotTutofig({
     const node = dialogRef.current;
     if (node) node.focus();
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, phase]);
 
   // ── Prévia ao vivo: rotaciona as variantes de 1º contato com "digitando…" ──
   // (todos os setState ficam em setTimeout/cleanup — nunca síncronos no effect).

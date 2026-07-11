@@ -1393,6 +1393,13 @@ class SearchService:
             return None, 0
         if channel not in {"instagram", "facebook"}:
             return None, 0
+        # Facebook nao entra no "adivinha handle e valida pelo HTML publico":
+        # perfil de negocio no FB quase sempre serve login-wall pra scraper
+        # anonimo, entao o handle "confirmado" custuma vir de conteudo generico
+        # (falso positivo), nao de identidade real. Guessing fica so p/ Instagram,
+        # que expoe o suficiente do perfil publico pra validar de verdade.
+        if channel != "instagram":
+            return None, 0
 
         base = "https://www.instagram.com" if channel == "instagram" else "https://www.facebook.com"
         name = str(contact.get("name") or "")
@@ -1605,11 +1612,14 @@ class SearchService:
         has_distinctive_host_identity = bool(full_name_host_match or distinctive_host_hits)
         if not has_distinctive_host_identity:
             return -100
+        single_exact_token_match = bool(
+            len(strong_tokens) == 1 and len(name_tokens) <= 2 and next(iter(strong_host_hits), "") == strong_tokens[0] and distinctive_host_hits
+        )
         host_identity_match = bool(
             full_name_host_match
             or (len(strong_host_hits) >= 2 and distinctive_host_hits)
             or (strong_host_hits and category_host_hits and distinctive_host_hits)
-            or (len(strong_tokens) == 1 and len(name_tokens) <= 2 and next(iter(strong_host_hits), "") == strong_tokens[0] and distinctive_host_hits)
+            or single_exact_token_match
         )
         score = 0
         for variant in self.business_name_variants(str(contact.get("name") or "")):
@@ -1632,7 +1642,19 @@ class SearchService:
             score += 15
         if not host_identity_match:
             return -100
-        if not phone_match and not (city_key and city_key in text) and len(strong_tokens) <= 1:
+        # Régua original (c5785e3d): sem telefone/cidade, um single-token "combo"
+        # (categoria + token comum tipo "Roberto") pode ser coincidencia -- exige
+        # reforço. Mas full_name_host_match/single_exact_token_match já SÃO a
+        # identidade inteira do negócio batendo no host; exigir cidade/telefone
+        # em cima disso derrubava site oficial de marca curta (ex.: "Cobasi" em
+        # cobasi.com.br) para -100 sem motivo -- regressão, não regra nova.
+        if (
+            not full_name_host_match
+            and not single_exact_token_match
+            and not phone_match
+            and not (city_key and city_key in text)
+            and len(strong_tokens) <= 1
+        ):
             return -100
         return score
 

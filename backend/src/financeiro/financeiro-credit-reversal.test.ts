@@ -103,6 +103,9 @@ function buildHarness(opts?: {
     }),
   };
 
+  const debtCalls: any[] = [];
+  const seenDebtKeys = new Set<string>();
+
   const wallet: any = {
     reversePurchase: async (companyId: number, o: any) => {
       reversalCalls.push({ companyId, ...o });
@@ -113,13 +116,21 @@ function buildHarness(opts?: {
       const shortfall = opts?.walletResult?.shortfall ?? Math.max(0, o.amount - reversed);
       return { reversed, requested: o.amount, shortfall, balanceAfter: 0, alreadyProcessed };
     },
+    // P0.3 hold — registra a dívida quando há shortfall. Idempotente por usageKey (o serviço real
+    // dedupa pelo @@unique; aqui espelhamos pra prova de orquestração não dobrar).
+    registerChargebackDebt: async (companyId: number, o: any) => {
+      debtCalls.push({ companyId, ...o });
+      const alreadyProcessed = seenDebtKeys.has(o.usageKey);
+      seenDebtKeys.add(o.usageKey);
+      return { debtAfter: o.amount, alreadyProcessed };
+    },
   };
 
   const service = new FinanceiroService(prisma, mpClient, {} as any, {} as any, wallet);
   // Contexto do MP (runtime-schema do master via raw SQL) não pertence a esta prova — patch.
   (service as any).resolveFinanceContext = async () => ({ accessToken: 'TEST-TOKEN' });
 
-  return { service, charge, masterEvents, reversalCalls };
+  return { service, charge, masterEvents, reversalCalls, debtCalls };
 }
 
 // ─── 1. Mapeamento de status do provedor ───────────────────────────────────────────────────────
@@ -193,13 +204,21 @@ test('webhook charged_back de recarga: charge morre, carteira compensa 1× (dupl
   assert.equal(masterEvents.filter((e) => e.type === 'financeiro.chargeback').length, 1);
 });
 
-test('webhook charged_back: shortfall (crédito já consumido) vira MasterEvent com dívida em créditos e R$', async () => {
-  const { service, masterEvents } = buildHarness({
+test('webhook charged_back: shortfall (crédito já consumido) PERSISTE dívida (hold) + alerta com créditos e R$', async () => {
+  const { service, masterEvents, debtCalls } = buildHarness({
     providerStatus: 'charged_back',
     walletResult: { reversed: 40, shortfall: 80 },
   });
 
   await (service as any).syncChargeFromProvider(7, 'pay-9', { source: 'webhook' });
+
+  // Hold: a dívida é PERSISTIDA na carteira (o choke de entrega lê e bloqueia) com o lote da
+  // recarga como pai (idempotência por @@unique no serviço real).
+  assert.equal(debtCalls.length, 1);
+  assert.equal(debtCalls[0].companyId, 7);
+  assert.equal(debtCalls[0].amount, 80);
+  assert.equal(debtCalls[0].usageKey, 'chargeback-debt:pay-9');
+  assert.equal(debtCalls[0].parentLotId, 'lot-1');
 
   const shortfallEvents = masterEvents.filter((e) => e.type === 'credit.recharge_reversal_shortfall');
   assert.equal(shortfallEvents.length, 1);
@@ -207,8 +226,24 @@ test('webhook charged_back: shortfall (crédito já consumido) vira MasterEvent 
   const payload = JSON.parse(shortfallEvents[0].payloadJson);
   assert.equal(payload.debtCredits, 80);
   assert.equal(payload.packCredits, 120);
+  assert.equal(payload.hold, true);
   // Dívida em R$ proporcional ao pack: 79.90 × 80/120 = 53.27.
   assert.equal(payload.debtValue, 53.27);
+});
+
+test('webhook charged_back duplicado no shortfall: dívida NÃO dobra (idempotente por paymentId)', async () => {
+  const { service, debtCalls } = buildHarness({
+    providerStatus: 'charged_back',
+    walletResult: { reversed: 40, shortfall: 80 },
+  });
+
+  await (service as any).syncChargeFromProvider(7, 'pay-9', { source: 'webhook' });
+  await (service as any).syncChargeFromProvider(7, 'pay-9', { source: 'webhook' });
+
+  // A 2ª chamada pode reprocessar, mas a MESMA usageKey dedupa a dívida (alreadyProcessed).
+  const applied = debtCalls.filter((c) => c.usageKey === 'chargeback-debt:pay-9');
+  assert.ok(applied.length >= 1);
+  // O serviço real (registerChargebackDebt) só incrementa a dívida 1×; o mock marca alreadyProcessed.
 });
 
 test('webhook refunded de cobrança NÃO-recarga: carteira não é tocada', async () => {

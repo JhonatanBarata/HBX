@@ -741,6 +741,7 @@ export function AtendimentoClient() {
       });
       const next: TuneMap = { fem: pick("fem"), masc: pick("masc") };
       tuneRef.current = next;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lê localStorage 1x no mount (evita mismatch de hidratação); efeito legítimo
       setTune(next);
     } catch { /* ignora */ }
   }, []);
@@ -1339,7 +1340,7 @@ export function AtendimentoClient() {
     dragDepthRef.current += 1;
     setDragOver(true);
   }
-  function onThreadDragLeave(e: React.DragEvent<HTMLDivElement>) {
+  function onThreadDragLeave() {
     if (dragDepthRef.current > 0) dragDepthRef.current -= 1;
     if (dragDepthRef.current <= 0) { dragDepthRef.current = 0; setDragOver(false); }
   }

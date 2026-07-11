@@ -90,6 +90,7 @@ function createFakePrisma() {
       const row: Row = {
         id: `w${nextWalletId++}`,
         companyId: data.companyId,
+        chargebackDebtCredits: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -98,6 +99,14 @@ function createFakePrisma() {
         const idx = wallets.indexOf(row);
         if (idx >= 0) wallets.splice(idx, 1);
       });
+      return { ...row };
+    },
+    update: async ({ where, data }: any) => {
+      const row = wallets.find((item) => item.companyId === where.companyId || item.id === where.id);
+      if (!row) throw new Error('creditWallet.update: row not found');
+      const before = { ...row };
+      applyData(row, data);
+      record(() => Object.assign(row, before));
       return { ...row };
     },
   };
@@ -652,4 +661,69 @@ test('reversePurchase: validações — amount não-inteiro/<=0 e usageKey vazia
   await assert.rejects(() => service.reversePurchase(1, { amount: 0, usageKey: 'k' }), /inteiro positivo/);
   await assert.rejects(() => service.reversePurchase(1, { amount: 1.5, usageKey: 'k' }), /inteiro positivo/);
   await assert.rejects(() => service.reversePurchase(1, { amount: 3, usageKey: '  ' }), /usageKey/);
+});
+
+// ─── 5. P0.3 HOLD de chargeback (dívida bloqueia até quitar) ─────────────────────────────────────
+
+test('registerChargebackDebt: cria dívida e é idempotente (webhook duplicado do mesmo pagamento não dobra)', async () => {
+  const { service } = buildService();
+  await service.grant(1, 100, { kind: 'recharge', usageKey: 'mp:pay-cb1' });
+
+  const first = await service.registerChargebackDebt(1, {
+    amount: 60,
+    usageKey: 'chargeback-debt:pay-cb1',
+    parentLotId: 'e1',
+  });
+  assert.equal(first.alreadyProcessed, false);
+  assert.equal(first.debtAfter, 60);
+  assert.equal(await service.getChargebackDebt(1), 60);
+
+  // Mesmo pagamento de novo (parentLotId + usageKey iguais → @@unique) NÃO incrementa.
+  const second = await service.registerChargebackDebt(1, {
+    amount: 60,
+    usageKey: 'chargeback-debt:pay-cb1',
+    parentLotId: 'e1',
+  });
+  assert.equal(second.alreadyProcessed, true);
+  assert.equal(await service.getChargebackDebt(1), 60);
+});
+
+test('hold: crédito NOVO (grant/recarga) quita a dívida do saldo — "crédito novo paga a dívida primeiro"', async () => {
+  const { service } = buildService();
+  // Recarga 100, cliente consome tudo, chargeback de 100 → dívida 100 (saldo 0).
+  await service.grant(1, 100, { kind: 'recharge', usageKey: 'mp:pay-cb2' });
+  await service.debit(1, 100, { actionKey: 'lead_delivery', usageKey: 'consumo-tudo' });
+  assert.equal(await service.getBalance(1), 0);
+  await service.registerChargebackDebt(1, { amount: 100, usageKey: 'chargeback-debt:pay-cb2', parentLotId: 'e1' });
+  assert.equal(await service.getChargebackDebt(1), 100);
+
+  // Recarrega 120 → o grant dispara settle: quita 100, saldo efetivo 20, dívida 0.
+  await service.grant(1, 120, { kind: 'recharge', usageKey: 'mp:pay-cb2-fix' });
+  assert.equal(await service.getChargebackDebt(1), 0);
+  assert.equal(await service.getBalance(1), 20);
+});
+
+test('hold: recarga MENOR que a dívida quita parcial e a empresa segue devendo', async () => {
+  const { service } = buildService();
+  await service.grant(1, 100, { kind: 'recharge', usageKey: 'mp:pay-cb3' });
+  await service.debit(1, 100, { actionKey: 'lead_delivery', usageKey: 'consumo-cb3' });
+  await service.registerChargebackDebt(1, { amount: 100, usageKey: 'chargeback-debt:pay-cb3', parentLotId: 'e1' });
+
+  // Recarrega só 40 → quita 40, dívida cai pra 60, saldo 0 (tudo foi pra dívida).
+  await service.grant(1, 40, { kind: 'recharge', usageKey: 'mp:pay-cb3-parcial' });
+  assert.equal(await service.getChargebackDebt(1), 60);
+  assert.equal(await service.getBalance(1), 0);
+});
+
+test('settleChargebackDebtFromBalance: sem dívida ou sem saldo é no-op', async () => {
+  const { service } = buildService();
+  // Sem dívida.
+  assert.deepEqual(await service.settleChargebackDebtFromBalance(1, { usageKey: 'k1' }), { settled: 0, debtAfter: 0 });
+  // Com dívida mas sem saldo (dívida registrada, carteira zerada).
+  await service.grant(1, 10, { kind: 'recharge', usageKey: 'mp:pay-cb4' });
+  await service.debit(1, 10, { actionKey: 'lead_delivery', usageKey: 'consumo-cb4' });
+  await service.registerChargebackDebt(1, { amount: 10, usageKey: 'chargeback-debt:pay-cb4', parentLotId: 'e1' });
+  const r = await service.settleChargebackDebtFromBalance(1, { usageKey: 'k2' });
+  assert.equal(r.settled, 0);
+  assert.equal(r.debtAfter, 10);
 });

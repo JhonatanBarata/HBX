@@ -45,6 +45,7 @@ export function GestaoDia({ onGerou, onComecarRota }: { onGerou: () => void; onC
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
     void carregarResumo();
   }, [carregarResumo]);
 
@@ -167,6 +168,7 @@ function GerarEntregasPopup({
   // mudança de seleção. Falha isolada de 1 data não derruba as outras.
   useEffect(() => {
     if (dias.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- limpa a prévia quando não há dia marcado (evita prévia velha); efeito legítimo
       setPreview([]);
       return;
     }

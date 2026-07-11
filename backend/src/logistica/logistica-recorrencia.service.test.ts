@@ -73,11 +73,17 @@ function buildPrismaMock(vinculos: any[], contatos: any[] = []) {
         const w = args.where;
         const gte = w.scheduledAt?.gte instanceof Date ? w.scheduledAt.gte.getTime() : -Infinity;
         const lte = w.scheduledAt?.lte instanceof Date ? w.scheduledAt.lte.getTime() : Infinity;
+        // MULTILOCAL — idempotência agora inclui localId (semântica do Prisma real):
+        // undefined = não filtra; null = "IS NULL" (entrega sem local); string = match
+        // exato do local. Fixtures sem localId (null/undefined) caem no ramo null.
+        const localMatch = (e: any) =>
+          w.localId === undefined ? true : w.localId === null ? e.localId == null : e.localId === w.localId;
         return (
           entregas.find(
             (e) =>
               e.companyId === w.companyId &&
               e.customerProfileId === w.customerProfileId &&
+              localMatch(e) &&
               e.scheduledAt instanceof Date &&
               e.scheduledAt.getTime() >= gte &&
               e.scheduledAt.getTime() <= lte,
@@ -506,6 +512,97 @@ test('gerarDia: mesmo produto vinculado 2× em DIAS DIFERENTES — só o víncul
   assert.equal(entregas[0].valor, 10);
   // Só o vínculo vencido (cp-1) avança — cp-2 (sexta) fica intocado.
   assert.equal(r.avancados, 1);
+});
+
+// ── 4b) MULTILOCAL (10/07) — agrupa por (cliente, LOCAL), não só por cliente ──
+// Antes, um cliente com 2 endereços vencendo no mesmo dia geraria 1 entrega só (o
+// 2º local seria PULADO pela idempotência cliente+dia). Agora sub-agrupa por local:
+// 1 Entrega por (cliente, local), com o localId gravado, preservando a agregação
+// multi-item DENTRO de cada local.
+
+test('gerarDia MULTILOCAL: 2 locais do mesmo cliente no mesmo dia → 2 entregas, cada uma com seu localId', async () => {
+  const dia = '2026-07-06'; // segunda
+  const vinculos = [
+    {
+      id: 'cp-A', customerProfileId: 'conta-1', localId: 'loc-casa', productId: 10,
+      qtdPadrao: 2, precoAcordado: 15, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 10, name: 'Galão 20L', price: 20, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-B', customerProfileId: 'conta-1', localId: 'loc-loja', productId: 20,
+      qtdPadrao: 1, precoAcordado: 8, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 20, name: 'Água com gás', price: 8, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, itensCriados } = buildPrismaMock(vinculos);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 2, '1 entrega POR LOCAL — o 2º local não é mais pulado');
+  assert.equal(entregas.length, 2);
+  assert.deepEqual(entregas.map((e) => e.localId).sort(), ['loc-casa', 'loc-loja']);
+  // Cada entrega leva SÓ o item do seu local.
+  const casa = entregas.find((e) => e.localId === 'loc-casa');
+  const loja = entregas.find((e) => e.localId === 'loc-loja');
+  assert.equal(itensCriados.filter((i) => i.entregaId === casa.id).length, 1);
+  assert.equal(itensCriados.filter((i) => i.entregaId === loja.id).length, 1);
+  assert.equal(r.avancados, 2, 'os 2 vínculos (1 por local) avançam');
+});
+
+test('gerarDia MULTILOCAL: idempotência por (cliente, local) — 2ª passada não recria nenhum', async () => {
+  const dia = '2026-07-06';
+  const vinculos = [
+    {
+      id: 'cp-A', customerProfileId: 'conta-1', localId: 'loc-casa', productId: 10,
+      qtdPadrao: 1, precoAcordado: 10, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 10, name: 'Galão', price: 10, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-B', customerProfileId: 'conta-1', localId: 'loc-loja', productId: 20,
+      qtdPadrao: 1, precoAcordado: 8, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 20, name: 'Gás', price: 8, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas } = buildPrismaMock(vinculos);
+  const service = svc(prisma);
+
+  const r1 = await service.gerarDia(1, dia);
+  assert.equal(r1.criadas, 2);
+
+  const r2 = await service.gerarDia(1, dia);
+  assert.equal(r2.criadas, 0, '2ª passada não recria');
+  assert.equal(r2.puladas, 2, 'os 2 locais são pulados (idempotência por local)');
+  assert.equal(entregas.length, 2, 'segue com 2 entregas');
+});
+
+test('gerarDia MULTILOCAL: vínculos do MESMO local agregam em 1 entrega (TASK 5 dentro do local)', async () => {
+  const dia = '2026-07-06';
+  const vinculos = [
+    {
+      id: 'cp-1', customerProfileId: 'conta-1', localId: 'loc-casa', productId: 10,
+      qtdPadrao: 2, precoAcordado: 15, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 10, name: 'Galão', price: 20, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+    {
+      id: 'cp-2', customerProfileId: 'conta-1', localId: 'loc-casa', productId: 20,
+      qtdPadrao: 1, precoAcordado: null, frequenciaDias: null, diasSemana: '1', proximaData: null,
+      product: { id: 20, name: 'Gás', price: 8, priceCents: null },
+      customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
+    },
+  ];
+  const { prisma, entregas, itensCriados } = buildPrismaMock(vinculos);
+  const r = await svc(prisma).gerarDia(1, dia);
+
+  assert.equal(r.criadas, 1, '2 vínculos do MESMO local = 1 entrega');
+  assert.equal(entregas.length, 1);
+  assert.equal(entregas[0].localId, 'loc-casa');
+  assert.equal(itensCriados.length, 2, 'os 2 itens entram na MESMA entrega do local');
+  assert.equal(entregas[0].quantidade, 3); // 2 + 1
+  assert.equal(entregas[0].valor, 38); // 2×15 + 1×8
 });
 
 // ── 5) TASK 7 — preview READ-ONLY do dia (pop-up "Gerar entregas") ───────────

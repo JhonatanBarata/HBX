@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { emitMasterEvent } from '../common/master-event';
 
@@ -14,7 +14,14 @@ import { emitMasterEvent } from '../common/master-event';
 
 export type CreditLotKind = 'grant' | 'recharge' | 'promo';
 export type CreditGrantType = 'paid' | 'courtesy_internal' | 'promo';
-export type CreditMovementKind = 'debit' | 'refund' | 'expire' | 'adjust' | 'purchase_reversal';
+export type CreditMovementKind =
+  | 'debit'
+  | 'refund'
+  | 'expire'
+  | 'adjust'
+  | 'purchase_reversal'
+  | 'chargeback_debt'
+  | 'chargeback_settlement';
 
 export type CreditLot = {
   id: string;
@@ -29,6 +36,7 @@ export type CreditWalletSnapshot = {
   companyId: number;
   walletId: string;
   balance: number;
+  chargebackDebtCredits: number; // P0.3 hold: dívida de chargeback ainda em aberto (0 = sem hold)
   lots: CreditLot[];
 };
 
@@ -121,6 +129,7 @@ function isFiniteNonNegativeInt(value: number) {
 
 @Injectable()
 export class CreditWalletService {
+  private readonly logger = new Logger(CreditWalletService.name);
   constructor(private readonly prisma: PrismaService) {}
 
   private json(value: unknown) {
@@ -190,10 +199,12 @@ export class CreditWalletService {
   async getWalletSnapshot(companyId: number, now: Date = new Date()): Promise<CreditWalletSnapshot> {
     const wallet = await this.ensureWallet(companyId);
     const lots = await this.openLotsFifo(wallet.id, now);
+    const debt = await this.getChargebackDebt(companyId);
     return {
       companyId,
       walletId: wallet.id,
       balance: lots.reduce((sum, lot) => sum + lot.remaining, 0),
+      chargebackDebtCredits: debt,
       lots,
     };
   }
@@ -280,6 +291,23 @@ export class CreditWalletService {
         metadataJson: this.json(opts.metadata),
       },
     });
+
+    // P0.3 hold — crédito novo abate dívida de chargeback pendente ("crédito novo paga a dívida
+    // primeiro"). Best-effort: nunca deixa a concessão falhar por causa da quitação; se falhar, a
+    // dívida permanece e a empresa segue bloqueada (fail-safe a favor do caixa). No-op barato
+    // quando não há dívida.
+    try {
+      await this.settleChargebackDebtFromBalance(companyId, {
+        usageKey: `chargeback-settle:grant:${created.id}`,
+        userId: opts.createdByUserId ?? null,
+        metadata: { trigger: 'grant', grantEntryId: created.id, kind: opts.kind || 'grant' },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `chargeback_debt_settle_failed company=${companyId} entry=${created.id} error=${String(error?.message || error)}`,
+      );
+    }
+
     return { entryId: created.id, amount: created.amount, alreadyProcessed: false };
   }
 
@@ -577,6 +605,130 @@ export class CreditWalletService {
       balanceAfter,
       alreadyProcessed: false,
     };
+  }
+
+  /** P0.3 hold — dívida de chargeback ainda em aberto desta empresa (0 = sem hold). Leitura barata
+   *  (1 coluna) usada pelo choke de entrega. */
+  async getChargebackDebt(companyId: number): Promise<number> {
+    const wallet = await this.prisma.creditWallet.findUnique({ where: { companyId } });
+    return Math.max(0, Number(wallet?.chargebackDebtCredits || 0));
+  }
+
+  /**
+   * P0.3 hold — registra DÍVIDA de crédito quando um estorno/chargeback reverteu uma recarga cujos
+   * créditos o cliente JÁ consumiu (o `shortfall` do reversePurchase). A dívida BLOQUEIA novas
+   * entregas até ser quitada (settleChargebackDebtFromBalance). NÃO é saldo negativo — é o agregado
+   * `CreditWallet.chargebackDebtCredits`; o rastro append-only é 1 linha `chargeback_debt`.
+   *
+   * Idempotência: a linha aponta `parentEntryId = lote estornado`, então o par
+   * (usageKey, parentEntryId) é @@unique — webhook duplicado do MESMO pagamento bate P2002 e NÃO
+   * incrementa a dívida 2×. Criação da linha + incremento do campo rodam na MESMA transação.
+   */
+  async registerChargebackDebt(
+    companyId: number,
+    opts: {
+      amount: number;
+      usageKey: string;
+      parentLotId?: string | null;
+      sourceRef?: string | null;
+      userId?: number | null;
+      metadata?: Record<string, unknown> | null;
+    },
+  ): Promise<{ debtAfter: number; alreadyProcessed: boolean }> {
+    if (!isFiniteNonNegativeInt(opts.amount) || opts.amount <= 0) {
+      throw new Error('registerChargebackDebt: amount deve ser inteiro positivo');
+    }
+    const usageKey = String(opts.usageKey || '').trim();
+    if (!usageKey) throw new Error('registerChargebackDebt: usageKey é obrigatório (idempotência)');
+    const wallet = await this.ensureWallet(companyId);
+
+    // Pré-check rápido (atalho, NÃO a trava): a trava real é o @@unique + P2002 na tx abaixo.
+    const existing = await this.prisma.creditLedgerEntry.findFirst({
+      where: { usageKey, kind: 'chargeback_debt' },
+    });
+    if (existing) {
+      return { debtAfter: await this.getChargebackDebt(companyId), alreadyProcessed: true };
+    }
+
+    try {
+      const debtAfter = await this.prisma.$transaction(async (tx) => {
+        await tx.creditLedgerEntry.create({
+          data: {
+            walletId: wallet.id,
+            companyId,
+            kind: 'chargeback_debt',
+            amount: opts.amount,
+            remaining: 0,
+            actionKey: 'chargeback_debt',
+            usageKey,
+            parentEntryId: opts.parentLotId ?? null,
+            sourceRef: opts.sourceRef ?? null,
+            createdByUserId: opts.userId ?? null,
+            metadataJson: this.json(opts.metadata),
+          },
+        });
+        const updated = await tx.creditWallet.update({
+          where: { companyId },
+          data: { chargebackDebtCredits: { increment: opts.amount } },
+        });
+        return Math.max(0, updated.chargebackDebtCredits);
+      });
+      return { debtAfter, alreadyProcessed: false };
+    } catch (error) {
+      if (this.isUniqueConstraintError(error)) {
+        // Webhook duplicado do mesmo pagamento (mesmo usageKey+lote): já contabilizado, no-op.
+        return { debtAfter: await this.getChargebackDebt(companyId), alreadyProcessed: true };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * P0.3 hold — QUITA a dívida de chargeback com crédito NOVO ("crédito novo paga a dívida
+   * primeiro"): debita do saldo `min(dívida, saldo)` via o MESMO laço FIFO do débito (movimento
+   * `debit`, actionKey `chargeback_settlement` — não conta como consumo de lead) e reduz
+   * `chargebackDebtCredits` no mesmo tanto. Chamado quando entra crédito (recarga paga / concessão
+   * do master). Nunca deixa dívida < 0 nem debita além do saldo; se o saldo não cobrir tudo, quita
+   * parcial e a empresa segue bloqueada até completar. Idempotência: usageKey própria por chamada.
+   */
+  async settleChargebackDebtFromBalance(
+    companyId: number,
+    opts: { usageKey: string; userId?: number | null; metadata?: Record<string, unknown> | null },
+  ): Promise<{ settled: number; debtAfter: number }> {
+    const wallet = await this.prisma.creditWallet.findUnique({ where: { companyId } });
+    const debt = Math.max(0, Number(wallet?.chargebackDebtCredits || 0));
+    if (!wallet || debt <= 0) return { settled: 0, debtAfter: debt };
+
+    const now = new Date();
+    const balance = await this.getBalance(companyId, now);
+    const toSettle = Math.min(debt, balance);
+    if (toSettle <= 0) return { settled: 0, debtAfter: debt };
+
+    const usageKey = String(opts.usageKey || '').trim() || `chargeback-settle:${wallet.id}:${debt}`;
+    const { consumed } = await this.consumeOpenLots({
+      walletId: wallet.id,
+      companyId,
+      amount: toSettle,
+      usageKey,
+      movementKind: 'debit',
+      actionKey: 'chargeback_settlement',
+      userId: opts.userId ?? null,
+      metadata: opts.metadata ?? null,
+      now,
+    });
+    if (consumed <= 0) return { settled: 0, debtAfter: debt };
+
+    // Decrementa só o que foi de fato consumido; clampa em 0 (corrida de duas quitações não deixa
+    // a dívida negativa).
+    const updated = await this.prisma.creditWallet.update({
+      where: { companyId },
+      data: { chargebackDebtCredits: { decrement: consumed } },
+    });
+    if (updated.chargebackDebtCredits < 0) {
+      await this.prisma.creditWallet.update({ where: { companyId }, data: { chargebackDebtCredits: 0 } });
+      return { settled: consumed, debtAfter: 0 };
+    }
+    return { settled: consumed, debtAfter: updated.chargebackDebtCredits };
   }
 
   /**

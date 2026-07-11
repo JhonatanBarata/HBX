@@ -4,6 +4,7 @@
 	"private": true,
 	"scripts": {
 		"publish": "node ./scripts/ops/publish.js",
+		"gate": "node ./scripts/ops/gate.js",
 		"new": "node ./scripts/release.js",
 		"backend:restart": "docker compose -f docker-compose.yml restart backend",
 		"backend:logs": "docker compose -f docker-compose.yml logs -f backend",

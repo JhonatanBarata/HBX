@@ -99,6 +99,7 @@ function ProdutoLista({
   // TASK 8a — reloadKey na dependência: ao voltar do editor (criar/editar/
   // excluir/inativar), re-busca sozinha.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou reloadKey mudar; efeito legítimo, não estado derivado.
     void carregar();
   }, [carregar, reloadKey]);
 

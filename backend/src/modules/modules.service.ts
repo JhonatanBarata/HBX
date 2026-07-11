@@ -74,6 +74,7 @@ import {
   resolveCompanyAccessState,
   storedCompanyStatusFromAccessState,
 } from './company-access-state';
+import { CATEGORY_MANAGED_MODULE_KEYS } from './module-categories';
 import {
   ensureUserTeamPolicyForUser,
   parseTeamPolicyAccessMap,
@@ -117,6 +118,17 @@ const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredModuleKeys)
   ? ((structuralDefaults as any).retiredModuleKeys as string[])
   : [];
+// CORREÇÃO 11/07 (pós-revisão PR10072026): universo de chaves que a régua de
+// PLANO conhece (caixa de algum plano). Módulo FORA deste universo (logistica,
+// empresas, contatos, produtos — "kill-switch por empresa; nasce ligado") sem
+// post-it segue SystemModule.defaultEnabled, mesmo contrato do
+// resolveKillSwitchModuleKeys. Antes, o fallback sem-linha era SÓ a caixa do
+// plano e o @ModuleAccess('logistica') dava 403 pra empresa antiga sem post-it.
+const PLAN_MANAGED_MODULE_KEYS = new Set(
+  Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+    .flat()
+    .map((key) => String(key || '').trim().toLowerCase()),
+);
 const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'atendimento',
   'vendas',
@@ -2090,6 +2102,25 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return row ? effectiveCompanyModuleEnabled(row) : null;
   }
 
+  // CORREÇÃO 11/07 (pós-revisão PR10072026): efetivo de módulo SEM post-it
+  // (linha de CompanyModule ausente). Régua em 3 degraus:
+  //   1. a caixa do plano (box + PlanModuleConfig) CONHECE a chave → vale ela;
+  //   2. chave vendável por plano fora da caixa do plano atual → false (LITE sem
+  //      atendimento continua sem — comportamento de prod preservado);
+  //   3. chave FORA do universo do plano (logistica/empresas/contatos/produtos —
+  //      "kill-switch por empresa; nasce ligado") → SystemModule.defaultEnabled,
+  //      mesmo contrato do resolveKillSwitchModuleKeys e do CONTRATOS.md W1
+  //      ("ausência de linha continua = SystemModule.defaultEnabled").
+  private resolveModuleDefaultWithoutOverride(
+    planDefaults: Map<string, boolean>,
+    moduleItem: { key: string; defaultEnabled?: boolean | null },
+  ): boolean {
+    const key = this.normalizeRequestedModuleKey(moduleItem.key);
+    if (planDefaults.has(key)) return planDefaults.get(key) === true;
+    if (PLAN_MANAGED_MODULE_KEYS.has(key)) return false;
+    return Boolean(moduleItem.defaultEnabled);
+  }
+
   private isFinanceModuleKey(moduleKey: string) {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
@@ -2247,12 +2278,16 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
     for (const moduleItem of orderedModules) {
       // Post-it (PR13062026007 PB2): override da empresa (linha em CompanyModule)
-      // manda; senão, segue a caixa do plano (ao vivo, editável no Sistema).
-      // PR10072026 W1: o override já é o EFETIVO (masterEnabled && enabled).
+      // manda; senão, segue a caixa do plano (ao vivo, editável no Sistema) —
+      // e, pra chave fora do universo do plano (ex.: logistica), o
+      // SystemModule.defaultEnabled ("nasce ligado"). CORREÇÃO 11/07: antes o
+      // fallback era só a caixa do plano e empresa antiga sem post-it tomava 403
+      // no /logistica inteiro. PR10072026 W1: o override já é o EFETIVO
+      // (masterEnabled && enabled).
       const override = await this.getCompanyModuleOverride(companyId, moduleItem.id);
       const companyHas = override !== null
         ? override
-        : planDefaults.get(this.normalizeRequestedModuleKey(moduleItem.key)) === true;
+        : this.resolveModuleDefaultWithoutOverride(planDefaults, moduleItem);
       if (!companyHas) continue;
 
       // PR10072026 W1: chave company-level (ex.: logistica) checa SÓ a camada
@@ -2363,6 +2398,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       ...PRIMARY_COMMERCIAL_MODULE_KEYS,
       ...ROUTE_GUARDED_MODULE_KEYS,
       ...Object.values(COMMERCIAL_PLAN_MODULE_KEYS).flat(),
+      // CORREÇÃO 11/07: módulos governados por categoria (inclui 'logistica')
+      // entram SEMPRE — empresa antiga sem nenhum post-it precisa ver
+      // 'logistica' no /modules/me (o app /entrega e o soLogistica leem daqui).
+      ...CATEGORY_MANAGED_MODULE_KEYS,
       'financeiro',
       'gerencial',
       'cadastro',
@@ -2405,9 +2444,13 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         // Admin-tier (21/06): financeiro + gerencial = capacidade do eixo Dono/
         // Gerente, fora do plano/catálogo. Sempre "company-enabled"; o acesso é por role.
         const adminTierModule = financeModule || gerencialModule;
-        // Post-it (PB2): post-it da empresa manda; senão, a caixa do plano (viva).
+        // Post-it (PB2): post-it da empresa manda; senão, a caixa do plano (viva)
+        // — e, pra chave fora do universo do plano (ex.: logistica),
+        // SystemModule.defaultEnabled (CORREÇÃO 11/07, mesma régua do gate).
         // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
-        const companyHasModule = row ? effectiveCompanyModuleEnabled(row) : (planDefaults.get(normalizedKey) === true);
+        const companyHasModule = row
+          ? effectiveCompanyModuleEnabled(row)
+          : this.resolveModuleDefaultWithoutOverride(planDefaults, moduleItem);
         const effectiveCompanyEnabled = adminTierModule ? true : companyHasModule;
         // Acesso por CARGO (P2): USER resolve do molho do cargo Vendedor; ADMIN/
         // master = tudo. financeiro/gerencial = muro do eixo Dono/Gerente.

@@ -19,11 +19,15 @@ import { NucleoCadastroService } from './nucleo-cadastro.service';
 import {
   CreateContaDto,
   CreateContatoDto,
+  CreateLocalDto,
+  CreateTelefoneDto,
   ImportContasDto,
   MergeContaDto,
   SoftDeleteDto,
   UpdateContaDto,
   UpdateContatoDto,
+  UpdateLocalDto,
+  UpdateTelefoneDto,
 } from './dto/nucleo.dto';
 
 /**
@@ -230,6 +234,68 @@ export class NucleoController {
       motivo: dto?.motivo ?? null,
     });
     if (!res) throw new NotFoundException('Contato não encontrado');
+    return res;
+  }
+
+  // ── MULTILOCAL (10/07) — CRUD de locais + telefones da ficha ────────────────
+  // Company-scoped (JwtAuthGuard da classe), SEM @Admin — o próprio entregador
+  // cadastra local/telefone do cliente. Cobrança segue 1 só por CONTA.
+
+  /** Cria um local de entrega do cliente `:id`. O 1º local nasce principal. */
+  @Post('clientes/:id/locais')
+  async addLocal(@Req() req: any, @Param('id') id: string, @Body() dto: CreateLocalDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.createLocal(companyId, id, dto);
+    // cliente inexistente OU de outro tenant → 404 (isolamento).
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  /** Edita um local de entrega (parcial). Promover a principal é atômico. */
+  @Patch('locais/:id')
+  async updateLocal(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateLocalDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.updateLocal(companyId, id, dto);
+    if (!res) throw new NotFoundException('Local não encontrado');
+    return res;
+  }
+
+  /**
+   * Soft-delete de um local (ativo=false). Barra o ÚNICO local ativo com vínculo
+   * ativo (400); se era principal e sobrou local, promove o próximo.
+   */
+  @Delete('locais/:id')
+  async deleteLocal(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.deleteLocal(companyId, id);
+    if (!res) throw new NotFoundException('Local não encontrado');
+    return res;
+  }
+
+  /** Adiciona um telefone (Contato) ao cliente `:id`. Exige ao menos um número. */
+  @Post('clientes/:id/telefones')
+  async addTelefone(@Req() req: any, @Param('id') id: string, @Body() dto: CreateTelefoneDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.addTelefone(companyId, id, dto);
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  /** Edita um telefone (Contato). Reusa a edição de contato (rebaixa principal). */
+  @Patch('telefones/:id')
+  async updateTelefone(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateTelefoneDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.updateContato(companyId, id, dto);
+    if (!res) throw new NotFoundException('Telefone não encontrado');
+    return res;
+  }
+
+  /** Remove um telefone (Contato). Não zera o principal se for o único. */
+  @Delete('telefones/:id')
+  async deleteTelefone(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.deleteTelefone(companyId, id);
+    if (!res) throw new NotFoundException('Telefone não encontrado');
     return res;
   }
 }

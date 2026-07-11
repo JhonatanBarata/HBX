@@ -1,8 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CreditMeterService } from './credit-meter.service';
-import { getCreditActionDefinition, listCreditActionDefinitions } from './credit-action-catalog';
+import {
+  applyCreditActionOverrides,
+  clearCreditActionOverrides,
+  getCreditActionDefinition,
+  listCreditActionDefinitions,
+} from './credit-action-catalog';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+
+// PR11072026 W1 — garante que nenhum teste deste arquivo vaza overlay pro próximo (o
+// overlay é estado em módulo, compartilhado por todos os testes rodados no mesmo processo).
+test.afterEach(() => {
+  clearCreditActionOverrides();
+});
 
 // CRÉDITO UNIVERSAL (PR10072026) — CreditMeterService: roteamento por modo do catálogo
 // (free = nada; track = escritor de shadow do S2; debit = wallet.debit pós-fato SEM lançar),
@@ -127,6 +138,32 @@ test('gateway: run() com usage emite evento pro listener (companyId válido) e u
     } finally {
       AiGatewayService.setUsageListener(null);
     }
+  });
+});
+
+// PR11072026 W1 — resolvedor: overlay do catálogo (mode/cost) aplicado ANTES do roteamento
+// do meter. Confirma que o merge base+override em credit-action-catalog.ts chega vivo até
+// aqui (o meter não muda; só o que getCreditActionDefinition devolve muda).
+test('resolvedor: override mode="free" faz o meter não medir a ação (nem track nem debit)', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: 'true' }, async () => {
+    applyCreditActionOverrides([{ actionKey: 'ai_realtime', override: { mode: 'free' } }]);
+    const { credits, wallet, shadowCalls, debitCalls } = makeFakes();
+    const meter = new CreditMeterService(credits, wallet);
+    await meter.meter({ companyId: 1, actionKey: 'ai_realtime', refId: 'r1' });
+    assert.equal(shadowCalls.length, 0);
+    assert.equal(debitCalls.length, 0);
+  });
+});
+
+test('resolvedor: override cost=3 multiplica o track (units * cost)', async () => {
+  await withEnv({ HBX_CREDITS_ENABLED: 'true' }, async () => {
+    applyCreditActionOverrides([{ actionKey: 'whatsapp_auto_send', override: { cost: 3 } }]);
+    const { credits, wallet, shadowCalls, debitCalls } = makeFakes();
+    const meter = new CreditMeterService(credits, wallet);
+    await meter.meter({ companyId: 7, actionKey: 'whatsapp_auto_send', refId: 'wa:1' });
+    assert.equal(shadowCalls.length, 1);
+    assert.equal(shadowCalls[0].units, 3, 'amount = units(1) * cost override(3)');
+    assert.equal(debitCalls.length, 0, 'override de cost não muda o modo — continua track');
   });
 });
 

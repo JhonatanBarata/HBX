@@ -18,8 +18,8 @@ async function getRubberBand(): Promise<RubberBandInterface> {
       const resp = await fetch('/rubberband.wasm');
       if (!resp.ok) throw new Error('Falha ao carregar rubberband.wasm');
       const bytes = await resp.arrayBuffer();
-      const module = await WebAssembly.compile(bytes);
-      return RubberBandInterface.initialize(module);
+      const mod = await WebAssembly.compile(bytes);
+      return RubberBandInterface.initialize(mod);
     })().catch((err) => { rbPromise = null; throw err; });
   }
   return rbPromise;
