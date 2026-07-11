@@ -8,9 +8,9 @@
 ## Estado (marcar conforme avança — retomada em caso de queda)
 - [x] Exploração (pipeline, DetalhesNegocio, ConversationPanel, EmailPanel, financeiro-tenant, RFB L4)
 - [x] Plano salvo (este arquivo)
-- [ ] W1 backend — endpoint cockpit (RFB rica por lead)
-- [ ] W2 frontend — modal cockpit + integração vendas
-- [ ] Checks locais (backend build + prisma:validate; frontend lint check-pele + build)
+- [x] W1 backend — endpoint cockpit (RFB rica por lead) — prisma:validate + build VERDES
+- [x] W2 frontend — modal cockpit + integração vendas (lint dos arquivos tocados 0 erro; check-pele ok 514/514; build verde)
+- [x] Checks locais — frontend `npm run lint` GERAL agora VERDE (0 erros; parse error do concierge foi corrigido/commitado pela frente Concierge em `1b2531cb`); revisão do diff: contratos preview/send, /company-email/status, gerar-cobranca e /cockpit conferidos 1:1
 - [ ] Commit + `npm run publish`
 - [ ] Teste no VPS (Chrome, https://www.hbxsystem.com.br, login em .test-login.local.md)
 - [ ] Reporte final

@@ -88,7 +88,9 @@ const LABEL_MAP: Record<string, string> = {
   ativa: "Ativa",
 };
 
-function humanize(raw: string | null | undefined): string {
+// Exportado (LEAD-COCKPIT, 11/07): o cockpit do lead reusa o MESMO vocabulário
+// humanizado (canal/dor/fonte/situação) em vez de criar um segundo mapa.
+export function humanize(raw: string | null | undefined): string {
   if (!raw) return "—";
   const key = raw.trim().toLowerCase().replace(/\s+/g, "_");
   return LABEL_MAP[key] || raw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -247,6 +249,13 @@ export type DetalhesNegocioProps = {
 
   title?: string;
   onClose?: () => void;
+  /**
+   * LEAD-COCKPIT (PR11072026): quando presente, renderiza o botão de expandir
+   * (⤢) ao lado do ✕ do header — abre o cockpit do lead (overlay grande).
+   * OPCIONAL e opt-in: ausente = DOM idêntico ao atual (Atendimento/Leads
+   * intactos; só Vendas passa).
+   */
+  onExpand?: () => void;
   heroAction?: React.ReactNode;
   /** Slot opcional para coroa de enriquecido (preenchido pelo PLAN-C) */
   crownSlot?: React.ReactNode;
@@ -469,6 +478,10 @@ function CollapsibleText({ label, text }: { label: string; text: string }) {
   );
 }
 
+// ⤢ Expandir (maximize) — botão opcional do header que abre o cockpit do lead
+// (LEAD-COCKPIT). Traço no padrão do kit de ícones (stroke, currentColor).
+const EXPAND_ICON_D = ["M15 3h6v6", "M9 21H3v-6", "M21 3l-7 7", "M3 21l7-7"];
+
 // ── Chevron SVG (expand/collapse) ─────────────────────────────────────────────
 
 function ChevronDown() {
@@ -480,8 +493,10 @@ function ChevronDown() {
 }
 
 // ── Gate de plano — borrado + cadeado + CTA quando locked ────────────────────
+// Exportado (LEAD-COCKPIT, 11/07): o cockpit reusa o MESMO cadeado de tier no
+// bloco Empresa/Abordagem — nada de recriar o overlay em outra tela.
 
-function LockGate({ locked, ctaText, children }: { locked: boolean; ctaText?: string; children: React.ReactNode }) {
+export function LockGate({ locked, ctaText, children }: { locked: boolean; ctaText?: string; children: React.ReactNode }) {
   if (!locked) return <>{children}</>;
   return (
     <div className="dn-locked">
@@ -1329,6 +1344,7 @@ export function DetalhesNegocio({
   // jargão ("lead"/"negócio") — o nome da empresa já aparece no herói logo abaixo.
   title = "Detalhes",
   onClose,
+  onExpand,
   heroAction,
   crownSlot,
   actions,
@@ -2101,11 +2117,23 @@ export function DetalhesNegocio({
   return (
     <div className="dn-root">
 
-      {/* ── Título com fechar ─────────────────────────────────────────── */}
+      {/* ── Título com expandir (opt-in) + fechar ─────────────────────── */}
+      {/* Sem onExpand o DOM é IDÊNTICO ao de antes (Atendimento/Leads intactos). */}
       <h3>
         {title}
-        {onClose && (
-          <span className="x" onClick={onClose} role="button" aria-label="Fechar painel">✕</span>
+        {onExpand ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <span className="x" onClick={onExpand} role="button" aria-label="Abrir cockpit" title="Abrir cockpit">
+              <I d={EXPAND_ICON_D} size={14} />
+            </span>
+            {onClose && (
+              <span className="x" onClick={onClose} role="button" aria-label="Fechar painel">✕</span>
+            )}
+          </span>
+        ) : (
+          onClose && (
+            <span className="x" onClick={onClose} role="button" aria-label="Fechar painel">✕</span>
+          )
         )}
       </h3>
 

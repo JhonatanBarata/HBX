@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
+import { LeadCockpitModal } from "@/components/hbx/lead-cockpit-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
@@ -24,7 +25,9 @@ import { useTabParam } from "@/lib/use-tab-param";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
-type VendasLead = {
+// Exportado (LEAD-COCKPIT, 11/07): o LeadCockpitModal recebe o card do board
+// JÁ carregado (sem refetch) — `import type` (apagado no build, sem ciclo real).
+export type VendasLead = {
   id: string;
   customerProfileId?: string | null;
   name: string | null;
@@ -408,6 +411,9 @@ export function VendasClient() {
     } catch { /* sem storage */ }
   }, []);
   const [sel, setSel] = useState<VendasLead | null>(null);
+  // LEAD-COCKPIT (PR11072026): overlay grande com o detalhe avançado do card.
+  // Abre por duplo-clique (lista/quadro) ou pelo botão expandir (⤢) do Detalhes.
+  const [cockpitOpen, setCockpitOpen] = useState(false);
   // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
   const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
@@ -1005,7 +1011,7 @@ export function VendasClient() {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (fecharOpen || novoOpen || prospOpen || agendaOpen || retornoOpen || semInteresseOpen) return;
+      if (fecharOpen || novoOpen || prospOpen || agendaOpen || retornoOpen || semInteresseOpen || cockpitOpen) return;
       e.preventDefault();
       const q = searchQuery.toLowerCase();
       let list = BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
@@ -1024,7 +1030,7 @@ export function VendasClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen]);
+  }, [view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen, cockpitOpen]);
 
   const summary = board?.summary;
   const deal = sel;
@@ -1227,7 +1233,8 @@ export function VendasClient() {
                         return flatLeads.map(card => {
                           const tagCls = card.block === "overdue" ? "tag warn" : card.block === "closed" ? "tag teal" : "tag";
                           return (
-                            <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}>
+                            <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}
+                              onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}>
                               <td onClick={e => e.stopPropagation()}>
                                 <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
                                   aria-label={`Selecionar ${card.name || "card"}`} />
@@ -1298,6 +1305,7 @@ export function VendasClient() {
                                   onDragStart={card.block !== "closed" ? (e => onCardDragStart(e, card)) : undefined}
                                   onDragEnd={onCardDragEnd}
                                   onClick={() => setSel(card)}
+                                  onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}
                                 >
                                   <span className="vnd-card__grip" aria-hidden="true" />
                                   <div className="vnd-card__top">
@@ -1334,6 +1342,7 @@ export function VendasClient() {
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}
                 onClose={() => setSel(null)}
+                onExpand={deal ? () => setCockpitOpen(true) : undefined}
                 showAgenda
                 crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.id]} /> : undefined}
                 onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
@@ -1447,6 +1456,18 @@ export function VendasClient() {
           sellsHbxPlans={Boolean(board?.sellsHbxPlans)}
           onClose={() => setFecharOpen(false)}
           onDone={() => loadBoard()}
+        />
+      )}
+
+      {/* LEAD-COCKPIT: detalhe avançado do card em overlay grande (3 guias).
+          key por lead = estado zerado a cada card (fetches/abas não vazam). */}
+      {cockpitOpen && sel && (
+        <LeadCockpitModal
+          key={sel.id}
+          lead={sel}
+          canViewValues={Boolean(board?.canViewValues)}
+          open={cockpitOpen}
+          onClose={() => setCockpitOpen(false)}
         />
       )}
 

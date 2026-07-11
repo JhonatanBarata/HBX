@@ -1290,6 +1290,46 @@ html, body { height: 100%; }
 .lead-email__badge--sent { color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
 .lead-email__badge--failed { color: var(--hbx-danger); background: color-mix(in srgb, var(--hbx-danger) 15%, transparent); }
 
+/* ── LEAD-COCKPIT (PR11072026) — overlay grande do detalhe avançado do lead ──
+   Abre na frente do pipeline pelo par central .hbx-veil/.hbx-modal (a moldura
+   aqui SÓ dimensiona e organiza — nada de re-centralizar/z-index). 3 guias em
+   Glass Pill (Lei nº2); miolo todo derivado do kit (.kv/.dn-kv-row/.tag/.tbl/
+   .ctx-timeline) e de token — zero valor visual solto. */
+.lead-cockpit { width: min(1180px, 94vw); height: min(780px, 88vh); display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.lead-cockpit__head { display: flex; align-items: center; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid var(--border-hairline); flex-shrink: 0; }
+.lead-cockpit__id { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.lead-cockpit__name { margin: 0; font-family: var(--font-display); font-size: 1.02rem; font-weight: 800; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-cockpit__sub { font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-cockpit__badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lead-cockpit__score { font-family: var(--font-mono); font-size: 0.62rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand-strong) 12%, transparent); border: 1px solid color-mix(in srgb, var(--hbx-brand-strong) 28%, transparent); }
+.lead-cockpit__acts { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.lead-cockpit__close { display: grid; place-items: center; width: 30px; height: 30px; border: none; background: none; padding: 0; border-radius: 999px; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; line-height: 1; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast); }
+.lead-cockpit__close:hover { background: var(--hbx-surface-raised); color: var(--text-strong); transform: rotate(90deg); }
+.lead-cockpit__tabs { display: flex; align-items: center; gap: 2px; padding: 10px 16px; border-bottom: 1px solid var(--border-hairline); flex-shrink: 0; }
+.lead-cockpit__tab { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; font-family: var(--font-body); font-size: 0.76rem; font-weight: 700; color: var(--text-muted); cursor: pointer; padding: 7px 13px; border-radius: var(--radius-sm); transition: color var(--motion-fast); }
+.lead-cockpit__tab.active { color: var(--hbx-brand-strong); }
+.lead-cockpit__body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 20px; }
+.lead-cockpit__grid { display: grid; grid-template-columns: minmax(360px, 1.15fr) minmax(320px, 1fr); gap: 14px; align-items: start; }
+.lead-cockpit__col { display: grid; gap: 14px; min-width: 0; align-content: start; }
+.lead-cockpit__box { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); min-width: 0; }
+.lead-cockpit__box-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.lead-cockpit__box .muted-note { margin: 0; }
+.lead-cockpit__noconn { display: grid; gap: 10px; justify-items: start; }
+.lead-cockpit__noconn .hint { margin: 0; }
+.lead-cockpit__copy { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lead-cockpit__owner { display: inline-flex; align-items: center; gap: 6px; }
+.lead-cockpit__txt { margin: 0; font-size: 0.74rem; line-height: 1.55; color: var(--text-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lead-cockpit__block { display: grid; gap: 6px; justify-items: start; }
+.lead-cockpit__block .dn-section-head { justify-self: stretch; }
+.lead-cockpit__preview { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); background: var(--hbx-surface); }
+.lead-cockpit__preview-subj { font-size: 0.78rem; font-weight: 800; overflow-wrap: anywhere; }
+.lead-cockpit__row-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lead-cockpit__saldo { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); }
+.lead-cockpit__saldo-lbl { font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.lead-cockpit__saldo-val { font-family: var(--font-mono); font-size: 1.05rem; font-weight: 800; color: var(--hbx-brand-strong); }
+/* Tela estreita: as 2 colunas empilham (o corpo já rola por dentro). */
+@media (max-width: 1024px) { .lead-cockpit__grid { grid-template-columns: 1fr; } }
+
 /* ── Leads: cabeçalho banco (linha fininha com Total no Brasil) ─────────── */
 .leads-bank-strip { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--border-hairline); }
 .leads-bank-strip__num { font-family: var(--font-display); font-size: 0.96rem; font-weight: 800; color: var(--text-strong); }

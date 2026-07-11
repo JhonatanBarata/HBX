@@ -36,6 +36,7 @@ import {
   resolveDisposition,
   resolveDispositionReason,
 } from '../webscraping/radar/shared/radar-disposition-rules';
+import { cleanRfbLegalName } from '../webscraping/radar/providers/cnpj-public/cnpj-public-types';
 import {
   BulkDeleteVendasLeadsDto,
   CancelCommissionPayoutDto,
@@ -5315,6 +5316,148 @@ export class VendasService {
         true,
       ),
     };
+  }
+
+  // LEAD-COCKPIT (11/07): ficha RFB rica do lead pro modal "cockpit" do Vendas.
+  // Lê SÓ a base local (CnpjPublicCompany + CnpjPublicPartner) — zero chamada externa,
+  // zero débito de crédito. CNPJ derivado SERVER-SIDE (mesma hidratação RadarLeadPool do
+  // board, fallback ficha do cliente); nunca aceita CNPJ vindo do cliente.
+  async getLeadCockpitForUser(user: any, leadId: string) {
+    const context = await this.resolveVendasUserContext(user);
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      include: {
+        customerProfile: { select: { cnpj: true } },
+        timelineEvents: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 12,
+        },
+      },
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+
+    // MESMO gate do board (buildLeadPayload): dado de empresa é gated por
+    // canSeeLeadIntelligence, com o mesmo destravamento do enriquecimento manual do card.
+    // Sem direito → locked (200), sem vazar nem o CNPJ.
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const canSeeCompanyData =
+      planAccess.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(lead);
+    if (!canSeeCompanyData) {
+      return { company: { found: false, locked: true } };
+    }
+
+    // CNPJ server-side: mesma fonte do board (hidratação RadarLeadPool → intelligence);
+    // fallback: CNPJ da ficha do cliente (NÚCLEO-CRM).
+    await this.hydrateRowsWithRadarPoolEnrichment([lead]);
+    const intelligence = buildVendasLeadIntelligence({ lead });
+    const cnpjDigits = String(
+      (intelligence as any)?.cnpj || (lead as any)?.customerProfile?.cnpj || '',
+    ).replace(/\D/g, '');
+    if (cnpjDigits.length !== 14) {
+      return { company: { found: false, locked: false, cnpj: null } };
+    }
+
+    // Fail-soft: leitura da base pública NUNCA derruba a rota — loga e devolve found:false.
+    try {
+      const row = await this.prisma.cnpjPublicCompany.findUnique({ where: { cnpj: cnpjDigits } });
+      if (!row) {
+        return { company: { found: false, locked: false, cnpj: cnpjDigits } };
+      }
+      const partners = await this.listCockpitPartners(cnpjDigits, row.rawJson);
+      return {
+        company: {
+          found: true,
+          locked: false,
+          cnpj: row.cnpj || cnpjDigits,
+          // MEI/EI vem "<CNPJ básico> <NOME>" no dump — mesma limpeza do L4.
+          razaoSocial: cleanRfbLegalName(row.razaoSocial, row.cnpj || cnpjDigits) || null,
+          nomeFantasia: row.nomeFantasia || null,
+          situacao: row.situacao || null,
+          cnae: row.cnae || null,
+          cnaeDescription: row.cnaeDescription || null,
+          porte: row.porte || null,
+          capitalSocial: row.capitalSocial == null ? null : Number(row.capitalSocial),
+          naturezaJuridica: row.naturezaJuridica || null,
+          openedAt: row.openedAt instanceof Date ? row.openedAt.toISOString().slice(0, 10) : null,
+          simples: typeof row.simples === 'boolean' ? row.simples : null,
+          mei: typeof row.mei === 'boolean' ? row.mei : null,
+          matrizFilial: row.matrizFilial || null,
+          partners,
+        },
+      };
+    } catch (error: any) {
+      this.logger.warn(
+        `[vendas-cockpit] Falha ao ler base RFB local lead=${lead.id} company=${context.companyId}: ${String(error?.message || error)}`,
+      );
+      return { company: { found: false, locked: false, cnpj: cnpjDigits } };
+    }
+  }
+
+  // Ranking do "dono" — MESMA ordem do L4 (radar-cnpj-l4-enrichment.service.ts):
+  // Sócio-Administrador(49) > Administrador(05) > Titular PF(65) > Diretor(10) > Presidente(16)
+  // > Titular Emp.Individual(34) > Sócio-Gerente(28) > Sócio(22) > demais. PF ganha de PJ no empate.
+  private static readonly COCKPIT_PARTNER_QUALIFICATION_RANK: Record<string, number> = {
+    '49': 0, '05': 1, '65': 2, '10': 3, '16': 4, '34': 5, '28': 6, '22': 7, '23': 8, '47': 9, '74': 10,
+  };
+
+  // Quadro societário do cockpit: CnpjPublicPartner (join por cnpjBasico = 8 primeiros
+  // dígitos, mesmo ranking do L4) primeiro; rawJson (qsa da BrasilAPI cacheado) como
+  // fallback de linha antiga sem dump de sócios. Máx 20. Best-effort: erro devolve [].
+  private async listCockpitPartners(
+    cnpjDigits: string,
+    rawJson?: string | null,
+  ): Promise<Array<{ name: string; qualification: string | null }>> {
+    try {
+      const rows = await this.prisma.cnpjPublicPartner.findMany({
+        where: { cnpjBasico: cnpjDigits.slice(0, 8) },
+        select: { nome: true, qualificationCode: true, qualificationDescription: true, identificador: true },
+        take: 40,
+      });
+      const rankOf = (row: any) =>
+        (VendasService.COCKPIT_PARTNER_QUALIFICATION_RANK[String(row?.qualificationCode || '')] ?? 20) * 2
+        + (String(row?.identificador || '') === '2' ? 0 : 1);
+      const seen = new Set<string>();
+      const partners = (rows || [])
+        .map((row: any) => ({
+          name: String(row?.nome || '').trim(),
+          qualification: String(row?.qualificationDescription || '').trim() || null,
+          rank: rankOf(row),
+        }))
+        .filter((row) => Boolean(row.name))
+        .sort((a, b) => a.rank - b.rank)
+        .filter((row) => (seen.has(row.name) ? false : (seen.add(row.name), true)))
+        .slice(0, 20)
+        .map((row) => ({ name: row.name, qualification: row.qualification }));
+      if (partners.length) return partners;
+    } catch {
+      // segue pro fallback do rawJson
+    }
+
+    // Fallback: linha antiga sem CnpjPublicPartner — sócios do rawJson (mesmas chaves do L4).
+    try {
+      const parsed = rawJson ? JSON.parse(String(rawJson)) : null;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+      for (const key of ['socios', 'qsa', 'partners', 'quadroSocietario']) {
+        const list = (parsed as Record<string, any>)[key];
+        if (!Array.isArray(list)) continue;
+        const seen = new Set<string>();
+        return list
+          .map((item: any) => ({
+            name: String(item?.nome || item?.name || item?.nome_socio || item?.razaoSocial || '').trim(),
+            qualification:
+              String(item?.qualificacao_socio || item?.qualificacao || item?.qualification || item?.role || '').trim() || null,
+          }))
+          .filter((row) => Boolean(row.name))
+          .filter((row) => (seen.has(row.name) ? false : (seen.add(row.name), true)))
+          .slice(0, 20);
+      }
+      return [];
+    } catch {
+      return [];
+    }
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {

@@ -312,6 +312,13 @@ export class VendasController {
     return this.vendasService.getLeadConversationSnapshotForUser(req.user, leadId, eventId || null);
   }
 
+  // LEAD-COCKPIT (11/07): ficha RFB rica da empresa do lead pro modal "cockpit" do Vendas.
+  // Só lê a base local (zero chamada externa, zero débito); CNPJ derivado server-side.
+  @Get('lead/:leadId/cockpit')
+  getLeadCockpit(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasService.getLeadCockpitForUser(req.user, leadId);
+  }
+
   @Post('lead/:leadId/presentation-draft')
   buildPresentationDraft(@Req() req: any, @Param('leadId') leadId: string) {
     return this.vendasService.buildPresentationEmailDraftForUser(req.user, leadId);
