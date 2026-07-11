@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LogisticaService } from './logistica.service';
+import { LogisticaService, resolveDayRange } from './logistica.service';
 
 // NÚCLEO-CRM N6 — prova o FREIO de segurança do módulo Logística:
 //   Com HBX_LOGISTICA_ENABLED OFF (default), confirmar entrega SÓ muda status/GPS
@@ -1069,6 +1069,9 @@ test('R4 (d): whatsapp falha → emite 1 MasterEvent logistica.efeito_falhou', a
 //   (b) pendura → pending com dueDate (fiado; NUNCA pago na hora, mesmo com pix).
 //   (c) resumo-dia soma entregues/recebidoHoje/aReceber (só charges da logística).
 //   (d) confirmar 2× com pix → 1 charge só (idempotente por entregaId, não paga 2×).
+//   (f) FIX (11/07) — BUG real em prod: na_hora sem receiptMethod do front (front NUNCA
+//       manda pro costumeiro) deriva o metodoPadrao da CONTA e quita igual; 'aberto' sem
+//       método segue pending (inalterado); front SEMPRE ganha quando manda um método.
 //   NADA dispara MP: paymentMethod='MANUAL' sempre; a baixa é MANUAL/local.
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -1192,6 +1195,107 @@ test('M6 (d): confirmar 2× com pix NÃO paga 2× (idempotente por entregaId)', 
   await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
 
   assert.equal(chargesCreated.length, 1, 'confirmar 2× = 1 charge só (não paga 2×)');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M6 (f) — BUG REAL 11/07: na_hora sem receiptMethod do front deriva da CONTA ──
+// CAUSA: confirmarEntrega só lia gps.receiptMethod (SOMENTE o que o front manda), e o
+// front por design NUNCA manda pro cliente costumeiro (formaPagamento≠'aberto' — chips
+// somem na folha de chegada, ver CustomerProfile no schema). Resultado em prod: cliente
+// na_hora+dinheiro tinha a entrega confirmada com receiptMethod/recebidoNaHora NULL e o
+// charge nascia 'pending' — dinheiro recebido em mãos virava "dívida" no financeiro.
+// FIX: quando o front não manda nada, deriva de CustomerProfile.metodoPadrao SE
+// formaPagamento==='na_hora'. O front continua GANHANDO quando manda (f-c).
+test('M6 (f-a): na_hora + metodoPadrao dinheiro, front SEM receiptMethod → deriva da conta (quita + recebidoNaHora)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated, entregaUpdates } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'na_hora', metodoPadrao: 'dinheiro', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  // Front NÃO manda receiptMethod — é exatamente o que acontece hoje pro costumeiro
+  // (chips somem na folha de chegada quando formaPagamento≠'aberto').
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  const statusUpdate = entregaUpdates.find((u) => u.status === 'entregue');
+  assert.equal(statusUpdate?.receiptMethod, 'dinheiro', 'receiptMethod efetivo = metodoPadrao da conta (na_hora)');
+  assert.equal(statusUpdate?.recebidoNaHora, true, 'recebidoNaHora = true (pago no ato, não fica dívida)');
+
+  assert.equal(chargesCreated.length, 1, 'deve lançar 1 charge');
+  assert.equal(chargesCreated[0].status, 'approved', 'na_hora+dinheiro (derivado) → charge nasce QUITADO');
+  assert.equal(chargesCreated[0].lifecycle, 'paid');
+  assert.ok(chargesCreated[0].paidAt instanceof Date, 'paidAt setado (pago na hora)');
+  assert.equal(res?.cobrancaLancada, true);
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M6 (f-b) — 'aberto' sem receiptMethod segue INALTERADO (NULL/pending) ────────
+// Sem metodoPadrao pra derivar (schema: metodoPadrao é "só para na_hora"), então
+// 'aberto'/'pendura'/'mensal' sem escolha do motorista continuam como sempre foram:
+// nada quita sozinho.
+test('M6 (f-b): aberto sem receiptMethod do front → segue NULL/pending (comportamento inalterado)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated, entregaUpdates } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  const statusUpdate = entregaUpdates.find((u) => u.status === 'entregue');
+  assert.equal(statusUpdate?.receiptMethod, undefined, 'sem método (aberto sem metodoPadrao): receiptMethod não setado');
+  assert.equal(statusUpdate?.recebidoNaHora, undefined, 'recebidoNaHora não setado');
+
+  assert.equal(chargesCreated.length, 1, 'ainda lança 1 charge (aberto com valor > 0)');
+  assert.equal(chargesCreated[0].status, 'pending', 'sem método imediato → pending (comportamento de sempre)');
+  assert.equal(chargesCreated[0].lifecycle, 'in_progress');
+  assert.equal(chargesCreated[0].paidAt, null);
+  assert.equal(res?.cobrancaLancada, true, 'lança a cobrança normalmente, só não quita');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── M6 (f-c) — na_hora·dinheiro, mas o front MANDA 'pix' → o front GANHA ─────────
+// A derivação da conta só entra na AUSÊNCIA; o front nunca é sobrescrito.
+test('M6 (f-c): na_hora com metodoPadrao dinheiro, front manda pix → pix GANHA (front nunca é sobrescrito)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated, entregaUpdates } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'na_hora', metodoPadrao: 'dinheiro', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, receiptMethod: 'pix' });
+
+  const statusUpdate = entregaUpdates.find((u) => u.status === 'entregue');
+  assert.equal(statusUpdate?.receiptMethod, 'pix', 'front manda pix → pix GANHA (não usa o metodoPadrao dinheiro da conta)');
+  assert.equal(statusUpdate?.recebidoNaHora, true);
+
+  assert.equal(chargesCreated.length, 1);
+  assert.equal(chargesCreated[0].status, 'approved', 'na_hora + pix do front → quitado também');
+  assert.equal(res?.cobrancaLancada, true);
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
@@ -1885,4 +1989,23 @@ test('W2 histórico: moduloFinanceiroAtivo OFF → valor/valorUnit/cobrancaStatu
   assert.equal(it?.itens[0].produtoNome, 'Galão 20L', 'nome do produto preservado');
   assert.equal(it?.itens[0].qtd, 2, 'quantidade preservada');
   assert.equal(it?.whatsappStatus, 'enviado', 'desfecho do WhatsApp preservado');
+});
+
+// ── BUG 5 (11/07) — resolveDayRange trata data de calendário IMPOSSÍVEL como HOJE ──
+// Antes, "?date=2026-02-30" (30 de fevereiro) fazia overflow silencioso do JS Date
+// e caía no dia 02/mar, INCONSISTENTE com "?date=abc"/"?date=2026-13-45" (que já
+// caíam pra hoje via NaN). Com o round-trip, os 3 casos convergem pro mesmo
+// fallback: hoje.
+test('resolveDayRange: data impossível (2026-02-30) cai pra HOJE, igual a lixo/mês inválido', () => {
+  // Referência de "hoje" = a própria resolveDayRange sem date (evita flakiness de
+  // fuso: reconstruir "hoje" via new Date().toISOString() direto pode divergir
+  // perto da virada de dia em fuso negativo como Brasília -3).
+  const hojeISO = resolveDayRange(undefined).dayISO;
+  assert.equal(resolveDayRange('2026-02-30').dayISO, hojeISO, '30 de fevereiro não existe → hoje');
+  assert.equal(resolveDayRange('2026-13-45').dayISO, hojeISO, 'mês 13 já caía pra hoje (NaN)');
+  assert.equal(resolveDayRange('abc').dayISO, hojeISO, 'lixo já caía pra hoje (NaN)');
+});
+
+test('resolveDayRange: "YYYY-MM-DD" válido resolve pro próprio dia (fuso local)', () => {
+  assert.equal(resolveDayRange('2026-07-11').dayISO, '2026-07-11');
 });

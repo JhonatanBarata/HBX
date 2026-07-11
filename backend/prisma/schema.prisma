@@ -924,6 +924,13 @@ model CustomerProfile {
   externalCustomerId   String?
   status               String   @default("active")
   notes                String?
+  // BUG 1 (11/07) — coluna ESPELHO de `name` sem acento/caixa, pra busca insensível a
+  // acento (`{name:{contains,mode:insensitive}}` vira ILIKE no Postgres, que é
+  // acento-SENSÍVEL — "Déia" não bate "Deia"). Gravada pelo service em TODO write de
+  // `name` (nucleo-search.util.ts#normalizeSearch); backfillada via `unaccent(lower())`
+  // na migration (MESMA saída da função JS pra PT-BR). Escopo desta passada: só
+  // CustomerProfile — Contato.nome tem a mesma lacuna, follow-up documentado no service.
+  searchName           String?
   firstInboundAt       DateTime?
   lastInboundAt        DateTime?
   botOff               Boolean  @default(false)
@@ -1006,6 +1013,9 @@ model CustomerProfile {
   @@index([companyId, status])
   @@index([companyId, isCliente])
   @@index([companyId, tipo])
+  // BUG 1 (11/07) — índice de apoio pra busca por `searchName` (contains), escopado
+  // por empresa (mesmo padrão dos demais índices de listagem deste model).
+  @@index([companyId, searchName])
   // NÚCLEO-CRM R3 (05/07) — 1 conta PJ por CNPJ dentro da empresa (mata a corrida de
   // conta duplicada no pull do Radar). O UNIQUE é PARCIAL (WHERE cnpj IS NOT NULL) — PF
   // sem CNPJ nunca colide —, algo que o Prisma 5.x NÃO expressa no DSL; por isso vive em
@@ -4453,4 +4463,30 @@ model CreditActionConfig {
   configJson String   @default("{}") // { mode: free|track|debit, cost: number }
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+// CONCIERGE IA (Missão F — docs/PLANEJAMENTOS/RELEASE-20X/IA-CONCIERGE-CONTRATO.md §2.1):
+// rascunho da busca guiada por chat. Sobrevive reload (reidratação via GET /concierge),
+// TTL 24h (sweeper + lazy expiry), 1 ativo por usuário. `confirmToken` single-use amarrado
+// ao hash dos slots (`slotsHash`); `runId` garante idempotência (draft executado devolve
+// SEMPRE a mesma busca). Migration ADITIVA (só esta tabela nova).
+model AiConciergeDraft {
+  id               String    @id @default(cuid())
+  companyId        Int
+  userId           Int
+  state            String    @default("START")
+  slotsJson        String    @default("{}")
+  transcriptJson   String    @default("[]")
+  metaJson         String?
+  costPreviewJson  String?
+  confirmToken     String?
+  confirmExpiresAt DateTime?
+  slotsHash        String?
+  runId            String?
+  status           String    @default("active") // active | executed | expired | abandoned
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([companyId, userId, status])
 }

@@ -124,6 +124,28 @@ test('R5 DTO: tipo errado é rejeitado', async () => {
   );
 });
 
+// ── (e) NOME SÓ-ESPAÇO/TAB → 400 (BUG 2/3, 11/07) ─────────────────────────────
+// Antes do @Transform(trim), "   " tinha length 3 e passava no @MinLength(1) —
+// só quebrava depois, dentro do service, como Error puro (500). Trim ANTES do
+// MinLength fecha a lacuna já na borda (DTO), igual ao "" vazio.
+test('R5 DTO: nome só-espaço/tab é rejeitado igual nome vazio (Transform trim + MinLength)', async () => {
+  await expectReject(
+    CreateContaDto,
+    { nome: '   ' },
+    "CreateContaDto nome:'   ' deve ser 400",
+  );
+  await expectReject(
+    CreateContaDto,
+    { nome: '\t\t' },
+    "CreateContaDto nome:'\\t\\t' deve ser 400",
+  );
+  await expectReject(
+    CreateContatoDto,
+    { customerProfileId: 'c1', nome: '   ' },
+    "CreateContatoDto nome:'   ' deve ser 400",
+  );
+});
+
 // ── (d) PAYLOAD VÁLIDO passa ───────────────────────────────────────────────────
 test('R5 DTO: payload válido passa', async () => {
   await expectPass(

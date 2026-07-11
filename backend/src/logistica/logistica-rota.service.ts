@@ -477,7 +477,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function resolveDayRange(dateInput?: string): { start: Date; end: Date; dayISO: string } {
+// NOTA (BUG 5, 11/07): esta resolveDayRange é DUPLICADA em logistica.service.ts —
+// mesma forma, cada uma com sua própria parseDateOrNull local. Não deduplicado
+// agora (fora do escopo do fix); só mantidas as duas em paridade.
+export function resolveDayRange(dateInput?: string): { start: Date; end: Date; dayISO: string } {
   const base = parseDateOrNull(dateInput) ?? new Date();
   const start = new Date(base);
   start.setHours(0, 0, 0, 0);
@@ -499,8 +502,18 @@ function parseDateOrNull(value: string | null | undefined): Date | null {
   // o parse UTC escorregaria pro dia anterior).
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (m) {
-    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const day = Number(m[3]);
+    const d = new Date(y, mo - 1, day, 0, 0, 0, 0);
+    // FIX (BUG 5, 11/07) — round-trip: sem isso, "2026-02-30" (30 de fevereiro,
+    // impossível mas bem-formada) fazia overflow silencioso pro dia 02/mar em vez
+    // de cair pra HOJE como já acontecia com "abc"/"2026-13-45" — inconsistente.
+    // Se o Date construído não bate com y/mo/day pedidos, é rollover → inválida.
+    if (Number.isNaN(d.getTime()) || d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== day) {
+      return null;
+    }
+    return d;
   }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;

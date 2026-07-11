@@ -431,7 +431,27 @@ export class LogisticaService {
     // ignorado). Vem da folha de chegada SOMENTE quando o cliente é 'aberto' + módulo
     // financeiro ON; costumeiro/OFF nunca manda. A CRIAÇÃO do charge é M6 — aqui só
     // registra o método e marca recebidoNaHora quando pago no ato.
-    const receiptMethod = normalizeReceipt(gps.receiptMethod);
+    let receiptMethod = normalizeReceipt(gps.receiptMethod);
+    // FIX (M6, 11/07) — BUG real em prod: cliente 'na_hora' tem método FIXO
+    // (CustomerProfile.metodoPadrao), e o front por design NUNCA manda receiptMethod
+    // pra ele (chips de recebimento só aparecem pro 'aberto' — costumeiro ganha a
+    // folha de chegada mais simples, ver comentário do schema em CustomerProfile).
+    // Sem isto, receiptMethod ficava NULL e o M6 (lancarCobranca, abaixo) nunca
+    // quitava o charge — dinheiro recebido em mãos virava "dívida" no financeiro do
+    // cliente. O front SEMPRE ganha quando manda (cliente 'aberto'); isto só cobre a
+    // AUSÊNCIA, derivando o método da CONTA quando é na_hora + metodoPadrao fixo.
+    // 'pendura'/'mensal'/'aberto' sem escolha do motorista ficam INALTERADOS (null
+    // segue null — nada de quitar sem método imediato).
+    if (!receiptMethod) {
+      const contaPagamento = await this.prisma.customerProfile.findFirst({
+        where: { id: entrega.customerProfileId, companyId },
+        select: { formaPagamento: true, metodoPadrao: true },
+      });
+      const metodoPadrao = normalizeReceipt(contaPagamento?.metodoPadrao);
+      if (contaPagamento?.formaPagamento === 'na_hora' && (metodoPadrao === 'pix' || metodoPadrao === 'dinheiro')) {
+        receiptMethod = metodoPadrao;
+      }
+    }
     const recebidoNaHora = receiptMethod === 'pix' || receiptMethod === 'dinheiro' ? true : undefined;
 
     // Passo 1 (SEMPRE): grava status/GPS + as quantidades por item numa MESMA TRANSAÇÃO.
@@ -2007,7 +2027,10 @@ export class LogisticaService {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-function resolveDayRange(dateInput?: string): { start: Date; end: Date; dayISO: string } {
+// NOTA (BUG 5, 11/07): esta resolveDayRange é DUPLICADA em logistica-rota.service.ts —
+// mesma forma, cada uma com sua própria parseDateOrNull local. Não deduplicado
+// agora (fora do escopo do fix); só mantidas as duas em paridade.
+export function resolveDayRange(dateInput?: string): { start: Date; end: Date; dayISO: string } {
   const base = parseDateOrNull(dateInput) ?? new Date();
   const start = new Date(base);
   start.setHours(0, 0, 0, 0);
@@ -2019,6 +2042,24 @@ function resolveDayRange(dateInput?: string): { start: Date; end: Date; dayISO: 
 
 function parseDateOrNull(value: string | null | undefined): Date | null {
   if (!value) return null;
+  // "YYYY-MM-DD" puro é lido no fuso LOCAL (mesmo cuidado do M2/rota: em Brasília
+  // -3, o parse UTC via `new Date(value)` escorregaria pro dia anterior — e sem
+  // regex aqui, a validação de dia impossível também não existia).
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const day = Number(m[3]);
+    const d = new Date(y, mo - 1, day, 0, 0, 0, 0);
+    // FIX (BUG 5, 11/07) — round-trip: sem isso, "2026-02-30" (30 de fevereiro,
+    // impossível mas bem-formada) fazia overflow silencioso pro dia 02/mar em vez
+    // de cair pra HOJE como já acontecia com "abc"/"2026-13-45" — inconsistente.
+    // Se o Date construído não bate com y/mo/day pedidos, é rollover → inválida.
+    if (Number.isNaN(d.getTime()) || d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== day) {
+      return null;
+    }
+    return d;
+  }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }

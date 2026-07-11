@@ -9,6 +9,7 @@ import {
   computeEta,
   planRoute,
   filtrarComCoord,
+  resolveDayRange,
   type Stop,
 } from './logistica-rota.service';
 
@@ -127,4 +128,19 @@ test('nearestNeighbor: sem origem começa pela 1ª parada; visita todas 1×', ()
   assert.equal(nn.length, stops.length);
   assert.equal(nn[0].id, stops[0].id, 'sem origem, a 1ª parada da lista é o ponto de partida');
   assert.equal(new Set(nn.map((s) => s.id)).size, stops.length);
+});
+
+// ── BUG 5 (11/07) — resolveDayRange (cópia deste arquivo) trata data IMPOSSÍVEL
+// como HOJE, igual à cópia de logistica.service.ts (as duas devem convergir).
+test('resolveDayRange: data impossível (2026-02-30) cai pra HOJE, igual a lixo/mês inválido', () => {
+  // Referência de "hoje" = a própria resolveDayRange sem date (evita flakiness de
+  // fuso perto da virada de dia em fuso negativo como Brasília -3).
+  const hojeISO = resolveDayRange(undefined).dayISO;
+  assert.equal(resolveDayRange('2026-02-30').dayISO, hojeISO, '30 de fevereiro não existe → hoje');
+  assert.equal(resolveDayRange('2026-13-45').dayISO, hojeISO, 'mês 13 já caía pra hoje (NaN)');
+  assert.equal(resolveDayRange('abc').dayISO, hojeISO, 'lixo já caía pra hoje (NaN)');
+});
+
+test('resolveDayRange: "YYYY-MM-DD" válido resolve pro próprio dia (fuso local)', () => {
+  assert.equal(resolveDayRange('2026-07-11').dayISO, '2026-07-11');
 });

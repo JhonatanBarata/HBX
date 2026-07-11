@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
+import { normalizeSearch } from './nucleo-search.util';
 
 /**
  * NÚCLEO-CRM N1 (04/07) — serviço INERTE da espinha de cadastro.
@@ -249,6 +250,10 @@ export class NucleoCadastroService {
         { name: { contains: query, mode: 'insensitive' } },
         { cidade: { contains: query, mode: 'insensitive' } },
       ];
+      // BUG 1 (11/07) — ILIKE (`name`/`mode: insensitive`) é acento-SENSÍVEL no Postgres
+      // ("Déia" não bate "Deia"). ADITIVO: busca também na coluna espelho sem acento.
+      const searchQuery = normalizeSearch(query);
+      if (searchQuery) or.push({ searchName: { contains: searchQuery } });
       if (queryDigits) or.push({ cnpj: { contains: queryDigits } });
       where.OR = or;
     }
@@ -394,6 +399,10 @@ export class NucleoCadastroService {
     const where: any = { companyId };
     if (query) {
       const digits = query.replace(/\D+/g, '');
+      // FOLLOW-UP (BUG 1, 11/07) — mesma lacuna de acento (ILIKE acento-sensível) existe
+      // aqui em `Contato.nome`/`customerProfile.name`, mas o fix desta passada ficou
+      // escopado a CustomerProfile (listEmpresas/listClientes, via coluna `searchName`).
+      // Contato não tem coluna espelho ainda — pendente numa próxima passada.
       const or: any[] = [
         { nome: { contains: query, mode: 'insensitive' } },
         { cargo: { contains: query, mode: 'insensitive' } },
@@ -579,6 +588,9 @@ export class NucleoCadastroService {
         { name: { contains: query, mode: 'insensitive' } },
         { cidade: { contains: query, mode: 'insensitive' } },
       ];
+      // BUG 1 (11/07) — mesma lacuna de acento do listEmpresas acima (ADITIVO).
+      const searchQuery = normalizeSearch(query);
+      if (searchQuery) or.push({ searchName: { contains: searchQuery } });
       if (queryDigits) {
         or.push({ cnpj: { contains: queryDigits } });
         or.push({ document: { contains: queryDigits } });
@@ -984,7 +996,10 @@ export class NucleoCadastroService {
   async createConta(companyId: number, input: CreateContaInput): Promise<ContaCreated> {
     if (!companyId) throw new Error('createConta: companyId é obrigatório');
     const nome = String(input.nome ?? '').trim();
-    if (!nome) throw new Error('createConta: nome é obrigatório');
+    // BUG 2 (11/07) — nome só-espaço/tab passava no DTO (@MinLength conta os espaços) e
+    // caía aqui vazio pós-trim; entrada inválida do USUÁRIO é 400, nunca Error puro (o
+    // filtro global vira 500 sem isso).
+    if (!nome) throw new BadRequestException('Nome é obrigatório');
 
     const tipo = input.tipo === 'pj' ? 'pj' : 'pf';
     const cnpj = tipo === 'pj' ? normalizeDigits(input.cnpj ?? input.document) : '';
@@ -1032,6 +1047,8 @@ export class NucleoCadastroService {
         data: {
           tipo,
           name: nome,
+          // BUG 1 (11/07) — coluna espelho sem acento/caixa p/ busca ILIKE-insensível-a-acento.
+          searchName: normalizeSearch(nome),
           ...(document ? { document } : {}),
           ...(cnpj ? { cnpj } : {}),
           ...(phoneRaw !== undefined ? { phone: normalizeDigits(phoneRaw) || null, phoneNormalized } : {}),
@@ -1065,6 +1082,8 @@ export class NucleoCadastroService {
           companyId,
           tipo,
           name: nome,
+          // BUG 1 (11/07) — mesma coluna espelho de busca do ramo update acima.
+          searchName: normalizeSearch(nome),
           cnpj: cnpj || null,
           document,
           phone: normalizeDigits(phoneRaw) || null,
@@ -1184,7 +1203,11 @@ export class NucleoCadastroService {
     if (!found) return null;
 
     const data: any = {};
-    if (input.nome !== undefined) data.name = String(input.nome).trim() || null;
+    if (input.nome !== undefined) {
+      data.name = String(input.nome).trim() || null;
+      // BUG 1 (11/07) — nome mudou → a coluna espelho de busca acompanha.
+      data.searchName = normalizeSearch(data.name);
+    }
     if (input.tipo !== undefined) data.tipo = input.tipo === 'pj' ? 'pj' : 'pf';
     if (input.email !== undefined) data.email = input.email || null;
     if (input.phone !== undefined) {
@@ -1344,8 +1367,11 @@ export class NucleoCadastroService {
   async addContato(companyId: number, input: AddContatoInput): Promise<{ id: string } | null> {
     if (!companyId) throw new Error('addContato: companyId é obrigatório');
     const nome = String(input.nome ?? '').trim();
+    // BUG 3 (11/07) — mesma causa do BUG 2 (createConta): nome só-espaço passa o
+    // @MinLength(1) do DTO e chega vazio aqui pós-trim; é entrada inválida do USUÁRIO
+    // (400), nunca Error puro (viraria 500 no filtro global).
     if (!input.customerProfileId || !nome) {
-      throw new Error('addContato: customerProfileId e nome são obrigatórios');
+      throw new BadRequestException('Nome é obrigatório');
     }
     // A conta precisa ser DESTA empresa (nunca pendura contato em conta alheia).
     const conta = await this.prisma.customerProfile.findFirst({

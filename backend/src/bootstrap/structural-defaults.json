@@ -100,6 +100,15 @@
       "serviceUrl": null
     },
     {
+      "key": "concierge",
+      "name": "Concierge IA",
+      "description": "Busca de empresas no Radar guiada por conversa: a IA entende o pedido, o sistema mostra o custo e só executa com confirmação.",
+      "monthlyPrice": 0,
+      "defaultEnabled": false,
+      "companyAssignable": true,
+      "serviceUrl": null
+    },
+    {
       "key": "email",
       "name": "E-mail",
       "description": "Envio e recepcao de mensagens comerciais e automaticas por e-mail.",

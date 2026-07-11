@@ -10,7 +10,12 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+// BUG 2/3 (11/07) — `@MinLength(1)` sozinho conta espaços/tabs ("   " tem length 3),
+// então nome só-espaço passava na validação e só quebrava depois (trim no service, 500).
+// Trim ANTES do MinLength fecha a lacuna aqui: "   " vira "" e cai no MESMO 400 de "".
+const trimString = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
 /**
  * NÚCLEO-CRM N4 (04/07) — DTOs de ESCRITA da espinha de cadastro.
@@ -23,6 +28,7 @@ import { Type } from 'class-transformer';
 
 // ── Criar CONTA manual (o vendedor cadastrando "Dona Maria" + endereço) ──────
 export class CreateContaDto {
+  @Transform(trimString)
   @IsString()
   @MinLength(1)
   @MaxLength(160)
@@ -217,6 +223,7 @@ export class CreateContatoDto {
   @MaxLength(160)
   customerProfileId!: string;
 
+  @Transform(trimString)
   @IsString()
   @MinLength(1)
   @MaxLength(160)

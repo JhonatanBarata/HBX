@@ -68,6 +68,9 @@ export const ICONS: Record<string, string[]> = {
   // WORM-14 — Assistente IA (faísca): faltava a chave e ICONS["assistente"] undefined
   // derrubava a Sidebar inteira (d.map de undefined) — dashboard morto no publish 02/07.
   assistente: ["M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z", "M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1Z"],
+  // MISSÃO F — Concierge IA (sino de balcão + faísca). A chave PRECISA existir:
+  // nav id sem entrada em ICONS derruba a Sidebar (P0 do "assistente", 02/07).
+  concierge: ["M4.5 17a7.5 7.5 0 0 1 15 0", "M2.5 17h19", "M12 9.5V7.5", "M10.5 7.5h3", "M18.5 2.5l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7.7-1.6Z"],
   relat: ["M5 20V10M12 20V4M19 20v-7"],
   config: ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2.1-1.2L14 3h-4l-.5 2.7a7 7 0 0 0-2.1 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1c.6.5 1.3.9 2.1 1.2L10 21h4l.5-2.7a7 7 0 0 0 2.1-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"],
   bell: ["M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9", "M10.3 21a2 2 0 0 0 3.4 0"],
@@ -320,6 +323,9 @@ export const NAV_LINKS = [
   // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
   // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
   { id: "assistente", label: "Assistente IA", href: "/assistente", group: "Facilidades" },
+  // MISSÃO F (RELEASE-20X S5): Concierge IA — busca do Radar guiada por conversa.
+  // Gate próprio 'concierge' (defaultEnabled=false, master liga por empresa).
+  { id: "concierge", label: "Concierge IA", href: "/concierge", group: "Facilidades" },
   // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
   { id: "automacao", label: "Automações", href: "/automacoes", group: "Facilidades" },
   { id: "bot", label: "Bot", href: "/bot", group: "Facilidades" },
@@ -637,6 +643,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   clientes: null,
   bot: null,
   assistente: null,
+  // Concierge IA: kill-switch por módulo (master liga por empresa), NÃO paywall.
+  concierge: null,
   relat: "vendas",
   // Website não é um tier de plano (webscraping/vendas/atendimento_chat) — é
   // módulo companyAssignable ligado pelo MASTER por empresa (monthlyPrice: 0
@@ -679,6 +687,9 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // devolvia 403 "Módulo indisponível" — contra o fail-closed (sem acesso = some).
   bot: "bot",
   assistente: "bot",
+  // Concierge IA tem chave PRÓPRIA (defaultEnabled=false) — nasce oculto e o
+  // master libera empresa-a-empresa. Fail-closed: sem accessible:true, some.
+  concierge: "concierge",
   relat: "vendas",
   website: "website",
   config: null,

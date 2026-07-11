@@ -1,0 +1,92 @@
+/* MISSÃO F — CONCIERGE IA (chat de busca guiada do Radar). 5 Leis do Design:
+   SÓ tokens/classes centrais — zero cor solta, zero inline. Mesma moldura
+   zero-scroll do assistente: .work vira moldura, quem rola é o corpo do chat. */
+
+.cg-work { grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.cg-wrap { display: flex; flex-direction: column; gap: 12px; min-height: 0; max-width: 760px; width: 100%; margin: 0 auto; }
+
+/* ── Cabeçalho (mesma gramática do ia-head) ────────────────────────────────── */
+.cg-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none; }
+.cg-head__badge {
+  display: grid; place-items: center; width: 42px; height: 42px; border-radius: var(--radius-md); flex: none;
+  color: var(--hbx-brand-strong);
+  background: linear-gradient(135deg, var(--hbx-brand-soft), color-mix(in srgb, var(--hbx-brand) 26%, transparent));
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 32%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.cg-head__title { font-size: 1.02rem; font-weight: 800; color: var(--text-strong); line-height: 1.2; }
+.cg-head__sub { font-size: 0.76rem; color: var(--text-muted); margin-top: 2px; }
+.cg-hot {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+  border-radius: var(--radius-pill); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--hbx-brand-contrast); background: var(--hbx-brand);
+}
+
+/* ── Painel do chat ────────────────────────────────────────────────────────── */
+.cg-panel { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.cg-chat { flex: 1; min-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+
+.cg-msg { display: flex; }
+.cg-msg.is-out { justify-content: flex-end; }
+.cg-msg__bubble {
+  max-width: 82%; padding: 8px 12px; border-radius: var(--radius-md);
+  font-size: 0.82rem; line-height: 1.45; color: var(--text-strong);
+  background: var(--hbx-field-surface); border: 1px solid var(--border-hairline);
+}
+.cg-msg.is-out .cg-msg__bubble {
+  color: var(--hbx-brand-contrast); background: var(--hbx-brand); border-color: transparent;
+}
+.cg-msg__bubble.is-typing { color: var(--text-muted); letter-spacing: 2px; }
+
+/* ── Chips determinísticos (sugestões/autocomplete — clique não passa pela IA) ─ */
+.cg-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
+.cg-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; cursor: pointer;
+  border-radius: var(--radius-pill); font-size: 0.74rem; font-weight: 700;
+  color: var(--hbx-brand-strong); background: var(--hbx-field-surface);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 34%, transparent);
+}
+.cg-chip:hover { background: color-mix(in srgb, var(--hbx-brand) 12%, transparent); }
+.cg-chip:disabled { opacity: 0.55; cursor: default; }
+
+/* ── Resumo de custo (PREVIEW) + confirmação humana ────────────────────────── */
+.cg-preview {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none;
+  padding: 10px 12px; border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent);
+  background: color-mix(in srgb, var(--hbx-brand) 8%, transparent);
+}
+.cg-preview__facts { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1; }
+.cg-preview__qty { font-size: 1.15rem; font-weight: 800; color: var(--hbx-brand-strong); }
+.cg-preview__what { font-size: 0.8rem; font-weight: 700; color: var(--text-strong); }
+.cg-preview__cost { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+
+/* ── Busca disparada (RESULT) ──────────────────────────────────────────────── */
+.cg-run {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: none;
+  padding: 10px 12px; border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--hbx-success) 36%, transparent);
+  background: color-mix(in srgb, var(--hbx-success) 10%, transparent);
+}
+.cg-run__label { font-size: 0.8rem; font-weight: 700; color: var(--text-strong); flex: 1; min-width: 0; }
+.cg-run__actions { display: flex; align-items: center; gap: 8px; }
+
+/* ── Composer ──────────────────────────────────────────────────────────────── */
+.cg-composer { display: flex; align-items: center; gap: 8px; flex: none; }
+.cg-composer .field-dark { flex: 1; }
+.cg-send {
+  display: grid; place-items: center; width: 38px; height: 38px; flex: none; cursor: pointer;
+  border-radius: var(--radius-md); color: var(--hbx-brand-contrast); background: var(--hbx-brand);
+  border: 1px solid transparent;
+}
+.cg-send:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Rodapé: formulário manual SEMPRE visível (fallback vivo do contrato) ───── */
+.cg-foot {
+  display: flex; align-items: center; gap: 6px; justify-content: center; flex: none;
+  font-size: 0.72rem; color: var(--text-muted);
+}
+.cg-foot__link { font-weight: 700; color: var(--hbx-brand-strong); text-decoration: underline; }
+
+/* ── Feature desligada ─────────────────────────────────────────────────────── */
+.cg-off { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--text-muted); }

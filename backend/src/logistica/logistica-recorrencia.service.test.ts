@@ -8,6 +8,7 @@ import {
   resolveValorUnit,
   parseDiasSemana,
   isoDow,
+  parseDateOrNull,
 } from './logistica-recorrencia.service';
 
 // LOGÍSTICA-MOBILE M2 — prova o CORE do gerador de entregas:
@@ -738,4 +739,29 @@ test('remove: vínculo de OUTRA empresa → false (company-scoped, não apaga)',
 test('remove: id inexistente → false', async () => {
   const { prisma } = buildPrismaMock([]);
   assert.equal(await svc(prisma).remove(1, 'nao-existe'), false);
+});
+
+// ── 7) BUG 4 (11/07) — parseDateOrNull rejeita data de calendário IMPOSSÍVEL ──
+// Antes, "YYYY-MM-DD" bem-formado mas com mês/dia fora do calendário (13/40, 00/00)
+// fazia overflow SILENCIOSO do JS Date (new Date(y, m-1, d) rola pro mês/ano
+// seguinte) e getTime() nunca virava NaN — a data rolada passava como válida e
+// podia materializar Entrega/PATCH proximaData no dia ERRADO. Round-trip fecha o buraco.
+test('parseDateOrNull: mês/dia impossíveis (overflow) → null, não rola pro dia seguinte', () => {
+  assert.equal(parseDateOrNull('2026-13-40'), null, 'mês 13 + dia 40 não é uma data válida');
+  assert.equal(parseDateOrNull('2026-02-30'), null, '30 de fevereiro não existe');
+  assert.equal(parseDateOrNull('2026-00-00'), null, 'mês/dia 00 não é uma data válida');
+});
+
+test('parseDateOrNull: "YYYY-MM-DD" válido continua parseando certo (fuso local)', () => {
+  const d = parseDateOrNull('2026-07-11');
+  assert.ok(d instanceof Date);
+  assert.equal(d!.getFullYear(), 2026);
+  assert.equal(d!.getMonth(), 6, 'julho = índice 6');
+  assert.equal(d!.getDate(), 11);
+});
+
+test('parseDateOrNull: entrada vazia/lixo → null (contrato preservado)', () => {
+  assert.equal(parseDateOrNull(null), null);
+  assert.equal(parseDateOrNull(undefined), null);
+  assert.equal(parseDateOrNull('abc'), null);
 });
