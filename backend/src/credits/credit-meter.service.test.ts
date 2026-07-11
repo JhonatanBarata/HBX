@@ -15,6 +15,16 @@ test.afterEach(() => {
   clearCreditActionOverrides();
 });
 
+// PARIDADE DE INVARIANTE (revisão 11/07): mesmo que uma linha CreditActionConfig com
+// mode='debit' pra whatsapp_auto_send entre FORA do set do service (escrita direta no banco),
+// o merge do overlay tem que dropar o debit — whatsapp automação NUNCA cobra (decisão do dono).
+test('overlay NUNCA aplica mode=debit em whatsapp_auto_send (defesa em profundidade)', () => {
+  applyCreditActionOverrides([{ actionKey: 'whatsapp_auto_send', override: { mode: 'debit', cost: 2 } }]);
+  const def = getCreditActionDefinition('whatsapp_auto_send');
+  assert.equal(def?.mode, 'track', 'debit foi ignorado, mode segue o base track');
+  assert.equal(def?.cost, 2, 'o cost do override ainda vale — só o mode debit é barrado');
+});
+
 // CRÉDITO UNIVERSAL (PR10072026) — CreditMeterService: roteamento por modo do catálogo
 // (free = nada; track = escritor de shadow do S2; debit = wallet.debit pós-fato SEM lançar),
 // idempotência delegada por refId→usageKey, e o plug de medição do AiGatewayService.

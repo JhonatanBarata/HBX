@@ -119,6 +119,11 @@ export function applyCreditActionOverrides(
     if (!ov || typeof ov !== 'object') continue;
     const clean: CreditActionOverride = {};
     if (ov.mode === 'free' || ov.mode === 'track' || ov.mode === 'debit') clean.mode = ov.mode;
+    // PARIDADE DE INVARIANTE (revisão 11/07): `whatsapp_auto_send` NUNCA debita (decisão do dono).
+    // O service rejeita mode='debit' no set, mas o merge é a ÚLTIMA linha de defesa contra uma
+    // linha CreditActionConfig injetada FORA do set (escrita direta no banco): dropar o mode aqui
+    // faz o invariante não depender de uma única camada — igual o lead é recusado no meter.
+    if (clean.mode === 'debit' && key === CREDIT_ACTION_KEYS.WHATSAPP_AUTO_SEND) delete clean.mode;
     if (ov.cost != null && Number.isFinite(Number(ov.cost))) clean.cost = Math.max(1, Math.trunc(Number(ov.cost)));
     // configJson corrompido/vazio (JSON.parse falhou no service) vira override SEM nenhum
     // campo válido — não registra: senão getCreditActionOverride devolveria `{}` (objeto

@@ -161,6 +161,49 @@ test('createRechargeCommission armada cria receivable sobre o valor real e dedup
   }
 });
 
+// Dedup por CHARGE, não por lead (revisão 11/07): se o "lead mais recente vinculado" mudar
+// ENTRE retries da MESMA recarga (2º vendedor vinculou um card no meio), a 2ª tentativa NÃO
+// pode criar comissão dobrada — a busca por cycleKey sozinho tem que achar a 1ª.
+test('createRechargeCommission não dobra quando o lead vinculado muda entre retries', async () => {
+  process.env.HBX_COMMISSION_RECHARGE_PERCENT = '10';
+  try {
+    const created: any[] = [];
+    let existing: any = null;
+    const dedupWheres: any[] = [];
+    // 1º retry resolve leadA; 2º retry resolve leadB (vínculo mais recente mudou).
+    const leadIds = ['lead-A', 'lead-B'];
+    let call = 0;
+    const service = new HbxCommissionSyncService({
+      vendasLead: {
+        findFirst: async () => ({
+          id: leadIds[Math.min(call++, 1)],
+          companyId: 5,
+          assignedUserId: 7,
+          assignedByUserId: null,
+          createdByUserId: 3,
+        }),
+      },
+      vendasCommissionReceivable: {
+        findFirst: async ({ where }: any) => { dedupWheres.push(where); return existing; },
+        create: async ({ data }: any) => { created.push(data); existing = { id: 'r1' }; return data; },
+      },
+      company: { findUnique: async () => ({ commissionDueBusinessDays: 3 }) },
+    } as any);
+
+    await service.createRechargeCommission({ companyId: 9, chargeId: 55, amount: 247 });
+    const second = await service.createRechargeCommission({ companyId: 9, chargeId: 55, amount: 247 });
+
+    assert.equal(second.created, false);
+    assert.equal((second as any).reason, 'already_exists');
+    assert.equal(created.length, 1, 'só 1 receivable pra mesma recarga, apesar do lead ter mudado');
+    // A dedup NÃO filtra por leadId — só por cycleKey+kind (senão leadB não acharia o de leadA).
+    assert.equal(dedupWheres[1].leadId, undefined);
+    assert.equal(dedupWheres[1].cycleKey, 'recharge:55');
+  } finally {
+    delete process.env.HBX_COMMISSION_RECHARGE_PERCENT;
+  }
+});
+
 // Sem lead vinculado pelo sync não existe vendedor → recarga não comissiona.
 test('createRechargeCommission sem lead vinculado não cria receivable', async () => {
   process.env.HBX_COMMISSION_RECHARGE_PERCENT = '10';

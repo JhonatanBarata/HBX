@@ -733,7 +733,7 @@ export function JanelaCreditos({ companies, reload }: {
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Ação</th><th>Modo</th><th>Custo</th><th>Status</th><th>Ação</th></tr>
+                <tr><th>Ação</th><th>Modo</th><th>Custo</th><th>Status</th><th aria-label="Editar"></th></tr>
               </thead>
               <tbody>
                 {actions === null && (

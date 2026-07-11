@@ -969,10 +969,12 @@ export class HbxCommissionSyncService {
   /**
    * Comissão sobre recarga PAGA. Base = valor REAL cobrado (nunca tabela). Vendedor = lead já
    * VINCULADO pelo sync (`commissionLinkedCompanyId`) — recarga de empresa sem vendedor não gera
-   * nada. Idempotente por charge: `@@unique([leadId, cycleKey, kind])` com cycleKey
-   * `recharge:<chargeId>` e kind 'recharge'. BEST-EFFORT ABSOLUTO: nunca lança — comissão jamais
-   * quebra uma recarga que o cartão já pagou. Sem cascata de indicação e sem teto mensal aqui:
-   * política fina é decisão futura do dono; hoje é % simples sobre o pago.
+   * nada. Idempotente pela CHARGE: dedup por cycleKey `recharge:<chargeId>` + kind 'recharge'
+   * (SEM leadId — ver comentário no findFirst; o `@@unique([leadId,cycleKey,kind])` é só a rede
+   * secundária). BEST-EFFORT ABSOLUTO: nunca lança — comissão jamais quebra uma recarga que o
+   * cartão já pagou. Sem cascata de indicação e sem teto mensal aqui: política fina (rateio entre
+   * vendedores do mesmo cliente) é decisão futura do dono; hoje é % simples sobre o pago pro
+   * vínculo mais recente.
    */
   async createRechargeCommission(input: {
     companyId: number;
@@ -1006,8 +1008,13 @@ export class HbxCommissionSyncService {
       const amount = this.money((paidAmount * percent) / 100);
       if (amount <= 0) return { created: false, reason: 'zero_amount' as const };
 
+      // Dedup pela CHARGE, NÃO pelo lead (revisão 11/07): o cycleKey `recharge:<chargeId>` é
+      // globalmente único por recarga. Se a dedup incluísse o leadId e o "lead mais recente
+      // vinculado" mudasse ENTRE retries da MESMA recarga (2º vendedor vinculou um card no meio),
+      // a 2ª tentativa resolveria outro lead, não acharia o receivable e criaria comissão DOBRADA
+      // pra mesma recarga. Buscar por cycleKey sozinho fecha esse buraco.
       const exists = await this.prisma.vendasCommissionReceivable.findFirst({
-        where: { leadId: lead.id, cycleKey, kind: 'recharge' },
+        where: { cycleKey, kind: 'recharge' },
         select: { id: true },
       });
       if (exists) return { created: false, reason: 'already_exists' as const };
