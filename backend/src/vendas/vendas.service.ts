@@ -10194,4 +10194,54 @@ export class VendasService {
       lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
     };
   }
+
+  async addLeadNoteForUser(user: any, leadId: string, dto?: { note?: string }) {
+    // Anotacao neutra do vendedor na timeline do lead — o Copiloto do cockpit grava
+    // resumo / proxima-acao aqui. Evento PURO: nao muda status, nao mexe em posse/
+    // atribuicao, nao debita credito e nao dispara WhatsApp/e-mail (mesma filosofia do
+    // eventType 'note' do Radar). Gate = SO o buildLeadAccessWhere (tenant + escopo);
+    // o vendedor dono trabalha o proprio lead, entao pode anotar (sem gate de Admin).
+    const context = await this.resolveVendasUserContext(user);
+    const normalizedLeadId = String(leadId || '').trim();
+    if (!normalizedLeadId) throw new BadRequestException('Lead comercial nao informado.');
+
+    const note = String(dto?.note || '').trim().slice(0, 2000); // corte defensivo
+    if (!note) throw new BadRequestException('Anotacao vazia.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      select: { id: true },
+    });
+    if (!lead) throw new NotFoundException('Lead comercial nao encontrado.');
+
+    const event = await this.prisma.vendasLeadTimelineEvent.create({
+      data: {
+        leadId: lead.id,
+        ...this.buildTimelineEvent({
+          eventType: 'note',
+          title: 'Anotação',
+          description: note,
+          createdByUserId: context.userId,
+        }),
+      },
+      select: {
+        id: true,
+        eventType: true,
+        title: true,
+        description: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      ok: true,
+      event: {
+        id: event.id,
+        eventType: event.eventType,
+        title: event.title,
+        description: event.description,
+        createdAt: event.createdAt.toISOString(),
+      },
+    };
+  }
 }

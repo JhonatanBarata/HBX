@@ -5,6 +5,7 @@ import { CreditMeterService } from '../credits/credit-meter.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
+import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
 import { emitMasterEvent } from '../common/master-event';
 import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-contato.util';
 import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
@@ -53,7 +54,27 @@ export class LogisticaService {
     // funil = simplesmente não fecha a cadência). Sem ciclo: LogisticaRecoveryService
     // não injeta LogisticaService.
     @Optional() private readonly recovery?: LogisticaRecoveryService,
+    // S2 COBRANÇA-WHATS (11/07): aviso ao cliente quando o charge nasce 'pending'
+    // (lancarCobranca/fecharMes). @Optional() (ausente nos testes = no-op). DORMENTE:
+    // todos os gates (env global OFF, toggle do tenant, opt-out, idempotência) vivem
+    // DENTRO do serviço de aviso. Sem ciclo: o aviso não injeta LogisticaService.
+    @Optional() private readonly cobrancaAviso?: LogisticaCobrancaAvisoService,
   ) {}
+
+  /**
+   * S2 — dispara o aviso de cobrança "ao lançar" em fire-and-forget: o aviso
+   * NUNCA altera (nem atrasa, nem derruba) o desfecho do lançamento do charge.
+   * Best-effort puro; falha vira log. Com HBX_COBRANCA_WHATS_ENABLED ausente o
+   * serviço retorna no-op imediato (deploy inerte).
+   */
+  private avisarCobrancaLancamento(companyId: number, chargeId: string | null | undefined): void {
+    const svc = this.cobrancaAviso;
+    const id = String(chargeId || '').trim();
+    if (!svc || !id) return;
+    void svc.avisarLancamento(companyId, id).catch((e: any) => {
+      this.logger.warn(`[logistica] aviso de cobrança falhou charge=${id}: ${String(e?.message || e)}`);
+    });
+  }
 
   /**
    * M3 — re-ETA aditivo: após confirmar/cancelar, recalcula o etaAt das paradas
@@ -1302,7 +1323,7 @@ export class LogisticaService {
     // (P2002), a corrida foi perdida: OUTRA chamada já criou o charge desta entrega →
     // trata como "já existe" (idempotente), marca 'lancada' e NÃO propaga o erro.
     try {
-      await this.prisma.financeiroCharge.create({
+      const charge = await this.prisma.financeiroCharge.create({
         data: {
           companyId,
           amount,
@@ -1331,6 +1352,11 @@ export class LogisticaService {
           }),
         },
       });
+      // S2 COBRANÇA-WHATS — charge que nasceu 'pending' avisa o cliente final
+      // (valor + referência + Pix copia-e-cola). Pago na hora não avisa (nasceu
+      // quitado). Fire-and-forget: gates todos dentro do serviço de aviso;
+      // aviso perdido (ex.: sem chip) vira lembrete no vencimento.
+      if (!pagoNaHora) this.avisarCobrancaLancamento(companyId, charge?.id);
     } catch (e: any) {
       if (isUniqueViolation(e)) {
         // Corrida perdida: o charge desta entrega já foi criado por outra chamada.
@@ -1395,9 +1421,13 @@ export class LogisticaService {
 
       // Atômico: cria O charge + marca TODAS as entregas 'faturada' numa transação.
       // Se algo falhar, nada é gravado (nem charge órfão, nem entrega meio-faturada).
+      // S2 COBRANÇA-WHATS — captura o id do charge criado pra avisar DEPOIS do
+      // commit (o serviço de aviso relê o charge do banco; dentro da tx ele ainda
+      // não existe pra quem olha de fora).
+      let chargeIdCriado: string | null = null;
       await this.prisma.$transaction(async (tx) => {
         if (amount > 0) {
-          await tx.financeiroCharge.create({
+          const charge = await tx.financeiroCharge.create({
             data: {
               companyId,
               amount,
@@ -1417,6 +1447,7 @@ export class LogisticaService {
               }),
             },
           });
+          chargeIdCriado = charge?.id ?? null;
         }
         // Marca as entregas somadas como faturadas (idempotência: só as que estavam
         // 'aguardando_fechamento' passam a 'faturada' — a 2ª rodada não acha nenhuma).
@@ -1425,6 +1456,10 @@ export class LogisticaService {
           data: { cobrancaStatus: 'faturada' },
         });
       });
+
+      // S2 COBRANÇA-WHATS — fatura mensal recém-nascida 'pending' avisa o cliente
+      // (fire-and-forget, DEPOIS do commit; gates dentro do serviço de aviso).
+      if (chargeIdCriado) this.avisarCobrancaLancamento(companyId, chargeIdCriado);
 
       if (amount > 0) totalCharges += 1;
       faturas.push({ clienteId: cliente.id, nome, amount, entregas: entregaIds.length, dueDate: dueDate.toISOString() });
@@ -1692,6 +1727,10 @@ export class LogisticaService {
       }
     }
 
+    // S2 COBRANÇA-WHATS — opt-out por cliente do aviso de cobrança no zap (só o
+    // toggle; não dispara nada — quem lê é o serviço de aviso, atrás de 2 flags).
+    if (input.avisarCobranca !== undefined) data.avisarCobranca = !!input.avisarCobranca;
+
     const updated = await this.prisma.customerProfile.update({
       where: { id: found.id },
       data,
@@ -1702,6 +1741,7 @@ export class LogisticaService {
         contabilizar: true,
         diaFechamento: true,
         limiteFiado: true,
+        avisarCobranca: true,
       },
     });
 
@@ -1712,6 +1752,7 @@ export class LogisticaService {
       contabilizar: updated.contabilizar,
       diaFechamento: updated.diaFechamento ?? null,
       limiteFiado: updated.limiteFiado ?? null,
+      avisarCobranca: updated.avisarCobranca !== false,
     };
   }
 
@@ -2396,6 +2437,8 @@ export interface UpdateFinanceiroClienteInput {
   diaFechamento?: number | null;
   // F1 — teto de fiado (R$). null limpa (sem limite).
   limiteFiado?: number | null;
+  // S2 COBRANÇA-WHATS — opt-out por cliente do aviso de cobrança no zap.
+  avisarCobranca?: boolean;
 }
 
 export interface FinanceiroClienteDTO {
@@ -2405,6 +2448,8 @@ export interface FinanceiroClienteDTO {
   contabilizar: boolean;
   diaFechamento: number | null;
   limiteFiado: number | null;
+  // S2 COBRANÇA-WHATS — toggle "Avisar cobrança no WhatsApp" da ficha.
+  avisarCobranca: boolean;
 }
 
 // ── PR10072026 W2 — Financeiro do cliente (fase 1) ────────────────────────────

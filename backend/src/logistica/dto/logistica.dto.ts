@@ -404,6 +404,13 @@ export class UpdateLogisticaConfigDto {
   @Min(100)
   @Max(2000)
   avisoChegandoDistanciaM?: number;
+
+  // S2 COBRANÇA-WHATS (11/07) — toggle POR TENANT da cobrança por WhatsApp
+  // (aviso ao lançar + lembrete no vencimento). Gravar é livre; efeito só com a
+  // flag global HBX_COBRANCA_WHATS_ENABLED ligada (default OFF, dormente).
+  @IsOptional()
+  @IsBoolean()
+  cobrancaWhatsAtiva?: boolean;
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).
@@ -467,6 +474,12 @@ export class UpdateFinanceiroClienteDto {
   @Min(0)
   @Max(1000000)
   limiteFiado?: number | null;
+
+  // S2 COBRANÇA-WHATS (11/07) — opt-out POR CLIENTE do aviso de cobrança no zap
+  // (independente do avisarEntrega). Só grava o toggle; não dispara nada.
+  @IsOptional()
+  @IsBoolean()
+  avisarCobranca?: boolean;
 }
 
 // ── LOGÍSTICA-MOBILE M7 — recovery opt-in (varrer cobranças vencidas) ─────────

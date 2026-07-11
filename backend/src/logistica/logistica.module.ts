@@ -11,6 +11,7 @@ import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
+import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
 import { LogisticaController } from './logistica.controller';
 
 /**
@@ -25,6 +26,13 @@ import { LogisticaController } from './logistica.controller';
  * para a cobrança vencida da logística entrar no funil hbx-recovery EXISTENTE via
  * createCustomer (opt-in por LogisticaConfig.moduloRecoveryAtivo, default OFF). Sem
  * ciclo: hbx-recovery NÃO importa logistica.
+ *
+ * S2 COBRANÇA-WHATS (11/07): LogisticaCobrancaAvisoService = aviso de cobrança +
+ * lembrete de vencimento no zap (Pix copia-e-cola), DORMENTE atrás de
+ * HBX_COBRANCA_WHATS_ENABLED (default OFF — scheduler nem arma) + toggle por
+ * tenant (LogisticaConfig.cobrancaWhatsAtiva, default false). Provider entra
+ * AQUI (regra do S2: nada em app.module.ts); envio só pelo caminho blindado
+ * (ConversationsService, já exportado pelo MessagingModule importado acima).
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule],
@@ -35,6 +43,7 @@ import { LogisticaController } from './logistica.controller';
     LogisticaRotaService,
     LogisticaConfigService,
     LogisticaRecoveryService,
+    LogisticaCobrancaAvisoService,
   ],
   exports: [
     LogisticaService,

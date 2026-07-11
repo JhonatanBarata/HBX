@@ -52,3 +52,18 @@ está editando ao vivo). A logística continua exatamente como está; o financei
 Typecheck back+front+motor VERDE; testes logística/vendas/créditos VERDES; **tree INTEIRO
 compila com o concierge** (o dono autorizou publicar tudo junto, condicionado a compilar).
 Depois: QA no VPS tela por tela + workers de correção.
+
+## STATUS — PUBLICADO E VERIFICADO (11/07)
+**Publicado `f598c3ea` (publish 20260711_163011).** Gate G4 verde (backend build + test:credits +
+test:golive-critical + test:tenant-guard + frontend lint/build + Webwhats typecheck + check-tenant-raw);
+smoke HTTP: frontend 200, /health OK. Backend boot LIMPO no VPS: `FinanceiroTenantController` +
+3 rotas mapeadas, "Nest application successfully started", todos os containers Up. Junto foi o
+concierge/núcleo/master-alert da sessão paralela (dono autorizou "tudo junto") — meu `shell.tsx`/
+`globals.css` empilharam aditivo, nav do concierge preservado.
+
+**QA VPS ao vivo (Chrome, sessão do dono):** /financeiro renderiza (KPIs + "quem me deve" + empty
+state, R$0/0 devedores nesta conta), /logística INTACTA (resumo-dia funciona pro admin — prova do
+fix), /concierge OK, /vendas OK, /dashboard OK — zero erro de console. **Logística não quebrou.**
+
+Números: backend typecheck 0; frontend typecheck 0; eslint limpo; check-pele 514/514; testes 307/308
+(a única falha é o teste desatualizado `vendas-automation` — mock sem companyId, NÃO é bug de prod).

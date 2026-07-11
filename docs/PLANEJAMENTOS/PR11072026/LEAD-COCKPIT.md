@@ -11,9 +11,28 @@
 - [x] W1 backend — endpoint cockpit (RFB rica por lead) — prisma:validate + build VERDES
 - [x] W2 frontend — modal cockpit + integração vendas (lint dos arquivos tocados 0 erro; check-pele ok 514/514; build verde)
 - [x] Checks locais — frontend `npm run lint` GERAL agora VERDE (0 erros; parse error do concierge foi corrigido/commitado pela frente Concierge em `1b2531cb`); revisão do diff: contratos preview/send, /company-email/status, gerar-cobranca e /cockpit conferidos 1:1
-- [ ] Commit + `npm run publish`
+- [x] Commit base `cd9df16d` + `npm run publish` (rodando)
+- [ ] **ADENDO do dono (11/07): "incluir o concierge em uma janela, para auxiliar" → decidido OS DOIS JUNTOS**
+  - [ ] W3 backend — `POST /vendas/lead/:leadId/note` (cria evento de timeline 'note'; aditivo; alimenta a timeline que a guia Cadastro já mostra)
+  - [ ] W4 frontend — Copiloto do lead na guia Atendimento (rascunho→campo do WhatsApp, resumo, próxima ação) + atalho "Buscar parecidos" (Concierge) no header, fail-closed por módulo
+- [ ] Checks locais (backend + frontend) da leva 2
+- [ ] Commit + `npm run publish` (leva 2)
 - [ ] Teste no VPS (Chrome, https://www.hbxsystem.com.br, login em .test-login.local.md)
 - [ ] Reporte final
+
+## ADENDO — Copiloto + Concierge no cockpit (decisão "os dois juntos")
+- **Copiloto do lead** (reusar `CopilotoPanel` de `leads/[id]/copiloto-panel.tsx`): 3 ações da IA local
+  (rascunhar resposta / resumir conversa / próxima ação), com a ficha do lead (nome, razão, cnpj,
+  cnae, segmento, cidade/uf, situação). Vive na **guia Atendimento**, acima do WhatsApp.
+  - Gate: `GET /assistente/copiloto` → `{enabled}` (fail-closed: OFF/erro → painel some, igual /leads/[id]).
+  - `onDraft` → liga ao `draftSignal` do `ConversationPanel` (preenche o campo do WhatsApp; NUNCA envia).
+  - `onSaveNote` → `POST /vendas/lead/:leadId/note {note}` (W3) → recarrega a timeline do cockpit.
+- **Atalho Concierge "Buscar parecidos"** (ação no header do cockpit): só aparece se o módulo
+  `concierge` estiver acessível (`useMyModules`/`isModuleVisible` — fail-closed; some se sem acesso,
+  Lei do FRONTEND.md). Clique → grava seed em sessionStorage (`hbx:concierge-seed` = {targetSegment,
+  city, state} do lead) + `router.push('/concierge')`. No bootstrap do Concierge, se houver seed,
+  pré-preenche/auto-envia a 1ª mensagem ("Quero mais empresas de <segmento> em <cidade>"). Seguro:
+  a busca do Concierge só dispara com Confirmar (token single-use) — semear a conversa não busca nada.
 
 ## Decisões de UX
 - **Entrada dupla:** (a) botão "expandir" (⤢) no header do painel Detalhes lateral — prop nova

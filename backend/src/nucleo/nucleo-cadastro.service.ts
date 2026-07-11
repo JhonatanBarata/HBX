@@ -906,6 +906,8 @@ export class NucleoCadastroService {
         contabilizar: true,
         diaFechamento: true,
         limiteFiado: true,
+        // S2 COBRANÇA-WHATS (11/07) — opt-out do aviso de cobrança (toggle da ficha).
+        avisarCobranca: true,
         // MULTILOCAL (10/07) — a ficha agora traz TODOS os contatos (telefones[]),
         // principal primeiro. O whatsapp da ficha continua vindo do principal (abaixo).
         contatos: {
@@ -956,6 +958,8 @@ export class NucleoCadastroService {
       contabilizar: row.contabilizar !== false,
       diaFechamento: row.diaFechamento ?? null,
       limiteFiado: row.limiteFiado ?? null,
+      // S2 COBRANÇA-WHATS — default true (coluna nova; legado sem valor = avisa).
+      avisarCobranca: row.avisarCobranca !== false,
       contatoPrincipalId: principal?.id ?? null,
       // MULTILOCAL (10/07) — aditivos: locais de entrega (principal primeiro) e a lista
       // de telefones (Contatos). Cobrança segue 1 só por CONTA — isto é só ONDE/COM QUEM.
@@ -2321,6 +2325,8 @@ export interface ClienteDetail {
   contabilizar: boolean;
   diaFechamento: number | null;
   limiteFiado: number | null;
+  // S2 COBRANÇA-WHATS (11/07) — opt-out do aviso de cobrança no zap (default true).
+  avisarCobranca: boolean;
   contatoPrincipalId: string | null;
   // MULTILOCAL (10/07) — aditivos: N locais de entrega (principal primeiro, só ativos)
   // e a lista de telefones (Contatos). Cobrança segue 1 só por CONTA.

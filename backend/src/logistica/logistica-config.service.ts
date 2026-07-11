@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
 
 /**
  * LOGÍSTICA-MOBILE M5 (05/07) — REGRAS DO ADMIN.
@@ -102,6 +103,10 @@ export class LogisticaConfigService {
     if (input.avisoChegandoDistanciaM !== undefined) {
       data.avisoChegandoDistanciaM = clampInt(input.avisoChegandoDistanciaM, 100, 2000, 500);
     }
+    // S2 COBRANÇA-WHATS (11/07) — toggle POR TENANT (aviso de cobrança + lembrete
+    // de vencimento no zap). Gravar é livre; EFEITO só existe com a flag global
+    // HBX_COBRANCA_WHATS_ENABLED ligada (o serviço de aviso checa as duas).
+    if (input.cobrancaWhatsAtiva !== undefined) data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
 
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
@@ -299,6 +304,11 @@ function serializeConfig(c: any): LogisticaConfigDTO {
     avisoChegandoEnabled: !!c.avisoChegandoEnabled,
     avisoChegandoTemplate: c.avisoChegandoTemplate ?? null,
     avisoChegandoDistanciaM: c.avisoChegandoDistanciaM ?? 500,
+    // S2 COBRANÇA-WHATS — o toggle do tenant + o DERIVADO da env global
+    // (cobrancaWhatsDisponivel NÃO é coluna: é a feature-flag exposta pro front
+    // decidir se mostra o card — flag OFF = card some, deploy inerte na UI).
+    cobrancaWhatsAtiva: !!c.cobrancaWhatsAtiva,
+    cobrancaWhatsDisponivel: isCobrancaWhatsEnabled(),
   };
 }
 
@@ -320,6 +330,8 @@ export interface UpdateLogisticaConfigInput {
   avisoChegandoEnabled?: boolean;
   avisoChegandoTemplate?: string | null;
   avisoChegandoDistanciaM?: number;
+  // S2 COBRANÇA-WHATS — toggle por tenant (efeito só com a env global ligada).
+  cobrancaWhatsAtiva?: boolean;
 }
 
 export interface LogisticaConfigDTO {
@@ -339,4 +351,7 @@ export interface LogisticaConfigDTO {
   avisoChegandoEnabled: boolean;
   avisoChegandoTemplate: string | null;
   avisoChegandoDistanciaM: number;
+  // S2 COBRANÇA-WHATS — toggle do tenant + derivado da env (read-only pro front).
+  cobrancaWhatsAtiva: boolean;
+  cobrancaWhatsDisponivel: boolean;
 }

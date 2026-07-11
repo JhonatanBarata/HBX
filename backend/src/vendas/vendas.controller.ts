@@ -350,6 +350,13 @@ export class VendasController {
     return this.vendasService.negativarLeadForUser(req.user, leadId, body || {});
   }
 
+  // Anotacao neutra na timeline do lead (Copiloto do cockpit grava resumo / proxima-acao).
+  // Evento puro — nao mexe em status/posse/credito nem dispara WhatsApp/e-mail.
+  @Post('lead/:leadId/note')
+  addLeadNote(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: { note?: string }) {
+    return this.vendasService.addLeadNoteForUser(req.user, leadId, body || {});
+  }
+
   @Post('leads/:leadId/report-error')
   reportLeadError(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: ReportVendasLeadDto) {
     return this.vendasService.reportLeadErrorForUser(req.user, leadId, dto || {});

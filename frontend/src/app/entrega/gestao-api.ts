@@ -107,6 +107,11 @@ export interface LogisticaConfig {
   avisoChegandoEnabled: boolean;
   avisoChegandoTemplate: string | null;
   avisoChegandoDistanciaM: number;
+  // S2 COBRANÇA-WHATS — toggle do tenant (aviso de cobrança + vencimento no zap).
+  // cobrancaWhatsDisponivel é DERIVADO da env global no backend (read-only, não
+  // patchar): false/ausente = feature dormente → a UI esconde o card inteiro.
+  cobrancaWhatsAtiva?: boolean;
+  cobrancaWhatsDisponivel?: boolean;
 }
 
 export function getConfig(): Promise<LogisticaConfig> {

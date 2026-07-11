@@ -307,6 +307,8 @@ export class LogisticaController {
       contabilizar: dto?.contabilizar,
       diaFechamento: dto?.diaFechamento,
       limiteFiado: dto?.limiteFiado,
+      // S2 COBRANÇA-WHATS — opt-out por cliente do aviso de cobrança (pass-through).
+      avisarCobranca: dto?.avisarCobranca,
     });
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;

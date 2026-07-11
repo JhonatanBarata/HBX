@@ -277,6 +277,8 @@ model Company {
   // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
   locaisEntrega          LocalEntrega[]
   logisticaConfig        LogisticaConfig?
+  // S2 COBRANÇA-WHATS (11/07) — marcas de idempotência do aviso de cobrança (back-relation).
+  logisticaCobrancaAvisos LogisticaCobrancaAviso[]
   // CRÉDITOS S1 (fundação da carteira, docs/PLANEJAMENTOS/CREDITOS): relação inversa mínima.
   // Módulo credits vive atrás de HBX_CREDITS_ENABLED (default OFF); sem enforcement neste sprint.
   creditWallet  CreditWallet?
@@ -992,6 +994,11 @@ model CustomerProfile {
   // Soma com o global (LogisticaConfig.avisoWhatsEnabled): o N6 só dispara quando
   // ambos true. Default true = mantém o comportamento atual (aditivo/seguro).
   avisarEntrega        Boolean  @default(true)
+  // S2 COBRANÇA-WHATS (11/07) — opt-out POR CLIENTE do aviso de COBRANÇA no zap
+  // (lançamento + lembrete de vencimento). Independente do avisarEntrega acima.
+  // Default true, mas a feature inteira é DORMENTE (HBX_COBRANCA_WHATS_ENABLED
+  // OFF + LogisticaConfig.cobrancaWhatsAtiva false) — nada sai sem ligar os dois.
+  avisarCobranca       Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   atendimentoCustomers AtendimentoCustomer[]
@@ -1244,10 +1251,33 @@ model LogisticaConfig {
   avisoChegandoEnabled  Boolean  @default(false)
   avisoChegandoTemplate String?  // texto do admin; null = fallback fixo do serviço
   avisoChegandoDistanciaM Int    @default(500) // raio do "tô chegando" (clamp 100–2000 no serviço)
+  // S2 COBRANÇA-WHATS (11/07) — toggle POR TENANT da cobrança por WhatsApp (aviso
+  // ao lançar + lembrete no vencimento, com Pix copia-e-cola). Só tem efeito com a
+  // flag global HBX_COBRANCA_WHATS_ENABLED ligada (padrão flagEnv() && cfg.X, o
+  // mesmo do avisoChegando). DEFAULT FALSE — feature nasce dormente nos 2 níveis.
+  cobrancaWhatsAtiva    Boolean  @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   @@unique([companyId])
+}
+
+// S2 COBRANÇA-WHATS (11/07) — marca de IDEMPOTÊNCIA do aviso de cobrança no zap:
+// 1 aviso por (chargeId, tipo), à prova de RESTART do container (o teto diário em
+// memória protege tráfego; ESTA tabela protege duplicata). A linha nasce como CLAIM
+// antes do enfileirar (o @@unique mata corrida); envio que falha remove a marca
+// (best-effort) pra o próximo tick poder tentar. chargeId é coluna solta de
+// propósito (sem FK pro FinanceiroCharge): trilha de aviso sobrevive a limpeza.
+model LogisticaCobrancaAviso {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId Int
+  chargeId  String
+  tipo      String   // 'lancamento' | 'vencimento'
+  sentAt    DateTime @default(now())
+
+  @@unique([chargeId, tipo])
+  @@index([companyId, sentAt])
 }
 
 model DebtCase {

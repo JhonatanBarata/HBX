@@ -122,6 +122,9 @@ export interface ClienteDetail {
   contabilizar: boolean;
   diaFechamento: number | null;
   limiteFiado: number | null;
+  // S2 COBRANÇA-WHATS — opt-out do aviso de cobrança no zap (fail-soft: backend
+  // antigo sem o campo = undefined, a ficha assume o default true).
+  avisarCobranca?: boolean;
   contatoPrincipalId: string | null;
   // MULTILOCAL 10/07 — principal primeiro; ausente/undefined em backend antigo.
   locais?: LocalCliente[];
