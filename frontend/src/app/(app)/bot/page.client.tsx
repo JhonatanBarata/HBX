@@ -6,6 +6,7 @@
 // D: Chat de teste — simulação local do fluxo de mensagens.
 // Design System: zero hex/inline solto — só classes/tokens centrais. CSS novo em screens.css.
 
+import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { I, ICONS, useMyModules } from "@/components/hbx/shell";
@@ -712,6 +713,8 @@ export function BotClient() {
       {/* ── Header: título + faixa do pino + 3 chavinhas ── */}
       <div className="bot-head">
         <h1>Construtor de Bot <I d={["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"]} size={16} /></h1>
+
+        <Link className="btn-ghost" href="/automacoes"><I d={ICONS.automacao} size={13} /> Ver Automações</Link>
 
         {/* Faixa do pino (read-only) */}
         <span className={"bot-pin-faixa" + (act.armed ? " bot-pin-faixa--armed" : "")}>

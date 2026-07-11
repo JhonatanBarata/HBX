@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { AtividadesService } from '../atividades/atividades.service';
+import { CompanyMailerService, COMPANY_EMAIL_NOT_CONFIGURED } from '../mail/company-mailer.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import {
   CADENCIA_SEEDS,
@@ -27,10 +28,19 @@ import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from '.
 
 const RUNNER_FLAG = 'HBX_CADENCIA_RUNNER_ENABLED';
 
+// F1 — e-mail REAL da cadencia atras de flag propria (default OFF). Duplo gate:
+// so envia se HBX_CADENCIA_RUNNER_ENABLED (runner) E HBX_CADENCIA_EMAIL_ENABLED
+// estiverem ON. Com OFF, o passo de e-mail so grava timeline (comportamento de hoje).
+const EMAIL_FLAG = 'HBX_CADENCIA_EMAIL_ENABLED';
+
 // Teto DURO de passos de WhatsApp disparados por empresa/dia pelo runner de
 // cadencia — defesa extra alem do warmup/teto do proprio queueOutbound. NAO
 // configuravel pelo cliente (regra de chip). Conservador de proposito.
 const CADENCIA_WHATS_DAILY_CAP_PER_COMPANY = Number(process.env.HBX_CADENCIA_WHATS_DAILY_CAP || '10') || 10;
+
+// Teto de e-mails por empresa/dia disparados pelo runner. E-mail e mais barato que
+// chip -> teto maior (50). Ao estourar, o passo e ADIADO 1 dia (nunca fura o teto).
+const CADENCIA_EMAIL_DAILY_CAP_PER_COMPANY = Number(process.env.HBX_CADENCIA_EMAIL_DAILY_CAP || '50') || 50;
 
 // Quantos leads o runner avanca por ciclo (evita rajada).
 const RUNNER_BATCH = 50;
@@ -57,10 +67,16 @@ export class CadenciaService {
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
     private readonly atividades: AtividadesService,
+    private readonly mailer: CompanyMailerService,
   ) {}
 
   private get runnerEnabled(): boolean {
     return String(process.env[RUNNER_FLAG] || '').trim() === '1' || String(process.env[RUNNER_FLAG] || '').trim().toLowerCase() === 'true';
+  }
+
+  // Flag propria do e-mail real (default OFF). Segue o padrao do runnerEnabled.
+  private get emailEnabled(): boolean {
+    return String(process.env[EMAIL_FLAG] || '').trim() === '1' || String(process.env[EMAIL_FLAG] || '').trim().toLowerCase() === 'true';
   }
 
   private async resolveContext(user: any): Promise<VendasAccessContext> {
@@ -356,9 +372,11 @@ export class CadenciaService {
 
     let executed = 0;
     let whatsSent = 0;
+    let emailSent = 0;
     let concluded = 0;
     let failed = 0;
     const whatsSentByCompany = new Map<number, number>();
+    const emailSentByCompany = new Map<number, number>();
 
     for (const insc of due) {
       try {
@@ -377,6 +395,10 @@ export class CadenciaService {
 
         const alreadyToday = whatsSentByCompany.get(insc.companyId) ?? 0;
         const whatsCapReached = passo.canal === 'whats' && alreadyToday >= CADENCIA_WHATS_DAILY_CAP_PER_COMPANY;
+        // Teto de e-mail so conta quando o envio real esta ligado (emailEnabled);
+        // com a flag OFF o passo so grava timeline, entao nao ha o que adiar.
+        const emailAlreadyToday = emailSentByCompany.get(insc.companyId) ?? 0;
+        const emailCapReached = passo.canal === 'email' && this.emailEnabled && emailAlreadyToday >= CADENCIA_EMAIL_DAILY_CAP_PER_COMPANY;
 
         if (passo.canal === 'whats' && !whatsCapReached) {
           const sent = await this.executeWhatsStep(insc, cadencia, passo);
@@ -391,8 +413,19 @@ export class CadenciaService {
             data: { nextStepAt: this.addDays(now, 1), lastError: 'whats_daily_cap_deferred' },
           });
           continue;
+        } else if (passo.canal === 'email' && emailCapReached) {
+          // Teto de e-mail atingido: NAO envia, adia 1 dia (mesmo padrao do WhatsApp).
+          await (this.prisma as any).cadenciaInscricao.update({
+            where: { id: insc.id },
+            data: { nextStepAt: this.addDays(now, 1), lastError: 'email_daily_cap_deferred' },
+          });
+          continue;
         } else if (passo.canal === 'email') {
-          await this.executeEmailStep(insc, cadencia, passo);
+          const sent = await this.executeEmailStep(insc, cadencia, passo);
+          if (sent) {
+            emailSent += 1;
+            emailSentByCompany.set(insc.companyId, emailAlreadyToday + 1);
+          }
         } else if (passo.canal === 'atividade') {
           await this.executeAtividadeStep(insc, cadencia, passo);
         }
@@ -428,7 +461,7 @@ export class CadenciaService {
       }
     }
 
-    return { ok: true, considered: due.length, executed, whatsSent, concluded, failed };
+    return { ok: true, considered: due.length, executed, whatsSent, emailSent, concluded, failed };
   }
 
   // WhatsApp: reusa o caminho PROVADO do bot de prospeccao (com todos os freios).
@@ -471,20 +504,82 @@ export class CadenciaService {
     return true;
   }
 
-  // E-mail: sem provedor transacional garantido aqui -> registra a intencao no
-  // timeline do lead (best-effort) e segue. Trocar por envio real e aditivo depois.
+  // E-mail REAL (F1): envia pelo remetente do PROPRIO tenant via CompanyMailerService,
+  // atras da flag HBX_CADENCIA_EMAIL_ENABLED (default OFF). Best-effort — NUNCA lanca,
+  // NUNCA trava a cadencia. Retorna true SO quando um e-mail saiu de fato (pro teto contar).
+  //  - flag OFF            -> comportamento de hoje: so grava timeline, zero envio.
+  //  - lead sem e-mail     -> no-op (igual WhatsApp sem telefone): so timeline.
+  //  - passo sem corpo     -> no-op: so timeline (igual WhatsApp sem body).
+  //  - tenant nao config.  -> SKIP gracioso (errorCode COMPANY_EMAIL_NOT_CONFIGURED): timeline + segue.
+  //  - erro de envio       -> timeline com o erro, cadencia AVANCA.
   private async executeEmailStep(
     insc: { leadId: string; companyId: number },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
-  ) {
+  ): Promise<boolean> {
+    // Flag OFF: comportamento de hoje (so timeline "cadencia_email", zero envio).
+    if (!this.emailEnabled) {
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, passo.corpo || '');
+      return false;
+    }
+
+    const lead = (await this.prisma.vendasLead.findFirst({
+      where: { id: insc.leadId, companyId: insc.companyId },
+      select: { id: true, email: true, name: true },
+    })) as { id: string; email: string | null; name: string | null } | null;
+
+    const to = String(lead?.email || '').trim();
+    if (!to) {
+      // Sem e-mail: passo vira no-op (segue a cadencia), igual WhatsApp sem telefone.
+      this.logger.log(`[cadencia-runner] email sem destinatario lead=${insc.leadId} — passo pulado`);
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'Lead sem e-mail — passo pulado.');
+      return false;
+    }
+
+    const subject = String(passo.titulo || 'Contato').slice(0, 200);
+    const body = String(passo.corpo || '').trim();
+    if (!body) {
+      // Sem corpo: nao envia (igual WhatsApp sem body), so timeline.
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'Passo de e-mail sem corpo — não enviado.');
+      return false;
+    }
+
+    try {
+      const result = await this.mailer.sendForCompany(insc.companyId, { to, subject, text: body });
+      if (result.ok) {
+        await this.writeEmailTimeline(insc.leadId, cadencia, passo, `E-mail enviado para ${to}.`);
+        return true;
+      }
+      if (result.errorCode === COMPANY_EMAIL_NOT_CONFIGURED) {
+        // Tenant sem config de e-mail: SKIP gracioso, cadencia segue.
+        await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'E-mail não configurado — passo pulado.');
+        return false;
+      }
+      await this.writeEmailTimeline(
+        insc.leadId,
+        cadencia,
+        passo,
+        `Falha no envio de e-mail: ${result.errorMessage || result.errorCode || 'erro desconhecido'}`,
+      );
+      return false;
+    } catch (error: any) {
+      // Best-effort: qualquer erro inesperado nao trava a cadencia.
+      this.logger.warn(`[cadencia-runner] email falhou lead=${insc.leadId}: ${String(error?.message || error)}`);
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, `Falha no envio de e-mail: ${String(error?.message || error)}`);
+      return false;
+    }
+  }
+
+  // Registra o evento de e-mail no timeline do lead (best-effort — nunca lanca).
+  // Mantem o mesmo eventType/sourceType de hoje ('cadencia_email' / 'automacao').
+  private async writeEmailTimeline(leadId: string, cadencia: CadenciaRow, passo: CadenciaPasso, description: string | null) {
     await this.prisma.vendasLeadTimelineEvent
       .create({
         data: {
-          leadId: insc.leadId,
+          leadId,
           eventType: 'cadencia_email',
           title: `Cadência (${cadencia.nome}): ${passo.titulo || 'E-mail'}`.slice(0, 200),
-          description: (passo.corpo || '').slice(0, 500) || null,
+          description: (description || '').slice(0, 500) || null,
           sourceType: 'automacao',
         },
       })

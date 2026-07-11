@@ -15,6 +15,7 @@
 // pelo dono (flag OFF por default) — a tela mostra esse estado, nunca "força" envio.
 // Sem R$ nesta tela (LEI DO VENDEDOR não é acionada). Visual 100% em classe central.
 
+import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
@@ -214,6 +215,7 @@ function CadenciasTab({ data, loading, error, reload }: {
       <div className="auto-bar">
         <span className="hint">Escolha uma personalidade de cadência e aplique a uma lista de leads — o ritmo de toques segue sozinho.</span>
         {msg && <span className="link">{msg}</span>}
+        <Link className="btn-ghost" href="/bot"><I d={ICONS.bot} size={13} /> Abrir o Bot</Link>
       </div>
 
       {error && <LoadErrorPanel error={error} retry={() => void reload()} />}
@@ -256,6 +258,13 @@ function CadenciasTab({ data, loading, error, reload }: {
                 );
               })}
             </div>
+
+            {c.passos.some((p) => p.canal === "whats") && (
+              <div className="auto-flag-note">
+                <I d={ICONS.bot} size={15} />
+                <span>WhatsApp sai pelo seu chip do <Link className="link" href="/bot">Bot</Link>.</span>
+              </div>
+            )}
 
             <div className="step-flow">
               {c.passos.map((p, idx) => (
