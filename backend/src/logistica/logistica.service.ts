@@ -4,6 +4,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { CreditMeterService } from '../credits/credit-meter.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
+import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { emitMasterEvent } from '../common/master-event';
 import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-contato.util';
 import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
@@ -47,6 +48,11 @@ export class LogisticaService {
     // CRÉDITO UNIVERSAL (PR10072026): track (nunca débito) da entrega concluída. @Optional()
     // para não quebrar testes que instanciam o serviço direto; ausente = não mede.
     @Optional() private readonly creditMeter?: CreditMeterService,
+    // QUITAR → RECOVERY: baixa manual de fiado PARA a cadência hbx-recovery do
+    // cliente se ele zerou a dívida vencida. @Optional() (ausente nos testes/DI sem
+    // funil = simplesmente não fecha a cadência). Sem ciclo: LogisticaRecoveryService
+    // não injeta LogisticaService.
+    @Optional() private readonly recovery?: LogisticaRecoveryService,
   ) {}
 
   /**
@@ -1421,6 +1427,33 @@ export class LogisticaService {
     });
     if (!cliente) return null;
 
+    // Regra M4 (a mesma do listRota/saldos/histórico): financeiro do tenant OFF =
+    // dinheiro não aparece em lugar NENHUM. FAIL-CLOSED por simetria com saldos:
+    // devolve a MESMA forma, mas sem valores (charges vazio, saldos null e o flag
+    // moduloFinanceiroAtivo:false). Best-effort: config ausente = default seguro (false).
+    let moduloFinanceiroAtivo = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] extrato loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+
+    if (!moduloFinanceiroAtivo) {
+      return {
+        clienteId: cliente.id,
+        nome: String(cliente.name || '').trim() || null,
+        moduloFinanceiroAtivo: false,
+        total: 0,
+        saldoAberto: null,
+        aguardandoFechamento: null,
+        charges: [],
+      };
+    }
+
     const charges = await this.prisma.financeiroCharge.findMany({
       where: { companyId, customerProfileId: cliente.id },
       orderBy: [{ createdAt: 'desc' }],
@@ -1452,6 +1485,7 @@ export class LogisticaService {
     return {
       clienteId: cliente.id,
       nome: String(cliente.name || '').trim() || null,
+      moduloFinanceiroAtivo: true,
       total: charges.length,
       saldoAberto: somaSaldo(saldo),
       aguardandoFechamento: round2(saldo?.aguardando ?? 0),
@@ -1819,7 +1853,7 @@ export class LogisticaService {
     if (!companyId || !chargeId) return null;
     const charge = await this.prisma.financeiroCharge.findFirst({
       where: { id: String(chargeId).trim(), companyId, sourceModule: { startsWith: 'logistica' } },
-      select: { id: true, status: true, lifecycle: true, amount: true, paidAt: true },
+      select: { id: true, status: true, lifecycle: true, amount: true, paidAt: true, customerProfileId: true },
     });
     if (!charge) return null;
 
@@ -1865,6 +1899,21 @@ export class LogisticaService {
     this.logger.log(
       `[logistica] baixa manual de fiado: charge=${charge.id} company=${companyId} amount=${charge.amount} user=${opts.userId ?? 'n/d'} paidAt=${now.toISOString()}`,
     );
+
+    // QUITAR → RECOVERY: se este fiado alimentava a cadência hbx-recovery e o
+    // cliente zerou a dívida vencida, PARA a cadência (best-effort, idempotente,
+    // SEM WhatsApp). Roda DEPOIS da baixa (o recompute já vê esta charge paga).
+    // Nunca quebra a baixa: qualquer erro é engolido (log).
+    const customerProfileId = String(charge.customerProfileId || '').trim();
+    if (this.recovery && customerProfileId) {
+      try {
+        await this.recovery.resolverSeQuitado(companyId, customerProfileId);
+      } catch (e: any) {
+        this.logger.warn(
+          `[logistica] quitar→recovery best-effort falhou charge=${charge.id} company=${companyId}: ${String(e?.message || e)}`,
+        );
+      }
+    }
 
     return { id: charge.id, status: 'approved', paidAt: now.toISOString(), alreadyPaid: false };
   }
@@ -2279,11 +2328,14 @@ export interface ExtratoCharge {
 export interface ExtratoResult {
   clienteId: string;
   nome: string | null;
+  // M4: financeiro do tenant. OFF → sem valores (charges vazio, saldos null).
+  moduloFinanceiroAtivo: boolean;
   total: number;
   // F1 — o "quanto me deve" da ficha: pendências (charges 'pending' da logística)
   // + mensal ainda não faturado. saldoAberto já é a SOMA dos dois.
-  saldoAberto: number;
-  aguardandoFechamento: number;
+  // M4: null quando o financeiro do tenant está OFF (dinheiro não aparece).
+  saldoAberto: number | null;
+  aguardandoFechamento: number | null;
   charges: ExtratoCharge[];
 }
 

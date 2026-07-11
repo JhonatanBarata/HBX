@@ -185,8 +185,16 @@ export class LogisticaController {
   /**
    * Extrato financeiro de UM cliente: lista os FinanceiroCharge linkados a ele.
    * Read-only, company-scoped (o cliente TEM de ser desta empresa).
+   *
+   * ADMIN-only (RolesGuard + @Admin) — extrato = VALORES (LEI DO VENDEDOR: só
+   * Admin vê dinheiro; 'logistica' é company-level, então sem este gate o
+   * vendedor USER da empresa puxaria as cobranças com valor). Mesmo padrão do
+   * historicoEntregas/fecharMes/quitarCharge. O gate de moduloFinanceiroAtivo
+   * (regra M4) vive no serviço: OFF → sem valores.
    */
   @Get('clientes/:id/extrato')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
   async extrato(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.extratoCliente(companyId, id);

@@ -3500,8 +3500,12 @@ export class HbxRecoveryService {
     });
     return { ok: true, deletedId: row.id };
   }
-  async createCustomer(user: any, dto: CreateRecoveryCustomerDto) {
+  // opts.sourceModule (interno, NÃO no DTO público): 'logistica' quando o varrer da
+  // logística injeta — marca a origem pra baixa de fiado poder auto-quitar SÓ o que é
+  // dela. Chamador manual (controller) não passa → null → nunca auto-quitado por logística.
+  async createCustomer(user: any, dto: CreateRecoveryCustomerDto, opts?: { sourceModule?: string | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const sourceModule = String(opts?.sourceModule || '').trim() || null;
     const name = this.requireText(dto.name, 'name');
     const clientName = String(dto.clientName || '').trim();
     const whatsappNumber = this.normalizeWhatsAppNumber(dto.whatsappNumber);
@@ -3538,6 +3542,7 @@ export class HbxRecoveryService {
           automationEnabled: true,
           lastContact: String(dto.lastContact || '').trim() || 'Nunca',
           status: this.toDbStatus(openAmount > 0 ? 'overdue' : 'paid'),
+          sourceModule,
           paymentHistory: this.json([]),
           delayHistory: this.json([{ id: `delay-${Date.now().toString(36)}`, period: 'Atual', daysLate: 0, outcome: 'Cadastro manual' }]),
           createdAt: registrationDate,
@@ -3685,6 +3690,49 @@ export class HbxRecoveryService {
       });
     }
     return { changed: Boolean(result.changed), paidAmount: Number(result.amount || 0), customer: this.toCustomerResponse(result.customer) };
+  }
+
+  /**
+   * QUITAR → RECOVERY (baixa manual de fiado da logística). Chamado BEST-EFFORT
+   * quando o admin dá baixa num fiado e o cliente NÃO deve mais (a decisão de
+   * "zerou" é do lado da logística, que conhece as charges). Aqui só fazemos o
+   * fechamento no funil: zera o(s) HbxRecoveryCustomer(s) do cliente →
+   * openAmount=0 + status=PAID (o gate da cadência é openAmount>0) e sincroniza o
+   * DebtCase para 'paid'. REUSA o mesmo caminho interno do pagamento
+   * (applyPayment → syncRecoveryDebtCaseBalance) — NÃO inventa estado novo. NÃO
+   * dispara WhatsApp; só PARA a cadência. Idempotente: se o cliente já está zerado
+   * (openAmount<=0) → no-op; 2ª chamada não faz nada.
+   */
+  async resolverDebtCaseSeQuitado(companyId: number, customerProfileId: string) {
+    const cid = Number(companyId) || 0;
+    const pid = String(customerProfileId || '').trim();
+    if (!cid || !pid) return { changed: false, resolved: 0 };
+    // ESCOPO DE ORIGEM (fix pós-revisão adversarial): SÓ casos injetados pela
+    // logística (sourceModule='logistica'). Um caso MANUAL/externo do mesmo cliente
+    // (dívida não-logística) NUNCA é zerado por uma baixa de fiado da logística —
+    // sem isso, pagar 1 fiado quitava silenciosamente a dívida manual (openAmount é
+    // 1 por cliente, monofonte pela idempotência do varrer).
+    const customers = await this.prisma.hbxRecoveryCustomer.findMany({
+      where: { companyId: cid, customerProfileId: pid, sourceModule: 'logistica' },
+      select: { id: true, openAmount: true },
+    });
+    let resolved = 0;
+    for (const c of customers) {
+      // openAmount<=0 já está fora da cadência (gate openAmount>0) → nada a parar.
+      if (Number(c.openAmount || 0) <= 0) continue;
+      try {
+        const result = await this.applyPayment(
+          cid,
+          String(c.id),
+          Number(c.openAmount || 0),
+          'Quitacao via baixa manual (logistica)',
+        );
+        if (result.changed) resolved += 1;
+      } catch {
+        // best-effort por linha: nunca aborta a baixa manual do fiado.
+      }
+    }
+    return { changed: resolved > 0, resolved };
   }
 
   async sendPaymentLink(

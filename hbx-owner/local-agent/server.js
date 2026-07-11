@@ -145,6 +145,248 @@ async function withRetry(fn, isOk, tries = 2, gapMs = 800) {
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
 const opsToken = String(process.env.HBX_OWNER_OPS_TOKEN || "").trim();
 
+// ---------- Auto-heal do Ops Control (:3099) COM DISJUNTOR (âncora 18/06: a correção é o FREIO) ----------
+// D1 (04/07): o container hbx-ops-control levou SIGTERM e ficou Exited(1); nada o religa e a coluna VPS
+// inteira do painel morre CALADA. Aqui o agent (docker nativo) religa SOZINHO — mas NUNCA em loop livre:
+//  - Detector: um opsRequest cair com ECONNREFUSED = :3099 sem listener (o container caiu).
+//  - Ação: `docker start hbx-ops-control` (start simples preserva o env da criação; compose é só p/ container
+//    inexistente — nesse caso a gente LOGA a instrução, não roda compose pelo agent).
+//  - Disjuntor: no máx 1 tentativa a cada 5 min; teto de 3 seguidas SEM sucesso → "desisti" (exposto no
+//    /health) e para de tentar até o agent reiniciar OU o Ops Control responder de verdade.
+const OPS_HEAL_MIN_INTERVAL_MS = 5 * 60 * 1000; // rate-limit: 1 tentativa a cada 5 min (nunca loop apertado)
+const OPS_HEAL_MAX_ATTEMPTS = 3;                // teto de tentativas seguidas sem sucesso → desisti
+let opsAutoHeal = {
+  state: "idle",     // idle | tentando | desisti (volta a idle quando o :3099 responde de novo)
+  attempts: 0,       // tentativas seguidas SEM o Ops Control voltar (zera quando ele responde)
+  lastAttemptAt: 0,  // epoch ms da última tentativa (base do rate-limit)
+  lastHealAt: 0,     // epoch ms do último `docker start` que deu certo
+  lastError: null,   // último motivo de falha (pro /health contar a verdade — anti-D2/D3)
+};
+
+// Qualquer resposta HTTP do :3099 (mesmo 4xx/5xx) prova que o processo está VIVO e ouvindo → zera o
+// disjuntor. É o sinal honesto de "Ops Control de pé"; chamado quando um opsRequest recebe resposta.
+function recordOpsHealthy() {
+  if (opsAutoHeal.state === "idle" && opsAutoHeal.attempts === 0 && !opsAutoHeal.lastError) return;
+  opsAutoHeal.state = "idle";
+  opsAutoHeal.attempts = 0;
+  opsAutoHeal.lastError = null;
+}
+
+// Uma passada do auto-heal (síncrona e curta — mesmo padrão do ensureEnginesUp). Só é chamada pelo
+// triggerOpsAutoHeal, que já aplicou o rate-limit e já incrementou o contador de tentativas.
+function healOpsControlOnce(reason) {
+  console.log(`[ops-heal] tentativa ${opsAutoHeal.attempts}/${OPS_HEAL_MAX_ATTEMPTS} — Ops Control :3099 recusou conexao (${reason}).`);
+  // Fonte da verdade = docker, não o app. O container existe? Em que estado? (separador ESPAÇO: o `|`
+  // é bloqueado pelo assertSafeCommand como operador de shell — nome de container nunca tem espaço.)
+  const ps = execRead(["docker", "ps", "-a", "--filter", "name=hbx-ops-control", "--format", "{{.Names}} {{.State}}"]);
+  if (!ps.ok) {
+    opsAutoHeal.lastError = `docker indisponivel: ${(ps.stderr || "").trim().slice(0, 160)}`;
+    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+    return;
+  }
+  const line = String(ps.stdout || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean).find((s) => s === "hbx-ops-control" || s.startsWith("hbx-ops-control "));
+  if (!line) {
+    // Container inexistente: recriar é fora do escopo do auto-heal (compose up com env é do start-owner/up).
+    opsAutoHeal.lastError = "container hbx-ops-control inexistente — rode `npm run up` (o start-owner sobe o ops) ou o docker compose do ops-control.";
+    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+    return;
+  }
+  const state = (line.split(/\s+/)[1] || "").trim();
+  if (state === "running") {
+    // docker diz de pé mas :3099 recusou → subindo ou instável. NÃO reinicia às cegas (evita derrubar o boot).
+    opsAutoHeal.lastError = "container rodando mas :3099 recusou (subindo ou instavel) — sem religar as cegas.";
+    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+    return;
+  }
+  // Container parado (exited/created/dead) → religa com start simples (preserva o env da criação).
+  const start = execRead(["docker", "start", "hbx-ops-control"]);
+  if (start.ok) {
+    opsAutoHeal.lastHealAt = Date.now();
+    opsAutoHeal.lastError = null;
+    invalidateDockerReadCache(); // mudou o estado do container → próxima leitura tem que ser fresca
+    opsDrift.at = 0;             // D4: container voltou (pode ter imagem diferente) → força re-checar o drift
+    console.log(`[ops-heal] docker start hbx-ops-control OK (estava ${state}). Aguardando :3099 responder.`);
+    // NÃO zera attempts aqui: só uma resposta real do :3099 (recordOpsHealthy) comprova a volta.
+  } else {
+    opsAutoHeal.lastError = `docker start falhou: ${(start.stderr || "").trim().slice(0, 160)}`;
+    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+  }
+}
+
+// Detector chamado quando um opsRequest cai com ECONNREFUSED. Aplica o DISJUNTOR antes de agir.
+function triggerOpsAutoHeal(reason) {
+  if (opsAutoHeal.state === "desisti") return;                            // já desistiu → não tenta mais (freio total)
+  const now = Date.now();
+  if (now - opsAutoHeal.lastAttemptAt < OPS_HEAL_MIN_INTERVAL_MS) return; // rate-limit: 1/5min, nunca loop apertado
+  opsAutoHeal.lastAttemptAt = now;
+  opsAutoHeal.attempts += 1;
+  opsAutoHeal.state = "tentando";
+  try {
+    healOpsControlOnce(reason);
+  } catch (error) {
+    opsAutoHeal.lastError = `excecao no heal: ${error.message}`;
+    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+  }
+  // Teto: 3 seguidas sem sucesso → desisti (para de tentar; expõe no /health). Reinício do agent OU uma
+  // resposta real do :3099 (recordOpsHealthy) religa o auto-heal.
+  if (opsAutoHeal.attempts >= OPS_HEAL_MAX_ATTEMPTS) {
+    opsAutoHeal.state = "desisti";
+    console.log(`[ops-heal] DESISTI apos ${opsAutoHeal.attempts} tentativas seguidas sem sucesso. Ultimo erro: ${opsAutoHeal.lastError || "?"}. Religue manualmente (npm run up / docker compose ops).`);
+  }
+}
+
+// Religar MANUAL (botão "Religar Ops Control" do painel, S2). Um clique humano NÃO é o "loop livre"
+// que a âncora 18/06 combate — a UI trava o botão em "religando…" até o :3099 confirmar e NUNCA
+// re-dispara sozinha. Então o humano ASSUME o disjuntor: sai de "desisti", zera a contagem e conta 1
+// tentativa (reusa o MESMO healOpsControlOnce → mesma allowlist `docker start`). Sem loop, sem fila.
+function manualHealOpsControl() {
+  opsAutoHeal.state = "tentando";
+  opsAutoHeal.attempts = 1;              // clique humano recomeça a contagem (não empilha no teto do auto)
+  opsAutoHeal.lastAttemptAt = Date.now(); // trava o auto-heal por 5min (não dobra o docker start em cima)
+  try {
+    healOpsControlOnce("religar-manual");
+  } catch (error) {
+    opsAutoHeal.lastError = `excecao no heal: ${error.message}`;
+    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+  }
+  opsAliveCache = { at: 0, alive: null }; // invalida o cache de vivacidade → próximo /health faz ping fresco
+  return {
+    state: opsAutoHeal.state,
+    attempts: opsAutoHeal.attempts,
+    maxAttempts: OPS_HEAL_MAX_ATTEMPTS,
+    lastError: opsAutoHeal.lastError,
+    lastHealAt: opsAutoHeal.lastHealAt ? new Date(opsAutoHeal.lastHealAt).toISOString() : null,
+  };
+}
+
+// ---------- Painel HONESTO (S2): vivacidade real + 4 causas canônicas da ponte VPS ----------
+// D2/D3 (04/07): com o Ops Control morto o painel dizia "ops ✓" verde e culpava a VPS ("sob carga").
+// Aqui a verdade tem 1 sinal (opsAlive) e a falha tem NOME (uma de 4 causas), com a frase certa.
+const OPS_REASON_TEXT = {
+  ops_token_ausente: "Configure o Ops Control (token).",
+  ops_caido: "Ops Control parado NESTA máquina — religar.",
+  ssh_falhou: "Ops no ar, mas o SSH pra VPS falhou.",
+  vps_lenta: "VPS demorou a responder (pode estar sob carga).",
+};
+// Classifica o erro de TRANSPORTE ao :3099 (localhost) em 1 das causas. Refused/DNS = o processo local
+// não está ouvindo (container caiu) → ops_caido. timeout = respondeu devagar (SSH pendurado) → vps_lenta.
+// Qualquer outro erro de socket no localhost (reset/pipe) = o :3099 morreu no meio → ops_caido.
+function classifyOpsTransportError(error) {
+  const code = (error && error.code) || "";
+  const msg = String((error && error.message) || "");
+  if (msg === "timeout" || code === "ETIMEDOUT" || /timed? ?out/i.test(msg)) return "vps_lenta";
+  if (code === "ECONNREFUSED" || code === "ENOTFOUND" || /ECONNREFUSED|ENOTFOUND/.test(msg)) return "ops_caido";
+  return "ops_caido";
+}
+
+// Vivacidade REAL do Ops Control (:3099): um GET curtinho ao /health. Qualquer resposta HTTP (mesmo
+// 401/404/500) prova que o processo está de pé e ouvindo → alive:true (e zera o disjuntor via
+// recordOpsHealthy). ECONNREFUSED/ENOTFOUND = ninguém ouvindo → alive:false + dispara o auto-heal. Um
+// timeout de 1.5s NÃO decide "morto" (pode ser SSH lento por trás): mantém o último veredito do cache.
+// Cache de 10s pra não custar nada no polling; `force` fura o cache (confirmação pós-religar).
+let opsAliveCache = { at: 0, alive: null };
+function readOpsAlive(force, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    if (!opsToken) { resolve(false); return; }               // sem token → a pílula fica cinza, nem tenta
+    if (!force && opsAliveCache.alive !== null && Date.now() - opsAliveCache.at < 10_000) {
+      resolve(opsAliveCache.alive);
+      return;
+    }
+    const finish = (alive) => { opsAliveCache = { at: Date.now(), alive }; resolve(alive); };
+    let target;
+    try { target = new URL(`${opsUrl}/health`); } catch { finish(false); return; }
+    const req = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname, method: "GET", timeout: timeoutMs },
+      (response) => {
+        recordOpsHealthy();          // respondeu (qualquer status) → listener vivo, zera o disjuntor
+        response.resume();           // drena e descarta o corpo
+        response.on("end", () => finish(true));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => {
+      if (classifyOpsTransportError(error) === "ops_caido") {
+        try { triggerOpsAutoHeal(error.code || "ECONNREFUSED"); } catch { /* heal nunca derruba o ping */ }
+        finish(false);
+        return;
+      }
+      // timeout/erro transiente: não afirma "morto"; devolve o último conhecido (false se nunca soube).
+      resolve(opsAliveCache.alive === null ? false : opsAliveCache.alive);
+    });
+    req.end();
+  });
+}
+
+// ---------- Anti-drift da imagem do Ops Control (D4, S3: a correção é PERCEBER o descompasso) ----------
+// D4 (04/07): a imagem do :3099 pode ficar PARA TRÁS do código de ops-control/ no disco — rodou 2 dias
+// com a imagem de 30/06 enquanto o disco já tinha o código de 02/07; as rotas novas davam 404 CALADO e
+// ninguém percebeu. Aqui o agent compara o hash do código LOCAL de ops-control/ (git log -1 -- ops-control)
+// com o hash gravado na imagem (GET /api/build-info). Divergiu = "ops desatualizado — rebuild": warning no
+// snapshot (vps.system.warnings) + badge âmbar na pílula ops. Sem base de comparação (não é repo git, ou
+// imagem sem build-info) NÃO afirma drift — evita alarme falso. Throttle: relê no máx 1×/5min.
+let opsDrift = { checked: false, drift: false, buildHash: null, localHash: null, at: 0, error: null };
+const OPS_DRIFT_RECHECK_MS = 5 * 60 * 1000;
+
+// Hash do ÚLTIMO commit que tocou ops-control/ — a MESMA régua que a imagem grava no build (ARG). Casa
+// iff a imagem foi buildada com o ops-control/ atual. Silencia (retorna "") se não for um repo git.
+function localOpsGitHash() {
+  const r = execRead(["git", "log", "-1", "--format=%h", "--", "ops-control"]);
+  if (!r.ok) return "";
+  return String(r.stdout || "").trim().split(/\r?\n/)[0].trim();
+}
+
+// GET curto ao :3099/api/build-info (atrás do token). Degrada gracioso: Ops Control ANTIGO (sem a rota)
+// ou off → { ok:false } e o drift fica "não checado" (nunca inventa divergência).
+function readOpsBuildInfo(timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    if (!opsToken) { resolve({ ok: false, reason: "ops_token_ausente" }); return; }
+    let target;
+    try { target = new URL(`${opsUrl}/api/build-info`); } catch { resolve({ ok: false, reason: "url_invalida" }); return; }
+    const req = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname, method: "GET",
+        headers: { Accept: "application/json", Authorization: `Bearer ${opsToken}` }, timeout: timeoutMs },
+      (response) => {
+        let body = "";
+        response.on("data", (c) => { if (body.length < 8000) body += c.toString("utf8"); });
+        response.on("end", () => {
+          let parsed = null;
+          try { parsed = body ? JSON.parse(body) : null; } catch { parsed = null; }
+          if (response.statusCode >= 200 && response.statusCode < 300 && parsed) {
+            resolve({ ok: true, gitHash: String(parsed.gitHash || ""), builtAt: parsed.builtAt || null });
+          } else {
+            resolve({ ok: false, reason: `http_${response.statusCode || "?"}` });
+          }
+        });
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", (error) => resolve({ ok: false, reason: error.code || error.message }));
+    req.end();
+  });
+}
+
+// Recalcula o veredito de drift (com throttle). `force` fura o throttle (usado no boot e após heal).
+async function refreshOpsDrift(force) {
+  if (!opsToken) { opsDrift = { checked: false, drift: false, buildHash: null, localHash: null, at: Date.now(), error: "ops_token_ausente" }; return opsDrift; }
+  if (!force && opsDrift.at && Date.now() - opsDrift.at < OPS_DRIFT_RECHECK_MS) return opsDrift;
+  const localHash = localOpsGitHash();
+  const info = await readOpsBuildInfo();
+  if (!localHash || !info.ok || !info.gitHash || info.gitHash === "unknown") {
+    // Falta base de comparação → NÃO afirma drift (drift:false, checked:false). Guarda o que deu p/ debug.
+    opsDrift = {
+      checked: false, drift: false,
+      buildHash: info.ok ? (info.gitHash || null) : null,
+      localHash: localHash || null,
+      at: Date.now(), error: info.ok ? null : (info.reason || "sem_build_info"),
+    };
+    return opsDrift;
+  }
+  const drift = info.gitHash !== localHash;
+  opsDrift = { checked: true, drift, buildHash: info.gitHash, localHash, at: Date.now(), error: null };
+  if (drift) console.log(`[ops-drift] imagem ${info.gitHash} != codigo ops-control ${localHash} — rebuild recomendado (npm run up / docker compose up -d --build).`);
+  return opsDrift;
+}
+
 // ---------- Frota de motores LOCAIS (autoridade = este agent, docker nativo) ----------
 // O governor do backend NÃO consegue subir motor local: o container do backend não tem docker
 // (sem socket/CLI) e a única ponte (ops-control) aponta SSH→VPS → todo `start` dá timeout. Quem
@@ -1103,15 +1345,21 @@ async function readEngineCapacity() {
 
 // VPS: MESMA verdade da frota, lida pelo Ops Control (→ backend da VPS /modules/owner/radar/engines/status).
 // É a fonte que pinta os botões/chips da coluna VPS — antes era heurística (mentia o estado).
-async function readVpsEngineCapacity() {
+// Cache de 60s (D5/D7): sem ele, o tick de 30s do SSE disparava engines/status (HTTP no backend da VPS)
+// a cada snapshot, martelando a produção 2×/min à toa. Só cacheia OK (erro não vira cache → próxima fresca).
+let vpsEngineCache = { at: 0, data: null };
+async function readVpsEngineCapacity(force) {
   if (!opsToken) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  if (!force && vpsEngineCache.data && Date.now() - vpsEngineCache.at < 60_000) return vpsEngineCache.data;
   const r = await opsRequest("GET", "/api/opscontrol/engines/status?scope=vps", null, 30000);
   if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
   const body = r.data || {};
   if (!r.ok || !body.ok || !body.data) {
     return { ok: false, configured: true, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` };
   }
-  return { ok: true, configured: true, ...parseEngineCapacity(body.data) };
+  const out = { ok: true, configured: true, ...parseEngineCapacity(body.data) };
+  vpsEngineCache = { at: Date.now(), data: out };
+  return out;
 }
 
 // parseEngineCapacity → lib/engine-capacity.js (Sprint 5).
@@ -1202,6 +1450,7 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
           if (body.length < 400000) body += chunk.toString("utf8");
         });
         response.on("end", () => {
+          recordOpsHealthy(); // resposta completa do :3099 → listener vivo, zera o disjuntor do auto-heal
           let parsed = null;
           try {
             parsed = body ? JSON.parse(body) : null;
@@ -1213,7 +1462,16 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
       },
     );
     req.on("timeout", () => req.destroy(new Error("timeout")));
-    req.on("error", (error) => resolve({ ok: false, configured: true, reason: error.message }));
+    req.on("error", (error) => {
+      // S2/D3: a falha de transporte ganha NOME (ops_caido | vps_lenta) → o painel mostra a causa certa,
+      // nunca "VPS sob carga" pra um container local parado. `detail` guarda a mensagem crua (log/title).
+      const cause = classifyOpsTransportError(error);
+      // Detector do auto-heal: :3099 caído (container parou, D1 04/07) → religa COM disjuntor. Best-effort.
+      if (cause === "ops_caido") {
+        try { triggerOpsAutoHeal(error.code || "ECONNREFUSED"); } catch { /* heal nunca derruba o request */ }
+      }
+      resolve({ ok: false, configured: true, reason: cause, reasonText: OPS_REASON_TEXT[cause], detail: error.message });
+    });
     if (data) req.write(data);
     req.end();
   });
@@ -1346,7 +1604,7 @@ function mapOverview(data) {
 let vpsSystemCache = { at: 0, data: null };
 async function readVpsSystem(force) {
   if (!opsToken) {
-    return { ok: false, configured: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (token do Ops Control)." };
+    return { ok: false, configured: false, reason: "ops_token_ausente", message: OPS_REASON_TEXT.ops_token_ausente };
   }
   if (!force && vpsSystemCache.data && Date.now() - vpsSystemCache.at < 30_000) return vpsSystemCache.data;
   // 1) Snapshot leve (preferido). 2) Fallback overview se o Ops Control for o antigo.
@@ -1356,13 +1614,26 @@ async function readVpsSystem(force) {
     if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
     return out;
   }
-  const ov = await opsRequest("GET", "/api/overview", null, 45000);
-  if (!ov.ok || !ov.data) {
-    return { ok: false, configured: true, reason: ov.reason || snap.reason || `http_${ov.statusCode || snap.statusCode || "?"}`, message: "Ops Control não respondeu (VPS pode estar sob carga)." };
+  // S2/D3 — o transporte ao :3099 falhou (container caído ou lento): a causa é do OPS LOCAL, nunca
+  // "VPS sob carga" (essa frase SÓ vale pra timeout = vps_lenta).
+  if (snap.reason === "ops_caido" || snap.reason === "vps_lenta") {
+    return { ok: false, configured: true, reason: snap.reason, message: OPS_REASON_TEXT[snap.reason] };
   }
-  const out = mapOverview(ov.data);
-  if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
-  return out;
+  // Ops respondeu, mas explicitou que a leitura da VPS não está disponível (SSH caiu) → ssh_falhou.
+  // (Só o Ops Control ANTIGO — sem a rota de snapshot — merece o fallback overview logo abaixo.)
+  if (snap.ok && snap.data && snap.data.available === false) {
+    return { ok: false, configured: true, reason: "ssh_falhou", message: OPS_REASON_TEXT.ssh_falhou };
+  }
+  const ov = await opsRequest("GET", "/api/overview", null, 45000);
+  if (ov.ok && ov.data) {
+    const out = mapOverview(ov.data);
+    if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
+    return out;
+  }
+  // Overview também não veio → classifica a causa REAL. Timeout = vps_lenta ("sob carga"); refused =
+  // ops_caido; ops de pé mas a leitura da VPS falhou = ssh_falhou. Nunca "configure" aqui (há token).
+  const cause = (ov.reason === "ops_caido" || ov.reason === "vps_lenta") ? ov.reason : "ssh_falhou";
+  return { ok: false, configured: true, reason: cause, message: OPS_REASON_TEXT[cause] };
 }
 
 // Total/leads/fábrica da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
@@ -1829,13 +2100,18 @@ function broadcastEnricher() {
   });
 }
 
-// ---------- Snapshot COMPOSTO da Árvore (Sprint 4) ----------
-// Monta o estado INTEIRO (local + VPS) reusando os readers/caches que JÁ existem, num único JSON
-// com UM generatedAt. Nenhum SSH novo: readSystemSnapshot é nativo; readVpsSystem/readRadarCockpit/
-// readVpsLeads/readVpsEngineCapacity/integrações-VPS passam pelos MESMOS caches (30/60/90s) que o
-// polling atual já usava. force=1 fura os caches onde há suporte (system/cockpit). Cada reader
-// degrada sozinho (ok:false) — o snapshot nunca lança nem trava por um lado offline.
+// ---------- Snapshot COMPOSTO da Árvore (Sprint 4; caches fechados no S3) ----------
+// Monta o estado INTEIRO (local + VPS) reusando os readers/caches que JÁ existem, num único JSON com
+// UM generatedAt. Custo por tick de 30s do SSE: no MÁXIMO 1 SSH (o host-snapshot da VPS, cache 30s) —
+// readSystemSnapshot é NATIVO (sem SSH) e cada leitor da VPS tem seu cache: readVpsSystem 30s,
+// readRadarCockpit 60s, readVpsLeads 90s, readVpsEngineCapacity 60s e readVpsIntegrationsPresence 120s.
+// O S3 fechou os 2 buracos (engines/status e env-presence rodavam SEM cache → SSH/HTTP de produção 2×/min
+// à toa). force=1 fura só os caches onde faz sentido no refresh manual (system/cockpit); os demais seguem
+// pelo seu TTL. Cada reader degrada sozinho (ok:false) — o snapshot nunca lança nem trava por um lado off.
+// D4: refreshOpsDrift (throttle 5min) roda aqui e, se a imagem do ops-control estiver atrás do código,
+// injeta o aviso em vps.system.warnings + expõe opsDrift no topo (a pílula ops fica âmbar).
 let treeSnapshotCache = { at: 0, data: null };
+const OPS_DRIFT_WARN = "Ops Control desatualizado — imagem atrás do código de ops-control/ (rebuild: npm run up ou docker compose up -d --build).";
 async function buildTreeSnapshot(force = false) {
   const [
     localSystem, localBank, localEnginesStatus,
@@ -1851,6 +2127,14 @@ async function buildTreeSnapshot(force = false) {
     readRadarCockpit(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
     readVpsIntegrationsPresence().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
   ]);
+  await refreshOpsDrift(force).catch(() => {}); // D4: veredito de drift (throttle 5min interno; force fura)
+  // Aviso de drift no vps.system.warnings — idempotente (dedup + remove quando o drift some): vpsSystem é o
+  // objeto CACHEADO (readVpsSystem), então mutar sem dedup empilharia o mesmo aviso a cada tick.
+  if (vpsSystem && vpsSystem.ok && Array.isArray(vpsSystem.warnings)) {
+    const has = vpsSystem.warnings.includes(OPS_DRIFT_WARN);
+    if (opsDrift.drift && !has) vpsSystem.warnings.push(OPS_DRIFT_WARN);
+    else if (!opsDrift.drift && has) vpsSystem.warnings = vpsSystem.warnings.filter((w) => w !== OPS_DRIFT_WARN);
+  }
   const integrationsLocal = INTEGRATION_CATALOG.map((i) => ({ ...i, ...readIntegrationPresence(i.key) }));
   const snapshot = {
     ok: true,
@@ -1867,6 +2151,8 @@ async function buildTreeSnapshot(force = false) {
       engines: vpsEngines,
       integrations: integrationsVps,
     },
+    // D4: veredito de drift da imagem do Ops Control — a pílula ops fica âmbar "ops desatualizado" quando true.
+    opsDrift: { drift: opsDrift.drift, checked: opsDrift.checked, buildHash: opsDrift.buildHash, localHash: opsDrift.localHash },
     radarCockpit,
     enricher: {
       ok: true,
@@ -1902,13 +2188,22 @@ async function buildTreeSnapshot(force = false) {
 }
 
 // Presença das chaves na VPS (mesma leitura do GET /owner/integrations/vps) — extraída pra ser
-// reusada pelo snapshot sem duplicar a chamada ao Ops Control.
-async function readVpsIntegrationsPresence() {
+// reusada pelo snapshot sem duplicar a chamada ao Ops Control. Cache de 120s (D5/D7): sem ele, o tick
+// de 30s do SSE disparava env-presence (SSH + docker exec printenv ×15 chaves NA VPS) a cada snapshot —
+// SSH de produção queimado 2×/min à toa. O botão ⟳ e o poll pós-injeção furam com force=1. Só cacheia OK.
+let vpsIntegrationsCache = { at: 0, data: null };
+async function readVpsIntegrationsPresence(force) {
+  if (!opsToken) return { ok: false, configured: false, reason: "ops_token_ausente" };
+  if (!force && vpsIntegrationsCache.data && Date.now() - vpsIntegrationsCache.at < 120_000) return vpsIntegrationsCache.data;
   const keys = INTEGRATION_CATALOG.map((i) => i.key).join(",");
   const r = await opsRequest("GET", `/api/opscontrol/env-presence?keys=${encodeURIComponent(keys)}`, null, 25000);
   if (!r.configured) return { ok: false, configured: false, reason: "ops_token_ausente" };
   const body = r.data || {};
-  if (r.ok && body.ok) return { ok: true, scope: "vps", items: body.items || {} };
+  if (r.ok && body.ok) {
+    const out = { ok: true, scope: "vps", items: body.items || {} };
+    vpsIntegrationsCache = { at: Date.now(), data: out };
+    return out;
+  }
   return { ok: false, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` };
 }
 
@@ -2211,13 +2506,9 @@ async function route(req, res) {
     return;
   }
   // Coluna VPS: presença das chaves no backend RODANDO na produção (via Ops Control → SSH → docker exec).
+  // Cacheada 120s (D5/D7); ⟳ e poll pós-injeção passam force=1 pra furar o cache e confirmar na hora.
   if (req.method === "GET" && url.pathname === "/owner/integrations/vps") {
-    const keys = INTEGRATION_CATALOG.map((i) => i.key).join(",");
-    const r = await opsRequest("GET", `/api/opscontrol/env-presence?keys=${encodeURIComponent(keys)}`, null, 25000);
-    if (!r.configured) { sendJson(res, 200, { ok: false, configured: false, reason: "ops_token_ausente" }); return; }
-    const body = r.data || {};
-    if (r.ok && body.ok) sendJson(res, 200, { ok: true, scope: "vps", items: body.items || {} });
-    else sendJson(res, 200, { ok: false, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` });
+    sendJson(res, 200, await readVpsIntegrationsPresence(url.searchParams.get("force") === "1"));
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/integrations/set") {
@@ -2232,9 +2523,11 @@ async function route(req, res) {
     const r = await opsRequest("POST", "/api/opscontrol/env-set", { key, valueB64 }, 95000);
     if (!r.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente" }); return; }
     const b = r.data || {};
-    if (r.ok && b.ok) sendJson(res, 200, { ok: true, key, scope: "vps",
-      note: "Gravado no .env da VPS e backend recriado — leva alguns segundos pra subir." });
-    else sendJson(res, 200, { ok: false, reason: b.reason || r.reason || `http_${r.statusCode || "?"}` });
+    if (r.ok && b.ok) {
+      vpsIntegrationsCache = { at: 0, data: null }; // injetou → invalida o cache p/ o próximo snapshot ver a presença nova
+      sendJson(res, 200, { ok: true, key, scope: "vps",
+        note: "Gravado no .env da VPS e backend recriado — leva alguns segundos pra subir." });
+    } else sendJson(res, 200, { ok: false, reason: b.reason || r.reason || `http_${r.statusCode || "?"}` });
     return;
   }
 
@@ -2581,6 +2874,23 @@ async function route(req, res) {
     return;
   }
 
+  // S2 — Religar o Ops Control NESTA máquina (botão do painel quando a causa é ops_caido). Reusa o
+  // MESMO caminho do auto-heal do S1 (docker start hbx-ops-control) e o MESMO disjuntor; um clique
+  // humano assume o disjuntor (ver manualHealOpsControl). A UI confirma a volta pela vivacidade
+  // (/health?opsFresh=1), nunca re-clica sozinha — sem loop. `ok` = o docker start disparou sem erro
+  // (o :3099 pode levar uns segundos pra ligar; quem confirma "de pé" é o opsAlive, não este retorno).
+  if (req.method === "POST" && url.pathname === "/owner/ops/restart") {
+    const heal = manualHealOpsControl();
+    const started = !heal.lastError;
+    sendJson(res, started ? 200 : 502, {
+      ok: started,
+      action: "docker start hbx-ops-control",
+      heal,
+      message: started ? "Religando o Ops Control — confirmando a volta pela vivacidade…" : (heal.lastError || "falha ao religar o Ops Control"),
+    });
+    return;
+  }
+
   // Status do Email Lab (Local Lab pronto? VPS import pronto?) — pro card de caça de e-mail.
   if (req.method === "GET" && url.pathname === "/owner/email-lab/status") {
     const response = await opsRequest("GET", "/api/email-lab/status", null, 8000);
@@ -2764,7 +3074,22 @@ async function route(req, res) {
       cwd: rootDir,
       backendConfigured: Boolean(backendToken),
       opsConfigured: Boolean(opsToken),
+      // S2: vivacidade REAL do :3099 (GET curto, cache 10s). `?opsFresh=1` fura o cache (confirmação
+      // pós-religar). Verde "ops ✓" no painel SÓ com opsAlive; token ok + morto = pílula vermelha.
+      opsAlive: await readOpsAlive(url.searchParams.get("opsFresh") === "1"),
       opsUrl,
+      // Estado do auto-heal do Ops Control (S1). "desisti" = disjuntor abriu: parou de religar sozinho.
+      opsAutoHeal: {
+        state: opsAutoHeal.state,
+        attempts: opsAutoHeal.attempts,
+        maxAttempts: OPS_HEAL_MAX_ATTEMPTS,
+        lastError: opsAutoHeal.lastError,
+        lastAttemptAt: opsAutoHeal.lastAttemptAt ? new Date(opsAutoHeal.lastAttemptAt).toISOString() : null,
+        lastHealAt: opsAutoHeal.lastHealAt ? new Date(opsAutoHeal.lastHealAt).toISOString() : null,
+      },
+      // D4: drift da imagem do Ops Control (cacheado; recalculado no boot, no heal e a cada snapshot com
+      // throttle de 5min). drift:true → pílula ops âmbar "ops desatualizado". null quando sem token.
+      opsDrift: opsToken ? { drift: opsDrift.drift, checked: opsDrift.checked, buildHash: opsDrift.buildHash, localHash: opsDrift.localHash } : null,
       now: nowIso(),
     });
     return;
@@ -3219,4 +3544,6 @@ server.listen(PORT, HOST, () => {
   console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
   // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
   try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
+  // D4: 1ª checagem de drift no boot (força o throttle). Best-effort — nunca derruba a subida do agent.
+  refreshOpsDrift(true).catch(() => {});
 });

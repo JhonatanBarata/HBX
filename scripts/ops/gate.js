@@ -80,6 +80,12 @@ const steps = [
     command: 'python',
     args: ['-m', 'pytest', '-q'],
   },
+  {
+    label: 'backend: lint SQL cru multi-tenant (check-tenant-raw.mjs — $queryRaw sem escopo de empresa)',
+    cwd: path.join(repoRoot, 'backend'),
+    command: 'node',
+    args: ['scripts/check-tenant-raw.mjs'],
+  },
 ];
 
 function main() {
@@ -87,11 +93,31 @@ function main() {
   console.log('\n=== HBX Quality Gate (G4) ===');
   console.log(`${steps.length} checks em sequencia. Para no primeiro vermelho — nada de deploy/VPS aqui.\n`);
 
+  const warnings = [];
+
   for (let i = 0; i < steps.length; i += 1) {
     const step = steps[i];
     logStage(`[${i + 1}/${steps.length}] ${step.label}`);
     try {
-      runStep(step.command, step.args, { cwd: step.cwd, env: quietToolEnv() });
+      if (step.detectSkip) {
+        const result = runStep(step.command, step.args, {
+          cwd: step.cwd,
+          env: quietToolEnv(),
+          captureOutput: true,
+        });
+        const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+        if (output.trim()) console.log(output.trim());
+
+        const skipped = Number((output.match(/skipped\s+(\d+)/) || [])[1] || 0);
+        const passed = Number((output.match(/(?:^|\s)pass\s+(\d+)/) || [])[1] || 0);
+        if (skipped > 0 && passed === 0) {
+          const warn = `ATENCAO: tenant-isolation PULADO (sem Postgres) — nao contou como verde. Prova real de isolamento fica pendente ate rodar com Postgres local.`;
+          console.warn(`\n>>> ${warn}`);
+          warnings.push(warn);
+        }
+      } else {
+        runStep(step.command, step.args, { cwd: step.cwd, env: quietToolEnv() });
+      }
     } catch (error) {
       console.error(`\n>>> GATE VERMELHO na etapa: ${step.label}`);
       console.error(error && error.message ? error.message : error);
@@ -103,6 +129,10 @@ function main() {
 
   const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
   console.log(`\n=== GATE VERDE: ${steps.length}/${steps.length} checks passaram (${elapsedSeconds}s) ===`);
+  if (warnings.length) {
+    console.log(`\n--- ${warnings.length} AVISO(S) (verde, mas com ressalva) ---`);
+    for (const warn of warnings) console.log(`- ${warn}`);
+  }
 }
 
 try {

@@ -146,16 +146,16 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
     return () => { alive = false; };
   }, [done, router]);
 
-  // Prefill do fechamento: o link de contratação traz ?hbxLead=<leadId> (cuid
-  // opaco = token; zero PII na URL). Buscamos o que o vendedor confirmou no
-  // fechamento pra pré-preencher o cadastro. Só preenche campo VAZIO — nunca
-  // atropela o que a pessoa já digitou.
+  // Prefill do fechamento: o link de contratação traz ?hbxLead=<token assinado>
+  // (leadId.exp.assinatura HMAC; zero PII crua na URL). Buscamos o que o vendedor
+  // confirmou no fechamento pra pré-preencher o cadastro (CPF só vem se o token for
+  // válido). Só preenche campo VAZIO — nunca atropela o que a pessoa já digitou.
   useEffect(() => {
     let hbxLead: string | null = null;
     try { hbxLead = new URLSearchParams(window.location.search).get("hbxLead"); } catch { /* sem url */ }
     if (!hbxLead) return;
     let alive = true;
-    apiFetch<{ hasPrefill?: boolean; companyNameSuggested?: string | null; name?: string | null; email?: string | null; phone?: string | null }>(
+    apiFetch<{ hasPrefill?: boolean; companyNameSuggested?: string | null; name?: string | null; email?: string | null; phone?: string | null; cpf?: string | null }>(
       `/vendas/handoff/${encodeURIComponent(hbxLead)}/prefill`,
     )
       .then((r) => {
@@ -164,7 +164,9 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
         if (r.name) setNome((v) => v || String(r.name));
         if (r.email) setEmail((v) => v || String(r.email));
         if (r.phone) setFreeTelefone((v) => v || String(r.phone));
-        // CPF nao vem mais do prefill (rota publica nao expoe PII): cliente digita.
+        // CPF volta ao prefill SO via link com token assinado (backend gateia); link
+        // antigo/adulterado nao traz cpf. Campo continua editavel.
+        if (r.cpf) setFreeCpf((v) => v || String(r.cpf).replace(/\D/g, ""));
         setPrefillActive(true);
       })
       .catch(() => { /* lead sem prefill/expirado: segue o cadastro normal */ });

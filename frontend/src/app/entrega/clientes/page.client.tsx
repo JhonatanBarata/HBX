@@ -1238,12 +1238,12 @@ function ClienteEditor({
         {editando && extrato ? (
           <>
             <div ref={contaSecRef} className="ent-field-label ent-section">Conta</div>
-            <div className={`ent-saldo${extrato.saldoAberto > 0 ? " is-devendo" : ""}`}>
+            <div className={`ent-saldo${(extrato.saldoAberto ?? 0) > 0 ? " is-devendo" : ""}`}>
               <div className="ent-saldo-main">
-                <span className="ent-saldo-label">{extrato.saldoAberto > 0 ? "Em aberto" : "Em dia"}</span>
+                <span className="ent-saldo-label">{(extrato.saldoAberto ?? 0) > 0 ? "Em aberto" : "Em dia"}</span>
                 <b className="ent-saldo-valor">{fmtMoney(extrato.saldoAberto)}</b>
               </div>
-              {extrato.aguardandoFechamento > 0 ? (
+              {(extrato.aguardandoFechamento ?? 0) > 0 ? (
                 <div className="ent-saldo-sub">{fmtMoney(extrato.aguardandoFechamento)} fecham no mês</div>
               ) : null}
             </div>

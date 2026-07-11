@@ -3,6 +3,12 @@ services:
     build:
       context: ./ops-control
       dockerfile: Dockerfile
+      # Anti-drift (D4, S3): o invocador (start-owner.ps1) exporta OPS_BUILD_GIT_HASH = hash do código
+      # de ops-control/ e OPS_BUILD_AT = instante do build; a imagem grava os dois e o /api/build-info
+      # os expõe. Sem os envs (build manual), caem no default `unknown` (o agent não afirma drift).
+      args:
+        BUILD_GIT_HASH: ${OPS_BUILD_GIT_HASH:-unknown}
+        BUILD_AT: ${OPS_BUILD_AT:-}
     container_name: hbx-ops-control
     restart: unless-stopped
     ports:

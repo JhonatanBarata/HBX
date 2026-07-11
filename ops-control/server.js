@@ -2525,6 +2525,17 @@ app.post('/api/radar/vps/apply-contacts', async (req, res) => {
   }
 });
 
+// Build-info da imagem (D4/S3): hash do código de ops-control/ e instante do build, gravados como ENV
+// no Dockerfile (ARG do compose). O HBX Owner compara gitHash com o hash local de ops-control/ pra
+// flagrar drift — "imagem velha rodando código novo", o buraco D4 de 30/06→02/07. Atrás do token /api.
+app.get('/api/build-info', (req, res) => {
+  res.json({
+    ok: true,
+    gitHash: process.env.OPS_BUILD_GIT_HASH || 'unknown',
+    builtAt: process.env.OPS_BUILD_AT || null,
+  });
+});
+
 app.listen(port, '0.0.0.0', () => {
   const target = targetMode === 'ssh' ? `${sshConfig.username}@${sshConfig.host}:${sshConfig.port}` : 'local';
   console.log(`HBX Ops Control em http://127.0.0.1:${port} controlando ${target}`);

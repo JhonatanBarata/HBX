@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { AuthService } from '../auth/auth.service';
@@ -62,6 +62,7 @@ import {
 } from '../team/team-policy-persistence';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import { isBotArmedForCompany } from '../modules/bot-activation-state';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MasterAlertService } from '../master-alert/master-alert.service';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
@@ -363,11 +364,24 @@ export class VendasService {
         : Promise.resolve(null),
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        select: { botArmedAt: true },
+        select: {
+          botArmedAt: true,
+          // Guarda de suspensao: campos lidos por resolveCompanyAccessState.
+          companyKind: true,
+          slug: true,
+          status: true,
+          accountType: true,
+          trialEndsAt: true,
+          billingGraceEndsAt: true,
+          courtesyEndsAt: true,
+        },
       }).catch(() => null),
     ]);
+    // Empresa suspensa/overdue/pending_checkout nao expoe o bot como habilitado.
+    // W1 removeu o wipe que desligava os modulos; a guarda de acesso passa a ser aqui.
+    const acesso = resolveCompanyAccessState(company as any);
     return {
-      botModuleEnabled: Boolean(botModule?.id),
+      botModuleEnabled: Boolean(botModule?.id) && acesso.canUse,
       botArmed: isBotArmedForCompany(company),
     };
   }
@@ -8812,7 +8826,10 @@ export class VendasService {
     const closerAssignment = await this.resolveCloserAssignmentPatch(context, existing);
     const mergedRowForCommission = { ...existing, ...(productPatch?.data || {}), ...closerAssignment };
 
-    const registerPath = `/register?plan=${encodeURIComponent(planKey)}&hbxLead=${encodeURIComponent(existing.id)}`;
+    // Link de contratacao com TOKEN ASSINADO (nao o leadId cru): expira em 72h e
+    // libera o CPF no prefill publico. Link antigo (leadId cru) ainda resolve, sem CPF.
+    const handoffToken = this.signHandoffToken(existing.id);
+    const registerPath = `/register?plan=${encodeURIComponent(planKey)}&hbxLead=${encodeURIComponent(handoffToken)}`;
     const publicOrigin = this.normalizePublicOrigin(dto?.origin);
     const registerUrl = publicOrigin ? `${publicOrigin}${registerPath}` : registerPath;
     const leadName = this.normalizeText(existing.name) || 'cliente';
@@ -8973,20 +8990,66 @@ export class VendasService {
     };
   }
 
-  // Prefill PUBLICO do checkout. O link de contratacao leva ?hbxLead=<id> (cuid
-  // opaco = token); a pagina de cadastro busca aqui o que o vendedor ja confirmou
-  // no fechamento pra pre-preencher conta + cartao. Sem auth de proposito; so
-  // responde se o lead tem handoff gerado (senao 404). Nao expoe nada alem do
-  // necessario pro cadastro/checkout do proprio cliente.
-  async getHbxHandoffPrefill(leadId: string) {
-    const normalizedLeadId = String(leadId || '').trim();
-    if (!normalizedLeadId) throw new BadRequestException('Lead invalido.');
+  // Token ASSINADO do handoff (stateless, sem coluna nova/migration): leadId.exp.HMAC.
+  // Prova que o vendedor gerou o link no fechamento e da direito ao CPF no prefill, com
+  // expiracao. Chave derivada do JWT_SECRET (HBX_HANDOFF_TOKEN_SECRET opcional sobrescreve);
+  // em prod o JWT_SECRET e forte — main.ts aborta o boot se ausente/fraco.
+  private handoffTokenSecret(): string {
+    return (
+      String(process.env.HBX_HANDOFF_TOKEN_SECRET || process.env.JWT_SECRET || '').trim() ||
+      'hbx-handoff-prefill'
+    );
+  }
+
+  private signHandoffToken(leadId: string, ttlMs = 72 * 60 * 60 * 1000): string {
+    const exp = Date.now() + Math.max(60 * 1000, ttlMs);
+    const sig = createHmac('sha256', this.handoffTokenSecret())
+      .update(`handoff-prefill-v1.${leadId}.${exp}`)
+      .digest('base64url');
+    return `${leadId}.${exp}.${sig}`;
+  }
+
+  // Devolve o leadId se o token assina/expira OK; null se invalido/expirado.
+  private verifyHandoffToken(raw: string): string | null {
+    const parts = String(raw || '').split('.');
+    if (parts.length !== 3) return null;
+    const [leadId, expRaw, sig] = parts;
+    const exp = Number(expRaw);
+    if (!leadId || !Number.isFinite(exp)) return null;
+    const expected = createHmac('sha256', this.handoffTokenSecret())
+      .update(`handoff-prefill-v1.${leadId}.${exp}`)
+      .digest('base64url');
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+    if (Date.now() > exp) return null;
+    return leadId;
+  }
+
+  // Prefill PUBLICO do checkout. O link leva ?hbxLead=<token assinado> (leadId.exp.sig).
+  // Token valido = link recem-gerado no fechamento -> devolve tudo INCLUSIVE CPF, e expira.
+  // leadId cru (link antigo, compat) ainda resolve, mas SEM CPF. Sem auth de proposito; so
+  // responde se o lead tem handoff gerado (senao 404).
+  async getHbxHandoffPrefill(token: string) {
+    const raw = String(token || '').trim();
+    if (!raw) throw new BadRequestException('Lead invalido.');
+    // Token assinado (novo) vs leadId cru (link antigo). Token com assinatura ruim/
+    // expirada = 404 explicito; leadId cru segue o caminho de compat (sem CPF).
+    const verifiedLeadId = this.verifyHandoffToken(raw);
+    const looksLikeToken = raw.split('.').length === 3;
+    if (looksLikeToken && !verifiedLeadId) {
+      throw new NotFoundException('Link de contratacao nao encontrado ou expirado.');
+    }
+    const leadId = verifiedLeadId || raw;
+    const viaToken = Boolean(verifiedLeadId);
     const lead = await this.prisma.vendasLead.findUnique({
-      where: { id: normalizedLeadId },
+      where: { id: leadId },
       select: {
+        companyId: true,
         name: true,
         email: true,
         phone: true,
+        phoneNormalized: true,
         salePlanKey: true,
         saleStatus: true,
       },
@@ -8997,11 +9060,24 @@ export class VendasService {
     if (!lead || !hasHandoff) {
       throw new NotFoundException('Link de contratacao nao encontrado ou expirado.');
     }
-    // Rota PUBLICA (sem login) + link ?hbxLead= que trafega em claro: NAO expor CPF
-    // aqui. CPF eh PII de identificacao unica (LGPD); o cliente digita no cadastro
-    // (campo editavel). Prefill fica so no contato basico que a propria pessoa
-    // preenche. Repor CPF com seguranca exige endurecer o token (HMAC + expiracao +
-    // uso-unico) — ver decisao de go-live.
+    // CPF (PII) SO no caminho por TOKEN assinado que expira — NUNCA no leadId cru
+    // (link antigo trafega em claro). CPF mora no CustomerProfile, keyed por telefone;
+    // o lead guarda o telefone COM DDI 55 e o profile pode guardar SEM, entao caso por
+    // VARIANTES (com/sem 55). Sem relacao obrigatoria.
+    let cpf: string | null = null;
+    if (viaToken) {
+      const rawDigits = String(lead.phoneNormalized || lead.phone || '').replace(/\D/g, '');
+      if (rawDigits) {
+        const variants = new Set<string>([rawDigits, rawDigits.slice(-13), rawDigits.slice(-11)]);
+        if (rawDigits.length === 11) variants.add(`55${rawDigits}`);
+        const profile = await this.prisma.customerProfile.findFirst({
+          where: { companyId: lead.companyId, phoneNormalized: { in: Array.from(variants) } },
+          orderBy: [{ updatedAt: 'desc' }],
+          select: { document: true },
+        });
+        cpf = this.normalizeText(profile?.document) || null;
+      }
+    }
     const name = this.normalizeText(lead.name) || null;
     return {
       hasPrefill: true,
@@ -9009,6 +9085,7 @@ export class VendasService {
       name,
       email: this.normalizeText(lead.email) || null,
       phone: this.normalizeText(lead.phone) || null,
+      cpf,
       planKey: this.normalizeText(lead.salePlanKey) || null,
     };
   }

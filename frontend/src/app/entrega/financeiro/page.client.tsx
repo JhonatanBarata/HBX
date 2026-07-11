@@ -279,7 +279,7 @@ function FinanceiroDetalhe({
         e
           ? {
               ...e,
-              saldoAberto: Math.max(0, Math.round((e.saldoAberto - c.amount) * 100) / 100),
+              saldoAberto: Math.max(0, Math.round(((e.saldoAberto ?? 0) - c.amount) * 100) / 100),
               charges: e.charges.map((x) =>
                 x.id === c.id
                   ? { ...x, status: "approved", lifecycle: "paid", paidAt: new Date().toISOString() }
@@ -315,12 +315,12 @@ function FinanceiroDetalhe({
     <div className="ent-form">
       {/* RESUMO — mesmo bloco .ent-saldo da ficha do cliente. */}
       {extrato ? (
-        <div className={`ent-saldo${extrato.saldoAberto > 0 ? " is-devendo" : ""}`}>
+        <div className={`ent-saldo${(extrato.saldoAberto ?? 0) > 0 ? " is-devendo" : ""}`}>
           <div className="ent-saldo-main">
-            <span className="ent-saldo-label">{extrato.saldoAberto > 0 ? "Em aberto" : "Em dia"}</span>
+            <span className="ent-saldo-label">{(extrato.saldoAberto ?? 0) > 0 ? "Em aberto" : "Em dia"}</span>
             <b className="ent-saldo-valor">{fmtMoney(extrato.saldoAberto)}</b>
           </div>
-          {extrato.aguardandoFechamento > 0 ? (
+          {(extrato.aguardandoFechamento ?? 0) > 0 ? (
             <div className="ent-saldo-sub">{fmtMoney(extrato.aguardandoFechamento)} fecham no mês</div>
           ) : null}
         </div>

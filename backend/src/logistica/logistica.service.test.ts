@@ -866,6 +866,8 @@ test('R2 extrato: lista os charges linkados ao cliente (company-scoped)', async 
     customerProfile: {
       findFirst: async () => ({ id: 'conta-1', name: 'Cliente X' }),
     },
+    // M4: financeiro do tenant ON → extrato mostra os valores.
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     financeiroCharge: {
       findMany: async () => charges,
     },
@@ -876,15 +878,47 @@ test('R2 extrato: lista os charges linkados ao cliente (company-scoped)', async 
 
   assert.ok(res, 'extrato retorna resultado');
   assert.equal(res?.clienteId, 'conta-1');
+  assert.equal(res?.moduloFinanceiroAtivo, true);
   assert.equal(res?.total, 2);
   assert.equal(res?.charges.length, 2);
   assert.equal(res?.charges[0].id, 'c1');
   assert.equal(res?.charges[1].entregaId, 'e9');
 });
 
+// ── R2 (e2) — M4: financeiro OFF → FAIL-CLOSED (sem valores, forma mantida) ───
+test('R2 extrato: moduloFinanceiroAtivo OFF → charges vazio + saldos null (dinheiro não aparece)', async () => {
+  let chargesConsultados = false;
+  const prisma = {
+    customerProfile: {
+      findFirst: async () => ({ id: 'conta-1', name: 'Cliente X' }),
+    },
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
+    financeiroCharge: {
+      findMany: async () => {
+        chargesConsultados = true;
+        return [];
+      },
+    },
+  } as any;
+
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+  const res = await service.extratoCliente(1, 'conta-1');
+
+  assert.ok(res, 'extrato retorna resultado (forma mantida)');
+  assert.equal(res?.clienteId, 'conta-1', 'identidade do cliente permanece');
+  assert.equal(res?.nome, 'Cliente X', 'nome permanece (não é valor)');
+  assert.equal(res?.moduloFinanceiroAtivo, false);
+  assert.equal(res?.total, 0);
+  assert.deepEqual(res?.charges, [], 'nenhuma cobrança com valor vaza');
+  assert.equal(res?.saldoAberto, null, 'saldoAberto omitido (null)');
+  assert.equal(res?.aguardandoFechamento, null, 'aguardandoFechamento omitido (null)');
+  assert.equal(chargesConsultados, false, 'FAIL-CLOSED: nem consulta os charges com OFF');
+});
+
 test('R2 extrato: cliente de outra empresa → null (company-scoped)', async () => {
   const prisma = {
     customerProfile: { findFirst: async () => null },
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     financeiroCharge: { findMany: async () => [] },
   } as any;
   const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);

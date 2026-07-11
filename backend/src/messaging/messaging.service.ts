@@ -502,6 +502,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         select: {
           whatsappConnectionMode: true,
           trialModuleSelection: true,
+          // Guarda de suspensao: campos lidos por resolveCompanyAccessState.
+          companyKind: true,
+          slug: true,
+          status: true,
+          accountType: true,
+          trialEndsAt: true,
+          billingGraceEndsAt: true,
+          courtesyEndsAt: true,
         },
       }),
       // PR10072026 W1: efetivo = masterEnabled && enabled (teto do master conta).
@@ -517,11 +525,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           })
         : Promise.resolve(null),
     ]);
+    // Empresa suspensa/overdue/pending_checkout nao roda recovery no inbound.
+    // W1 removeu o wipe que desligava os modulos; a guarda de acesso passa a ser aqui.
+    const acesso = resolveCompanyAccessState(company as any);
+    const temPostIt =
+      Boolean(recoveryModule?.id) ||
+      String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery';
     return {
       providerCapabilities: resolveProviderCapabilitiesFromCompany(company),
-      recoveryEnabled:
-        Boolean(recoveryModule?.id) ||
-        String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery',
+      recoveryEnabled: temPostIt && acesso.canUse,
     };
   }
 

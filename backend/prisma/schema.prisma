@@ -565,6 +565,10 @@ model HbxRecoveryCustomer {
   automationEnabled   Boolean  @default(true)
   lastContact         String?
   status              String   @default("OVERDUE") // OVERDUE | PAID
+  // Origem do caso no funil: 'logistica' quando injetado pelo varrer da logística
+  // (baixa de fiado pode auto-quitar); null = manual/externo → NUNCA auto-quitado
+  // por pagamento de logística (evita zerar dívida manual de mesmo cliente).
+  sourceModule        String?
   paymentHistory      String? // JSON serialized
   delayHistory        String? // JSON serialized
   createdAt           DateTime @default(now())

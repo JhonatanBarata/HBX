@@ -25,6 +25,8 @@ import {
 // (master puro sem empresa assumida, jobs de boot, cron) NÃO acusa.
 //
 // $queryRaw / $executeRaw NÃO passam por aqui (SQL cru) — logado uma vez no boot.
+// Esse flanco é coberto ESTATICAMENTE no build pelo lint scripts/check-tenant-raw.mjs
+// (reprova raw novo sem companyId/empresaId); aqui em runtime, só o aviso.
 
 // ---------------------------------------------------------------------------
 // Lista de modelos TENANT-SCOPED.
@@ -214,7 +216,8 @@ export function logTenantGuardBoot(mode: TenantGuardMode) {
   );
   if (!rawWarningLogged) {
     logger.warn(
-      '[tenant-guard] AVISO: $queryRaw/$queryRawUnsafe/$executeRaw NÃO são cobertos (SQL cru) — escopar por companyId na mão nessas chamadas.',
+      '[tenant-guard] AVISO: $queryRaw/$queryRawUnsafe/$executeRaw NÃO são cobertos por esta trava (SQL cru) — escopar por companyId na mão nessas chamadas. ' +
+        'A cobertura desse flanco é ESTÁTICA, no build: o lint `node scripts/check-tenant-raw.mjs` (backend/scripts/check-tenant-raw.mjs) reprova qualquer raw novo sem companyId/empresaId.',
     );
     rawWarningLogged = true;
   }

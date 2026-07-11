@@ -211,6 +211,7 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
             openAmount: grupo.amount,
             registrationDate: grupo.dueDate ? grupo.dueDate.toISOString() : undefined,
           } as any,
+          { sourceModule: 'logistica' }, // marca origem → só ISTO é auto-quitável por baixa de fiado
         );
         injetados++;
       } catch (e: any) {
@@ -234,6 +235,43 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
       jaNoFunil,
       semTelefone,
     };
+  }
+
+  // ── QUITAR → PARA A CADÊNCIA (o oposto do varrer) ─────────────────────────────
+  /**
+   * Chamado BEST-EFFORT pelo quitarCharge da logística quando um fiado recebe
+   * baixa manual. O varrer só INJETA; ESTE fecha: recomputa a dívida VENCIDA e
+   * pendente (logistica_*) do cliente e, se ainda houver → no-op (a cadência
+   * segue); se ZEROU → PARA a cadência fechando o caso no funil hbx-recovery
+   * (zera o HbxRecoveryCustomer + DebtCase 'paid', via resolverDebtCaseSeQuitado).
+   *
+   * Mesma simetria do varrer: a logística é quem conhece as charges (por isso o
+   * recompute vive aqui, não no hbx-recovery); o hbx-recovery só executa o
+   * fechamento. NUNCA dispara WhatsApp; NUNCA quebra a baixa (o chamador engole o
+   * erro). Idempotente: 2ª baixa no mesmo estado = no-op.
+   */
+  async resolverSeQuitado(companyId: number, customerProfileId: string): Promise<void> {
+    const cid = Number(companyId) || 0;
+    const pid = String(customerProfileId || '').trim();
+    if (!cid || !pid) return;
+
+    // Recompute (mesmo critério do varrer): sobrou alguma charge logistica_*
+    // pendente E VENCIDA deste cliente? Se sim, ele ainda deve → a cadência segue.
+    const corte = startOfDay(new Date());
+    const pendente = await this.prisma.financeiroCharge.findFirst({
+      where: {
+        companyId: cid,
+        customerProfileId: pid,
+        status: 'pending',
+        sourceModule: { in: LOGISTICA_SOURCE_MODULES },
+        dueDate: { lt: corte },
+      },
+      select: { id: true },
+    });
+    if (pendente) return; // ainda há vencido em aberto → no-op (segue cobrando)
+
+    // Zerou a dívida vencida → PARA a cadência (sem WhatsApp, idempotente).
+    await this.recovery.resolverDebtCaseSeQuitado(cid, pid);
   }
 }
 

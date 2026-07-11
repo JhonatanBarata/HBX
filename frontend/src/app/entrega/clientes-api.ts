@@ -364,9 +364,11 @@ export interface ExtratoResult {
   clienteId: string;
   nome: string | null;
   total: number;
+  // M4: financeiro do tenant OFF → saldos null + charges []; flag no retorno.
+  moduloFinanceiroAtivo: boolean;
   // saldoAberto JÁ soma pendências + mensal a fechar (aguardandoFechamento).
-  saldoAberto: number;
-  aguardandoFechamento: number;
+  saldoAberto: number | null;
+  aguardandoFechamento: number | null;
   charges: ExtratoCharge[];
 }
 

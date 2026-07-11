@@ -49,14 +49,45 @@ function paintPill(sel, label, state) {
   const e = $(sel);
   if (!e) return;
   e.textContent = label;
-  e.className = "pill " + (state === "ok" ? "pill-ok" : state === "bad" ? "pill-bad" : "pill-muted");
+  const cls = state === "ok" ? "pill-ok" : state === "bad" ? "pill-bad" : state === "warn" ? "pill-amber" : "pill-muted";
+  e.className = "pill " + cls;
 }
+// S2 — 4 causas canônicas da ponte VPS → frase HONESTA (espelha OPS_REASON_TEXT do server.js).
+// Código desconhecido (ex.: backend_token_ausente, http_500) passa direto, sem inventar mensagem.
+const OPS_REASON_TEXT = {
+  ops_token_ausente: "Configure o Ops Control (token)",
+  ops_caido: "Ops Control parado NESTA máquina — religar",
+  ssh_falhou: "Ops no ar, SSH pra VPS falhou",
+  vps_lenta: "VPS demorou a responder (pode estar sob carga)",
+};
+function opsReasonText(reason) {
+  if (!reason) return "";
+  return OPS_REASON_TEXT[reason] || String(reason);
+}
+let lastOpsAlive = null; // vivacidade do último ping — detecta a virada pra refrescar os badges na hora
 async function pingStatus() {
   try {
     const h = await api("GET", "/health");
     paintPill("#st-agent", "agent ✓", "ok");
     paintPill("#st-backend", h.backendConfigured ? "backend ✓" : "backend off", h.backendConfigured ? "ok" : "bad");
-    paintPill("#st-ops", h.opsConfigured ? "ops ✓" : "ops off", h.opsConfigured ? "ok" : "bad");
+    // S2/D2: verde "ops ✓" SÓ com vivacidade real (opsAlive). Token ok + processo morto = vermelho
+    // "ops caído" (antes mentia verde e culpava a VPS). Sem token = cinza "config ops".
+    // S3/D4: ops vivo MAS com imagem atrás do código → âmbar "ops desatualizado" (title explica o rebuild).
+    const opsDrift = h.opsAlive && h.opsDrift && h.opsDrift.drift;
+    if (!h.opsConfigured) paintPill("#st-ops", "config ops", "muted");
+    else if (opsDrift) paintPill("#st-ops", "ops desatualizado", "warn");
+    else if (h.opsAlive) paintPill("#st-ops", "ops ✓", "ok");
+    else paintPill("#st-ops", "ops caído", "bad");
+    const opsPill = $("#st-ops");
+    if (opsPill) opsPill.title = opsDrift
+      ? "Imagem do Ops Control atrás do código de ops-control/ — rebuild: npm run up (ou docker compose up -d --build)."
+      : "";
+    // Virou (vivo↔morto) com o painel aberto → refresca os badges pra o banner/botão "Religar" aparecer
+    // (ou sumir) SEM esperar um "Reler" manual. Só na TRANSIÇÃO (nunca todo poll) e nunca durante um
+    // religar em curso (o opsRestartClick já cuida do refresh e do âmbar).
+    const alive = Boolean(h.opsConfigured && h.opsAlive);
+    if (lastOpsAlive !== null && lastOpsAlive !== alive && !opsRestarting) { loadVpsBadges().catch(() => {}); }
+    lastOpsAlive = alive;
   } catch {
     paintPill("#st-agent", "agent offline", "bad");
   }
@@ -156,7 +187,7 @@ async function refreshVpsBank(force, preLeads) {
       vpsBankAt = Date.now();
     } else {
       setVpsCount(d && d.configured === false ? "config Ops" : "—");
-      if (delta) delta.textContent = (d && d.reason) || "VPS indisponível";
+      if (delta) delta.textContent = (d && opsReasonText(d.reason)) || "VPS indisponível";
     }
   } catch {
     if (delta) delta.textContent = "erro lendo VPS";
@@ -192,7 +223,7 @@ async function renderVpsEngines(preEngines) {
   if (line) {
     line.innerHTML = notConfigured
       ? `motores: — <span style="color:var(--text-muted);">(configure o Ops Control — HBX_OWNER_OPS_TOKEN)</span>`
-      : `motores: — <span style="color:var(--text-muted);">(sem leitura${c && c.reason ? ` · ${esc(c.reason)}` : ""})</span>`;
+      : `motores: — <span style="color:var(--text-muted);">(sem leitura${c && c.reason ? ` · ${esc(opsReasonText(c.reason))}` : ""})</span>`;
   }
   return false;
 }
@@ -348,7 +379,8 @@ async function renderVps(preVps, preLeads, preEngines) {
   }
 
   if (!v.ok) {
-    status.textContent = v.configured === false ? "configure o Ops Control" : (v.message || v.reason || "VPS indisponível");
+    // S2: mensagem HONESTA por causa (server manda v.message; opsReasonText traduz o código se faltar).
+    status.textContent = v.configured === false ? "configure o Ops Control" : (v.message || opsReasonText(v.reason) || "VPS indisponível");
     status.className = "resumo warn";
     paintPill("#st-vps", v.configured === false ? "config ops" : "vps off", v.configured === false ? "muted" : "bad");
     return;
@@ -1667,7 +1699,7 @@ async function renderIntegrations() {
           </div>
           <div class="int-side">
             <div class="int-badges">
-              ${it.present ? `<span class="pill pill-ok">Local ✓</span>` : `<span class="pill pill-muted">Local ✗</span>`}
+              <span class="pill int-local ${it.present ? "pill-ok" : "pill-muted"}" data-int-local="${esc(it.key)}">${it.present ? "Local ✓" : "Local ✗"}</span>
               <span class="pill pill-muted int-vps" data-int="${esc(it.key)}">VPS …</span>
             </div>
           </div>
@@ -1676,16 +1708,93 @@ async function renderIntegrations() {
     </div>`).join("");
   loadVpsBadges();
 }
-async function loadVpsBadges() {
-  let vps;
-  try { vps = await api("GET", "/owner/integrations/vps"); } catch { vps = null; }
+// S2 — "religando…" em curso: trava o botão Religar e segura a re-habilitação do "Salvar na VPS"
+// até a vivacidade (opsAlive) confirmar. 1 clique = 1 ciclo; a confirmação é por polling, nunca loop.
+let opsRestarting = false;
+
+// Linha de status HONESTA acima dos badges (não só title): a causa em TEXTO. Quando o Ops Control
+// caiu NESTA máquina (reason ops_caido), oferece o botão "Religar Ops Control".
+function renderVpsIntStatus(ok, reason) {
+  const box = $("#vps-int-status");
+  if (!box) return;
+  if (ok) { box.style.display = "none"; box.innerHTML = ""; return; }
+  box.style.display = "";
+  box.className = "delta"; // .delta.bad/.warn não existem no tema do Owner → cor via var inline (token, não hex)
+  const txt = esc(opsReasonText(reason) || "sem leitura da VPS");
+  if (reason === "ops_caido") {
+    box.innerHTML = `<span style="color:var(--red);font-weight:700;">⛔ ${txt}</span> <button id="btn-ops-restart" class="btn btn-sm btn-red" style="margin-left:8px;">↻ Religar Ops Control</button>`;
+    const b = $("#btn-ops-restart");
+    if (b) {
+      if (opsRestarting) { b.disabled = true; b.className = "btn btn-sm btn-amber"; b.textContent = "religando…"; }
+      b.onclick = opsRestartClick;
+    }
+  } else {
+    const color = reason === "ops_token_ausente" ? "var(--text-muted)" : "var(--amber)";
+    box.innerHTML = `<span style="color:${color};">${txt}</span>`;
+  }
+}
+
+// Religa o Ops Control (POST /owner/ops/restart) e ESPERA a vivacidade voltar — âmbar "religando…"
+// até o /health?opsFresh=1 responder opsAlive. Teto de ~15s (10×1.5s): sem loop, o botão NÃO
+// re-dispara sozinho; se não subir, volta a oferecer o clique (ação humana, não auto-retry).
+async function opsRestartClick() {
+  if (opsRestarting) return;
+  opsRestarting = true;
+  const b = $("#btn-ops-restart");
+  if (b) { b.disabled = true; b.className = "btn btn-sm btn-amber"; b.textContent = "religando…"; }
+  try {
+    await api("POST", "/owner/ops/restart", {});
+  } catch (e) {
+    opsRestarting = false;
+    if (b) { b.disabled = false; b.className = "btn btn-sm btn-red"; b.textContent = "falhou — tentar de novo"; }
+    return;
+  }
+  let alive = false;
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const h = await api("GET", "/health?opsFresh=1"); // fura o cache de 10s → confirma na hora que subir
+      if (h && h.opsConfigured && h.opsAlive) { alive = true; break; }
+    } catch { /* segue tentando dentro do teto */ }
+  }
+  opsRestarting = false;
+  pingStatus();            // repinta a pílula do topo (verde "ops ✓" se subiu, "ops caído" se não)
+  await loadVpsBadges();   // sucesso confirmado → badges voltam e "Salvar na VPS" re-habilita
+  if (!alive) {
+    const nb = $("#btn-ops-restart");
+    if (nb) { nb.className = "btn btn-sm btn-red"; nb.textContent = "não subiu — tentar de novo"; nb.disabled = false; }
+  }
+}
+
+// D5: repinta os badges "Local ✓/✗" a partir de dados prontos (do snapshot), sem re-fetch.
+function paintLocalIntBadges(items) {
+  if (!Array.isArray(items)) return;
+  const byKey = {};
+  for (const it of items) byKey[it.key] = it;
+  document.querySelectorAll(".int-local").forEach((el) => {
+    const k = el.getAttribute("data-int-local");
+    const it = byKey[k];
+    if (!it) return;
+    const present = !!it.present;
+    el.className = "pill int-local " + (present ? "pill-ok" : "pill-muted");
+    el.textContent = present ? "Local ✓" : "Local ✗";
+  });
+}
+
+// preVps: quando vem preenchido (do snapshot SSE), pinta SEM fetch — o badge "VPS …" morre sozinho, sem
+// clique (D5). undefined → busca no /owner/integrations/vps (⟳, transição de vivacidade, religar).
+async function loadVpsBadges(preVps) {
+  let vps = preVps;
+  if (vps === undefined) { try { vps = await api("GET", "/owner/integrations/vps"); } catch { vps = null; } }
   const ok = !!(vps && vps.ok);
   const items = (ok && vps.items) || {};
+  const reason = (vps && vps.reason) || "";
+  renderVpsIntStatus(ok, reason); // causa VISÍVEL + botão Religar quando ops_caido (S2 Passo 3)
   document.querySelectorAll(".int-vps").forEach((el) => {
     const k = el.getAttribute("data-int");
     const slot = document.querySelector(`.int-inject-slot[data-int="${k}"]`);
     if (!ok) {
-      el.className = "pill pill-muted int-vps"; el.textContent = "VPS —"; el.title = (vps && vps.reason) || "sem leitura da VPS";
+      el.className = "pill pill-muted int-vps"; el.textContent = "VPS —"; el.title = opsReasonText(reason) || "sem leitura da VPS";
       if (slot) slot.innerHTML = "";
       return;
     }
@@ -1697,6 +1806,10 @@ async function loadVpsBadges() {
   });
   document.querySelectorAll(".int-save").forEach((b) => { b.onclick = () => intSave(b.getAttribute("data-int")); });
 }
+// D6: enquanto uma injeção confirma (backend da VPS recriando), o snapshot NÃO repinta os badges de
+// integração (senão resetaria o botão "recriando…" no meio). O poll de confirmação assume o controle.
+let intInjecting = false;
+
 async function intSave(key) {
   const input = document.querySelector(`.int-input[data-int="${key}"]`);
   const btn = document.querySelector(`.int-save[data-int="${key}"]`);
@@ -1705,9 +1818,33 @@ async function intSave(key) {
   if (btn) { btn.disabled = true; btn.textContent = "gravando na VPS…"; }
   try {
     const r = await api("POST", "/owner/integrations/set", { key, value });
-    if (r && r.ok) { if (btn) btn.textContent = "✓ recriando backend…"; setTimeout(loadVpsBadges, 22000); }
+    if (r && r.ok) { if (btn) btn.textContent = "✓ recriando backend…"; confirmVpsKey(key); }
     else if (btn) { btn.disabled = false; btn.textContent = (r && r.reason) || "falhou"; }
   } catch { if (btn) { btn.disabled = false; btn.textContent = "erro"; } }
+}
+
+// D6: antes era um sleep FIXO de 22s → lia no meio do boot do backend da VPS. Agora poll a cada 5s até
+// 90s em /owner/integrations/vps?force=1 (fura o cache): para quando a chave aparece present (badge vira
+// VPS ✓ e o slot limpa sozinho) OU o prazo estoura → "não confirmei — recarregue". Sem loop infinito.
+async function confirmVpsKey(key) {
+  intInjecting = true;
+  const deadline = Date.now() + 90000;
+  try {
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5000));
+      let vps = null;
+      try { vps = await api("GET", "/owner/integrations/vps?force=1"); } catch { vps = null; }
+      if (vps && vps.ok) {
+        const v = vps.items && vps.items[key];
+        if (v && v.present) { loadVpsBadges(vps); return; } // confirmado → repinta tudo com o dado fresco
+      }
+    }
+    // prazo estourou sem a chave aparecer present → devolve o clique com o aviso honesto.
+    const nb = document.querySelector(`.int-save[data-int="${key}"]`);
+    if (nb) { nb.disabled = false; nb.textContent = "não confirmei — recarregue"; }
+  } finally {
+    intInjecting = false;
+  }
 }
 { const ir = $("#btn-int-refresh"); if (ir) ir.addEventListener("click", renderIntegrations); }
 
@@ -2591,7 +2728,7 @@ applyPollRate(true); // começa no ritmo de fallback; o SSE, se conectar, desace
 setInterval(renderMotorStrip, 12000);
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);
-setInterval(pingStatus, 20000);
+setInterval(pingStatus, 10000);          // S2: pílula honesta ≤15s (com o cache 10s do opsAlive, cada poll relê fresco)
 setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
 setInterval(ponteRender, 8000);          // Cérebro 30B · worker da ponte (CHIP E2) — gauge + jobs
@@ -2630,6 +2767,14 @@ function paintSnapshot(snap) {
     if (snap.enricher) enrPaint(snap.enricher);
     // Transferência (se houver estado).
     if (snap.transfer) paintTransferFromEvent(snap.transfer);
+    // Integrações (D5): pinta local + VPS pelo snapshot — o badge "VPS …" morre sozinho, sem clique/fetch.
+    // Só quando o grid já foi montado (renderIntegrations) e fora de uma injeção/religar em curso (esses
+    // fluxos controlam os mesmos badges e não podem ser resetados no meio).
+    const grid = $("#integrations-grid");
+    if (grid && grid.children.length && !intInjecting && !opsRestarting) {
+      if (snap.local && snap.local.integrations) paintLocalIntBadges(snap.local.integrations.items);
+      if (snap.vps && snap.vps.integrations) loadVpsBadges(snap.vps.integrations);
+    }
   } catch (err) {
     console.warn("[sse] paintSnapshot falhou:", err && err.message);
   }

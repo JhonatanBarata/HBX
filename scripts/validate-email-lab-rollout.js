@@ -50,20 +50,11 @@ function runCheck(name, command, args) {
   }
 }
 
-const planningRoot = 'docs/PLANEJAMENTOS/OPS CONTROL - NIGHT SCRAPING';
-for (const step of [
-  '13-contratos-harvest-import.md',
-  '14-vps-api-oficial-lead-harvest.md',
-  '15-local-lab-api-experimental.md',
-  '16-importador-seguro-vps.md',
-  '17-enriquecimento-email-gratis-v2.md',
-  '18-governanca-custo-api-paga.md',
-  '19-observacao-desktop-list-lead-plus.md',
-  '20-ops-control-email-lab.md',
-  '21-rollout-checklist-codex.md',
-]) {
-  addCheck(`planejamento ${step} existe`, exists(`${planningRoot}/${step}`), `${planningRoot}/${step}`);
-}
+// Removido: os checks de existencia dos planejamentos 13-21 de
+// docs/PLANEJAMENTOS/OPS CONTROL - NIGHT SCRAPING/. A pasta inteira foi apagada
+// no commit 8c715291 ("docs: limpa todos os .md obsoletos e cria estrutura Rules
+// por dominio"). Os docs eram obsoletos por decisao explicita, entao afirmar que
+// existem virou referencia morta. A substancia (codigo/flags) continua validada abaixo.
 
 for (const flag of [
   'HBX_LEAD_HARVEST_IMPORT_ENABLED=false',
@@ -94,11 +85,15 @@ includes('ops-control/server.js', "app.post('/api/email-lab/local/jobs'", 'Ops C
 includes('ops-control/server.js', "app.post('/api/email-lab/vps/import'", 'Ops Control importa na VPS');
 excludes('ops-control/server.js', /email-lab\/.*(?:shell|exec|cmd|command)/i, 'Ops Control nao abre shell livre no Email Lab');
 
-includes('frontend/src/app/radar-digital/page.client.tsx', 'HBX Lead Plus', 'Observacao desktop separa Lead Plus');
-includes('frontend/src/app/radar-digital/page.client.tsx', 'HBX List', 'Observacao desktop separa List');
+// Removido: os checks da "Observacao desktop" (HBX Lead Plus / HBX List) liam
+// frontend/src/app/radar-digital/page.client.tsx, apagado no refactor PORTA UNICA
+// (radar migrou para a pagina /leads). Os rotulos "HBX Lead Plus"/"HBX List" nao
+// existem mais em lugar nenhum do frontend, entao nao ha para onde reapontar.
 
 runCheck('node --check ops-control/server.js', 'node', ['--check', 'ops-control/server.js']);
-runCheck('node --check ops-control/public/app.js', 'node', ['--check', 'ops-control/public/app.js']);
+// Removido: node --check em ops-control/public/app.js. O arquivo (e a pasta public/
+// inteira do ops-control) foi removido no commit 2e22a43e (publish 20260617_113544);
+// hoje o ops-control so tem o server.js. Referencia morta.
 runCheck('git diff --check', 'git', ['diff', '--check']);
 
 for (const check of checks) {
