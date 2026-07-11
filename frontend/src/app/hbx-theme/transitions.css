@@ -87,11 +87,26 @@ html.hbx-theme-anim body * {
   transition: background-color 2.2s var(--ease-out-quint),
     color 2.2s var(--ease-out-quint),
     border-color 2.2s var(--ease-out-quint),
-    box-shadow 2.2s var(--ease-out-quint) !important;
+    box-shadow 2.2s var(--ease-out-quint),
+    fill 2.2s var(--ease-out-quint),
+    stroke 2.2s var(--ease-out-quint) !important;
 }
-/* (Os reasserts do login cinematográfico — .login-console/.login-side/.login-fog
-   — morreram com a tela /login no W1/PR10072026; o card embutido da landing não
-   tem transições próprias que a regra global atropele.) */
+
+/* O /front1 antigo cruzava a cena inteira entre claro/escuro. A regra acima
+   suaviza propriedades simples; esta View Transition captura também fundos
+   compostos/gradientes e vidro, que não interpolam e antes "pulavam". Não
+   restaura nenhuma tela antiga: só reaproveita o movimento global existente. */
+html.hbx-theme-anim::view-transition-old(root),
+html.hbx-theme-anim::view-transition-new(root) {
+  animation-duration: 2.2s;
+  animation-timing-function: var(--ease-out-quint);
+  animation-fill-mode: both;
+  mix-blend-mode: normal;
+}
+html.hbx-theme-anim::view-transition-old(root) { animation-name: hbx-theme-old-out; }
+html.hbx-theme-anim::view-transition-new(root) { animation-name: hbx-theme-new-in; }
+@keyframes hbx-theme-old-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes hbx-theme-new-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ---------- SAÍDA de sessão (logout/401 — W1/PR10072026) ----------
    lib/leave.ts põe .hbx-leaving no <html>, espera o fade e faz navegação de

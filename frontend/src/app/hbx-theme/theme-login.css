@@ -4,48 +4,48 @@
    ============================================================ */
 
 [data-theme="login"] {
-  --hbx-brand: #10C7B3; --hbx-brand-strong: #6EF2D8; --hbx-brand-soft: #E7E9EC; --hbx-brand-contrast: #020508;
-  --hbx-primary: #10C7B3; --hbx-secondary: #4A4A4A; --hbx-success: #6EF2D8; --hbx-accent: #6EF2D8;
-  --hbx-info: #10C7B3; --hbx-warning: #6E6E6E; --hbx-danger: #4A4A4A; --hbx-danger-soft: #E7E9EC;
-  --hbx-background: #E7E9EC; --hbx-background-alt: #B7BBC0;
-  --hbx-surface: #F5FBFF; --hbx-surface-soft: #E7E9EC; --hbx-surface-raised: #B7BBC0;
-  --hbx-header-surface: rgba(245,251,255,0.82); --hbx-nav-surface: rgba(231,233,236,0.9);
-  --hbx-field-surface: #F5FBFF; --hbx-table-head: #E7E9EC;
-  --hbx-chat-inbound: #F5FBFF; --hbx-chat-outbound: #E7E9EC; --hbx-chat-system: #B7BBC0;
-  --hbx-foreground: #020508; --hbx-foreground-soft: #4A4A4A; --hbx-muted: #6E6E6E;
-  --hbx-line: #B7BBC0; --hbx-shadow: #020508; --hbx-overlay: rgba(2,5,8,0.34);
-  --border-hairline: #B7BBC0; --border-strong: #6E6E6E; --ring-brand: rgba(16,199,179,0.22);
-  --hbx-action-ink: #020508; --hbx-avatar-from: #10C7B3; --hbx-avatar-to: #6EF2D8;
+  --hbx-brand: #8FCF16; --hbx-brand-strong: #8FCF16; --hbx-brand-soft: #E3E7DC; --hbx-brand-contrast: #121A05;
+  --hbx-primary: #8FCF16; --hbx-secondary: #667064; --hbx-success: #8FCF16; --hbx-accent: #C8FF5A;
+  --hbx-info: #8FCF16; --hbx-warning: #667064; --hbx-danger: #667064; --hbx-danger-soft: #E3E7DC;
+  --hbx-background: #EFF1E9; --hbx-background-alt: #E3E7DC;
+  --hbx-surface: #FBFCF7; --hbx-surface-soft: #EEF1E8; --hbx-surface-raised: #E3E7DC;
+  --hbx-header-surface: rgba(255,255,252,0.76); --hbx-nav-surface: rgba(238,241,232,0.9);
+  --hbx-field-surface: #FBFCF7; --hbx-table-head: #EEF1E8;
+  --hbx-chat-inbound: #FBFCF7; --hbx-chat-outbound: #E3E7DC; --hbx-chat-system: #EEF1E8;
+  --hbx-foreground: #11140F; --hbx-foreground-soft: #667064; --hbx-muted: #667064;
+  --hbx-line: rgba(17,20,15,0.2); --hbx-shadow: #1E261A; --hbx-overlay: rgba(17,20,15,0.35);
+  --border-hairline: rgba(17,20,15,0.11); --border-strong: rgba(17,20,15,0.2); --ring-brand: rgba(143,207,22,0.22);
+  --hbx-action-ink: #121A05; --hbx-avatar-from: #8FCF16; --hbx-avatar-to: #C8FF5A;
   --font-display: "Sora", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --casca-ring-1: #10C7B3; --casca-ring-2: #6EF2D8; --casca-ring-3: #B7BBC0; --casca-ring-4: #6E6E6E; --casca-ring-5: #E7E9EC;
-  --casca-ring-track: rgba(16,199,179,0.12); --casca-ring-glow: rgba(16,199,179,0.35);
+  --casca-ring-1: #8FCF16; --casca-ring-2: #C8FF5A; --casca-ring-3: #A0AAA0; --casca-ring-4: #667064; --casca-ring-5: #F5F8F1;
+  --casca-ring-track: rgba(143,207,22,0.12); --casca-ring-glow: rgba(200,255,90,0.35);
   --casca-mark-1: var(--hbx-foreground); --casca-mark-2: var(--hbx-foreground-soft); --casca-mark-3: var(--hbx-foreground);
   --radius-xs: 8px; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 20px; --radius-xl: 28px;
-  --shadow-xs: 0 10px 22px -16px rgba(2,5,8,0.26); --shadow-sm: 0 18px 42px -22px rgba(2,5,8,0.32);
-  --shadow-md: 0 28px 64px -28px rgba(2,5,8,0.4); --shadow-lg: 0 42px 90px -34px rgba(2,5,8,0.48);
-  --shadow-inset: inset 0 1px 0 rgba(245,251,255,0.72);
+  --shadow-xs: 0 10px 22px -16px rgba(30,38,26,0.18); --shadow-sm: 0 18px 42px -22px rgba(30,38,26,0.24);
+  --shadow-md: 0 28px 64px -28px rgba(30,38,26,0.32); --shadow-lg: 0 42px 90px -34px rgba(30,38,26,0.4);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,252,0.72);
   --blur-chrome: 24px; --blur-glass: 18px;
-  --panel-glow: rgba(16,199,179,0.14); --hero-glow: rgba(110,242,216,0.16); --soft-ring: rgba(16,199,179,0.17);
+  --panel-glow: rgba(143,207,22,0.14); --hero-glow: rgba(200,255,90,0.16); --soft-ring: rgba(143,207,22,0.17);
   --motion-fast: 160ms ease; --motion-base: 320ms cubic-bezier(0.22,1,0.36,1); --motion-slow: 560ms cubic-bezier(0.22,1,0.36,1);
   --ease-out-quint: cubic-bezier(0.22,1,0.36,1);
 }
 
 [data-theme="login"][data-theme-mode="dark"] {
-  --hbx-brand: #6EF2D8; --hbx-brand-strong: #6EF2D8; --hbx-brand-soft: #071724; --hbx-brand-contrast: #020508;
-  --hbx-primary: #10C7B3; --hbx-secondary: #4A4A4A; --hbx-success: #6EF2D8; --hbx-accent: #6EF2D8;
-  --hbx-info: #6EF2D8; --hbx-warning: #B7BBC0; --hbx-danger: #B7BBC0; --hbx-danger-soft: #020508;
-  --hbx-background: #03080D; --hbx-background-alt: #071724;
-  --hbx-surface: #071724; --hbx-surface-soft: #03080D; --hbx-surface-raised: #020508;
-  --hbx-header-surface: rgba(3,8,13,0.8); --hbx-nav-surface: rgba(7,23,36,0.9);
-  --hbx-field-surface: #020508; --hbx-table-head: #071724;
-  --hbx-chat-inbound: #071724; --hbx-chat-outbound: #03080D; --hbx-chat-system: #020508;
-  --hbx-foreground: #F5FBFF; --hbx-foreground-soft: #B7BBC0; --hbx-muted: #8A8A8A;
-  --hbx-line: #4A4A4A; --hbx-shadow: #020508; --hbx-overlay: rgba(2,5,8,0.7);
-  --border-hairline: #4A4A4A; --border-strong: #6E6E6E; --ring-brand: rgba(110,242,216,0.3);
-  --hbx-action-ink: #020508; --hbx-avatar-from: #10C7B3; --hbx-avatar-to: #6EF2D8;
-  --casca-mark-1: #E7E9EC; --casca-mark-2: #B7BBC0; --casca-mark-3: #E7E9EC;
-  --shadow-inset: inset 0 1px 0 rgba(245,251,255,0.07);
+  --hbx-brand: #C8FF5A; --hbx-brand-strong: #C8FF5A; --hbx-brand-soft: #1A201B; --hbx-brand-contrast: #101605;
+  --hbx-primary: #C8FF5A; --hbx-secondary: #A0AAA0; --hbx-success: #C8FF5A; --hbx-accent: #C8FF5A;
+  --hbx-info: #C8FF5A; --hbx-warning: #A0AAA0; --hbx-danger: #A0AAA0; --hbx-danger-soft: #1A201B;
+  --hbx-background: #080A09; --hbx-background-alt: #0F1210;
+  --hbx-surface: #121613; --hbx-surface-soft: #0F1210; --hbx-surface-raised: #1A201B;
+  --hbx-header-surface: rgba(8,10,9,0.8); --hbx-nav-surface: rgba(15,18,16,0.9);
+  --hbx-field-surface: #121613; --hbx-table-head: #0F1210;
+  --hbx-chat-inbound: #121613; --hbx-chat-outbound: #1A201B; --hbx-chat-system: #0F1210;
+  --hbx-foreground: #F5F8F1; --hbx-foreground-soft: #A0AAA0; --hbx-muted: #667064;
+  --hbx-line: rgba(245,248,241,0.2); --hbx-shadow: #000000; --hbx-overlay: rgba(0,0,0,0.7);
+  --border-hairline: rgba(245,248,241,0.11); --border-strong: rgba(245,248,241,0.2); --ring-brand: rgba(200,255,90,0.3);
+  --hbx-action-ink: #101605; --hbx-avatar-from: #C8FF5A; --hbx-avatar-to: #A0AAA0;
+  --casca-mark-1: #F5F8F1; --casca-mark-2: #A0AAA0; --casca-mark-3: #F5F8F1;
+  --shadow-inset: inset 0 1px 0 rgba(245,248,241,0.07);
 }
 
 [data-theme="login"] .glass-pill__glass {

@@ -77,11 +77,40 @@ export function applyThemeForPath(_pathname: string) {
 }
 
 // Troca com cross-fade suave (classe temporária que se remove sozinha).
+type ThemeTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => { finished: Promise<void> };
+};
+
+let themeAnimTimer: number | null = null;
+let themeAnimRun = 0;
+
 export function applyThemeSoft(mutate: () => void) {
   const html = document.documentElement;
+  const run = ++themeAnimRun;
   html.classList.add("hbx-theme-anim");
+  if (themeAnimTimer !== null) window.clearTimeout(themeAnimTimer);
+
+  const finish = () => {
+    if (run !== themeAnimRun) return;
+    themeAnimTimer = window.setTimeout(() => {
+      if (run !== themeAnimRun) return;
+      html.classList.remove("hbx-theme-anim");
+      themeAnimTimer = null;
+    }, 100);
+  };
+
+  const startViewTransition = (document as ThemeTransitionDocument).startViewTransition;
+  if (typeof startViewTransition === "function") {
+    const transition = startViewTransition.call(document, mutate);
+    void transition.finished.then(finish, finish);
+    return;
+  }
+
   mutate();
-  window.setTimeout(() => html.classList.remove("hbx-theme-anim"), 2300);
+  themeAnimTimer = window.setTimeout(() => {
+    html.classList.remove("hbx-theme-anim");
+    themeAnimTimer = null;
+  }, 2300);
 }
 
 // Troca de PELE na mesma tela — nunca navega.
