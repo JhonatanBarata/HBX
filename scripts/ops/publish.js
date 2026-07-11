@@ -137,9 +137,17 @@ function main() {
   }
 
   logStage('Backup de banco (antes do deploy)');
-  // Tolerante por design: se pg_dump/SSH indisponivel, imprime "pulado" e segue.
-  // Falha de backup NUNCA aborta o publish — so registra.
-  createDatabaseBackupIfAvailable();
+  // OPT-IN: o dump completo do prod e' pesado (RFB de 28M + tabelas grandes pesam
+  // dezenas de GB) e enchia o disco local a CADA publish (caso real 11/07: disco 100%).
+  // Por isso o backup automatico so roda com HBX_PUBLISH_BACKUP=1. Alternativa segura:
+  // `node scripts/backup-prod.js` na mao antes de um deploy arriscado. O banco de prod
+  // vive na VPS (fonte da verdade) — o publish nao depende deste dump.
+  if (isTruthy(process.env.HBX_PUBLISH_BACKUP)) {
+    // Tolerante: se pg_dump/SSH indisponivel, imprime "pulado" e segue. Nunca aborta.
+    createDatabaseBackupIfAvailable();
+  } else {
+    console.log('Backup automatico PULADO (opt-in). Ligue com HBX_PUBLISH_BACKUP=1 ou rode scripts/backup-prod.js manualmente.');
+  }
 
   logStage('Deploy Hostinger');
   runStep('node', ['./scripts/deploy-hostinger.js']);
