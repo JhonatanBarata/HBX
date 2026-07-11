@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { clearPlanMeCache, fetchPlanMeCached, peekPlanMeCache, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, getToken } from "@/lib/api";
+import { useHbxShell } from "@/lib/hbx-shell";
 import { logout } from "@/lib/logout";
 
 type GateState = {
@@ -36,6 +37,9 @@ export function BloqueioGate() {
   const pathname = usePathname();
   const router = useRouter();
   const user = useCurrentUser();
+  // MODO-SHELL (Play billing): na casca Android o CTA de recarga/pagamento não
+  // pode existir — anti-steering pega até texto apontando compra. Copy neutra.
+  const shellMode = useHbxShell();
   // Init SÍNCRONO do cache: em navegação client já monta bloqueado, sem flash.
   const [state, setState] = useState<GateState>(() => {
     const cached = peekPlanMeCache();
@@ -94,10 +98,13 @@ export function BloqueioGate() {
     router.push("/configuracoes");
   }
 
-  const kicker = billingView ? "Créditos" : "Acesso";
+  const kicker = billingView && !shellMode ? "Créditos" : "Acesso";
   const title = "Acesso pausado";
+  // No shell, a visão de cobrança vira aviso neutro (sem apontar recarga/compra).
   const body = billingView
-    ? "Recarregue seus créditos para liberar sua operação."
+    ? (shellMode
+      ? "Fale com o suporte para regularizar o acesso."
+      : "Recarregue seus créditos para liberar sua operação.")
     : "O acesso da sua empresa está pausado no momento. Fale com o administrador da empresa para regularizar.";
 
   return (
@@ -115,7 +122,7 @@ export function BloqueioGate() {
               {saindo ? "Saindo…" : "Sair"}
             </button>
             <span className="grow" />
-            {billingView && (
+            {billingView && !shellMode && (
               <button type="button" className="btn-teal" onClick={verCreditos}>
                 Ver créditos →
               </button>

@@ -26,6 +26,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { apiFetch } from "@/lib/api";
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
+import { useHbxShell } from "@/lib/hbx-shell";
 import { IC_CAL, IC_REFRESH, IC_SEARCH, IC_TARGET } from "@/lib/plans";
 
 type CreditLot = {
@@ -127,6 +128,11 @@ const FAQ_ITEMS: Array<{ q: string; a: string }> = [
 ];
 
 export function CreditsWalletSection() {
+  // MODO-SHELL (Play billing): dentro da casca Android NENHUMA superfície de
+  // compra pode aparecer — some a vitrine de packs (preço/CTA) e o CheckoutPanel;
+  // saldo e extrato FICAM (mostrar saldo é permitido; vender não). No navegador
+  // comum nada muda.
+  const shellMode = useHbxShell();
   const [data, setData] = useState<CreditsMeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recarregarMsg, setRecarregarMsg] = useState<string | null>(null);
@@ -229,17 +235,27 @@ export function CreditsWalletSection() {
                 </span>
               )}
             </div>
-            <button
-              className="btn-teal"
-              onClick={() => recargaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            >
-              Recarregar créditos
-            </button>
+            {/* MODO-SHELL: sem CTA de recarga na casca — UMA linha neutra no
+                lugar da vitrine (sem link, sem URL, sem preço). */}
+            {shellMode ? (
+              <span className="sc-note">Recargas pelo site.</span>
+            ) : (
+              <button
+                className="btn-teal"
+                onClick={() => recargaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                Recarregar créditos
+              </button>
+            )}
           </div>
         </div>
       </section>
 
       {/* ── Recarga: pacotes como vitrine ───────────────────────────── */}
+      {/* MODO-SHELL: vitrine (preço/CTA) + CheckoutPanel NUNCA renderizam na
+          casca Android — bem digital só via Play Billing; a linha neutra que
+          substitui a vitrine vive no hero acima. */}
+      {!shellMode && (
       <section className="panel cfg-section" ref={recargaRef}>
         <div className="panel-head">
           <h2>Recarregar</h2>
@@ -315,6 +331,7 @@ export function CreditsWalletSection() {
           )}
         </div>
       </section>
+      )}
 
       {/* ── Como funcionam os créditos ──────────────────────────────── */}
       <section className="panel cfg-section">
