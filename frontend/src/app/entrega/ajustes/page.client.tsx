@@ -130,10 +130,22 @@ export function EntregaAjustes() {
   const [salvo, setSalvo] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   // LEI nº3 (fullscreen) — toggle também em Ajustes, além da oferta ao
-  // "Iniciar rota". Estado local só de exibição (a lib central é a fonte);
-  // lazy init lê o estado real 1x (mesmo padrão de TemaSection, W5), sem
-  // useEffect supérfluo.
-  const [fsAtivo, setFsAtivo] = useState(() => isFullscreenActive());
+  // "Iniciar rota". Estado local só de exibição (a lib central é a fonte).
+  // isFullscreenActive() lê `document.fullscreenElement` → false no SSR, valor
+  // real no cliente; ler DIRETO no lazy init divergia o estado do toggle entre
+  // SSR e 1ª hidratação = erro 418 de hidratação estrutural. Mesmo padrão
+  // SSR-safe do fsSuportado abaixo: inicia false (servidor) e sobe no mount.
+  const [fsAtivo, setFsAtivo] = useState(false);
+  // isFullscreenSupported() lê `document` → false no SSR, true no Chrome; chamá-lo
+  // DIRETO no render inseria o botão "Tela cheia" só no cliente = hydration
+  // mismatch estrutural. Mesmo padrão SSR-safe do InstalarApp (origin): inicia
+  // false (valor do servidor) e faz upgrade no mount.
+  const [fsSuportado, setFsSuportado] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- detecta suporte/estado de fullscreen (lê `document`, indisponível no SSR) 1x no mount; SSR e 1º render batem em false.
+    setFsSuportado(isFullscreenSupported());
+    setFsAtivo(isFullscreenActive());
+  }, []);
   // FIX3 (dono 06/07): "o Rota não compartilha o modo claro/escuro" — este
   // toggle usa a MESMA setThemeMode/subscribeToThemeMode do Mais do
   // dashboard (theme-attributes.tsx), o MESMO data-theme-mode global no
@@ -601,7 +613,7 @@ export function EntregaAjustes() {
           <span className="ent-toggle-label">Modo escuro</span>
           <span className={`ent-switch${escuro ? " is-on" : ""}`} aria-hidden="true" />
         </button>
-        {isFullscreenSupported() ? (
+        {fsSuportado ? (
           <button
             type="button"
             className="ent-toggle"
