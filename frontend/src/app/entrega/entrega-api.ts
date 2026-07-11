@@ -139,6 +139,30 @@ export function iniciarRota(origem?: { lat: number; lng: number }): Promise<Plan
   });
 }
 
+// AVULSA — cria UMA entrega fora da recorrência (cliente novo que pediu na
+// hora / cliente fora do dia). O POST /logistica/entregas já existia no
+// backend (N6) — o app nunca o chamava; o único caminho de criação era o
+// bulk gerar-dia. scheduledAt omitido = HOJE (entra na rota do dia); valor
+// omitido = o serviço resolve (preço do produto > preço padrão do cliente).
+// A entrega nasce com rotaOrdem=null → fim da lista até re-planejar.
+export function criarEntregaAvulsa(p: {
+  customerProfileId: string;
+  productId?: number;
+  quantidade?: number;
+  localId?: string;
+}): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/logistica/entregas`, { method: "POST", body: JSON.stringify(p) });
+}
+
+// AVULSA — re-planeja a rota do dia (mesmo motor NN+2-opt do iniciar; grava
+// rotaOrdem/etaAt no backend). Usado pelo "Recalcular rota" pós-avulsa.
+export function planejarRota(origem?: { lat: number; lng: number }): Promise<PlanejarRotaResult> {
+  return apiFetch<PlanejarRotaResult>(`/logistica/rota/planejar`, {
+    method: "POST",
+    body: JSON.stringify({ origemLat: origem?.lat, origemLng: origem?.lng }),
+  });
+}
+
 export function confirmarEntrega(id: string, payload: ConfirmarPayload) {
   return apiFetch(`/logistica/entregas/${encodeURIComponent(id)}/confirmar`, {
     method: "POST",

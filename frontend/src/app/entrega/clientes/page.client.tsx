@@ -115,8 +115,9 @@ function separarEndereco(
   return { logradouro: rua.trim(), numero, bairro };
 }
 
-/** Máscara de telefone BR formando AO VIVO enquanto digita: "(85) 90000-0000". */
-function fmtTelefone(v: string): string {
+/** Máscara de telefone BR formando AO VIVO enquanto digita: "(85) 90000-0000".
+ *  Exportada: o form "Entrega única" (EntregaAvulsa) usa a MESMA máscara. */
+export function fmtTelefone(v: string): string {
   const d = v.replace(/\D+/g, "").slice(0, 11);
   if (d.length === 0) return "";
   if (d.length <= 2) return `(${d}`;
@@ -544,14 +545,20 @@ function DuplicidadeSheet({
 }
 
 // ── EDITOR (criar / editar) — 1 coluna, app-like ─────────────────────────────
-function ClienteEditor({
+// AVULSA — exportado: o fluxo "Fazer cadastro" da entrega avulsa (EntregaAvulsa,
+// tela Rota) embute ESTE form completo (lazy) em vez de duplicar o cadastro.
+// `onCriado` é opcional: quando presente E foi criação, recebe o contaId no
+// lugar do onSair(true) — o chamador segue pro passo do produto com o id.
+export function ClienteEditor({
   id,
   focus,
   onSair,
+  onCriado,
 }: {
   id: string | null;
   focus?: FocusAlvo;
   onSair: (saved?: boolean) => void;
+  onCriado?: (contaId: string) => void;
 }) {
   const editando = id != null;
   // W4 (PR10072026) — botão "Financeiro" da ficha → detalhe financeiro do
@@ -1037,7 +1044,8 @@ function ClienteEditor({
         await salvarFinanceiro(contaId, financeiro);
       }
 
-      onSair(true);
+      if (!editando && contaId && onCriado) onCriado(contaId);
+      else onSair(true);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Falha ao salvar");
       setSalvando(false);
@@ -1045,7 +1053,7 @@ function ClienteEditor({
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId, localPrincipalId,
     comporEndereco, numero, bairro, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
-    limiteFiado, produtos, onSair,
+    limiteFiado, produtos, onSair, onCriado,
   ]);
 
   if (carregando) {

@@ -9,6 +9,7 @@ import { CascaLoading, toggleCascaFullscreen } from "@/components/casca";
 import { getToken } from "@/lib/api";
 
 import { ArrivalSheet } from "./ArrivalSheet";
+import { EntregaAvulsa, type AvulsaAcao } from "./EntregaAvulsa";
 import { EntregaScaffold } from "./EntregaScaffold";
 import { GestaoDia } from "./GestaoDia";
 import { I, ICON_PATHS } from "./icons";
@@ -165,6 +166,8 @@ export function EntregaHome() {
   // ROTA-AUTOPILOT F4 — confirmação bloqueante quando o GPS não bate com o
   // endereço cadastrado; a Promise segura o onEntregue até Sim/Não.
   const [gpsAviso, setGpsAviso] = useState<{ resolve: (ok: boolean) => void } | null>(null);
+  // AVULSA — o "+" da Rota (entrega que surgiu na hora, fora da recorrência).
+  const [avulsaAberta, setAvulsaAberta] = useState(false);
   // M9 — onboarding do 1º acesso (3 telas visuais). HIDRATAÇÃO (fix React 418): o
   // init NÃO pode ler o cliente (jaViuOnboarding lê localStorage). Com lazy init o
   // server renderizava o scaffold e o 1º render do client renderizava
@@ -603,6 +606,34 @@ export function EntregaHome() {
     [abertas.length, carregar, paradaAtual],
   );
 
+  // AVULSA — pós-criação: recarrega a rota e, em "Entregar agora", posiciona o
+  // carrossel NA entrega nova (as demais paradas viram as próximas — é a
+  // "pausa" pedida; nada muda de status no servidor). Usa a MESMA guarda de
+  // sequência do carregar() (duas recargas em voo → a velha é descartada).
+  // O shell nativo re-sincroniza sozinho: o efeito [view, abertas] re-empurra
+  // a rota inteira via shellSetRota quando a lista muda.
+  const aoCriarAvulsa = useCallback(
+    async (entregaId: string, acao: AvulsaAcao) => {
+      const minhaSeq = ++carregarSeqRef.current;
+      try {
+        const r = await getRota();
+        if (carregarSeqRef.current !== minhaSeq) return;
+        setRota(r);
+        if (acao === "agora") {
+          const novas = paradasAbertas(r).filter((p) => !sync.entregaIdsPendentes.has(p.id));
+          const idx = novas.findIndex((p) => p.id === entregaId);
+          if (idx >= 0) {
+            setIndice(idx);
+            setView("rota");
+          }
+        }
+      } catch {
+        await carregar().catch(() => {});
+      }
+    },
+    [carregar, sync.entregaIdsPendentes],
+  );
+
   // ── RENDER ─────────────────────────────────────────────────────────────────
   // M9 — 1º acesso: cobre a tela com o onboarding de 3 telas até "Começar".
   if (onboarding) {
@@ -779,6 +810,25 @@ export function EntregaHome() {
           </div>
         </EntregaOverlayPortal>
       ) : null}
+
+      {/* AVULSA — FAB "+" (canto inferior direito, acima da tab bar). Portal
+          pro body: fixed dentro do .casca-stage (transform) ancoraria no stage
+          e deslizaria no swipe — mesmo motivo dos overlays acima. z-index 30 <
+          véu (40): sheet aberto cobre o FAB. Some no loading (sem rota ainda). */}
+      {!loading ? (
+        <EntregaOverlayPortal>
+          <button type="button" className="ent-fab" aria-label="Entrega avulsa" onClick={() => setAvulsaAberta(true)}>
+            ＋
+          </button>
+        </EntregaOverlayPortal>
+      ) : null}
+      <EntregaAvulsa
+        open={avulsaAberta}
+        onClose={() => setAvulsaAberta(false)}
+        rotaAtiva={view === "rota" && abertas.length > 0}
+        abertasCount={abertas.length}
+        onCriada={aoCriarAvulsa}
+      />
 
       {/* ROTA-AUTOPILOT F4 — GPS longe do endereço combinado: confirmação
           bloqueante (mesmo padrão visual do countdown), Sim/Não seguram o

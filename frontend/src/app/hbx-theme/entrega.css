@@ -471,6 +471,83 @@
 }
 
 /* ============================================================
+   AVULSA — FAB "+" na Rota + fluxo "Entrega avulsa" (EntregaAvulsa.tsx).
+   Reusa .ent-btn/.ent-chips/.ent-input/.ent-row/.ent-field/.ent-sheet-actions;
+   aqui só o que é NOVO. FAB portala pro body (data-skin espelhado no <html>
+   pelo EntregaSkinGate — mesmo esquema dos overlays do autopilot).
+   ============================================================ */
+[data-skin="entrega"] .ent-fab {
+  position: fixed;
+  right: calc(var(--ent-4) + var(--ent-safe-right));
+  bottom: calc(var(--casca-tabbar-h, 56px) + var(--casca-safe-bottom, 0px) + var(--ent-4));
+  width: 56px;
+  height: 56px;
+  border-radius: var(--ent-radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--ent-brand), var(--ent-accent));
+  color: var(--ent-on-brand);
+  box-shadow: var(--ent-shadow);
+  z-index: 30;
+  transition: transform var(--ent-motion-fast), box-shadow var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-fab:active { transform: scale(0.92); }
+
+[data-skin="entrega"] .ent-avulsa-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-avulsa-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ent-3);
+  max-height: 44vh;
+  overflow-y: auto;
+}
+/* Linha clicável (cliente/produto) — base .ent-row; is-sel = escolhido. */
+[data-skin="entrega"] .ent-row--btn {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+[data-skin="entrega"] .ent-row--btn.is-sel {
+  border-color: var(--ent-brand);
+  background: var(--ent-brand-soft);
+}
+[data-skin="entrega"] .ent-avulsa-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ent-4);
+}
+[data-skin="entrega"] .ent-avulsa-qtd {
+  font-size: var(--ent-title);
+  min-width: 40%;
+  text-align: center;
+}
+[data-skin="entrega"] .ent-avulsa-qtd b {
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-num);
+}
+[data-skin="entrega"] .ent-avulsa-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ent-3);
+}
+[data-skin="entrega"] .ent-avulsa-grid2--uf {
+  grid-template-columns: 1fr 72px;
+}
+
+/* ============================================================
    M4 — AS 3 TELAS REAIS (Hoje / Rota c/ swipe / Chegada c/ stepper)
    Componentes adicionais do Design System Entrega. Toda cor/forma/sombra
    vive AQUI (Lei); o TSX só usa estas classes .ent-*.
