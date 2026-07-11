@@ -57,6 +57,21 @@ type ApiReply = {
 
 type Msg = { dir: "in" | "out"; text: string };
 
+// Semente vinda do cockpit do lead ("Buscar parecidos" — LEAD-COCKPIT). Monta a
+// frase natural do que o dono quer buscar a partir do segmento/cidade do lead.
+// Cidade sai como "Cidade - UF" (mesmo formato do próprio Concierge). Campo
+// faltando → adapta; tudo vazio → "" (o chamador ignora o seed).
+function buildConciergeSeedPhrase(seed: { targetSegment?: string; city?: string; state?: string } | null | undefined): string {
+  const seg = String(seed?.targetSegment || "").trim();
+  const city = String(seed?.city || "").trim();
+  const uf = String(seed?.state || "").trim();
+  const local = city ? `${city}${uf ? ` - ${uf}` : ""}` : "";
+  if (seg && local) return `Quero mais empresas de ${seg} em ${local}`;
+  if (seg) return `Quero mais empresas de ${seg}`;
+  if (local) return `Quero mais empresas em ${local}`;
+  return "";
+}
+
 export function ConciergeClient() {
   const [loading, setLoading] = useState(true);
   const [disabled, setDisabled] = useState(false);
@@ -92,11 +107,13 @@ export function ConciergeClient() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      let baseDraft: Draft | null = null;
       try {
         const res = await apiFetch<ApiReply>("/concierge");
         if (!alive) return;
         if (res?.code === "feature_disabled") { setDisabled(true); return; }
         if (res?.draft) {
+          baseDraft = res.draft;
           setDraft(res.draft);
           const restored: Msg[] = (res.draft.transcript || []).map((t) => ({ dir: t.role === "user" ? "out" : "in", text: t.content }));
           setMsgs(restored);
@@ -111,9 +128,39 @@ export function ConciergeClient() {
       } finally {
         if (alive) setLoading(false);
       }
+
+      // Semente do cockpit ("Buscar parecidos" — LEAD-COCKPIT). Chave single-use:
+      // sempre consome (remove) numa visita ao Concierge. Só semeia quando NÃO há
+      // conversa em andamento (draft com transcript) — nunca atropela. Semeadura =
+      // UMA mensagem pelo caminho normal (POST /concierge/message); NÃO dispara
+      // busca (a busca só sai no Confirmar). Fail-soft: erro → dica pra digitar.
+      if (!alive) return;
+      let seedText = "";
+      try {
+        const raw = sessionStorage.getItem("hbx:concierge-seed");
+        if (raw) {
+          sessionStorage.removeItem("hbx:concierge-seed");
+          seedText = buildConciergeSeedPhrase(JSON.parse(raw));
+        }
+      } catch { seedText = ""; }
+      const hasActiveConvo = Boolean(baseDraft && (baseDraft.transcript?.length || 0) > 0);
+      if (!seedText || hasActiveConvo) return;
+      setMsgs((prev) => [...prev, { dir: "out", text: seedText }]);
+      setBusy(true);
+      try {
+        const seeded = await apiFetch<ApiReply>("/concierge/message", {
+          method: "POST",
+          body: JSON.stringify({ draftId: baseDraft?.id, message: seedText }),
+        });
+        if (alive) applyReply(seeded);
+      } catch (e) {
+        if (alive) setMsgs((prev) => [...prev, { dir: "in", text: e instanceof Error ? e.message : "Não consegui iniciar a partir do lead. Digite abaixo o que procura." }]);
+      } finally {
+        if (alive) setBusy(false);
+      }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [applyReply]);
 
   // Poll do resultado quando há busca disparada.
   useEffect(() => {

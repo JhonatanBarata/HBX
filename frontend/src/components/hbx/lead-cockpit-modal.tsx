@@ -25,10 +25,11 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, WhatsAppMark, useEntitlements } from "@/components/hbx/shell";
+import { Av, I, ICONS, WhatsAppMark, useCurrentUser, useEntitlements, useMyModules, isModuleVisible } from "@/components/hbx/shell";
 import { AgendaLeadPanel, ConversationPanel, LockGate, humanize } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
+import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
 import { apiFetch } from "@/lib/api";
 import { formatBrPhone, onlyDigits } from "@/lib/br-phone";
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
@@ -191,8 +192,14 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
 }) {
   const router = useRouter();
   const ent = useEntitlements();
+  const user = useCurrentUser();
+  const mods = useMyModules();
   // Mesmo default do DetalhesNegocio: enquanto não carrega assume liberado.
   const canIntel = !ent.loaded || ent.canSeeLeadIntelligence;
+  // Atalho "Buscar parecidos" (Concierge): fail-closed por módulo (Lei do
+  // FRONTEND.md — módulo sem acesso some da navegação, nunca aparece e barra no
+  // clique). Só entra no header quando /modules/me afirma accessible:true.
+  const conciergeVisible = isModuleVisible("concierge", ent, user, mods);
 
   const [tab, setTab] = useState<Guia>("atendimento");
   const guias: Array<{ key: Guia; label: string; icon: string[] }> = canViewValues
@@ -233,6 +240,17 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
   const [cnpjCopied, setCnpjCopied] = useState(false);
   const [tplCopied, setTplCopied] = useState(false);
 
+  // Copiloto do lead (ADENDO LEAD-COCKPIT) — flag do backend (fail-closed: erro/
+  // ausente/false → o painel nem monta, igual /leads/[id]).
+  const [copilotoEnabled, setCopilotoEnabled] = useState(false);
+  // Rascunho do Copiloto → campo de digitação do ConversationPanel (só PREENCHE,
+  // nunca envia). `seq` muda a cada rascunho pra re-disparar o efeito no painel.
+  const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
+  // Anotações salvas nesta sessão (resumo/próxima ação do Copiloto). O modal é
+  // remontado por lead (key={sel.id} no board) → começa vazio e nunca vaza entre
+  // cards; a timeline exibida = as novas + as que vieram no card.
+  const [addedNotes, setAddedNotes] = useState<NonNullable<VendasLead["timeline"]>>([]);
+
   // Esc fecha (veil e ✕ também fecham — padrão do overlay central).
   useEffect(() => {
     if (!open) return;
@@ -256,6 +274,10 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
     apiFetch<{ enabled?: boolean; ready?: boolean }>("/company-email/status")
       .then(res => { if (alive) setEmailReady(res?.ready === true); })
       .catch(() => { if (alive) setEmailReady(false); });
+    // Flag do Copiloto (fail-closed: erro/ausente → painel some).
+    apiFetch<{ ok?: boolean; enabled?: boolean }>("/assistente/copiloto")
+      .then(res => { if (alive) setCopilotoEnabled(res?.enabled === true); })
+      .catch(() => { if (alive) setCopilotoEnabled(false); });
     return () => { alive = false; };
   }, [open, lead.id]);
 
@@ -354,6 +376,48 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
     }
   }
 
+  // Copiloto → rascunho: preenche o campo de digitação do WhatsApp (o painel já
+  // está na guia Atendimento em vista). NUNCA envia — o humano aperta enviar.
+  const handleCopilotoDraft = useCallback((text: string) => {
+    setDraftSignal((cur) => ({ text, seq: cur.seq + 1 }));
+  }, []);
+
+  // Copiloto → salvar resumo / próxima ação como anotação neutra (W3).
+  // POST /vendas/lead/:leadId/note → { ok, event }; prepende o evento na timeline
+  // local (a guia Cadastro mostra na hora, sem refetch do card). Erro sobe pro
+  // CopilotoPanel, que exibe "Não consegui salvar." (fail-soft).
+  const handleSaveNote = useCallback(async (text: string) => {
+    const res = await apiFetch<{ ok?: boolean; event?: {
+      id: string; eventType?: string | null; title?: string | null; description?: string | null; createdAt?: string | null;
+    } }>(`/vendas/lead/${encodeURIComponent(lead.id)}/note`, {
+      method: "POST",
+      body: JSON.stringify({ note: text }),
+    });
+    const ev = res?.event;
+    if (ev?.id) {
+      setAddedNotes((cur) => [{
+        id: ev.id,
+        eventType: ev.eventType ?? "note",
+        title: ev.title ?? "Anotação",
+        description: ev.description ?? text,
+        createdAt: ev.createdAt ?? new Date().toISOString(),
+      }, ...cur]);
+    }
+  }, [lead.id]);
+
+  // Atalho Concierge — semeia o segmento/cidade do lead e leva pra /concierge.
+  // Só grava a semente + navega; a busca só dispara no Confirmar do Concierge.
+  const buscarParecidos = useCallback(() => {
+    try {
+      sessionStorage.setItem("hbx:concierge-seed", JSON.stringify({
+        targetSegment: lead.segment || "",
+        city: lead.city || "",
+        state: lead.state || "",
+      }));
+    } catch { /* sem storage — segue pra tela mesmo assim */ }
+    router.push("/concierge");
+  }, [lead.segment, lead.city, lead.state, router]);
+
   // ── Dados derivados ───────────────────────────────────────────────────────
 
   const cityUf = lead.city ? `${lead.city}${lead.state ? "/" + lead.state : ""}` : null;
@@ -390,7 +454,21 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
     .filter((e, i, a) => a.indexOf(e) === i);
   const waMap = lead.phonesWhatsapp || {};
 
-  const historico = (lead.timeline || []).slice(0, 8);
+  const historico = [...addedNotes, ...(lead.timeline || [])].slice(0, 8);
+
+  // Ficha do Copiloto: preferir a RFB rica (endpoint /cockpit) quando houver
+  // match; senão, cair no que o card já traz. Segmento/cidade/UF são sempre do
+  // lead (o endpoint não os devolve).
+  const copilotoFicha: CopilotoFicha = {
+    nome: lead.name,
+    razaoSocial: (company?.found && company?.razaoSocial) || lead.razaoSocial || null,
+    cnpj: (company?.found && company?.cnpj) || lead.cnpj || null,
+    cnae: (company?.found && company?.cnae) || lead.cnae || null,
+    segmento: lead.segment,
+    cidade: lead.city,
+    uf: lead.state,
+    situacao: (company?.found && company?.situacao) || lead.companySituation || null,
+  };
 
   if (!open) return null;
 
@@ -401,6 +479,15 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
       <div className="lead-cockpit__grid">
         <div className="lead-cockpit__col">
           <section className="lead-cockpit__box">
+            {copilotoEnabled && (
+              <CopilotoPanel
+                phone={lead.phone || null}
+                name={lead.name}
+                ficha={copilotoFicha}
+                onDraft={handleCopilotoDraft}
+                onSaveNote={handleSaveNote}
+              />
+            )}
             <h4 className="lead-cockpit__box-title"><I d={ICONS.msg} size={12} /> WhatsApp</h4>
             {!lead.phone ? (
               <p className="muted-note">Lead sem telefone.</p>
@@ -412,7 +499,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
                 </button>
               </div>
             ) : waOk === true ? (
-              <ConversationPanel key={lead.phone} phone={lead.phone} name={lead.name} />
+              <ConversationPanel key={lead.phone} phone={lead.phone} name={lead.name} draftSignal={draftSignal} />
             ) : (
               <p className="muted-note">Verificando conexão…</p>
             )}
@@ -820,6 +907,11 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
               {cnpjShown && (
                 <button type="button" className="btn-ghost btn-xs" onClick={copiarCnpj}>
                   <I d={cnpjCopied ? ICONS.check : ICONS.doc} size={13} /> {cnpjCopied ? "Copiado" : "Copiar CNPJ"}
+                </button>
+              )}
+              {conciergeVisible && (
+                <button type="button" className="btn-ghost btn-xs" onClick={buscarParecidos} title="Achar mais empresas parecidas com o Concierge IA">
+                  <I d={ICONS.concierge} size={13} /> Buscar parecidos
                 </button>
               )}
               <button type="button" className="lead-cockpit__close" onClick={onClose} aria-label="Fechar cockpit">✕</button>

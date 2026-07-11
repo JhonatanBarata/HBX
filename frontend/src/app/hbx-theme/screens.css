@@ -1314,6 +1314,9 @@ html, body { height: 100%; }
 .lead-cockpit__box { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); min-width: 0; }
 .lead-cockpit__box-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
 .lead-cockpit__box .muted-note { margin: 0; }
+/* Copiloto embutido no topo do box de WhatsApp: a caixa já dá o padding lateral;
+   aqui só ajusto o espaçamento e mantenho a hairline como divisória pro painel. */
+.lead-cockpit__box .copiloto { padding: 0 0 10px; }
 .lead-cockpit__noconn { display: grid; gap: 10px; justify-items: start; }
 .lead-cockpit__noconn .hint { margin: 0; }
 .lead-cockpit__copy { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
