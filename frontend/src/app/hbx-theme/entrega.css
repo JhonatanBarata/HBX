@@ -2023,3 +2023,82 @@
   color: var(--ent-ink);
 }
 [data-skin="entrega"] .ent-dup .ent-erro { grid-column: 1 / -1; }
+
+/* ============================================================
+   VOZ-ENTREGUE (PR09072026) — indicador/toggle de escuta na folha de
+   chegada (ArrivalSheet). Ícone pequeno redondo perto do "Entregue";
+   pulsa (glow em anel, some sozinho com prefers-reduced-motion — a regra
+   global já cobre) enquanto o reconhecimento está de fato ouvindo. Só
+   tokens --ent-* (zero hex/inline — Lei nº1/nº5 FRONTEND.md).
+   ============================================================ */
+[data-skin="entrega"] .ent-voz {
+  align-self: center;
+  flex: 0 0 auto;
+  width: var(--ent-tap);
+  height: var(--ent-tap);
+  display: grid;
+  place-items: center;
+  border-radius: var(--ent-radius-pill);
+  border: 1px solid var(--ent-line-strong);
+  background: var(--ent-surface);
+  color: var(--ent-ink-muted);
+  cursor: pointer;
+  transition: transform var(--ent-motion-fast), background var(--ent-motion-fast), color var(--ent-motion-fast);
+}
+[data-skin="entrega"] .ent-voz:active { transform: scale(0.92); }
+[data-skin="entrega"] .ent-voz[disabled] { opacity: 0.5; cursor: default; }
+[data-skin="entrega"] .ent-voz.is-on {
+  color: var(--ent-on-brand);
+  background: linear-gradient(135deg, var(--ent-brand), var(--ent-accent));
+  border-color: transparent;
+  animation: ent-voz-pulso 1.4s ease-in-out infinite;
+}
+@keyframes ent-voz-pulso {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ent-brand) 45%, transparent); }
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ent-brand) 0%, transparent); }
+}
+
+/* ============================================================
+   W4 (PR10072026) - de-HBX so-logistica + tela Financeiro
+   ============================================================ */
+/* Nome da EMPRESA no topo (no lugar da marca HBX viva) quando o tenant
+   so tem logistica. Mesmo posicionamento central da marca; tipografia e
+   cor 100% dos tokens da pele. O toque atravessa (como na marca). */
+[data-skin="entrega"] .ent-top-empresa {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-title);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ent-ink);
+  pointer-events: none;
+}
+
+/* Valor devido na linha da lista "quem me deve" (tela Financeiro). */
+[data-skin="entrega"] .ent-fin-valor {
+  flex: 0 0 auto;
+  font-family: var(--ent-font-num);
+  font-size: var(--ent-text);
+  font-weight: 800;
+  color: var(--ent-ink);
+}
+
+/* Desfecho do aviso WhatsApp na linha da entrega (check/x/traco). */
+[data-skin="entrega"] .ent-fin-wa {
+  font-size: var(--ent-text-xs);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ent-ink-muted);
+}
+[data-skin="entrega"] .ent-fin-wa.is-ok { color: var(--ent-success); }
+[data-skin="entrega"] .ent-fin-wa.is-falha { color: var(--ent-danger); }
+
+/* "Marcar pago" dentro da linha de cobranca respira do texto acima. */
+[data-skin="entrega"] .ent-extrato-row .ent-chip { margin-top: var(--ent-1); }

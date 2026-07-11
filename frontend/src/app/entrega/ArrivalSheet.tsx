@@ -23,7 +23,9 @@ import { listProdutos, type ProdutoOption } from "./clientes-api";
 import type { ReceiptMethod, RotaItem, RotaPix } from "./entrega-api";
 import { buzz } from "./entrega-hooks";
 import { fmtMoney } from "./gestao-api";
+import { I, ICON_PATHS } from "./icons";
 import { pixBrCode } from "./pix-brcode";
+import { useVozComando } from "./voz";
 
 interface Props {
   /** MOBILE-CASCA/W6 — abre/fecha pela API central (CascaSheet), nunca seco. */
@@ -36,6 +38,12 @@ interface Props {
    * automática); o "Cheguei" manual passa false/undefined. Mostra o rótulo
    * "Você chegou no endereço" acima do nome do cliente. */
   chegouPeloGps?: boolean;
+  /** VOZ-ENTREGUE — trava externa opcional do reconhecimento de voz (default
+   * undefined = liga; some frente futura, ex. casca APK/SHELL-MIC, pode
+   * desarmar de fora). O caller de hoje (page.client) não passa nada — o
+   * comportamento padrão já arma sozinho enquanto a folha está aberta e fora
+   * do sub-fluxo "não entregue". */
+  vozAtiva?: boolean;
   onEntregue: (payload: {
     itens: Array<{ id: string; qtdEntregue: number }>;
     // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd;
@@ -135,6 +143,7 @@ export function ArrivalSheet({
   moduloFinanceiroAtivo,
   pix,
   chegouPeloGps,
+  vozAtiva,
   onEntregue,
   onNaoEntregue,
   onClose,
@@ -156,6 +165,7 @@ export function ArrivalSheet({
           moduloFinanceiroAtivo={moduloFinanceiroAtivo}
           pix={pix}
           chegouPeloGps={chegouPeloGps}
+          vozAtiva={vozAtiva}
           onEntregue={onEntregue}
           onNaoEntregue={onNaoEntregue}
           submitting={submitting}
@@ -170,6 +180,7 @@ function ArrivalSheetBody({
   moduloFinanceiroAtivo,
   pix,
   chegouPeloGps,
+  vozAtiva,
   onEntregue,
   onNaoEntregue,
   submitting,
@@ -178,6 +189,7 @@ function ArrivalSheetBody({
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
   chegouPeloGps?: boolean;
+  vozAtiva?: boolean;
   onEntregue: (payload: {
     itens: Array<{ id: string; qtdEntregue: number }>;
     // F2 (08/07) — produtos NOVOS incluídos/trocados na chegada (productId + qtd;
@@ -193,6 +205,8 @@ function ArrivalSheetBody({
   const [motivo, setMotivo] = useState<MotivoNaoEntregue | null>(null);
   const [naoEntregueAberto, setNaoEntregueAberto] = useState(false);
   const [qrAberto, setQrAberto] = useState(false);
+  // VOZ-ENTREGUE — toggle do ícone de mic (tocar silencia o motorista se quiser).
+  const [vozLigada, setVozLigada] = useState(true);
   const receiptPill = useGlassPill<HTMLButtonElement>(receipt);
   const motivoPill = useGlassPill<HTMLButtonElement>(motivo);
 
@@ -312,6 +326,19 @@ function ArrivalSheetBody({
       receiptMethod: chipsVisiveis && receipt ? receipt : undefined,
     });
   };
+
+  // VOZ-ENTREGUE — "entregue"/"confirmar"/"confirma" chama o MESMO
+  // confirmarEntregue do botão (mantém a checagem de GPS que já existe no
+  // page); "não entregue" abre o mesmo sub-fluxo de motivo do botão ghost.
+  // vozArmada combina os 3 gates: trava externa opcional (vozAtiva), sub-
+  // fluxo atual (nunca escuta durante "Por quê?") e o toggle do ícone
+  // (vozLigada) — sem os 3, tocar no ícone pra silenciar não faria nada.
+  const vozArmada = (vozAtiva ?? true) && !naoEntregueAberto && vozLigada;
+  const { suportado: vozSuportada, ouvindo: vozOuvindo } = useVozComando({
+    ativo: vozArmada,
+    onEntregue: confirmarEntregue,
+    onNaoEntregue: () => setNaoEntregueAberto(true),
+  });
 
   return (
     <>
@@ -463,6 +490,21 @@ function ArrivalSheetBody({
           ) : null}
 
           <div className="ent-sheet-actions">
+            {/* VOZ-ENTREGUE — indicador/toggle de escuta, perto do "Entregue".
+                Some por completo sem suporte no navegador (feature-detected,
+                zero mudança nesse caso). Tocar liga/desliga (vozLigada). */}
+            {vozSuportada ? (
+              <button
+                type="button"
+                className={`ent-voz${vozOuvindo ? " is-on" : ""}`}
+                onClick={() => setVozLigada((v) => !v)}
+                aria-pressed={vozLigada}
+                aria-label={vozLigada ? "Desligar confirmação por voz" : "Ligar confirmação por voz"}
+                disabled={submitting}
+              >
+                <I d={ICON_PATHS.mic} size={18} />
+              </button>
+            ) : null}
             <button
               type="button"
               className="ent-btn ent-btn--primary"

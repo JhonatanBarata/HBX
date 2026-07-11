@@ -34,6 +34,18 @@ export const ICON_PATHS = {
   // MOBILE-CASCA/W6 — a marca HBX (duplo-chevron », mesmo traço do
   // CascaLoading/shell.tsx) usada SÓ no item "voltar pro HBX" da tab bar.
   hbx: ["M4 6l6 6-6 6", "M11 6l6 6-6 6"],
+  // W4 (PR10072026) — aba "Financeiro" (cifrão, mesma família de traço 1.8).
+  financeiro: [
+    "M12 2v20",
+    "M17 5.5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+  ],
+  // VOZ-ENTREGUE — microfone (indicador/toggle de escuta na folha de chegada).
+  mic: [
+    "M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z",
+    "M19 10v2a7 7 0 0 1-14 0v-2",
+    "M12 19v4",
+    "M8 23h8",
+  ],
 } as const;
 
 export function I({ d, size = 24 }: { d?: readonly string[]; size?: number }): React.JSX.Element {
