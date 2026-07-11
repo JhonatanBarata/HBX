@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import React from "react";
 
 import { Sidebar, Topbar, toggleRailState, useRailState } from "@/components/hbx/shell";
+import { SoLogisticaGate } from "@/components/hbx/so-logistica-gate";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 import { ConquistaHost } from "@/components/hbx/conquista-host";
@@ -29,6 +30,9 @@ function crumb(last: string, mid?: string): React.ReactNode {
 // De-para rota → identidade da tela (espelha o que cada page passava ao Topbar).
 const META: Record<string, Meta> = {
   "/dashboard": { active: "dash", title: "Dashboard", crumbs: crumb("Dashboard") },
+  // FINANCEIRO-UNIVERSAL: sem esta linha a rota caía no fallback title:"HBX"
+  // (topo mudo e pill da sidebar apagada) — vazava "HBX" até no modo distribuidora.
+  "/financeiro": { active: "financeiro", title: "Financeiro", crumbs: crumb("Financeiro") },
   // 2 lugares, não 3 ilhas (27/06): VENDAS = funil (caçar+fechar numa tela só, o
   // Radar é a boca dele) e CONVERSAS = a caixa de WhatsApp. /leads é a boca do funil
   // ("Buscar empresas"), acessada de dentro de Vendas — não é mais irmã no menu.
@@ -86,7 +90,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
         <div className="main">
           <Topbar title={meta.title} crumbs={meta.crumbs} />
-          <div className="app-page" key={pathname}>{children}</div>
+          {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
+              /dashboard e rota de módulo desligado voltam pro /entrega; rotas
+              neutras ganham título de documento = nome da empresa. Fica FORA
+              do key=pathname (gate persistente, sem remontar por navegação). */}
+          <SoLogisticaGate>
+            <div className="app-page" key={pathname}>{children}</div>
+          </SoLogisticaGate>
         </div>
         {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
             módulos; portala pro <body> e só aparece quando a store está ligada. */}

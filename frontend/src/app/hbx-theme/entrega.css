@@ -2278,3 +2278,28 @@
   padding: 0 var(--ent-3);
   font-size: var(--ent-text-sm);
 }
+
+/* ============================================================
+   S1 MODO DISTRIBUIDORA (11/07) — /entrega em VIEWPORT LARGA (desktop).
+   Empresa só-logística usa o /entrega como sistema principal também no
+   computador: sem isto as listas viravam faixa mobile esticada de borda a
+   borda. As três faixas da casca (topo/palco/tab bar) e as camadas
+   portaladas (sheet/stack — enxergadas via [data-skin] espelhado no <html>
+   pelo EntregaSkinGate) travam numa coluna central confortável. Só layout,
+   escopado na skin — zero efeito nas peles/casca central (que nem monta
+   em desktop); breakpoint = o mesmo CASCA_BP 768 do app.
+   ============================================================ */
+[data-skin="entrega"] {
+  --ent-desktop-max: 560px;
+}
+@media (min-width: 768px) {
+  [data-skin="entrega"] .casca-top,
+  [data-skin="entrega"] .casca-stage,
+  [data-skin="entrega"] .casca-tabbar,
+  [data-skin="entrega"] .casca-sheet,
+  [data-skin="entrega"] .casca-stack-layer > .casca-view {
+    width: 100%;
+    max-width: var(--ent-desktop-max);
+    margin-inline: auto;
+  }
+}

@@ -652,9 +652,13 @@ export function EntregaAjustes() {
         <div className="ent-field-label ent-section">Instalar o app</div>
         <InstalarApp />
 
-        {/* ── W4 — só-logística: a volta pro HBX que saiu da tab bar. ──── */}
+        {/* ── W4 — só-logística: a volta pro HBX que saiu da tab bar. ────
+            S1 MODO DISTRIBUIDORA: o destino é rota NEUTRA (/empresas) — o
+            /dashboard agora redireciona de volta pro /entrega no modo
+            (desktop via SoLogisticaGate, mobile via mobile-shell), o que
+            matava este escape em loop. */}
         {soLog ? (
-          <Link href="/dashboard" className="ent-btn ent-btn--ghost">
+          <Link href="/empresas" className="ent-btn ent-btn--ghost">
             Abrir o HBX completo
           </Link>
         ) : null}

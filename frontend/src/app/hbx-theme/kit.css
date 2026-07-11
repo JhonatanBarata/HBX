@@ -76,6 +76,11 @@ html, body { margin: 0; }
    posição em vez de piscar — site → login → sistema parece a mesma página. */
 .logo { display: flex; align-items: center; gap: 8px; padding: 0; view-transition-name: hbx-brand; }
 .logo strong { display: inline-block; max-width: 80px; overflow: hidden; white-space: nowrap; font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); transition: max-width var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
+/* S1 MODO DISTRIBUIDORA: marca da sidebar = NOME DA EMPRESA quando o tenant é
+   só-logística (de-HBX) — precisa de mais que os 80px do "HBX" e corta com
+   reticências. O rail colapsado segue zerando (a regra [data-rail="min"] acima
+   ganha na especificidade). */
+.logo--empresa strong { max-width: 156px; text-overflow: ellipsis; }
 /* Rótulo de guia/seção do menu (pedido do dono 07/07 — agrupar módulos por
    intenção: Informações/Comunicação/Cadastros/Facilidades/Logística).
    Estrutural só: tamanho+espaçamento próprios, cor vem de --text-muted (mesmo

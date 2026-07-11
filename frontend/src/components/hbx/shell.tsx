@@ -17,6 +17,7 @@ import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
 import { logout } from "@/lib/logout";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
+import { soLogistica } from "@/lib/so-logistica";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
@@ -845,7 +846,11 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   const plan = usePlanSummary();
   // Destaque do menu = GLASS PILL (Lei nº2, docs/Rules/FRONTEND.md): mede a
   // posição do item ATIVO e desliza até ele em vez de pular de item pra item.
-  const visible = NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods));
+  // S1 MODO DISTRIBUIDORA (só-logística): "Dashboard" sai do menu — a rota é
+  // 100% vendas e o gate (so-logistica-gate) manda pro /entrega; os módulos
+  // alheios já somem pelo gate normal (isModuleVisible, fail-closed).
+  const soLog = soLogistica(mods);
+  const visible = NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods) && !(soLog && n.id === "dash"));
   const visibleKey = visible.map(n => n.id).join(",");
   // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
   // precisa re-medir quando o rail colapsa/expande (a largura do item muda).
@@ -869,9 +874,16 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
           conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */}
       <div className="side-scroll">
       <div className="side-head">
-        <div className="logo">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
-          <strong>HBX</strong>
+        <div className={"logo" + (soLog ? " logo--empresa" : "")}>
+          {/* S1 MODO DISTRIBUIDORA: marca = nome da empresa (de-HBX). */}
+          {soLog ? (
+            <strong title={currentCompanyName(user)}>{currentCompanyName(user)}</strong>
+          ) : (
+            <>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
+              <strong>HBX</strong>
+            </>
+          )}
         </div>
         {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
             Botão central existente (round-btn) — zero visual novo. Fica ao lado
@@ -1173,6 +1185,11 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   const router = useRouter();
   const pathname = usePathname() || "";
   const moduleTourId = MODULE_TOURS[pathname];
+  // S1 MODO DISTRIBUIDORA (só-logística): busca neutra + sinalizadores de
+  // módulos alheios (WhatsApp/geo/Bot/e-mail) ocultos. O sino de avisos FICA
+  // (comunicação da plataforma com o tenant é legítima). Fail-closed: enquanto
+  // /modules/me não carrega, soLog=false e nada muda.
+  const soLog = soLogistica(mods);
   // atalhos do topo seguem o mesmo gate da sidebar: o que o usuário não acessa
   // não aparece (ordem do dono 13/06/2026).
   const podeAtendimento = isModuleVisible("atend", ent, user, mods);
@@ -1364,12 +1381,12 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         <input
           ref={searchRef}
           type="text"
-          placeholder="Buscar leads, empresas, propostas..."
+          placeholder={soLog ? "Buscar..." : "Buscar leads, empresas, propostas..."}
           value={searchValue}
           onChange={e => handleSearch(e.target.value)}
           onKeyDown={e => { if (e.key === "Escape") { handleSearch(""); searchRef.current?.blur(); } }}
           style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--text-body)", fontSize: "inherit", fontFamily: "inherit", minWidth: 0 }}
-          aria-label="Buscar leads, empresas ou propostas"
+          aria-label={soLog ? "Buscar" : "Buscar leads, empresas ou propostas"}
         />
         {!searchValue && <span className="kbd">⌘ K</span>}
       </div>
@@ -1490,10 +1507,11 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
           </button>
         )}
-        {/* ── Sinalizadores: sempre visíveis (encher o olho), acendem quando ativos, vermelhos no erro ── */}
+        {/* ── Sinalizadores: sempre visíveis (encher o olho), acendem quando ativos, vermelhos no erro ──
+            S1 MODO DISTRIBUIDORA: só-logística não vê sinal de módulo alheio (WhatsApp/geo/Bot/e-mail). */}
         {/* WhatsApp: popup define o PADRÃO de abertura (interno/externo) usado pelos ícones
             de WhatsApp dos leads. NÃO navega — só escolhe o padrão. A cor = status da conexão. */}
-        <span ref={waMenuRef} style={{ position: "relative", display: "inline-flex" }}>
+        {!soLog && <span ref={waMenuRef} style={{ position: "relative", display: "inline-flex" }}>
           <button
             className={signalBtnClass(waStatus.state)}
             title={(waStatus.state === "active" ? "WhatsApp conectado" : waStatus.state === "error" ? "WhatsApp sem conexão — faltando configuração" : "WhatsApp desconectado") + " · escolher como abrir"}
@@ -1521,18 +1539,18 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
               <small className="text-ink-muted" style={{ padding: "4px 6px 2px", fontSize: "0.62rem" }}>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>
             </div>
           )}
-        </span>
+        </span>}
         {/* Localização — movida pra junto dos outros sinalizadores */}
-        <button
+        {!soLog && <button
           className={signalBtnClass(geoState)}
           title={geoState === "active" ? "Localização ativa — clique para desligar" : geoState === "error" ? "Aguardando permissão de localização…" : "Usar minha localização no Radar"}
           aria-label="Localização"
           onClick={toggleGeo}
         >
           <I d={ICONS.mapin} size={17} />
-        </button>
+        </button>}
         {/* Bot: chave geral + 3 bolinhas de estado por tipo */}
-        <span className="bot-signal-wrap">
+        {!soLog && <span className="bot-signal-wrap">
           <button
             className={signalBtnClass(botState)}
             title={botState === "active" ? "Bot ligado e rodando — clique para desligar" : botState === "error" ? `Bot ligado, mas não roda: ${botBlockedReason || "faltando configuração"} — clique para desligar` : "Bot desligado — clique para ligar"}
@@ -1554,15 +1572,15 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
               );
             })}
           </span>
-        </span>
-        <button
+        </span>}
+        {!soLog && <button
           className={signalBtnClass(emailState)}
           title={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}
           aria-label={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}
           onClick={() => router.push("/configuracoes")}
         >
           <I d={ICONS.mail} size={17} />
-        </button>
+        </button>}
         <span ref={avatarRef} style={{ position: "relative", display: "inline-flex" }}>
           <button className={`round-btn${avatarOpen ? " avatar-btn-active" : ""}`} title="Conta" aria-label="Conta" style={{ width: "auto", height: "auto", padding: 0 }} onClick={() => setAvatarOpen(o => !o)} data-tut="conta">
             <Av name={currentUserDisplayName(user)} size={34} />
