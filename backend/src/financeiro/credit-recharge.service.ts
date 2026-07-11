@@ -12,7 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FinanceiroService } from './financeiro.service';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
-import { resolveCompanyMercadoPagoAccess } from '../modules/master-global-integrations.util';
+import { resolvePlatformMercadoPagoAccess } from '../modules/master-global-integrations.util';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CreditPackConfigService } from '../credits/credit-pack-config.service';
 import { computeDefaultExpiresAt } from '../credits/credit-pack-catalog';
@@ -105,8 +105,11 @@ export class CreditRechargeService {
 
   // Isolado num método pra ser patchável em teste (o util real puxa o runtime schema
   // do master via raw SQL — infra pesada que não pertence à prova da orquestração).
-  private async resolveMpAccessToken(companyId: number): Promise<string> {
-    const resolved = await resolveCompanyMercadoPagoAccess(this.prisma, companyId);
+  private async resolveMpAccessToken(_companyId: number): Promise<string> {
+    // FINANCEIRO-UNIVERSAL P1 — recarga de crédito é RECEITA DA PLATAFORMA: cai SEMPRE
+    // na conta MP do master, NUNCA na do tenant (furo I5). Ignora companyId de propósito
+    // (mantido na assinatura para não mexer nos call-sites/testes).
+    const resolved = await resolvePlatformMercadoPagoAccess(this.prisma);
     return String(resolved?.accessToken || '').trim();
   }
 

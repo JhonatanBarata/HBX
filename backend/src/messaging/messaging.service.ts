@@ -40,6 +40,7 @@ import {
 import {
   applyMasterWhatsAppCredentials,
   resolveCompanyMercadoPagoAccess,
+  isTenantOwnedMpSource,
 } from '../modules/master-global-integrations.util';
 import {
   sanitizeFirstContactMessage,
@@ -6005,7 +6006,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const resolved = await resolveCompanyMercadoPagoAccess(this.prisma, companyId);
     const company = resolved.company;
     const accessToken = String(resolved.accessToken || '').trim();
-    if (!company || !accessToken) {
+    // FINANCEIRO-UNIVERSAL P0 — só cobra pela conta MP do PRÓPRIO lojista (source
+    // 'company'); fonte master levaria o pagamento pra conta da HBX sem consentimento
+    // (vetado pelo dono). Sem conta própria → degrada pelo MESMO caminho gracioso do
+    // "sem token" (encaminha p/ humano), sem quebrar a conversa nem gerar link.
+    if (!company || !accessToken || !isTenantOwnedMpSource(resolved.source)) {
       if (this.shouldSendRecoveryHumanAck(company)) {
         await this.conversations.queueOutboundForCompany(companyId, {
           to: customer.whatsappNumber,

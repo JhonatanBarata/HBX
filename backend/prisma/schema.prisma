@@ -1256,6 +1256,16 @@ model LogisticaConfig {
   // flag global HBX_COBRANCA_WHATS_ENABLED ligada (padrão flagEnv() && cfg.X, o
   // mesmo do avisoChegando). DEFAULT FALSE — feature nasce dormente nos 2 níveis.
   cobrancaWhatsAtiva    Boolean  @default(false)
+  // S3 RESUMO-DIÁRIO (11/07) — resumo do negócio no WhatsApp do DONO do tenant
+  // (destino = Company.contactPhone VERIFICADO, envio pelo chip da própria
+  // empresa). Só tem efeito com a flag global HBX_RESUMO_DIARIO_ENABLED ligada
+  // (mesmo padrão 2 chaves da cobrancaWhatsAtiva acima). DEFAULT FALSE — dormente.
+  //   resumoDiarioHora        = hora LOCAL do envio (0-23, relógio do servidor).
+  //   resumoDiarioUltimoEnvio = marca de IDEMPOTÊNCIA persistida (1 envio/dia:
+  //                             só envia se < hoje 00:00; restart NÃO reenvia).
+  resumoDiarioAtivo     Boolean  @default(false)
+  resumoDiarioHora      Int      @default(7)
+  resumoDiarioUltimoEnvio DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

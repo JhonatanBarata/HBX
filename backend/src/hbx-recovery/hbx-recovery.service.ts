@@ -3749,7 +3749,16 @@ export class HbxRecoveryService {
     const openAmount = Number(customer.openAmount || 0);
     if (openAmount <= 0) throw new BadRequestException('Cliente sem valor em aberto no HBX Recovery.');
     const amount = Number(Math.max(0.5, Math.min(openAmount, typeof amountRaw === 'number' && Number.isFinite(amountRaw) ? amountRaw : openAmount)).toFixed(2));
-    const { accessToken, company } = await this.mercadoPagoCredentials(companyId);
+    const { accessToken, company, source } = await this.mercadoPagoCredentials(companyId);
+    // FINANCEIRO-UNIVERSAL P0 — só gera link se o dinheiro cai na conta MP do PRÓPRIO
+    // lojista (source 'company'). Fonte master levaria o pagamento pra conta da HBX sem
+    // consentimento (vetado pelo dono). Sem conta própria → recusa clara (o modo
+    // "Receber pelo HBX" com aceite é P5; até lá, master = bloqueado neste fluxo).
+    if (!isTenantOwnedMpSource(source)) {
+      throw new BadRequestException(
+        'Conecte a conta Mercado Pago da sua empresa para gerar o link de cobrança — o pagamento cai direto na sua conta. Para receber pela HBX, fale com o suporte.',
+      );
+    }
     const notificationUrl = `${this.publicApiBaseUrl()}/webhooks/mercadopago?company_id=${companyId}`;
     const externalReference = `hbx-recovery-${companyId}-${customer.id}-${Date.now()}`;
     const debtCaseId = await this.resolveOpenDebtCaseIdForCustomer(companyId, customer);
