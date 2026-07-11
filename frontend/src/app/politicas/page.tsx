@@ -6,7 +6,8 @@ export const metadata: Metadata = {
   description: "Política de Privacidade da plataforma HBX System.",
 };
 
-const VIGENCIA = "Vigência a partir de 16 de junho de 2026 · Versão 1.0";
+const VIGENCIA =
+  "Vigência a partir de 16 de junho de 2026 · Atualizada em 11 de julho de 2026 · Versão 1.1";
 
 export default function PoliticasPage() {
   return (
@@ -36,7 +37,29 @@ export default function PoliticasPage() {
             <li><strong>Dados da empresa:</strong> razão social, CNPJ, endereço, setor — na contratação.</li>
             <li><strong>Dados de acesso:</strong> IP, navegador, datas de login, sessão — no uso contínuo.</li>
             <li><strong>Prospecção (Radar):</strong> nome, telefone e cidade de empresas, de fontes públicas.</li>
-            <li><strong>Mensagens (Atendimento):</strong> conteúdo e metadados das conversas via WhatsApp.</li>
+            <li>
+              <strong>Mensagens (Atendimento):</strong> conteúdo e metadados das conversas via
+              WhatsApp — o seu número de WhatsApp só é conectado à plataforma quando você mesmo
+              escolhe conectá-lo.
+            </li>
+            <li>
+              <strong>Clientes cadastrados por você:</strong> nome, telefone e endereço dos seus
+              clientes, inseridos por você para operar vendas, atendimento e entregas. Esses dados
+              são seus: usamos apenas para prestar o serviço à sua empresa.
+            </li>
+            <li>
+              <strong>Localização (módulo de entregas, no aplicativo):</strong> a posição precisa
+              do aparelho é usada <strong>apenas em primeiro plano</strong>, enquanto você mantém
+              uma rota de entrega ativa (com notificação visível), para navegação e aviso de
+              chegada. Não coletamos localização em segundo plano, não guardamos histórico
+              contínuo de posição e <strong>não compartilhamos sua localização com terceiros</strong>.
+            </li>
+            <li>
+              <strong>Microfone (opcional, no aplicativo):</strong> se você ativar a confirmação
+              de entrega por voz, o áudio é processado no próprio aparelho para reconhecer o
+              comando — não gravamos nem armazenamos áudio nos nossos servidores. Negar o acesso
+              ao microfone não bloqueia nenhuma função.
+            </li>
             <li><strong>Financeiros:</strong> histórico de recargas de crédito e status de pagamento — nunca o número do cartão.</li>
           </ul>
           <p>
@@ -47,6 +70,11 @@ export default function PoliticasPage() {
           <h4>3. Para que usamos (base legal — art. 7º da LGPD)</h4>
           <ul>
             <li><strong>Prestar o serviço</strong> (execução de contrato): contas, mensagens, leads, relatórios.</li>
+            <li>
+              <strong>Operar rotas de entrega</strong> (execução de contrato): localização em
+              primeiro plano para navegação e aviso de chegada — funcionalidade do aplicativo,
+              nunca para publicidade.
+            </li>
             <li><strong>Cobrar e cumprir a lei</strong> (obrigação legal): notas, controle fiscal, regulação.</li>
             <li><strong>Melhorar e proteger</strong> (legítimo interesse): prevenir fraudes e falhas, medir desempenho.</li>
             <li><strong>Prospecção via Radar</strong> (legítimo interesse): dados de empresas de fontes públicas.</li>
@@ -55,7 +83,11 @@ export default function PoliticasPage() {
 
           <h4>4. Com quem compartilhamos</h4>
           <ul>
-            <li><strong>Processador de pagamento</strong> (Mercado Pago) — cobrança das recargas de crédito.</li>
+            <li>
+              <strong>Processador de pagamento</strong> (Mercado Pago) — cobrança das recargas de
+              crédito. O pagamento é processado fora do aplicativo, no ambiente do Mercado Pago;
+              não temos acesso ao número do seu cartão.
+            </li>
             <li><strong>Infraestrutura de nuvem</strong> — servidores que hospedam a plataforma.</li>
             <li><strong>Serviço de e-mail</strong> — notificações, senhas e avisos.</li>
             <li><strong>Autoridades públicas</strong> — apenas por ordem judicial ou exigência legal.</li>
@@ -73,6 +105,11 @@ export default function PoliticasPage() {
             <li>Dados financeiros e contratuais: <strong>5 anos</strong> (legislação fiscal).</li>
             <li>Conversas de WhatsApp: <strong>até 90 dias</strong> após o encerramento, salvo retenção legal.</li>
             <li>Dados de prospecção (Radar): enquanto durar o contrato.</li>
+            <li>Clientes cadastrados por você: enquanto sua conta existir.</li>
+            <li>
+              Localização do aparelho: processada durante a rota ativa; não armazenamos histórico
+              contínuo de posição.
+            </li>
           </ul>
 
           <h4>6. Seus direitos (art. 18 da LGPD)</h4>
@@ -90,6 +127,15 @@ export default function PoliticasPage() {
             Para exercer esses direitos, fale com nosso Encarregado de Dados (DPO) pelo e-mail{" "}
             <strong>jhonatan@hbxsystem.com.br</strong>. Respondemos em até{" "}
             <strong>15 dias</strong>.
+          </p>
+          <p>
+            <strong>Exclusão de conta:</strong> para excluir sua conta e os dados associados, siga
+            as instruções em{" "}
+            <Link href="/excluir-conta" className="legal__link">
+              hbxsystem.com.br/excluir-conta
+            </Link>
+            . A exclusão é concluída em até <strong>7 dias úteis</strong>, preservando apenas o
+            que a lei obriga a guardar (item 5).
           </p>
 
           <h4>7. Como protegemos seus dados</h4>
