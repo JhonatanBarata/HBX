@@ -15,6 +15,7 @@ import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 import { ConquistaHost } from "@/components/hbx/conquista-host";
 import { ActivationChecklist } from "@/components/hbx/activation-checklist";
+import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-banner";
 import { MobileShell } from "@/components/casca/mobile-shell";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
@@ -95,6 +96,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Ativação / onboarding (Camada 1): checklist de primeiros passos do vendedor
             (só aparece pra quem tem jornada) + momento de conquista de cada "1ª vez". */}
         <ActivationChecklist />
+        {/* F3 (CONFIRMACAO-TELEFONE): confirme o WhatsApp pra liberar o brinde.
+            Dormant por default (só renderiza com o gate ON no backend). */}
+        <WelcomeCreditPhoneBanner />
         <ConquistaHost />
       </div>
     </MobileShell>

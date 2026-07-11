@@ -104,3 +104,27 @@
 - **PR11072026 — enriquecimento pago:** decidido NÃO implementar neste PR (ideia: ação separada no Vendas + IA conferindo entrega antes de debitar). Hold/reserva no ledger **cancelado** de propósito. Flips `track→debit` só com ~30d de dado. **Preço real dos packs** a definir.
 - **LASTMD — rateio de comissão de recarga com 2 vendedores no mesmo cliente:** hoje "último a vincular vence" (recarga paga 1, recorrência paga os 2). Decidir. + backfill do furo 3.
 - **Comissão de recarga:** cravar o `%` em `HBX_COMMISSION_RECHARGE_PERCENT`.
+
+---
+
+## 5) Frentes NOVAS construídas em 11/07 (Copiloto, E-mail v1, OTP) — ativar quando quiser
+
+> Código no working tree, verde (build + 38 testes + lint). **Flags nascem OFF/local; publish e ativação são seus.**
+> ⚠️ **Republicar primeiro:** seu publish `802632af` (08:55) pegou o `auth.service.ts` do OTP no meio do conserto — o **HEAD commitado não compila**; a working tree TEM o fix (confirmado `tsc` verde). O próximo `npm run publish` varre o conserto. **Republique antes de qualquer coisa.**
+
+### Copiloto no lead (LEADS-FINAL/05)
+- **`HBX_COPILOTO_ENABLED`** (default ON local) — OFF esconde o painel, página intacta. Decisão de prod sua.
+- Depende de **`HBX_LLM_CLASSIFIER_ENABLED`** ligado (endpoints de IA respondem). Reusa o assistente local (`qwen3:4b`), faixa `realtime` do GOVERNOR — não toca a faixa do BOT.
+- Teste live (seu, VPS): 3 ações + smoke de overlap (bot classificando + copiloto rascunhando < timeout).
+- ⚠️ Decisão aberta: "Próxima ação" salva como **anotação datada**, não `Atividade` do módulo (a página opera com `RadarLeadPool.id`, não `VendasLead.id`; a atividade real exigiria endpoint+resolver novo). Fallback explícito do plano.
+
+### E-mail v1 no lead (LEADS-FINAL/06)
+- **`HBX_EMAIL_CRED_SECRET`** — secret dedicado da cifra AES-256-GCM (32+ bytes). **Ausente = feature OFF graciosa** (não crash). Documentado no `.env.example`.
+- Aplicar migration **`20260711140000_lead_email_v1`** (CREATE 2 tabelas, aditiva) no Postgres da VPS.
+- Teste live: conectar conta Gmail de teste (senha de app) → testar conexão → enviar da timeline. IMAP/recebimento é v2 (fora do escopo).
+
+### OTP / Confirmação de telefone (CREDITOS)
+- Aplicar migration **`20260711160000_company_contact_phone_verified`** (ADD COLUMN nullable, sem backfill).
+- **Ordem (todas nascem OFF):** republicar → migration → **`LIVE_WHATSAPP_CONFIRM=true`** + **`WHATSAPP_CONFIRM_WA_COMPANY_ID`** (testar com **número descartável como DESTINO**; o chip do Master só ENVIA) → só depois **`HBX_CREDITS_REQUIRE_VERIFIED_PHONE=true`** (F2 antes do F1 provado = ninguém verifica, ninguém ganha).
+- Guardrails já embutidos: cooldown 60s/telefone, teto/hora, disjuntor (sem loop). Envio pela rotina do app (`WebwhatsBridgeService`), NUNCA API crua.
+- ⚠️ Decisão aberta: o gate F2 checa telefone verificado e assume email/identidade garantida pelo call site (roda pós-confirmação). Se quiser check explícito de `emailConfirmedAt`, é adicionar.

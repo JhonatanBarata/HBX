@@ -32,7 +32,7 @@ import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.ser
 import { CreditsService } from '../credits/credits.service';
 import { isCreditsFeatureEnabled, isVerifiedPhoneRequiredForWelcome } from '../credits/credits.flags';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
-import { WhatsappConfirmGuard } from './whatsapp-confirm-guard';
+import { WhatsappConfirmGuard, type WhatsappConfirmGuardDecision } from './whatsapp-confirm-guard';
 import { isLiveWhatsappConfirmEnabled, resolveWhatsappConfirmSenderCompanyId } from './whatsapp-confirm.flags';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { emitMasterEvent } from '../common/master-event';
@@ -1961,23 +1961,25 @@ export class AuthService implements OnModuleInit {
     }
     // Flag ON → LIVE. Guardrails ANTES de encostar no chip (sem loop, sem retry).
     const decision = this.whatsappConfirmGuard.evaluate(input.phone);
-    if (!decision.allowed) {
-      this.logger.warn(`[whatsapp-confirm][blocked] reason=${decision.reason} phone=${input.phone} retryAfterMs=${decision.retryAfterMs}`);
-      return { delivered: 'blocked', previewCode: null, reason: decision.reason, retryAfterMs: decision.retryAfterMs };
+    if (decision.allowed) {
+      // Conta a TENTATIVA (cooldown + tetos) mesmo se falhar — não martelar o número.
+      this.whatsappConfirmGuard.registerAttempt(input.phone);
+      try {
+        await this.sendWhatsappConfirmationLive(input.phone, input.code);
+        this.whatsappConfirmGuard.registerSuccess();
+        this.logger.log(`[whatsapp-confirm][live] enviado phone=${input.phone}`);
+        return { delivered: 'live', previewCode: null };
+      } catch (error: any) {
+        // UMA tentativa; falhou → registra no disjuntor e PARA (sem retry).
+        this.whatsappConfirmGuard.registerFailure();
+        this.logger.warn(`[whatsapp-confirm][live_failed] phone=${input.phone} error=${String(error?.message || error)}`);
+        return { delivered: 'failed', previewCode: null };
+      }
     }
-    // Conta a TENTATIVA (cooldown + tetos) mesmo se falhar — não martelar o número.
-    this.whatsappConfirmGuard.registerAttempt(input.phone);
-    try {
-      await this.sendWhatsappConfirmationLive(input.phone, input.code);
-      this.whatsappConfirmGuard.registerSuccess();
-      this.logger.log(`[whatsapp-confirm][live] enviado phone=${input.phone}`);
-      return { delivered: 'live', previewCode: null };
-    } catch (error: any) {
-      // UMA tentativa; falhou → registra no disjuntor e PARA (sem retry).
-      this.whatsappConfirmGuard.registerFailure();
-      this.logger.warn(`[whatsapp-confirm][live_failed] phone=${input.phone} error=${String(error?.message || error)}`);
-      return { delivered: 'failed', previewCode: null };
-    }
+    // Guard barrou (cooldown/teto/disjuntor) — não tenta enviar.
+    const blocked = decision as Extract<WhatsappConfirmGuardDecision, { allowed: false }>;
+    this.logger.warn(`[whatsapp-confirm][blocked] reason=${blocked.reason} phone=${input.phone} retryAfterMs=${blocked.retryAfterMs}`);
+    return { delivered: 'blocked', previewCode: null, reason: blocked.reason, retryAfterMs: blocked.retryAfterMs };
   }
 
   // Gera o desafio (código + store server-side) e dispara pelo modo vigente. Núcleo

@@ -30,6 +30,9 @@ export type CreditStorefront = {
   packs: CreditPackPublic[];
   welcomeCredits: number;
   welcomeExpiryDays: number;
+  // F3 (CONFIRMACAO-TELEFONE): quando true, o cadastro grátis exige confirmar o
+  // WhatsApp por código pra soltar o brinde. Default false → front não muda nada.
+  requiresPhoneVerification: boolean;
 };
 
 const FALLBACK_STOREFRONT: CreditStorefront = {
@@ -37,6 +40,7 @@ const FALLBACK_STOREFRONT: CreditStorefront = {
   packs: [],
   welcomeCredits: 0,
   welcomeExpiryDays: 0,
+  requiresPhoneVerification: false,
 };
 
 let _cache: CreditStorefront | null = null;
@@ -51,6 +55,7 @@ export async function fetchCreditStorefront(): Promise<CreditStorefront> {
         packs: Array.isArray(data.packs) ? data.packs : [],
         welcomeCredits: Number(data.welcomeCredits) || 0,
         welcomeExpiryDays: Number(data.welcomeExpiryDays) || 0,
+        requiresPhoneVerification: Boolean(data.requiresPhoneVerification),
       };
       return _cache;
     }

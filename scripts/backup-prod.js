@@ -39,7 +39,11 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
       'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx-postgres"; then echo "backend/.env precisa apontar para hbx-postgres" >&2; exit 1; fi',
       'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "backend/.env precisa apontar para hbx_prod" >&2; exit 1; fi',
       'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "container hbx-postgres nao esta running" >&2; exit 1; fi',
-      'docker exec hbx-postgres sh -lc \'pg_dump --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"\'',
+      // Dump ENXUTO: exclui os DADOS da RFB (cnpj_public*, tabela estatica de 28M linhas,
+      // re-importavel via scripts/import-cnpj-dataset.js) mantendo o SCHEMA. Sem isto o
+      // dump passa de 38GB e enche o disco local a CADA publish (caso real 11/07: 81GB).
+      // Restaurar exige re-importar a RFB; os dados de NEGOCIO (tenants/leads/pedidos) vao inteiros.
+      'docker exec hbx-postgres sh -lc \'pg_dump --clean --if-exists --no-owner --no-privileges --exclude-table-data="cnpj_public*" -U "$POSTGRES_USER" -d "$POSTGRES_DB"\'',
     ].join('\n');
 
     const dumpPath = path.join(backupDir, dumpFileName);
@@ -119,6 +123,22 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
     ),
     'utf8',
   );
+
+  // Retencao: mantem so os 2 dumps mais recentes (nome = YYYYMMDD_HHMMSS, ordenavel).
+  // Sem isto o dump acumula a cada publish e enche o disco (caso real 11/07: 81GB em 3 dumps).
+  try {
+    const prodDir = path.join(repoRoot, 'backups', 'prod');
+    const kept = fs
+      .readdirSync(prodDir)
+      .filter((name) => {
+        try { return fs.statSync(path.join(prodDir, name)).isDirectory(); } catch { return false; }
+      })
+      .sort()
+      .reverse();
+    for (const oldName of kept.slice(2)) {
+      fs.rmSync(path.join(prodDir, oldName), { recursive: true, force: true });
+    }
+  } catch { /* retencao best-effort — nunca derruba o backup */ }
 
   return { ok: true, backupDir, dumpFile: dumpPath, dumpBytes: dumpStats.size };
 }

@@ -85,11 +85,15 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
 
   // Créditos de boas-vindas (vitrine pública) — só alimenta a copy do número.
   const [welcomeCredits, setWelcomeCredits] = useState(0);
+  // F3 (CONFIRMACAO-TELEFONE): com o gate ON, confirmar o WhatsApp por código vira
+  // passo OBRIGATÓRIO do fluxo grátis (é o que libera o brinde). Default false → nada muda.
+  const [requirePhone, setRequirePhone] = useState(false);
   useEffect(() => {
     let alive = true;
     fetchCreditStorefront().then((sf) => {
       if (!alive) return;
       setWelcomeCredits(sf.welcomeCredits);
+      setRequirePhone(Boolean(sf.requiresPhoneVerification));
     });
     return () => { alive = false; };
   }, []);
@@ -98,6 +102,19 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
   // CPF opcional.
   const [freeTelefone, setFreeTelefone] = useState("");
   const [freeCpf, setFreeCpf] = useState("");
+
+  // Passo obrigatório: assim que o cadastro fica pendente (sem sessão plena) e o gate
+  // exige telefone verificado, abre direto o passo do código (telefone pré-preenchido).
+  // rAF para não fazer set-state síncrono no corpo do efeito (regra da casa).
+  useEffect(() => {
+    if (!requirePhone) return;
+    if (!(done && !done.access_token && waStep === "idle")) return;
+    const id = requestAnimationFrame(() => {
+      setWaStep("phone");
+      if (freeTelefone) setWaPhone(freeTelefone);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [requirePhone, done, waStep, freeTelefone]);
 
   // Guarda a dica de retomada (token + e-mail) só quando o cadastro ficou
   // PENDENTE (sem sessão plena). Sessão plena já limpa a dica.
@@ -397,6 +414,13 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
               )}
               {waStep === "phone" && (
                 <React.Fragment>
+                  {requirePhone && (
+                    <div className="ok show">
+                      {welcomeCredits > 0
+                        ? `Confirme seu WhatsApp por código para liberar seus ${welcomeCredits} créditos.`
+                        : "Confirme seu WhatsApp por código para liberar seus créditos."}
+                    </div>
+                  )}
                   <div className="f">
                     <label htmlFor="wa-phone">WhatsApp com DDD</label>
                     <input
