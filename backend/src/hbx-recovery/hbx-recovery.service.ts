@@ -41,6 +41,7 @@ import {
 import {
   applyMasterWhatsAppCredentials,
   resolveCompanyMercadoPagoAccess,
+  isTenantOwnedMpSource,
 } from '../modules/master-global-integrations.util';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import {
@@ -2967,7 +2968,7 @@ export class HbxRecoveryService {
       }
       throw new BadRequestException('Mercado Pago nao configurado para esta empresa. Configure no MASTER.');
     }
-    return { company, accessToken };
+    return { company, accessToken, source };
   }
 
   private async queueRecoveryWithFallback(companyId: number, to: string, body: string, contactId: string) {

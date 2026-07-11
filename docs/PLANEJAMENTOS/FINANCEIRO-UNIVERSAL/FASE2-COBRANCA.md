@@ -1,170 +1,148 @@
-# FINANCEIRO-UNIVERSAL — Fase 2: COBRANÇA (recebimento direto do lojista + régua no WhatsApp)
+# FINANCEIRO-UNIVERSAL — Fase 2: COBRANÇA (recebimento do lojista + régua no WhatsApp)
 
 > **Para o executor (Opus):** frente financeira → Opus edita DIRETO + revisão de diff (âncora do
-> dono). Este arquivo é autossuficiente. Leia também `PLANO.md` (Fase 1, já em prod `f598c3ea`)
-> e a memória `financeiro-universal-frente.md`. Mapa técnico-fonte: workflow de 8 agentes 11/07
-> (fatos com arquivo:linha citados abaixo foram verificados no código em 11/07 — confira de novo
-> antes de editar, o repo anda rápido e há sessões paralelas no mesmo tree).
+> dono). Arquivo autossuficiente; plano em PARTES PICADAS — cada parte é publicável e testável
+> SOZINHA, na ordem. NÃO adiantar parte futura. Leia `PLANO.md` (Fase 1, em prod `f598c3ea`) e a
+> memória `financeiro-universal-frente.md`. Fatos arquivo:linha verificados 11/07 — reconfira
+> antes de editar (repo rápido, sessões paralelas no mesmo tree; `git status` antes de cada parte).
+> **⛔ Execução só com o GO explícito do dono no chat. Todas as dúvidas já estão respondidas
+> (decisão nº6) — não reabrir pergunta já cravada.**
 
-## Decisões do DONO (11/07, literais — não amaciar)
-1. **O lojista recebe SEMPRE direto na conta DELE.** Duas vias: (a) Pix estático (chave dele,
-   QR/copia-e-cola, taxa zero, baixa manual) e (b) conta Mercado Pago DELE conectada (link de
-   pagamento, baixa automática via webhook). **O dinheiro NUNCA passa pela conta MP da HBX.**
-   "Receber pelo HBX" = o app gera/acompanha a cobrança; NÃO = intermediação financeira.
-2. **Régua automática de cobrança: APROVADA**, com DUAS condições e só elas:
-   (a) só roda se o admin **ativar o módulo** (opt-in explícito);
-   (b) o admin **sempre enxerga quem está sendo cobrado** (painel + histórico por cliente).
-   SEM aprovação prévia por lote — é visibilidade, não burocracia.
-3. **A régua usa o MESMO chip e o MESMO caminho blindado** do aviso "sua entrega chegou"
-   (`queueOutboundForCompany` → outbox → dispatcher → throttle). Não criar caminho de envio novo.
-4. **Receita da PLATAFORMA (recarga de créditos / assinatura) cai SEMPRE na conta MP master.**
-   Nunca na conta MP de tenant (fix do furo de direção).
+## Decisões do DONO (literais — não amaciar)
+1. O lojista recebe direto na conta DELE por padrão: (a) Pix estático (chave dele, taxa zero,
+   baixa manual) e (b) conta Mercado Pago DELE conectada (link, baixa automática).
+2. Régua automática de cobrança APROVADA com 2 condições só: (a) admin ATIVA o módulo;
+   (b) admin SEMPRE enxerga quem está sendo cobrado (painel + histórico). Sem aprovação por lote.
+3. Régua usa o MESMO chip e caminho blindado do aviso "entregou" (`queueOutboundForCompany`).
+4. Receita da PLATAFORMA (recarga/assinatura) cai SEMPRE na conta MP master.
+5. **(11/07 noite — FOCO MÁXIMO) "Parece roubo": NUNCA dinheiro do lojista cai na conta da HBX
+   sem ele saber e confirmar EXPLICITAMENTE.** O modo **"Receber pelo HBX"** (dinheiro cai na
+   conta HBX → dono repassa) EXISTE como opção, mas SÓ com: consentimento explícito na tela +
+   **falar com o suporte ANTES de ativar** (botão WhatsApp). Fallback silencioso = proibido pra sempre.
+6. **(11/07, respostas às dúvidas — cravadas)**
+   (a) **Prazo do repasse NÃO é fixo**: "um dia" = **quantos dias o dono COMBINAR com cada
+   lojista** na conversa. Prazo é configuração POR EMPRESA, definida na ativação.
+   (b) **Repasse é LÍQUIDO da comissão do dono**: a HBX desconta a comissão combinada (também
+   POR EMPRESA, definida na mesma conversa) antes de repassar.
+   (c) **Ativação SEMPRE via conversa com o dono** ("envolve contabilidade, movimentação — muito
+   além de 'eu recebo e mando'") → **SÓ o master ativa** o modo, depois do contato no suporte.
+   O lojista, pela tela, só lê a explicação e chama o suporte.
+   (d) **WhatsApp do suporte**: empresa **+55 19 93300-5153** (padrão do botão) · pessoal
+   **+55 19 99702-4884** (alternativo, registrado aqui).
 
-## Invariantes — o que NUNCA pode acontecer (todo sprint valida contra esta lista)
-- **I1** Mensagem de cobrança pra quem NÃO tem dívida vencida REAL (`FinanceiroCharge` `pending`
-  com `dueDate < hoje`, origem no catálogo do tenant). Recalcular a dívida NA HORA do envio —
-  cliente que pagou entre a varredura e o disparo NÃO recebe cobrança.
-- **I2** Cobrança com o módulo desativado (qualquer gate desligado → no-op silencioso).
-- **I3** Cliente marcado "não cobrar" (ou opt-out) recebendo mensagem.
-- **I4** Mesmo cliente cobrado 2× no mesmo estágio (idempotência dura por [cliente, estágio]).
+## Invariantes — o que NUNCA pode acontecer (toda parte valida contra esta lista)
+- **I1** Cobrança pra quem não tem dívida vencida REAL. Recheck da dívida NA HORA do envio —
+  pagou entre a varredura e o disparo → não recebe.
+- **I2** Cobrança com módulo desativado (qualquer gate OFF → no-op).
+- **I3** Cliente marcado "não cobrar" / opt-out recebendo mensagem.
+- **I4** Mesmo cliente cobrado 2× no mesmo estágio (idempotência dura [cliente, estágio]).
 - **I5** Receita da HBX (recarga/assinatura) caindo em conta MP de tenant.
-- **I6** Dinheiro do cliente final caindo na conta MP master por fallback silencioso.
-- **I7** Envio fora da fila blindada (socket direto / sem throttle) — proibido; o caminho é
-  `queueOutboundForCompany` e nada além.
-- **I8** Loop/retry de envio sem teto. Falhou → loga e espera o próximo ciclo do cron. NUNCA
-  re-tentar em loop (a máquina de ban histórica era loop, o freio é a correção — ver CLAUDE.md).
+- **I6 (FOCO MÁXIMO do dono)** Dinheiro de cliente final caindo na conta HBX SEM o modo
+  "Receber pelo HBX" ativo + consentimento REGISTRADO (quem aceitou, quando, versão do texto).
+  Sem conta própria E sem o modo → link MP simplesmente NÃO EXISTE. Fallback silencioso nunca.
+- **I7** Envio fora da fila blindada (`queueOutboundForCompany`) ou sem throttle.
+- **I8** Loop/retry de envio sem teto. Falhou → loga e espera o próximo ciclo do cron.
+- **I9 (novo)** Todo pagamento que cai na HBX em nome de um lojista gera NA MESMA transação uma
+  linha de REPASSE (valor, prazo, status) visível pro lojista E pro master. Dinheiro na conta
+  HBX sem linha de repasse = bug grave.
+- **I10 (novo)** O consentimento do modo HBX diz com todas as letras, sem juridiquês: onde o
+  dinheiro cai, em quantos dias o lojista recebe, e o WhatsApp do suporte.
 
-## Estado atual (fatos do mapa, com fonte)
-- Motor de cadência NÃO existe: `HbxRecoveryFlowStage.daysAfter` é config morta (CRUD em
-  `hbx-recovery.service.ts`, zero scheduler na pasta). Envio hoje = manual (`startTemplateFlow`,
-  `sendPaymentLink`) ou reativo (devedor responde → menu do bot).
-- Varredura da logística (`logistica-recovery.service.ts`, cron 24h + POST /logistica/recovery/varrer)
-  já injeta inadimplente no funil (`HbxRecoveryCustomer` + `DebtCase`, `sourceModule='logistica'`),
-  opt-in `LogisticaConfig.moduloRecoveryAtivo` (default false) — **só cria o caso, não envia nada**.
-- Quitar fiado já fecha o caso (para a cadência de quem pagou): `logistica.service.quitarCharge`
-  → `resolverSeQuitado` → só casos `sourceModule='logistica'`.
-- Freio de chip existe mas está OFF: `WaSendThrottleService` (8/min, 120/h, warm-up 14d) atrás de
-  `HBX_WA_SEND_THROTTLE_ENABLED` — **ligar na VPS é PRÉ-REQUISITO do S2**.
-- Decisor de conta MP: `resolveCompanyMercadoPagoAccess` (master-global-integrations.util.ts:282)
-  prefere token do TENANT e cai pro master. Usado pelo recovery (certo) E pela recarga
-  (credit-recharge.service.ts:108 — ERRADO, é o furo I5). Token de tenant hoje só o master cola
-  (companies/master/:id/mercadopago) — nenhum fluxo self-service.
-- Webhook MP roteável por `?company_id=`; assinatura validada com 1 secret global em modo `log`
-  (`MP_WEBHOOK_SIGNATURE_MODE`) — multi-conta exige secret por empresa ANTES de `enforce`.
-- Fase 1 (em prod): módulo `financeiro-tenant` (`/financeiro-tenant/saldos|extrato|quitar`),
-  tela central `/financeiro`, catálogo `TENANT_FINANCE_SOURCE_MODULES`, vendas gera cobrança.
-- UI faltando hoje: `moduloRecoveryAtivo` NÃO tem toggle em tela nenhuma (só API/banco);
-  `HbxRecoveryCustomer.automationEnabled` existe no schema sem UI; funil recovery tem ~40
-  endpoints sem tela de gestão.
+## Estado atual (fatos-fonte do mapa 11/07)
+- Motor de cadência NÃO existe (`HbxRecoveryFlowStage.daysAfter` = config morta; envio hoje é
+  manual `startTemplateFlow`/`sendPaymentLink` ou reativo via bot).
+- Varredura logística→funil existe e SÓ cria o caso (`logistica-recovery.service.ts`, opt-in
+  `LogisticaConfig.moduloRecoveryAtivo` default false, cron 24h). Quitar fiado fecha o caso.
+- Freio de chip `WaSendThrottleService` existe, flag `HBX_WA_SEND_THROTTLE_ENABLED` **OFF na VPS**.
+- Decisor de conta MP `resolveCompanyMercadoPagoAccess` (master-global-integrations.util.ts:282)
+  prefere token do tenant e cai pro master. Usa: recovery (`hbx-recovery.service.ts:3738`,
+  `messaging.service.ts:5994`) — certo pro tenant, mas com fallback master silencioso (I6!);
+  recarga (`credit-recharge.service.ts:108`) — ERRADO (I5).
+- Webhook MP roteável `?company_id=`; assinatura 1 secret global, modo `log`. NÃO ligar
+  `enforce` com conta de tenant ativa.
+- Fase 1 em prod: `/financeiro-tenant/*` + tela `/financeiro` + vendas gera cobrança.
+- Sem UI hoje: toggle `moduloRecoveryAtivo`, `HbxRecoveryCustomer.automationEnabled`, gestão do
+  funil (~40 endpoints órfãos).
 
-## Sprints (ordem de execução)
+## PARTES PICADAS (ordem de execução; 1 parte = 1 publish possível)
 
-### S1 — Direção do dinheiro (cirúrgico, backend só)
-**Objetivo:** fechar I5. Receita da plataforma nunca mais resolve token de tenant.
-- Criar helper `resolvePlatformMercadoPagoAccess(prisma)` que resolve SÓ da biblioteca master /
-  env (`MERCADO_PAGO_ACCESS_TOKEN` / `pickMasterMercadoPagoCredential`), SEM olhar
-  `Company.mercadoPagoAccessToken`.
-- Trocar em: `credit-recharge.service.ts` (`resolveMpAccessToken`) e nos pontos do
-  `financeiro.service.ts` que cobram PLANO/assinatura do tenant (conferir `resolveFinanceContext`
-  ~L1072). **NÃO tocar** nos usos do recovery/messaging (lá o token do tenant é o CERTO).
-- Teste: recarga com company que TEM `mercadoPagoAccessToken` próprio → pagamento criado com
-  token master (mock/assert no client). Suíte de créditos segue verde.
-- **NÃO mexer** no fallback master do recovery neste sprint (é o I6, fecha no S4 junto com a
-  tela de conectar conta — fechar antes quebraria quem depende do fallback hoje).
+### P0 — TRAVA ANTI-FALLBACK (1ª a publicar; é o foco máximo do dono)
+Nos fluxos de cobrança do cliente final (`sendPaymentLink` no hbx-recovery + link do bot no
+messaging): empresa SEM conta MP própria e SEM modo HBX ativo → **não gerar link** (mensagem
+clara: "Conecte sua conta Mercado Pago, ou fale com o suporte para ativar o Receber pelo HBX").
+Elimina o `master_fallback` desses caminhos. Pix estático segue intocado (nunca tocou HBX).
+Recovery quase não tem uso real hoje (sem UI) → freio primeiro, funcionalidade depois.
+Teste: empresa sem token → link negado; empresa com token próprio → link na conta DELA.
 
-### S2 — Motor de cadência (a régua)
-**Objetivo:** cobrança automática de INADIMPLENTE, mesmos trilhos do aviso de entrega.
-- **Pré-requisito de deploy: `HBX_WA_SEND_THROTTLE_ENABLED=true` na VPS** (o freio de 8/min,
-  120/h). Sem a flag ligada o sprint não vai pra prod.
-- Cron caseiro no padrão do repo (`logistica-recovery.service.ts` é o modelo: setInterval +
-  passada de boot com delay), rodando ~1×/hora. Fluxo por empresa:
-  1. Gates (TODOS, fail-closed): `company.botArmedAt` + `recoveryBotLiveAt` +
-     `LogisticaConfig.moduloRecoveryAtivo` + `resolveCompanyAccessState.canUse` (empresa
-     suspensa não roda).
-  2. Casos elegíveis: `HbxRecoveryCustomer` com `openAmount>0` + `automationEnabled=true` +
-     telefone válido + `sourceModule='logistica'` (fase 2 restrita à logística; genérico depois).
-  3. Estágio devido: dias desde a criação do caso (ou desde o último estágio enviado) ≥
-     `daysAfter` do próximo `HbxRecoveryFlowStage` da empresa.
-  4. **Recheck de dívida ao vivo (I1):** recomputar o vencido em aberto AGORA; zerou → fecha o
-     caso e não envia.
-  5. Enviar via `queueOutboundForCompany` (I7) com a mensagem do estágio: valor devido + Pix
-     copia-e-cola (chave estática da `LogisticaConfig`, gerar com o mesmo util `pix-brcode` —
-     hoje é client-side no app de entrega, portar/duplicar para o backend) + (se S4 pronto e
-     conta MP conectada) link de pagamento.
-  6. Registrar o envio (idempotência I4): reusar o modelo de interação existente do recovery
-     (`HbxRecoveryInteraction` ou equivalente — CONFERIR o nome no schema) com UNIQUE
-     [customerId, stageId]; corrida → P2002 → pula.
-- Cooldown implícito pela escada de estágios (d0/d2/d5/d8/d12 default). Acabaram os estágios →
-  caso fica parado (sem loop de "última tentativa" repetida).
-- Opt-out (I3): campo "não cobrar" por cliente (ver S3) + qualquer opt-out global de mensagens
-  existente no messaging — CONFERIR o mecanismo do classificador de opt-out do atendimento e
-  respeitá-lo.
-- Crédito: NADA debita (Baileys nunca debita — decisão do dono). O hook de track do sendOne já
-  mede por sourceModule; conferir allowlist e, se preciso, adicionar a origem nova como track.
-- Testes: unit do seletor de elegibilidade (todos os gates), do cálculo de estágio devido e da
-  idempotência. E2E: empresa de teste + número descartável do Claude (validação de software
-  novo — motor/estágios/mensagem — antes de rodar em chip de cliente).
+### P1 — DIREÇÃO DA PLATAFORMA (cirúrgico)
+Helper `resolvePlatformMercadoPagoAccess` (só master library/env, NUNCA `Company.mercadoPagoAccessToken`).
+Trocar em `credit-recharge.service.ts` (`resolveMpAccessToken`) e nos pontos de PLANO/assinatura
+do `financeiro.service.ts` (conferir `resolveFinanceContext` ~L1072). NÃO tocar recovery/messaging.
+Teste: recarga com company que tem token próprio → pagamento sai no token master. Créditos verdes.
 
-### S3 — Painel "Cobrança" na tela /financeiro (transparência = condição do dono)
-**Objetivo:** o admin SEMPRE sabe quem está sendo cobrado. Sem isso a régua não liga.
-- Aba/seção "Cobrança" em `/financeiro` (client em `frontend/src/app/(app)/financeiro/`):
-  - **Toggle do módulo** (o `moduloRecoveryAtivo` ganha UI aqui — hoje só existe via API) com
-    texto honesto: "Ao ligar, clientes com dívida vencida e telefone entram na régua de
-    cobrança pelo seu WhatsApp".
-  - **Lista "quem está na régua"**: nome, valor devido, estágio atual, última mensagem (quando),
-    próxima mensagem (previsão), com botão **Pausar** por cliente (`automationEnabled=false`)
-    e **Pausar tudo** (desliga o módulo).
-  - **Histórico por cliente**: interações de cobrança (o que foi mandado, quando, pagou?).
-  - Botão **"Cobrar agora"** manual por cliente (reusa `sendPaymentLink`/fluxo atual).
-- Ao LIGAR o módulo, mostrar na hora a lista de quem VAI entrar (inadimplentes atuais) — o
-  admin liga já vendo o efeito. Cliente elegível nasce `automationEnabled=true` (praticidade,
-  decisão de desenho) e o admin desmarca exceções ANTES de sair da tela se quiser.
-- Campo "não cobrar este cliente" também na ficha do cliente do /entrega (1 switch, discreto).
-- LEI DO VENDEDOR: tudo @Admin; vendedor não vê valores nem a régua.
+### P2 — PAINEL "COBRANÇA" na tela /financeiro (transparência ANTES do motor)
+Aba em `frontend/src/app/(app)/financeiro/`: toggle do módulo (UI pro `moduloRecoveryAtivo` —
+hoje só API) com texto honesto ("ao ligar, clientes com dívida vencida e telefone entram na
+régua do seu WhatsApp"); lista "quem está na régua" (nome, valor, estágio, última/próxima msg);
+**Pausar** por cliente (`automationEnabled=false`) e **Pausar tudo**; histórico por cliente;
+"Cobrar agora" manual (reusa fluxo atual). Ao LIGAR, mostrar na hora quem VAI entrar. Switch
+"não cobrar este cliente" também na ficha do /entrega. Tudo @Admin (Lei do Vendedor).
 
-### S4 — Receber direto na conta MP do lojista (liquidação real)
-**Objetivo:** fechar o ciclo (link → pagou → baixa sozinha) e fechar I6.
-- Tela self-service "Conectar Mercado Pago" na aba Cobrança: colar Access Token, validar
-  (reusar a validação do master: chama `/users/me` do MP — `companies.controller.ts:612`),
-  mostrar e-mail da conta conectada + botão desconectar. Guardar onde já se guarda
-  (`Company.mercadoPagoAccessToken`) — migrar pra credencial cifrada (`IntegrationConnection` +
-  `CredentialResolverService`, já prontos e órfãos) se couber no sprint; senão registrar como
-  dívida técnica.
-- Com conta conectada: mensagens da régua (S2) e o "Cobrar agora" (S3) incluem link de
-  pagamento MP; o webhook `?company_id=` + `applyPayment` já baixam o caso (existe). Conferir
-  que a baixa TAMBÉM quita a `FinanceiroCharge` de origem (hoje o webhook baixa o
-  DebtCase/openAmount — ligar a ponte de volta pra charge se faltar).
-- **Fechar I6:** SEM conta conectada → link MP indisponível (mensagem só com Pix estático;
-  tela explica "conecte sua conta MP para link com baixa automática"). Remover o
-  `master_fallback` dos fluxos de cobrança do cliente final (recovery/messaging) — dinheiro de
-  cliente final SÓ com conta do próprio lojista.
-- Webhook multi-conta: assinatura fica em modo `log` (como hoje) até existir secret por
-  empresa; NÃO ligar `enforce` com conta de tenant ativa (rejeitaria os webhooks deles).
-  Registrar como pendência explícita.
+### P3 — MOTOR DA RÉGUA (só depois do P2 no ar)
+**Pré-req de deploy: `HBX_WA_SEND_THROTTLE_ENABLED=true` na VPS.**
+Cron caseiro (padrão `logistica-recovery.service.ts`), ~1×/h, por empresa:
+gates fail-closed (`botArmedAt` + `recoveryBotLiveAt` + `moduloRecoveryAtivo` +
+`resolveCompanyAccessState.canUse`) → casos `openAmount>0` + `automationEnabled` + telefone +
+`sourceModule='logistica'` → estágio devido por `daysAfter` → **recheck da dívida ao vivo (I1)**
+→ envia via `queueOutboundForCompany` (valor + Pix copia-e-cola da chave estática; link MP só se
+P4/P5 der conta válida) → registra interação com UNIQUE [customerId, stageId] (I4).
+Sem estágio restante → caso para (sem loop). Crédito: nada debita (track só, conferir allowlist
+do meter). Testes: elegibilidade/estágio/idempotência unit + E2E em empresa de teste com número
+descartável do Claude ANTES de chip de cliente (validação de software novo, não drama).
 
-### S5 — Gates de go-live (ordem)
-1. `HBX_WA_SEND_THROTTLE_ENABLED=true` na VPS (antes do S2 em prod).
-2. S2 validado em empresa de teste com número descartável do Claude (nunca chip de cliente).
-3. Publicar; conferir boot (docker ps + logs — build verde ≠ boot ok) e o cron logando ciclo.
-4. Ligar o módulo APENAS na(s) empresa(s) que o dono mandar; acompanhar 1 semana de régua no
-   painel antes de divulgar.
+### P4 — CONECTAR CONTA MP DO LOJISTA (self-service)
+Tela "Conectar Mercado Pago" na aba Cobrança: colar token, validar via `/users/me` (reusar
+validação do master `companies.controller.ts:612`), mostrar conta conectada + desconectar.
+Com conta: régua e "Cobrar agora" incluem link MP; webhook `?company_id=` + `applyPayment` baixam
+sozinhos (conferir que a baixa também quita a `FinanceiroCharge` de origem — ligar a ponte se
+faltar). Assinatura de webhook fica em `log` até secret por empresa (pendência explícita).
 
-## FORA desta fase (não implementar)
-- Lembrete PRÉ-vencimento ("vence amanhã") — fase 3, toggle separado.
-- Débito de crédito por cobrança (só track; preço = decisão futura do dono).
-- "HBX recebe e repassa" (split/intermediação) — NÃO é o desenho.
-- Negativação Serasa, parcelamento na régua, Pix Automático, régua genérica multi-módulo
-  (vendas_fechamento na régua) — depois que a da logística rodar 1 ciclo limpo.
+### P5 — MODO "RECEBER PELO HBX" (repasse) — decisões cravadas (decisão nº6)
+Para o lojista que NÃO quer conta MP própria. Desenho:
+- **Tela do lojista (aba Cobrança)**: explicação simples e honesta (I10), SEM botão de ativar —
+  só "Falar com o suporte" (WhatsApp **+55 19 93300-5153**). Texto-modelo: "Nesse modo, o
+  pagamento do seu cliente cai na conta da HBX e a HBX te paga em ATÉ {prazoDias} dia(s),
+  descontando a comissão combinada de {comissaoPct}%. Fale com o suporte para combinar e ativar."
+  Enquanto o modo está OFF, a tela mostra só o convite ao suporte (sem números de prazo/comissão).
+- **Ativação SÓ pelo /master** (janela da empresa): campos OBRIGATÓRIOS na ativação, sem default —
+  `prazoRepasseDias` (o que foi combinado na conversa) e `comissaoRepassePct`. Ativar exige os 2.
+- **Consentimento do lojista**: depois do master ativar, o lojista vê o termo COM os números da
+  empresa dele (prazo + comissão) e aceita na tela → registrado em banco (userId, data, versão do
+  texto, prazoDias e comissaoPct da época). **Link MP no modo HBX só passa a funcionar APÓS o
+  aceite do lojista** (ativação do master sozinha não basta — I6).
+- **Com o modo ativo + aceite**: link MP usa a conta master; cada pagamento aprovado cria NA
+  MESMA transação a linha de repasse (I9): model novo simples (valorBruto, comissaoPct,
+  valorLiquido, chargeId/paymentId, companyId, dataLimite = paidAt + prazoDias, status
+  pendente|pago, paidAt do repasse) + painel do lojista ("a receber da HBX", com data-limite) +
+  janela no /master ("quem preciso pagar", ordenado por data-limite, botão "marcar pago" — o
+  repasse em si é Pix MANUAL do dono, fora do sistema).
+- Comissão/prazo são POR EMPRESA; mudar depois = nova conversa + novo aceite (versão nova do termo).
 
-## Armadilhas conhecidas (não tropeçar)
-- `openAmount` é monofonte por cliente: caso manual e dívida da logística não convivem
-  discriminados; a varredura PULA cliente que já tem caso manual — a régua herda esse limite
-  (aceito nesta fase; não "consertar" por fora).
-- `resolverDebtCaseSeQuitado` só fecha caso `sourceModule='logistica'` — de propósito (caso
-  manual nunca é auto-quitado). Manter.
-- Assinatura hardcoded de piloto no default `HBX_RECOVERY_PAYMENT_APPROVED_SIGNATURE`
-  ("Equipe Colsani...") — limpar quando tocar nas mensagens.
-- Sessões paralelas no mesmo tree: conferir `git status` antes de cada sprint; commit/publish
-  é do dono; NÃO reverter trabalho alheio.
-- Teste `vendas-automation` vermelho (mock sem companyId) é pré-existente e de outra frente —
-  não é gate desta.
+### P6 — GATES LIVE (ordem)
+1. Throttle ON na VPS (antes do P3 em prod). 2. P3 validado em empresa de teste + número
+descartável. 3. Publicar; conferir boot + cron logando. 4. Ligar módulo só nas empresas que o
+dono mandar; 1 semana de painel antes de divulgar.
+
+## FORA desta fase
+Lembrete pré-vencimento; débito de crédito por cobrança (só track); repasse AUTOMÁTICO
+(split/transferência MP — repasse é manual do dono nesta fase); negativação Serasa; parcelamento
+na régua; Pix Automático; régua genérica multi-módulo (vendas na régua só após 1 ciclo limpo).
+
+## Armadilhas conhecidas
+- `openAmount` monofonte por cliente (caso manual × dívida logística não convivem; varredura pula
+  quem tem caso manual — limite aceito nesta fase).
+- `resolverDebtCaseSeQuitado` só fecha caso `sourceModule='logistica'` — de propósito, manter.
+- Assinatura hardcoded de piloto (`HBX_RECOVERY_PAYMENT_APPROVED_SIGNATURE` "Equipe Colsani...")
+  — limpar ao tocar nas mensagens.
+- Sessões paralelas no mesmo tree; commit/publish é do dono; não reverter trabalho alheio.
+- Teste `vendas-automation` vermelho (mock sem companyId) é pré-existente de outra frente.

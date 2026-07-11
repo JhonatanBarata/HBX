@@ -317,6 +317,44 @@ export async function resolveCompanyMercadoPagoAccess(prisma: PrismaService, com
   };
 }
 
+/**
+ * FINANCEIRO-UNIVERSAL P0 (11/07) — a ÚNICA fonte de token aceitável para COBRAR o
+ * cliente FINAL do lojista é a conta MP do PRÓPRIO tenant (`source: 'company'`).
+ * Qualquer fonte master (master / master_fallback / master_missing) levaria o dinheiro
+ * pra conta da HBX SEM o lojista saber — o "parece roubo" que o dono VETOU. O modo
+ * "Receber pelo HBX" com consentimento explícito (Fase 2 P5) é o único caminho futuro
+ * pra usar a conta master num fluxo de cliente final; enquanto não existe, master = recusa.
+ */
+export function isTenantOwnedMpSource(source: string | null | undefined): boolean {
+  return source === 'company';
+}
+
+/**
+ * FINANCEIRO-UNIVERSAL P1 (11/07) — token para RECEITA DA PLATAFORMA (recarga de
+ * crédito / assinatura HBX). SEMPRE a conta MP do MASTER (biblioteca master; env
+ * `MERCADO_PAGO_ACCESS_TOKEN` como fallback) — NUNCA o token do tenant. Sem isto, um
+ * tenant com conta MP própria (useMaster=false + token setado) receberia a receita da
+ * HBX na conta DELE (furo I5). Preserva o caso normal (empresa sem token próprio já
+ * caía na conta master via master_fallback); corrige só o caso do tenant com token próprio.
+ */
+export async function resolvePlatformMercadoPagoAccess(prisma: PrismaService, credentialKey?: NullableString) {
+  await ensureMasterBillingRuntimeSchema(prisma);
+  const masterConfig = await getMasterGlobalIntegrationConfig(prisma);
+  const credential = pickMasterMercadoPagoCredential(masterConfig, credentialKey);
+  const envToken = normalize(process.env.MERCADO_PAGO_ACCESS_TOKEN) || '';
+  const accessToken = credential?.accessToken || envToken || '';
+  return {
+    accessToken,
+    source: credential?.accessToken
+      ? ('platform_master' as const)
+      : envToken
+        ? ('platform_env' as const)
+        : ('platform_missing' as const),
+    masterConfig,
+    credential: credential?.accessToken ? credential : null,
+  };
+}
+
 export async function applyMasterWhatsAppCredentials<T extends CompanyLike>(
   prisma: PrismaService,
   company: T | null | undefined,
