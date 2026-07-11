@@ -22,6 +22,7 @@ import { WebscrapingService } from '../webscraping/webscraping.service';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { CreditsService } from '../credits/credits.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
+import { AiPressureSignals } from '../master-alert/ai-pressure-signals';
 import { getCreditActionDefinition } from '../credits/credit-action-catalog';
 import { applyDeterministicGuards, buildExtractorMessages, channelsToRadarPreferred, computeMissingFields, ConciergeChannel, CONCIERGE_CHANNELS, ConciergeSlots, emptySlots, mergeSlots, safeParseConciergeJson, sanitizeAiSlots, slotsExecutionHash, BRAZIL_UFS } from './concierge-slots';
 import { callConciergeExtractor, conciergeAiEnabled, conciergeFeatureEnabled, conciergeModel } from './concierge-ollama';
@@ -216,6 +217,8 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       extracted = await this.extractWithRetry(slots, text, ctx.companyId);
     } catch (error) {
       aiOnline = false;
+      // AI-SOS: falha REAL de IA (timeout/recusa/Ollama fora) — alimenta o grito.
+      AiPressureSignals.report('concierge_extractor_fail');
       this.logger.warn(`extrator indisponivel: ${String((error as Error)?.message || error)}`);
     }
 
@@ -223,7 +226,8 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     if (!aiOnline) {
       reply = 'Estou sem a IA agora. Use os botões abaixo ou o formulário do Radar — nada se perde.';
     } else if (!extracted) {
-      // JSON inválido 2x → fluxo por chips, sem IA (§2.2 item 1).
+      // JSON inválido 2x → fluxo por chips, sem IA (§2.2 item 1). AI-SOS conta.
+      AiPressureSignals.report('concierge_extractor_invalid');
       reply = 'Não consegui entender. Vamos por partes — escolha ou digite o tipo de empresa.';
     } else {
       // 2. Validação/merge no CÓDIGO (a IA é consultiva).

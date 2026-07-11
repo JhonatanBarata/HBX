@@ -24,6 +24,11 @@ function Read-DotenvValue {
   return $value
 }
 
+# AI-SOS (11/07): o worker da ponte 30B nasce ARMADO — quando o dono sobe o
+# painel depois do grito, o 30B ja entra puxando missoes (freio elastico +
+# disjuntor proprios do worker seguram o resto). Desarme: HBX_PONTE_WORKER_ENABLED=off.
+if (-not $env:HBX_PONTE_WORKER_ENABLED) { $env:HBX_PONTE_WORKER_ENABLED = "on" }
+
 # Token local: usa o do ambiente ou gera/persiste um (gitignored).
 if (-not $env:HBX_OWNER_LOCAL_TOKEN) {
   if (-not (Test-Path $tokenFile)) {

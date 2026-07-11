@@ -37,6 +37,10 @@ export const MASTER_ALERT_ROUTES: Record<string, MasterAlertRoute> = {
   'implantacao.sold': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 0, digest: false },
   'bot.config_missing': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 0, digest: false },
 
+  // AI-SOS (11/07): IA da VPS apertou — grito pro dono ligar o PC do 30B.
+  // Zap entra (é ação física que só ele faz), throttle 6h = cooldown do grito.
+  'ai.pressure_high': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 360, digest: false },
+
   // Novos (Sprint 3 — watcher de transições).
   'chip.dropped': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 60, digest: false },
   'billing.webhook_stale': { channels: ['email', 'whatsapp'], throttleMinutes: 24 * 60, digest: false },
