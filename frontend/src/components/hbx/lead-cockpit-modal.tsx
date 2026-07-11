@@ -432,12 +432,19 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
   }
 
   const li = lead.leadIntelligence;
+  // `messageTemplate` pode vir string OU objeto {id,context,tone,text} (o board
+  // expõe templates[0] do enrichment). Só o texto vira React child — renderizar
+  // o objeto cru estoura React #31. Extrai o texto dos dois formatos.
+  const templateText =
+    typeof li?.messageTemplate === "string"
+      ? li.messageTemplate
+      : String((li?.messageTemplate as { text?: string } | null | undefined)?.text || "");
   const temAbordagem = Boolean(
-    li && (li.recommendedChannel || li.painType || li.painPitch || li.messageTemplate || li.opportunityReason),
+    li && (li.recommendedChannel || li.painType || li.painPitch || templateText || li.opportunityReason),
   );
 
   function copiarTemplate() {
-    const text = li?.messageTemplate;
+    const text = templateText;
     if (!text) return;
     navigator.clipboard?.writeText(text).then(
       () => { setTplCopied(true); setTimeout(() => setTplCopied(false), 1500); },
@@ -565,10 +572,10 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
                     <p className="lead-cockpit__txt">{li.opportunityReason}</p>
                   </div>
                 )}
-                {li?.messageTemplate && (
+                {templateText && (
                   <div className="lead-cockpit__block">
                     <span className="dn-section-head">Modelo de mensagem</span>
-                    <p className="lead-cockpit__txt">{li.messageTemplate}</p>
+                    <p className="lead-cockpit__txt">{templateText}</p>
                     <button type="button" className="btn-ghost btn-xs" onClick={copiarTemplate}>
                       <I d={tplCopied ? ICONS.check : ICONS.doc} size={12} /> {tplCopied ? "Copiado" : "Copiar mensagem"}
                     </button>
