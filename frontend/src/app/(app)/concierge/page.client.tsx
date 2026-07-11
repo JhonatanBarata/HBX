@@ -42,6 +42,8 @@ type Draft = {
   transcript: { role: "user" | "assistant"; content: string }[];
 };
 
+type Suggestions = { segments: string[]; city: string | null; state: string | null };
+
 type ApiReply = {
   ok?: boolean;
   code?: string;
@@ -49,6 +51,7 @@ type ApiReply = {
   reply?: string;
   chips?: Chip[];
   aiOnline?: boolean;
+  suggestions?: Suggestions;
   run?: { status: string; delivered: number; target: number; progress: number; terminal: boolean; message: string | null };
 };
 
@@ -65,6 +68,7 @@ export function ConciergeClient() {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [run, setRun] = useState<ApiReply["run"] | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -101,6 +105,7 @@ export function ConciergeClient() {
         }
         setChips(res?.chips ?? []);
         if (typeof res?.aiOnline === "boolean") setAiOnline(res.aiOnline);
+        if (res?.suggestions) setSuggestions(res.suggestions);
       } catch {
         setMsgs([{ dir: "in", text: "Não consegui carregar agora. Recarregue a página ou use o formulário do Radar." }]);
       } finally {
@@ -132,8 +137,8 @@ export function ConciergeClient() {
 
   useEffect(() => { scrollDown(); }, [msgs, scrollDown]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(textArg?: string) {
+    const text = (textArg ?? input).trim();
     if (!text || busy) return;
     setInput("");
     setMsgs((prev) => [...prev, { dir: "out", text }]);
@@ -197,6 +202,9 @@ export function ConciergeClient() {
   const showConfirm = Boolean(preview && !preview.blocked && draft?.confirmToken);
   const executed = draft?.status === "executed";
 
+  // Passo VIVO do guia — deriva da máquina de estados do servidor.
+  const guideStep = executed ? 4 : draft?.state === "PREVIEW" ? 3 : draft?.state === "COLLECT_LOCATION" ? 2 : 1;
+
   if (disabled) {
     return (
       <div className="work cg-work">
@@ -216,6 +224,17 @@ export function ConciergeClient() {
     <div className="work cg-work">
       <div className="cg-wrap">
         <Head />
+
+        <div className="cg-layout">
+        <Guide
+          step={guideStep}
+          runTerminal={Boolean(run?.terminal)}
+          draft={draft}
+          aiOnline={aiOnline}
+          suggestions={suggestions}
+          busy={busy || loading || executed}
+          onExample={(text) => void send(text)}
+        />
 
         <div className="panel cg-panel">
           <div className="cg-chat" ref={bodyRef}>
@@ -296,6 +315,7 @@ export function ConciergeClient() {
             </form>
           )}
         </div>
+        </div>
 
         <div className="cg-foot">
           <I d={ICONS.search} size={12} />
@@ -304,6 +324,99 @@ export function ConciergeClient() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// GUIA INTELIGENTE (lado esquerdo) — não é manual: ele ACOMPANHA a conversa.
+// Passo atual vem da máquina de estados do servidor; "Já entendi" espelha os
+// slots ao vivo; os exemplos usam o RAMO da própria empresa (OOBE) e, ao
+// clicar, entram como mensagem de verdade. Some no mobile (concierge.css).
+// ============================================================================
+const GUIDE_STEPS = [
+  { n: 1, label: "Diga o que procura" },
+  { n: 2, label: "Confirme a cidade" },
+  { n: 3, label: "Revise e confirme" },
+  { n: 4, label: "Leads no Radar" },
+];
+
+function Guide({ step, runTerminal, draft, aiOnline, suggestions, busy, onExample }: {
+  step: number;
+  runTerminal: boolean;
+  draft: Draft | null;
+  aiOnline: boolean;
+  suggestions: Suggestions | null;
+  busy: boolean;
+  onExample: (text: string) => void;
+}) {
+  const slots = draft?.slots;
+  const hasAnySlot = Boolean(slots && (slots.targetSegment || slots.city || slots.desiredCount != null || slots.channels.length));
+
+  const city = suggestions?.city || "Curitiba";
+  const seg0 = suggestions?.segments?.[0] || "clínicas odontológicas";
+  const seg1 = suggestions?.segments?.[1] || "padarias";
+  const examples = [
+    `20 ${seg0} em ${city}`,
+    `10 ${seg1} em ${city} com whatsapp`,
+    "50 restaurantes em São Paulo",
+  ];
+
+  const tip = !aiOnline
+    ? "IA fora do ar — os botões continuam funcionando."
+    : step === 1
+      ? "Fale do seu jeito — tipo de empresa, cidade e quantos."
+      : step === 2
+        ? "Só cidades do Brasil por enquanto."
+        : step === 3
+          ? "Nada é gasto antes do seu OK."
+          : runTerminal
+            ? "Prontinho — os leads estão no Radar."
+            : "Buscando… pode sair da tela, nada se perde.";
+
+  return (
+    <aside className="panel cg-guide">
+      <div className="cg-guide__sec">Como funciona</div>
+      <ol className="cg-gsteps">
+        {GUIDE_STEPS.map((s) => (
+          <li key={s.n} className={"cg-gstep" + (step === s.n ? " is-active" : step > s.n ? " is-done" : "")}>
+            <span className="cg-gstep__dot">{step > s.n ? <I d={ICONS.check} size={11} /> : s.n}</span>
+            <span className="cg-gstep__label">{s.label}</span>
+          </li>
+        ))}
+      </ol>
+
+      {hasAnySlot && slots && (
+        <>
+          <div className="cg-guide__sec">Já entendi</div>
+          <dl className="cg-gslots">
+            <div className="cg-gslot"><dt>Segmento</dt><dd className={slots.targetSegment ? "is-on" : ""}>{slots.targetSegment || "—"}</dd></div>
+            <div className="cg-gslot"><dt>Cidade</dt><dd className={slots.city ? "is-on" : ""}>{slots.city ? `${slots.city}${slots.state ? ` - ${slots.state}` : ""}` : "—"}</dd></div>
+            <div className="cg-gslot"><dt>Quantos</dt><dd className={slots.desiredCount != null ? "is-on" : ""}>{slots.desiredCount ?? "—"}</dd></div>
+            {slots.channels.length > 0 && (
+              <div className="cg-gslot"><dt>Canais</dt><dd className="is-on">{slots.channels.join(", ")}</dd></div>
+            )}
+          </dl>
+        </>
+      )}
+
+      {step === 1 && !hasAnySlot && (
+        <>
+          <div className="cg-guide__sec">Experimente</div>
+          <div className="cg-gexamples">
+            {examples.map((text) => (
+              <button key={text} type="button" className="cg-gexample" disabled={busy} onClick={() => onExample(text)}>
+                “{text}”
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="cg-guide__tip">
+        <I d={ICONS.bolt} size={11} />
+        <span>{tip}</span>
+      </div>
+    </aside>
   );
 }
 

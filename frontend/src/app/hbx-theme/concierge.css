@@ -3,7 +3,59 @@
    zero-scroll do assistente: .work vira moldura, quem rola é o corpo do chat. */
 
 .cg-work { grid-template-rows: minmax(0, 1fr); overflow: hidden; }
-.cg-wrap { display: flex; flex-direction: column; gap: 12px; min-height: 0; max-width: 760px; width: 100%; margin: 0 auto; }
+.cg-wrap { display: flex; flex-direction: column; gap: 12px; min-height: 0; max-width: 1060px; width: 100%; margin: 0 auto; }
+
+/* ── Layout: GUIA à esquerda + chat (o guia some no mobile — a casca mobile
+   tem a própria gramática; aqui é desktop-first como o resto do /concierge) ── */
+.cg-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 12px; flex: 1; min-height: 0; }
+@media (max-width: 1080px) {
+  .cg-layout { grid-template-columns: minmax(0, 1fr); }
+  .cg-guide { display: none; }
+}
+
+/* ── Guia inteligente (acompanha a máquina de estados) ─────────────────────── */
+.cg-guide { display: flex; flex-direction: column; gap: 10px; align-self: start; max-height: 100%; overflow-y: auto; }
+.cg-guide__sec {
+  font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cg-gsteps { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.cg-gstep { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); }
+.cg-gstep__dot {
+  display: grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; flex: none;
+  font-size: 0.66rem; font-weight: 800;
+  color: var(--text-muted); background: var(--hbx-field-surface); border: 1px solid var(--border-hairline);
+}
+.cg-gstep__label { font-size: 0.76rem; font-weight: 600; color: var(--text-muted); }
+.cg-gstep.is-active { background: color-mix(in srgb, var(--hbx-brand) 10%, transparent); }
+.cg-gstep.is-active .cg-gstep__dot { color: var(--hbx-brand-contrast); background: var(--hbx-brand); border-color: transparent; }
+.cg-gstep.is-active .cg-gstep__label { color: var(--text-strong); font-weight: 700; }
+.cg-gstep.is-done .cg-gstep__dot {
+  color: var(--hbx-success); background: color-mix(in srgb, var(--hbx-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--hbx-success) 38%, transparent);
+}
+.cg-gstep.is-done .cg-gstep__label { color: var(--text-muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+.cg-gslots { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.cg-gslot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 4px 8px; border-radius: var(--radius-md); background: var(--hbx-field-surface); }
+.cg-gslot dt { font-size: 0.66rem; font-weight: 700; color: var(--text-muted); }
+.cg-gslot dd { margin: 0; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.cg-gslot dd.is-on { color: var(--hbx-brand-strong); font-weight: 700; }
+
+.cg-gexamples { display: flex; flex-direction: column; gap: 6px; }
+.cg-gexample {
+  text-align: left; padding: 7px 10px; cursor: pointer; border-radius: var(--radius-md);
+  font-size: 0.74rem; font-weight: 600; color: var(--text-strong);
+  background: var(--hbx-field-surface); border: 1px dashed color-mix(in srgb, var(--hbx-brand) 34%, transparent);
+}
+.cg-gexample:hover { background: color-mix(in srgb, var(--hbx-brand) 10%, transparent); }
+.cg-gexample:disabled { opacity: 0.55; cursor: default; }
+
+.cg-guide__tip {
+  display: flex; align-items: center; gap: 6px; margin-top: auto; padding: 8px 10px;
+  border-radius: var(--radius-md); font-size: 0.7rem; font-weight: 600; color: var(--text-muted);
+  border: 1px solid var(--border-hairline); background: var(--hbx-surface);
+}
 
 /* ── Cabeçalho (mesma gramática do ia-head) ────────────────────────────────── */
 .cg-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none; }
