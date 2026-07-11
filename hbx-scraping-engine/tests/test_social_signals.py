@@ -332,20 +332,12 @@ def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(m
 
 
 def test_discovery_adds_directory_seed_urls_when_search_backend_fails(monkeypatch) -> None:
-    class FakeDDGS:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def text(self, query, **kwargs):
-            raise RuntimeError("search backend unavailable")
-
-    monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
+    # Todos os provedores de busca indisponiveis (nao so o DDGS): search_discovery_rows nao retorna
+    # linha nenhuma. Isola a REDE real — sem isso, quando so o DDGS mockado falhava, discover_urls
+    # caia em OUTRO provider (httpx searx/bing dentro de search_discovery_rows) e vazava URLs reais
+    # da internet, deixando o teste flaky (revisao adversarial go-live 11/07 — mesmo vazamento de
+    # rede que o G3 isolou em enrich_lead, so que aqui pelo caminho discover_urls).
+    monkeypatch.setattr("app.services.discovery.search_discovery_rows", lambda *args, **kwargs: [])
 
     urls = discover_urls("Boituva", "SP", "farmácias", 5, 20)
 

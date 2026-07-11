@@ -122,6 +122,14 @@ export class WhatsappConfirmCodeDto {
   code: string;
 }
 
+// F3 (CONFIRMACAO-TELEFONE) — verificação de telefone do usuário JÁ LOGADO (banner
+// pós-Google). Sem pollToken: a rota roda sob o JWT da sessão. O confirm reusa o
+// WhatsappConfirmCodeDto (challengeToken + code).
+export class PhoneVerificationStartDto {
+  @IsNotEmpty()
+  phone: string;
+}
+
 export class ResendConfirmationDto {
   @IsEmail()
   email: string;

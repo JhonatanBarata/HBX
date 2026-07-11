@@ -30,7 +30,10 @@ import * as TrialUsage from '../commercial-plans/trial-usage';
 import { evaluateSignupRisk } from './signup-risk';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { CreditsService } from '../credits/credits.service';
-import { isCreditsFeatureEnabled } from '../credits/credits.flags';
+import { isCreditsFeatureEnabled, isVerifiedPhoneRequiredForWelcome } from '../credits/credits.flags';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { WhatsappConfirmGuard } from './whatsapp-confirm-guard';
+import { isLiveWhatsappConfirmEnabled, resolveWhatsappConfirmSenderCompanyId } from './whatsapp-confirm.flags';
 import { isPlatformInfraCompany } from '../common/company-kind';
 import { emitMasterEvent } from '../common/master-event';
 import { resolveCompanyAccessState, normalizeCompanyAccountType } from '../modules/company-access-state';
@@ -80,7 +83,17 @@ export class AuthService implements OnModuleInit {
     private emailTemplates: EmailTemplateService,
     private hbxCommissionSync: HbxCommissionSyncService,
     private credits: CreditsService,
+    // F1 (CONFIRMACAO-TELEFONE): envio LIVE do código pela ROTINA DO APP — o mesmo
+    // bridge que o master-alert usa (chip do Master só ENVIA, nunca conecta). Opcional
+    // por retrocompat de testes que constroem o service com 7 args (dev/mock nunca toca).
+    private webwhats?: WebwhatsBridgeService,
   ) {}
+
+  // F1 (CONFIRMACAO-TELEFONE) — guardrails do envio live do OTP: cooldown 60s por
+  // telefone, teto por telefone/hora, teto global/hora e DISJUNTOR (falhas consecutivas
+  // abrem o canal, sem loop de retry). Instância única (service é singleton). Nasce
+  // JUNTO com o envio live — nunca depois.
+  private readonly whatsappConfirmGuard = new WhatsappConfirmGuard();
 
   // CRÉDITOS A3 (docs/PLANEJAMENTOS/CREDITOS/A3-RESULTADO.md) — lote grátis de boas-vindas.
   // Chamado FORA da transação de criação da Company (nunca acopla erro de crédito ao rollback
@@ -106,10 +119,13 @@ export class AuthService implements OnModuleInit {
   private async maybeGrantWelcomeAfterConfirm(companyId: number | null | undefined) {
     const id = Number(companyId || 0);
     if (!id || !isCreditsFeatureEnabled()) return;
+    // F2 (CONFIRMACAO-TELEFONE): com a flag ON, o brinde exige telefone VERIFICADO
+    // (além da identidade, garantida pelo call site). Default OFF = comportamento atual.
+    const requireVerifiedPhone = isVerifiedPhoneRequiredForWelcome();
     try {
       const company = await this.prisma.company.findUnique({
         where: { id },
-        select: { status: true, accountType: true, contactPhone: true, taxDocument: true },
+        select: { status: true, accountType: true, contactPhone: true, contactPhoneVerifiedAt: true, taxDocument: true },
       });
       // O welcome é brinde de NASCIMENTO self-service (MASTER-REFAB S6 10/07 noite: a conta
       // ativada na confirmação/Google nasce direto `active`, não mais `courtesy` — o filtro por
@@ -128,14 +144,28 @@ export class AuthService implements OnModuleInit {
         this.logger.log(`welcome_batch_skipped_status company=${id} status=${companyStatus}`);
         return;
       }
+      // Gate F2: sem telefone verificado, brinde NÃO sai (identidade sozinha não basta
+      // com a flag ON). Fail-closed do brinde — nunca trava a confirmação em si.
+      if (requireVerifiedPhone && !company?.contactPhoneVerifiedAt) {
+        this.logger.log(`welcome_batch_skipped_phone_unverified company=${id}`);
+        return;
+      }
       const phone = this.normalizeBrazilPhone(company?.contactPhone) || null;
       const taxDoc = (this.normalizeDigits(company?.taxDocument || '') || '').slice(0, 14) || null;
       if (phone || taxDoc) {
+        // Dedup anti-farra: com o gate ON o telefone que colide precisa estar VERIFICADO
+        // em outra empresa (número só digitado numa conta abandonada não bloqueia o
+        // brinde). Com o gate OFF, mantém a comparação por telefone digitado (atual).
+        const phoneClause = phone
+          ? (requireVerifiedPhone
+              ? { contactPhone: phone, contactPhoneVerifiedAt: { not: null } }
+              : { contactPhone: phone })
+          : null;
         const clash = await this.prisma.company.findFirst({
           where: {
             id: { not: id },
             OR: [
-              ...(phone ? [{ contactPhone: phone }] : []),
+              ...(phoneClause ? [phoneClause] : []),
               ...(taxDoc ? [{ taxDocument: taxDoc }] : []),
             ],
           },
@@ -1893,18 +1923,108 @@ export class AuthService implements OnModuleInit {
     }
   }
 
-  // Envio GATED do código. Dev/mock → log + preview (igual previewUrl do e-mail).
-  // Live → NÃO dispara; devolve TODO. Pendurar no Webwhats do Master
-  // (instância de automação company-{master}) é passo do dono na VPS.
-  private async dispatchWhatsappConfirmationCode(input: { phone: string; code: string }): Promise<{ delivered: 'mock' | 'todo'; previewCode: string | null }> {
+  // Texto do OTP (uma linha, sem link — só o código). Curto de propósito.
+  private buildWhatsappConfirmMessage(code: string): string {
+    return `HBX: seu código de confirmação é ${code}. Ele vale por 10 minutos. Se você não pediu, ignore esta mensagem.`;
+  }
+
+  // Envio LIVE do código pela ROTINA DO APP (WebwhatsBridgeService.sendText do chip
+  // do Master) — NUNCA a API crua do motor (logout/delete). É um ENVIO de mensagem,
+  // não conexão/reconexão. Uma tentativa só, sem retry (o disjuntor mora no guard).
+  private async sendWhatsappConfirmationLive(phone: string, code: string): Promise<void> {
+    const senderCompanyId = resolveWhatsappConfirmSenderCompanyId();
+    if (!senderCompanyId) {
+      throw new Error('WHATSAPP_CONFIRM_WA_COMPANY_ID/MASTER_ALERT_WA_COMPANY_ID não configurado');
+    }
+    if (!this.webwhats) {
+      throw new Error('WebwhatsBridgeService indisponível para envio live');
+    }
+    await this.webwhats.sendText(senderCompanyId, { to: phone, text: this.buildWhatsappConfirmMessage(code) });
+  }
+
+  // Envio do código com 3 modos, TODOS gated OFF por default:
+  //   dev/local          → mock: código no log + preview (DX; nunca dispara live).
+  //   prod + flag OFF     → gated-TODO: NÃO dispara, sem preview (comportamento atual).
+  //   prod + flag ON      → LIVE via app routine, com guardrails (cooldown/teto/disjuntor).
+  // 'blocked'/'failed' NÃO retentam — quem chama para e registra (loop = ban).
+  private async dispatchWhatsappConfirmationCode(
+    input: { phone: string; code: string },
+  ): Promise<{ delivered: 'mock' | 'todo' | 'live' | 'blocked' | 'failed'; previewCode: string | null; reason?: string; retryAfterMs?: number }> {
     if (!this.isProduction()) {
       this.logger.log(`[whatsapp-confirm][mock] phone=${input.phone} code=${input.code}`);
       return { delivered: 'mock', previewCode: input.code };
     }
-    // TODO(F6 live / VPS): enviar pela mensageria do Master (Outbox/Webwhats,
-    // instância de automação). NÃO disparar daqui sem ordem do dono (guardrail).
-    this.logger.warn(`[whatsapp-confirm][LIVE_WHATSAPP_CONFIRM_TODO] envio real gated phone=${input.phone}`);
-    return { delivered: 'todo', previewCode: null };
+    if (!isLiveWhatsappConfirmEnabled()) {
+      // Flag mestra OFF (default): mantém o gate-TODO — NÃO dispara nada live.
+      this.logger.warn(`[whatsapp-confirm][LIVE_WHATSAPP_CONFIRM_TODO] envio real gated phone=${input.phone}`);
+      return { delivered: 'todo', previewCode: null };
+    }
+    // Flag ON → LIVE. Guardrails ANTES de encostar no chip (sem loop, sem retry).
+    const decision = this.whatsappConfirmGuard.evaluate(input.phone);
+    if (!decision.allowed) {
+      this.logger.warn(`[whatsapp-confirm][blocked] reason=${decision.reason} phone=${input.phone} retryAfterMs=${decision.retryAfterMs}`);
+      return { delivered: 'blocked', previewCode: null, reason: decision.reason, retryAfterMs: decision.retryAfterMs };
+    }
+    // Conta a TENTATIVA (cooldown + tetos) mesmo se falhar — não martelar o número.
+    this.whatsappConfirmGuard.registerAttempt(input.phone);
+    try {
+      await this.sendWhatsappConfirmationLive(input.phone, input.code);
+      this.whatsappConfirmGuard.registerSuccess();
+      this.logger.log(`[whatsapp-confirm][live] enviado phone=${input.phone}`);
+      return { delivered: 'live', previewCode: null };
+    } catch (error: any) {
+      // UMA tentativa; falhou → registra no disjuntor e PARA (sem retry).
+      this.whatsappConfirmGuard.registerFailure();
+      this.logger.warn(`[whatsapp-confirm][live_failed] phone=${input.phone} error=${String(error?.message || error)}`);
+      return { delivered: 'failed', previewCode: null };
+    }
+  }
+
+  // Gera o desafio (código + store server-side) e dispara pelo modo vigente. Núcleo
+  // compartilhado pelos 2 pontos de entrada (start do cadastro com pollToken; verify
+  // do usuário logado com JWT). Se o envio LIVE for bloqueado/falhar, APAGA o desafio
+  // recém-criado e lança — nunca devolve challengeToken de um código que não saiu.
+  private async generateAndDispatchWhatsappChallenge(userId: number, phone: string) {
+    const code = String(crypto.randomInt(100000, 1000000));
+    this.sweepExpiredWhatsappChallenges();
+    const challengeId = crypto.randomUUID();
+    this.whatsappChallenges.set(challengeId, {
+      userId,
+      phone,
+      codeHash: this.sha256(code),
+      attempts: 0,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10min — mesma janela do JWT
+    });
+    const dispatch = await this.dispatchWhatsappConfirmationCode({ phone, code });
+    if (dispatch.delivered === 'blocked') {
+      this.whatsappChallenges.delete(challengeId);
+      const secs = Math.ceil((dispatch.retryAfterMs || 0) / 1000);
+      throw new BadRequestException({
+        code: 'WHATSAPP_CONFIRM_RATE_LIMITED',
+        reason: dispatch.reason,
+        retryAfterSeconds: secs,
+        message: secs > 0 ? `Aguarde ${secs}s para pedir um novo código.` : 'Muitas tentativas. Aguarde para pedir um novo código.',
+      });
+    }
+    if (dispatch.delivered === 'failed') {
+      this.whatsappChallenges.delete(challengeId);
+      throw new ServiceUnavailableException({
+        code: 'WHATSAPP_CONFIRM_SEND_FAILED',
+        message: 'Não foi possível enviar o código pelo WhatsApp agora. Tente novamente em instantes.',
+      });
+    }
+    const challengeToken = this.buildWhatsappConfirmChallengeToken({ userId, challengeId });
+    return {
+      challengeToken,
+      phone,
+      sentVia: dispatch.delivered === 'mock' ? 'mock' : 'whatsapp',
+      liveDispatch: dispatch.delivered === 'todo' ? 'LIVE_WHATSAPP_CONFIRM_TODO' : null,
+      // previewCode só existe em dev/mock (nunca em produção/live).
+      previewCode: dispatch.previewCode,
+      message: dispatch.delivered === 'mock'
+        ? 'Código gerado (ambiente de teste). Use o código exibido para confirmar.'
+        : 'Enviamos um código pelo WhatsApp. Digite-o aqui para confirmar.',
+    };
   }
 
   async startWhatsappConfirmation(pollToken: string, rawPhone: string) {
@@ -1928,33 +2048,82 @@ export class AuthService implements OnModuleInit {
     if (user.companyId) {
       await TrialUsage.ensureTrialPhoneAvailableTx(this.prisma, Number(user.companyId), phone, 'reserve');
     }
-    // Código de 6 dígitos com RNG CRIPTOGRÁFICO (era Math.random(), previsível).
-    const code = String(crypto.randomInt(100000, 1000000));
-    this.sweepExpiredWhatsappChallenges();
-    // O desafio (hash do código + telefone + teto de tentativas) fica no servidor;
-    // o cliente só leva o `challengeId` opaco embrulhado no token.
-    const challengeId = crypto.randomUUID();
-    this.whatsappChallenges.set(challengeId, {
-      userId,
-      phone,
-      codeHash: this.sha256(code),
-      attempts: 0,
-      expiresAt: Date.now() + 10 * 60 * 1000, // 10min — mesma janela do JWT
+    const result = await this.generateAndDispatchWhatsappChallenge(userId, phone);
+    return { ok: true, ...result };
+  }
+
+  // ── Verificação de telefone do usuário JÁ LOGADO (F3 — banner pós-Google) ────
+  // O cadastro por e-mail/senha usa o pollToken (pré-login); o usuário Google já
+  // entrou (sem telefone verificado). Este par start/confirm roda sob o JWT da
+  // sessão (req.user), reusando o MESMO store de desafio + guardrails. O confirm
+  // aqui é LEVE: só carimba contactPhoneVerifiedAt + tenta o brinde — NÃO refaz
+  // login nem mexe em emailConfirmedAt (a identidade já está confirmada).
+  async startPhoneVerificationForUser(userId: number, rawPhone: string) {
+    const id = Number(userId || 0);
+    if (!id) throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Sessão inválida.' });
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, companyId: true },
     });
-    const challengeToken = this.buildWhatsappConfirmChallengeToken({ userId, challengeId });
-    const dispatch = await this.dispatchWhatsappConfirmationCode({ phone, code });
-    return {
-      ok: true,
-      challengeToken,
-      phone,
-      sentVia: dispatch.delivered === 'mock' ? 'mock' : 'whatsapp',
-      liveDispatch: dispatch.delivered === 'todo' ? 'LIVE_WHATSAPP_CONFIRM_TODO' : null,
-      // previewCode só existe em dev/mock (nunca em produção).
-      previewCode: dispatch.previewCode,
-      message: dispatch.delivered === 'mock'
-        ? 'Código gerado (ambiente de teste). Use o código exibido para confirmar.'
-        : 'Enviamos um código pelo WhatsApp. Digite-o aqui para confirmar.',
-    };
+    if (!user || !user.companyId) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Empresa não encontrada.' });
+    }
+    const phone = this.normalizeBrazilPhone(rawPhone);
+    if (!phone) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_PHONE_INVALID', message: 'Informe um número de WhatsApp válido (DDD + número).' });
+    }
+    const result = await this.generateAndDispatchWhatsappChallenge(id, phone);
+    return { ok: true, ...result };
+  }
+
+  async confirmPhoneVerificationForUser(userId: number, challengeToken: string, rawCode: string) {
+    const id = Number(userId || 0);
+    if (!id) throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Sessão inválida.' });
+    const phone = this.consumeWhatsappChallengeOrThrow(id, challengeToken, rawCode);
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, companyId: true, company: { select: { companyKind: true } } },
+    });
+    if (!user || !user.companyId) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_INVALID', message: 'Empresa não encontrada.' });
+    }
+    if (!isPlatformInfraCompany(user.company)) {
+      await this.prisma.company.update({
+        where: { id: Number(user.companyId) },
+        data: { contactPhone: phone, contactPhoneVerifiedAt: new Date() },
+      });
+    }
+    // Brinde: com o telefone agora VERIFICADO, tenta soltar os créditos (no-op se
+    // a chavinha de crédito estiver OFF, ou se o gate/dedup barrar). Best-effort.
+    await this.maybeGrantWelcomeAfterConfirm(Number(user.companyId));
+    return { ok: true, verified: true, phone, message: 'WhatsApp confirmado! Seus créditos de boas-vindas foram liberados.' };
+  }
+
+  // Valida+consome o desafio (uso único, teto anti-brute) e devolve o telefone do
+  // store (nunca do cliente). Compartilhado pelos 2 confirms. Lança nos mesmos
+  // códigos de erro do fluxo de cadastro.
+  private consumeWhatsappChallengeOrThrow(userId: number, challengeToken: string, rawCode: string): string {
+    const verified = this.verifyWhatsappConfirmChallengeToken(challengeToken);
+    if (verified.userId !== userId) {
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_EXPIRED', message: 'Código expirado. Peça um novo código.' });
+    }
+    this.sweepExpiredWhatsappChallenges();
+    const challenge = this.whatsappChallenges.get(verified.challengeId);
+    if (!challenge || challenge.userId !== userId || challenge.expiresAt <= Date.now()) {
+      if (challenge) this.whatsappChallenges.delete(verified.challengeId);
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_EXPIRED', message: 'Código expirado. Peça um novo código.' });
+    }
+    if (challenge.attempts >= 5) {
+      this.whatsappChallenges.delete(verified.challengeId);
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_CODE_INVALID', message: 'Código incorreto. Confira e tente novamente.' });
+    }
+    const code = String(rawCode || '').replace(/\D/g, '').slice(0, 6);
+    if (!code || !this.timingSafeEqualHex(this.sha256(code), challenge.codeHash)) {
+      challenge.attempts += 1;
+      throw new BadRequestException({ code: 'WHATSAPP_CONFIRM_CODE_INVALID', message: 'Código incorreto. Confira e tente novamente.' });
+    }
+    this.whatsappChallenges.delete(verified.challengeId);
+    return challenge.phone;
   }
 
   async confirmWhatsappCode(challengeToken: string, rawCode: string, opts?: { userAgent?: string; ip?: string }) {
@@ -2002,7 +2171,9 @@ export class AuthService implements OnModuleInit {
       ip: opts?.ip,
       source: 'auth_whatsapp_confirmed',
       identityLabel: 'Número',
-      companyData: { contactPhone: phone },
+      // F2: o código provou o telefone do cadastro — carimba a verificação junto do
+      // telefone. O gate do brinde (maybeGrantWelcomeAfterConfirm) lê este carimbo.
+      companyData: { contactPhone: phone, contactPhoneVerifiedAt: new Date() },
     });
   }
 

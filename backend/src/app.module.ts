@@ -41,6 +41,7 @@ import { NightFactoryModule } from './night-factory/night-factory.module';
 import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
 import { BotModule } from './bot/bot.module';
 import { AssistenteModule } from './assistente/assistente.module';
+import { LeadEmailModule } from './lead-email/lead-email.module';
 import { MasterCockpitModule } from './master-cockpit/master-cockpit.module';
 import { WebsiteLeadCaptureModule } from './website-lead-capture/website-lead-capture.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
@@ -100,6 +101,7 @@ import { UploadsModule } from './uploads/uploads.module';
     MetaLeadAdsModule,
     BotModule,
     AssistenteModule,
+    LeadEmailModule,
     AdminModule,
     MasterCockpitModule,
     WebsiteLeadCaptureModule,

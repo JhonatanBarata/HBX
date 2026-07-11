@@ -32,6 +32,10 @@ model Company {
   primaryContactName      String?
   contactEmail            String?
   contactPhone            String?
+  // CONFIRMACAO-TELEFONE F2: carimbo de quando o telefone do cadastro foi VERIFICADO
+  // por código (OTP WhatsApp/F6). null = não verificado (só digitado). Gate do brinde
+  // (HBX_CREDITS_REQUIRE_VERIFIED_PHONE) e dedup anti-farra passam a exigir este carimbo.
+  contactPhoneVerifiedAt  DateTime?
   supportEmail            String?
   replyToEmail            String?
   supportWhatsapp         String?
@@ -3524,6 +3528,54 @@ model CommercialEmailMessageLog {
   @@index([companyId, radarLeadId])
   @@index([recipientEmail, status])
   @@index([status, createdAt])
+}
+
+// LEADS-FINAL/06 — E-MAIL v1. Conta SMTP PESSOAL do usuário (vendedor conecta a
+// própria) + histórico do que foi enviado da timeline do lead. Separado do
+// CompanyEmailSettings (que é o SMTP do cadastro/onboarding POR EMPRESA).
+// `credentialsEnc` = senha cifrada AES-256-GCM (HBX_EMAIL_CRED_SECRET) — NUNCA
+// lida por endpoint. Sem relação com Company (scalar companyId, igual ao
+// CommercialEmailMessageLog): migration puramente ADITIVA (2 CREATE TABLE).
+model EmailAccount {
+  id             String    @id @default(cuid())
+  companyId      Int
+  userId         Int
+  address        String // e-mail do remetente (from)
+  senderName     String?
+  provider       String    @default("outro")
+  smtpHost       String
+  smtpPort       Int
+  smtpSecure     Boolean   @default(true)
+  username       String
+  credentialsEnc String? // senha SMTP cifrada — nunca devolvida em leitura
+  status         String    @default("draft") // draft | connected | error
+  lastError      String?
+  lastTestedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([companyId, userId]) // 1 conta por usuário por empresa (v1)
+  @@index([companyId])
+}
+
+model EmailMessage {
+  id        String   @id @default(cuid())
+  companyId Int
+  leadId    String // RadarLeadPool.id
+  accountId String
+  userId    Int?
+  direction String   @default("out")
+  to        String
+  subject   String
+  bodyText  String?
+  bodyHtml  String?
+  status    String   @default("sent") // sent | failed
+  error     String?
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([companyId, leadId])
+  @@index([accountId, sentAt])
 }
 
 model MasterEmailFormState {

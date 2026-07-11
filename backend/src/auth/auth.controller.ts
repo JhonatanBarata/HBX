@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ConfirmEmailDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
+import { ConfirmEmailDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, PhoneVerificationStartDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -55,6 +55,24 @@ export class AuthController {
       userAgent: req?.headers?.['user-agent'],
       ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
     });
+  }
+
+  // F3 (CONFIRMACAO-TELEFONE): verificação do telefone do usuário JÁ LOGADO (banner
+  // pós-Google). Roda sob o JWT da sessão — o start gera/dispara o código (mesmos
+  // guardrails), o confirm carimba contactPhoneVerifiedAt e tenta o brinde. NÃO
+  // refaz login. Só destrava o brinde, nunca o app.
+  @Post('whatsapp/verify/start')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 3, ttl: 60 } })
+  startPhoneVerification(@Body() dto: PhoneVerificationStartDto, @Req() req: any) {
+    return this.authService.startPhoneVerificationForUser(Number(req?.user?.id), dto.phone);
+  }
+
+  @Post('whatsapp/verify/confirm')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  confirmPhoneVerification(@Body() dto: WhatsappConfirmCodeDto, @Req() req: any) {
+    return this.authService.confirmPhoneVerificationForUser(Number(req?.user?.id), dto.challengeToken, dto.code);
   }
 
   @Post('login')

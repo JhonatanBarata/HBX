@@ -177,6 +177,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
           accessStateLabel: billingAudience && companyAccess ? companyAccess.statusLabel : null,
           selectedPlanKey: billingAudience ? user.company.selectedPlanKey ?? null : null,
           contactPhone: user.company.contactPhone ?? null,
+          // F3 (CONFIRMACAO-TELEFONE): telefone do cadastro provado por código (OTP).
+          // false = só digitado. Alimenta o banner "confirme seu WhatsApp" (gate do brinde).
+          contactPhoneVerified: Boolean(user.company.contactPhoneVerifiedAt),
           trialStartsAt: billingAudience ? user.company.trialStartsAt ?? null : null,
           trialEndsAt: billingAudience ? user.company.trialEndsAt ?? null : null,
           trialRemainingDays: billingAudience ? trialRemainingDays : null,

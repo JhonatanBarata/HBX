@@ -28,6 +28,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
+import { EmailAccountForm } from "@/components/hbx/email-account-form";
 import { CreditsWalletSection } from "@/components/hbx/credits-wallet-section";
 import { MetaLeadAdsSection } from "@/components/hbx/meta-lead-ads-section";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
@@ -42,8 +43,8 @@ import { useTabParam } from "@/lib/use-tab-param";
 // "Módulos" (PR10072026 W3): o dono liga/desliga as categorias de módulo da
 // empresa (mesmas do OOBE) — GET /profile/module-categories/options + POST
 // /profile/module-categories. Categoria travada pelo master (locked) não aparece.
-const SECTIONS = ["Perfil & Empresa", "E-mail", "Integrações", "Módulos", "Notificações", "Créditos"];
-const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "E-mail": "mail", "Integrações": "bolt", "Módulos": "grid", "Notificações": "bell", "Créditos": "money" };
+const SECTIONS = ["Perfil & Empresa", "Meu e-mail", "E-mail", "Integrações", "Módulos", "Notificações", "Créditos"];
+const SEC_IC: Record<string, string> = { "Perfil & Empresa": "users", "Meu e-mail": "send", "E-mail": "mail", "Integrações": "bolt", "Módulos": "grid", "Notificações": "bell", "Créditos": "money" };
 
 type CurrentUser = {
   name?: string | null;
@@ -156,6 +157,11 @@ export function ConfiguracoesClient() {
   const [catOpts, setCatOpts] = useState<CategoriaOpt[] | null>(null);
   const [catBusy, setCatBusy] = useState(false);
 
+  // E-mail v1 (LEADS-FINAL/06): a seção "Meu e-mail" só aparece com o recurso
+  // ligado no backend (secret de cifra presente). Vendedor também conecta a
+  // própria conta — sem gate de cobrança aqui.
+  const [personalEmailEnabled, setPersonalEmailEnabled] = useState(false);
+
   // Equipe saiu desta tela — sem novoAcesso/gerirMembro/excluirMembro aqui.
   // Gestão de membros vive em Gerencial → aba Equipe.
 
@@ -181,6 +187,9 @@ export function ConfiguracoesClient() {
         setN4(Boolean(res.prefs.tarefasAtrasadas));
       })
       .catch(() => { /* mantém defaults locais */ });
+    apiFetch<{ ok?: boolean; enabled?: boolean }>("/lead-email/status")
+      .then(res => { if (alive) setPersonalEmailEnabled(res?.enabled === true); })
+      .catch(() => { /* recurso off/erro — seção fica escondida */ });
     return () => { alive = false; };
   }, []);
 
@@ -323,6 +332,7 @@ export function ConfiguracoesClient() {
   const sections = SECTIONS
     .filter(s => s !== "Créditos" || canSeeBilling)
     .filter(s => s !== "E-mail" || canSeeEmail)
+    .filter(s => s !== "Meu e-mail" || personalEmailEnabled)
     .filter(s => s !== "Integrações" || canSeeIntegracoes)
     .filter(s => s !== "Módulos" || canSeeModulos);
   const current = plansMe?.current;
@@ -443,6 +453,18 @@ export function ConfiguracoesClient() {
                   </div>
                 </section>
               </React.Fragment>
+            )}
+
+            {sec === "Meu e-mail" && personalEmailEnabled && (
+              <section className="panel cfg-section">
+                <div className="panel-head"><h2>Meu e-mail</h2></div>
+                <div className="cfg-sec-body" style={{ padding: 18, display: "grid", gap: 12 }}>
+                  <p className="lead-email__note">
+                    Conecte a sua conta de e-mail (SMTP) para enviar e-mails direto da página do lead. A mesma conta é usada lá e aqui.
+                  </p>
+                  <EmailAccountForm />
+                </div>
+              </section>
             )}
 
             {sec === "E-mail" && canSeeEmail && <CompanyEmailSection />}

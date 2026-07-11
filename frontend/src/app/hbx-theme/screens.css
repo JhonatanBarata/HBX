@@ -1263,6 +1263,33 @@ html, body { height: 100%; }
 .copiloto__result-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .copiloto__savemsg { margin: 0; }
 
+/* ── LEADS-FINAL/06 — E-mail v1 (conta SMTP + compose + histórico) ───────────
+   Visual só por token (check-pele R1). Layout inline no TSX é permitido; cor/
+   borda/fundo vivem aqui. */
+.lead-email { display: grid; gap: 12px; }
+.lead-email__note { margin: 0; font-size: 0.72rem; line-height: 1.5; color: var(--text-muted); }
+.lead-email__hint { margin: 0; font-size: 0.68rem; line-height: 1.5; color: var(--text-muted); }
+.lead-email__ok { font-weight: 700; color: var(--hbx-brand-strong); }
+.lead-email__err { font-weight: 700; color: var(--hbx-danger); }
+.lead-email__warn { font-weight: 700; color: var(--hbx-warning); }
+.lead-email__block { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); background: var(--hbx-surface-soft); }
+.lead-email__block-title { margin: 0; font-size: 0.74rem; font-weight: 800; }
+.lead-email__row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lead-email__acct { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); background: var(--hbx-surface-soft); }
+.lead-email__acct-id { display: grid; gap: 2px; min-width: 0; }
+.lead-email__acct-addr { font-size: 0.8rem; font-weight: 700; overflow-wrap: anywhere; }
+.lead-email__acct-sub { font-size: 0.66rem; color: var(--text-muted); }
+.lead-email__history { display: grid; gap: 8px; }
+.lead-email__msg { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: var(--radius-sm); }
+.lead-email__msg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lead-email__msg-subj { font-size: 0.78rem; font-weight: 700; overflow-wrap: anywhere; }
+.lead-email__msg-when { font-size: 0.66rem; white-space: nowrap; color: var(--text-muted); }
+.lead-email__msg-to { font-size: 0.68rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.lead-email__msg-err { font-size: 0.68rem; color: var(--hbx-danger); }
+.lead-email__badge { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.lead-email__badge--sent { color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); }
+.lead-email__badge--failed { color: var(--hbx-danger); background: color-mix(in srgb, var(--hbx-danger) 15%, transparent); }
+
 /* ── Leads: cabeçalho banco (linha fininha com Total no Brasil) ─────────── */
 .leads-bank-strip { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--border-hairline); }
 .leads-bank-strip__num { font-family: var(--font-display); font-size: 0.96rem; font-weight: 800; color: var(--text-strong); }

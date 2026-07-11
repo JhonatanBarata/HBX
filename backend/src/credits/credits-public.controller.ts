@@ -5,7 +5,7 @@ import {
   getWelcomeCreditsDefault,
   getWelcomeExpiryDaysDefault,
 } from './credit-pack-catalog';
-import { isCreditsFeatureEnabled } from './credits.flags';
+import { isCreditsFeatureEnabled, isVerifiedPhoneRequiredForWelcome } from './credits.flags';
 
 // CRÉDITOS (cutover 06/07) — vitrine PÚBLICA do catálogo de PACOTES DE CRÉDITO. Gêmeo de
 // CommercialPlansPublicController: alimenta /planos e a landing SEM auth, só dados de marketing
@@ -23,7 +23,7 @@ export class CreditsPublicController {
   getPublicCatalog() {
     const enabled = isCreditsFeatureEnabled();
     if (!enabled) {
-      return { enabled: false, packs: [], welcomeCredits: 0, welcomeExpiryDays: 0 };
+      return { enabled: false, packs: [], welcomeCredits: 0, welcomeExpiryDays: 0, requiresPhoneVerification: false };
     }
     const packs = buildCreditPacksCatalog({ includePaused: true }).map((pack) => ({
       key: pack.key,
@@ -43,6 +43,10 @@ export class CreditsPublicController {
       // Lote grátis de boas-vindas (A3): mata o trial por tempo — a landing anuncia "X créditos grátis".
       welcomeCredits: getWelcomeCreditsDefault(),
       welcomeExpiryDays: getWelcomeExpiryDaysDefault(),
+      // F3 (CONFIRMACAO-TELEFONE): quando ON, o cadastro grátis exige confirmar o
+      // WhatsApp por código pra soltar o brinde (o passo do código vira obrigatório).
+      // Default OFF → front não muda nada (regressão zero).
+      requiresPhoneVerification: isVerifiedPhoneRequiredForWelcome(),
     };
   }
 }

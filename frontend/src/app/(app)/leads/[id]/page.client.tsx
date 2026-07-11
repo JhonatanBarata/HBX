@@ -27,6 +27,7 @@ import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch } from "@/lib/api";
 import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { CopilotoPanel } from "./copiloto-panel";
+import { EmailPanel } from "./email-panel";
 
 type RadarLeadEvent = {
   id: string;
@@ -43,7 +44,7 @@ type LeadDetailResponse = {
   events: RadarLeadEvent[];
 };
 
-type CenterTab = "anotacoes" | "whatsapp";
+type CenterTab = "anotacoes" | "whatsapp" | "email";
 
 // Rótulos dos eventos do Radar (mesmo enum do backend, RadarLeadEventType) —
 // domínio pequeno e fechado, mapa dedicado (não é o humanize genérico do
@@ -137,6 +138,10 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
   const [copilotoEnabled, setCopilotoEnabled] = useState(false);
   const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
 
+  // E-mail v1 (LEADS-FINAL/06): flag = presença do secret de cifra no backend.
+  // OFF/erro → a aba E-mail some (fail-closed), igual ao Copiloto.
+  const [emailEnabled, setEmailEnabled] = useState(false);
+
   const load = useCallback(async () => {
     // set-state SÓ após o await (nada síncrono no corpo) → evita react-hooks/set-state-in-effect
     // quando o efeito chama load(); `loading` já nasce true no useState acima.
@@ -170,6 +175,10 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
     apiFetch<{ ok?: boolean; enabled?: boolean }>("/assistente/copiloto")
       .then(res => setCopilotoEnabled(res?.enabled === true))
       .catch(() => setCopilotoEnabled(false));
+    // Flag do E-mail v1 (fail-closed: erro/ausente → aba some).
+    apiFetch<{ ok?: boolean; enabled?: boolean }>("/lead-email/status")
+      .then(res => setEmailEnabled(res?.enabled === true))
+      .catch(() => setEmailEnabled(false));
   }, []);
 
   const lead = data?.item || null;
@@ -317,7 +326,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
                 onSaveNote={postNote}
               />
             )}
-            <div className="glass-pill-track lead-detail-tabs" role="tablist" aria-label="Anotações e WhatsApp">
+            <div className="glass-pill-track lead-detail-tabs" role="tablist" aria-label="Anotações, WhatsApp e E-mail">
               <GlassPill {...centerPill} />
               <button
                 type="button"
@@ -339,6 +348,18 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
               >
                 <I d={ICONS.msg} size={14} /> WhatsApp
               </button>
+              {emailEnabled && (
+                <button
+                  type="button"
+                  ref={centerPill.itemRef("email")}
+                  className={"glass-pill-item lead-detail-tabs__item" + (centerTab === "email" ? " active" : "")}
+                  onClick={() => setCenterTab("email")}
+                  role="tab"
+                  aria-selected={centerTab === "email"}
+                >
+                  <I d={ICONS.mail} size={14} /> E-mail
+                </button>
+              )}
             </div>
 
             <div className="lead-detail-tabpanel">
@@ -359,6 +380,10 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
                 ) : (
                   <ConversationPanel key={lead.phone} phone={lead.phone} name={lead.name} draftSignal={draftSignal} />
                 )
+              ) : centerTab === "email" ? (
+                // E-mail v1 (LEADS-FINAL/06): só monta quando a flag está ON (a aba
+                // nem aparece sem ela). Compose + histórico; conexão da conta embutida.
+                <EmailPanel leadId={String(lead.id)} leadEmail={lead.email || null} leadName={lead.name} />
               ) : (
                 <div className="lead-detail-history">
                   {/* Anotações (LEADS-FINAL/02): histórico via GET :id + escrita de nota

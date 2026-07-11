@@ -49,6 +49,16 @@
 ### Limpar do `.env` (obsoleta)
 - **`HBX_MODULES_KILLSWITCH_ONLY`** — sem efeito agora (`isModulesKillSwitchOnlyEnabled()` fixo em true). Remover de `.env`/`.env.example`.
 
+### Go-live de SEGURANÇA — ordem de virar os ENFORCE (do GOLIVE-DELTA/CHECKLIST-FLAGS)
+> **Eu não ligo flag de enforcement (seu guardrail).** Ordem do mais seguro pro mais arriscado:
+1. **`MP_WEBHOOK_SIGNATURE_MODE=enforce`** (default `log`, secret já injetado) — baixo risco, faça já. Pré: confirmar nos logs que um webhook real recente bate a assinatura no modo `log` (secret certo). Ganho: mata replay/sync de IDs arbitrários.
+2. **`HBX_TENANT_GUARD_MODE=enforce`** (default prod=`report`) — ⚠️ MAIOR risco. Rode dias em `report`, junte os `[tenant-guard] unscoped model/op/stack` dos logs, corrija cada query legítima (o pool do Radar/night-factory lê sem `companyId` — ver BACKLOG P2b) ANTES de virar. Cobre só `findMany/count/aggregate/updateMany/deleteMany`, NÃO `findUnique/update/delete/upsert` nem SQL cru, e valida só presença da chave — barreira PARCIAL (endurecer o guard é opção sua futura).
+3. **Enterprise cutover** (`HBX_CREDITS_ENFORCE=ON` + `Company.creditsEnforceEnabled` por empresa) — só quando a conta enterprise tiver lote contratado; empresa a empresa, nunca a env global de uma vez. Conta `credit` (self-service) **já debita**, nada a fazer pra abrir ao público.
+
+### Flags de emergência (default seguro, não tocar)
+- `HBX_SKIP_RUNTIME_SCHEMA_ENSURES` (G1) — OFF; só no dia em que as 44 ensures virarem migrations formais.
+- `HBX_SKIP_GATE` / `--skip-gate` (G4) — gate LIGADO; pular o quality gate só em emergência.
+
 ---
 
 ## 2) Migrations a garantir aplicadas no Postgres da VPS
