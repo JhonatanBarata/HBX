@@ -1,0 +1,86 @@
+{
+  "model": "qwen3:4b-instruct",
+  "total": 5,
+  "passed": 4,
+  "injectionPassed": 0,
+  "results": [
+    {
+      "id": 1,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.04999999999999993,
+      "ms": 51098,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "clínicas odontológicas",
+        "city": "Curitiba",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 20,
+        "channels": [],
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": 2,
+      "pass": false,
+      "errors": [
+        "The operation was aborted due to timeout"
+      ],
+      "ms": 60060
+    },
+    {
+      "id": 3,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.040000000000000036,
+      "ms": 21674,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "pet shops",
+        "city": "Belo Horizonte",
+        "cityValidated": false,
+        "state": "MG",
+        "desiredCount": 10,
+        "channels": [],
+        "confidence": 0.99
+      }
+    },
+    {
+      "id": 4,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.020000000000000018,
+      "ms": 26233,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "academias",
+        "city": "Fortaleza",
+        "cityValidated": false,
+        "state": null,
+        "desiredCount": 30,
+        "channels": [
+          "whatsapp"
+        ],
+        "confidence": 0.97
+      }
+    },
+    {
+      "id": 5,
+      "pass": true,
+      "errors": [],
+      "confidenceDelta": 0.040000000000000036,
+      "ms": 26528,
+      "actual": {
+        "intent": "radar_search",
+        "targetSegment": "imobiliárias",
+        "city": "Porto Alegre",
+        "cityValidated": false,
+        "state": "RS",
+        "desiredCount": 15,
+        "channels": [],
+        "confidence": 0.99
+      }
+    }
+  ]
+}

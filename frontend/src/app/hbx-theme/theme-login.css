@@ -1,52 +1,51 @@
 /* ============================================================
-   PELE: LOGIN — azul, violeta e magenta da cena de autenticação.
-   A entrada pública e o login passam a compartilhar a mesma primeira
-   impressão; a casca Modern continua sendo a única casca selecionável.
+   PELE: LOGIN — paleta do /front1: verde fluorescente sobre preto/cinza.
+   Somente tokens de cor; a casca Modern e a estrutura permanecem intactas.
    ============================================================ */
 
 [data-theme="login"] {
-  --hbx-brand: #4DA3FF; --hbx-brand-strong: #2C79E8; --hbx-brand-soft: #E4F0FF; --hbx-brand-contrast: #F7FBFF;
-  --hbx-primary: #4DA3FF; --hbx-secondary: #A06BFF; --hbx-success: #24C78E; --hbx-accent: #FF5FD0;
-  --hbx-info: #4DA3FF; --hbx-warning: #FFB04D; --hbx-danger: #FF6A85; --hbx-danger-soft: #FFE7ED;
-  --hbx-background: #F3F7FF; --hbx-background-alt: #E8EFFF;
-  --hbx-surface: #FFFFFF; --hbx-surface-soft: #F3F6FD; --hbx-surface-raised: #E6EDFA;
-  --hbx-header-surface: rgba(248,251,255,0.82); --hbx-nav-surface: rgba(241,246,255,0.9);
-  --hbx-field-surface: #FCFDFF; --hbx-table-head: #EDF3FD;
-  --hbx-chat-inbound: #FFFFFF; --hbx-chat-outbound: #E8EFFF; --hbx-chat-system: #F3F6FD;
-  --hbx-foreground: #101A35; --hbx-foreground-soft: #334664; --hbx-muted: #647593;
-  --hbx-line: #D0DDF1; --hbx-shadow: #14213B; --hbx-overlay: rgba(14,24,46,0.34);
-  --border-hairline: #D7E1F1; --border-strong: #AFC4E4; --ring-brand: rgba(77,163,255,0.22);
-  --hbx-action-ink: #F7FBFF; --hbx-avatar-from: #4DA3FF; --hbx-avatar-to: #A06BFF;
+  --hbx-brand: #10C7B3; --hbx-brand-strong: #6EF2D8; --hbx-brand-soft: #E7E9EC; --hbx-brand-contrast: #020508;
+  --hbx-primary: #10C7B3; --hbx-secondary: #4A4A4A; --hbx-success: #6EF2D8; --hbx-accent: #6EF2D8;
+  --hbx-info: #10C7B3; --hbx-warning: #6E6E6E; --hbx-danger: #4A4A4A; --hbx-danger-soft: #E7E9EC;
+  --hbx-background: #E7E9EC; --hbx-background-alt: #B7BBC0;
+  --hbx-surface: #F5FBFF; --hbx-surface-soft: #E7E9EC; --hbx-surface-raised: #B7BBC0;
+  --hbx-header-surface: rgba(245,251,255,0.82); --hbx-nav-surface: rgba(231,233,236,0.9);
+  --hbx-field-surface: #F5FBFF; --hbx-table-head: #E7E9EC;
+  --hbx-chat-inbound: #F5FBFF; --hbx-chat-outbound: #E7E9EC; --hbx-chat-system: #B7BBC0;
+  --hbx-foreground: #020508; --hbx-foreground-soft: #4A4A4A; --hbx-muted: #6E6E6E;
+  --hbx-line: #B7BBC0; --hbx-shadow: #020508; --hbx-overlay: rgba(2,5,8,0.34);
+  --border-hairline: #B7BBC0; --border-strong: #6E6E6E; --ring-brand: rgba(16,199,179,0.22);
+  --hbx-action-ink: #020508; --hbx-avatar-from: #10C7B3; --hbx-avatar-to: #6EF2D8;
   --font-display: "Sora", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --casca-ring-1: #4DA3FF; --casca-ring-2: #A06BFF; --casca-ring-3: #24C78E; --casca-ring-4: #FFB04D; --casca-ring-5: #E7E9EC;
-  --casca-ring-track: rgba(77,163,255,0.12); --casca-ring-glow: rgba(77,163,255,0.35);
+  --casca-ring-1: #10C7B3; --casca-ring-2: #6EF2D8; --casca-ring-3: #B7BBC0; --casca-ring-4: #6E6E6E; --casca-ring-5: #E7E9EC;
+  --casca-ring-track: rgba(16,199,179,0.12); --casca-ring-glow: rgba(16,199,179,0.35);
   --casca-mark-1: var(--hbx-foreground); --casca-mark-2: var(--hbx-foreground-soft); --casca-mark-3: var(--hbx-foreground);
   --radius-xs: 8px; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 20px; --radius-xl: 28px;
-  --shadow-xs: 0 10px 22px -16px rgba(20,33,59,0.26); --shadow-sm: 0 18px 42px -22px rgba(20,33,59,0.32);
-  --shadow-md: 0 28px 64px -28px rgba(20,33,59,0.4); --shadow-lg: 0 42px 90px -34px rgba(20,33,59,0.48);
-  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.72);
+  --shadow-xs: 0 10px 22px -16px rgba(2,5,8,0.26); --shadow-sm: 0 18px 42px -22px rgba(2,5,8,0.32);
+  --shadow-md: 0 28px 64px -28px rgba(2,5,8,0.4); --shadow-lg: 0 42px 90px -34px rgba(2,5,8,0.48);
+  --shadow-inset: inset 0 1px 0 rgba(245,251,255,0.72);
   --blur-chrome: 24px; --blur-glass: 18px;
-  --panel-glow: rgba(77,163,255,0.14); --hero-glow: rgba(160,107,255,0.16); --soft-ring: rgba(77,163,255,0.17);
+  --panel-glow: rgba(16,199,179,0.14); --hero-glow: rgba(110,242,216,0.16); --soft-ring: rgba(16,199,179,0.17);
   --motion-fast: 160ms ease; --motion-base: 320ms cubic-bezier(0.22,1,0.36,1); --motion-slow: 560ms cubic-bezier(0.22,1,0.36,1);
   --ease-out-quint: cubic-bezier(0.22,1,0.36,1);
 }
 
 [data-theme="login"][data-theme-mode="dark"] {
-  --hbx-brand: #4DA3FF; --hbx-brand-strong: #86C2FF; --hbx-brand-soft: #142743; --hbx-brand-contrast: #EEF7FF;
-  --hbx-primary: #4DA3FF; --hbx-secondary: #A06BFF; --hbx-success: #39DFA7; --hbx-accent: #FF5FD0;
-  --hbx-info: #7CC2FF; --hbx-warning: #FFB04D; --hbx-danger: #FF6A85; --hbx-danger-soft: #381724;
-  --hbx-background: #070D1C; --hbx-background-alt: #0C152A;
-  --hbx-surface: #101C32; --hbx-surface-soft: #14223B; --hbx-surface-raised: #1C2D4B;
-  --hbx-header-surface: rgba(7,13,28,0.8); --hbx-nav-surface: rgba(12,21,42,0.9);
-  --hbx-field-surface: #0E1A30; --hbx-table-head: #14223B;
-  --hbx-chat-inbound: #14223B; --hbx-chat-outbound: #1B3158; --hbx-chat-system: #101C32;
-  --hbx-foreground: #EDF4FF; --hbx-foreground-soft: #C4D2E9; --hbx-muted: #8295B5;
-  --hbx-line: #253A5E; --hbx-shadow: #00040D; --hbx-overlay: rgba(0,4,13,0.7);
-  --border-hairline: #273D64; --border-strong: #3D5B88; --ring-brand: rgba(77,163,255,0.3);
-  --hbx-action-ink: #07101F; --hbx-avatar-from: #4DA3FF; --hbx-avatar-to: #A06BFF;
-  --casca-mark-1: #F2F6FF; --casca-mark-2: #C9D3E2; --casca-mark-3: #EAF0FA;
-  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.07);
+  --hbx-brand: #6EF2D8; --hbx-brand-strong: #6EF2D8; --hbx-brand-soft: #071724; --hbx-brand-contrast: #020508;
+  --hbx-primary: #10C7B3; --hbx-secondary: #4A4A4A; --hbx-success: #6EF2D8; --hbx-accent: #6EF2D8;
+  --hbx-info: #6EF2D8; --hbx-warning: #B7BBC0; --hbx-danger: #B7BBC0; --hbx-danger-soft: #020508;
+  --hbx-background: #03080D; --hbx-background-alt: #071724;
+  --hbx-surface: #071724; --hbx-surface-soft: #03080D; --hbx-surface-raised: #020508;
+  --hbx-header-surface: rgba(3,8,13,0.8); --hbx-nav-surface: rgba(7,23,36,0.9);
+  --hbx-field-surface: #020508; --hbx-table-head: #071724;
+  --hbx-chat-inbound: #071724; --hbx-chat-outbound: #03080D; --hbx-chat-system: #020508;
+  --hbx-foreground: #F5FBFF; --hbx-foreground-soft: #B7BBC0; --hbx-muted: #8A8A8A;
+  --hbx-line: #4A4A4A; --hbx-shadow: #020508; --hbx-overlay: rgba(2,5,8,0.7);
+  --border-hairline: #4A4A4A; --border-strong: #6E6E6E; --ring-brand: rgba(110,242,216,0.3);
+  --hbx-action-ink: #020508; --hbx-avatar-from: #10C7B3; --hbx-avatar-to: #6EF2D8;
+  --casca-mark-1: #E7E9EC; --casca-mark-2: #B7BBC0; --casca-mark-3: #E7E9EC;
+  --shadow-inset: inset 0 1px 0 rgba(245,251,255,0.07);
 }
 
 [data-theme="login"] .glass-pill__glass {
