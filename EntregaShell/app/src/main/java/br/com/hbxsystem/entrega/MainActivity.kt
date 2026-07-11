@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -74,6 +75,20 @@ class MainActivity : AppCompatActivity() {
                     // O site já pede geolocation própria em foreground — a casca
                     // só concede direto (permissão nativa runtime já foi pedida).
                     callback?.invoke(origin, true, false)
+                }
+
+                override fun onPermissionRequest(request: PermissionRequest) {
+                    // Mic da Web Speech API (confirmação de entrega por voz). Só
+                    // concede áudio quando a página atual é do nosso host — nunca
+                    // pra origem estranha que o WebView eventualmente carregue.
+                    val pedeAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                    val hostAtual = this@MainActivity.webView.url?.let { Uri.parse(it).host }
+                    val hostConfiavel = hostAtual == ALLOWED_HOST || hostAtual == ALLOWED_HOST_ROOT
+                    if (pedeAudio && hostConfiavel) {
+                        request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                    } else {
+                        request.deny()
+                    }
                 }
             }
 
@@ -147,6 +162,13 @@ class MainActivity : AppCompatActivity() {
             != PackageManager.PERMISSION_GRANTED
         ) {
             faltando += Manifest.permission.POST_NOTIFICATIONS
+        }
+        // Mic pra confirmação de entrega por voz (Web Speech API dentro do WebView).
+        // Negar não bloqueia nada: só a voz fica muda, o resto do app segue normal.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            faltando += Manifest.permission.RECORD_AUDIO
         }
         if (faltando.isNotEmpty()) {
             permissionLauncher.launch(faltando.toTypedArray())
