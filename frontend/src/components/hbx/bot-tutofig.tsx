@@ -199,7 +199,14 @@ export function BotTutofig({
   const [vIdx, setVIdx] = useState(0);      // variante de 1º contato em rotação
   const [typing, setTyping] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const [now] = useState(() => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+  // Horário do balão da prévia. Ler o relógio ao vivo no lazy-init do useState
+  // roda no SSR E na 1ª hidratação → minuto/fuso podem divergir = erro 418.
+  // Inicia vazio (bate com o SSR) e preenche no mount, com fuso de Brasília.
+  const [now, setNow] = useState("");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- relógio lido 1x no mount; SSR e 1º render batem em "".
+    setNow(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }));
+  }, []);
 
   // Reseta a fase p/ splash cada vez que abre
   const [prevOpen, setPrevOpen] = useState(open);

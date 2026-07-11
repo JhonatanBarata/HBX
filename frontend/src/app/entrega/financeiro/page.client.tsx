@@ -49,11 +49,17 @@ function fmtDataHora(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm} ${hh}:${mi}`;
+  // getDate()/getHours() usam o fuso do dispositivo → SSR (UTC) e cliente (BR)
+  // divergiriam. Intl com timeZone fixo (Brasília) formata igual nos dois e
+  // mostra sempre horário de Brasília. Mantém o formato "DD/MM HH:MM".
+  const p = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).formatToParts(d).reduce<Record<string, string>>((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${p.day}/${p.month} ${p.hour}:${p.minute}`;
 }
 
 export function EntregaFinanceiro() {

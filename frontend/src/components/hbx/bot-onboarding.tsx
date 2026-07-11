@@ -64,9 +64,13 @@ export function BotOnboarding(props: {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const prevOpenRef = useRef(false);
 
-  const [now] = useState(() =>
-    new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-  );
+  // Horário do balão da prévia — mesmo cuidado de hydration do bot-tutofig:
+  // inicia vazio (bate com o SSR) e preenche no mount, com fuso de Brasília.
+  const [now, setNow] = useState("");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- relógio lido 1x no mount; SSR e 1º render batem em "".
+    setNow(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }));
+  }, []);
 
   // ── Esc fecha + foco ──
   useEffect(() => {

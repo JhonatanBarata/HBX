@@ -84,7 +84,18 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <script dangerouslySetInnerHTML={{ __html: CASCA_BOOT }} />
       </head>
-      <body>
+      {/* suppressHydrationWarning no <body> (não é "cego": é o nó EXATO que
+          terceiros/extensões mutam antes da hidratação). O app só escreve em
+          document.documentElement (<html>, já suprimido) — NADA nosso toca o
+          <body>. Extensões de navegador (Grammarly: data-gr-ext-installed /
+          data-new-gr-c-s-check-loaded; outras: cz-shortcut-listen…) injetam
+          atributos no <body> em TODA carga de documento → mismatch React 418
+          em toda rota, só em full page load (navegação SPA não re-hidrata) e
+          só na máquina do dono (browser limpo não repro). suppressHydrationWarning
+          só ignora atributo/texto DO PRÓPRIO <body>, nunca da subárvore — logo
+          NÃO mascara mismatch real de conteúdo (ex.: o de /leads, corrigido à
+          parte). Espelha o <html> logo acima. */}
+      <body suppressHydrationWarning>
         <ThemeAttributes />
         {children}
         <GlobalErrorHost />

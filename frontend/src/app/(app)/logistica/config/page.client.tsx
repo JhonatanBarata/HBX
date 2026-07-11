@@ -55,20 +55,17 @@ const PREVIEW_VARS = {
   produto: "Galão 20L",
 };
 
-// Saudação por horário LOCAL — MESMA regra do backend (saudacaoPorHorario):
-// 5–11h Bom dia · 12–17h Boa tarde · senão Boa noite.
-function saudacaoPorHorario(now: Date): string {
-  const h = now.getHours();
-  if (h >= 5 && h < 12) return "Bom dia";
-  if (h >= 12 && h < 18) return "Boa tarde";
-  return "Boa noite";
-}
-
 // Render de preview — espelha renderTemplateAviso do backend (substitui variáveis,
-// remove {chave} desconhecida, limpa espaço órfão). Determinístico p/ o exemplo.
+// remove {chave} desconhecida, limpa espaço órfão). DETERMINÍSTICO p/ o exemplo — a
+// prévia usa uma saudação FIXA de propósito: computar por horário (new Date()) no
+// render (aqui, dentro do useMemo) divergia entre SSR e hidratação (o servidor
+// renderiza num horário, o cliente hidrata em outro/timezone) e dava erro de
+// hidratação do React (418). A saudação REAL do envio é resolvida por horário no
+// backend (5–11h Bom dia · 12–17h Boa tarde · senão Boa noite); aqui é só amostra.
+// Mesmo tratamento do gêmeo entrega/ajustes/page.client.tsx.
 function renderPreview(template: string): string {
   const map: Record<string, string> = {
-    saudacao: saudacaoPorHorario(new Date()),
+    saudacao: "Bom dia",
     cliente: PREVIEW_VARS.cliente,
     itens: PREVIEW_VARS.itens,
     qtd: PREVIEW_VARS.qtd,

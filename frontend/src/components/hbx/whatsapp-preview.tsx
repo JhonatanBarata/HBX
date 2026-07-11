@@ -82,7 +82,11 @@ export function WhatsAppPreview({
 
         {/* Barra de status */}
         <div className="wa-status" aria-hidden="true">
-          <span className="wa-status__time">{currentTime()}</span>
+          {/* Relógio decorativo (aria-hidden). O horário é lido do relógio ao
+              vivo no render → SSR e 1ª hidratação podem cair em minutos/fuso
+              diferentes = erro 418 de hidratação (React). suppressHydrationWarning
+              aceita a diferença nesta folha cosmética sem regenerar a árvore. */}
+          <span className="wa-status__time" suppressHydrationWarning>{currentTime()}</span>
           <div className="wa-status__icons">
             {/* Sinal de rede */}
             <svg width="14" height="10" viewBox="0 0 14 10" fill="currentColor" aria-hidden="true">

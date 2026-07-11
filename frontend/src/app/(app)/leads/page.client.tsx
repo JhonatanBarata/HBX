@@ -464,12 +464,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [advOpen, setAdvOpen] = useState(false);
   const [advDraft, setAdvDraft] = useState<FiltroAvancadoState>(FILTRO_AVANCADO_VAZIO);
 
-  // filtros (lago → prateleira) — persiste em localStorage
-  const [uf, setUf] = useState(() => getStoredFilters().uf);
-  const [city, setCity] = useState(() => getStoredFilters().city);
-  const [segment, setSegment] = useState(() => getStoredFilters().segment);
-  const [alcance, setAlcance] = useState(() => getStoredFilters().alcance);
-  const [quantos, setQuantos] = useState(() => getStoredFilters().quantos);
+  // filtros (lago → prateleira) — persiste em localStorage. INICIALIZADOR
+  // ESTÁTICO (não ler localStorage aqui): o inicializador roda no SSR e no 1º
+  // render do cliente; se o servidor devolve "" e o cliente lê o filtro salvo,
+  // os <select> value= divergem → hydration React 418. O valor salvo entra só
+  // PÓS-montagem (efeito de restauração abaixo), mesmo padrão SSR-safe já usado
+  // no geoState do Topbar e no collapsed do ActivationChecklist.
+  const [uf, setUf] = useState("");
+  const [city, setCity] = useState("");
+  const [segment, setSegment] = useState("");
+  const [alcance, setAlcance] = useState("");
+  const [quantos, setQuantos] = useState(5);
+  const filtersRestored = useRef(false);
 
   // navegação
   const [tab, setTab] = useState<Tab>("shelf");
@@ -731,8 +737,26 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }, []);
 
   useEffect(() => {
+    // Não persistir antes de restaurar: no mount os filtros nascem vazios
+    // (defaults estáticos SSR-safe) — gravar aqui apagaria o que estava salvo.
+    if (!filtersRestored.current) return;
     try { localStorage.setItem("hbx:leads-filters", JSON.stringify({ uf, city, segment, alcance, quantos })); } catch { /* sem storage */ }
   }, [uf, city, segment, alcance, quantos]);
+
+  // Restaura os filtros salvos SÓ pós-montagem (setState em rAF → respeita
+  // react-hooks/set-state-in-effect). Roda depois do efeito de persistência
+  // acima, que fica travado por filtersRestored até aqui — o localStorage é
+  // lido intacto (nunca sobrescrito com os defaults do 1º render).
+  useEffect(() => {
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const f = getStoredFilters();
+      filtersRestored.current = true;
+      setUf(f.uf); setCity(f.city); setSegment(f.segment); setAlcance(f.alcance); setQuantos(f.quantos);
+    });
+    return () => { cancelled = true; cancelAnimationFrame(id); };
+  }, []);
 
   const filtersTouched = useRef(false);
   useEffect(() => {

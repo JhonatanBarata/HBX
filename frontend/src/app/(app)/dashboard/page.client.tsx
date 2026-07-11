@@ -104,8 +104,10 @@ function fmtHora(iso?: string | null) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const hoje = new Date();
-  if (d.toDateString() === hoje.toDateString()) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  // timeZone fixo (Brasília) → o mesmo ISO formata igual no SSR e no cliente
+  // (sem divergência de fuso = sem erro 418) e mostra sempre horário de Brasília.
+  if (d.toDateString() === hoje.toDateString()) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
 }
 
 function fmtMoney(v?: number | null) {
