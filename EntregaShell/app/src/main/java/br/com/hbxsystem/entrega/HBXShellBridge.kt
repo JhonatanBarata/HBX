@@ -33,6 +33,7 @@ class HBXShellBridge(private val context: Context) {
                 paradas.add(Parada(id = id, nome = p.optString("nome", "Cliente"), lat = lat, lng = lng))
             }
             RotaState.setRota(raioM, paradas)
+            RotaState.persistir(context) // snapshot p/ restart STICKY do serviço
             if (paradas.isNotEmpty()) {
                 RotaService.sync(context)
             } else {
@@ -47,6 +48,7 @@ class HBXShellBridge(private val context: Context) {
     fun clearRota() {
         try {
             RotaState.clear() // NUNCA mexe em "disparados" — só é podado no próximo setRota
+            RotaState.persistir(context) // rota vazia persistida = restart não ressuscita GPS
             RotaService.requestStop(context)
         } catch (e: Exception) {
             // no-op
@@ -63,6 +65,8 @@ class HBXShellBridge(private val context: Context) {
         }
     }
 
+    // Geração 2 da casca (app único da Play, WebView na raiz). O front só faz
+    // feature-detect por typeof — bump é seguro e casa com o UA " HBXShell/2.0".
     @JavascriptInterface
-    fun versao(): String = "1.0"
+    fun versao(): String = "2.0"
 }

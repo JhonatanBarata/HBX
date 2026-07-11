@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Entrega HBX</string>
+    <string name="app_name">HBX</string>
+    <string name="offline_titulo">Sem conexão</string>
+    <string name="offline_retry">Tentar de novo</string>
 </resources>

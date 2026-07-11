@@ -1,8 +1,0 @@
-Keystore: hbx-entrega.jks
-Alias: hbx-entrega
-Senha (store + key, mesma senha): cFTUN9ZRRDteImsOFDE40bizNPF6JrS
-Validade: 30 anos (10950 dias) a partir de 09/07/2026
-Gerado por: keytool -genkeypair (RSA 2048)
-
-NÃO perder este arquivo — sem ele não dá pra gerar uma atualização assinada
-compatível com o app já instalado (precisaria desinstalar e reinstalar do zero).

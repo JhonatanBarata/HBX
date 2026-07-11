@@ -1,5 +1,8 @@
 package br.com.hbxsystem.entrega
 
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Collections
 
 /**
@@ -88,5 +91,78 @@ object RotaState {
         val copia = pendencias.toList()
         pendencias.clear()
         return copia
+    }
+
+    // ── persistência (SharedPreferences) ─────────────────────────────────
+    //
+    // O RotaService é START_STICKY: o sistema pode matar o processo e renascer
+    // o serviço com intent null — e este singleton renascia VAZIO (zumbi de GPS
+    // com "0 paradas"). O snapshot em disco fecha esse buraco: a bridge persiste
+    // a cada mudança de rota, o serviço persiste cada disparo, e o restart
+    // restaura (ou se mata, se não houver rota ativa persistida).
+
+    private const val PREFS = "rota_state"
+    private const val KEY_SNAPSHOT = "snapshot_v1"
+
+    /** Grava o estado mínimo {raioM, paradas, disparados}. Best-effort. */
+    fun persistir(context: Context) {
+        try {
+            val obj = JSONObject()
+            obj.put("raioM", raioM)
+            val arr = JSONArray()
+            for (p in alvos) {
+                arr.put(
+                    JSONObject()
+                        .put("id", p.id)
+                        .put("nome", p.nome)
+                        .put("lat", p.lat)
+                        .put("lng", p.lng)
+                )
+            }
+            obj.put("paradas", arr)
+            val disp = JSONArray()
+            synchronized(disparados) {
+                for (id in disparados) disp.put(id)
+            }
+            obj.put("disparados", disp)
+            context.applicationContext
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_SNAPSHOT, obj.toString())
+                .apply()
+        } catch (e: Exception) {
+            // persistência nunca derruba bridge/serviço
+        }
+    }
+
+    /** Restaura o snapshot (chamado só no restart STICKY com estado vazio). */
+    @Synchronized
+    fun restaurar(context: Context) {
+        try {
+            val raw = context.applicationContext
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_SNAPSHOT, null) ?: return
+            val obj = JSONObject(raw)
+            val paradasJson = obj.optJSONArray("paradas") ?: JSONArray()
+            val novos = mutableListOf<Parada>()
+            for (i in 0 until paradasJson.length()) {
+                val p = paradasJson.optJSONObject(i) ?: continue
+                val id = p.optString("id", "")
+                if (id.isEmpty()) continue
+                val lat = p.optDouble("lat", Double.NaN)
+                val lng = p.optDouble("lng", Double.NaN)
+                if (lat.isNaN() || lng.isNaN()) continue
+                novos.add(Parada(id = id, nome = p.optString("nome", "Cliente"), lat = lat, lng = lng))
+            }
+            raioM = obj.optInt("raioM", 60)
+            alvos = novos
+            val disp = obj.optJSONArray("disparados") ?: JSONArray()
+            for (i in 0 until disp.length()) {
+                val id = disp.optString(i, "")
+                if (id.isNotEmpty()) disparados.add(id)
+            }
+        } catch (e: Exception) {
+            // snapshot corrompido == sem rota persistida
+        }
     }
 }

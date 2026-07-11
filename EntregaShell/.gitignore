@@ -1,3 +1,13 @@
 build/
 .gradle/
 local.properties
+
+# Assinatura vive FORA do git (upload key da Play + senha)
+keystore-release/
+keystore.properties
+
+# Keystore antigo do sideload (fica só no disco; senha antiga já queimada no histórico)
+keystore/
+
+# Artefatos de build/distribuição não são versionados (Play recebe o .aab)
+dist/

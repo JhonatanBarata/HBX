@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Navy da marca HBX — mesmo background_color/theme_color do manifest.webmanifest. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#1E88E5" />
+    <solid android:color="#0B1020" />
 </shape>

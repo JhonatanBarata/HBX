@@ -1,37 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Marca HBX em vector (recriação do frontend/src/app/icon.png): anel com
-     gradiente azul→ciano→violeta + "HBX" em branco. Tudo dentro da safe zone
-     (círculo Ø66 do adaptive icon; o anel tem raio 27). -->
+<!-- Camada monocromática (ícone temático do Android 13+): mesma marca, só alpha. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- anel (donut r27→r23.2) -->
     <path
+        android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M54,27 a27,27 0 1,1 -0.02,0 z M54,30.8 a23.2,23.2 0 1,0 0.02,0 z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="sweep"
-                android:centerX="54"
-                android:centerY="54">
-                <item android:offset="0" android:color="#FF2E5BFF" />
-                <item android:offset="0.35" android:color="#FF00E5FF" />
-                <item android:offset="0.72" android:color="#FF7C4DFF" />
-                <item android:offset="1" android:color="#FF2E5BFF" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- H -->
+        android:pathData="M54,27 a27,27 0 1,1 -0.02,0 z M54,30.8 a23.2,23.2 0 1,0 0.02,0 z" />
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M34,46 h3.6 v6.2 h3.8 v-6.2 h3.6 v16 h-3.6 v-6.2 h-3.8 v6.2 h-3.6 z" />
-
-    <!-- B: haste + dois bojos em pill (stroke) -->
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M48.5,46 h3.6 v16 h-3.6 z" />
@@ -43,8 +23,6 @@
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="3.6"
         android:pathData="M50.3,55.4 h4.8 a2.4,2.4 0 1 1 0,4.8 h-4.8" />
-
-    <!-- X -->
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M62.5,46 h3.7 l2.05,4.9 2.05,-4.9 h3.7 l-4.15,8 4.15,8 h-3.7 l-2.05,-4.9 -2.05,4.9 h-3.7 l4.15,-8 z" />

@@ -84,6 +84,7 @@ class RotaService : Service() {
                 val dist = haversine(location.latitude, location.longitude, alvo.lat, alvo.lng)
                 if (dist <= raio) {
                     RotaState.marcarDisparado(alvo.id)
+                    RotaState.persistir(this@RotaService) // disparo sobrevive a restart
                     onChegada(alvo)
                 }
             }
@@ -105,9 +106,25 @@ class RotaService : Service() {
                 stopHandler.removeCallbacks(stopRunnable)
                 stopHandler.postDelayed(stopRunnable, DEBOUNCE_STOP_MS)
             }
+            ACTION_SYNC -> {
+                // cancela parada agendada (rajada clearRota→setRota), garante o
+                // listener de GPS de pé e atualiza a notificação persistente.
+                stopHandler.removeCallbacks(stopRunnable)
+                garantirLocationListener()
+                atualizarNotificacaoRota()
+            }
             else -> {
-                // ACTION_SYNC (ou null) — cancela parada agendada (rajada clearRota→setRota),
-                // garante o listener de GPS de pé e atualiza a notificação persistente.
+                // intent null = restart STICKY do sistema após kill do processo.
+                // RotaState era memória pura e renascia VAZIO — serviço zumbi de
+                // GPS ligado com "0 paradas" drenando bateria. Agora: restaura o
+                // snapshot persistido; sem rota ativa → se mata na hora.
+                if (RotaState.alvos.isEmpty()) {
+                    RotaState.restaurar(this)
+                }
+                if (RotaState.alvos.isEmpty()) {
+                    pararDeVerdade()
+                    return START_NOT_STICKY
+                }
                 stopHandler.removeCallbacks(stopRunnable)
                 garantirLocationListener()
                 atualizarNotificacaoRota()
