@@ -600,6 +600,7 @@ export function VendasClient() {
     setDeleteBusy(true);
     try {
       await apiFetch(`/vendas/leads/${encodeURIComponent(sel.id)}/delete`, { method: "POST", body: JSON.stringify({ reason }) });
+      setExcluirMotivoOpen(null);
       setSel(null);
       await loadBoard();
     } catch (err) {
