@@ -16,6 +16,7 @@ import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThe
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
 import { logout } from "@/lib/logout";
+import { canUseOperationalWorkspace } from "@/lib/operational-access";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { soLogistica } from "@/lib/so-logistica";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
@@ -361,6 +362,9 @@ type CurrentUser = {
   userKind?: string | null;
   role?: string | null;
   isSystemMaster?: boolean | null;
+  operationalCapabilities?: Array<"SELLER" | "DRIVER"> | null;
+  defaultWorkspace?: "vendas" | "entregas" | null;
+  workspaceHome?: "/vendas" | "/entrega" | null;
   // Empresa do usuário (GET /profile/current-user). null para não-master = órfão
   // de uma empresa excluída (AuthGate detecta e faz saída limpa).
   company?: {
@@ -850,7 +854,16 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // 100% vendas e o gate (so-logistica-gate) manda pro /entrega; os módulos
   // alheios já somem pelo gate normal (isModuleVisible, fail-closed).
   const soLog = soLogistica(mods);
-  const visible = NAV_LINKS.filter(n => isModuleVisible(n.id, ent, user, mods) && !(soLog && n.id === "dash"));
+  const canSell = canUseOperationalWorkspace(user, "SELLER");
+  const canDeliver = canUseOperationalWorkspace(user, "DRIVER");
+  const sellerOnlyNav = new Set(["vendas", "agenda", "atend", "website", "empresas", "contatos", "produtos", "assistente", "concierge", "automacao", "bot"]);
+  const deliveryNav = new Set(["logistica", "clientes"]);
+  const visible = NAV_LINKS.filter((n) =>
+    isModuleVisible(n.id, ent, user, mods) &&
+    !(soLog && n.id === "dash") &&
+    (!sellerOnlyNav.has(n.id) || canSell) &&
+    (!deliveryNav.has(n.id) || canDeliver)
+  );
   const visibleKey = visible.map(n => n.id).join(",");
   // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
   // precisa re-medir quando o rail colapsa/expande (a largura do item muda).

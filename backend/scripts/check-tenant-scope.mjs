@@ -39,7 +39,7 @@ const TENANT_MODELS = new Set(
     'WhatsAppConnectionSession', 'WhatsappConsentLedger', 'NightFactoryRewardClaim', 'NightOrder',
     'NightOrderDelivery', 'CompanyCommercialEntitlement', 'CompanyCommercialUsageLog',
     'EnrichmentCostLedger', 'TrialPhoneUsage', 'CompanyWhatsAppEndpoint', 'CompanySubscription',
-    'HbxRecoveryCustomer', 'HbxRecoveryPayment', 'FinanceiroCharge', 'HbxRecoveryFlowStage',
+    'HbxRecoveryCustomer', 'HbxRecoveryPayment', 'FinanceiroCharge', 'EntregaComprovante', 'HbxRecoveryFlowStage',
     'CompanyConversation', 'AtendimentoAppointment', 'InboxTrashMeticulousPurgeJob', 'CompanyMessage',
     'AtendimentoCustomer', 'AtendimentoQuickReply', 'CustomerProfile', 'DebtCase', 'IntegrationConnection',
     'IntegrationSyncRun', 'ExternalWebhookEvent', 'MetaLeadConnection', 'AuvoExternalRecord', 'Conversation',

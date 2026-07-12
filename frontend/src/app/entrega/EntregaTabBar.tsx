@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import { soLogistica } from "@/lib/so-logistica";
 
 import { useEntregaMods } from "./entrega-mods";
+import { getEntregaOperationalCapabilities } from "./entrega-user";
 import { getConfigCached } from "./gestao-api";
 import { I, ICON_PATHS } from "./icons";
 
@@ -46,6 +47,7 @@ export function EntregaTabBar() {
   // Gate da aba Financeiro = moduloFinanceiroAtivo do config (leitura cacheada
   // — a tab bar remonta a cada navegação). Fail-closed: sem config, sem aba.
   const [financeiroOn, setFinanceiroOn] = useState(false);
+  const [canSell, setCanSell] = useState(false);
   useEffect(() => {
     let vivo = true;
     void getConfigCached().then((c) => {
@@ -54,6 +56,14 @@ export function EntregaTabBar() {
     return () => {
       vivo = false;
     };
+  }, []);
+
+  useEffect(() => {
+    let vivo = true;
+    void getEntregaOperationalCapabilities().then((capabilities) => {
+      if (vivo) setCanSell(capabilities.includes("SELLER"));
+    });
+    return () => { vivo = false; };
   }, []);
 
   return (
@@ -83,12 +93,12 @@ export function EntregaTabBar() {
             <span className="casca-tab__label">Financeiro</span>
           </Link>
         ) : null
-      ) : (
-        <Link href="/dashboard" className="casca-tab" aria-label="Voltar para o HBX">
+      ) : canSell ? (
+        <Link href="/workspace" className="casca-tab" aria-label="Trocar entre Vendas e Entregas">
           <I d={ICON_PATHS.hbx} size={20} />
-          <span className="casca-tab__label">HBX</span>
+          <span className="casca-tab__label">Trocar</span>
         </Link>
-      )}
+      ) : null}
     </nav>
   );
 }

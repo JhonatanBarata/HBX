@@ -13,6 +13,11 @@ import { parsePreferredSegments } from '../users/preferred-segments.util';
 import { topSegment } from '../users/segment-affinity.util';
 import { resolveActorKind, isBillingOwnerActor } from '../access/actor-kind';
 import { MODULE_CATEGORY_MAP, parseCompanyModuleCategories } from '../modules/module-categories';
+import {
+  projectOperationalCapabilitiesFromStoredPolicy,
+  resolveOperationalAccessProjection,
+  type OperationalAccessProjection,
+} from '../team/operational-capabilities';
 
 class ChangePasswordDto {
   @IsString()
@@ -31,7 +36,7 @@ class UpdateDisplayNameDto {
   name: string;
 }
 
-export function sanitizeUser(user: any, masterContext?: any) {
+export function sanitizeUser(user: any, masterContext?: any, operationalProjection?: OperationalAccessProjection) {
   if (!user) return null;
   const role = String(user.role || '').trim().toUpperCase();
   // RBAC Sprint 3: papel hierárquico derivado 1× da fonte única.
@@ -113,6 +118,10 @@ export function sanitizeUser(user: any, masterContext?: any) {
   // Preferência do vendedor (self-service 14/06): leitor tolerante a object
   // {segments,cityRegion} e ao bare-array legado. Vira o default do "Puxar leads".
   const sellerPreferred = parsePreferredSegments((user as any).preferredSegmentsJson);
+  const operational = operationalProjection || projectOperationalCapabilitiesFromStoredPolicy(
+    user,
+    user?.teamPolicy?.modulesJson,
+  );
   return {
     id: user.id,
     username: user.username,
@@ -121,6 +130,9 @@ export function sanitizeUser(user: any, masterContext?: any) {
     avatarUrl: user.avatarUrl ?? null,
     role: user.role,
     userKind,
+    // Perfil operacional vem da policy persistida. Escolher uma tela no app
+    // apenas muda a navegacao; nunca adiciona SELLER/DRIVER a esta lista.
+    ...operational,
     isSystemMaster: Boolean(user.isSystemMaster),
     // Régua única P3: front esconde "Plano e cobrança" quando false (Gerente).
     canViewBilling: billingAudience,
@@ -238,28 +250,27 @@ export class ProfileController {
     return this.masterContextService.getCurrentContext(Number(user.id));
   }
 
+  private async presentUser(req: any, user: any) {
+    const masterContext = await this.resolveMasterContext(req, user);
+    const runtimeUser = user && !user.company && req.user?.company
+      ? { ...user, company: req.user.company }
+      : user;
+    const operational = await resolveOperationalAccessProjection(this.prisma, runtimeUser);
+    return sanitizeUser(runtimeUser, masterContext, operational);
+  }
+
   @Get()
   @UseGuards(JwtAuthGuard)
   async profile(@Req() req: any) {
     const user = await this.usersService.findById(req.user.id);
-    const masterContext = await this.resolveMasterContext(req, user);
-    const userWithRuntimeCompany: any = user;
-    const runtimeUser = userWithRuntimeCompany && !userWithRuntimeCompany.company && req.user?.company
-      ? { ...user, company: req.user.company }
-      : user;
-    return sanitizeUser(runtimeUser, masterContext);
+    return this.presentUser(req, user);
   }
 
   @Get('current-user')
   @UseGuards(JwtAuthGuard)
   async currentUser(@Req() req: any) {
     const user = await this.usersService.findById(req.user.id);
-    const masterContext = await this.resolveMasterContext(req, user);
-    const userWithRuntimeCompany: any = user;
-    const runtimeUser = userWithRuntimeCompany && !userWithRuntimeCompany.company && req.user?.company
-      ? { ...user, company: req.user.company }
-      : user;
-    return sanitizeUser(runtimeUser, masterContext);
+    return this.presentUser(req, user);
   }
 
   @Get('theme-preferences')
@@ -397,12 +408,7 @@ export class ProfileController {
     if (name.length < 2) throw new BadRequestException('Informe o Como deseja ser chamado?.');
     await this.usersService.updateById(Number(req.user.id), { name });
     const updated = await this.usersService.findById(Number(req.user.id));
-    const masterContext = await this.resolveMasterContext(req, updated);
-    const updatedWithRuntimeCompany: any = updated;
-    const runtimeUser = updatedWithRuntimeCompany && !updatedWithRuntimeCompany.company && req.user?.company
-      ? { ...updated, company: req.user.company }
-      : updated;
-    return sanitizeUser(runtimeUser, masterContext);
+    return this.presentUser(req, updated);
   }
 
   // Avatar do usuário: armazenado como data URL (base64) na coluna avatarUrl do User.
@@ -425,12 +431,7 @@ export class ProfileController {
       userId,
     );
     const updated = await this.usersService.findById(userId);
-    const masterContext = await this.resolveMasterContext(req, updated);
-    const runtimeUser: any = updated;
-    const finalUser = runtimeUser && !runtimeUser.company && req.user?.company
-      ? { ...updated, company: req.user.company }
-      : updated;
-    return sanitizeUser(finalUser, masterContext);
+    return this.presentUser(req, updated);
   }
 
   @Delete('avatar')
@@ -442,12 +443,7 @@ export class ProfileController {
       userId,
     );
     const updated = await this.usersService.findById(userId);
-    const masterContext = await this.resolveMasterContext(req, updated);
-    const runtimeUser: any = updated;
-    const finalUser = runtimeUser && !runtimeUser.company && req.user?.company
-      ? { ...updated, company: req.user.company }
-      : updated;
-    return sanitizeUser(finalUser, masterContext);
+    return this.presentUser(req, updated);
   }
 
   // Preferências de notificação do usuário: 4 booleans persistidos em JSON na coluna

@@ -11,8 +11,14 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { memoryStorage } from 'multer';
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -24,7 +30,9 @@ import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
+import { LogisticaOperacaoService } from './logistica-operacao.service';
 import {
+  AtribuirEntregaDto,
   CancelarEntregaDto,
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
@@ -37,6 +45,7 @@ import {
   UpdateClienteProdutoDto,
   UpdateFinanceiroClienteDto,
   UpdateLogisticaConfigDto,
+  TipoComprovanteDto,
   VarrerRecoveryDto,
 } from './dto/logistica.dto';
 
@@ -67,6 +76,9 @@ export class LogisticaController {
     private readonly rota: LogisticaRotaService,
     private readonly config: LogisticaConfigService,
     private readonly recovery: LogisticaRecoveryService,
+    // Default preserva testes legados que instanciam o controller diretamente;
+    // no módulo Nest o provider é sempre injetado.
+    private readonly operacao: LogisticaOperacaoService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -79,13 +91,25 @@ export class LogisticaController {
   @Get('rota')
   listRota(@Req() req: any, @Query('date') date?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.service.listRota(companyId, date);
+    return this.service.listRota(companyId, date, req.user);
+  }
+
+  /** Refresh manual: mesmo payload rico da rota, com delta opcional por updatedAt. */
+  @Get('entregas')
+  listEntregas(
+    @Req() req: any,
+    @Query('date') date?: string,
+    @Query('updatedSince') updatedSince?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.service.listRota(companyId, date, req.user, updatedSince);
   }
 
   /** Agenda uma nova entrega (cliente + produto? + contato?). */
   @Post('entregas')
-  createEntrega(@Req() req: any, @Body() dto: CreateEntregaDto) {
+  async createEntrega(@Req() req: any, @Body() dto: CreateEntregaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    await this.operacao.assertCapacidade(req.user, 'SELLER');
     return this.service.createEntrega(companyId, dto);
   }
 
@@ -104,7 +128,10 @@ export class LogisticaController {
       itens: dto?.itens,
       novosItens: dto?.novosItens,
       idempotencyKey: dto?.idempotencyKey,
-    });
+      comprovanteFotoId: dto?.comprovanteFotoId,
+      comprovanteAssinaturaId: dto?.comprovanteAssinaturaId,
+      comprovanteCodigo: dto?.comprovanteCodigo,
+    }, req.user);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
   }
@@ -113,7 +140,7 @@ export class LogisticaController {
   @Post('entregas/:id/cancelar')
   async cancelar(@Req() req: any, @Param('id') id: string, @Body() dto: CancelarEntregaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo);
+    const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo, req.user);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
   }
@@ -130,7 +157,7 @@ export class LogisticaController {
   async avisarChegando(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     try {
-      await this.service.avisarChegando(companyId, id);
+      await this.service.avisarChegando(companyId, id, req.user);
     } catch (e: any) {
       this.logger.warn(`[logistica] POST chegando entrega=${id} falhou: ${String(e?.message || e)}`);
     }
@@ -162,9 +189,62 @@ export class LogisticaController {
     const res = await this.service.softDeleteEntrega(companyId, id, {
       deletedByUserId: Number(req.user?.id) || null,
       motivo: dto?.motivo ?? null,
+      actor: req.user,
     });
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
+  }
+
+  // ── Atribuição e comprovantes ──────────────────────────────────────────────
+
+  @Get('entregadores')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  listarEntregadores(@Req() req: any) {
+    return this.operacao.listarEntregadores(this.ensureCompanyIdFromUser(req.user));
+  }
+
+  @Patch('entregas/:id/atribuir')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async atribuirEntrega(@Req() req: any, @Param('id') id: string, @Body() dto: AtribuirEntregaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const entregadorId = dto?.entregadorId == null ? null : Number(dto.entregadorId);
+    const result = await this.operacao.atribuirEntrega(companyId, id, entregadorId, req.user);
+    if (!result) throw new NotFoundException('Entrega não encontrada');
+    return result;
+  }
+
+  @Post('entregas/:id/comprovante-codigo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async gerarCodigoComprovante(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const result = await this.operacao.gerarCodigo(companyId, id, req.user);
+    if (!result) throw new NotFoundException('Entrega não encontrada');
+    return result;
+  }
+
+  @Post('entregas/:id/comprovantes')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  uploadComprovante(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: TipoComprovanteDto,
+    @UploadedFile() file: any,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.operacao.uploadComprovante(companyId, id, dto.tipo, file, req.user, dto.clientKey);
+  }
+
+  @Get('comprovantes/:id/arquivo')
+  async arquivoComprovante(@Req() req: any, @Res() res: Response, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const file = await this.operacao.getArquivo(companyId, id, req.user);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Length', String(file.byteSize));
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
+    res.end(file.content);
   }
 
   // ── NÚCLEO-CRM R2 — financeiro de verdade (fechar-mês + extrato) ────────────
@@ -421,13 +501,15 @@ export class LogisticaController {
    * 100% local — sem API paga. Não dispara WhatsApp/cobrança.
    */
   @Post('rota/planejar')
-  planejarRota(@Req() req: any, @Body() dto: PlanejarRotaDto) {
+  async planejarRota(@Req() req: any, @Body() dto: PlanejarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
     return this.rota.planejarRota(companyId, {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
-    });
+    }, entregadorId);
   }
 
   /**
@@ -435,13 +517,15 @@ export class LogisticaController {
    * (status 'em_rota' + startedAt). Devolve a rota ordenada + término previsto.
    */
   @Post('rota/iniciar')
-  iniciarRota(@Req() req: any, @Body() dto: IniciarRotaDto) {
+  async iniciarRota(@Req() req: any, @Body() dto: IniciarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
     return this.rota.iniciarRota(companyId, {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
-    });
+    }, entregadorId);
   }
 
   // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ─────────────────
@@ -467,6 +551,37 @@ export class LogisticaController {
   updateConfig(@Req() req: any, @Body() dto: UpdateLogisticaConfigDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.config.updateConfig(companyId, dto);
+  }
+
+  // ── S6 PORTAL-PEDIDO — link público de pedido (token opaco) ─────────────────
+
+  /**
+   * Garante o token do link público /pedido/<token> (IDEMPOTENTE: emite na 1ª
+   * vez, depois devolve sempre o mesmo). ADMIN-only (o link é decisão do dono,
+   * mesmo gate do card na UI). NÃO liga o toggle pedidoPublicoAtivo — gerar o
+   * link e abrir a torneira são ações separadas. Molde: getOrCreateCaptureToken
+   * do website (website.service.ts).
+   */
+  @Post('pedido-publico/link')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async pedidoPublicoLink(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const token = await this.config.ensurePedidoPublicoToken(companyId);
+    return { token, path: `/pedido/${token}` };
+  }
+
+  /**
+   * Rotaciona o token (o link antigo MORRE na hora — 404 público). ADMIN-only.
+   * Uso: link vazou/foi compartilhado errado → "gerar novo link" na UI.
+   */
+  @Post('pedido-publico/rotacionar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async pedidoPublicoRotacionar(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const token = await this.config.rotatePedidoPublicoToken(companyId);
+    return { token, path: `/pedido/${token}` };
   }
 
   /** Lê o toggle "avisar entrega" de UM cliente (p/ a ficha). company-scoped. */

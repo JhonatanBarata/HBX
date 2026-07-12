@@ -17,6 +17,7 @@ import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CreditPackConfigService } from '../credits/credit-pack-config.service';
 import { computeDefaultExpiresAt } from '../credits/credit-pack-catalog';
 import { isCreditsFeatureEnabled } from '../credits/credits.flags';
+import { IndicacaoService } from '../credits/indicacao.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { emitMasterEvent } from '../common/master-event';
 
@@ -83,6 +84,9 @@ export class CreditRechargeService {
     // FURO 2 (11/07): comissão sobre recarga. @Optional pra não quebrar DI/testes antigos —
     // ausente = recarga segue sem comissionar (mesmo efeito do % desarmado).
     @Optional() private readonly commissionSync?: HbxCommissionSyncService,
+    // S5 INDICAÇÃO: bônus de indicação na 1ª recarga PAGA aprovada. @Optional pelo mesmo
+    // motivo — ausente/flag OFF = recarga idêntica, zero bônus.
+    @Optional() private readonly indicacao?: IndicacaoService,
   ) {}
 
   // Mesma régua do financeiro.service (isMockPaymentsProvider): mock SÓ em dev.
@@ -455,6 +459,18 @@ export class CreditRechargeService {
           source: 'credit_recharge',
         }).catch(() => undefined);
       }
+    }
+
+    // S5 INDICAÇÃO — bônus pros dois lados na 1ª recarga PAGA aprovada da empresa indicada
+    // (HBX_INDICACAO_ENABLED default OFF = no-op imediato). BEST-EFFORT PURO: o cartão JÁ
+    // foi cobrado e o crédito da recarga JÁ entrou — bônus de indicação JAMAIS quebra o
+    // fluxo de pagamento. Idempotente no ledger (usageKeys estáveis) — retry não dobra.
+    if (this.indicacao) {
+      await this.indicacao.onPrimeiraRecargaAprovada(companyId).catch((error: any) => {
+        this.logger.warn(
+          `indicacao_bonus_hook_failed company=${companyId} paymentId=${paymentId} error=${String(error?.message || error)}`,
+        );
+      });
     }
 
     const balanceAfter = await this.wallet.getBalance(companyId);

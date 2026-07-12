@@ -17,7 +17,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -31,8 +30,8 @@ import kotlin.math.sqrt
 
 /**
  * Foreground service (type location) — detecta chegada nas paradas via GPS puro
- * (sem Google Play Services) e reage com TTS + notificação heads-up + traz o app
- * pra frente por cima do Maps. Ver contrato completo em APK-SHELL.md.
+ * (sem Google Play Services) e reage com TTS + notificação heads-up. Quando o
+ * HBX está em segundo plano, só o toque do usuário abre a tela de chegada.
  */
 class RotaService : Service() {
 
@@ -204,25 +203,10 @@ class RotaService : Service() {
 
     private fun onChegada(alvo: Parada) {
         falar(alvo.nome)
-        // Estilo Uber: só "slama" o takeover quando o motorista está FORA do app
-        // (Maps, tela bloqueada, outro app). Com o HBX em foreground, o próprio
-        // web abre a folha na hora (ver RotaState.notificarChegada abaixo) — nada
-        // de Activity nova por cima de quem já está olhando o app.
-        if (!RotaState.temListenerAtivo()) {
-            notificarChegadaHeadsUp(alvo)
-            if (Settings.canDrawOverlays(this)) {
-                try {
-                    val intent = Intent(this, ChegadaActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        putExtra(ChegadaActivity.EXTRA_NOME, alvo.nome)
-                        putExtra(ChegadaActivity.EXTRA_PARADA_ID, alvo.id)
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    /* fica só a heads-up */
-                }
-            }
-        }
+        // Sempre publica o aviso. Em background, ChegadaActivity só abre após o
+        // motorista tocar na notificação; em foreground, o listener abaixo abre
+        // a entrega diretamente dentro do WebView.
+        notificarChegadaHeadsUp(alvo)
         RotaState.notificarChegada(alvo.id)
     }
 
@@ -253,13 +237,15 @@ class RotaService : Service() {
                 .setContentText("Você chegou no endereço")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+                .setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE)
+                .setVibrate(longArrayOf(0, 400, 250, 400))
                 .setAutoCancel(true)
                 .setContentIntent(pendingActivity)
-                .setFullScreenIntent(pendingActivity, true)
+                .addAction(R.mipmap.ic_launcher, "Abrir entrega", pendingActivity)
                 .build()
             NotificationManagerCompat.from(this).notify(alvo.id.hashCode(), notif)
         } catch (e: Exception) {
-            /* sem permissão de notificação — segue só com TTS/overlay */
+            /* canal desativado/revogado pelo usuário — TTS continua best-effort */
         }
     }
 

@@ -32,6 +32,9 @@ type Config = {
   moduloFinanceiroAtivo: boolean;
   moduloRecoveryAtivo: boolean;
   gerarDiaAutomatico: boolean;
+  comprovanteFotoObrigatoria: boolean;
+  comprovanteAssinaturaObrigatoria: boolean;
+  comprovanteCodigoObrigatorio: boolean;
 };
 
 // Template padrão sugerido (o que o admin vê quando ainda não gravou nada).
@@ -267,6 +270,46 @@ export function LogisticaConfigClient() {
                 <span className="log-cfg__switch-txt">
                   <span className="log-cfg__switch-name">Gerar entregas do dia automaticamente</span>
                   <span className="log-cfg__switch-hint">O sistema materializa as entregas recorrentes 1×/dia.</span>
+                </span>
+              </label>
+            </div>
+
+            <div className="log-cfg__block">
+              <strong className="log-cfg__block-title">Comprovante de entrega</strong>
+              <p className="log-cfg__note">
+                Você pode combinar os métodos. A entrega só é concluída quando todos os comprovantes escolhidos forem informados.
+              </p>
+              <label className="log-cfg__switch">
+                <input
+                  type="checkbox"
+                  checked={cfg.comprovanteFotoObrigatoria}
+                  onChange={(e) => patch({ comprovanteFotoObrigatoria: e.target.checked })}
+                />
+                <span className="log-cfg__switch-txt">
+                  <span className="log-cfg__switch-name">Foto da entrega</span>
+                  <span className="log-cfg__switch-hint">O entregador fotografa o comprovante ou o local da entrega.</span>
+                </span>
+              </label>
+              <label className="log-cfg__switch">
+                <input
+                  type="checkbox"
+                  checked={cfg.comprovanteAssinaturaObrigatoria}
+                  onChange={(e) => patch({ comprovanteAssinaturaObrigatoria: e.target.checked })}
+                />
+                <span className="log-cfg__switch-txt">
+                  <span className="log-cfg__switch-name">Assinatura na tela</span>
+                  <span className="log-cfg__switch-hint">O recebedor assina com o dedo no celular do entregador.</span>
+                </span>
+              </label>
+              <label className="log-cfg__switch">
+                <input
+                  type="checkbox"
+                  checked={cfg.comprovanteCodigoObrigatorio}
+                  onChange={(e) => patch({ comprovanteCodigoObrigatorio: e.target.checked })}
+                />
+                <span className="log-cfg__switch-txt">
+                  <span className="log-cfg__switch-name">Código de 6 dígitos</span>
+                  <span className="log-cfg__switch-hint">O admin gera o código e o cliente informa ao entregador.</span>
                 </span>
               </label>
             </div>

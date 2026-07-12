@@ -27,6 +27,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY, useCascaMobile } from "@/lib/casca-mobile";
 import { dismissCascaToast } from "@/lib/casca-toast";
+import { operationalCapabilitiesOf } from "@/lib/operational-access";
 import { soLogistica } from "@/lib/so-logistica";
 
 import { CascaFallback } from "./fallback";
@@ -317,9 +318,15 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
       return;
     }
     if (!mods.loaded || redirected.current) return;
+    if (!user) return;
     redirected.current = true;
     let destino = "/empresas";
-    if (mods.byKey["vendas"]?.accessible === true) {
+    const capabilities = operationalCapabilitiesOf(user);
+    if (capabilities.length > 1) {
+      destino = "/workspace";
+    } else if (capabilities.includes("DRIVER")) {
+      destino = "/entrega";
+    } else if (capabilities.includes("SELLER") && mods.byKey["vendas"]?.accessible === true) {
       destino = "/vendas";
     } else if (soLogistica(mods)) {
       destino = "/entrega";

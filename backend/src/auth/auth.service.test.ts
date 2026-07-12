@@ -40,6 +40,16 @@ function buildAuthServiceForLogin(
   const systemMaster = Boolean(options.systemMaster);
   const role = options.role || (systemMaster ? 'USERMASTER' : 'ADMIN');
   const prisma = {
+    user: {
+      findUnique: async () => ({
+        id: 10,
+        companyId: systemMaster ? null : 77,
+        role,
+        isSystemMaster: systemMaster,
+        isActive: true,
+        deactivatedAt: null,
+      }),
+    },
     company: {
       findUnique: async (args: any) => {
         companyFindUniqueCalls.push(args);
@@ -467,6 +477,36 @@ test('gate de login: vendedor com vendas.access negado na policy cai no dashboar
   assert.equal(result.requiresCheckout, false);
 });
 
+test('gate de login: entregador sem SELLER cai direto em Entregas', async () => {
+  const { service } = buildAuthServiceForLogin(
+    {
+      companyKind: 'tenant',
+      status: 'trial',
+      isActive: true,
+      trialEndsAt: inDays(10),
+    },
+    {
+      role: 'USER',
+      teamPolicy: {
+        id: 'policy-driver',
+        userId: 11,
+        companyId: 77,
+        status: 'active',
+        subjectKind: 'common_seller',
+        modulesJson: JSON.stringify([
+          { key: 'workspace.vendas.access', allowed: false },
+          { key: 'workspace.entregas.access', allowed: true },
+        ]),
+        requiredChannelsJson: '{}',
+      },
+    },
+  );
+  const result = await loginAsSeller(service);
+  assert.equal(result.next, '/entrega');
+  assert.deepEqual(result.operationalCapabilities, ['DRIVER']);
+  assert.equal(result.defaultWorkspace, 'entregas');
+});
+
 // Vazamento de cobranca (PR-002 D.4): sanitizeUser corta status de pagamento,
 // graca, plano/preco e datas de trial para role USER; accessReleased fica.
 test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', () => {
@@ -503,6 +543,25 @@ test('sanitizeUser: vendedor recebe payload de empresa sem campos de cobranca', 
   const admin = sanitizeUser({ id: 10, username: 'dono', role: 'ADMIN', isSystemMaster: false, company });
   assert.equal(admin?.company?.accessState, 'trial');
   assert.equal(admin?.company?.accessStateLabel, 'Trial ativo');
+});
+
+test('sanitizeUser: perfil operacional DRIVER vem da policy e aponta para Entregas', () => {
+  const driver = sanitizeUser({
+    id: 12,
+    username: 'motorista',
+    role: 'USER',
+    isSystemMaster: false,
+    company: null,
+    teamPolicy: {
+      modulesJson: JSON.stringify([
+        { key: 'workspace.vendas.access', allowed: false },
+        { key: 'workspace.entregas.access', allowed: true },
+      ]),
+    },
+  });
+  assert.deepEqual(driver?.operationalCapabilities, ['DRIVER']);
+  assert.equal(driver?.defaultWorkspace, 'entregas');
+  assert.equal(driver?.workspaceHome, '/entrega');
 });
 
 // RBAC 03/07: USERMASTER (dono do tenant) e SUPERSET de ADMIN — deve ser tratado

@@ -19,7 +19,7 @@
 // ================================================================
 
 const DB_NAME = "hbx-entrega";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "pendencias";
 
 export const MAX_ATTEMPTS = 5; // TETO de tentativas por item (depois: needs_attention).
@@ -41,12 +41,22 @@ export interface PendenciaPayload {
   // F2 (08/07) — produtos novos incluídos/trocados na chegada; aditivo (undefined
   // nos itens já enfileirados antes desta versão — o backend trata como "nenhum").
   novosItens?: Array<{ productId: number; qtdEntregue: number }>;
+  comprovanteFotoId?: string;
+  comprovanteAssinaturaId?: string;
+  comprovanteCodigo?: string;
+  comprovantesLocais?: {
+    foto?: Blob;
+    assinatura?: Blob;
+    codigo?: string;
+  };
 }
 
 export interface PendenciaItem {
   // A idempotencyKey É a chave primária da fila (uuid gerado no confirmar). O servidor
   // dedupe por ela — reenviar o MESMO item nunca dispara efeito 2×.
   idempotencyKey: string;
+  // Isolamento multiusuário: nenhuma conta lê ou drena a fila de outra.
+  ownerKey: string;
   entregaId: string;
   payload: PendenciaPayload;
   ts: number; // quando foi enfileirado.
@@ -109,12 +119,14 @@ function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBReque
 
 /** Enfileira uma confirmação pendente (dedupe por idempotencyKey — put = upsert). */
 export async function enqueue(
+  ownerKey: string,
   entregaId: string,
   payload: PendenciaPayload,
   idempotencyKey: string,
 ): Promise<void> {
   const item: PendenciaItem = {
     idempotencyKey,
+    ownerKey,
     entregaId,
     payload,
     ts: Date.now(),
@@ -127,14 +139,14 @@ export async function enqueue(
 }
 
 /** Todos os itens da fila (pending + needs_attention). */
-export async function listAll(): Promise<PendenciaItem[]> {
+export async function listAll(ownerKey: string): Promise<PendenciaItem[]> {
   const all = await tx<PendenciaItem[]>("readonly", (s) => s.getAll() as IDBRequest<PendenciaItem[]>);
-  return Array.isArray(all) ? all : [];
+  return Array.isArray(all) ? all.filter((item) => item.ownerKey === ownerKey) : [];
 }
 
 /** Contagem de pendências (o que ainda NÃO sincronizou): pending + needs_attention. */
-export async function countPending(): Promise<number> {
-  const all = await listAll();
+export async function countPending(ownerKey: string): Promise<number> {
+  const all = await listAll(ownerKey);
   return all.length;
 }
 
@@ -166,9 +178,10 @@ export interface DrainResult {
  * é 1 passada; quem chama reagenda (evento online + intervalo). Não lança.
  */
 export async function drain(
+  ownerKey: string,
   sender: (item: PendenciaItem) => Promise<void>,
 ): Promise<DrainResult> {
-  const all = await listAll();
+  const all = await listAll(ownerKey);
   const now = Date.now();
   let enviados = 0;
 
@@ -195,7 +208,7 @@ export async function drain(
     }
   }
 
-  const restantesArr = await listAll();
+  const restantesArr = await listAll(ownerKey);
   return {
     enviados,
     restantes: restantesArr.length,

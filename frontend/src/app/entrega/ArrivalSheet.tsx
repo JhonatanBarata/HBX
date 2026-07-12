@@ -20,7 +20,8 @@ import { CascaSheet } from "@/components/casca";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { QrCanvas } from "../(app)/logistica/instalar/QrCanvas";
 import { listProdutos, type ProdutoOption } from "./clientes-api";
-import type { ReceiptMethod, RotaItem, RotaPix } from "./entrega-api";
+import { ComprovanteCapture } from "./ComprovanteCapture";
+import type { ComprovantesLocais, ComprovanteRequisitos, ReceiptMethod, RotaItem, RotaPix } from "./entrega-api";
 import { buzz } from "./entrega-hooks";
 import { fmtMoney } from "./gestao-api";
 import { I, ICON_PATHS } from "./icons";
@@ -34,6 +35,7 @@ interface Props {
   moduloFinanceiroAtivo: boolean;
   /** F1 — Pix do tenant (BR Code). null = sem QR (módulo OFF ou chave não configurada). */
   pix: RotaPix | null;
+  comprovante?: ComprovanteRequisitos;
   /** ROTA-AUTOPILOT F2 — true só quando a folha abriu pelo geofence (chegada
    * automática); o "Cheguei" manual passa false/undefined. Mostra o rótulo
    * "Você chegou no endereço" acima do nome do cliente. */
@@ -50,6 +52,7 @@ interface Props {
     // preço NUNCA sai daqui — o servidor resolve, regra de ouro).
     novosItens?: Array<{ productId: number; qtdEntregue: number }>;
     receiptMethod?: ReceiptMethod;
+    comprovantesLocais?: ComprovantesLocais;
   }) => void;
   onNaoEntregue: (motivo: string) => void;
   onClose: () => void;
@@ -142,6 +145,7 @@ export function ArrivalSheet({
   parada,
   moduloFinanceiroAtivo,
   pix,
+  comprovante,
   chegouPeloGps,
   vozAtiva,
   onEntregue,
@@ -164,6 +168,7 @@ export function ArrivalSheet({
           parada={paradaExibida}
           moduloFinanceiroAtivo={moduloFinanceiroAtivo}
           pix={pix}
+          comprovante={comprovante}
           chegouPeloGps={chegouPeloGps}
           vozAtiva={vozAtiva}
           onEntregue={onEntregue}
@@ -179,6 +184,7 @@ function ArrivalSheetBody({
   parada,
   moduloFinanceiroAtivo,
   pix,
+  comprovante,
   chegouPeloGps,
   vozAtiva,
   onEntregue,
@@ -188,6 +194,7 @@ function ArrivalSheetBody({
   parada: RotaItem;
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
+  comprovante?: ComprovanteRequisitos;
   chegouPeloGps?: boolean;
   vozAtiva?: boolean;
   onEntregue: (payload: {
@@ -196,6 +203,7 @@ function ArrivalSheetBody({
     // preço NUNCA sai daqui — o servidor resolve, regra de ouro).
     novosItens?: Array<{ productId: number; qtdEntregue: number }>;
     receiptMethod?: ReceiptMethod;
+    comprovantesLocais?: ComprovantesLocais;
   }) => void;
   onNaoEntregue: (motivo: string) => void;
   submitting: boolean;
@@ -205,6 +213,19 @@ function ArrivalSheetBody({
   const [motivo, setMotivo] = useState<MotivoNaoEntregue | null>(null);
   const [naoEntregueAberto, setNaoEntregueAberto] = useState(false);
   const [qrAberto, setQrAberto] = useState(false);
+  const [comprovanteState, setComprovanteState] = useState<{ paradaId: string; value: ComprovantesLocais }>(() => ({
+    paradaId: parada.id,
+    value: {},
+  }));
+  if (comprovanteState.paradaId !== parada.id) {
+    setComprovanteState({ paradaId: parada.id, value: {} });
+  }
+  const requisitos = comprovante ?? { fotoObrigatoria: false, assinaturaObrigatoria: false, codigoObrigatorio: false };
+  const comprovantesLocais = comprovanteState.paradaId === parada.id ? comprovanteState.value : {};
+  const comprovanteCompleto =
+    (!requisitos.fotoObrigatoria || Boolean(comprovantesLocais.foto)) &&
+    (!requisitos.assinaturaObrigatoria || Boolean(comprovantesLocais.assinatura)) &&
+    (!requisitos.codigoObrigatorio || /^\d{6}$/.test(comprovantesLocais.codigo || ""));
   // VOZ-ENTREGUE — toggle do ícone de mic (tocar silencia o motorista se quiser).
   const [vozLigada, setVozLigada] = useState(true);
   const receiptPill = useGlassPill<HTMLButtonElement>(receipt);
@@ -313,6 +334,7 @@ function ArrivalSheetBody({
   };
 
   const confirmarEntregue = () => {
+    if (!comprovanteCompleto) return;
     // F2 — só os itens JÁ existentes (EntregaItem real) vão em `itens`; os
     // adicionados agora (novo=true) vão em `novosItens` (productId+qtd, sem preço
     // — o servidor resolve). Item novo com qtd 0 não fez nada: não manda.
@@ -324,6 +346,7 @@ function ArrivalSheetBody({
       itens: itens.filter((it) => !it.novo).map((it) => ({ id: it.id, qtdEntregue: it.qtd })),
       novosItens: novosItens.length > 0 ? novosItens : undefined,
       receiptMethod: chipsVisiveis && receipt ? receipt : undefined,
+      comprovantesLocais,
     });
   };
 
@@ -491,6 +514,13 @@ function ArrivalSheetBody({
             )
           ) : null}
 
+          <ComprovanteCapture
+            requisitos={requisitos}
+            value={comprovantesLocais}
+            onChange={(value) => setComprovanteState({ paradaId: parada.id, value })}
+            disabled={submitting}
+          />
+
           <div className="ent-sheet-actions">
             {/* VOZ-ENTREGUE — indicador/toggle de escuta, perto do "Entregue".
                 Some por completo sem suporte no navegador (feature-detected,
@@ -512,9 +542,9 @@ function ArrivalSheetBody({
               type="button"
               className="ent-btn ent-btn--primary"
               onClick={confirmarEntregue}
-              disabled={submitting}
+              disabled={submitting || !comprovanteCompleto}
             >
-              {submitting ? "Enviando…" : "Entregue"}
+              {submitting ? "Enviando…" : comprovanteCompleto ? "Entregue" : "Falta comprovante"}
             </button>
             <button
               type="button"

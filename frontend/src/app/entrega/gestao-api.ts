@@ -95,6 +95,9 @@ export interface LogisticaConfig {
   moduloFinanceiroAtivo: boolean;
   moduloRecoveryAtivo: boolean;
   gerarDiaAutomatico: boolean;
+  comprovanteFotoObrigatoria: boolean;
+  comprovanteAssinaturaObrigatoria: boolean;
+  comprovanteCodigoObrigatorio: boolean;
   // TASK 4 — dias da semana em que a empresa trabalha. CSV ISO "1,2,3,4,5,6,7"
   // (1=segunda…7=domingo); null = sem restrição configurada ainda.
   diasTrabalho: string | null;

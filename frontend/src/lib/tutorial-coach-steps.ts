@@ -156,13 +156,13 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
     });
   }
 
-  // 5) Checklist de ativação — o bastão passa do tutorial pro checklist real.
+  // 5) Configuração assistida — o bastão passa do tutorial pro concierge.
   steps.push({
     id: "checklist",
     route: "/dashboard",
     target: '[data-tut="ac-checklist"]',
-    title: "Agora siga seus primeiros passos",
-    body: "O tutorial termina aqui, mas a ativação continua pelo checklist. Ele mostra exatamente o próximo passo real para sua conta sair do zero.",
+    title: "Termine sua configuração",
+    body: "Quando faltar alguma coisa, toque neste ícone. O concierge mostra apenas o próximo passo e abre o que você precisa.",
     gate: "next",
   });
 

@@ -30,6 +30,7 @@ import * as TrialUsage from '../commercial-plans/trial-usage';
 import { evaluateSignupRisk } from './signup-risk';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { CreditsService } from '../credits/credits.service';
+import { IndicacaoService } from '../credits/indicacao.service';
 import { isCreditsFeatureEnabled, isVerifiedPhoneRequiredForWelcome } from '../credits/credits.flags';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { WhatsappConfirmGuard, type WhatsappConfirmGuardDecision } from './whatsapp-confirm-guard';
@@ -42,6 +43,9 @@ import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyAccessAllowed,
 } from '../team/team-policy-persistence';
+import {
+  resolveOperationalAccessProjection,
+} from '../team/operational-capabilities';
 import {
   buildProvisioningLedger,
   seedTenantDefaultProductsTx,
@@ -87,6 +91,10 @@ export class AuthService implements OnModuleInit {
     // bridge que o master-alert usa (chip do Master só ENVIA, nunca conecta). Opcional
     // por retrocompat de testes que constroem o service com 7 args (dev/mock nunca toca).
     private webwhats?: WebwhatsBridgeService,
+    // S5 INDICAÇÃO: resolve o ?ref= do programa "indique e ganhe" no signup (CreditsModule
+    // já é importado pelo AuthModule — A3). Opcional por retrocompat de testes antigos;
+    // ausente/flag OFF = cadastro idêntico (best-effort puro).
+    private indicacao?: IndicacaoService,
   ) {}
 
   // F1 (CONFIRMACAO-TELEFONE) — guardrails do envio live do OTP: cooldown 60s por
@@ -1140,13 +1148,17 @@ export class AuthService implements OnModuleInit {
     // policy da equipe negue o modulo explicitamente.
     const sessionRole = String(sessionContext.user?.role || '').trim().toUpperCase();
     const isSeller = !Boolean(sessionContext.user?.isSystemMaster) && sessionRole === 'USER';
+    const operational = await resolveOperationalAccessProjection(this.prisma, sessionContext.user);
     if (isSeller) {
       const policy = await loadUserTeamPolicyRuntime(this.prisma, sessionContext.user.id).catch(() => null);
       const vendasDenied = resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false;
+      const canSell = operational.operationalCapabilities.includes('SELLER') && !vendasDenied;
+      const canDeliver = operational.operationalCapabilities.includes('DRIVER');
       return {
         access_token: this.jwtService.sign(payload),
-        next: vendasDenied ? '/dashboard' : '/vendas',
+        next: canSell && canDeliver ? '/workspace' : canSell ? '/vendas' : canDeliver ? '/entrega' : '/dashboard',
         requiresCheckout: false,
+        ...operational,
       };
     }
 
@@ -1158,6 +1170,7 @@ export class AuthService implements OnModuleInit {
           ? this.preCheckoutNextPath(checkoutReason)
           : '/dashboard',
       requiresCheckout,
+      ...operational,
     };
   }
 
@@ -1472,6 +1485,9 @@ export class AuthService implements OnModuleInit {
     acquisitionSourceDetail?: string;
     referralReferrerName?: string;
     referralCode?: string;
+    // S5 INDICAÇÃO — código opaco do "indique e ganhe" (?ref= da landing). Semântica
+    // DIFERENTE do referralCode acima (venda HBX/parceiro). Flag OFF/inválido = ignorado.
+    indicacaoRef?: string;
     trialContactName?: string;
     trialTaxDocument?: string;
     trialContactPhone?: string;
@@ -1539,6 +1555,16 @@ export class AuthService implements OnModuleInit {
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
     const referralCode = String(data.referralCode || '').trim() || null;
     const hasHbxSalesReferral = this.hasHbxSalesLeadReferral(acquisitionSourceDetail, referralCode);
+    // S5 INDICAÇÃO — resolve o ?ref= do "indique e ganhe" ANTES da transação (só leitura).
+    // Best-effort literal: flag OFF, código inválido ou erro → null e o cadastro segue
+    // IDÊNTICO (resolveCode nunca lança; o try é cinto extra pro serviço ausente/DI velha).
+    // O bônus NÃO nasce aqui — só na 1ª recarga paga aprovada (anti-farm).
+    let indicadaPorCompanyId: number | null = null;
+    try {
+      indicadaPorCompanyId = (await this.indicacao?.resolveCode(data.indicacaoRef)) ?? null;
+    } catch {
+      indicadaPorCompanyId = null;
+    }
     const usesPublicEmail = entityType === 'PJ' ? this.isPublicEmailDomain(email) : false;
     const displayName = this.companyDisplayName(normalizedCompanyName || resolvedName, username);
     const warnings = usesPublicEmail
@@ -1619,6 +1645,9 @@ export class AuthService implements OnModuleInit {
           acquisitionSourceDetail,
           referralReferrerName,
           referralCode,
+          // S5 INDICAÇÃO — empresa NOVA nasce apontando pra indicadora (null quando a
+          // flag está OFF ou o ref não resolveu). Nenhum crédito no cadastro.
+          indicadaPorCompanyId,
           primaryContactName: resolvedName,
           contactEmail: email,
           contactPhone: freeContactPhone || null,

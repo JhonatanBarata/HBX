@@ -575,3 +575,53 @@
   font-size: 0.66rem;
   color: var(--text-muted);
 }
+/* Pareamento QR enxuto aberto pelo concierge de configuração. */
+.wa-setup-veil { z-index: 70; }
+.wa-setup-modal {
+  width: min(286px, calc(100vw - 32px));
+  min-height: 300px;
+  display: grid;
+  place-items: center;
+  padding: 36px 22px 22px;
+  position: relative;
+  overflow: hidden;
+}
+.wa-setup-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.wa-setup-close:hover { color: var(--text-strong); }
+.wa-setup-qr {
+  width: 240px;
+  height: 240px;
+  max-width: 100%;
+  object-fit: contain;
+  padding: 6px;
+  background: var(--wa-qr-surface);
+  border-radius: var(--radius-sm);
+}
+.wa-setup-loading {
+  width: 44px;
+  height: 44px;
+  border: 3px solid var(--border-hairline);
+  border-top-color: var(--hbx-brand);
+  border-radius: var(--radius-pill);
+  animation: wa-setup-spin .8s linear infinite;
+}
+@keyframes wa-setup-spin { to { transform: rotate(360deg); } }
+.wa-setup-error { display: grid; justify-items: center; gap: 12px; text-align: center; }
+.wa-setup-error span { font-size: 0.76rem; line-height: 1.45; color: var(--hbx-danger); }
+@media (prefers-reduced-motion: reduce) {
+  .wa-setup-loading { animation: none; }
+}

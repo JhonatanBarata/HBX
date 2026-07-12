@@ -68,6 +68,7 @@
   --wa-avatar: #6B7C85;        /* fundo do avatar (iniciais) */
   --wa-frame: #0A1014;         /* moldura do celular */
   --wa-wallpaper: #0B141A;     /* fundo escuro do chat */
+  --wa-qr-surface: #FFFFFF;    /* QR técnico: contraste invariável no light/dark */
   --wa-bubble-in: #1F2C33;     /* balão recebido (esquerda) */
   --wa-bubble-out: #005C4B;    /* balão enviado (direita) */
   --wa-text: #E9EDEF;          /* texto dos balões */

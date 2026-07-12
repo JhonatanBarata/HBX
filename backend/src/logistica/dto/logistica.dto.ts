@@ -132,6 +132,24 @@ export class ConfirmarEntregaDto {
   @IsString()
   @MaxLength(80)
   idempotencyKey?: string;
+
+  // Comprovantes já enviados pelo endpoint multipart. O backend valida empresa,
+  // entrega, tipo, status e (para entregador) o ator que fez o upload.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  comprovanteFotoId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  comprovanteAssinaturaId?: string;
+
+  // Código de 6 dígitos gerado pelo admin. O valor esperado não fica em claro.
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  comprovanteCodigo?: string;
 }
 
 // Um item confirmado no stepper (id do EntregaItem + qtd entregue).
@@ -165,6 +183,25 @@ export class CancelarEntregaDto {
   @IsString()
   @MaxLength(300)
   motivo?: string;
+}
+
+// ── Operação por entregador ─────────────────────────────────────────────────
+export class AtribuirEntregaDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  entregadorId?: number | null;
+}
+
+export class TipoComprovanteDto {
+  @IsString()
+  @IsIn(['foto', 'assinatura'])
+  tipo!: 'foto' | 'assinatura';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  clientKey?: string;
 }
 
 // ── LOGÍSTICA-MOBILE M2 — vínculo produto×cliente (recorrência) ──────────────
@@ -424,6 +461,28 @@ export class UpdateLogisticaConfigDto {
   @Min(0)
   @Max(23)
   resumoDiarioHora?: number;
+
+  // S6 PORTAL-PEDIDO (11/07) — toggle POR TENANT do pedido público pelo link
+  // /pedido/<token>. Gravar é livre; efeito só com a flag global
+  // HBX_PEDIDO_PUBLICO_ENABLED ligada (default OFF, dormente). O TOKEN não é
+  // patchável (whitelist) — só nasce/roda pelos endpoints pedido-publico/*.
+  @IsOptional()
+  @IsBoolean()
+  pedidoPublicoAtivo?: boolean;
+
+  // Requisitos combináveis: nenhum, um, dois ou os três. Defaults false no
+  // schema mantêm tenants existentes sem bloqueio após a migration.
+  @IsOptional()
+  @IsBoolean()
+  comprovanteFotoObrigatoria?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  comprovanteAssinaturaObrigatoria?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  comprovanteCodigoObrigatorio?: boolean;
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).

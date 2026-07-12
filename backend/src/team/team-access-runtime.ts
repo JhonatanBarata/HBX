@@ -184,7 +184,9 @@ async function resolveEffectiveTeamAccessUncached(prisma: any, user: any): Promi
     resolveTeamPolicySubjectKind({ ...hydratedUser, role, isSystemMaster }, company),
   );
 
-  const policy = await loadUserTeamPolicyRuntime(prisma, userId).catch(() => null);
+  // Autorizacao nao degrada erro de leitura da policy para "policy ausente":
+  // falha de banco deve bloquear o request, nunca restaurar defaults de papel.
+  const policy = await loadUserTeamPolicyRuntime(prisma, userId, { failOnReadError: true });
   const currentModuleRows = await loadCurrentModuleAccessRows(prisma, hydratedUser);
   const currentModuleAccessMap = buildTeamAccessMapFromModuleAccess(currentModuleRows);
   const policyModuleAccessMap = buildTeamAccessMapFromModuleAccess(moduleRowsFromPolicy(policy));
@@ -301,6 +303,9 @@ export async function resolveVendasAccessContext(prisma: any, user: any): Promis
   }
   if (!has('vendas.access')) {
     throw new ForbiddenException('Acesso ao Vendas bloqueado pela politica da equipe.');
+  }
+  if (!has('workspace.vendas.access')) {
+    throw new ForbiddenException('Perfil operacional sem acesso ao workspace Vendas.');
   }
 
   return {

@@ -12,11 +12,12 @@ export const metadata: Metadata = {
 // THEME_BOOT do layout): logado entra DIRETO no app, sem nunca ver a landing.
 // Roda síncrono ANTES do DOM da landing ser parseado — acha token (mesmas
 // chaves do getToken em lib/api.ts, manter em sincronia), marca o <html>
-// (public-entry.css esconde a casca → zero flash) e navega pro /dashboard.
+// (public-entry.css esconde a casca → zero flash) e navega pro seletor que
+// direciona Vendedor/Entregador sem conceder nenhuma permissão.
 // Token inválido não é problema daqui: o fluxo 401 do api.ts derruba de volta.
 // Só cobre carga de documento (script inline não roda em navegação client-side)
 // — o efeito de guarda do PublicEntry cobre o resto.
-const AUTH_BOOT = `(function(){try{var t=localStorage.getItem("token")||localStorage.getItem("access_token")||localStorage.getItem("accessToken")||sessionStorage.getItem("token")||sessionStorage.getItem("access_token")||sessionStorage.getItem("accessToken");if(t){document.documentElement.setAttribute("data-hbx-authed","1");location.replace("/dashboard");}}catch(e){}})();`;
+const AUTH_BOOT = `(function(){try{var t=localStorage.getItem("token")||localStorage.getItem("access_token")||localStorage.getItem("accessToken")||sessionStorage.getItem("token")||sessionStorage.getItem("access_token")||sessionStorage.getItem("accessToken");if(t){document.documentElement.setAttribute("data-hbx-authed","1");location.replace("/workspace");}}catch(e){}})();`;
 
 export default async function Home({
   searchParams,

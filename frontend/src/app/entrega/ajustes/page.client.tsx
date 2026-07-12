@@ -517,6 +517,45 @@ export function EntregaAjustes() {
               <span className={`ent-switch${cfg.gerarDiaAutomatico ? " is-on" : ""}`} aria-hidden="true" />
             </button>
 
+            {admin ? (
+              <>
+                <div className="ent-field-label ent-section">Comprovante de entrega</div>
+                <div className="ent-hint">
+                  Escolha uma ou mais confirmações. O entregador só conclui a parada depois de cumprir todas.
+                </div>
+                <button
+                  type="button"
+                  className="ent-toggle"
+                  onClick={() => void patch({ comprovanteFotoObrigatoria: !cfg.comprovanteFotoObrigatoria })}
+                  aria-pressed={cfg.comprovanteFotoObrigatoria}
+                  disabled={salvando}
+                >
+                  <span className="ent-toggle-label">Exigir foto</span>
+                  <span className={`ent-switch${cfg.comprovanteFotoObrigatoria ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="ent-toggle"
+                  onClick={() => void patch({ comprovanteAssinaturaObrigatoria: !cfg.comprovanteAssinaturaObrigatoria })}
+                  aria-pressed={cfg.comprovanteAssinaturaObrigatoria}
+                  disabled={salvando}
+                >
+                  <span className="ent-toggle-label">Exigir assinatura</span>
+                  <span className={`ent-switch${cfg.comprovanteAssinaturaObrigatoria ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="ent-toggle"
+                  onClick={() => void patch({ comprovanteCodigoObrigatorio: !cfg.comprovanteCodigoObrigatorio })}
+                  aria-pressed={cfg.comprovanteCodigoObrigatorio}
+                  disabled={salvando}
+                >
+                  <span className="ent-toggle-label">Exigir código de 6 dígitos</span>
+                  <span className={`ent-switch${cfg.comprovanteCodigoObrigatorio ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+              </>
+            ) : null}
+
             {/* ── TASK 4a — dias de trabalho (multiselect ISO 1..7, chips que quebram em linha) ── */}
             <div className="ent-field-label ent-section">Dias de trabalho</div>
             <div className="ent-chips ent-chips--fit">

@@ -145,6 +145,25 @@ test('USER with explicit vendas.access false cannot resolve Vendas context', asy
   );
 });
 
+test('DRIVER com vendas.access legado ainda nao opera o workspace Vendas', async () => {
+  const user = buildUser();
+  const prisma = buildPrisma({
+    user,
+    policy: buildPolicy({
+      modules: [{ key: 'vendas', allowed: true }],
+      access: {
+        'workspace.vendas.access': false,
+        'workspace.entregas.access': true,
+      },
+    }),
+  });
+
+  await assert.rejects(
+    () => resolveVendasAccessContext(prisma as any, user),
+    /Perfil operacional sem acesso ao workspace Vendas/,
+  );
+});
+
 test('USER defaults to own Vendas cards and can be explicitly released for company cards', async () => {
   const user = buildUser();
   const defaultContext = await resolveVendasAccessContext(buildPrisma({ user }) as any, user);

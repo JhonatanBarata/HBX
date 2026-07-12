@@ -26,6 +26,7 @@ import {
   useEntitlements,
   useMyModules,
 } from "@/components/hbx/shell";
+import { canUseOperationalWorkspace } from "@/lib/operational-access";
 
 import { MaisSheet } from "./screens/mais-sheet";
 
@@ -70,6 +71,8 @@ export function isCascaTabVisible(
   user: ReturnType<typeof useCurrentUser>,
   mods: ReturnType<typeof useMyModules>,
 ): boolean {
+  if (tab.key === "rota" && !canUseOperationalWorkspace(user, "DRIVER")) return false;
+  if (["vendas", "atend", "empresas"].includes(tab.key) && !canUseOperationalWorkspace(user, "SELLER")) return false;
   return tab.navId ? isModuleVisible(tab.navId, ent, user, mods) : true;
 }
 

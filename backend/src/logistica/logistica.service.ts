@@ -9,6 +9,7 @@ import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.servic
 import { emitMasterEvent } from '../common/master-event';
 import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-contato.util';
 import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
+import { LogisticaActor, LogisticaOperacaoService, isLogisticaAdmin } from './logistica-operacao.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -59,6 +60,9 @@ export class LogisticaService {
     // todos os gates (env global OFF, toggle do tenant, opt-out, idempotência) vivem
     // DENTRO do serviço de aviso. Sem ciclo: o aviso não injeta LogisticaService.
     @Optional() private readonly cobrancaAviso?: LogisticaCobrancaAvisoService,
+    // Operação por usuário/atribuição + comprovantes. Optional só preserva os
+    // testes legados que instanciam o serviço diretamente; rotas HTTP sempre DI.
+    @Optional() private readonly operacao?: LogisticaOperacaoService,
   ) {}
 
   /**
@@ -81,9 +85,11 @@ export class LogisticaService {
    * RESTANTES do dia (sem reordenar o que já foi feito). Best-effort: qualquer
    * erro é engolido (log) — NÃO afeta o desfecho do confirmar/cancelar (N6).
    */
-  private async recalcularEtaSilencioso(companyId: number): Promise<void> {
+  private async recalcularEtaSilencioso(companyId: number, actor?: LogisticaActor | null): Promise<void> {
     try {
-      await this.rota.recalcularEtaRestantes(companyId);
+      const actorWhere = actor && this.operacao ? await this.operacao.whereForActor(actor) : {};
+      const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+      await this.rota.recalcularEtaRestantes(companyId, undefined, entregadorId);
     } catch (e: any) {
       this.logger.warn(`[logistica] re-ETA pós-ação falhou company=${companyId}: ${String(e?.message || e)}`);
     }
@@ -103,13 +109,24 @@ export class LogisticaService {
    * Entregas de um dia (default: hoje) da empresa. Company-scoped (companyId
    * sempre do JWT). Ordena por status (o que falta primeiro) e horário.
    */
-  async listRota(companyId: number, dateInput?: string): Promise<RotaResult> {
+  async listRota(
+    companyId: number,
+    dateInput?: string,
+    actor?: LogisticaActor | null,
+    updatedSinceInput?: string,
+  ): Promise<RotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const { start, end, dayISO } = resolveDayRange(dateInput);
+    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
+    const updatedSince = parseUpdatedSince(updatedSinceInput);
+    const comprovanteActorWhere =
+      actor && !isLogisticaAdmin(actor) ? { enviadoPorUserId: actorIdOrNull(actor) } : {};
 
     const rows = await this.prisma.entrega.findMany({
       where: {
         companyId,
+        ...actorWhere,
+        ...(updatedSince ? { updatedAt: { gt: updatedSince } } : {}),
         // Entregas AGENDADAS pro dia + as que ficaram sem data mas ainda abertas.
         OR: [
           { scheduledAt: { gte: start, lte: end } },
@@ -133,6 +150,15 @@ export class LogisticaService {
         deliveredLng: true,
         cobrancaStatus: true,
         notes: true,
+        updatedAt: true,
+        entregador: { select: { id: true, name: true, email: true, username: true } },
+        comprovanteCodigoHash: true,
+        comprovanteConfirmadoAt: true,
+        comprovantes: {
+          where: { status: { not: 'removido' }, ...comprovanteActorWhere },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, tipo: true, status: true, enviadoPorUserId: true },
+        },
         // FIX rota (07/07): a ordem/ETA planejados PRECISAM voltar pro app — sem
         // eles o carrossel numera tudo "Parada 1" e ignora o 2-opt (bagunça).
         rotaOrdem: true,
@@ -196,6 +222,11 @@ export class LogisticaService {
     // com o recurso OFF. Defaults seguros (false/500) se a leitura falhar.
     let avisoChegandoAtivo = false;
     let avisoChegandoDistanciaM = 500;
+    let comprovante: RotaRequisitosComprovante = {
+      fotoObrigatoria: false,
+      assinaturaObrigatoria: false,
+      codigoObrigatorio: false,
+    };
     try {
       const cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
@@ -206,6 +237,9 @@ export class LogisticaService {
           pixCidade: true,
           avisoChegandoEnabled: true,
           avisoChegandoDistanciaM: true,
+          comprovanteFotoObrigatoria: true,
+          comprovanteAssinaturaObrigatoria: true,
+          comprovanteCodigoObrigatorio: true,
         },
       });
       moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
@@ -218,6 +252,7 @@ export class LogisticaService {
       if (typeof cfg?.avisoChegandoDistanciaM === 'number' && cfg.avisoChegandoDistanciaM > 0) {
         avisoChegandoDistanciaM = cfg.avisoChegandoDistanciaM;
       }
+      comprovante = this.operacao?.requisitosFromConfig(cfg) ?? comprovante;
     } catch (e: any) {
       this.logger.warn(`[logistica] listRota loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
     }
@@ -241,13 +276,18 @@ export class LogisticaService {
     return {
       date: dayISO,
       total: rows.length,
+      refreshedAt: new Date().toISOString(),
       effectsEnabled: this.effectsEnabled,
       moduloFinanceiroAtivo,
       pix,
       avisoChegandoAtivo,
       avisoChegandoDistanciaM,
-      items: rows.map((r) => ({
-        id: r.id,
+      comprovante,
+      items: rows.map((r) => {
+        const foto = r.comprovantes.find((item) => item.tipo === 'foto') ?? null;
+        const assinatura = r.comprovantes.find((item) => item.tipo === 'assinatura') ?? null;
+        return {
+          id: r.id,
         status: r.status,
         quantidade: r.quantidade,
         valor: r.valor,
@@ -257,6 +297,22 @@ export class LogisticaService {
         deliveredLng: r.deliveredLng ?? null,
         cobrancaStatus: r.cobrancaStatus,
         notes: r.notes ?? null,
+        updatedAt: r.updatedAt.toISOString(),
+        entregador: r.entregador
+          ? {
+              id: r.entregador.id,
+              nome: r.entregador.name || r.entregador.username || r.entregador.email,
+              email: r.entregador.email ?? null,
+            }
+          : null,
+        comprovante: {
+          fotoId: foto?.id ?? null,
+          assinaturaId: assinatura?.id ?? null,
+          fotoEnviada: !!foto,
+          assinaturaEnviada: !!assinatura,
+          codigoGerado: !!r.comprovanteCodigoHash,
+          confirmadoAt: r.comprovanteConfirmadoAt?.toISOString() ?? null,
+        },
         // FIX rota (07/07): devolve a ordem/ETA planejados (o app ordena o carrossel
         // e numera "Parada N" por rotaOrdem; o término lê etaAt da última parada).
         rotaOrdem: r.rotaOrdem ?? null,
@@ -311,8 +367,14 @@ export class LogisticaService {
                   },
                 ]
               : [],
-      })),
+        };
+      }),
     };
+  }
+
+  private requireOperacao(): LogisticaOperacaoService {
+    if (!this.operacao) throw new BadRequestException('Operação de entregas indisponível.');
+    return this.operacao;
   }
 
   // ── CRIAR (agendar entrega) ─────────────────────────────────────────────────
@@ -409,15 +471,22 @@ export class LogisticaService {
    * Marca a entrega como 'entregue' com o GPS capturado no celular. Só DEPOIS
    * de gravar o status/GPS é que os efeitos rodam — e SÓ se a flag estiver ON.
    */
-  async confirmarEntrega(companyId: number, id: string, gps: ConfirmarGps): Promise<ConfirmarResult | null> {
+  async confirmarEntrega(
+    companyId: number,
+    id: string,
+    gps: ConfirmarGps,
+    actor?: LogisticaActor | null,
+  ): Promise<ConfirmarResult | null> {
     if (!companyId || !id) return null;
+    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
-      where: { id: String(id).trim(), companyId },
+      where: { id: String(id).trim(), companyId, ...actorWhere },
       select: {
         id: true, status: true, customerProfileId: true, contatoId: true, valor: true,
         // MULTILOCAL (10/07) — o local da entrega decide ONDE o GPS de ouro converge.
         localId: true,
         cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true,
+        comprovanteCodigoHash: true, comprovanteCodigoSalt: true,
       },
     });
     if (!entrega) return null;
@@ -443,6 +512,16 @@ export class LogisticaService {
 
     if (entrega.status === 'cancelada') {
       throw new BadRequestException('Entrega cancelada não pode ser confirmada.');
+    }
+    if (entrega.status === 'entregue') {
+      return {
+        id: entrega.id,
+        status: 'entregue',
+        effectsEnabled: this.effectsEnabled,
+        whatsappSent: entrega.whatsappStatus === 'enviado',
+        cobrancaLancada: entrega.cobrancaOutcome === 'lancada',
+        replayed: true,
+      };
     }
 
     const lat = typeof gps.lat === 'number' && Number.isFinite(gps.lat) ? gps.lat : null;
@@ -505,19 +584,31 @@ export class LogisticaService {
     let valorCobranca = entrega.valor;
     try {
       await this.prisma.$transaction(async (tx) => {
+        const validacao = this.operacao
+          ? await this.operacao.validarParaConfirmacao(tx, companyId, entrega, gps, actor)
+          : { ids: [] as string[], exigiuComprovante: false };
+        const confirmadoAt = new Date();
         await tx.entrega.update({
           where: { id: entrega.id },
           data: {
             status: 'entregue',
-            deliveredAt: new Date(),
+            deliveredAt: confirmadoAt,
             deliveredLat: lat,
             deliveredLng: lng,
             startedAt: undefined,
             receiptMethod: receiptMethod ?? undefined,
             recebidoNaHora,
             idempotencyKey: gravarKey,
+            confirmadoPorUserId: actorIdOrNull(actor),
+            comprovanteConfirmadoAt: validacao.exigiuComprovante ? confirmadoAt : undefined,
           },
         });
+        if (validacao.ids.length > 0) {
+          await (tx as any).entregaComprovante.updateMany({
+            where: { id: { in: validacao.ids }, companyId, entregaId: entrega.id, status: 'pendente' },
+            data: { status: 'confirmado', confirmadoAt },
+          });
+        }
         // M4 — quantidades do stepper por item. Só toca EntregaItem DESTA entrega (isolado
         // por entregaId). Dentro da tx: se algo aqui falhar, o status também não muda.
         for (const it of itensValidos) {
@@ -671,7 +762,7 @@ export class LogisticaService {
     }
 
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
-    await this.recalcularEtaSilencioso(companyId);
+    await this.recalcularEtaSilencioso(companyId, actor);
 
     return { id: entrega.id, status: 'entregue', effectsEnabled: this.effectsEnabled, whatsappSent, cobrancaLancada };
   }
@@ -859,10 +950,16 @@ export class LogisticaService {
   }
 
   // ── CANCELAR ────────────────────────────────────────────────────────────────
-  async cancelarEntrega(companyId: number, id: string, motivo?: string): Promise<{ id: string } | null> {
+  async cancelarEntrega(
+    companyId: number,
+    id: string,
+    motivo?: string,
+    actor?: LogisticaActor | null,
+  ): Promise<{ id: string } | null> {
     if (!companyId || !id) return null;
+    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
-      where: { id: String(id).trim(), companyId },
+      where: { id: String(id).trim(), companyId, ...actorWhere },
       select: { id: true, status: true, notes: true },
     });
     if (!entrega) return null;
@@ -877,7 +974,7 @@ export class LogisticaService {
       data: { status: 'cancelada', notes },
     });
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
-    await this.recalcularEtaSilencioso(companyId);
+    await this.recalcularEtaSilencioso(companyId, actor);
     return { id: entrega.id };
   }
 
@@ -891,11 +988,12 @@ export class LogisticaService {
   async softDeleteEntrega(
     companyId: number,
     id: string,
-    opts: { deletedByUserId?: number | null; motivo?: string | null } = {},
+    opts: { deletedByUserId?: number | null; motivo?: string | null; actor?: LogisticaActor | null } = {},
   ): Promise<{ id: string } | null> {
     if (!companyId || !id) return null;
+    const actorWhere = opts.actor ? await this.requireOperacao().whereForActor(opts.actor) : {};
     const row = await this.prisma.entrega.findFirst({
-      where: { id: String(id).trim(), companyId },
+      where: { id: String(id).trim(), companyId, ...actorWhere },
       select: {
         id: true, companyId: true, customerProfileId: true, contatoId: true, productId: true,
         quantidade: true, valor: true, status: true, scheduledAt: true, deliveredAt: true,
@@ -1213,10 +1311,11 @@ export class LogisticaService {
    * qualquer exceção do disparo vira 'falhou' (nunca propaga) — o endpoint
    * sempre responde { ok: true }, o app não reenvia.
    */
-  async avisarChegando(companyId: number, id: string): Promise<WhatsappResult> {
+  async avisarChegando(companyId: number, id: string, actor?: LogisticaActor | null): Promise<WhatsappResult> {
     if (!companyId || !id) return { status: 'pulado', motivo: 'invalido' };
+    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
-      where: { id: String(id).trim(), companyId },
+      where: { id: String(id).trim(), companyId, ...actorWhere },
       select: { id: true, customerProfileId: true, contatoId: true },
     });
     if (!entrega) return { status: 'pulado', motivo: 'nao_encontrada' };
@@ -2200,6 +2299,19 @@ export function resolveDayRange(dateInput?: string): { start: Date; end: Date; d
   return { start, end, dayISO };
 }
 
+function parseUpdatedSince(value?: string): Date | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) throw new BadRequestException('updatedSince inválido. Use uma data ISO.');
+  return parsed;
+}
+
+function actorIdOrNull(actor?: LogisticaActor | null): number | null {
+  const id = Number(actor?.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 function parseDateOrNull(value: string | null | undefined): Date | null {
   if (!value) return null;
   // "YYYY-MM-DD" puro é lido no fuso LOCAL (mesmo cuidado do M2/rota: em Brasília
@@ -2417,6 +2529,16 @@ export interface RotaItem {
   deliveredLng: number | null;
   cobrancaStatus: string;
   notes: string | null;
+  updatedAt: string;
+  entregador: { id: number; nome: string | null; email: string | null } | null;
+  comprovante: {
+    fotoId: string | null;
+    assinaturaId: string | null;
+    fotoEnviada: boolean;
+    assinaturaEnviada: boolean;
+    codigoGerado: boolean;
+    confirmadoAt: string | null;
+  };
   // MULTILOCAL (10/07) — rótulo curto do local desta entrega ("Casa"|"Loja"…), null
   // quando a entrega não tem local (usa o endereço/geo do perfil).
   localApelido: string | null;
@@ -2437,6 +2559,7 @@ export interface RotaPix {
 export interface RotaResult {
   date: string;
   total: number;
+  refreshedAt: string;
   effectsEnabled: boolean;
   moduloFinanceiroAtivo: boolean;
   pix: RotaPix | null;
@@ -2444,7 +2567,14 @@ export interface RotaResult {
   // inútil com o recurso OFF). avisoChegandoDistanciaM é o raio configurado (m).
   avisoChegandoAtivo: boolean;
   avisoChegandoDistanciaM: number;
+  comprovante: RotaRequisitosComprovante;
   items: RotaItem[];
+}
+
+export interface RotaRequisitosComprovante {
+  fotoObrigatoria: boolean;
+  assinaturaObrigatoria: boolean;
+  codigoObrigatorio: boolean;
 }
 
 export interface ConfirmarGps {
@@ -2463,6 +2593,9 @@ export interface ConfirmarGps {
   // foi gravada nesta entrega, o confirmar é um REPLAY (fila offline) → devolve o
   // desfecho anterior SEM re-executar WhatsApp/charge.
   idempotencyKey?: string;
+  comprovanteFotoId?: string;
+  comprovanteAssinaturaId?: string;
+  comprovanteCodigo?: string;
 }
 
 export interface ConfirmarResult {

@@ -17,6 +17,10 @@ import { isTenantCompany } from '../common/company-kind';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
 import { assertEffectiveTeamAccess } from '../team/team-access-runtime';
 import {
+  projectOperationalCapabilitiesFromStoredPolicy,
+  setUserOperationalCapabilities,
+} from '../team/operational-capabilities';
+import {
   buildPreferredSegmentsJsonValue,
   parsePreferredSegments,
   type PreferredSegments,
@@ -62,6 +66,14 @@ export class UsersService {
   async assertCompanyUserManagementAccess(actingUser: any, accessKey: string, message: string) {
     if (actingUser?.isSystemMaster) return;
     await assertEffectiveTeamAccess(this.prisma, actingUser, accessKey, message);
+  }
+
+  async setOperationalCapabilities(
+    userId: number,
+    capabilities: unknown,
+    options?: { source?: string; actorUserId?: number | null },
+  ) {
+    return setUserOperationalCapabilities(this.prisma, userId, capabilities, options);
   }
 
   private normalizeTeamRole(role?: string | null) {
@@ -1190,7 +1202,7 @@ export class UsersService {
   }
 
   async listByCompany(companyId: number): Promise<any[]> {
-    return this.prisma.user.findMany({
+    const rows = await this.prisma.user.findMany({
       where: { companyId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
@@ -1225,8 +1237,15 @@ export class UsersService {
         deactivatedAt: true,
         retentionUntil: true,
         createdAt: true,
+        teamPolicy: {
+          select: { modulesJson: true },
+        },
       },
     });
+    return rows.map(({ teamPolicy, ...user }) => ({
+      ...user,
+      ...projectOperationalCapabilitiesFromStoredPolicy(user, teamPolicy?.modulesJson),
+    }));
   }
 
   async updateRole(userId: number, role: 'USER' | 'ADMIN', options?: UserMutationGuardOptions): Promise<User> {

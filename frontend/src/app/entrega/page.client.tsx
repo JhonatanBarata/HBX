@@ -25,6 +25,7 @@ import {
   mapsHref,
   paradasAbertas,
   resumoItens,
+  type ComprovantesLocais,
   type ReceiptMethod,
   type RotaItem,
   type RotaResult,
@@ -139,6 +140,8 @@ export function EntregaHome() {
   // nunca lia esse valor antes, ficava com 60m hardcoded pra sempre).
   const [raioChegadaM, setRaioChegadaM] = useState<number>(RAIO_CHEGADA_FALLBACK_M);
   const [loading, setLoading] = useState(true);
+  const [atualizando, setAtualizando] = useState(false);
+  const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [view, setView] = useState<View>("hoje");
   const [iniciando, setIniciando] = useState(false);
@@ -213,19 +216,24 @@ export function EntregaHome() {
   // valor local ainda for o mais recente no momento em que ela chega — resposta
   // de uma chamada já superada por outra mais nova é descartada em silêncio.
   const carregarSeqRef = useRef(0);
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (silencioso = false) => {
     const minhaSeq = ++carregarSeqRef.current;
-    setLoading(true);
+    if (silencioso) setAtualizando(true);
+    else setLoading(true);
     setErro(null);
     try {
       const r = await getRota();
       if (carregarSeqRef.current !== minhaSeq) return; // resposta obsoleta — descarta
       setRota(r);
+      setAtualizadoEm(new Date());
     } catch (e) {
       if (carregarSeqRef.current !== minhaSeq) return; // idem — outra chamada já é a atual
       setErro(e instanceof Error ? e.message : "Falha ao carregar a rota");
     } finally {
-      if (carregarSeqRef.current === minhaSeq) setLoading(false);
+      if (carregarSeqRef.current === minhaSeq) {
+        setLoading(false);
+        setAtualizando(false);
+      }
     }
   }, []);
 
@@ -514,6 +522,7 @@ export function EntregaHome() {
       // F2 (08/07) — produtos novos incluídos/trocados na chegada (ArrivalSheet).
       novosItens?: Array<{ productId: number; qtdEntregue: number }>;
       receiptMethod?: ReceiptMethod;
+      comprovantesLocais?: ComprovantesLocais;
     }) => {
       if (!paradaAtual) return;
       setSubmitting(true);
@@ -555,6 +564,7 @@ export function EntregaHome() {
           receiptMethod: payload.receiptMethod,
           itens: payload.itens,
           novosItens: payload.novosItens,
+          comprovantesLocais: payload.comprovantesLocais,
         });
         // D1 — momento "aprovado": flash otimista com o que já está na tela
         // (a fila é assíncrona — nada de "cliente avisado" sem sinal de envio
@@ -666,6 +676,16 @@ export function EntregaHome() {
               {sync.pendentes}
             </span>
           ) : null}
+          <button
+            type="button"
+            className={`casca-top__act${atualizando ? " is-loading" : ""}`}
+            aria-label="Atualizar entregas"
+            title={atualizadoEm ? `Atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Atualizar entregas"}
+            onClick={() => void carregar(true)}
+            disabled={atualizando}
+          >
+            <span className="ent-refresh-icon" aria-hidden="true">↻</span>
+          </button>
           {view === "rota" ? (
             <button type="button" className="casca-top__act" aria-label="Ver Hoje" onClick={() => setView("hoje")}>
               <I d={ICON_PATHS.route} size={18} />
@@ -732,6 +752,7 @@ export function EntregaHome() {
         parada={paradaAtual}
         moduloFinanceiroAtivo={rota?.moduloFinanceiroAtivo ?? false}
         pix={rota?.pix ?? null}
+        comprovante={rota?.comprovante}
         chegouPeloGps={chegouPeloGps}
         onEntregue={onEntregue}
         onNaoEntregue={onNaoEntregue}

@@ -43,13 +43,13 @@ export class LogisticaRotaService {
    * Ordena a rota do dia, grava rotaOrdem/etaAt e devolve a rota + término
    * previsto + quantas paradas ficaram sem coordenada.
    */
-  async planejarRota(companyId: number, input: PlanejarRotaInput = {}): Promise<PlanejarRotaResult> {
+  async planejarRota(companyId: number, input: PlanejarRotaInput = {}, entregadorId?: number): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const { start, end, dayISO } = resolveDayRange(input.date);
     const config = await this.loadConfig(companyId);
     const origem = coordFromInput(input.origemLat, input.origemLng);
 
-    const rows = await this.fetchParadasAbertas(companyId, start, end);
+    const rows = await this.fetchParadasAbertas(companyId, start, end, entregadorId);
 
     // Ordena (NN + 2-opt) e calcula ETA cumulativo a partir de AGORA (ou input.startAt).
     const partida = parseDateOrNull(input.startAt) ?? new Date();
@@ -98,14 +98,14 @@ export class LogisticaRotaService {
    * Marca o início da rota. Re-planeja com a ORIGEM atual (GPS do entregador ao
    * apertar "iniciar") e coloca a 1ª parada em 'em_rota' com startedAt=agora.
    */
-  async iniciarRota(companyId: number, input: IniciarRotaInput = {}): Promise<PlanejarRotaResult> {
+  async iniciarRota(companyId: number, input: IniciarRotaInput = {}, entregadorId?: number): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     // Re-planeja a partir da origem atual (mesmo caminho do planejar).
     const plan = await this.planejarRota(companyId, {
       date: input.date,
       origemLat: input.origemLat,
       origemLng: input.origemLng,
-    });
+    }, entregadorId);
 
     // 1ª parada roteável (rotaOrdem=0) vira 'em_rota' com startedAt — só se ainda
     // estiver 'agendada' (não rebaixa nada já em rota/entregue).
@@ -129,12 +129,12 @@ export class LogisticaRotaService {
    *
    * @param baseDate dia da entrega tocada (default: hoje) — a fatia de re-cálculo.
    */
-  async recalcularEtaRestantes(companyId: number, baseDate?: Date): Promise<{ recalculadas: number } | null> {
+  async recalcularEtaRestantes(companyId: number, baseDate?: Date, entregadorId?: number): Promise<{ recalculadas: number } | null> {
     if (!companyId) return null;
     const { start, end } = resolveDayRange(baseDate ? toDayISO(baseDate) : undefined);
     const config = await this.loadConfig(companyId);
 
-    const rows = await this.fetchParadasAbertas(companyId, start, end);
+    const rows = await this.fetchParadasAbertas(companyId, start, end, entregadorId);
     if (rows.length === 0) return { recalculadas: 0 };
 
     // NÃO reordena: mantém o rotaOrdem já gravado (o que já foi entregue saiu da
@@ -174,10 +174,11 @@ export class LogisticaRotaService {
     return { velocidadeMediaKmH, tempoParadaMin };
   }
 
-  private async fetchParadasAbertas(companyId: number, start: Date, end: Date): Promise<ParadaRow[]> {
+  private async fetchParadasAbertas(companyId: number, start: Date, end: Date, entregadorId?: number): Promise<ParadaRow[]> {
     return this.prisma.entrega.findMany({
       where: {
         companyId,
+        ...(entregadorId ? { entregadorId } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },

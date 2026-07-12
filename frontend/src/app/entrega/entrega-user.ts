@@ -20,11 +20,13 @@ import { apiFetch } from "@/lib/api";
 import { isTenantAdmin, type RoleUser } from "@/lib/roles";
 
 type PerfilUser = NonNullable<RoleUser> & {
-  company?: { name?: string | null } | null;
+  id?: number | null;
+  company?: { id?: number | null; name?: string | null } | null;
   // /profile/current-user (sanitizeUser) já expõe isSystemMaster: o master
   // assumindo o contexto de um tenant. Usado pra NÃO disparar requests que o
   // backend barra pro master (ex.: module-categories/options → 400).
   isSystemMaster?: boolean;
+  operationalCapabilities?: Array<"SELLER" | "DRIVER"> | null;
 };
 
 let perfilPromise: Promise<PerfilUser | null> | null = null;
@@ -54,7 +56,33 @@ export function getIsSystemMaster(): Promise<boolean> {
   return getPerfil().then((u) => u?.isSystemMaster === true);
 }
 
+export function getEntregaOperationalCapabilities(): Promise<Array<"SELLER" | "DRIVER">> {
+  return getPerfil().then((u) => Array.isArray(u?.operationalCapabilities) ? u.operationalCapabilities : []);
+}
+
 const LS_EMPRESA_NOME = "hbx:entrega:empresa-nome";
+const LS_QUEUE_OWNER = "hbx:entrega:queue-owner";
+
+/**
+ * Identidade que isola a fila offline. O valor fresco do perfil sempre vence;
+ * o espelho local existe apenas para o mesmo usuário continuar offline.
+ */
+export async function getEntregaQueueOwner(): Promise<string | null> {
+  const perfil = await getPerfil();
+  const companyId = Number(perfil?.company?.id || 0);
+  const userId = Number(perfil?.id || 0);
+  if (companyId > 0 && userId > 0) {
+    const owner = `${companyId}:${userId}`;
+    try { localStorage.setItem(LS_QUEUE_OWNER, owner); } catch { /* sem storage */ }
+    return owner;
+  }
+  try {
+    const cached = String(localStorage.getItem(LS_QUEUE_OWNER) || "").trim();
+    return /^\d+:\d+$/.test(cached) ? cached : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Nome da empresa do usuário logado — pro header do /entrega quando

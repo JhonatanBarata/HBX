@@ -179,11 +179,15 @@ export function resolveTeamPolicyStoredLimit(policy: RuntimeTeamPolicy | any | n
   };
 }
 
-export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown): Promise<RuntimeTeamPolicy | null> {
+export async function loadUserTeamPolicyRuntime(
+  prisma: any,
+  userIdRaw: unknown,
+  options?: { failOnReadError?: boolean },
+): Promise<RuntimeTeamPolicy | null> {
   const userId = Math.trunc(Number(userIdRaw || 0));
   if (!userId) return null;
   if (!prisma?.userTeamPolicy?.findUnique) return null;
-  const row = await prisma.userTeamPolicy.findUnique({
+  const query = prisma.userTeamPolicy.findUnique({
     where: { userId },
     select: {
       id: true,
@@ -210,7 +214,8 @@ export async function loadUserTeamPolicyRuntime(prisma: any, userIdRaw: unknown)
       requiredChannelsJson: true,
       visibilityJson: true,
     },
-  }).catch(() => null);
+  });
+  const row = options?.failOnReadError ? await query : await query.catch(() => null);
   if (!row) return null;
   const requiredChannels = parseTeamPolicyRequiredChannels(row.requiredChannelsJson);
   return {
@@ -325,7 +330,6 @@ export async function ensureUserTeamPolicyForUser(
     source: snapshot.source,
     roleSnapshot: snapshot.roleSnapshot,
     subjectKind: snapshot.subjectKind,
-    modulesJson: snapshot.modulesJson,
     commissionPercent: snapshot.commissionPercent,
     commissionDueBusinessDays: snapshot.commissionDueBusinessDays,
     canRegisterHbxSellers: snapshot.canRegisterHbxSellers,
@@ -350,7 +354,12 @@ export async function ensureUserTeamPolicyForUser(
       userId,
       ...snapshot,
     },
-    update: syncUpdate,
+    // Sincronizar nome/status/comissao do User nunca pode apagar a policy de
+    // acesso. modulesJson guarda modulos, grants granulares e agora o perfil
+    // operacional; so um overwrite explicitamente pedido pode substitui-lo.
+    update: options?.overwrite === true
+      ? { ...syncUpdate, modulesJson: snapshot.modulesJson }
+      : syncUpdate,
   });
 }
 

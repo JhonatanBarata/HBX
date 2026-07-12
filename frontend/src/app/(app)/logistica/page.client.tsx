@@ -45,9 +45,24 @@ type Entrega = {
   cliente: Cliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
   produto: { id: number; nome: string; unidade: string | null } | null;
+  entregador: Entregador | null;
+  comprovante?: {
+    fotoEnviada: boolean;
+    assinaturaEnviada: boolean;
+    codigoGerado: boolean;
+    confirmadoAt: string | null;
+  };
 };
 
-type Rota = { date: string; total: number; effectsEnabled: boolean; items: Entrega[] };
+type Entregador = { id: number; nome: string | null; email: string | null };
+
+type Rota = {
+  date: string;
+  total: number;
+  effectsEnabled: boolean;
+  comprovante?: { fotoObrigatoria: boolean; assinaturaObrigatoria: boolean; codigoObrigatorio: boolean };
+  items: Entrega[];
+};
 
 const STATUS_LABEL: Record<string, string> = {
   agendada: "Agendada",
@@ -73,16 +88,28 @@ function navUrl(c: Cliente): string {
 // ── Detalhe de UMA entrega (sheet) ───────────────────────────────────────────
 function EntregaDetail({
   entrega,
+  admin,
+  entregadores,
+  codigoObrigatorio,
   onClose,
   onDone,
+  onAssigned,
 }: {
   entrega: Entrega;
+  admin: boolean;
+  entregadores: Entregador[];
+  codigoObrigatorio: boolean;
   onClose: () => void;
   onDone: () => void;
+  onAssigned: (entregador: Entregador | null) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
+  const [atribuindo, setAtribuindo] = useState(false);
+  const [entregador, setEntregador] = useState<Entregador | null>(entrega.entregador);
+  const [gerandoCodigo, setGerandoCodigo] = useState(false);
+  const [codigo, setCodigo] = useState<string | null>(null);
 
   const c = entrega.cliente;
   const jaEntregue = entrega.status === "entregue";
@@ -120,6 +147,40 @@ function EntregaDetail({
     }
   }
 
+  async function atribuir(entregadorId: number | null) {
+    setAtribuindo(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{ entregador: Entregador | null }>(`/logistica/entregas/${entrega.id}/atribuir`, {
+        method: "PATCH",
+        body: JSON.stringify({ entregadorId }),
+      });
+      setEntregador(res.entregador);
+      onAssigned(res.entregador);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Não foi possível atribuir o entregador.");
+    } finally {
+      setAtribuindo(false);
+    }
+  }
+
+  async function gerarCodigo() {
+    setGerandoCodigo(true);
+    setCodigo(null);
+    setError(null);
+    try {
+      const res = await apiFetch<{ codigo: string }>(`/logistica/entregas/${entrega.id}/comprovante-codigo`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setCodigo(res.codigo);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Não foi possível gerar o código.");
+    } finally {
+      setGerandoCodigo(false);
+    }
+  }
+
   return (
     <div className="hbx-veil to-bottom" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="hbx-drawer-bottom log-detail" role="dialog" aria-label="Detalhe da entrega" aria-modal="true">
@@ -142,6 +203,45 @@ function EntregaDetail({
         </div>
 
         {entrega.notes && <p className="log-detail__notes">{entrega.notes}</p>}
+
+        {admin && !jaEntregue && !cancelada && (
+          <div className="log-detail__admin">
+            <label className="f">
+              <span>Entregador responsável</span>
+              <select
+                className="field-dark"
+                value={entregador?.id ?? ""}
+                onChange={(e) => void atribuir(e.target.value ? Number(e.target.value) : null)}
+                disabled={atribuindo}
+              >
+                <option value="">Ainda não atribuído</option>
+                {entregadores.map((item) => (
+                  <option value={item.id} key={item.id}>{item.nome || item.email || `Usuário ${item.id}`}</option>
+                ))}
+              </select>
+            </label>
+
+            {codigoObrigatorio && (
+              <div className="log-detail__code">
+                <button type="button" className="btn-ghost btn-xs" onClick={() => void gerarCodigo()} disabled={gerandoCodigo}>
+                  {gerandoCodigo ? "Gerando…" : entrega.comprovante?.codigoGerado ? "Gerar novo código" : "Gerar código do cliente"}
+                </button>
+                {codigo && (
+                  <div className="log-detail__code-value" role="status">
+                    <span><strong>{codigo}</strong> · exibido somente agora</span>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      onClick={() => void navigator.clipboard?.writeText(codigo)}
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {ok && <p className="log-detail__ok"><I d={ICONS.check} size={14} /> Entrega confirmada!</p>}
         {error && <p className="hint log-detail__err">{error}</p>}
@@ -258,6 +358,8 @@ export function LogisticaClient() {
   const [open, setOpen] = useState<Entrega | null>(null);
   const [gerando, setGerando] = useState(false);
   const [gerarMsg, setGerarMsg] = useState<string | null>(null);
+  const [entregadores, setEntregadores] = useState<Entregador[]>([]);
+  const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -265,6 +367,7 @@ export function LogisticaClient() {
       .then((res) => {
         setRota(res);
         setError(null);
+        setAtualizadoEm(new Date());
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Não foi possível carregar a rota.");
@@ -275,6 +378,13 @@ export function LogisticaClient() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!admin) return;
+    apiFetch<Entregador[]>("/logistica/entregadores")
+      .then(setEntregadores)
+      .catch(() => setEntregadores([]));
+  }, [admin]);
 
   // "Gerar entregas de hoje" (admin): materializa as entregas recorrentes vencidas.
   // Idempotente no backend — clicar 2× não duplica. Recarrega a rota ao terminar.
@@ -309,7 +419,11 @@ export function LogisticaClient() {
           <h2>Rota de hoje</h2>
           <div className="meta" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {gerarMsg && <span className="emp-count">{gerarMsg}</span>}
+            {atualizadoEm && <span>Atualizado às {atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>}
             <span>{pendentes} pendente(s) · {items.length} no dia</span>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
+              <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
+            </button>
             {admin && (
               <button type="button" className="btn-ghost btn-xs" onClick={gerarDia} disabled={gerando}>
                 <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
@@ -381,8 +495,17 @@ export function LogisticaClient() {
       {open && (
         <EntregaDetail
           entrega={open}
+          admin={admin}
+          entregadores={entregadores}
+          codigoObrigatorio={!!rota?.comprovante?.codigoObrigatorio}
           onClose={() => setOpen(null)}
           onDone={() => { setOpen(null); load(); }}
+          onAssigned={(entregador) => {
+            setOpen((atual) => atual ? { ...atual, entregador } : atual);
+            setRota((atual) => atual
+              ? { ...atual, items: atual.items.map((item) => item.id === open.id ? { ...item, entregador } : item) }
+              : atual);
+          }}
         />
       )}
     </div>

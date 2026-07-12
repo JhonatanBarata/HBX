@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { confirmarEntrega, distanciaMetros, type ConfirmarPayload } from "./entrega-api";
+import { confirmarEntrega, distanciaMetros, uploadComprovante, type ConfirmarPayload } from "./entrega-api";
 import {
   drain,
   enqueue,
@@ -20,6 +20,7 @@ import {
   novaIdempotencyKey,
   type PendenciaItem,
 } from "./entrega-offline";
+import { getEntregaQueueOwner } from "./entrega-user";
 
 // Tipos mínimos p/ APIs fora do lib.dom padrão (evita any, tsc estrito verde).
 type WakeLockSentinelLike = { release: () => Promise<void> };
@@ -274,7 +275,8 @@ export function useOfflineSync(): OfflineSync {
   const rodando = useRef(false); // evita 2 drains concorrentes (online + timer juntos).
 
   const refreshContagem = useCallback(async () => {
-    const all = await listAll();
+    const owner = await getEntregaQueueOwner();
+    const all = owner ? await listAll(owner) : [];
     setPendentes(all.length);
     setPrecisamAtencao(all.filter((i: PendenciaItem) => i.status === "needs_attention").length);
     // B3 — mantém a MESMA referência quando o conjunto não mudou (não refiltra o
@@ -287,9 +289,28 @@ export function useOfflineSync(): OfflineSync {
     if (rodando.current) return;
     rodando.current = true;
     try {
-      const res = await drain(async (item: PendenciaItem) => {
-        // Manda o idempotencyKey ao servidor — a idempotência dura mora lá.
-        await confirmarEntrega(item.entregaId, { ...item.payload, idempotencyKey: item.idempotencyKey });
+      const owner = await getEntregaQueueOwner();
+      if (!owner) return;
+      const res = await drain(owner, async (item: PendenciaItem) => {
+        const locais = item.payload.comprovantesLocais;
+        const [foto, assinatura] = await Promise.all([
+          locais?.foto
+            ? uploadComprovante(item.entregaId, "foto", locais.foto, `${item.idempotencyKey}:foto`)
+            : Promise.resolve(null),
+          locais?.assinatura
+            ? uploadComprovante(item.entregaId, "assinatura", locais.assinatura, `${item.idempotencyKey}:assinatura`)
+            : Promise.resolve(null),
+        ]);
+        // Uploads acontecem antes da confirmação. Se a rede cair depois deles, o
+        // backend substitui o pendente do mesmo tipo no retry e mantém o confirmado imutável.
+        await confirmarEntrega(item.entregaId, {
+          ...item.payload,
+          comprovantesLocais: undefined,
+          comprovanteFotoId: foto?.id || item.payload.comprovanteFotoId,
+          comprovanteAssinaturaId: assinatura?.id || item.payload.comprovanteAssinaturaId,
+          comprovanteCodigo: locais?.codigo || item.payload.comprovanteCodigo,
+          idempotencyKey: item.idempotencyKey,
+        });
       });
       // B3 — esvaziou item(ns) em background: sinaliza a tela pra recarregar a rota.
       if (res && res.enviados > 0) setSincronizados((n) => n + res.enviados);
@@ -304,7 +325,9 @@ export function useOfflineSync(): OfflineSync {
   const enqueueConfirmacao = useCallback(
     async (entregaId: string, payload: Omit<ConfirmarPayload, "idempotencyKey">) => {
       const key = novaIdempotencyKey();
-      await enqueue(entregaId, payload, key);
+      const owner = await getEntregaQueueOwner();
+      if (!owner) throw new Error("Não foi possível identificar esta sessão para salvar a entrega offline.");
+      await enqueue(owner, entregaId, payload, key);
       await refreshContagem();
       // Tenta sincronizar já (online → some da fila na hora; offline → fica e drena depois).
       void syncNow();

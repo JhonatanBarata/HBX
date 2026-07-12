@@ -38,6 +38,15 @@ type SignupResponse = {
 // o sessionStorage é só uma DICA pra reidratar rápido (fail-safe se sumir).
 const ONBOARDING_POLL_KEY = "hbx:onboarding-poll";
 const ONBOARDING_EMAIL_KEY = "hbx:onboarding-email";
+
+// S5 INDICAÇÃO — ?ref= do link "indique e ganhe" (https://<host>/?ref=<code>).
+// Capturado no mount e persistido até o submit (a alternância Entrar↔Criar usa
+// replaceState e APAGA a query — sem o storage o ref se perderia). Backend com a
+// flag OFF simplesmente ignora o campo; ref inválido também (best-effort).
+const INDICACAO_REF_KEY = "hbx:indicacao-ref";
+function readIndicacaoRef(): string | null {
+  try { return sessionStorage.getItem(INDICACAO_REF_KEY); } catch { return null; }
+}
 function clearOnboardingHint() {
   try {
     sessionStorage.removeItem(ONBOARDING_POLL_KEY);
@@ -163,6 +172,15 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
     return () => { alive = false; };
   }, [done, router]);
 
+  // S5 INDICAÇÃO — guarda o ?ref= assim que o card monta (o link do programa cai na
+  // landing e o clique em "Criar conta" NÃO navega — a URL ainda tem a query aqui).
+  useEffect(() => {
+    try {
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (ref && ref.trim()) sessionStorage.setItem(INDICACAO_REF_KEY, ref.trim());
+    } catch { /* sem storage */ }
+  }, []);
+
   // Prefill do fechamento: o link de contratação traz ?hbxLead=<token assinado>
   // (leadId.exp.assinatura HMAC; zero PII crua na URL). Buscamos o que o vendedor
   // confirmou no fechamento pra pré-preencher o cadastro (CPF só vem se o token for
@@ -246,6 +264,9 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
     try {
       // Cadastro do modelo crédito: direto, sem plano — o backend EXIGE o
       // telefone (base do dedup anti-farra dos welcomeCredits).
+      // S5 INDICAÇÃO: envia o ref guardado (se houver) — backend ignora com a
+      // flag OFF ou código inválido; o bônus só existe na 1ª recarga paga.
+      const indicacaoRef = readIndicacaoRef();
       const res = await apiFetch<SignupResponse>("/auth/signup", {
         method: "POST",
         body: JSON.stringify({
@@ -257,6 +278,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           trialContactName: nome,
           trialContactPhone: freeTelefone,
           trialTaxDocument: freeCpf || undefined,
+          ...(indicacaoRef ? { indicacaoRef } : {}),
         }),
       });
       if (res?.access_token) {

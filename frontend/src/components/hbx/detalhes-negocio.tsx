@@ -231,7 +231,9 @@ export type NegocioDetail = {
     recommendedChannel?: string | null;
     painType?: string | null;
     painPitch?: string | null;
-    messageTemplate?: string | null;
+    // O board serializa templates[0] do enrichment: pode vir string OU objeto
+    // {id,context,tone,text}. Renderizar o objeto cru estoura React #31.
+    messageTemplate?: string | { id?: string; context?: string; tone?: string; text?: string } | null;
     contactQuality?: string | null;
   } | null;
 
@@ -1845,7 +1847,14 @@ export function DetalhesNegocio({
     if (!n || !li) return null;
     const hasOpportunityReason = Boolean(li.opportunityReason);
     const hasPainPitch = Boolean(li.painPitch);
-    const hasMessageTemplate = Boolean(li.messageTemplate);
+    // `messageTemplate` pode vir string OU objeto {id,context,tone,text} (o board
+    // expõe templates[0] do enrichment). Só o texto vira React child — renderizar
+    // o objeto cru estoura React #31. Extrai o texto dos dois formatos.
+    const templateText =
+      typeof li.messageTemplate === "string"
+        ? li.messageTemplate
+        : String((li.messageTemplate as { text?: string } | null | undefined)?.text || "");
+    const hasMessageTemplate = Boolean(templateText);
     const hasLeadReasonTags = Array.isArray(li.leadReasonTags) && li.leadReasonTags.length > 0;
     const hasPainType = Boolean(li.painType);
 
@@ -1879,7 +1888,7 @@ export function DetalhesNegocio({
           <CollapsibleText label="Pitch de dor" text={li.painPitch!} />
         )}
         {hasMessageTemplate && (
-          <CollapsibleText label="Modelo de mensagem" text={li.messageTemplate!} />
+          <CollapsibleText label="Modelo de mensagem" text={templateText} />
         )}
       </div>
     );

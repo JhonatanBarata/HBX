@@ -14,7 +14,10 @@ import org.json.JSONObject
  * thread) — por isso tudo aqui é defensivo (try/catch nunca deixa uma
  * exceção da bridge derrubar o app).
  */
-class HBXShellBridge(private val context: Context) {
+class HBXShellBridge(
+    private val context: Context,
+    private val onSolicitarRota: (Int, List<Parada>) -> Unit
+) {
 
     @JavascriptInterface
     fun setRota(json: String) {
@@ -32,11 +35,13 @@ class HBXShellBridge(private val context: Context) {
                 if (lat.isNaN() || lng.isNaN()) continue
                 paradas.add(Parada(id = id, nome = p.optString("nome", "Cliente"), lat = lat, lng = lng))
             }
-            RotaState.setRota(raioM, paradas)
-            RotaState.persistir(context) // snapshot p/ restart STICKY do serviço
             if (paradas.isNotEmpty()) {
-                RotaService.sync(context)
+                // A Activity mostra a explicação interna e pede localização /
+                // notificações sob demanda. O serviço só começa após ambas.
+                onSolicitarRota(raioM, paradas)
             } else {
+                RotaState.clear()
+                RotaState.persistir(context)
                 RotaService.requestStop(context)
             }
         } catch (e: Exception) {

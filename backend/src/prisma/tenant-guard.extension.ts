@@ -61,6 +61,7 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'HbxRecoveryCustomer',
   'HbxRecoveryPayment',
   'FinanceiroCharge',
+  'EntregaComprovante',
   'HbxRecoveryFlowStage',
   'CompanyConversation',
   'AtendimentoAppointment',

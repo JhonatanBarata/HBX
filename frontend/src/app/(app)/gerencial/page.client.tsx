@@ -71,7 +71,18 @@ type TeamMember = {
   email?: string | null;
   role?: string | null;
   isActive?: boolean;
+  operationalCapabilities?: Array<"SELLER" | "DRIVER"> | null;
 };
+
+function teamOperationalLabel(member: TeamMember) {
+  if (String(member.role || "").toUpperCase() === "ADMIN") return "Gerente · Vendas e Entregas";
+  const capabilities = Array.isArray(member.operationalCapabilities)
+    ? member.operationalCapabilities
+    : ["SELLER"];
+  const seller = capabilities.includes("SELLER");
+  const driver = capabilities.includes("DRIVER");
+  return seller && driver ? "Vendedor e entregador" : driver ? "Entregador" : "Vendedor";
+}
 
 type ComissaoSummary = {
   ok?: boolean;
@@ -763,7 +774,7 @@ export function GerencialClient() {
                     </div>
                     <div className="tbl-wrap">
                       <table className="tbl">
-                        <thead><tr><th>Membro</th><th>E-mail</th><th>Perfil de acesso</th><th></th></tr></thead>
+                        <thead><tr><th>Membro</th><th>E-mail</th><th>Perfil operacional</th><th></th></tr></thead>
                         <tbody>
                           {teamDenied && (
                             <tr style={{ cursor: "default" }}>
@@ -799,7 +810,7 @@ export function GerencialClient() {
                                   </div>
                                 </td>
                                 <td>{m.email || "—"}</td>
-                                <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{ehAdmin ? "Administrador" : "Vendas"}</span></td>
+                                <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{teamOperationalLabel(m)}</span></td>
                                 <td>
                                   <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                                     <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}

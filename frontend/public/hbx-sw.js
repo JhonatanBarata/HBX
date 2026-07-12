@@ -6,13 +6,13 @@
    URL próprio (/hbx-sw.js), separado do kill-switch antigo (/sw.js).
 
    ── LOGÍSTICA-MOBILE M8 (05/07) — EXCEÇÃO CIRÚRGICA E ADITIVA ────────────────
-   Uma ÚNICA rota é cacheada com stale-while-revalidate: o GET da rota do dia
+   Uma ÚNICA rota é cacheada com network-first: o GET da rota do dia
    (…/logistica/rota) — pra o entregador abrir "Hoje" numa zona sem sinal. TODO O
    RESTO continua passando direto pra rede (mesmo comportamento de antes: nada de
    página/asset em cache). Não há risco de ressuscitar tela velha porque só um GET
-   de DADOS (JSON) é tocado, e mesmo assim ele SEMPRE revalida em background. */
+   de DADOS (JSON) é tocado. Cada sessão tem uma chave opaca própria. */
 
-const ROTA_CACHE = "hbx-rota-v1";
+const ROTA_CACHE = "hbx-rota-v2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -46,34 +46,36 @@ function isRotaRequest(request) {
   }
 }
 
-/* stale-while-revalidate SÓ pra rota: responde o cache na hora (se houver) e, em
-   paralelo, busca a versão fresca e atualiza o cache. Sem sinal → serve o cache;
-   sem cache e sem sinal → o fetch rejeita e a UI trata (estado offline honesto). */
-async function staleWhileRevalidate(request) {
+async function scopedCacheKey(request) {
+  const auth = request.headers.get("Authorization") || "anonymous";
+  const bytes = new TextEncoder().encode(auth);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const scope = Array.from(new Uint8Array(digest).slice(0, 12), (b) => b.toString(16).padStart(2, "0")).join("");
+  const url = new URL(request.url);
+  url.searchParams.set("__hbx_scope", scope);
+  return new Request(url.toString(), { method: "GET" });
+}
+
+/* Network-first: cada toque em Atualizar busca a versão fresca. O cache só
+   aparece quando a rede falha e nunca cruza usuário/sessão. */
+async function networkFirst(request) {
   const cache = await caches.open(ROTA_CACHE);
-  const cached = await cache.match(request);
-  const network = fetch(request)
-    .then((res) => {
-      // Só guarda respostas OK (não cacheia 401/500 — não envenena a rota).
-      if (res && res.ok) cache.put(request, res.clone()).catch(() => {});
-      return res;
-    })
-    .catch(() => null);
-  // Tem cache → responde já e revalida em background. Sem cache → espera a rede.
-  if (cached) {
-    network.catch(() => {});
-    return cached;
+  const key = await scopedCacheKey(request);
+  try {
+    const fresh = await fetch(request);
+    if (fresh && fresh.ok) await cache.put(key, fresh.clone());
+    return fresh;
+  } catch (error) {
+    const cached = await cache.match(key);
+    if (cached) return cached;
+    throw error;
   }
-  const fresh = await network;
-  if (fresh) return fresh;
-  // Sem cache e sem rede: refaz o fetch pra propagar o erro real (a UI mostra offline).
-  return fetch(request);
 }
 
 self.addEventListener("fetch", (event) => {
   // ADITIVO: só intercepta o GET da rota do dia. Todo o resto passa direto pra rede
   // (não chama respondWith → o navegador trata como se não houvesse SW).
   if (isRotaRequest(event.request)) {
-    event.respondWith(staleWhileRevalidate(event.request));
+    event.respondWith(networkFirst(event.request));
   }
 });

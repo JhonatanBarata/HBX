@@ -120,6 +120,106 @@ function NotificacoesSheet({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
+type ComissaoSummary = {
+  totals?: {
+    activeClients?: number;
+    pendingActivation?: number;
+    payableAmount?: number;
+    pendingAmount?: number;
+    paidAmount?: number;
+    nextDueAt?: string | null;
+  };
+  payouts?: Array<{
+    id: string;
+    status?: string | null;
+    leadCount?: number | null;
+    totalAmount?: number | null;
+    referenceLabel?: string | null;
+    paidAt?: string | null;
+    createdAt?: string | null;
+  }>;
+};
+
+function fmtComissao(value?: number | null): string {
+  return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function ComissoesSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [summary, setSummary] = useState<ComissaoSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    async function carregar() {
+      setLoading(true);
+      setErro(null);
+      try {
+        const res = await apiFetch<ComissaoSummary>("/vendas/commission/summary");
+        if (alive) setSummary(res);
+      } catch (err: unknown) {
+        if (!alive) return;
+        setSummary(null);
+        setErro(err instanceof Error ? err.message : "Não foi possível carregar suas comissões.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    void carregar();
+    return () => { alive = false; };
+  }, [open]);
+
+  const totals = summary?.totals;
+  const payouts = Array.isArray(summary?.payouts) ? summary.payouts : [];
+  return (
+    <CascaSheet open={open} title="Minhas comissões" onClose={onClose}>
+      <div className="mais-m__commission">
+        {loading ? <p className="mais-m__notif-msg">Carregando…</p> : null}
+        {!loading && erro ? <p className="mais-m__commission-error">{erro}</p> : null}
+        {!loading && !erro && totals ? (
+          <>
+            <div className="mais-m__commission-kpis">
+              <div className="mais-m__commission-kpi">
+                <span>A receber</span>
+                <strong>{fmtComissao(totals.payableAmount)}</strong>
+              </div>
+              <div className="mais-m__commission-kpi">
+                <span>Em ativação</span>
+                <strong>{fmtComissao(totals.pendingAmount)}</strong>
+              </div>
+              <div className="mais-m__commission-kpi">
+                <span>Já recebido</span>
+                <strong>{fmtComissao(totals.paidAmount)}</strong>
+              </div>
+            </div>
+            <div className="mais-m__commission-meta">
+              <span>{totals.activeClients || 0} cliente{totals.activeClients === 1 ? " ativo" : "s ativos"}</span>
+              <span>{totals.pendingActivation || 0} aguardando ativação</span>
+            </div>
+            <div className="mais-m__commission-title">Histórico</div>
+            {payouts.length === 0 ? (
+              <p className="mais-m__notif-msg">Nenhum pagamento registrado.</p>
+            ) : (
+              <div className="mais-m__commission-list">
+                {payouts.map((payout) => (
+                  <div className="mais-m__commission-row" key={payout.id}>
+                    <div>
+                      <strong>{payout.referenceLabel || "Comissão"}</strong>
+                      <span>{payout.leadCount || 0} venda{payout.leadCount === 1 ? "" : "s"} · {fmtWhen(payout.paidAt || payout.createdAt)}</span>
+                    </div>
+                    <b>{fmtComissao(payout.totalAmount)}</b>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : null}
+      </div>
+    </CascaSheet>
+  );
+}
+
 // ---------------------------------------------------------------
 // Controles compactos de Tema (modo claro/escuro + pele) — reusa
 // setThemeMode/setAppTheme/PELES de theme-attributes (mesma fonte única do
@@ -223,6 +323,7 @@ export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const router = useRouter();
   const user = useMaisCurrentUser();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [comissoesOpen, setComissoesOpen] = useState(false);
   const [sairConfirm, setSairConfirm] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [fsOn, setFsOn] = useState(false);
@@ -233,8 +334,13 @@ export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
     setLastOpen(open);
-    if (!open) { setNotifOpen(false); setSairConfirm(false); }
+    if (!open) { setNotifOpen(false); setComissoesOpen(false); setSairConfirm(false); }
   }
+
+  const capabilities = user?.operationalCapabilities;
+  const podeVerComissoes = Array.isArray(capabilities)
+    ? capabilities.includes("SELLER")
+    : user?.userKind === "seller" || String(user?.role || "").toUpperCase() === "USER";
 
   const irConfiguracoes = useCallback(() => {
     onClose();
@@ -269,6 +375,7 @@ export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
           <div className="mais-m__list">
             <MaisRow icon="bell" label="Notificações" onClick={() => setNotifOpen(true)} />
+            {podeVerComissoes ? <MaisRow icon="money" label="Minhas comissões" onClick={() => setComissoesOpen(true)} /> : null}
             <MaisRow icon="relat" label="Relatórios" onClick={() => { onClose(); router.push("/relatorios"); }} />
             <MaisRow icon="help" label="Tutorial" onClick={() => { onClose(); router.push("/tutorial"); }} />
             <MaisRow icon="config" label="Configurações" onClick={irConfiguracoes} />
@@ -302,6 +409,7 @@ export function MaisSheet({ open, onClose }: { open: boolean; onClose: () => voi
       </CascaSheet>
 
       <NotificacoesSheet open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <ComissoesSheet open={comissoesOpen} onClose={() => setComissoesOpen(false)} />
     </>
   );
 }

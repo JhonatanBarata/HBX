@@ -8,7 +8,7 @@ import { MasterGuard } from '../auth/guards/master.guard';
 import { resolveActorKind } from '../access/actor-kind';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from '../auth/password-policy';
 import { MasterContextService } from '../master-context/master-context.service';
@@ -33,6 +33,11 @@ class UpdateRoleDto {
 }
 
 class CreateCompanyUserDto {
+	@IsOptional()
+	@IsArray()
+	@IsIn(['SELLER', 'DRIVER'], { each: true })
+	operationalCapabilities?: Array<'SELLER' | 'DRIVER'>;
+
 	// Login do vendedor (cadastro simples = usuário + senha). Identificador próprio,
 	// não precisa de e-mail — o login resolve por username antes de e-mail
 	// (findByLoginIdentifier). Único GLOBAL na tabela User.
@@ -150,6 +155,11 @@ class ToggleActiveDto {
 }
 
 class UpdateCompanyUserProfileDto {
+	@IsOptional()
+	@IsArray()
+	@IsIn(['SELLER', 'DRIVER'], { each: true })
+	operationalCapabilities?: Array<'SELLER' | 'DRIVER'>;
+
 	@IsOptional()
 	@IsString()
 	name?: string;
@@ -966,6 +976,13 @@ export class UsersController {
 
 		// RBAC Sprint 1: team.users.edit — o `false` no Gerencial bloqueia inclusive o GERENTE.
 		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.edit', 'Editar usuarios esta bloqueado pela politica da equipe.');
+		if (dto.operationalCapabilities !== undefined) {
+			await this.usersService.assertCompanyUserManagementAccess(
+				req.user,
+				'team.access.manage',
+				'Alterar o perfil operacional esta bloqueado pela politica da equipe.',
+			);
+		}
 
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
@@ -1047,6 +1064,16 @@ export class UsersController {
 		const updated = Object.keys(data).length
 			? await this.usersService.updateById(id, data, { actorUserId: Number(req?.user?.id || 0), action: 'profile_update' })
 			: target;
+		const operational = dto.operationalCapabilities !== undefined
+			? await this.usersService.setOperationalCapabilities(
+				id,
+				dto.operationalCapabilities,
+				{
+					source: 'users_admin_profile_update',
+					actorUserId: Number(req?.user?.id || 0) || null,
+				},
+			)
+			: null;
 
 		return {
 			id: updated.id,
@@ -1056,6 +1083,7 @@ export class UsersController {
 			commissionMonthlyCap: (updated as any).commissionMonthlyCap,
 			setupCommissionCap: (updated as any).setupCommissionCap,
 			sellerDistributionDailyLimitOverride: updated.sellerDistributionDailyLimitOverride,
+			...(operational || {}),
 			...this.sellerNetworkPayload(updated),
 		};
 	}
@@ -1231,6 +1259,13 @@ export class UsersController {
 		// RBAC Sprint 1: criar acesso de vendedor/admin no Gerencial — team.users.create.
 		// O `false` no Gerencial bloqueia inclusive o GERENTE (role=ADMIN).
 		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.create', 'Criar usuarios esta bloqueado pela politica da equipe.');
+		if (dto.operationalCapabilities !== undefined) {
+			await this.usersService.assertCompanyUserManagementAccess(
+				req.user,
+				'team.access.manage',
+				'Definir o perfil operacional esta bloqueado pela politica da equipe.',
+			);
+		}
 		// RBAC Sprint 1 (Lote B $): definir percentual/heranca no cadastro segue as mesmas chaves de dinheiro.
 		if (dto.commissionPercent !== undefined || dto.commissionMonthlyCap !== undefined || dto.setupCommissionCap !== undefined) {
 			await this.usersService.assertCompanyUserManagementAccess(req.user, 'commission.editPercent', 'Editar percentual de comissao esta bloqueado pela politica da equipe.');
@@ -1340,6 +1375,16 @@ export class UsersController {
 				: {}),
 			...(requiresSellerOnboarding ? { isActive: false } : {}),
 		});
+		const operational = dto.operationalCapabilities !== undefined
+			? await this.usersService.setOperationalCapabilities(
+				created.id,
+				dto.operationalCapabilities,
+				{
+					source: 'users_admin_create',
+					actorUserId: Number(req?.user?.id || 0) || null,
+				},
+			)
+			: null;
 		let invite: { sent: boolean; email: string; expiresAt: string; error: string | null } | null = null;
 		let onboardingEmail: any = null;
 		if (requiresSellerOnboarding) {
@@ -1383,6 +1428,7 @@ export class UsersController {
 				role: created.role,
 				isSystemMaster: created.isSystemMaster,
 				isActive: created.isActive,
+				...(operational || {}),
 				sellerDistributionDailyLimitOverride: (created as any).sellerDistributionDailyLimitOverride,
 				...this.sellerNetworkPayload(created),
 			},

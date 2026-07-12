@@ -37,6 +37,15 @@ export class SignupDto {
   @IsOptional()
   referralCode?: string;
 
+  // S5 INDICAÇÃO — código opaco do programa "indique e ganhe" (?ref= capturado na
+  // landing). NÃO confundir com referralCode acima (venda HBX/parceiro, outra
+  // semântica). Precisa estar no DTO (whitelist+forbidNonWhitelisted derrubariam o
+  // cadastro com 400 se o front mandasse o campo sem ele existir aqui). Best-effort:
+  // flag OFF ou código inválido = IGNORADO no service (cadastro idêntico).
+  @IsOptional()
+  @IsString()
+  indicacaoRef?: string;
+
   @IsOptional()
   trialContactName?: string;
 

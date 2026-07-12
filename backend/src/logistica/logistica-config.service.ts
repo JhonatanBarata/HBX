@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
+import { isPedidoPublicoEnabled } from './logistica-pedido.flags';
 import { isResumoDiarioEnabled } from './resumo-diario.flags';
 
 /**
@@ -35,6 +37,13 @@ export class LogisticaConfigService {
    */
   async getConfig(companyId: number): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cfg = await this.ensureRow(companyId);
+    return serializeConfig(cfg);
+  }
+
+  /** Linha crua da config (cria o default se não existir) — base do getConfig e
+   *  dos métodos de token do pedido público (S6). Idempotente sob corrida (P2002). */
+  private async ensureRow(companyId: number) {
     let cfg = await this.prisma.logisticaConfig.findUnique({ where: { companyId } });
     if (!cfg) {
       try {
@@ -49,7 +58,51 @@ export class LogisticaConfigService {
       }
     }
     if (!cfg) throw new BadRequestException('Não foi possível carregar a configuração.');
-    return serializeConfig(cfg);
+    return cfg;
+  }
+
+  // ── S6 PORTAL-PEDIDO — token OPACO do link público /pedido/<token> ───────────
+  /**
+   * Garante o token do link público (idempotente: emite se a empresa ainda não
+   * tiver um; chamadas repetidas devolvem o MESMO token). Molde do
+   * ensureWebsiteCaptureToken (website-runtime.ts): randomBytes(24).hex — opaco,
+   * não sequencial, NUNCA companyId/slug na URL. Só grava o token; NÃO liga o
+   * toggle (pedidoPublicoAtivo é decisão separada do admin).
+   */
+  async ensurePedidoPublicoToken(companyId: number): Promise<string> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cfg = await this.ensureRow(companyId);
+    const atual = String((cfg as any).pedidoPublicoToken || '').trim();
+    if (atual) return atual;
+    return this.gravarPedidoPublicoToken(companyId);
+  }
+
+  /**
+   * Rotaciona o token (link antigo MORRE na hora — o lookup público é pelo
+   * token). Molde do rotateWebsiteCaptureToken. Não mexe no toggle.
+   */
+  async rotatePedidoPublicoToken(companyId: number): Promise<string> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    await this.ensureRow(companyId);
+    return this.gravarPedidoPublicoToken(companyId);
+  }
+
+  /** Grava um token novo com retry na chance (mínima) de colisão do @unique. */
+  private async gravarPedidoPublicoToken(companyId: number): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const token = randomBytes(24).toString('hex'); // 48 chars hex — opaco.
+      try {
+        await this.prisma.logisticaConfig.update({
+          where: { companyId },
+          data: { pedidoPublicoToken: token },
+        });
+        return token;
+      } catch (e: any) {
+        if (String(e?.code) === 'P2002') continue; // colisão do unique — tenta outro
+        throw e;
+      }
+    }
+    throw new BadRequestException('Não foi possível gerar o link. Tente de novo.');
   }
 
   // ── GRAVAR (PATCH parcial; upsert) ───────────────────────────────────────────
@@ -114,6 +167,20 @@ export class LogisticaConfigService {
     // NÃO entra aqui de propósito — é interna do scheduler, nunca editável via API.
     if (input.resumoDiarioAtivo !== undefined) data.resumoDiarioAtivo = !!input.resumoDiarioAtivo;
     if (input.resumoDiarioHora !== undefined) data.resumoDiarioHora = clampInt(input.resumoDiarioHora, 0, 23, 7);
+    // S6 PORTAL-PEDIDO (11/07) — toggle POR TENANT do pedido público pelo link.
+    // Gravar é livre; EFEITO só com HBX_PEDIDO_PUBLICO_ENABLED global ligada (a
+    // rota pública checa as duas). O TOKEN não entra aqui de propósito — só
+    // ensure/rotatePedidoPublicoToken emitem (nunca editável cru via PATCH).
+    if (input.pedidoPublicoAtivo !== undefined) data.pedidoPublicoAtivo = !!input.pedidoPublicoAtivo;
+    if (input.comprovanteFotoObrigatoria !== undefined) {
+      data.comprovanteFotoObrigatoria = !!input.comprovanteFotoObrigatoria;
+    }
+    if (input.comprovanteAssinaturaObrigatoria !== undefined) {
+      data.comprovanteAssinaturaObrigatoria = !!input.comprovanteAssinaturaObrigatoria;
+    }
+    if (input.comprovanteCodigoObrigatorio !== undefined) {
+      data.comprovanteCodigoObrigatorio = !!input.comprovanteCodigoObrigatorio;
+    }
 
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
@@ -322,6 +389,16 @@ function serializeConfig(c: any): LogisticaConfigDTO {
     resumoDiarioAtivo: !!c.resumoDiarioAtivo,
     resumoDiarioHora: typeof c.resumoDiarioHora === 'number' ? c.resumoDiarioHora : 7,
     resumoDiarioDisponivel: isResumoDiarioEnabled(),
+    // S6 PORTAL-PEDIDO — toggle do tenant + token do link + o DERIVADO da env
+    // global (pedidoPublicoDisponivel NÃO é coluna; OFF = a UI esconde o card
+    // inteiro, deploy inerte). O token aqui é o link que o admin copia/compartilha
+    // — vira público por design quando entregue ao cliente final.
+    pedidoPublicoAtivo: !!c.pedidoPublicoAtivo,
+    pedidoPublicoToken: c.pedidoPublicoToken ?? null,
+    pedidoPublicoDisponivel: isPedidoPublicoEnabled(),
+    comprovanteFotoObrigatoria: !!c.comprovanteFotoObrigatoria,
+    comprovanteAssinaturaObrigatoria: !!c.comprovanteAssinaturaObrigatoria,
+    comprovanteCodigoObrigatorio: !!c.comprovanteCodigoObrigatorio,
   };
 }
 
@@ -348,6 +425,11 @@ export interface UpdateLogisticaConfigInput {
   // S3 RESUMO-DIÁRIO — toggle por tenant + hora local 0-23 (efeito só com a env).
   resumoDiarioAtivo?: boolean;
   resumoDiarioHora?: number;
+  // S6 PORTAL-PEDIDO — toggle por tenant do pedido público (efeito só com a env).
+  pedidoPublicoAtivo?: boolean;
+  comprovanteFotoObrigatoria?: boolean;
+  comprovanteAssinaturaObrigatoria?: boolean;
+  comprovanteCodigoObrigatorio?: boolean;
 }
 
 export interface LogisticaConfigDTO {
@@ -374,4 +456,13 @@ export interface LogisticaConfigDTO {
   resumoDiarioAtivo: boolean;
   resumoDiarioHora: number;
   resumoDiarioDisponivel: boolean;
+  // S6 PORTAL-PEDIDO — toggle do tenant + token do link + derivado da env
+  // (pedidoPublicoToken/Disponivel são read-only pro front; token muda só por
+  // ensure/rotate nos endpoints admin).
+  pedidoPublicoAtivo: boolean;
+  pedidoPublicoToken: string | null;
+  pedidoPublicoDisponivel: boolean;
+  comprovanteFotoObrigatoria: boolean;
+  comprovanteAssinaturaObrigatoria: boolean;
+  comprovanteCodigoObrigatorio: boolean;
 }

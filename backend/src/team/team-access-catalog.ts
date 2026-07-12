@@ -88,6 +88,30 @@ export const TEAM_ACCESS_GROUPS: TeamAccessCatalogGroup[] = [
 // SELLER_DEFAULT_MODULE_KEYS (modules.service) — uma so, em qualquer superficie.
 export const TEAM_ACCESS_CATALOG: TeamAccessCatalogItem[] = [
   {
+    key: 'workspace.vendas.access',
+    group: 'modules',
+    label: 'Workspace Vendas',
+    description: 'Permite operar a experiencia comercial do HBX. A troca visual de workspace nao concede este acesso.',
+    defaultForAdmin: true,
+    // Compatibilidade: todo USER existente era vendedor antes do perfil
+    // operacional existir. Entregador e sempre uma concessao explicita.
+    defaultForSeller: true,
+    riskLevel: 'high',
+    sellerVisible: true,
+    backendEnforced: true,
+  },
+  {
+    key: 'workspace.entregas.access',
+    group: 'modules',
+    label: 'Workspace Entregas',
+    description: 'Permite operar a experiencia de entregas do HBX. A troca visual de workspace nao concede este acesso.',
+    defaultForAdmin: true,
+    defaultForSeller: false,
+    riskLevel: 'high',
+    sellerVisible: true,
+    backendEnforced: true,
+  },
+  {
     key: 'radar.access',
     group: 'modules',
     label: 'Acessar Radar',

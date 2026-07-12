@@ -56,18 +56,19 @@ function sanitizeJidsInText(text: string | null | undefined): string {
     .trim();
 }
 
-export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnected }: {
+export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnected, initialMethod = "qr" }: {
   open: boolean;
   onClose: () => void;
   onConnected?: () => void;
   onDisconnected?: () => void;
+  initialMethod?: "qr" | "code";
 }) {
   const [payload, setPayload] = useState<WhatsAppModalPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bootstrapMsg, setBootstrapMsg] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [method, setMethod] = useState<"qr" | "code">("qr");
+  const [method, setMethod] = useState<"qr" | "code">(initialMethod);
   const [phone, setPhone] = useState("");
   const [pairing, setPairing] = useState<WhatsAppPairingCodePayload | null>(null);
   const bootstrappedKey = useRef<string | null>(null);
@@ -351,6 +352,214 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Pareamento guiado do concierge: uma única ação humana abre o QR. O código
+// usa os mesmos endpoints canônicos do modal completo, acompanha o estado real
+// e fecha sozinho apenas quando o backend confirma `connected`.
+export function WhatsAppSetupQrModal({ open, onClose, onConnected }: {
+  open: boolean;
+  onClose: () => void;
+  onConnected: () => void;
+}) {
+  const [qr, setQr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
+  const pairingRef = useRef(false);
+  const pollingRef = useRef(false);
+  const finishedRef = useRef(false);
+  const pausedRef = useRef(false);
+  const deadlineRef = useRef(0);
+  const generationRef = useRef(0);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  const finish = useCallback((res: WhatsAppModalPayload, generation: number) => {
+    if (generation !== generationRef.current || finishedRef.current) return;
+    finishedRef.current = true;
+    // Espelhamento é best-effort aqui: a confirmação da conexão não pode ficar
+    // presa a uma etapa posterior de sincronização de conversas.
+    void bootstrapWhatsAppAfterConnect(res).catch(() => null);
+    onConnected();
+    onClose();
+  }, [onClose, onConnected]);
+
+  const tick = useCallback(async (generation: number) => {
+    if (generation !== generationRef.current || pollingRef.current || finishedRef.current || pausedRef.current) return;
+    if (Date.now() >= deadlineRef.current) {
+      pausedRef.current = true;
+      setLoading(false);
+      setError("Não foi possível gerar o QR Code agora.");
+      return;
+    }
+    pollingRef.current = true;
+    try {
+      const pollingQr = pairingRef.current;
+      let res = pollingQr ? await fetchWhatsAppModalQr() : await fetchWhatsAppModalStatus();
+      if (generation !== generationRef.current) return;
+
+      const healthyConnection = res.status === "connected"
+        && res.data.enabled
+        && res.data.configured
+        && res.data.available
+        && res.data.providerHealth === "healthy";
+      if (healthyConnection) {
+        finish(res, generation);
+        return;
+      }
+
+      if (res.status === "connected" && res.data.providerHealth !== "healthy") {
+        pausedRef.current = true;
+        setError(sanitizeJidsInText(res.message) || "Não foi possível confirmar a conexão agora.");
+        return;
+      }
+
+      if (!res.data.enabled || !res.data.configured || !res.data.available) {
+        pausedRef.current = true;
+        setError(sanitizeJidsInText(res.message) || "A conexão por QR Code não está disponível agora.");
+        return;
+      }
+
+      if (["offline", "disconnected", "error"].includes(res.status) && !startedRef.current) {
+        startedRef.current = true;
+        res = await startWhatsAppModalSession();
+        if (generation !== generationRef.current) return;
+      }
+
+      const connectedAfterStart = res.status === "connected"
+        && res.data.enabled
+        && res.data.configured
+        && res.data.available
+        && res.data.providerHealth === "healthy";
+      if (connectedAfterStart) {
+        finish(res, generation);
+        return;
+      }
+
+      if (!pollingQr && !res.data.qrCodeDataUrl && (res.status === "waiting_qr" || res.status === "starting")) {
+        res = await fetchWhatsAppModalQr();
+        if (generation !== generationRef.current) return;
+        const connectedFromQr = res.status === "connected"
+          && res.data.enabled
+          && res.data.configured
+          && res.data.available
+          && res.data.providerHealth === "healthy";
+        if (connectedFromQr) {
+          finish(res, generation);
+          return;
+        }
+      }
+
+      const qrStillStarting = res.errorCode === "WHATSAPP_MODAL_QR_UNAVAILABLE"
+        && (res.status === "waiting_qr" || res.status === "starting");
+      const terminalFailure = (!res.success && !qrStillStarting)
+        || res.status === "error"
+        || (startedRef.current && (res.status === "offline" || res.status === "disconnected"));
+      if (terminalFailure) {
+        pairingRef.current = false;
+        pausedRef.current = true;
+        setQr(null);
+        setError(sanitizeJidsInText(res.data?.lastError || res.message) || "Não foi possível gerar o QR Code.");
+        return;
+      }
+
+      pairingRef.current = res.status === "waiting_qr" || res.status === "starting";
+      setQr(res.data?.qrCodeDataUrl || null);
+      setError(null);
+    } catch (err) {
+      if (generation === generationRef.current) {
+        pausedRef.current = true;
+        setError(err instanceof Error ? err.message : "Não foi possível gerar o QR Code.");
+      }
+    } finally {
+      if (generation === generationRef.current) {
+        pollingRef.current = false;
+        setLoading(false);
+      }
+    }
+  }, [finish]);
+
+  useEffect(() => {
+    if (!open) return;
+    const generation = ++generationRef.current;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    startedRef.current = false;
+    pairingRef.current = false;
+    finishedRef.current = false;
+    pausedRef.current = false;
+    pollingRef.current = false;
+    deadlineRef.current = Date.now() + 120_000;
+    let timer: number | null = null;
+    const frame = window.requestAnimationFrame(() => {
+      setQr(null);
+      setError(null);
+      setLoading(true);
+      closeButtonRef.current?.focus();
+      void tick(generation);
+      timer = window.setInterval(() => { void tick(generation); }, 4000);
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(modalRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") || []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (focusable.length === 1 || (event.shiftKey && document.activeElement === first)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      if (generationRef.current === generation) generationRef.current += 1;
+      window.cancelAnimationFrame(frame);
+      if (timer != null) window.clearInterval(timer);
+      document.removeEventListener("keydown", handleKeyDown);
+      const previousFocus = previousFocusRef.current;
+      window.requestAnimationFrame(() => previousFocus?.focus());
+    };
+  }, [onClose, open, tick]);
+
+  if (!open) return null;
+
+  function retry() {
+    startedRef.current = false;
+    pairingRef.current = false;
+    pausedRef.current = false;
+    deadlineRef.current = Date.now() + 120_000;
+    setError(null);
+    setLoading(true);
+    void tick(generationRef.current);
+  }
+
+  return (
+    <div className="hbx-veil wa-setup-veil" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={modalRef} className="hbx-modal wa-setup-modal" role="dialog" aria-modal="true" aria-label="Conectar WhatsApp por QR Code">
+        <button ref={closeButtonRef} type="button" className="wa-setup-close" onClick={onClose} aria-label="Fechar">×</button>
+        {qr ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="wa-setup-qr" src={qr} alt="QR Code para conectar o WhatsApp" width={240} height={240} />
+        ) : error ? (
+          <div className="wa-setup-error" role="alert">
+            <span>{error}</span>
+            <button type="button" className="btn-teal" onClick={retry}>Tentar novamente</button>
+          </div>
+        ) : (
+          <span className="wa-setup-loading" aria-label={loading ? "Gerando QR Code" : "Aguardando QR Code"} />
+        )}
       </div>
     </div>
   );

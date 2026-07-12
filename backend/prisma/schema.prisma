@@ -29,6 +29,15 @@ model Company {
   referralReferrerName    String?
   referralCode            String?
   referralDiscountConsumedAt DateTime?
+  // S5 INDICAÇÃO (docs/PLANEJAMENTOS/VISAO-FUTURO/S5-indicacao-com-creditos.md) — programa
+  // "indique e ganhe" DORMENTE (flag HBX_INDICACAO_ENABLED, default OFF). NÃO confundir com
+  // referralCode/referralReferrerName acima (atribuição de venda HBX / comissão de parceiro —
+  // outra semântica). indicacaoCode = código OPACO desta empresa (`ind_` + 8 hex, gerado sob
+  // demanda, nunca derivado do nome); indicadaPorCompanyId = empresa que INDICOU esta (gravado
+  // no signup com a flag ON; bônus pros dois lados SÓ na 1ª recarga paga aprovada — nunca no
+  // cadastro, anti-farm). Migration ADITIVA (2 colunas nullable + índices, zero backfill).
+  indicacaoCode           String?   @unique
+  indicadaPorCompanyId    Int?
   primaryContactName      String?
   contactEmail            String?
   contactPhone            String?
@@ -273,6 +282,7 @@ model Company {
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
   contatos               Contato[]
   entregas               Entrega[]
+  entregaComprovantes    EntregaComprovante[]
   clienteProdutos        ClienteProduto[]
   // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
   locaisEntrega          LocalEntrega[]
@@ -285,6 +295,8 @@ model Company {
 
   @@index([currentWhatsappConnectionSessionId])
   @@index([companyKind])
+  // S5 INDICAÇÃO — contagem de indicadas por indicador (endpoint /credits/indicacao/me).
+  @@index([indicadaPorCompanyId])
 }
 
 model WhatsAppConnectionSession {
@@ -1081,6 +1093,14 @@ model Entrega {
   // serviço como sendo do mesmo cliente+empresa.
   local             LocalEntrega? @relation(fields: [localId], references: [id], onDelete: SetNull)
   localId           String?
+  // Operação Android: o admin habilita a capacidade no usuário e atribui cada
+  // entrega explicitamente. Null = ainda sem entregador. Os atores ficam
+  // gravados para auditoria mínima sem depender de log de aplicação.
+  entregador        User?    @relation("EntregaEntregador", fields: [entregadorId], references: [id], onDelete: SetNull)
+  entregadorId      Int?
+  atribuidoPor      User?    @relation("EntregaAtribuidaPor", fields: [atribuidoPorUserId], references: [id], onDelete: SetNull)
+  atribuidoPorUserId Int?
+  atribuidoAt       DateTime?
   quantidade        Int      @default(1)
   valor             Float    @default(0)
   status            String   @default("agendada") // agendada | em_rota | entregue | cancelada
@@ -1114,9 +1134,21 @@ model Entrega {
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
   idempotencyKey    String?  @unique
+  // Comprovante configurável por tenant. Foto/assinatura vivem em
+  // EntregaComprovante (arquivo privado + metadata); código esperado nunca é
+  // persistido em claro, apenas scrypt(hash+salt). A confirmação guarda ator/data.
+  comprovanteCodigoHash String?
+  comprovanteCodigoSalt String?
+  comprovanteCodigoGeradoAt DateTime?
+  comprovanteCodigoGeradoPor User? @relation("EntregaCodigoGeradoPor", fields: [comprovanteCodigoGeradoPorUserId], references: [id], onDelete: SetNull)
+  comprovanteCodigoGeradoPorUserId Int?
+  comprovanteConfirmadoAt DateTime?
+  confirmadoPor     User?    @relation("EntregaConfirmadaPor", fields: [confirmadoPorUserId], references: [id], onDelete: SetNull)
+  confirmadoPorUserId Int?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   itens             EntregaItem[]
+  comprovantes      EntregaComprovante[]
 
   @@index([companyId, status, scheduledAt])
   @@index([companyId, customerProfileId])
@@ -1124,6 +1156,37 @@ model Entrega {
   // o gerador varre esta faixa e não recria a entrega recorrente de um cliente no
   // mesmo dia (a checagem real é feita no serviço; este índice acelera a varredura).
   @@index([companyId, customerProfileId, scheduledAt])
+  @@index([companyId, entregadorId, status, scheduledAt])
+}
+
+// Arquivo de comprovante da entrega. Mesmo padrão de storage privado usado por
+// SellerOnboardingAttachment/FiscalComprovante: bytes em disco, apenas metadata
+// no banco. tipo = foto | assinatura; status = pendente | confirmado | removido.
+model EntregaComprovante {
+  id               String   @id @default(cuid())
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId        Int
+  entrega          Entrega  @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  entregaId        String
+  tipo             String
+  originalFilename String
+  storedFilename   String
+  storagePath      String
+  contentType      String
+  byteSize         Int
+  sha256           String
+  // Chave gerada no app antes de enfileirar o Blob. Retry do mesmo upload
+  // devolve a metadata existente sem regravar arquivo.
+  clientKey        String?
+  status           String   @default("pendente")
+  enviadoPor       User?    @relation("EntregaComprovanteEnviadoPor", fields: [enviadoPorUserId], references: [id], onDelete: SetNull)
+  enviadoPorUserId Int?
+  confirmadoAt     DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([companyId, entregaId, tipo, status])
+  @@index([enviadoPorUserId, createdAt])
+  @@unique([entregaId, tipo, clientKey])
 }
 
 // LOGÍSTICA-MOBILE M2 (05/07) — amarração PRODUTO×CLIENTE + recorrência.
@@ -1266,6 +1329,20 @@ model LogisticaConfig {
   resumoDiarioAtivo     Boolean  @default(false)
   resumoDiarioHora      Int      @default(7)
   resumoDiarioUltimoEnvio DateTime?
+  // S6 PORTAL-PEDIDO (11/07) — pedido PÚBLICO pelo link /pedido/<token> (o
+  // anti-iFood da distribuidora: cliente pede sem login e vira Entrega
+  // 'agendada'). Mesmo padrão 2 chaves das features S2/S3: env global
+  // HBX_PEDIDO_PUBLICO_ENABLED (default OFF — GET/POST públicos respondem 404)
+  // E este toggle por tenant (default false). Token OPACO rotacionável (molde
+  // websiteCaptureToken, website-runtime.ts) — NUNCA slug/companyId na URL;
+  // null = link nunca gerado (a rota pública não resolve).
+  pedidoPublicoAtivo    Boolean  @default(false)
+  pedidoPublicoToken    String?  @unique
+  // Requisitos combináveis do comprovante. Todos false por padrão: rollout
+  // aditivo e seguro; o admin pode exigir qualquer subconjunto dos três.
+  comprovanteFotoObrigatoria Boolean @default(false)
+  comprovanteAssinaturaObrigatoria Boolean @default(false)
+  comprovanteCodigoObrigatorio Boolean @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -1636,6 +1713,11 @@ model User {
   whatsappConnectionSessions WhatsAppConnectionSession[]
   gmailConnection GmailConnection?
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
+  entregasAtribuidas Entrega[] @relation("EntregaEntregador")
+  entregasAtribuidasPorMim Entrega[] @relation("EntregaAtribuidaPor")
+  entregasConfirmadas Entrega[] @relation("EntregaConfirmadaPor")
+  entregasCodigoGeradoPorMim Entrega[] @relation("EntregaCodigoGeradoPor")
+  entregaComprovantesEnviados EntregaComprovante[] @relation("EntregaComprovanteEnviadoPor")
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])

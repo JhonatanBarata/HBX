@@ -29,10 +29,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 /**
- * Tela de takeover full-screen — o "slam" estilo Uber. Lançada pelo RotaService
- * (ver onChegada) quando o motorista chega numa parada e o HBX NÃO está em
- * foreground (ele está no Maps, com a tela bloqueada, ou em outro app): acorda
- * a tela, aparece por cima de tudo, com som + vibração em loop até reagir.
+ * Tela visual de chegada aberta pelo PendingIntent da notificação após o toque
+ * do motorista. Nunca é iniciada diretamente pelo serviço em segundo plano.
+ * Mostra o cliente e mantém som + vibração até o motorista reagir.
  *
  * Textos são os literais definidos na ordem de trabalho (UBER-CHEGADA.md) —
  * nada além disso é inventado aqui.

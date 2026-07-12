@@ -23,7 +23,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AC_COLLAPSE_KEY } from "@/components/hbx/activation-checklist";
 import { apiFetch, getToken } from "@/lib/api";
 import { setAdminOnboardingMode } from "@/lib/onboarding";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
@@ -480,9 +479,6 @@ function PainelCaminho({ className, onTutorial, onResolved, goDashboard }: {
     setErr(null);
     try {
       await apiFetch("/profile/tutorial-done", { method: "POST", body: JSON.stringify({ mode: sel }) });
-      if (sel === "simple") {
-        try { localStorage.setItem(AC_COLLAPSE_KEY, "0"); } catch { /* sem storage */ }
-      }
       onResolved();
       if (sel === "tutorial") { onTutorial(); } else { goDashboard(); }
     } catch {

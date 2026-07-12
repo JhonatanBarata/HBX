@@ -67,6 +67,16 @@ export interface RotaItem {
   // quando a entrega tem localId apontando pra um local com apelido; null/
   // ausente = sem apelido — o card mostra só o endereço de sempre.
   localApelido?: string | null;
+  entregador?: { id: number; nome: string | null; email: string | null } | null;
+  updatedAt?: string | null;
+  comprovante?: {
+    fotoId: string | null;
+    assinaturaId: string | null;
+    fotoEnviada: boolean;
+    assinaturaEnviada: boolean;
+    codigoGerado: boolean;
+    confirmadoAt: string | null;
+  } | null;
 }
 
 // F1 — Pix direto do tenant (BR Code no app). Só vem com módulo financeiro ON
@@ -87,6 +97,7 @@ export interface RotaResult {
   // inútil com o recurso OFF); avisoChegandoDistanciaM é o raio configurado (m).
   avisoChegandoAtivo?: boolean;
   avisoChegandoDistanciaM?: number;
+  comprovante?: ComprovanteRequisitos;
   items: RotaItem[];
 }
 
@@ -125,6 +136,41 @@ export interface ConfirmarPayload {
   // M8 (offline-first) — chave de idempotência (uuid). O servidor dedupe por ela:
   // reenviar a MESMA confirmação (fila offline) NÃO dispara efeito 2×.
   idempotencyKey?: string;
+  comprovanteFotoId?: string;
+  comprovanteAssinaturaId?: string;
+  comprovanteCodigo?: string;
+  /** Só vive na fila IndexedDB; confirmarEntrega remove antes de serializar. */
+  comprovantesLocais?: ComprovantesLocais;
+}
+
+export interface ComprovanteRequisitos {
+  fotoObrigatoria: boolean;
+  assinaturaObrigatoria: boolean;
+  codigoObrigatorio: boolean;
+}
+
+export interface ComprovantesLocais {
+  foto?: Blob;
+  assinatura?: Blob;
+  codigo?: string;
+}
+
+export interface ComprovanteUploadResult { id: string }
+
+export function uploadComprovante(
+  entregaId: string,
+  tipo: "foto" | "assinatura",
+  file: Blob,
+  clientKey?: string,
+): Promise<ComprovanteUploadResult> {
+  const body = new FormData();
+  body.append("tipo", tipo);
+  if (clientKey) body.append("clientKey", clientKey);
+  body.append("file", file, tipo === "foto" ? "comprovante.jpg" : "assinatura.png");
+  return apiFetch<ComprovanteUploadResult>(`/logistica/entregas/${encodeURIComponent(entregaId)}/comprovantes`, {
+    method: "POST",
+    body,
+  });
 }
 
 export function getRota(date?: string): Promise<RotaResult> {
@@ -164,9 +210,10 @@ export function planejarRota(origem?: { lat: number; lng: number }): Promise<Pla
 }
 
 export function confirmarEntrega(id: string, payload: ConfirmarPayload) {
+  const body = { ...payload, comprovantesLocais: undefined };
   return apiFetch(`/logistica/entregas/${encodeURIComponent(id)}/confirmar`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 }
 

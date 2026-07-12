@@ -1,8 +1,8 @@
 package br.com.hbxsystem.entrega
 
 import android.Manifest
-import android.app.NotificationManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
@@ -30,11 +31,15 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
+import java.io.File
 
 /**
  * HBX — casca nativa do app único (fase Play).
@@ -67,27 +72,46 @@ class MainActivity : AppCompatActivity() {
 
     // Callback pendente do <input type=file> do WebView (upload do HBX).
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var cameraOutputUri: Uri? = null
 
-    // Overlay ("Exibir sobre outros apps") é pedido no MÁXIMO 1x por processo:
-    // sem esta trava, todo onResume re-abria as configurações pra quem negou —
-    // pingue-pongue app↔configurações que impedia de usar o app.
-    private var overlayJaPedido = false
+    // A bridge pode atualizar a lista enquanto o diálogo do sistema está aberto.
+    // Guardamos sempre o snapshot mais recente e só ativamos o serviço depois que
+    // localização + notificações estiverem disponíveis.
+    private var rotaPendente: Pair<Int, List<Parada>>? = null
+    private var solicitacaoSistemaEmAndamento = false
+    private var dialogoPermissao: AlertDialog? = null
 
-    // Mesmo padrão do overlay acima, pro full-screen-intent do Android 14+ (best-
-    // effort: o overlay já é o caminho principal do takeover de chegada, isto é
-    // só reforço pra quando ele não estiver concedido).
-    private var fullScreenIntentJaPedido = false
-
-    // Permissões runtime já PEDIDAS neste processo (concedidas OU negadas). Cada
-    // permissão é pedida no máximo 1x por processo e de forma INDEPENDENTE:
-    // negar o mic (ou escolher localização "aproximada" no Android 12+) NUNCA
-    // segura o pedido das demais nem trava overlay/full-screen-intent — era o
-    // bug da fase sideload (returns precoces na cadeia, AUDITORIA-PLAY §5.1).
-    private val permissoesJaPedidas = mutableSetOf<String>()
-
-    private val permissionLauncher = registerForActivityResult(
+    private val localizacaoLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { pedirPermissoesFaltantes() /* retoma a cadeia (overlay/full-screen) */ }
+    ) {
+        solicitacaoSistemaEmAndamento = false
+        if (temLocalizacao()) {
+            solicitarNotificacaoOuAtivar()
+        } else {
+            mostrarAvisoPermissoesNegadas()
+        }
+    }
+
+    private val notificacaoLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { concedida ->
+        solicitacaoSistemaEmAndamento = false
+        if (concedida || temNotificacoes()) {
+            ativarRotaPendente()
+        } else {
+            mostrarAvisoPermissoesNegadas()
+        }
+    }
+
+    private val configuracoesLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Voltar das configurações nunca dispara outro redirecionamento. Apenas
+        // verifica o estado atual e ativa a rota se o usuário concedeu tudo.
+        if (temLocalizacao() && temNotificacoes()) {
+            ativarRotaPendente()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,7 +128,12 @@ class MainActivity : AppCompatActivity() {
             // User-Agent — gate confiável do modo-Play mesmo antes do JS rodar.
             settings.userAgentString = settings.userAgentString + " HBXShell/2.0"
 
-            addJavascriptInterface(HBXShellBridge(context), "HBXShell")
+            addJavascriptInterface(
+                HBXShellBridge(context) { raioM, paradas ->
+                    runOnUiThread { solicitarAtivacaoRota(raioM, paradas) }
+                },
+                "HBXShell"
+            )
 
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(
@@ -119,18 +148,9 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest) {
-                    // Mic da Web Speech API (confirmação de entrega por voz). Só
-                    // concede áudio quando a ORIGEM do próprio request é do nosso
-                    // host — checar a URL da página (webView.url) abriria a brecha
-                    // de um iframe de origem estranha numa página nossa ganhar o mic.
-                    val pedeAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
-                    val hostOrigem = request.origin?.let { runCatching { Uri.parse(it.toString()).host }.getOrNull() }
-                    val hostConfiavel = hostOrigem == ALLOWED_HOST || hostOrigem == ALLOWED_HOST_ROOT
-                    if (pedeAudio && hostConfiavel) {
-                        request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
-                    } else {
-                        request.deny()
-                    }
+                    // O shell não implementa comando de voz nativo. Não solicita
+                    // microfone e nega captura de áudio pedida por páginas/iframes.
+                    request.deny()
                 }
 
                 override fun onShowFileChooser(
@@ -138,13 +158,15 @@ class MainActivity : AppCompatActivity() {
                     filePathCallback: ValueCallback<Array<Uri>>?,
                     fileChooserParams: FileChooserParams?
                 ): Boolean {
-                    // Upload do HBX (<input type=file>): abre o seletor do sistema.
+                    // Upload do HBX (<input type=file>): foto pode vir da câmera ou
+                    // da galeria. O URI da câmera é privado e temporário (FileProvider).
                     fileChooserCallback?.onReceiveValue(null) // cancela pendente órfão
                     fileChooserCallback = filePathCallback
+                    cameraOutputUri = null
                     val mimes = fileChooserParams?.acceptTypes
                         ?.filter { it.isNotBlank() && it.contains('/') }
                         .orEmpty()
-                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    val seletorArquivo = Intent(Intent.ACTION_GET_CONTENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
                         type = if (mimes.size == 1) mimes[0] else "*/*"
                         if (mimes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
@@ -152,12 +174,22 @@ class MainActivity : AppCompatActivity() {
                             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                         }
                     }
+                    val aceitaImagem = mimes.isEmpty() || mimes.any { it == "image/*" || it.startsWith("image/") }
+                    val cameraIntent = if (aceitaImagem && fileChooserParams?.mode != FileChooserParams.MODE_OPEN_MULTIPLE) {
+                        criarIntentCamera()
+                    } else {
+                        null
+                    }
+                    val intent = Intent.createChooser(seletorArquivo, "Foto do comprovante").apply {
+                        if (cameraIntent != null) putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
+                    }
                     return try {
                         @Suppress("DEPRECATION")
-                        startActivityForResult(Intent.createChooser(intent, null), REQ_FILE_CHOOSER)
+                        startActivityForResult(intent, REQ_FILE_CHOOSER)
                         true
                     } catch (e: Exception) {
                         fileChooserCallback = null
+                        cameraOutputUri = null
                         false // sem seletor no device — o WebView cancela sozinho
                     }
                 }
@@ -266,7 +298,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        pedirPermissoesFaltantes()
 
         // Entrega chegadas detectadas em background e passa a receber ao vivo
         // enquanto a Activity estiver resumida.
@@ -297,18 +328,35 @@ class MainActivity : AppCompatActivity() {
         if (requestCode != REQ_FILE_CHOOSER) return
         val callback = fileChooserCallback ?: return
         fileChooserCallback = null
-        if (resultCode != RESULT_OK || data == null) {
+        if (resultCode != RESULT_OK) {
+            cameraOutputUri = null
             callback.onReceiveValue(null)
             return
         }
-        val clip = data.clipData
+        val clip = data?.clipData
         val uris: Array<Uri>? = when {
             clip != null && clip.itemCount > 0 ->
                 (0 until clip.itemCount).mapNotNull { clip.getItemAt(it)?.uri }.toTypedArray()
-            data.data != null -> arrayOf(data.data!!)
+            data?.data != null -> arrayOf(data.data!!)
+            cameraOutputUri != null -> arrayOf(cameraOutputUri!!)
             else -> null
         }
+        cameraOutputUri = null
         callback.onReceiveValue(uris)
+    }
+
+    private fun criarIntentCamera(): Intent? {
+        val cameraDir = File(cacheDir, "comprovantes").apply { mkdirs() }
+        val arquivo = runCatching { File.createTempFile("hbx-foto-", ".jpg", cameraDir) }.getOrNull() ?: return null
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", arquivo)
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            clipData = ClipData.newRawUri("Foto do comprovante", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+        if (intent.resolveActivity(packageManager) == null) return null
+        cameraOutputUri = uri
+        return intent
     }
 
     private fun entregarChegada(paradaId: String) {
@@ -377,83 +425,111 @@ class MainActivity : AppCompatActivity() {
         TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics
     ).toInt()
 
-    // ── permissões (cada uma independente; negação nunca trava a cadeia) ────
+    // ── permissões sob demanda (somente ao iniciar uma rota) ────────────────
 
     private fun temPermissao(permissao: String): Boolean =
         ContextCompat.checkSelfPermission(this, permissao) == PackageManager.PERMISSION_GRANTED
 
-    private fun pedirPermissoesFaltantes() {
-        val pedirAgora = mutableListOf<String>()
-
-        // Localização: FINE+COARSE JUNTAS — no Android 12+ o usuário pode escolher
-        // "aproximada" (só COARSE concedida) e isso SATISFAZ o gate: o RotaService
-        // também opera via NETWORK_PROVIDER. Nunca re-insistir na FINE.
-        val temLocalizacao = temPermissao(Manifest.permission.ACCESS_FINE_LOCATION) ||
+    private fun temLocalizacao(): Boolean =
+        temPermissao(Manifest.permission.ACCESS_FINE_LOCATION) ||
             temPermissao(Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (!temLocalizacao && Manifest.permission.ACCESS_FINE_LOCATION !in permissoesJaPedidas) {
-            pedirAgora += Manifest.permission.ACCESS_FINE_LOCATION
-            pedirAgora += Manifest.permission.ACCESS_COARSE_LOCATION
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            !temPermissao(Manifest.permission.POST_NOTIFICATIONS) &&
-            Manifest.permission.POST_NOTIFICATIONS !in permissoesJaPedidas
-        ) {
-            pedirAgora += Manifest.permission.POST_NOTIFICATIONS
-        }
-        // Mic pra confirmação de entrega por voz (Web Speech API dentro do WebView).
-        // OPCIONAL de verdade: negar só cala a voz — não segura nenhuma outra etapa.
-        if (!temPermissao(Manifest.permission.RECORD_AUDIO) &&
-            Manifest.permission.RECORD_AUDIO !in permissoesJaPedidas
-        ) {
-            pedirAgora += Manifest.permission.RECORD_AUDIO
-        }
 
-        if (pedirAgora.isNotEmpty()) {
-            permissoesJaPedidas += pedirAgora
-            permissionLauncher.launch(pedirAgora.toTypedArray())
-            // O sistema mostra 1 diálogo por grupo, em sequência; o callback do
-            // launcher retoma a cadeia. Como nada re-entra em `pedirAgora` neste
-            // processo, NEGAR qualquer uma NÃO impede overlay/full-screen abaixo.
+    private fun temNotificacoes(): Boolean =
+        (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            temPermissao(Manifest.permission.POST_NOTIFICATIONS)) &&
+            NotificationManagerCompat.from(this).areNotificationsEnabled()
+
+    private fun solicitarAtivacaoRota(raioM: Int, paradas: List<Parada>) {
+        rotaPendente = raioM to paradas
+        if (temLocalizacao() && temNotificacoes()) {
+            ativarRotaPendente()
             return
         }
-        if (!Settings.canDrawOverlays(this) && !overlayJaPedido) {
-            overlayJaPedido = true // no máximo 1x por processo — negar não vira loop
-            try {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            } catch (e: Exception) {
-                // alguns fabricantes não têm essa tela — segue sem "trazer pra frente"
-            }
-            return // 1 tela de configuração por vez
-        }
-        pedirFullScreenIntentSeNecessario()
+        if (solicitacaoSistemaEmAndamento || dialogoPermissao?.isShowing == true) return
+        mostrarExplicacaoPermissoes()
     }
 
-    /**
-     * Android 14+ pode exigir permissão explícita pra notificação full-screen-intent
-     * "slamar" a tela sozinha. O overlay (acima) já é o caminho principal do takeover
-     * de chegada — isto é só reforço best-effort, pedido no máximo 1x por processo
-     * (mesmo padrão do overlay; não entra no INSTALAR.md, não é obrigatório).
-     */
-    private fun pedirFullScreenIntentSeNecessario() {
-        if (fullScreenIntentJaPedido) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
-        val nm = getSystemService(NotificationManager::class.java) ?: return
-        if (nm.canUseFullScreenIntent()) return
-        fullScreenIntentJaPedido = true
-        try {
-            startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
-                    Uri.parse("package:$packageName")
+    private fun mostrarExplicacaoPermissoes() {
+        val dialogo = AlertDialog.Builder(this)
+            .setTitle("Acompanhamento da rota")
+            .setMessage("O HBX usa sua localização durante a rota para avisar quando você chega ao cliente.")
+            .setPositiveButton("Continuar") { _, _ -> solicitarLocalizacaoOuNotificacao() }
+            .setNegativeButton("Agora não") { _, _ ->
+                webView.post { mostrarAvisoPermissoesNegadas() }
+            }
+            .create()
+        registrarEExibirDialogo(dialogo)
+    }
+
+    private fun solicitarLocalizacaoOuNotificacao() {
+        if (!temLocalizacao()) {
+            solicitacaoSistemaEmAndamento = true
+            localizacaoLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
                 )
             )
-        } catch (e: Exception) {
-            // fabricante sem essa tela — o overlay já cobre o slam principal
+            return
         }
+        solicitarNotificacaoOuAtivar()
+    }
+
+    private fun solicitarNotificacaoOuAtivar() {
+        if (!temNotificacoes()) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                mostrarAvisoPermissoesNegadas()
+                return
+            }
+            solicitacaoSistemaEmAndamento = true
+            notificacaoLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        ativarRotaPendente()
+    }
+
+    private fun ativarRotaPendente() {
+        val (raioM, paradas) = rotaPendente ?: return
+        if (!temLocalizacao() || !temNotificacoes()) return
+        RotaState.setRota(raioM, paradas)
+        RotaState.persistir(this)
+        RotaService.sync(this)
+        rotaPendente = null
+    }
+
+    private fun mostrarAvisoPermissoesNegadas() {
+        if (dialogoPermissao?.isShowing == true) return
+        val faltando = when {
+            !temLocalizacao() && !temNotificacoes() -> "localização e notificações"
+            !temLocalizacao() -> "localização"
+            else -> "notificações"
+        }
+        val dialogo = AlertDialog.Builder(this)
+            .setTitle("Acompanhamento não ativado")
+            .setMessage("Permita $faltando para o HBX acompanhar a rota e avisar sua chegada.")
+            .setPositiveButton("Abrir configurações do HBX") { _, _ -> abrirConfiguracoesDoApp() }
+            .setNegativeButton("Agora não", null)
+            .create()
+        registrarEExibirDialogo(dialogo)
+    }
+
+    private fun abrirConfiguracoesDoApp() {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:$packageName")
+        )
+        try {
+            configuracoesLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            // Fabricante sem tela própria: permanece no HBX, sem redirecionar.
+        }
+    }
+
+    private fun registrarEExibirDialogo(dialogo: AlertDialog) {
+        dialogoPermissao = dialogo
+        dialogo.setOnDismissListener {
+            if (dialogoPermissao === dialogo) dialogoPermissao = null
+        }
+        dialogo.show()
     }
 }

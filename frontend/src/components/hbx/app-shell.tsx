@@ -85,32 +85,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // pela nova) porque /master tem o SEU PRÓPRIO ".app" (master/page.client.tsx,
   // chrome à parte, fora da MobileShell) que não pode ser afetado.
   return (
-    <MobileShell>
-      <div className="app app-shell-root" data-rail={rail}>
-        <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
-        <div className="main">
-          <Topbar title={meta.title} crumbs={meta.crumbs} />
-          {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
-              /dashboard e rota de módulo desligado voltam pro /entrega; rotas
-              neutras ganham título de documento = nome da empresa. Fica FORA
-              do key=pathname (gate persistente, sem remontar por navegação). */}
-          <SoLogisticaGate>
-            <div className="app-page" key={pathname}>{children}</div>
-          </SoLogisticaGate>
+    <>
+      <MobileShell>
+        <div className="app app-shell-root" data-rail={rail}>
+          <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
+          <div className="main">
+            <Topbar title={meta.title} crumbs={meta.crumbs} />
+            {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
+                /dashboard e rota de módulo desligado voltam pro /entrega; rotas
+                neutras ganham título de documento = nome da empresa. Fica FORA
+                do key=pathname (gate persistente, sem remontar por navegação). */}
+            <SoLogisticaGate>
+              <div className="app-page" key={pathname}>{children}</div>
+            </SoLogisticaGate>
+          </div>
+          {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
+              módulos; portala pro <body> e só aparece quando a store está ligada. */}
+          <TutorialCoachHost />
+          {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
+          <SellersBrainsHost />
+          {/* F3 (CONFIRMACAO-TELEFONE): confirme o WhatsApp pra liberar o brinde.
+              Dormant por default (só renderiza com o gate ON no backend). */}
+          <WelcomeCreditPhoneBanner />
+          <ConquistaHost />
         </div>
-        {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
-            módulos; portala pro <body> e só aparece quando a store está ligada. */}
-        <TutorialCoachHost />
-        {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
-        <SellersBrainsHost />
-        {/* Ativação / onboarding (Camada 1): checklist de primeiros passos do vendedor
-            (só aparece pra quem tem jornada) + momento de conquista de cada "1ª vez". */}
-        <ActivationChecklist />
-        {/* F3 (CONFIRMACAO-TELEFONE): confirme o WhatsApp pra liberar o brinde.
-            Dormant por default (só renderiza com o gate ON no backend). */}
-        <WelcomeCreditPhoneBanner />
-        <ConquistaHost />
-      </div>
-    </MobileShell>
+      </MobileShell>
+      {/* Fica fora da substituição da MobileShell: o mesmo concierge de
+          configuração atende desktop e celular sem duplicar a jornada. */}
+      <ActivationChecklist />
+    </>
   );
 }

@@ -30,6 +30,7 @@ import { useRouter } from "next/navigation";
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
 import { EmailAccountForm } from "@/components/hbx/email-account-form";
 import { CreditsWalletSection } from "@/components/hbx/credits-wallet-section";
+import { IndicacaoCard } from "./indicacao-card";
 import { MetaLeadAdsSection } from "@/components/hbx/meta-lead-ads-section";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS, useMyModules } from "@/components/hbx/shell";
@@ -528,6 +529,10 @@ export function ConfiguracoesClient() {
                   </section>
                 )}
                 <CreditsWalletSection />
+                {/* S5 INDICAÇÃO — card "Indique e ganhe" DORMENTE: o componente só
+                    renderiza se GET /credits/indicacao/me responder 200 (flag OFF ⇒
+                    404 ⇒ nada aparece). */}
+                <IndicacaoCard />
               </React.Fragment>
             )}
           </div>

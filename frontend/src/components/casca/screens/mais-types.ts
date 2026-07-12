@@ -20,6 +20,7 @@ export type MaisCurrentUser = {
   username?: string | null;
   role?: string | null;
   userKind?: string | null;
+  operationalCapabilities?: string[] | null;
   isSystemMaster?: boolean | null;
   canViewBilling?: boolean | null;
   avatarUrl?: string | null;

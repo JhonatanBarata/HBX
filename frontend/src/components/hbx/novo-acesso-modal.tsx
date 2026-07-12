@@ -30,7 +30,25 @@ import { Av } from "@/components/hbx/shell";
 import { SignaturePad, type SignaturePadHandle } from "@/components/hbx/signature-pad";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null; phone?: string | null; commissionPercent?: number | null; referredByUserId?: number | null; sellerDistributionDailyLimitOverride?: number | null; deactivatedAt?: string | null };
+type OperationalProfile = "SELLER" | "DRIVER" | "BOTH";
+type OperationalCapability = "SELLER" | "DRIVER";
+
+type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null; phone?: string | null; commissionPercent?: number | null; referredByUserId?: number | null; sellerDistributionDailyLimitOverride?: number | null; deactivatedAt?: string | null; operationalCapabilities?: OperationalCapability[] | null };
+
+function operationalProfileFromCapabilities(value?: OperationalCapability[] | null): OperationalProfile {
+  const seller = value?.includes("SELLER") !== false;
+  const driver = value?.includes("DRIVER") === true;
+  return seller && driver ? "BOTH" : driver ? "DRIVER" : "SELLER";
+}
+
+function capabilitiesFromOperationalProfile(value: OperationalProfile): OperationalCapability[] {
+  if (value === "BOTH") return ["SELLER", "DRIVER"];
+  return [value];
+}
+
+function operationalProfileLabel(value: OperationalProfile) {
+  return value === "BOTH" ? "Vendas e Entregas" : value === "DRIVER" ? "Entregador" : "Vendedor";
+}
 
 // CRÉDITOS FASE 2 (R4): assento é grátis — só o teto operacional (seatCap)
 // sobrevive nesta tela; planTitle/extraUserMonthlyPrice/nextUserIsExtra
@@ -62,6 +80,7 @@ const DOC_SLOTS: { kind: string; label: string; defaultRequired: boolean }[] = [
 
 const FORM_VAZIO = {
   role: "USER" as "USER" | "ADMIN",
+  operationalProfile: "SELLER" as OperationalProfile,
   username: "",
   name: "",
   email: "",
@@ -116,6 +135,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
         // O resto (CPF/endereço/D+) chega depois via refreshOnboarding.
         ...FORM_VAZIO,
         role: (String(member?.role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER") as "USER" | "ADMIN",
+        operationalProfile: operationalProfileFromCapabilities(member?.operationalCapabilities),
         name: member?.name || "",
         email: member?.email || "",
         phone: member?.phone || "",
@@ -264,6 +284,9 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
         ...(form.role === "USER" && form.declaredAddress.trim() ? { declaredAddress: form.declaredAddress.trim() } : {}),
         ...(form.role === "USER" && form.referredByUserId ? { referredByUserId: Number(form.referredByUserId) } : {}),
         ...(form.dailyLimit !== "" ? { sellerDistributionDailyLimitOverride: Number(form.dailyLimit) } : {}),
+        operationalCapabilities: form.role === "ADMIN"
+          ? ["SELLER", "DRIVER"]
+          : capabilitiesFromOperationalProfile(form.operationalProfile),
       };
       const res = await apiFetch<{ user?: { id?: number; isActive?: boolean } }>("/users/company/create", {
         method: "POST",
@@ -306,6 +329,9 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
           ...(form.setupCommissionCap !== "" ? { setupCommissionCap: Number(form.setupCommissionCap) } : {}),
           ...(form.referredByUserId ? { referredByUserId: Number(form.referredByUserId) } : {}),
           ...(form.dailyLimit !== "" ? { sellerDistributionDailyLimitOverride: Number(form.dailyLimit) } : {}),
+          operationalCapabilities: form.role === "ADMIN"
+            ? ["SELLER", "DRIVER"]
+            : capabilitiesFromOperationalProfile(form.operationalProfile),
         }),
       });
       setMsg("✓ Dados salvos.");
@@ -574,14 +600,14 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               <span>
                 {nomeMembro}
                 <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>
-                  {vendedor ? "Vendedor" : "Gerente"} · {ativo ? "Ativo" : "Inativo"}
+                  {vendedor ? operationalProfileLabel(form.operationalProfile) : "Gerente"} · {ativo ? "Ativo" : "Inativo"}
                 </small>
               </span>
             </span>
           ) : (
-            <span>Novo acesso <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>Cadastro de vendedor</small></span>
+            <span>Novo acesso <small className="novo-acesso__subtitle">Cadastro da equipe</small></span>
           )}
-          <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={fechar}>✕</span>
+          <button type="button" className="novo-acesso__close" onClick={fechar} aria-label="Fechar">✕</button>
         </h3>
 
         {/* CRÉDITOS FASE 2 (R4): assento é GRÁTIS — sem aviso de custo/assento
@@ -620,6 +646,16 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                   <input className="field-dark" type="password" minLength={8} maxLength={120} placeholder="mín. 8" value={form.password}
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
                 </div>
+                <div className="novo-acesso__op-field">
+                  <label className="novo-acesso__op-label">Perfil operacional</label>
+                  <select className="field-dark" value={form.operationalProfile}
+                    onChange={e => setForm(f => ({ ...f, operationalProfile: e.target.value as OperationalProfile }))}>
+                    <option value="SELLER">Vendedor</option>
+                    <option value="DRIVER">Entregador</option>
+                    <option value="BOTH">Vendedor e entregador</option>
+                  </select>
+                  <span className="hint">O perfil vem do servidor. Trocar de tela no app não libera acesso.</span>
+                </div>
                 <button className="btn-teal" type="submit" disabled={busy || usernameCheck === "taken" || !form.username.trim() || !form.password.trim()} style={{ minHeight: 42 }}>
                   {busy ? "Criando…" : "Criar acesso"}
                 </button>
@@ -643,11 +679,31 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Cargo</label>
               <select className="field-dark" value={form.role} disabled={soCadastro}
-                onChange={e => setForm(f => ({ ...f, role: e.target.value as "USER" | "ADMIN" }))}>
-                <option value="USER">Vendedor</option>
+                onChange={e => setForm(f => ({
+                  ...f,
+                  role: e.target.value as "USER" | "ADMIN",
+                  ...(e.target.value === "ADMIN" ? { operationalProfile: "BOTH" as OperationalProfile } : {}),
+                }))}>
+                <option value="USER">Membro operacional</option>
                 <option value="ADMIN">Gerente (não vê cobrança)</option>
               </select>
             </div>
+            {vendedor ? (
+              <div className="novo-acesso__op-field">
+                <label className="novo-acesso__op-label">Perfil operacional</label>
+                <select className="field-dark" value={form.operationalProfile} disabled={travaForm}
+                  onChange={e => setForm(f => ({ ...f, operationalProfile: e.target.value as OperationalProfile }))}>
+                  <option value="SELLER">Vendedor</option>
+                  <option value="DRIVER">Entregador</option>
+                  <option value="BOTH">Vendedor e entregador</option>
+                </select>
+                <span className="hint">Define quais áreas esta pessoa pode operar. O backend continua sendo a fonte da verdade.</span>
+              </div>
+            ) : (
+              <div className="novo-acesso__op-admin">
+                Gerentes acompanham Vendas e Entregas; permissões administrativas continuam separadas.
+              </div>
+            )}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome</label>
               <input className="field-dark" maxLength={120} value={form.name} disabled={travaForm}

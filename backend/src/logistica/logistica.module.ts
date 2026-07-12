@@ -13,7 +13,10 @@ import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
 import { ResumoDiarioService } from './resumo-diario.service';
+import { LogisticaPedidoPublicoService } from './logistica-pedido-publico.service';
 import { LogisticaController } from './logistica.controller';
+import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
+import { LogisticaOperacaoService } from './logistica-operacao.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -40,10 +43,18 @@ import { LogisticaController } from './logistica.controller';
  * DORMENTE atrás de HBX_RESUMO_DIARIO_ENABLED (default OFF — scheduler nem arma)
  * + toggle por tenant (LogisticaConfig.resumoDiarioAtivo, default false). Mesmas
  * regras do S2: provider AQUI, envio SÓ pelo caminho blindado.
+ *
+ * S6 PORTAL-PEDIDO (11/07): LogisticaPedidoPublicoController = rota PÚBLICA
+ * /public/pedido/:token (sem JWT — segurança pelo token opaco, molde
+ * website-lead-capture). DORMENTE atrás de HBX_PEDIDO_PUBLICO_ENABLED (default
+ * OFF — GET/POST respondem 404 seco) + toggle por tenant
+ * (LogisticaConfig.pedidoPublicoAtivo, default false). Controller entra AQUI
+ * (regra do S6: nada em app.module.ts); pedido vira Entrega 'agendada' — ZERO
+ * WhatsApp/cobrança (efeitos continuam só no confirmar, atrás da flag do N6).
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule],
-  controllers: [LogisticaController],
+  controllers: [LogisticaController, LogisticaPedidoPublicoController],
   providers: [
     LogisticaService,
     LogisticaRecorrenciaService,
@@ -52,12 +63,15 @@ import { LogisticaController } from './logistica.controller';
     LogisticaRecoveryService,
     LogisticaCobrancaAvisoService,
     ResumoDiarioService,
+    LogisticaPedidoPublicoService,
+    LogisticaOperacaoService,
   ],
   exports: [
     LogisticaService,
     LogisticaRecorrenciaService,
     LogisticaRotaService,
     LogisticaConfigService,
+    LogisticaOperacaoService,
     LogisticaRecoveryService,
   ],
 })

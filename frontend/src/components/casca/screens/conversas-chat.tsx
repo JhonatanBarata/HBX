@@ -19,6 +19,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch, getApiBase } from "@/lib/api";
+import { stampOnboardingEvent } from "@/lib/onboarding";
 
 import { CascaView } from "../transitions";
 import {
@@ -218,6 +219,7 @@ export function ConversasChat({
         method: "POST",
         body: JSON.stringify({ content }),
       });
+      void stampOnboardingEvent("first_conversation_started");
       setDraft("");
       await loadThread();
     } catch (err) {
@@ -250,6 +252,7 @@ export function ConversasChat({
           attachmentFileSize: up.size ?? file.size ?? undefined,
         }),
       });
+      void stampOnboardingEvent("first_conversation_started");
       await loadThread();
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "Não foi possível enviar o anexo.");
