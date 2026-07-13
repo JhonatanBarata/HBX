@@ -21,7 +21,7 @@ export const MOBILE_ACTION_EVENTS = [
 ] as const;
 
 export class CreateMobileActionDto {
-  @IsIn(MOBILE_ACTION_KINDS)
+  @IsIn([...MOBILE_ACTION_KINDS])
   kind!: (typeof MOBILE_ACTION_KINDS)[number];
 
   @IsString()
@@ -80,7 +80,7 @@ export class PullMobileActionsDto extends MobileDeviceCredentialDto {
 }
 
 export class MobileActionEventDto extends MobileDeviceCredentialDto {
-  @IsIn(MOBILE_ACTION_EVENTS)
+  @IsIn([...MOBILE_ACTION_EVENTS])
   event!: (typeof MOBILE_ACTION_EVENTS)[number];
 
   @IsOptional()
