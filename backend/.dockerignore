@@ -1,8 +1,38 @@
+# Dependencies/build output
 node_modules
 dist
+coverage
+test-results
+.cache
+*.tsbuildinfo
+*.log
+npm-debug.log*
+.DS_Store
+
+# Local/env files
 .env
 .env.*
-*.log
 prisma/*.db
 prisma/*.db-journal
 
+# Runtime/customer data mounted on the VPS. Never bake these into the image.
+public/uploads
+public/uploads/**
+storage
+storage/**
+
+# Generated/heavy media accidentally left under backend/public.
+public/**/*.mp4
+public/**/*.mov
+public/**/*.webm
+public/**/*.mkv
+public/**/*.avi
+public/**/*.zip
+
+# Local temporary artifacts.
+tmp
+temp
+*.zip
+*.tar
+*.tar.gz
+*.tgz
