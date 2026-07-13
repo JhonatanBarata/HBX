@@ -18,6 +18,7 @@ import { ConquistaHost } from "@/components/hbx/conquista-host";
 import { ActivationChecklist } from "@/components/hbx/activation-checklist";
 import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-banner";
 import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
+import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
 import { MobileShell } from "@/components/casca/mobile-shell";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
@@ -110,6 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Dormant por default (só renderiza com o gate ON no backend). */}
           <WelcomeCreditPhoneBanner />
           <ConquistaHost />
+          <MobileActionBridgeHost />
         </div>
       </MobileShell>
       {/* Fica fora da substituição da MobileShell: o mesmo concierge de
