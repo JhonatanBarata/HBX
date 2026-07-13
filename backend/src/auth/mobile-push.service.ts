@@ -42,7 +42,7 @@ export class MobilePushService {
       this.configCache = {
         projectId,
         auth: new GoogleAuth({
-          credentials,
+          credentials: credentials as any,
           scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
         }),
       };
@@ -61,14 +61,8 @@ export class MobilePushService {
     if (!cfg) return { sent: false, reason: 'firebase_not_configured' };
 
     try {
-      const client = await cfg.auth.getClient();
-      const requestHeaders = await client.getRequestHeaders();
-      const authorization = String(
-        (requestHeaders as Record<string, unknown>).Authorization ||
-          (requestHeaders as Record<string, unknown>).authorization ||
-          '',
-      );
-      if (!authorization) return { sent: false, reason: 'firebase_auth_failed' };
+      const accessToken = await cfg.auth.getAccessToken();
+      if (!accessToken) return { sent: false, reason: 'firebase_auth_failed' };
 
       const contactName = String(action.contactName || 'Lead').trim() || 'Lead';
       const title = action.kind === 'call'
@@ -104,7 +98,7 @@ export class MobilePushService {
         },
         {
           headers: {
-            Authorization: authorization,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           timeout: 12_000,
