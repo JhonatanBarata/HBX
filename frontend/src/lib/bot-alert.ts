@@ -4,8 +4,8 @@
 // nenhuma chamada de rede nova, é derivação pura.
 //
 // Precedência (de cima pra baixo — a primeira que bater vence):
-//   1. not_configured — falta alvo (cidade/segmento) ou config de mensageria
-//      incompleta, OU a carga falhou (loadErr, ex.: bot sem entitlement).
+//   1. not_configured — config de mensageria incompleta OU a carga falhou
+//      (loadErr, ex.: bot sem entitlement).
 //      É a ÚNICA que ignora o "não incomodar quando parado/pausado de propósito",
 //      porque uma campanha nunca criada também fica com status 'parado'.
 //   2. no_credit — status de erro cujo texto fala de crédito/saldo.
@@ -51,13 +51,12 @@ export function deriveBotAlert(
   const combinedText = [live.text, lastError].filter(Boolean).join(" — ");
 
   // ── 1. Não configurado (bypassa o "não incomodar parado/pausado") ──
-  const missingTargeting = !!campaign && (!campaign.city || !campaign.segment);
-  if (loadErr || missingTargeting || !isProspConfigComplete(live)) {
+  if (loadErr || !isProspConfigComplete(live)) {
     return {
       kind: "not_configured",
       title: "Bot não configurado",
       message: loadErr
-        || "Faltam informações essenciais pra rodar o disparo: cidade, segmento ou a mensagem de 1º contato. Configure antes de iniciar.",
+        || "Faltam informações essenciais pra rodar o disparo: mensagem de 1º contato, ritmo ou limite diário. Configure antes de iniciar.",
       ctaLabel: "Configurar",
       cta: "configure",
     };
@@ -89,21 +88,17 @@ export function deriveBotAlert(
   // ── 3. Fila de leads vazia ──
   const campaignActive = live.active === true || status === "aguardando";
   const isSending = status === "enviando";
-  const hasTarget = !!campaign?.city && !!campaign?.segment;
   if (
     campaignActive
     && !isSending
     && pendingJobs === 0
-    && hasTarget
     && status !== "erro"
     && status !== "dormindo"
   ) {
     return {
       kind: "no_leads",
       title: "Fila de leads vazia",
-      message: "O motor não encontrou novos contatos pra fila. Amplie o filtro (cidade, segmento ou raio) pra manter o disparo ativo.",
-      ctaLabel: "Ajustar filtro",
-      cta: "adjust_filter",
+      message: "Não há cards do Vendas com WhatsApp disponíveis para disparo. Adicione ou importe novos contatos e tente novamente.",
     };
   }
 
