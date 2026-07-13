@@ -1,15 +1,13 @@
 "use client";
 
-// Preferência "ao clicar no WhatsApp de um lead, abrir onde?": atendimento INTERNO
-// (POST /inbox/conversations/start → /atendimento) ou WhatsApp EXTERNO (wa.me).
-// É um PADRÃO escolhido uma vez (Topbar → ícone do WhatsApp) e respeitado por todo
-// ícone de ação WhatsApp (Vendas, Radar/Leads) — sem perguntar a cada clique.
-// Guardado por dispositivo no localStorage (mesma linha dos demais ajustes de cliente,
-// ex.: tema/pele). Default = externo (wa.me funciona sem WhatsApp conectado).
+// Preferência "ao clicar no WhatsApp de um lead, abrir onde?": atendimento INTERNO,
+// WhatsApp EXTERNO neste computador ou HBX MOBILE (manda número + texto ao celular
+// vinculado). É um padrão escolhido uma vez e respeitado pelos atalhos globais.
+// Guardado por dispositivo no localStorage. Default = externo.
 
 import { useSyncExternalStore } from "react";
 
-export type WaOpenMode = "internal" | "external";
+export type WaOpenMode = "internal" | "external" | "mobile";
 
 const KEY = "hbx:wa-open-mode";
 const EVENT = "hbx:wa-open-mode-changed";
@@ -19,7 +17,7 @@ export function getWaOpenMode(): WaOpenMode {
   if (typeof window === "undefined") return DEFAULT;
   try {
     const v = localStorage.getItem(KEY);
-    return v === "internal" || v === "external" ? v : DEFAULT;
+    return v === "internal" || v === "external" || v === "mobile" ? v : DEFAULT;
   } catch {
     return DEFAULT;
   }
